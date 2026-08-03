@@ -276,10 +276,13 @@
 
 ;;; --- spawn thunk arity (#1999) ---
 ;; spawnFiber (src/fiber.zig) builds the fiber's first call frame by hand and
-;; never performs the arity check or the rest-list construction an ordinary
-;; call does, so a non-thunk runs anyway with its parameters bound to
-;; internal values. Controls: the same procedure called directly with zero
-;; arguments raises, and SRFI-18's make-thread rejects the same mismatch.
+;; performed neither the arity check nor the rest-list construction an ordinary
+;; call does, so a non-thunk ran anyway with its parameters bound to internal
+;; values — the thunk closure itself in r0, `#<undefined>` beyond it. Controls:
+;; the same procedure called directly with zero arguments raises, and SRFI-18's
+;; make-thread rejects the same mismatch. Fixed in #1999: the arity is checked
+;; before the fiber is even allocated, and r0 is left to the variadic rest list
+;; (or cleared) rather than holding the callee.
 (test-assert "CONTROL: calling a 1-argument procedure with no arguments raises"
     (raises? (lambda () ((lambda (x) 'body-ran)))))
 (test-assert "CONTROL: make-thread with a 1-argument thunk fails the thread"
@@ -290,18 +293,29 @@
     '() ((lambda args args)))
 (test-equal "CONTROL: make-thread runs a pure-variadic thunk correctly"
     0 (let ((t (make-thread (lambda args (length args))))) (thread-start! t) (thread-join! t)))
-;; FAIL: #1999 (spawn runs a 1-argument procedure instead of raising an arity error)
-;; (test-assert "spawn rejects a procedure that is not a thunk"
-;;     (raises? (lambda () (fiber-join (spawn (lambda (x) 'body-ran))))))
-;; FAIL: #1999 (a spawned lambda's rest parameter is #<undefined>, not a list)
-;; (test-equal "a spawned procedure's rest parameter is a list"
-;;     '(#t #t) (fiber-join (spawn (lambda (a . rest) (list (list? rest) (null? rest))))))
-;; FAIL: #1999 (a pure-variadic spawn thunk errors with "fiber error (no exception value)")
-;; (test-equal "spawn runs a pure-variadic thunk with no arguments"
-;;     0 (fiber-join (spawn (lambda args (length args)))))
-;; FAIL: #1999 (a native procedure of arity >= 1 errors with no exception value)
-;; (test-assert "spawn of a native procedure needing arguments raises a described error"
-;;     (msg-has? (lambda () (fiber-join (spawn car))) "car"))
+(test-assert "spawn rejects a procedure that is not a thunk"
+    (raises? (lambda () (fiber-join (spawn (lambda (x) 'body-ran))))))
+;; A required parameter plus a rest parameter is still not a thunk: the rest
+;; list is empty, but `a` has nothing to bind to.  It used to bind
+;; `#<undefined>` to both, so `(list? rest)` and `(null? rest)` were BOTH #f.
+(test-assert "spawn rejects a procedure with a required parameter and a rest parameter"
+    (raises? (lambda () (fiber-join (spawn (lambda (a . rest) (list (list? rest) (null? rest))))))))
+(test-equal "spawn runs a pure-variadic thunk with no arguments"
+    0 (fiber-join (spawn (lambda args (length args)))))
+(test-assert "spawn of a native procedure needing arguments raises a described error"
+    (msg-has? (lambda () (fiber-join (spawn car))) "car"))
+;; A pure-variadic thunk is the one legal shape that still binds a parameter,
+;; so it is also the probe for what r0 holds.  R7RS 4.1.4 wants "a newly
+;; allocated list"; r0 used to hold the fiber's own thunk closure, live and
+;; callable, which made every one of these three answers wrong at once.
+(test-equal "a spawned pure-variadic thunk's rest parameter is the empty list"
+    '(#t #t #f)
+    (fiber-join (spawn (lambda args (list (list? args) (null? args) (procedure? args))))))
+;; spawn rejects before allocating: a refused thunk must not consume a fiber,
+;; and the scheduler must still be usable afterwards.
+(test-equal "a rejected spawn leaves the scheduler working"
+    'ok (begin (guard (e (#t #f)) (spawn (lambda (x) x)))
+               (fiber-join (spawn (lambda () 'ok)))))
 
 ;;; --- errors inside fibers ---
 ;; join re-raises the fiber's exception, with the error object intact

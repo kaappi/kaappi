@@ -187,6 +187,16 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
 
     if (!types.isProcedure(handler)) return primitives.typeError("with-exception-handler", "procedure", args[0]);
     if (!types.isProcedure(thunk)) return primitives.typeError("with-exception-handler", "procedure", args[1]);
+    // R7RS 6.11: "It is an error if thunk does not accept zero arguments."
+    // Checked here rather than left to callThunk's own check because the
+    // handler is installed below: a thunk of the wrong arity would raise
+    // *inside* this handler's extent, and the handler would then be handed
+    // the report of its own caller's malformed call (#2034). The handler's
+    // "does not accept one argument" is deliberately left to callHandler,
+    // where the call actually happens — a handler that is never invoked has
+    // nothing to report about.
+    if (!types.acceptsArgCount(thunk, 0))
+        return primitives.argError("with-exception-handler", "thunk does not accept zero arguments", .{});
 
     // Push the handler onto the handler stack. A failure here is the handler
     // stack hitting MAX_HANDLER_LIMIT — propagate it as the StackOverflow it
@@ -266,6 +276,9 @@ fn callWithUnwindHandlerFn(args: []const Value) PrimitiveError!Value {
 
     if (!types.isProcedure(handler)) return primitives.typeError("%call-with-unwind-handler", "procedure", args[0]);
     if (!types.isProcedure(thunk)) return primitives.typeError("%call-with-unwind-handler", "procedure", args[1]);
+    // Before the handler goes on the stack — see withExceptionHandlerFn (#2034).
+    if (!types.acceptsArgCount(thunk, 0))
+        return primitives.argError("%call-with-unwind-handler", "thunk does not accept zero arguments", .{});
 
     try vm.pushHandlerSticky(handler);
 

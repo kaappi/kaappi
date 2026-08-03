@@ -683,7 +683,53 @@ fn computeReentrantBase(vm: *VM) u32 {
     return 0;
 }
 
-fn callReentrant(vm: *VM, closure: *types.Closure, base: u32, dst: u8, returns_to_native: bool) VMError!Value {
+/// Bind `args` into the parameter registers of a hand-built frame at `base`,
+/// validating arity exactly as `callClosure` does for the `call` opcode and
+/// folding surplus arguments into a variadic callee's rest list.
+///
+/// This lives on the `callReentrant` path rather than in each of its callers
+/// because a caller that stages its own arguments is a caller that can forget
+/// the check — and two of the three did. `callHandler` and `callThunk` wrote
+/// their argument straight into the register file and jumped to
+/// `callReentrant`, so a wrong-arity exception handler, `with-exception-handler`
+/// thunk, `call-with-values` producer or non-tail `call/cc` receiver ran
+/// anyway, with its surplus parameters reading whatever the register file
+/// happened to hold — including live values from a neighbouring frame (#2034).
+fn bindReentrantArgs(vm: *VM, func: *types.Function, base: u32, args: []const Value) VMError!void {
+    if (!func.is_variadic) {
+        if (args.len != func.arity) {
+            if (func.name) |name| {
+                vm.setErrorDetail("'{s}': expected {d} arguments, got {d}", .{ name, func.arity, args.len });
+            } else {
+                vm.setErrorDetail("expected {d} arguments, got {d}", .{ func.arity, args.len });
+            }
+            return VMError.ArityMismatch;
+        }
+        for (args, 0..) |a, i| vm.registers[base + i] = a;
+        return;
+    }
+
+    if (args.len < func.arity) {
+        if (func.name) |name| {
+            vm.setErrorDetail("'{s}': expected at least {d} arguments, got {d}", .{ name, func.arity, args.len });
+        } else {
+            vm.setErrorDetail("expected at least {d} arguments, got {d}", .{ func.arity, args.len });
+        }
+        return VMError.ArityMismatch;
+    }
+
+    // Build the rest list from the caller's own `args` before writing any
+    // register: `base` sits past the topmost frame's marking window, so a
+    // value staged there is not yet a GC root (markVMRoots walks
+    // [f.base, f.base + frameWindow) per live frame). Nothing allocates
+    // between the build and the stores below, so `rest` needs no root.
+    const vm_dispatch = @import("vm_dispatch.zig");
+    const rest = try vm_dispatch.buildRestList(vm.gc, args[func.arity..]);
+    for (args[0..func.arity], 0..) |a, i| vm.registers[base + i] = a;
+    vm.registers[base + func.arity] = rest;
+}
+
+fn callReentrant(vm: *VM, closure: *types.Closure, base: u32, args: []const Value, dst: u8, returns_to_native: bool) VMError!Value {
     const max_native_depth: u16 = if (@import("builtin").mode == .Debug) 200 else 3000;
     if (vm.native_reentry_depth >= max_native_depth or
         vm.gc.root_count > memory.GC.MAX_ROOT_CAPACITY - 32)
@@ -695,6 +741,14 @@ fn callReentrant(vm: *VM, closure: *types.Closure, base: u32, dst: u8, returns_t
 
     const func = closure.func;
     const used: usize = if (func.is_variadic) @as(usize, func.arity) + 1 else @as(usize, func.arity);
+    // Room for the callee's locals *and* for every slot bindReentrantArgs is
+    // about to write. The compiler counts a variadic rest parameter among the
+    // locals, so `used` is normally the smaller of the two — but a register
+    // write past the end of the file is memory unsafety, so derive the bound
+    // from what is actually written rather than trusting that.
+    try vm.ensureRegisterCapacity(@as(usize, base) + @max(@as(usize, func.locals_count), used) + 1);
+    try bindReentrantArgs(vm, func, base, args);
+
     clearFrameLocals(vm, base, used, func.locals_count);
 
     vm.native_reentry_depth += 1;
@@ -758,21 +812,7 @@ pub fn callHandler(vm: *VM, handler_val: Value, arg: Value, return_dst: u8) VMEr
     }
     if (types.isClosure(handler_val)) {
         const closure = types.toObject(handler_val).as(types.Closure);
-        const func = closure.func;
-
-        const base = computeReentrantBase(vm);
-        try vm.ensureRegisterCapacity(@as(usize, base) + @as(usize, func.locals_count) + 1);
-
-        if (func.is_variadic and func.arity == 0) {
-            vm.registers[base] = vm.gc.allocPair(arg, types.NIL) catch return VMError.OutOfMemory;
-        } else if (func.is_variadic and func.arity == 1) {
-            vm.registers[base] = arg;
-            vm.registers[base + 1] = types.NIL;
-        } else {
-            vm.registers[base] = arg;
-        }
-
-        return callReentrant(vm, closure, base, return_dst, false);
+        return callReentrant(vm, closure, computeReentrantBase(vm), &[_]Value{arg}, return_dst, false);
     } else if (types.isNativeFn(handler_val)) {
         const native = types.toObject(handler_val).as(types.NativeFn);
         const args = [1]Value{arg};
@@ -794,16 +834,7 @@ pub fn callHandler(vm: *VM, handler_val: Value, arg: Value, return_dst: u8) VMEr
 pub fn callThunk(vm: *VM, thunk_val: Value) VMError!Value {
     if (types.isClosure(thunk_val)) {
         const closure = types.toObject(thunk_val).as(types.Closure);
-        const func = closure.func;
-
-        const base = computeReentrantBase(vm);
-        try vm.ensureRegisterCapacity(@as(usize, base) + @as(usize, func.locals_count) + 1);
-
-        if (func.is_variadic and func.arity == 0) {
-            vm.registers[base] = types.NIL;
-        }
-
-        return callReentrant(vm, closure, base, 0, false);
+        return callReentrant(vm, closure, computeReentrantBase(vm), &.{}, 0, false);
     } else if (types.isNativeFn(thunk_val)) {
         const native = types.toObject(thunk_val).as(types.NativeFn);
         const empty_args: []const Value = &.{};
@@ -861,33 +892,13 @@ pub fn callWithArgs(vm: *VM, proc: Value, args: []const Value) VMError!Value {
     }
     if (types.isClosure(proc)) {
         const closure = types.toObject(proc).as(types.Closure);
-        const func = closure.func;
-
-        const base = computeReentrantBase(vm);
-        try vm.ensureRegisterCapacity(@as(usize, base) + @as(usize, func.locals_count) + 1);
-
-        if (args.len > std.math.maxInt(u8)) return VMError.ArityMismatch;
-        const nargs: u8 = @intCast(args.len);
-        if (!func.is_variadic) {
-            if (nargs != func.arity) return VMError.ArityMismatch;
-        } else {
-            if (nargs < func.arity) return VMError.ArityMismatch;
-            const rest_start = func.arity;
-            const vm_dispatch = @import("vm_dispatch.zig");
-            const rest_list = try vm_dispatch.buildRestList(vm.gc, args[rest_start..nargs]);
-            for (0..rest_start) |ri| {
-                vm.registers[base + ri] = args[ri];
-            }
-            vm.registers[base + rest_start] = rest_list;
+        // 255 arguments is the ISA's maximum, so a longer call cannot be
+        // expressed as a frame at all; arity itself is bindReentrantArgs's.
+        if (args.len > std.math.maxInt(u8)) {
+            vm.setErrorDetail("too many arguments: {d} (maximum {d})", .{ args.len, std.math.maxInt(u8) });
+            return VMError.ArityMismatch;
         }
-
-        if (!func.is_variadic) {
-            for (args, 0..) |a, i| {
-                vm.registers[base + i] = a;
-            }
-        }
-
-        return callReentrant(vm, closure, base, 0, true);
+        return callReentrant(vm, closure, computeReentrantBase(vm), args, 0, true);
     } else if (types.isNativeClosure(proc)) {
         const nc = types.toObject(proc).as(types.NativeClosure);
         return callNativeClosure(vm, nc, args);

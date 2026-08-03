@@ -40,7 +40,14 @@ fn spawnFn(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const ctx = try fiber_mod.ensureScheduler(vm);
 
-    const fiber = ctx.sched.spawnFiber(proc) catch return PrimitiveError.OutOfMemory;
+    // A wrong-arity thunk is refused by spawnFiber with its own detail
+    // message (#1999); pass that through rather than relabelling every
+    // failure OutOfMemory, which would report a memory problem for what is
+    // an argument problem.
+    const fiber = ctx.sched.spawnFiber(proc) catch |err| return switch (err) {
+        error.ArityMismatch => PrimitiveError.ArityMismatch,
+        else => PrimitiveError.OutOfMemory,
+    };
     return types.makePointer(&fiber.header);
 }
 
