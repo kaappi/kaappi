@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785763453196,
+  "lastUpdate": 1785766849729,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "61f6e8c48003b4674677737513f975a7eed71233",
-          "message": "Phase 2.1: internal-primitive audit — 239 assertions over a 51-procedure surface with no prior tests (#1918)\n\n* Audit the %-prefixed internal-primitive surface (audit v2, Phase 2.1)\n\nEvery registered primitive spec lands in vm.globals regardless of its\n`libs` tag -- only *export* is gated -- so all 60 `%`-prefixed specs in a\ndefault build are callable from a plain top-level script with no import\nat all. 51 of them are reachable that way today; the other 9 are the\npurged `internal_helpers` (8) plus the instrument-only build hooks.\nBetween them they had close to zero mention anywhere in tests/.\n\n239 assertions across the record substrate (R7RS and R6RS/SRFI 237),\nSRFI 160 numeric vectors, SRFI 271 random ports, SRFI 181 transcoded\nports, SRFI 248 unwind handlers, the parameter internals, the SRFI 27\nsubstrate, and the sysinfo probes. Each procedure is probed for arity at\nboth bounds, wrong types in *each* argument position independently, and\nboundary values (negative and just-past-the-limit indices, empty inputs,\nper-kind numeric range ends).\n\nDiscovery only -- no source is changed. 14 assertions are commented out\nbehind `;; FAIL: TBD` markers covering seven distinct defects, each\npaired with an enabled discriminating control that proves the failure is\nspecific rather than a whole-codebase convention. The three cross-tier\nassertions marked \"(fails on wasm32)\" pass natively and fail under\nwasmtime, pinning an index-truncation divergence.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Point Phase 2.1 FAIL markers at the filed issues\n\nCommitted with placeholders before the issues existed; each now names the\nissue whose fix re-enables it.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-31T16:08:10+05:30",
-          "tree_id": "9d84885761abdb3c4ab8d665babb6ddece93b148",
-          "url": "https://github.com/kaappi/kaappi/commit/61f6e8c48003b4674677737513f975a7eed71233"
-        },
-        "date": 1785505306939,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.944945,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.379032,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.564248,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.844358,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004882,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.0445,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.293462,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054817,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.309844,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.158526,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.513685,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.30613,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.697198,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.803746,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046008,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042694,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "b813fd0cfa9579f51f83adf5b447b366847f4b27",
+          "message": "Add DCO2 app config\n\nEnables individual remediation commits so a contributor can retroactively sign off a commit without a force-push. See https://github.com/cncf/dco2.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-03T19:16:41+05:30",
+          "tree_id": "097dd7d53d7dad5ceac119e4884ea06cdf1e14a1",
+          "url": "https://github.com/kaappi/kaappi/commit/b813fd0cfa9579f51f83adf5b447b366847f4b27"
+        },
+        "date": 1785766848126,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.068876,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.611482,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.552554,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.875302,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005019,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.045382,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.301313,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053425,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.840242,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.113366,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.508815,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.260662,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.745902,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.92578,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041796,
             "unit": "seconds"
           }
         ]
