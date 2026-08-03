@@ -48,31 +48,53 @@ the run if a globbed suite file contains none of `test-begin`, `(exit`,
 `(error` or `(assert` — i.e. has no way to turn a wrong answer into a nonzero
 exit.
 
-It exists because 55 files had exactly that shape (kaappi#2116). They computed
-the right thing and then discarded the verdict: `(display (= x 43))` prints
-`#f` and exits 0, and `(display "FAIL: ...")` exits 0 too. `run-all.sh`'s
+It exists because **56 files** had exactly that shape (kaappi#2116). They
+computed the right thing and then discarded the verdict: `(display (= x 43))`
+prints `#f` and exits 0, and `(display "FAIL: ...")` exits 0 too. `run-all.sh`'s
 stdout net could not help — it matched a failure *count*, which neither shape
 has. `smoke/thread-sleep-876.scm` was demonstrably green under the very
 regression it was written to catch.
 
-Two things changed alongside the check. All 55 files were converted to the
-SRFI-64 shape below, and the stdout net now also matches a bare `FAIL` token
-(it caught a live one immediately: `smoke/fiber-error-handling.scm` had been
-asserting the #551 behaviour that kaappi#1155 deliberately reversed, printing
-`FAIL - should have raised` and exiting 0 ever since).
+**The one inventory** — every other count in the tree should agree with this:
+
+| | files |
+|---|--:|
+| had no verdict channel | **56** |
+| ↳ converted to the SRFI-64 shape below | 52 |
+| ↳ kept a hand-rolled `(exit 1)` (table below) | 4 |
+| additionally converted: `smoke/fiber-error-handling.scm` | 1 |
+| **SRFI-64 conversions in total** | **53** |
+
+55 of the 56 came from #2116's own enumeration; the 56th,
+`smoke/deep-nesting-print-tier-margin.scm`, was missed by that enumeration's
+predicate because the word "assert" appears in one of its comments.
+`fiber-error-handling.scm` was never verdictless by the gate's predicate — the
+widened stdout net exposed it, still asserting the #551 behaviour that
+kaappi#1155 deliberately reversed, printing `FAIL - should have raised` and
+exiting 0 ever since.
 
 The check is a heuristic and knows it — an `(error` inside a `guard` being
 *tested* is not a verdict channel — so it is a backstop against the count
 growing back from zero, not a substitute for writing the epilogue.
 
-Three files are deliberately exempt from the SRFI-64 shape and carry a
-hand-rolled `(exit 1)` instead, each explaining why in its own header:
+**The four exempt files**, each explaining why in its own header. The first
+three are the WASM-tier group `run-all.sh` and `run-wasm-differential.sh` refer
+to; the fourth is exempt for an unrelated reason:
 
 | File | Why it cannot use `(srfi 64)` |
 |------|-------------------------------|
 | `smoke/large-index-bounds-1912.scm` | Must stay import-free: `(import (srfi 64))` fails at library load on WASM (kaappi#2108), which `run-wasm-differential.sh` classifies as LIBDIFF — silently retiring its `KNOWN_DIFFS` entry for #1912 |
+| `smoke/deep-nesting-print.scm` | Same, for its own `KNOWN_DIFFS` entry against #2107 |
 | `smoke/deep-nesting-print-tier-margin.scm` | Same, and it is the cross-tier positive control for #2107 |
 | `continuations/coroutine-repl-echo.scm` | Its top-level forms must stay **bare** so the value-echo path runs; consuming them in `test-equal` is what hid the original bug |
+
+Two of the four (`deep-nesting-print-tier-margin.scm`,
+`coroutine-repl-echo.scm`) import `(scheme process-context)` for `exit` and
+nothing else, so their verdict does not depend on Kaappi's ambient script-mode
+globals. That is safe because `(scheme process-context)` is a **built-in**
+library rather than a file-backed `.sld`, verified under wasmtime. The other
+two are `KNOWN_DIFFS` probes whose divergence is the measurement, so they are
+left exactly as they are.
 
 ## Adding a test
 
@@ -242,11 +264,11 @@ can execute one (`kaappi out.sbc` reads it as source), so
   the `(chibi test)` shim has no exit-on-fail epilogue and exits 0 with failed
   assertions in the log. `tools/run-r7rs-suite.sh` is the single parser —
   `run-all.sh`, `tools/run-gc-stress-suite.sh` and the five `ci.yml` steps
-  (riscv64, s390x, ppc64le, both Windows legs) all call it, so they agree by
-  construction. Those five used to invoke the suite bare and so could only ever
+  (riscv64, s390x, ppc64le, both Windows legs) — seven callers — all call it,
+  so they agree by construction. Those five used to invoke the suite bare and so could only ever
   catch a crash (kaappi#2157) — which matters most on s390x, the big-endian
   canary, where a byte-order bug presents as a wrong answer. **Don't change the
-  suite's output format**, and don't add a sixth caller with its own awk.
+  suite's output format**, and don't add an eighth caller with its own awk.
 - Some older tests use manual pass/fail counters instead of SRFI-64. Prefer
   SRFI-64 for new tests.
 - Tests run independently with no shared state. Each file is a fresh interpreter.

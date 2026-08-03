@@ -22,8 +22,10 @@
 # purpose is to catch byte-order bugs -- and a byte-order bug presents as a
 # wrong answer, not a crash.
 #
-# This script is the single implementation all six callers now share, so they
-# agree by construction rather than by three people copying the same awk.
+# This script is the single implementation all seven callers now share, so they
+# agree by construction rather than by three people copying the same awk:
+# tests/scheme/run-all.sh, tools/run-gc-stress-suite.sh, and the five ci.yml
+# steps above.
 #
 # Exit status:
 #   0  the suite ran and every assertion passed
@@ -59,8 +61,14 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT" || exit 2
 SUITE=tests/scheme/r7rs/r7rs-tests.scm
 
-if [[ ! -e "$KAAPPI" ]]; then
-    echo "run-r7rs-suite: no kaappi at '$KAAPPI'" >&2
+# `-x`, not `-e`: a path that exists but is not executable is a HARNESS failure
+# (exit 2), not a failing suite. With `-e` the exec below would fail with 126
+# and the status mapping at the bottom would report it as exit 1, i.e. "the
+# suite reported failing assertions" — a wrong diagnosis of a broken setup.
+# tests/scheme/run-all.sh uses `-x` for the same check; MSYS bash treats .exe
+# files as executable, so the two Windows legs are unaffected.
+if [[ ! -x "$KAAPPI" ]]; then
+    echo "run-r7rs-suite: no executable kaappi at '$KAAPPI'" >&2
     echo "Usage: bash tools/run-r7rs-suite.sh [path/to/kaappi] [extra kaappi args...]" >&2
     exit 2
 fi

@@ -141,13 +141,15 @@ Ranked by reachability × blast radius ÷ cost, not by severity label.
    `#f` nor a bare `FAIL:`, leaving 54 files unable to fail. This was the
    campaign's most-repeated finding and its only *meta* one.
 
-   What shipped: all 56 verdictless files converted to the SRFI-64
-   exit-on-fail shape (55 from the issue's own enumeration plus
-   `deep-nesting-print-tier-margin.scm`, which that enumeration's predicate
-   missed because the word "assert" appears in one of its comments); a
+   What shipped: all 56 verdictless files given a verdict — 52 converted to
+   the SRFI-64 exit-on-fail shape and 4 kept on a hand-rolled `(exit 1)` for
+   tier reasons (55 of the 56 came from the issue's own enumeration; the 56th,
+   `deep-nesting-print-tier-margin.scm`, was missed by that enumeration's
+   predicate because the word "assert" appears in one of its comments), plus
+   `fiber-error-handling.scm` converted as a 53rd; a
    **verdict-channel check** in `run-all.sh` so the count cannot grow back
    from zero; the stdout net widened to a bare `FAIL` token; one shared
-   `tools/run-r7rs-suite.sh` behind all six R7RS callers; and `run-all.sh`
+   `tools/run-r7rs-suite.sh` behind all seven R7RS callers; and `run-all.sh`
    made to refuse rather than silently build a default binary, printing the
    binary's `features --json` configuration in its header.
 

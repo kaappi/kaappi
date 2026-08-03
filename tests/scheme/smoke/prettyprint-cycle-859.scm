@@ -23,10 +23,16 @@
 (test-assert "write-shared on a wide cyclic list terminates with output"
              (> (string-length result) 0))
 ;; The datum label is what makes the output finite rather than merely short.
-(test-assert "the output carries a datum label"
+;; Match the whole `#0=` opener, not a bare `#`: any cycle marker or printer
+;; fallback contains a `#`, so that weaker check would pass without a label.
+(test-assert "the output opens with the datum label #0="
+             (and (>= (string-length result) 3)
+                  (string=? (substring result 0 3) "#0=")))
+;; and closes the cycle by referring back to it
+(test-assert "the output refers back to the label"
              (let loop ((i 0))
-               (cond ((>= i (string-length result)) #f)
-                     ((char=? (string-ref result i) #\#) #t)
+               (cond ((> (+ i 3) (string-length result)) #f)
+                     ((string=? (substring result i (+ i 3)) "#0#") #t)
                      (else (loop (+ i 1))))))
 
 (let ((runner (test-runner-current)))

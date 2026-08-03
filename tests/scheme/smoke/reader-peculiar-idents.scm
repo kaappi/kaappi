@@ -8,9 +8,14 @@
 (define (read-symbol-name text)
   (symbol->string (read (open-input-string text))))
 
-;; Arrow-style identifiers (most common real-world case)
+;; Arrow-style identifiers (most common real-world case). Asserted on the
+;; symbol's TEXT, not `(eq? '->string '->string)` — under the #647 regression
+;; both quoted occurrences truncate to `-` identically and `eq?` is still #t,
+;; so that spelling cannot detect the bug it names.
 (define ->string (lambda (x) x))
-(test-assert "->string reads as one symbol" (eq? '->string '->string))
+(test-equal "->string reads as one whole symbol"
+            "->string" (symbol->string '->string))
+(test-assert "and the binding under that name is reachable" (procedure? ->string))
 
 ;; Peculiar identifiers with various special-initial chars after sign.
 ;; Each was truncated to its bare sign character before #647.

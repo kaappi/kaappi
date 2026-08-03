@@ -22,8 +22,7 @@
 ;;; the per-frame cost, shrinks the WASM stack, or raises MAX_PRINT_DEPTH shows
 ;;; up here as a tier divergence rather than silently eating the headroom.
 ;;;
-;;; Deliberately import-free so it costs nothing on the other tiers — which is
-;;; also why it signals failure with a bare `(exit 1)` rather than the SRFI-64
+;;; No `(srfi 64)`, so it signals failure with a bare `(exit 1)` rather than the
 ;;; epilogue every other file in the corpus uses (kaappi#2116).
 ;;; `(import (srfi 64))` would make the WASM leg fail at library load
 ;;; (kaappi#2108, no .sld on WASM), and run-wasm-differential.sh classifies
@@ -32,6 +31,16 @@
 ;;; channel and are unchanged; the exit status is the verdict layered on top.
 ;;; Until #2116 it had no verdict at all: both checks below printed `FAIL:`
 ;;; and exited 0, which neither runner reads as a failure.
+;;;
+;;; The one import is deliberate and minimal: `exit` comes from a library
+;;; rather than from Kaappi's ambient script-mode globals, so the verdict does
+;;; not depend on that registration. `(scheme process-context)` is a BUILT-IN
+;;; library, not a file-backed `.sld`, so it does NOT put this file in the
+;;; #2108 LIBDIFF bucket — verified directly under wasmtime 46.0.0, where the
+;;; output and exit status are byte-identical with and without it. Everything
+;;; else stays ambient, which is what keeps the file cheap on every tier.
+
+(import (scheme process-context))
 
 (define failures 0)
 

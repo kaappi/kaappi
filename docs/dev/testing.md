@@ -234,7 +234,7 @@ echo $?     # 0 = pass; anything else = fail
 #### Do not write a test that prints its answer
 
 This section used to teach the opposite — "evaluate expressions and print
-results, verify the output manually" — and 55 files were written that way.
+results, verify the output manually" — and 56 files were written that way.
 None of them could fail. `(display (= x 43))` prints `#f` and exits 0; so does
 `(display "FAIL: ...")`. Both runners reported every one of them as passing
 whatever they computed, and `tests/scheme/smoke/thread-sleep-876.scm` was
@@ -247,13 +247,19 @@ then runs thousands of times with nobody looking.
 silently. That check is a backstop, not the standard: use the SRFI-64 shape
 above.
 
-Three files in the corpus are exempt and say so in their own headers —
-`smoke/large-index-bounds-1912.scm`, `smoke/deep-nesting-print-tier-margin.scm`
-and `continuations/coroutine-repl-echo.scm`. The first two must stay
-import-free because `(import (srfi 64))` fails at library load on WASM
-(kaappi#2108) and `run-wasm-differential.sh` would reclassify them; the third
-must leave its top-level forms bare because consuming their values is what hid
-the bug it exists to catch. All three carry a hand-rolled `(exit 1)` instead.
+**Four** files in the corpus are exempt and say so in their own headers —
+`smoke/large-index-bounds-1912.scm`, `smoke/deep-nesting-print.scm`,
+`smoke/deep-nesting-print-tier-margin.scm` and
+`continuations/coroutine-repl-echo.scm`. The first three must stay free of
+file-backed `.sld` imports because `(import (srfi 64))` fails at library load
+on WASM (kaappi#2108) and `run-wasm-differential.sh` would reclassify them as
+LIBDIFF; the fourth must leave its top-level forms bare because consuming their
+values is what hid the bug it exists to catch. All four carry a hand-rolled
+`(exit 1)` instead.
+
+`tests/scheme/CLAUDE.md` holds the single inventory table (56 verdictless
+files → 52 converted + 4 exempt, plus `fiber-error-handling.scm` = 53
+conversions); keep any count here in step with it.
 
 ### Test conventions
 

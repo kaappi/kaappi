@@ -481,7 +481,7 @@ check_unreachable_tests() {
 
 # The sibling of the check above, and the same class of bug one level down: a
 # file the globs DO see, which has no way to report a failure (kaappi#2116).
-# 55 files printed their answers and exited 0 whatever those answers were —
+# 56 files printed their answers and exited 0 whatever those answers were —
 # `tests/scheme/smoke/thread-sleep-876.scm` was demonstrably green under the
 # very regression it was written to catch, and the stdout net in
 # run_file_worker cannot help, because a file that prints `#f` or a bare
@@ -495,10 +495,12 @@ check_unreachable_tests() {
 # guarantee is that the count cannot grow back silently from zero, which is
 # what let 55 accumulate.
 #
-# `test-begin` is deliberately not made mandatory: three files must stay
-# import-free to keep working on other execution tiers (`(import (srfi 64))`
-# fails at library load on WASM, kaappi#2108), so they carry a bare `(exit 1)`
-# instead and say so in their own headers.
+# `test-begin` is deliberately not made mandatory: four files carry a bare
+# `(exit 1)` instead and say so in their own headers — three must stay free of
+# file-backed `.sld` imports to keep working on other execution tiers
+# (`(import (srfi 64))` fails at library load on WASM, kaappi#2108), and
+# coroutine-repl-echo.scm must leave its top-level forms bare. See the
+# inventory table in tests/scheme/CLAUDE.md.
 check_verdictless_tests() {
     echo "=== Verdict-channel check ==="
     local found=0 dir f
@@ -632,9 +634,16 @@ elif [[ $R7RS_RUNNER_STATUS -ne 0 ]]; then
     # suite file). Nothing to fold into the summary but the failure itself.
     R7RS_STATUS_FAIL=1
 fi
-# Exit 2 is "the harness could not run it", which the counts alone cannot show:
-# 0 pass / 0 fail would otherwise read as a clean run of nothing.
-if [[ $R7RS_RUNNER_STATUS -eq 2 || ${R7RS_STATUS:-0} -ne 0 ]]; then
+# Any nonzero status from the runner fails the run. `-ne 0` rather than the
+# three separate conditions it replaces (`-eq 2`, a nonzero sourced
+# `R7RS_STATUS`, and `R7RS_FAIL -gt 0` in the summary below): each of those is
+# individually correct, but relying on three of them to cover the runner's two
+# failure exits means a fourth exit code added later is covered by none.
+# tools/run-gc-stress-suite.sh already gates on the status alone.
+#
+# `R7RS_FAIL -gt 0` stays in the summary condition as an independent second
+# signal — it is what makes the *counts* load-bearing rather than decorative.
+if [[ $R7RS_RUNNER_STATUS -ne 0 ]]; then
     R7RS_STATUS_FAIL=1
 fi
 

@@ -20,6 +20,12 @@
 ;;   1. Two saved continuations in top-level globals (resume / return).
 ;;   2. The same machinery captured in closure state via a factory.
 
+;; Only `(scheme process-context)`, for `exit`: the verdict at the bottom
+;; should not depend on Kaappi registering `exit` as an ambient script-mode
+;; global. Everything else stays ambient. Verified that adding this import
+;; leaves the top-level echo — the whole point of the file — byte-identical.
+(import (scheme process-context))
+
 (define yielded '())
 (define (note x) (set! yielded (cons x yielded)) x)
 
