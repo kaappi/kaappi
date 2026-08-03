@@ -1,45 +1,45 @@
 ;; Regression tests for memv/assv with heap-allocated numeric types
 ;; Issue #274
 
-(import (scheme base) (scheme write))
+(import (scheme base) (scheme write) (scheme process-context) (srfi 64))
+
+(test-begin "memv-assv-numeric")
 
 ;; memv with bignums
 (let ((big (expt 2 100)))
-  (display (pair? (memv big (list 1 big 3)))))  ; #t
-(newline)
+  (test-assert "memv finds a bignum" (pair? (memv big (list 1 big 3)))))
 
 ;; memv with rationals
-(display (pair? (memv 1/3 (list 1/2 1/3 1/4))))  ; #t
-(newline)
+(test-assert "memv finds a rational" (pair? (memv 1/3 (list 1/2 1/3 1/4))))
 
 ;; memv with complex
-(display (pair? (memv 1+2i (list 3+4i 1+2i 0+0i)))) ; #t
-(newline)
+(test-assert "memv finds a complex" (pair? (memv 1+2i (list 3+4i 1+2i 0+0i))))
 
 ;; memv negative case
-(display (memv 1+2i (list 3+4i 5+6i)))  ; #f
-(newline)
+(test-equal "memv reports a missing complex as #f"
+            #f (memv 1+2i (list 3+4i 5+6i)))
 
 ;; assv with bignums
 (let ((big (expt 2 100)))
-  (display (pair? (assv big (list (list big 'found))))))  ; #t
-(newline)
+  (test-assert "assv finds a bignum key"
+               (pair? (assv big (list (list big 'found))))))
 
 ;; assv with rationals
-(display (pair? (assv 1/3 (list (list 1/2 'a) (list 1/3 'b))))) ; #t
-(newline)
+(test-assert "assv finds a rational key"
+             (pair? (assv 1/3 (list (list 1/2 'a) (list 1/3 'b)))))
 
 ;; assv with complex
-(display (pair? (assv 1+2i (list (list 3+4i 'a) (list 1+2i 'b))))) ; #t
-(newline)
+(test-assert "assv finds a complex key"
+             (pair? (assv 1+2i (list (list 3+4i 'a) (list 1+2i 'b)))))
 
 ;; assv negative case
-(display (assv 7/9 (list (list 1/2 'a) (list 3/4 'b)))) ; #f
-(newline)
+(test-equal "assv reports a missing rational key as #f"
+            #f (assv 7/9 (list (list 1/2 'a) (list 3/4 'b))))
 
 ;; memv fixnum-bignum cross-comparison
-(display (pair? (memv 0 (list (expt 2 100) 0 1)))) ; #t (fixnum 0)
-(newline)
+(test-assert "memv matches the fixnum 0 past a bignum"
+             (pair? (memv 0 (list (expt 2 100) 0 1))))
 
-(display "all passed")
-(newline)
+(let ((runner (test-runner-current)))
+  (test-end "memv-assv-numeric")
+  (when (> (test-runner-fail-count runner) 0) (exit 1)))

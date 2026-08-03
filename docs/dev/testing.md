@@ -172,55 +172,103 @@ tests/scheme/
 ### Running
 
 ```bash
-# Run the full R7RS suite (1,395 tests)
-zig build run -- tests/scheme/r7rs/r7rs-tests.scm
-
 # Run a specific test file
 zig build run -- tests/scheme/compliance/strings.scm
 
-# Run all test suites with summary
+# Run all test suites with summary. Build FIRST — run-all.sh refuses to build
+# for you, because a bare `zig build` here would silently substitute a
+# default-configured binary for the one you meant to measure (kaappi#2163).
+# The run header names the binary's version, build id, target, build mode and
+# gc_stress so the log says which configuration produced the counts.
+zig build
 bash tests/scheme/run-all.sh
+
+# Run the full R7RS suite (1,395 tests). Use the wrapper, not a bare
+# invocation: the (chibi test) shim has no exit-on-fail epilogue, so
+# `kaappi tests/scheme/r7rs/r7rs-tests.scm; echo $?` prints 0 with failed
+# assertions in the log (kaappi#2157). The wrapper parses the counts.
+bash tools/run-r7rs-suite.sh zig-out/bin/kaappi
 ```
 
 ### Writing a Scheme test
 
-Scheme tests are simple: they evaluate expressions and print results. If the
-output matches expectations, the test passes.
+A Scheme test is a SRFI-64 suite that **exits nonzero when an assertion
+fails**. Nothing reads the output; the exit status is the verdict.
 
 Create a `.scm` file in the appropriate directory:
 
 ```scheme
 ;; tests/scheme/compliance/my-feature.scm
 
+(import (scheme base) (scheme write) (scheme process-context) (srfi 64))
+
+(test-begin "my-feature")
+
 ;; Test basic functionality
-(display (my-proc 42))
-(newline)
-;; Expected output: 43
+(test-equal "my-proc on 42" 43 (my-proc 42))
 
 ;; Test edge cases
-(display (my-proc 0))
-(newline)
-;; Expected output: 1
+(test-equal "my-proc on 0" 1 (my-proc 0))
 
 ;; Test error handling
-(guard (e (#t (display "caught")))
-  (my-proc "not-a-number"))
-(newline)
-;; Expected output: caught
+(test-assert "my-proc rejects a non-number"
+  (guard (e (#t #t))
+    (my-proc "not-a-number")
+    #f))
+
+(let ((runner (test-runner-current)))
+  (test-end "my-feature")
+  (when (> (test-runner-fail-count runner) 0) (exit 1)))
 ```
 
-Run it and verify the output manually:
+Grab the runner **before** `(test-end ...)` — the outermost `test-end` resets
+the current runner, so `(test-runner-current)` afterwards no longer returns it.
+
+Run it:
 
 ```bash
 zig build run -- tests/scheme/compliance/my-feature.scm
+echo $?     # 0 = pass; anything else = fail
 ```
+
+#### Do not write a test that prints its answer
+
+This section used to teach the opposite — "evaluate expressions and print
+results, verify the output manually" — and 56 files were written that way.
+None of them could fail. `(display (= x 43))` prints `#f` and exits 0; so does
+`(display "FAIL: ...")`. Both runners reported every one of them as passing
+whatever they computed, and `tests/scheme/smoke/thread-sleep-876.scm` was
+demonstrably green under the very regression it was written to catch
+(kaappi#2116). "Verify the output manually" happens once, at review; the test
+then runs thousands of times with nobody looking.
+
+`run-all.sh` now fails the run if a globbed suite file contains none of
+`test-begin`, `(exit`, `(error` or `(assert`, so the count cannot grow back
+silently. That check is a backstop, not the standard: use the SRFI-64 shape
+above.
+
+**Four** files in the corpus are exempt and say so in their own headers —
+`smoke/large-index-bounds-1912.scm`, `smoke/deep-nesting-print.scm`,
+`smoke/deep-nesting-print-tier-margin.scm` and
+`continuations/coroutine-repl-echo.scm`. The first three must stay free of
+file-backed `.sld` imports because `(import (srfi 64))` fails at library load
+on WASM (kaappi#2108) and `run-wasm-differential.sh` would reclassify them as
+LIBDIFF; the fourth must leave its top-level forms bare because consuming their
+values is what hid the bug it exists to catch. All four carry a hand-rolled
+`(exit 1)` instead.
+
+`tests/scheme/CLAUDE.md` holds the single inventory table (56 verdictless
+files → 52 converted + 4 exempt, plus `fiber-error-handling.scm` = 53
+conversions); keep any count here in step with it.
 
 ### Test conventions
 
 - Each test file should be self-contained (include its own imports if needed).
-- Use `display` and `newline` for output.
+- Name every assertion — an unnamed SRFI-64 failure prints a bare `#f`, which
+  says nothing about which check broke.
 - Test both normal cases and edge cases.
-- Include comments showing expected output.
+- Tests run in parallel and each file is a fresh interpreter, so a file must
+  not depend on a fixed path, port, or scratch file another file also touches.
 
 ---
 

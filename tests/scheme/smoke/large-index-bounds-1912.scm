@@ -23,22 +23,50 @@
 ;;; check reports the entry once the tiers agree again, which is the signal to
 ;;; delete both the entry and this note.
 ;;;
-;;; Deliberately import-free so it runs on every tier.
+;;; Deliberately import-free so it runs on every tier — which is why this is
+;;; the one file in the corpus that signals failure with a bare `(exit 1)`
+;;; rather than the SRFI-64 epilogue every other file uses (kaappi#2116).
+;;; `(import (srfi 64))` would make the WASM leg fail at library load
+;;; (kaappi#2108, no .sld on WASM), and run-wasm-differential.sh classifies
+;;; that as LIBDIFF — which would silently retire this file's KNOWN_DIFFS
+;;; entry as stale and stop it tracking #1912 at all. The printed lines are
+;;; unchanged and remain the cross-tier comparison channel; the exit status is
+;;; the native verdict layered on top.
 
 (define v (vector 10 11 12 13))
 
 (define (try thunk) (guard (e (#t 'raised)) (thunk)))
 
 ;; 2^32+1 — low 32 bits are 1, which IS in range for a 4-element vector.
-(display (list 'ref-2^32+1 (try (lambda () (vector-ref v 4294967297)))))
+(define ref-big (try (lambda () (vector-ref v 4294967297))))
+(display (list 'ref-2^32+1 ref-big))
 (newline)
 
 ;; Control: 2^32+9 — low 32 bits are 9, still out of range. Raises everywhere.
-(display (list 'ref-2^32+9 (try (lambda () (vector-ref v 4294967305)))))
+(define ref-ctl (try (lambda () (vector-ref v 4294967305))))
+(display (list 'ref-2^32+9 ref-ctl))
 (newline)
 
 ;; The write side, which is the more serious half: element 1 must be untouched.
-(display (list 'set-2^32+1
-               (try (lambda () (vector-set! v 4294967297 99)))
-               'elt1 (vector-ref v 1)))
+(define set-big (try (lambda () (vector-set! v 4294967297 99))))
+(define elt1 (vector-ref v 1))
+(display (list 'set-2^32+1 set-big 'elt1 elt1))
 (newline)
+
+;; Native verdict. On wasm32 these fail while #1912 is open, and the harness
+;; suppresses that via KNOWN_DIFFS rather than this file pretending to pass.
+(define failures 0)
+(define (check ok name)
+  (if (not ok)
+      (begin
+        (set! failures (+ failures 1))
+        (display "FAIL: ")
+        (display name)
+        (newline))))
+
+(check (eq? ref-big 'raised) "(vector-ref v 2^32+1) must raise")
+(check (eq? ref-ctl 'raised) "(vector-ref v 2^32+9) must raise")
+(check (eq? set-big 'raised) "(vector-set! v 2^32+1 99) must raise")
+(check (= elt1 11) "element 1 must be untouched by the rejected set!")
+
+(if (> failures 0) (exit 1))

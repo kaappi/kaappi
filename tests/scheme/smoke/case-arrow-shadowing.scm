@@ -1,35 +1,34 @@
 ;; Regression test for #52: case must respect lexical shadowing of =>
 
-(import (scheme base) (scheme write))
+(import (scheme base) (scheme write) (scheme process-context) (srfi 64))
 
-(define (test name expected actual)
-  (if (equal? expected actual)
-    (begin (display "PASS: ") (display name) (newline))
-    (begin (display "FAIL: ") (display name)
-           (display " expected=") (write expected)
-           (display " actual=") (write actual) (newline))))
+(test-begin "case-arrow-shadowing")
 
 ;; When => is locally bound, case should NOT treat it as the arrow keyword.
 ;; The clause body (=> foo) compiles as (begin => foo), returning foo.
 ;; Without the fix, the arrow form is taken, which tries to call foo as
 ;; a procedure and errors.
-(test "case datum clause with shadowed =>"
+(test-equal "case datum clause with shadowed =>"
   'F
   (let ((=> (lambda (a b) (list 'app a b))) (foo 'F))
     (case 1 ((1) => foo))))
 
-(test "case else clause with shadowed =>"
+(test-equal "case else clause with shadowed =>"
   'F
   (let ((=> (lambda (a b) (list 'app a b))) (foo 'F))
     (case 1 (else => foo))))
 
 ;; Normal arrow form still works when => is not shadowed
-(test "case arrow form unshadowed"
+(test-equal "case arrow form unshadowed"
   2
   (case 1 ((1) => (lambda (x) (+ x 1)))))
 
 ;; Verify => can be used as a regular procedure call when shadowed
-(test "shadowed => as procedure in case body"
+(test-equal "shadowed => as procedure in case body"
   '(called 1)
   (let ((=> (lambda (x) (list 'called x))))
     (case 1 ((1) (=> 1)))))
+
+(let ((runner (test-runner-current)))
+  (test-end "case-arrow-shadowing")
+  (when (> (test-runner-fail-count runner) 0) (exit 1)))

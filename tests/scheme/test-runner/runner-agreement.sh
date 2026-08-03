@@ -23,6 +23,7 @@ set -euo pipefail
 
 KAAPPI="${KAAPPI:-zig-out/bin/kaappi}"
 KAAPPI="$(cd "$(dirname "$KAAPPI")" && pwd)/$(basename "$KAAPPI")"
+RUN_ALL_SH="$(cd "$(dirname "$0")/.." && pwd)/run-all.sh"
 PASS=0
 FAIL=0
 
@@ -39,12 +40,38 @@ cd "$WORK"
 
 # run-all.sh's rule, copied from run_file_worker(): exit status first, then a
 # grep over the output for a suite that reported failures but exited 0 anyway.
+#
+# This regex is a COPY. It gained its third alternative — a bare FAIL token —
+# in kaappi#2116, and a copy that misses an update is exactly how the two
+# runners would start disagreeing while this script kept saying they agree. The
+# drift check below fails the run if run-all.sh no longer contains this literal
+# string, so the copy cannot silently fall behind the original.
+RUN_ALL_NET='(^|[^0-9])[1-9][0-9]* fail|unexpected (failures|errors) +[1-9]|(^|[^A-Za-z0-9_])FAIL([^A-Za-z0-9_]|$)'
+
+# The drift check. `grep -F` on the literal pattern text, so this compares the
+# two spellings character for character rather than trying to match one regex
+# with the other. A here-string, never a pipe into `grep -q`, under pipefail
+# (kaappi#1926).
+if [[ -r "$RUN_ALL_SH" ]]; then
+    if ! grep -Fq "$RUN_ALL_NET" "$RUN_ALL_SH"; then
+        echo "runner-agreement: the run-all.sh net regex copied into this script" >&2
+        echo "  no longer appears verbatim in $RUN_ALL_SH." >&2
+        echo "  Re-copy it, or this script will certify an agreement that has" >&2
+        echo "  already been broken. Expected to find:" >&2
+        echo "    $RUN_ALL_NET" >&2
+        exit 1
+    fi
+else
+    echo "runner-agreement: cannot read $RUN_ALL_SH to check the net regex" >&2
+    exit 1
+fi
+
 verdict_run_all() {
     local file="$1" status=0
     "$KAAPPI" "$file" > "$WORK/out.txt" 2>&1 || status=$?
     if [[ $status -ne 0 ]]; then
         echo "FAIL"
-    elif grep -Eq '(^|[^0-9])[1-9][0-9]* fail|unexpected (failures|errors) +[1-9]' "$WORK/out.txt"; then
+    elif grep -Eq "$RUN_ALL_NET" "$WORK/out.txt"; then
         echo "FAIL"
     else
         echo "PASS"

@@ -1,19 +1,27 @@
 ;; Regression test for #50: negative index args must error, not panic
 
-(import (scheme base) (scheme write))
+(import (scheme base) (scheme write) (scheme process-context) (srfi 64))
 
-(define (expect-error thunk name)
-  (guard (exn (#t (begin (display "PASS: ") (display name) (newline))))
-    (thunk)
-    (display "FAIL: ") (display name) (display " did not error") (newline)))
+(test-begin "vector-negative-index")
 
-(expect-error (lambda () (vector-reverse! (vector 1 2 3) -1))
-              "vector-reverse! negative start")
-(expect-error (lambda () (vector-reverse! (vector 1 2 3) 0 -1))
-              "vector-reverse! negative end")
-(expect-error (lambda () (vector-reverse-copy (vector 1 2 3) -1))
-              "vector-reverse-copy negative start")
-(expect-error (lambda () (vector-reverse-copy (vector 1 2 3) 0 -1))
-              "vector-reverse-copy negative end")
-(expect-error (lambda () (vector-unfold (lambda (i) i) -5))
-              "vector-unfold negative length")
+(define (raises? thunk)
+  (guard (exn (#t #t)) (thunk) #f))
+
+(define-syntax test-raises
+  (syntax-rules ()
+    ((_ name expr) (test-assert name (raises? (lambda () expr))))))
+
+(test-raises "vector-reverse! negative start"
+             (vector-reverse! (vector 1 2 3) -1))
+(test-raises "vector-reverse! negative end"
+             (vector-reverse! (vector 1 2 3) 0 -1))
+(test-raises "vector-reverse-copy negative start"
+             (vector-reverse-copy (vector 1 2 3) -1))
+(test-raises "vector-reverse-copy negative end"
+             (vector-reverse-copy (vector 1 2 3) 0 -1))
+(test-raises "vector-unfold negative length"
+             (vector-unfold (lambda (i) i) -5))
+
+(let ((runner (test-runner-current)))
+  (test-end "vector-negative-index")
+  (when (> (test-runner-fail-count runner) 0) (exit 1)))

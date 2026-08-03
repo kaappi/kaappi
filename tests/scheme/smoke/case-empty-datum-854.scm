@@ -2,32 +2,39 @@
 ;; R7RS allows empty datum lists in case clauses — the clause
 ;; is dead code (never matches) and should be silently skipped.
 
+(import (scheme base) (scheme process-context) (srfi 64))
+
+(test-begin "case-empty-datum-854")
+
 ;; Empty datum list before matching clause
-(display (case 1
-  (() 'never)
-  ((1) 'one)
-  (else 'other)))
-(newline)
+(test-equal "empty datum list before the matching clause"
+  'one
+  (case 1
+    (() 'never)
+    ((1) 'one)
+    (else 'other)))
 
 ;; Empty datum list after matching clause
-(display (case 2
-  ((2) 'two)
-  (() 'never)
-  (else 'other)))
-(newline)
+(test-equal "empty datum list after the matching clause"
+  'two
+  (case 2
+    ((2) 'two)
+    (() 'never)
+    (else 'other)))
 
 ;; Only empty datum lists, falls through to else
-(display (case 3
-  (() 'never1)
-  (() 'never2)
-  (else 'fallthrough)))
-(newline)
+(test-equal "only empty datum lists falls through to else"
+  'fallthrough
+  (case 3
+    (() 'never1)
+    (() 'never2)
+    (else 'fallthrough)))
 
-;; Only empty datum lists, no else — result is void
-(case 4
-  (() 'never))
+;; Only empty datum lists, no else — result is unspecified, but compiling and
+;; running at all is the point.
+(test-assert "only empty datum lists with no else still compiles and runs"
+  (begin (case 4 (() 'never)) #t))
 
-;; Expected output:
-;; one
-;; two
-;; fallthrough
+(let ((runner (test-runner-current)))
+  (test-end "case-empty-datum-854")
+  (when (> (test-runner-fail-count runner) 0) (exit 1)))

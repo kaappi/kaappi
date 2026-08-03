@@ -343,6 +343,18 @@ runs stays meaningful at any job count.
   `(exit 0)` over a failing assertion, redundant and unexplained nonzero exits,
   a plain `test-expect-fail`, and a clean control — are each run through *both*
   verdict rules, which must agree *and* land on the expected verdict.
+
+  It carries a **copy** of `run-all.sh`'s stdout net regex, which is how the two
+  rules would drift while this script kept certifying agreement — so it also
+  greps `run-all.sh` for that pattern verbatim and fails if it is not there.
+
+  One deliberate asymmetry survives, and is not a fixture because no legitimate
+  file can produce it: since kaappi#2116 the net also matches a bare `FAIL`
+  token, so a file printing `FAIL` while exiting 0 with zero SRFI-64 failures
+  is red under `run-all.sh` and green under `kaappi test`. That shape *is* the
+  bug class #2116 exists to forbid, and every file in the corpus that can print
+  `FAIL` also exits nonzero when it does — which is why all ten fixtures still
+  agree. If `kaappi test` ever grows the same net, the asymmetry closes.
 - `tests/scheme/test-runner/changed.sh` — `--changed`/`--list-affected` over a
   throwaway git repo with a known dependency shape: diamond import, `include`,
   a `(load …)` escape hatch, native-artifact and unknown-revision full-run
