@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785740741774,
+  "lastUpdate": 1785744528800,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "12588782c29762552483fa03b64786a3232e731b",
-          "message": "Rewrite the audit strategy for a codebase that now has fuzzers (#1889)\n\nThe v1 campaign (#1137) closed on 2026-07-05 and its document still\ndescribes what it audited: ~39k lines, 578 procedures, 21 primitives\nfiles, 72 SRFIs. Since its base commit that is 417 commits and +67k\nlines ago. 132 of 162 .sld files and 166 of 200 SRFI tests postdate it,\nso for most of the tree a second campaign is a first audit, not a\nre-audit — and ten primitives files have no audit test at all.\n\nTwo things change the shape of the work rather than just its size.\n\nThe project now runs nightly differential fuzzing with three oracles\n(opt-vs-no-opt, VM-vs-native, Kaappi-vs-Chibi). v1 predates all of it,\nso v2 is scoped explicitly as the complement: fuzzers own crashes and\ntier divergence inside a generated subset, the audit owns breadth and\nanything whose oracle is a document rather than the implementation's\nother half. Without that split the obvious next campaign would spend\nits budget rebuilding harnesses that already run every night.\n\nAnd a large fraction of the remaining work is documentation truth, not\ntesting. Five of the six expander limitations CLAUDE.md lists as open\nare fixed; the eval_fallback_form_names hazard it warns about has\nmigrated to a different, still hand-maintained list; the SRFI 58/163\nexclusions rest on two statements that are now false. An auditor\ntrusting the docs today loses sessions to bugs fixed months ago, which\nis why the truth pass is Phase 0 and not an afterthought.\n\nA seven-agent reconnaissance pass fed the rewrite and is recorded in\nit: 13 reproduced findings against a fully green suite (624/624 Scheme\nfiles, 1395/1395 R7RS assertions). That gap is the campaign's\njustification — the suite is green because it does not ask these\nquestions, not because the answers are right.\n\nThe audit-primitives skill is updated in the same commit because every\nPhase 2 session loads it and it had drifted onto the old\n`try reg(vm, ...)` registration and a 18-of-31 file list.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-31T15:02:02+05:30",
-          "tree_id": "6cb49d8cb3805204fa855918b2bda28f91a115f7",
-          "url": "https://github.com/kaappi/kaappi/commit/12588782c29762552483fa03b64786a3232e731b"
-        },
-        "date": 1785493530297,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.935647,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.864529,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.562005,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.832828,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004842,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.044575,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.293627,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054868,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.284727,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.158065,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.511626,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.301755,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.68899,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.783272,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046638,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043161,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "07cceb257ed76cf6fd4d7d890a4a8b367544c496",
+          "message": "Refuse three cross-heap uses that the owner checks were missing (#2198)\n\nAll three issues are the same shape: an object used by a thread that does\nnot own it, on a route where nothing checked. The globals map is shared by\npointer, so a thunk that merely *names* a top-level binding hands the child\nthe parent's own object -- and only channels and thread handles compared\nObject.owner against the running GC.id.\n\nfiber-join (#2001) is the worst of the three, because the API itself\nperforms the hand-off: it returned the parent's heap object to the child as\nits documented result value, so a set-car! in the child was observed by the\nparent. A still-running foreign fiber was reported as a deadlock, sending\nthe reader to look for a cycle that does not exist -- the fiber simply\nbelongs to another thread's scheduler. gc_deep_copy refuses the .fiber tag\noutright, so there is no idiom to protect: nothing legal is now refused.\n\ninvokeGuardian (#2008) mutated Guardian.registered -- a raw std.ArrayList,\nthe only Zig container Scheme can grow across a heap boundary -- with the\n*calling* thread's allocator and no lock. Two threads registering into one\nshared guardian aborted the process 5 of 5 times with empty stdout and\nstderr. A child registering a child-heap object left the parent holding a\npointer into the freed child arena, which weakReachable then read for an\nowner id: silently #f in ReleaseSafe, an unrelated live parent-heap pair\nunder -Dgc-stress. One check ahead of both the register and the retrieve\nbranch closes both.\n\ngc_deep_copy's channel arm (#1934) checked ownership only on the\nunpromoted branch, so promotion state alone decided whether KEP-0002\ninvariant 4 applied. A thread could read a promoted channel out of a\nshared global -- which every channel primitive refuses it directly -- and\nhand it to a child, which then held a perfectly working stub. The check\nnow runs before `shared` is read at all (so a foreign heap's field is\nnever read on this path) and keys off direction rather than promotion\nstate: a copy *out of* the running heap into an Envelope must be a channel\nthe running thread owns, while a copy *in*, draining an envelope some\nentitled thread already built, is not re-checked -- its objects belong to\nthat private heap, not to the importer, so re-checking would reject every\nlegal message. All three import sites set gc_instance to the destination\nfirst.\n\nTwo existing unit tests modelled a thread boundary without moving the\nthreadlocal with it, and now set it the way the production path does.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-03T07:35:59Z",
+          "tree_id": "d2990824a84b8b8b87b199b6c5e2e6eca4e477c2",
+          "url": "https://github.com/kaappi/kaappi/commit/07cceb257ed76cf6fd4d7d890a4a8b367544c496"
+        },
+        "date": 1785744426098,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.082126,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.628332,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.564224,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.884687,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004887,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.045022,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.296736,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054011,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.309598,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.168119,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.52496,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.305176,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.701278,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.781277,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044534,
             "unit": "seconds"
           }
         ]
