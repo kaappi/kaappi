@@ -390,6 +390,13 @@ fn valueHashDepth(key: Value, depth: usize) usize {
 /// How many times a probe may restart because the table moved under it before
 /// we give up. A `.custom` procedure that mutates on *every* call would
 /// otherwise spin forever; anything sane settles in one.
+///
+/// In practice this is a backstop rather than the first line of defence: an
+/// unconditionally-mutating procedure re-enters the table from inside its own
+/// callback, so `KP3008: native re-entrancy too deep` fires before the restart
+/// count runs out. That is an uncatchable VM limit by design (#1886), which is
+/// why the exhaustion path here raises an ordinary catchable error instead --
+/// if something ever does reach it, a `guard` should be able to see it.
 const MAX_PROBE_RESTARTS = 16;
 
 /// A probe's view of the table. `.custom` hash and equality procedures are
