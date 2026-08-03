@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785744528800,
+  "lastUpdate": 1785761406230,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c6040f1802c2e54b7068a0d632a36bb99cfedbb4",
-          "message": "Tick Phase 0A and point the tracker at the filed issues (#1904)\n\nThe document calls its progress tracker the single source of truth for\nwhat is done, so leaving 0A unticked after running it contradicts the\nrule the campaign is meant to enforce — the first session to read it\nwould have re-run the baseline and re-filed thirteen issues.\n\nRecords the green baseline, the tracking issue, and the twelve issue\nnumbers. Also notes that reproducing F12 before filing corrected it: a\nflat cdr-cycle prints its label correctly, and only a car-nested cycle\npast the depth limit loses one. The reconnaissance table keeps the\nrepro recipes, since those are what a fixer needs and the issues\nduplicate rather than replace them.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-31T15:42:35+05:30",
-          "tree_id": "4d609c6de114ec2e3a4175b0615a4302f7baae5e",
-          "url": "https://github.com/kaappi/kaappi/commit/c6040f1802c2e54b7068a0d632a36bb99cfedbb4"
-        },
-        "date": 1785500102341,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.942564,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.072483,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.560011,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.844202,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.0049,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.044633,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.293514,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054836,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.29169,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.157576,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.519576,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.299184,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.685114,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.732877,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044263,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044534,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e292e8e27a87e83d6341ff656a64524159c9356f",
+          "message": "Stop compile-only commands running program code, and name the real cache reason (#2199)\n\n* Stop compile-only commands running program code, and name the real cache reason\n\n`vm_eval.handleTopLevelForm` claims eight top-level heads — import,\ndefine-library, define-record-type, define-values, include, include-ci,\nbegin and cond-expand. Three consumers each carried their own hand-kept\ncopy of that list, and both defects here came from the copies disagreeing\nwith what the dispatcher actually does.\n\n`--compile` and `--disassemble` routed every claimed head through the\n*evaluator*. Three of the eight carry ordinary program code, so a\n`delete-file` inside a top-level begin, cond-expand or define-values ran\nfor real while the artifact was being produced — and the form was also\nrecorded in the preamble, so across compile + run the effect happened\ntwice. A bare top-level `(delete-file ...)` was never executed, which is\nwhat makes this the dispatcher's fault rather than \"compiling runs the\nprogram\".\n\nSplice begin and cond-expand into the driver's form stream instead\n(`toplevel_driver.TopLevelForms`), so their bodies are compiled: only a\ncond-expand's branch *selection* is a compile-time question. Evaluate\nonly `TopLevelHead.isEnvSetup()` — the five declarations later forms are\ncompiled against — and record define-values without running its producer.\nThis also repaired an ordering divergence, since the preamble replays\nentirely before the compiled forms: `one / (begin two) / three` used to\nprint `two one three` from the standalone binary.\n\nThe cache half is reporting, not behaviour. All eight heads legitimately\ndisable the `.sbc` cache — handleTopLevelForm appends no Function, so a\nHIT would skip the form's work entirely — but `--timings` blamed\n`imports` for all of them, telling files containing no import that an\nimport was the cause. It now names the head that fired, and the docs give\nthe shared reason rather than the library-loading one that only covers\nthree of the eight.\n\nThe four parallel lists are now one `vm_eval.TopLevelHead` enum. The\ndispatch is an exhaustive switch, so a ninth head cannot reach the VM\nwithout a handler; `isSpecialTopLevelForm` (whose own comment asked the\nreader to keep it in sync) and check.zig's env-setup allowlist derive\nfrom it.\n\nCloses #2156.\nCloses #2114.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Address review: compile shadowed define-record-type, propagate compile OOM\n\nFive review findings, all verified against the code before acting.\n\n`check` classified top-level heads by *name*, so a `define-record-type`\nshadowed by a macro (SRFI 57/131/136/150 each bind that name) entered the\nenv-setup branch, `handleTopLevelForm` declined it — it does consult the\nmacro table — and the form was dropped uncompiled. `vm.topLevelHead` gives\nthe VM-aware answer, so it now falls through to ordinary compilation.\n\nThe review described the false-negative half: a malformed shadowed use\nreported nothing and `check` exited 0. The false-*positive* half is worse\nand was not mentioned — dropping the form also dropped whatever it bound,\nso later forms drew phantom diagnostics. Sweeping `check` over 880 files\n(tests plus every shipped .sld), old vs new, found exactly two that differ,\nboth known-good: srfi136.scm lost 3 phantom KP2001 \"invalid syntax\" errors\nplus a phantom KP4001, and srfi150.scm a phantom KP2002. Both are hard\nerrors, so `check` was failing valid files.\n\n`compileFile` had three silent failure paths — a failed valueToString or\npreamble/compiled_funcs append dropped a form, then printed\n\"Compiled ... -> ...\" and exited 0 with an artifact missing an import or a\ntop-level form. They now propagate OutOfMemory, as runFile's equivalent\nsite already did.\n\n`define-values` still replays from the preamble, which runs in full before\nany compiled form, so its producer can observe an earlier form's binding as\nunbound: the artifact for `(define x 1)` + `(define-values (a b) (values x\n2))` fails with KP3001 where the interpreter prints `(1 2)`. Reproduced\nidentically at 07cceb25, so this PR neither caused nor fixed it — splicing\nis what restores order and there is nothing to splice a define-values into.\nFiled as #2200 and documented in cache.md rather than folded in here; the\nfix needs an order-preserving preamble or a compilable define-values.\n\nTests: four assertions in errors/check.sh for the shadowing fix (all four\nfail pre-fix), using the real SRFI files as the guard for the\nfalse-positive direction — a synthetic probe cannot show it, since `check`\ngathers top-level define names structurally and never sees a binding any\nmacro introduces. The #2156 suite now uses interp_stdout /\nassert_tiers_agree, which also compares exit status; the golden string\nstays as a second assertion against the interpreter. Deduplicated the\ninclude/include-ci assertion.\n\nRefs #2199 review.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-03T12:19:10Z",
+          "tree_id": "7a778f392438e9f8b459ff6cbdfa61c30e9f5801",
+          "url": "https://github.com/kaappi/kaappi/commit/e292e8e27a87e83d6341ff656a64524159c9356f"
+        },
+        "date": 1785761404583,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.412813,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.128928,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.571461,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.079665,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004691,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046955,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.315135,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.058301,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.678782,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.220512,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.600071,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.286545,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.822148,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.585962,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042547,
             "unit": "seconds"
           }
         ]
