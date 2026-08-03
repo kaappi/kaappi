@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785766849729,
+  "lastUpdate": 1785768960982,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1c3dec04c7ed3571f4a526d2c0fdca6d104abd96",
-          "message": "Run the test suites in parallel, and stop sleeping through them (#1887)\n\n* Run the test suites in parallel, and stop sleeping through them\n\n`bash tests/scheme/run-all.sh` took 17.8 min on a 4-core box to do about\n90s of actual work. Two independent causes, fixed here.\n\n**The poll interval.** `wait_with_timeout` polled a spawned child with\n`sleep 1`, so every one of the ~620 spawned units cost a full second of\nwall clock no matter how fast it really was — and 381 of the 566 .scm\nfiles finish in under 50ms. That single sleep was ~93% of the script's\nruntime. The tick is now 0.05s, counted in 20ths of a second so the\ntimeout keeps its exact meaning, with an integer fallback if a platform's\n`sleep` rejects fractions.\n\n**No parallelism.** Each .scm file is already a fresh interpreter with no\nshared state, so `run_suite` now dispatches KAAPPI_TEST_JOBS at a time\n(default: one per CPU; 1 restores strictly-sequential). Workers write\ntheir verdict to a slot and the parent tallies and prints afterwards in\nglob-sorted order, so output ordering and the counters are unchanged. An\naudit of the corpus found no cross-file collisions on fixed paths or\nports before turning this on.\n\nShell suites stay sequential: several call `ensure_runtime_lib`, which\nruns `zig build lib` into the shared zig-out/lib, so concurrent scripts\nwould race over one output archive. They are now the larger half of the\nremaining wall time.\n\n`kaappi test` gets the same treatment via `-j`/`--jobs`, which its own\ndocs already anticipated. Worker threads claim files from an atomic\ncounter while the main thread reports the completed prefix in file order,\nso verdicts and output ordering are identical at any job count. The emit\npath now travels in the child's own envp: setenv on the parent before\neach fork is a single mutable global shared by every in-flight worker,\nand two concurrent spawns would have sent both children to the same path\nand lost a result. Windows stays at one job, where that env is still\ninherited from the parent.\n\nMeasured on 4 cores, all three producing identical results\n(2019 pass, 0 fail):\n\n    run-all.sh, before                1070s\n    run-all.sh, KAAPPI_TEST_JOBS=1     425s   2.5x\n    run-all.sh, default (4 jobs)       279s   3.8x\n    kaappi test tests/scheme/srfi     18.5s -> 4.6s   4.0x\n\ntests/scheme/test-runner/jobs.sh pins the parity down by diffing whole\ntranscripts between --jobs 1 and --jobs 4, including a deliberately\nslow-first fixture so a reporter that emitted in completion order would\nfail even though its totals stayed correct.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01Qk6ip9ctt9dJANetqdwDMm\n\n* Address review: validate KAAPPI_TEST_JOBS, cover resolveJobs, sharpen docs\n\nThree findings from CodeRabbit on #1887, all valid.\n\n`KAAPPI_TEST_JOBS` was never validated — only `detect_jobs`'s own output\nwas. `[[ $running -ge $JOBS ]]` evaluates its operands arithmetically, so\na non-numeric value is silently 0: `KAAPPI_TEST_JOBS=abc` did not fail,\nit quietly serialised the run with a spurious `wait` per file, and still\nreported success. A typo in a CI env var should not cost a 4x-slower\nsuite that looks fine. Bad values now exit 2 with the offending value\nnamed. `0` is rejected in `detect_jobs` too, where it would have been\npassed through as a valid count.\n\n`resolveJobs` is pure and encodes the platform policy the rest of the\nfeature rests on, so it gets direct unit coverage: zero and one file,\na request above the file count, an explicit `--jobs 1`, and auto —\nwith the Windows and single-threaded expectations gated on the same\ncomptime conditions the function itself uses.\n\nThe `--jobs` doc claimed output is identical at any job count without\nnoting that durations obviously are not; it now says the test normalises\nthe `…ms` fields and then requires a byte-for-byte match, which is what\njobs.sh actually does.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01Qk6ip9ctt9dJANetqdwDMm\n\n* Add the CHANGELOG entry the `changelog` CI job requires\n\nThe PR touches src/, and `kaappi test --jobs` is a new user-facing flag,\nso this is a real entry rather than the `no-changelog` escape hatch.\n\nRecords the flag itself and, under Fixed, the emit-path race it required\nclosing — worth stating separately because it was a latent correctness\nbug in shipped code, even though nothing could reach it while spawns\nwere serialised.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01Qk6ip9ctt9dJANetqdwDMm\n\n---------\n\nCo-authored-by: Claude <noreply@anthropic.com>",
-          "timestamp": "2026-07-31T16:19:37+05:30",
-          "tree_id": "9a209b851b025a51669a094eae25d72bc844b930",
-          "url": "https://github.com/kaappi/kaappi/commit/1c3dec04c7ed3571f4a526d2c0fdca6d104abd96"
-        },
-        "date": 1785506313723,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.346949,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.970683,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.590433,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.982932,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004741,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047208,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.318695,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.05739,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.661153,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.231094,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.616613,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.284512,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.79793,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.611677,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044051,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041796,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cc351d020a8251ecb1ab02ee8085d1c58641314b",
+          "message": "Validate arity in the two call paths that build their frames by hand (#2203)\n\ncallClosure checks arity for the `call` opcode. Three other places construct\na frame themselves and inherited none of that: callHandler, callThunk, and the\nfiber scheduler's spawnFiber. Two of them skipped the check entirely, so a\nwrong-arity procedure ran anyway with its surplus parameters reading whatever\nthe register file happened to hold — a live value from a neighbouring frame,\nnot merely an undefined slot, because the hand-built frames also never cleared\npast the argument they staged. A 3-argument exception handler received the\ncaller's `list` procedure as its third argument, deterministically.\n\nRather than add the same check in each caller — which is how it went missing —\nevery re-entrant frame now binds its arguments through one helper on the\ncallReentrant path, bindReentrantArgs, which validates arity and folds surplus\narguments into a variadic callee's rest list. callHandler, callThunk and\ncallWithArgs each collapse to a single call and cannot skip it. That covers\nthe with-exception-handler handler, the call-with-values producer, and the\ncall/cc and call/ec receivers in non-tail position (the tail-position\nsuperinstruction always had its own check).\n\nwith-exception-handler and %call-with-unwind-handler additionally check their\nthunk before installing the handler. Left to callThunk, the thunk's arity\nerror is raised inside the extent of the handler being installed, so the\nhandler catches the report of its own caller's malformed call and the form\nquietly returns the handler's value. Their handler's arity is deliberately\nstill checked at the call, since a handler that is never invoked has nothing\nto report about.\n\nspawnFiber had the same gap plus a second defect: with base = 0, r0 is the\nthunk's first parameter, not a callee slot, so writing the closure there bound\na fiber's own thunk to its first parameter and `#<undefined>` to the rest —\nmaking a rest parameter satisfy neither `list?` nor `null?`, against R7RS\n4.1.4. r0 is now left to the variadic rest list, and the closure stays reachable\nthrough frames[0].closure and fiber.thunk, which the GC already traces. Both\nchecks moved ahead of allocFiber, which used to run first, so a refused thunk\nno longer leaves a fiber and a consumed id behind. spawn also stops relabelling\nevery spawnFiber failure OutOfMemory, which reported a memory problem for what\nis an argument problem and discarded the diagnostic.\n\nA pure-variadic thunk — the natural way to write \"ignore my arguments\" — now\nworks in both places instead of failing outright.\n\nCloses #2034\nCloses #1999\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-03T14:25:15Z",
+          "tree_id": "c5ad4c4ca8b31e6a24e28f4ba614fc8b7719c757",
+          "url": "https://github.com/kaappi/kaappi/commit/cc351d020a8251ecb1ab02ee8085d1c58641314b"
+        },
+        "date": 1785768959479,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.496169,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.188382,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.57032,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.103017,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004675,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047227,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.317864,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055864,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.686241,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.264175,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.574683,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.283692,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.844568,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.58825,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043139,
             "unit": "seconds"
           }
         ]
