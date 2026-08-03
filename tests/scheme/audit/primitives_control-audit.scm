@@ -782,32 +782,45 @@
 ;;; ------------------------------------------------------------------
 ;;;
 ;;; The ordinary call path (callClosure / callWithArgs) validates arity; the
-;;; native re-entrancy helpers callHandler / callThunk do not, so a
-;;; wrong-arity handler, receiver or thunk runs anyway with its surplus
+;;; native re-entrancy helpers callHandler / callThunk did not, so a
+;;; wrong-arity handler, receiver or thunk ran anyway with its surplus
 ;;; parameters bound to whatever the register file happened to hold.
 ;;; dynamic-wind's three thunks — invoked from bootstrapped Scheme through the
 ;;; ordinary path — are the discriminating control, and are asserted above.
+;;; Fixed in #2034: every hand-built re-entrant frame now binds its arguments
+;;; through one validating helper (vm_calls.bindReentrantArgs), and the two
+;;; handler-installing primitives check their thunk *before* the handler goes
+;;; on the stack, so the failure is not delivered to the handler it describes.
 
-;; FAIL: #2034 (callHandler/callThunk skip the arity check)
-;; (test-assert "arity: a 2-argument exception handler is rejected"
-;;              (raises? (with-exception-handler (lambda (a b) 'h)
-;;                         (lambda () (raise-continuable 'x)))))
-;; (test-assert "arity: a 0-argument exception handler is rejected"
-;;              (raises? (with-exception-handler (lambda () 'h)
-;;                         (lambda () (raise-continuable 'x)))))
-;; (test-assert "arity: a 3-argument exception handler is rejected"
-;;              (raises? (with-exception-handler (lambda (a b c) (list a b c))
-;;                         (lambda () (raise-continuable 'x)))))
-;; (test-assert "arity: a 1-argument with-exception-handler thunk is rejected"
-;;              (raises? (with-exception-handler (lambda (e) 'h) (lambda (x) x))))
-;; (test-assert "arity: a 1-argument call-with-values producer is rejected"
-;;              (raises? (call-with-values (lambda (x) 1) list)))
-;; (test-assert "arity: a 2-argument call/cc receiver is rejected in non-tail position"
-;;              (raises? (list (call/cc (lambda (a b) 1)))))
-;; (test-assert "arity: a 2-argument call/ec receiver is rejected"
-;;              (raises? (call/ec (lambda (a b) 1))))
-;; (test-assert "arity: a 2-argument SRFI 248 unwind-handler thunk is rejected"
-;;              (raises? (%call-with-unwind-handler (lambda (o) 'h) (lambda (x) x))))
+(test-assert "arity: a 2-argument exception handler is rejected"
+             (raises? (with-exception-handler (lambda (a b) 'h)
+                        (lambda () (raise-continuable 'x)))))
+(test-assert "arity: a 0-argument exception handler is rejected"
+             (raises? (with-exception-handler (lambda () 'h)
+                        (lambda () (raise-continuable 'x)))))
+(test-assert "arity: a 3-argument exception handler is rejected"
+             (raises? (with-exception-handler (lambda (a b c) (list a b c))
+                        (lambda () (raise-continuable 'x)))))
+(test-assert "arity: a 1-argument with-exception-handler thunk is rejected"
+             (raises? (with-exception-handler (lambda (e) 'h) (lambda (x) x))))
+(test-assert "arity: a 1-argument call-with-values producer is rejected"
+             (raises? (call-with-values (lambda (x) 1) list)))
+(test-assert "arity: a 2-argument call/cc receiver is rejected in non-tail position"
+             (raises? (list (call/cc (lambda (a b) 1)))))
+(test-assert "arity: a 2-argument call/ec receiver is rejected"
+             (raises? (call/ec (lambda (a b) 1))))
+(test-assert "arity: a 2-argument SRFI 248 unwind-handler thunk is rejected"
+             (raises? (%call-with-unwind-handler (lambda (o) 'h) (lambda (x) x))))
+;; The same defect in the shape that made it worst: with a live procedure in a
+;; neighbouring register, the 3-argument handler's third parameter came back as
+;; `#<builtin list>` — the caller's own register, deterministically, not merely
+;; an undefined slot — because the hand-built frame never cleared past the one
+;; argument it staged.  Rejecting the call is what removes the leak, so this
+;; pins the leak's exact register layout rather than a second mechanism.
+(test-assert "arity: a rejected handler cannot surface a caller's register"
+             (raises? (list list (with-exception-handler
+                                     (lambda (a b c) (list a b c))
+                                   (lambda () (raise-continuable 'x))))))
 
 ;; A variadic handler is legal at any arity and must keep working.
 (test-equal "arity: a variadic exception handler receives exactly one argument"

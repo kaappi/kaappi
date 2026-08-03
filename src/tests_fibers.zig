@@ -575,3 +575,58 @@ test "thread-sleep! with an unbounded duration parks without aborting (#1983)" {
     const got = try vm.eval("progress");
     try std.testing.expectEqual(@as(i64, 2), types.toFixnum(got));
 }
+
+// #1999: spawnFiber builds the fiber's first call frame by hand and performed
+// neither the arity check nor the rest-list construction an ordinary call
+// does. `registers[0]` held the thunk closure itself while `base = 0` made r0
+// the callee's first parameter, so a one-argument procedure ran with its own
+// thunk bound to that parameter and any further parameter reading the
+// UNDEFINED register fill.
+test "spawn rejects a procedure that is not a thunk (#1999)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    try std.testing.expectError(vm_mod.VMError.ArityMismatch, vm.eval("(spawn (lambda (x) 'body-ran))"));
+    try std.testing.expectError(vm_mod.VMError.ArityMismatch, vm.eval("(spawn (lambda (a b c) (list a b c)))"));
+    // A required parameter plus a rest parameter is not a thunk either: the
+    // rest list would be empty, but `a` has nothing to bind to. This shape
+    // used to bind UNDEFINED to both, making (list? r) and (null? r) BOTH #f
+    // in violation of R7RS 4.1.4's "newly allocated list".
+    try std.testing.expectError(vm_mod.VMError.ArityMismatch, vm.eval("(spawn (lambda (a . r) (list a r)))"));
+    // A native procedure of arity >= 1 used to reach the fiber and fail there
+    // with the contentless "fiber error (no exception value)".
+    try std.testing.expectError(vm_mod.VMError.ArityMismatch, vm.eval("(spawn car)"));
+}
+
+test "spawn runs a pure-variadic thunk with an empty rest list (#1999)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // The most natural way to write "ignore my arguments" failed outright
+    // before the fix, because r0 held the thunk closure rather than the '()
+    // an ordinary zero-argument call would have built.
+    const result = try vm.eval("(fiber-join (spawn (lambda args (length args))))");
+    try std.testing.expectEqual(@as(i64, 0), types.toFixnum(result));
+
+    const shape = try vm.eval("(fiber-join (spawn (lambda args (list (list? args) (null? args)))))");
+    try std.testing.expect(types.isPair(shape));
+    try std.testing.expectEqual(types.TRUE, types.toObject(shape).as(types.Pair).car);
+}
+
+test "a rejected spawn allocates no fiber and leaves the scheduler usable (#1999)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // The checks now precede allocFiber, which used to run first -- a refused
+    // thunk left a fiber and a consumed id behind it.
+    _ = try vm.eval("(define before (spawn (lambda () 'first)))");
+    try std.testing.expectError(vm_mod.VMError.ArityMismatch, vm.eval("(spawn (lambda (x) x))"));
+    const result = try vm.eval("(list (fiber-join before) (fiber-join (spawn (lambda () 'after))))");
+    try std.testing.expect(types.isPair(result));
+}

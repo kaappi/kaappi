@@ -447,3 +447,93 @@ test "isUncatchable covers limits and signals but not program faults" {
     // Overloaded: also the payload-size cap. See isUncatchable's doc comment.
     try std.testing.expect(!errors.isUncatchable(error.OutOfMemory));
 }
+
+// #2034: callHandler and callThunk built their callee's frame by hand and
+// jumped straight into it, skipping the arity check callClosure performs for
+// the `call` opcode. A wrong-arity handler, thunk, producer or receiver
+// therefore ran anyway, and its surplus parameters read whatever the register
+// file happened to hold. Both are now bound through the one validating helper
+// (vm_calls.bindReentrantArgs), so every entry point below reports arity.
+test "a wrong-arity exception handler is rejected (#2034)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    try std.testing.expectError(VMError.ArityMismatch, vm.eval(
+        \\(with-exception-handler (lambda (a b) (list a b))
+        \\  (lambda () (raise-continuable 'x)))
+    ));
+    try std.testing.expectError(VMError.ArityMismatch, vm.eval(
+        \\(with-exception-handler (lambda () 'h) (lambda () (raise-continuable 'x)))
+    ));
+}
+
+test "a surplus handler parameter never reads a neighbouring register (#2034)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // The sharpest form of the bug: the 3-argument handler's third parameter
+    // came back as the `list` procedure itself -- a live value out of the
+    // enclosing frame, not merely an undefined slot -- because the hand-built
+    // frame also never cleared the registers past the argument it staged.
+    try std.testing.expectError(VMError.ArityMismatch, vm.eval(
+        \\(with-exception-handler (lambda (a b c) (list a b c))
+        \\  (lambda () (raise-continuable 'x)))
+    ));
+}
+
+test "a wrong-arity with-exception-handler thunk is rejected before the handler is installed (#2034)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // The report must escape rather than being delivered to the very handler
+    // whose caller is malformed: with the check inside callThunk the handler
+    // caught its own thunk's arity error and the form quietly returned 'h.
+    try std.testing.expectError(VMError.InvalidArgument, vm.eval(
+        \\(with-exception-handler (lambda (e) 'h) (lambda (x) x))
+    ));
+}
+
+test "a wrong-arity call-with-values producer and call/cc receiver are rejected (#2034)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // The producer went through callThunk while the consumer went through
+    // callWithArgs, so one half of one call was checked and the other was not.
+    try std.testing.expectError(VMError.ArityMismatch, vm.eval("(call-with-values (lambda (x) 1) list)"));
+    // Non-tail position: the tail-position superinstruction has always had its
+    // own check, so only this half was ever wrong.
+    try std.testing.expectError(VMError.ArityMismatch, vm.eval("(list (call/cc (lambda (a b) 1)))"));
+    try std.testing.expectError(VMError.ArityMismatch, vm.eval("(call/ec (lambda (a b) 1))"));
+}
+
+test "variadic handlers and thunks still bind correctly (#2034)" {
+    // A variadic callee is legal at these arities and must keep working: the
+    // rest list is built from the caller's own argument before any register is
+    // written, so these exercise the new binder's other branch.
+    try th.expectEvalTrue("(equal? '(x) (with-exception-handler (lambda args args) (lambda () (raise-continuable 'x))))");
+    try th.expectEvalTrue("(equal? '(x ()) (with-exception-handler (lambda (a . r) (list a r)) (lambda () (raise-continuable 'x))))");
+    try th.expectEvalTrue("(equal? '(0) (call-with-values (lambda args (length args)) list))");
+}
+
+test "a variadic callee needing more than one argument is still rejected (#2034)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // `is_variadic` alone did not make the old code correct: it staged the
+    // single argument and ran the body regardless of how many the callee
+    // required, so `b` and `r` read leftover registers.
+    try std.testing.expectError(VMError.ArityMismatch, vm.eval(
+        \\(with-exception-handler (lambda (a b . r) (list a b r))
+        \\  (lambda () (raise-continuable 'x)))
+    ));
+}

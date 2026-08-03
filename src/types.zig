@@ -654,6 +654,47 @@ pub fn isProcedure(v: Value) bool {
     return isClosure(v) or isNativeFn(v) or isNativeClosure(v) or isContinuation(v) or isParameter(v) or isFfiFunction(v) or isGuardian(v);
 }
 
+/// Answer whether `v` — assumed to satisfy `isProcedure` — can be called with
+/// `nargs` arguments, without building a frame or observing anything.
+///
+/// For the call sites that must refuse a wrong-arity procedure *before* doing
+/// something they cannot take back: installing the very exception handler that
+/// would otherwise intercept the failure (#2034), or allocating a fiber
+/// (#1999). The ordinary call path reports arity from the frame it is about to
+/// build; these cannot wait that long.
+///
+/// Only closures, native procedures and FFI functions declare an arity. A
+/// continuation accepts any number of arguments, and a parameter object or a
+/// guardian accepts a small range including zero, so those answer true and are
+/// left to the call itself to check.
+pub fn acceptsArgCount(v: Value, nargs: usize) bool {
+    if (isClosure(v)) {
+        const func = toObject(v).as(Closure).func;
+        return if (func.is_variadic) nargs >= func.arity else nargs == func.arity;
+    }
+    if (isNativeFn(v)) {
+        return switch (toObject(v).as(NativeFn).arity) {
+            .exact => |n| nargs == n,
+            .variadic => |min| nargs >= min,
+        };
+    }
+    if (isNativeClosure(v)) return nargs == toObject(v).as(NativeClosure).arity;
+    if (isFfiFunction(v)) return nargs == toObject(v).as(FfiFunction).param_count;
+    return true;
+}
+
+/// The name `v` was defined under, when it has one — for naming the offending
+/// procedure in a diagnostic without allocating or printing it. An anonymous
+/// `lambda`, and every procedure kind that carries no name at all, answers
+/// null; a caller phrases its message so that reads naturally.
+pub fn procedureName(v: Value) ?[]const u8 {
+    if (isClosure(v)) return toObject(v).as(Closure).func.name;
+    if (isNativeFn(v)) return toObject(v).as(NativeFn).name;
+    if (isNativeClosure(v)) return toObject(v).as(NativeClosure).name;
+    if (isFfiFunction(v)) return toObject(v).as(FfiFunction).name;
+    return null;
+}
+
 pub fn isContinuation(v: Value) bool {
     return isPointer(v) and toObject(v).tag == .continuation;
 }

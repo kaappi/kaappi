@@ -397,12 +397,27 @@ pub const FiberScheduler = struct {
 
     pub fn spawnFiber(self: *FiberScheduler, thunk: Value) !*Fiber {
         var thunk_val = thunk;
+
+        // Both checks precede allocFiber: a rejected thunk used to leave a
+        // fiber (and an id) already allocated behind it.
+        if (!types.isProcedure(thunk_val)) return VMError.NotAProcedure;
+        // A fiber thunk is called with no arguments, and the first frame is
+        // built by hand below — so the arity check the `call` opcode performs
+        // has to happen here. Without it a non-thunk ran anyway, with its
+        // parameters reading the hand-staged register file (#1999).
+        if (!types.acceptsArgCount(thunk_val, 0)) {
+            if (types.procedureName(thunk_val)) |name| {
+                self.vm.setErrorDetail("spawn: fiber thunk '{s}' does not accept zero arguments", .{name});
+            } else {
+                self.vm.setErrorDetail("spawn: fiber thunk does not accept zero arguments", .{});
+            }
+            return VMError.ArityMismatch;
+        }
+
         self.vm.gc.pushRoot(&thunk_val);
         const fiber = try self.vm.gc.allocFiber(thunk_val, self.next_id);
         self.vm.gc.popRoot();
         self.next_id += 1;
-
-        if (!types.isProcedure(thunk_val)) return VMError.NotAProcedure;
 
         var closure: *types.Closure = undefined;
         if (types.isClosure(thunk_val)) {
@@ -418,7 +433,20 @@ pub const FiberScheduler = struct {
         }
 
         @memset(fiber.registers, types.UNDEFINED);
-        fiber.registers[0] = types.makePointer(&closure.header);
+        // r0 is the callee's *first local*, not a callee slot: `base = 0`
+        // below, and a re-entrant frame's base is where argument zero goes
+        // (unlike callClosure, where the callee sits at base and arguments
+        // start at base + 1). Writing the closure here therefore bound it to
+        // the thunk's first parameter, so `(spawn (lambda (x) ...))` saw its
+        // own thunk as x (#1999) — and nothing needed it there: the closure is
+        // kept alive by frames[0].closure and fiber.thunk, both of which the
+        // GC traces (gc_collect.zig, markFiberState).
+        //
+        // A pure-variadic thunk is legal and takes the rest list in r0; the
+        // arity check above has already refused every other shape, so this is
+        // the whole of the binding an ordinary call would do for zero
+        // arguments.
+        if (closure.func.is_variadic) fiber.registers[0] = types.NIL;
         fiber.frames[0] = .{
             .closure = closure,
             .code = closure.func.code.items,
