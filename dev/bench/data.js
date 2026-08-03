@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785768960982,
+  "lastUpdate": 1785771670762,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "2903f3532d14576629b5dcd949643a81aea2371d",
-          "message": "Phase 1A: reader exactness audit — 128 assertions, 5 new bugs including a process-abort panic (#1917)\n\n* Add Phase 1A reader-exactness audit tests\n\nAudit v2 Phase 1A: `#e`/`#i` over the i64 boundary and reader vs\n`string->number` parity, against R7RS 6.2.5, 6.2.7 and 7.1.1.\n\n128 assertions pass; 39 are commented out with `;; FAIL:` markers — 7 for\nthe known #1891 and 32 for six findings this pass reproduced. Every\ndisabled group keeps an enabled discriminating control beside it, so the\nfile still proves the neighbouring path works.\n\nThe findings share one cause: `applyExactness` exists twice, in\n`reader_tokens.zig` and `primitives_numeric.zig`, with different\nstrategies. `string->number` rebuilds the value exactly from the decimal\ndigits; the reader parses to f64 first and then tries to un-round it with\na tolerance-based continued fraction, so it loses at both ends of the\nrange. Past fixes (#79, #419, #604, #751) each landed in one copy only.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Point Phase 1A FAIL markers at the filed issues\n\nThe disabled assertions were committed with placeholder markers before the\nissues existed. Each now names the issue whose fix re-enables it.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Address review: declare (scheme inexact), unpin a non-conforming control\n\nTwo review findings on #1917, both valid, though the first for a different\nreason than stated.\n\nfinite?/infinite?/nan? are registered to (scheme inexact), so the import\nbelongs there. The claim that omitting it made the file fail was wrong --\nit ran 128 assertions green, because a top-level script reaches vm.globals\ndirectly whether or not the import is declared. That ambient reachability\nis exactly what kaappi#1831 documents, and relying on it in a test would\nhave made the file pass here while the same code failed inside a library\nbody. Declared explicitly.\n\nThe second finding was right outright, and investigating it found a bug the\ncontrol was hiding. Asserting (not (string->number ...)) pinned #f as the\ncorrect answer for a valid R7RS numeric string, so fixing string->number\nwould have looked like a regression. Rewritten to assert only the non-crash\nproperty. Probing why it returned #f showed the UNPREFIXED spelling of 2^63\nfails too, with the reader parsing it correctly -- the opposite parity from\nevery other divergence in this file. Filed as #1921 with four enabled\ncontrols and one disabled assertion.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-31T18:38:54+05:30",
-          "tree_id": "86756ff19d7512557562d4326426a804332b910b",
-          "url": "https://github.com/kaappi/kaappi/commit/2903f3532d14576629b5dcd949643a81aea2371d"
-        },
-        "date": 1785506432457,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.352054,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.889947,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.582048,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.028709,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004766,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047001,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.31841,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057403,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.647567,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.23114,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.614311,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.281133,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.812327,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.63892,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044207,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043139,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e62b90ebd41368fc03b2e462c39806b6e709becb",
+          "message": "Check arity on the native branches of the re-entrancy helpers too (#2206)\n\ncallHandler and callThunk reach a native procedure through their own branches,\nwhich had no arity check at all — a gap the closure-side fix left behind, found\nby CodeRabbit in review of it.\n\nA NativeFn body indexes args[0], args[1], … without bounds checks of its own,\nbecause the VM is expected to have validated arity before the call. Both helpers\nhand one a fixed-size argument array, so a wrong-arity native read past its end.\nUnder the default ReleaseSafe build that is a panic — a process abort out of\nfive lines of ordinary Scheme, not the catchable arity error the closure path\nnow produces:\n\n    (call-with-values cons list)                                    ; callThunk, 0 args to arity 2\n    (with-exception-handler cons (lambda () (raise-continuable 'x))) ; callHandler, 1 arg to arity 2\n    (dynamic-wind (lambda () 1) (lambda () (raise 'x)) -)            ; unwind, 0 args to variadic min 1\n\nAll three printed \"kaappi internal error — this is a bug in kaappi\" and died.\n\nThe check itself already existed twice, verbatim, in callNative and in\ncallWithArgs' native branch. Rather than add a third and fourth copy — the\nduplication this PR is otherwise removing — it moves to checkNativeArity and\nall four sites share it. Messages are unchanged.\n\nThe dynamic-wind case reports as before: the unwind loop discards a failing\nafter-thunk, so the original raise survives, which is what should happen. What\nchanges is that the process reaches that point at all.\n\nThis is pre-existing, not a regression from the previous commit — the native\nbranches are untouched by it — and inside #2034's stated scope, whose table\nlists the with-exception-handler handler reached via callHandler as unchecked.\nIt only tested closures.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-03T20:40:24+05:30",
+          "tree_id": "c5103917c94fce3c03d369887fe5f65682173f2f",
+          "url": "https://github.com/kaappi/kaappi/commit/e62b90ebd41368fc03b2e462c39806b6e709becb"
+        },
+        "date": 1785771669056,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.329055,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.025367,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.576594,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.992864,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004671,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046979,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.312776,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057884,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.648063,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.219668,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.623063,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.282094,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.808687,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.477415,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044188,
             "unit": "seconds"
           }
         ]
