@@ -387,48 +387,175 @@ fn valueHashDepth(key: Value, depth: usize) usize {
     return @truncate(key *% 2654435761);
 }
 
-fn findKey(proc: []const u8, ht: *HashTable, key: Value) PrimitiveError!?usize {
-    if (ht.capacity == 0) return null;
-    // A `.custom` hash procedure can re-enter and grow the table, so the mask
-    // is derived only after it has returned. `ht.entries` is re-read on every
-    // probe and entries are copied out by value, so an equality procedure that
-    // does the same cannot leave this loop reading a freed array.
-    const h = try hashForTable(proc, ht, key);
-    const mask = ht.capacity - 1;
-    var idx = h & mask;
-    var probes: usize = 0;
-    while (probes < ht.capacity) {
-        const entry = ht.entries[idx];
-        if (entry.state == .empty) return null;
-        if (entry.state == .occupied and try equalForTable(proc, ht, entry.key, key)) return idx;
-        idx = (idx + 1) & mask;
-        probes += 1;
+/// How many times a probe may restart because the table moved under it before
+/// we give up. A `.custom` procedure that mutates on *every* call would
+/// otherwise spin forever; anything sane settles in one.
+const MAX_PROBE_RESTARTS = 16;
+
+/// A probe's view of the table. `.custom` hash and equality procedures are
+/// arbitrary Scheme, and one that inserts into the table being probed makes
+/// `rehash` install a new, larger `entries` — which invalidates both the mask
+/// the probe is stepping with and any index it has already chosen. There is no
+/// use-after-free (`ht.entries` is re-read and entries are copied out by
+/// value); the defect is index staleness. A slot picked under the old layout
+/// names an arbitrary bucket in the new one, so the caller's write lands on a
+/// live entry for a different key while `count` is still incremented — one key
+/// silently destroyed, and `count` no longer matching the live set.
+const Layout = struct {
+    entries: [*]HashEntry,
+    capacity: usize,
+
+    fn of(ht: *HashTable) Layout {
+        return .{ .entries = ht.entries.ptr, .capacity = ht.capacity };
     }
-    return null;
+
+    fn movedSince(self: Layout, ht: *HashTable) bool {
+        return ht.entries.ptr != self.entries or ht.capacity != self.capacity;
+    }
+};
+
+fn probeRestartExhausted(proc: []const u8) PrimitiveError {
+    return primitives.argError(
+        proc,
+        "hash table kept being modified by its own hash or equality procedure during a single lookup",
+        .{},
+    );
 }
 
-const FindSlotResult = struct { idx: usize, found: bool, hash: usize };
+fn findKey(proc: []const u8, ht: *HashTable, key: Value) PrimitiveError!?usize {
+    if (ht.capacity == 0) return null;
+    // The mask is derived only after the hash procedure has returned, since it
+    // too can grow the table.
+    // `.equal` is the default mode and by far the hottest; calling `valueHash`
+    // and `deepEqual` directly rather than through the dispatchers keeps them
+    // inlinable. Routing it through `hashForTable`/`equalForTable` instead --
+    // whose `.custom` arms pull in the whole VM-call path -- cost 18% on
+    // insert and 10% on lookup in `benchmarks/hashtable.scm`.
+    if (ht.compare_mode == .equal) {
+        const mask = ht.capacity - 1;
+        var idx = valueHash(key) & mask;
+        var probes: usize = 0;
+        while (probes < ht.capacity) : (probes += 1) {
+            const entry = &ht.entries[idx];
+            if (entry.state == .empty) return null;
+            if (entry.state == .occupied and primitives.deepEqual(entry.key, key)) return idx;
+            idx = (idx + 1) & mask;
+        }
+        return null;
+    }
+    const h = try hashForTable(proc, ht, key);
+    if (ht.compare_mode != .custom) {
+        // No Scheme runs in this loop either, so the layout cannot move under
+        // it: probe in place and skip the restart bookkeeping.
+        const mask = ht.capacity - 1;
+        var idx = h & mask;
+        var probes: usize = 0;
+        while (probes < ht.capacity) : (probes += 1) {
+            const entry = &ht.entries[idx];
+            if (entry.state == .empty) return null;
+            if (entry.state == .occupied and try equalForTable(proc, ht, entry.key, key)) return idx;
+            idx = (idx + 1) & mask;
+        }
+        return null;
+    }
+    var restarts: usize = 0;
+    restart: while (true) {
+        const layout = Layout.of(ht);
+        const mask = layout.capacity - 1;
+        var idx = h & mask;
+        var probes: usize = 0;
+        while (probes < layout.capacity) : (probes += 1) {
+            const entry = ht.entries[idx];
+            if (entry.state == .empty) return null;
+            if (entry.state == .occupied) {
+                const eq = try equalForTable(proc, ht, entry.key, key);
+                if (layout.movedSince(ht)) {
+                    restarts += 1;
+                    if (restarts > MAX_PROBE_RESTARTS) return probeRestartExhausted(proc);
+                    continue :restart;
+                }
+                if (eq) return idx;
+            }
+            idx = (idx + 1) & mask;
+        }
+        return null;
+    }
+}
+
+/// `hash` is the `u32` an insertion caches (see `HashEntry.hash`), already
+/// narrowed here so every insertion site stores it without a cast of its own.
+const FindSlotResult = struct { idx: usize, found: bool, hash: u32 };
 
 fn findSlot(proc: []const u8, ht: *HashTable, key: Value) PrimitiveError!FindSlotResult {
-    const h = try hashForTable(proc, ht, key);
-    const mask = ht.capacity - 1;
-    var idx = h & mask;
-    var first_tombstone: ?usize = null;
-    var probes: usize = 0;
-    while (probes < ht.capacity) {
-        const entry = ht.entries[idx];
-        if (entry.state == .empty) {
-            return .{ .idx = first_tombstone orelse idx, .found = false, .hash = h };
+    // The `.equal` specialization, for the reason given in findKey.
+    if (ht.compare_mode == .equal) {
+        const eh = valueHash(key);
+        const mask = ht.capacity - 1;
+        var idx = eh & mask;
+        var first_tombstone: ?usize = null;
+        var probes: usize = 0;
+        while (probes < ht.capacity) : (probes += 1) {
+            const entry = &ht.entries[idx];
+            if (entry.state == .empty) {
+                return .{ .idx = first_tombstone orelse idx, .found = false, .hash = @truncate(eh) };
+            }
+            if (entry.state == .tombstone) {
+                if (first_tombstone == null) first_tombstone = idx;
+            } else if (primitives.deepEqual(entry.key, key)) {
+                return .{ .idx = idx, .found = true, .hash = @truncate(eh) };
+            }
+            idx = (idx + 1) & mask;
         }
-        if (entry.state == .tombstone) {
-            if (first_tombstone == null) first_tombstone = idx;
-        } else if (try equalForTable(proc, ht, entry.key, key)) {
-            return .{ .idx = idx, .found = true, .hash = h };
-        }
-        idx = (idx + 1) & mask;
-        probes += 1;
+        return .{ .idx = first_tombstone orelse 0, .found = false, .hash = @truncate(eh) };
     }
-    return .{ .idx = first_tombstone orelse 0, .found = false, .hash = h };
+    const h = try hashForTable(proc, ht, key);
+    if (ht.compare_mode != .custom) {
+        // Callback-free, as in findKey above.
+        const mask = ht.capacity - 1;
+        var idx = h & mask;
+        var first_tombstone: ?usize = null;
+        var probes: usize = 0;
+        while (probes < ht.capacity) : (probes += 1) {
+            const entry = &ht.entries[idx];
+            if (entry.state == .empty) {
+                return .{ .idx = first_tombstone orelse idx, .found = false, .hash = @truncate(h) };
+            }
+            if (entry.state == .tombstone) {
+                if (first_tombstone == null) first_tombstone = idx;
+            } else if (try equalForTable(proc, ht, entry.key, key)) {
+                return .{ .idx = idx, .found = true, .hash = @truncate(h) };
+            }
+            idx = (idx + 1) & mask;
+        }
+        return .{ .idx = first_tombstone orelse 0, .found = false, .hash = @truncate(h) };
+    }
+    var restarts: usize = 0;
+    restart: while (true) {
+        const layout = Layout.of(ht);
+        const mask = layout.capacity - 1;
+        var idx = h & mask;
+        var first_tombstone: ?usize = null;
+        var probes: usize = 0;
+        while (probes < layout.capacity) : (probes += 1) {
+            const entry = ht.entries[idx];
+            if (entry.state == .empty) {
+                return .{ .idx = first_tombstone orelse idx, .found = false, .hash = @truncate(h) };
+            }
+            if (entry.state == .tombstone) {
+                if (first_tombstone == null) first_tombstone = idx;
+            } else {
+                const eq = try equalForTable(proc, ht, entry.key, key);
+                if (layout.movedSince(ht)) {
+                    restarts += 1;
+                    if (restarts > MAX_PROBE_RESTARTS) return probeRestartExhausted(proc);
+                    continue :restart;
+                }
+                if (eq) return .{ .idx = idx, .found = true, .hash = @truncate(h) };
+            }
+            idx = (idx + 1) & mask;
+        }
+        return .{ .idx = first_tombstone orelse 0, .found = false, .hash = @truncate(h) };
+    }
 }
 
 /// Grow the table and re-bucket every live entry.
@@ -455,7 +582,7 @@ fn rehash(ht: *HashTable) PrimitiveError!void {
     var new_count: usize = 0;
     for (old_entries[0..old_cap]) |entry| {
         if (entry.state == .occupied) {
-            var idx = entry.hash & mask;
+            var idx = @as(usize, entry.hash) & mask;
             while (new_entries[idx].state == .occupied) {
                 idx = (idx + 1) & mask;
             }

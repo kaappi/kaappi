@@ -20,7 +20,13 @@ pub const HashEntry = struct {
     /// procedure from running while a soon-to-be-freed entry array is live
     /// (#2024). Deliberately has no default so every insertion site must
     /// supply the hash `findSlot` already computed.
-    hash: usize,
+    ///
+    /// `u32`, not `usize`: only `hash & (capacity - 1)` is ever read, and a
+    /// table with 2^32 buckets would need ~96 GB of entries, so the high half
+    /// can never select a bucket. It also keeps this struct at 24 bytes --
+    /// widening it to 32 cost 17% on the `hashtable` benchmark, which probes
+    /// far more entries than it stores.
+    hash: u32,
     state: HashEntryState = .empty,
 };
 

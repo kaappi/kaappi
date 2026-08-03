@@ -269,7 +269,7 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
                         while (new_ht.entries[idx].state == .occupied) {
                             idx = (idx + 1) & (new_ht.capacity - 1);
                         }
-                        new_ht.entries[idx] = .{ .key = nk, .value = nv, .hash = nh, .state = .occupied };
+                        new_ht.entries[idx] = .{ .key = nk, .value = nv, .hash = @truncate(nh), .state = .occupied };
                         new_ht.count += 1;
                     }
                 }

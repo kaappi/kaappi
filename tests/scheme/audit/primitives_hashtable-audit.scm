@@ -545,7 +545,11 @@
                          (equal? a b))
                        (lambda (k) (if (number? k) k 0))))
               (do ((i 0 (+ i 1))) ((= i 5)) (hash-table-set! h i i))
-              (>= (hash-table-size h) 5)))
+              ;; not merely `(>= size 5)`: the same re-entrant path can also
+              ;; clobber a live entry through a stale slot index, which a size
+              ;; floor accepts.
+              (and (= (misses h (lambda (i) i) 5) 0)
+                   (= (hash-table-size h) (length (hash-table-keys h))))))
 ;; Unbounded self-re-entry from a custom hash is bounded rather than run to
 ;; a native stack smash — it raises `KP3008: native re-entrancy too deep`.
 ;; That is the third control for #2024, but it cannot be asserted in-process:
@@ -564,7 +568,39 @@
                                              (set! armed #t))
                                            (if (number? k) k 0))))
               (do ((i 0 (+ i 1))) ((= i 5)) (hash-table-set! h i i))
-              (>= (hash-table-size h) 5)))
+              ;; not merely `(>= size 5)`: the same re-entrant path can also
+              ;; clobber a live entry through a stale slot index, which a size
+              ;; floor accepts.
+              (and (= (misses h (lambda (i) i) 5) 0)
+                   (= (hash-table-size h) (length (hash-table-keys h))))))
+;; A `.custom` equality is arbitrary Scheme too, and one that inserts into the
+;; table being probed makes `rehash` install a new, larger `entries` -- which
+;; invalidates the mask the probe is stepping with and the slot it has already
+;; chosen. No use-after-free (`ht.entries` is re-read, entries copied by
+;; value); the slot index just names an arbitrary bucket in the new layout, so
+;; the write lands on a live entry for a different key while `count` is still
+;; incremented. One pre-existing key silently destroyed, `count` no longer
+;; matching the live set -- reproduced in 128 of 210 (prefill x inject x span)
+;; combinations before the probe learned to restart when the table moves.
+(test-equal "a custom equality that grows the table mid-probe loses nothing" '(0 #t)
+            (let ((h #f) (armed #f))
+              (set! h (make-hash-table
+                       (lambda (a b)
+                         (when armed
+                           (set! armed #f)
+                           (do ((j 0 (+ j 1))) ((= j 200))
+                             (hash-table-set! h (+ (* (+ j 1) 64) (modulo j 8)) j))
+                           (set! armed #t))
+                         (equal? a b))
+                       ;; every key collides, so the probe must walk
+                       (lambda (k) (if (number? k) k 0))))
+              (do ((i 0 (+ i 1))) ((= i 8)) (hash-table-set! h i i))
+              (set! armed #t)
+              (hash-table-set! h 'trigger 'v)
+              (set! armed #f)
+              (list (misses h (lambda (i) i) 8)
+                    (= (hash-table-size h) (length (hash-table-keys h))))))
+
 ;; The second manifestation of #2024's root cause: `hash-table-merge!` walked
 ;; ht2's live entry array while `findSlot` on ht1 ran the same custom hash,
 ;; which reallocated and freed the array underneath it. It exited 0 with ht1
@@ -814,7 +850,7 @@
 ;; hashed apart and the stored entry became unreachable.
 (test-equal "equal? f64vectors hash alike (#2023)" #t
             (= (hash (f64vector 1 2 3)) (hash (f64vector 1 2 3))))
-(test-equal "an f64vector key does not collide with a same-length bytevector" #t
+(test-equal "f64vector and bytevector keys with the same elements stay distinct" #t
             (let ((ht (make-hash-table)))
               (hash-table-set! ht (f64vector 1 2 3) 'f64)
               (hash-table-set! ht (bytevector 1 2 3) 'bv)
@@ -826,12 +862,25 @@
               (do ((i 0 (+ i 1))) ((= i 200)) (hash-table-set! ht (f64vector i 1.5) i))
               (misses ht (lambda (i) (f64vector i 1.5)) 200)))
 
-;; Stated at scale because a single deep key in a small table can still be
-;; found by luck through linear probing (#2023).
-(test-equal "equal table agrees with equal? on 200 deep keys (#2023)" 0
+;; A flat list no longer spends the nesting budget, so `mk` keys above never
+;; reach `depth >= MAX_HASH_DEPTH` and never exercise `DEEP_CUTOFF_HASH`.
+;; `nest` does: each level is one pair whose car is the level below, so a
+;; 12-deep key crosses the cutoff. Stated at scale because a single deep key
+;; in a small table can still be found by luck through linear probing (#2023).
+(define (nest n) (let loop ((i 0) (acc 'leaf)) (if (= i n) acc (loop (+ i 1) (list acc)))))
+(test-equal "equal? 12-deep nested keys hash alike (#2023)" #t
+            (= (hash (nest 12)) (hash (nest 12))))
+(test-equal "equal table agrees with equal? on 100 nested keys past the cutoff (#2023)" 0
             (let ((ht (make-hash-table)))
-              (do ((i 0 (+ i 1))) ((= i 200)) (hash-table-set! ht (mk 11 i) i))
-              (misses ht (lambda (i) (mk 11 i)) 200)))
+              (do ((i 0 (+ i 1))) ((= i 100)) (hash-table-set! ht (list (nest 12) i) i))
+              (misses ht (lambda (i) (list (nest 12) i)) 100)))
+;; Past MAX_HASH_SPINE the tail is folded into the sentinel, so these 50 keys
+;; -- whose only distinguishing element sits at index 50, well beyond it --
+;; all hash alike. `deepEqual` must still separate them.
+(test-equal "50 keys distinguished only past the spine cutoff are findable (#2023)" 0
+            (let ((ht (make-hash-table)))
+              (do ((i 0 (+ i 1))) ((= i 50)) (hash-table-set! ht (mk 49 i) i))
+              (misses ht (lambda (i) (mk 49 i)) 50)))
 
 ;;; --- accessors ---------------------------------------------------------
 
