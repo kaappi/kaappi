@@ -14,6 +14,7 @@
 
 (import (scheme base) (scheme write) (srfi 69))
 (import (scheme process-context) (srfi 64) (srfi 18))
+(import (srfi 160 f64))
 
 (test-begin "primitives_hashtable audit")
 
@@ -160,19 +161,19 @@
               (misses ht (lambda (i) (mk 7 i)) 200)))
 (test-equal "equal? 8-element lists hash alike (control for #2023)" #t
             (= (hash (mk 7 'x)) (hash (mk 7 'x))))
-;; FAIL: #2023 (equal? keys nested deeper than 8 hash by pointer, so a
-;; 9-or-more-element list key is unfindable once the table has grown)
-;; (test-equal "equal? 9-element lists hash alike (#2023)" #t
-;;             (= (hash (mk 8 'x)) (hash (mk 8 'x))))
-;; (test-equal "12-element list keys all findable (#2023)" 0
-;;             (let ((ht (make-hash-table)))
-;;               (do ((i 0 (+ i 1))) ((= i 200)) (hash-table-set! ht (mk 11 i) i))
-;;               (misses ht (lambda (i) (mk 11 i)) 200)))
-;; (test-equal "exists? agrees with equal? on 200 deep keys (#2023)" 200
-;;             (let ((ht (make-hash-table)))
-;;               (do ((i 0 (+ i 1))) ((= i 200)) (hash-table-set! ht (mk 11 i) i))
-;;               (let loop ((i 0) (n 0))
-;;                 (if (= i 200) n (loop (+ i 1) (if (hash-table-exists? ht (mk 11 i)) (+ n 1) n))))))
+;; Fixed in #2023: the cutoff folds in a fixed sentinel instead of the
+;; sub-object's pointer, and a list spine no longer spends the nesting budget.
+(test-equal "equal? 9-element lists hash alike (#2023)" #t
+            (= (hash (mk 8 'x)) (hash (mk 8 'x))))
+(test-equal "12-element list keys all findable (#2023)" 0
+            (let ((ht (make-hash-table)))
+              (do ((i 0 (+ i 1))) ((= i 200)) (hash-table-set! ht (mk 11 i) i))
+              (misses ht (lambda (i) (mk 11 i)) 200)))
+(test-equal "exists? agrees with equal? on 200 deep keys (#2023)" 200
+            (let ((ht (make-hash-table)))
+              (do ((i 0 (+ i 1))) ((= i 200)) (hash-table-set! ht (mk 11 i) i))
+              (let loop ((i 0) (n 0))
+                (if (= i 200) n (loop (+ i 1) (if (hash-table-exists? ht (mk 11 i)) (+ n 1) n))))))
 
 ;;; --- growth and capacity ----------------------------------------------
 
@@ -551,20 +552,60 @@
 ;; KP3008 is a VM limit, and `errors.isUncatchable` puts it past every
 ;; handler by design (#1886), so no `guard` here can see it. Verified out of
 ;; band instead; the recipe is in #2024.
-;; FAIL: #2024 (a custom hash proc that inserts into its OWN table makes
-;; rehash iterate a freed entry array — the process aborts with exit 133/134
-;; and empty stdout and stderr, which no `guard` can contain, so this stays
-;; commented out rather than merely disabled)
-;; (test-equal "a custom hash mutating its own table does not abort (#2024)" #t
-;;             (let ((h #f) (armed #t))
-;;               (set! h (make-hash-table = (lambda (k)
-;;                                            (when (and armed h)
-;;                                              (set! armed #f)
-;;                                              (do ((j 0 (+ j 1))) ((= j 5)) (hash-table-set! h (+ 100 j) j))
-;;                                              (set! armed #t))
-;;                                            (if (number? k) k 0))))
-;;               (do ((i 0 (+ i 1))) ((= i 5)) (hash-table-set! h i i))
-;;               (>= (hash-table-size h) 5)))
+;; The second manifestation of #2024's root cause: `hash-table-merge!` walked
+;; ht2's live entry array while `findSlot` on ht1 ran the same custom hash,
+;; which reallocated and freed the array underneath it. It exited 0 with ht1
+;; holding 1 of 10 entries. It now iterates a rooted snapshot, like walk/fold.
+(test-equal "merge survives a custom hash that mutates the source table (#2024)" '(10 10)
+            (let* ((h2 (make-hash-table = (lambda (k) (if (number? k) k 0))))
+                   (armed #f)
+                   ;; ht1's OWN hash is the one `findSlot` calls during the
+                   ;; merge; it mutates ht2, whose live array the loop walks.
+                   (h1 (make-hash-table
+                        = (lambda (k)
+                            (when armed
+                              (set! armed #f)
+                              (do ((j 0 (+ j 1))) ((= j 40)) (hash-table-set! h2 (+ 500 j) j))
+                              (set! armed #t))
+                            (if (number? k) k 0)))))
+              (do ((i 0 (+ i 1))) ((= i 10)) (hash-table-set! h2 i i))
+              (let ((n (hash-table-size h2)))
+                (set! armed #t)
+                (hash-table-merge! h1 h2)
+                (set! armed #f)
+                ;; every key ht2 held when the merge began reached ht1
+                (list (hash-table-size h1) n))))
+;; A merged entry must be re-bucketed under *ht1's* hash function, not carried
+;; over with the hash ht2 cached for it.
+(test-equal "merge re-hashes entries under the target table's hash function" 0
+            (let ((h1 (make-hash-table = (lambda (k) (if (number? k) k 0))))
+                  (h2 (make-hash-table = (lambda (k) (if (number? k) (* k 7919) 0)))))
+              (do ((i 0 (+ i 1))) ((= i 40)) (hash-table-set! h2 i i))
+              (hash-table-merge! h1 h2)
+              (misses h1 (lambda (i) i) 40)))
+;; Growth re-buckets from the cached hash; a custom-hash table must stay
+;; wholly findable across several doublings.
+(test-equal "custom-hash entries stay findable across repeated growth (#2024)" 0
+            (let ((h (make-hash-table = (lambda (k) (if (number? k) (* k 2654435761) 0)))))
+              (do ((i 0 (+ i 1))) ((= i 300)) (hash-table-set! h i i))
+              (misses h (lambda (i) i) 300)))
+(test-equal "a copy of a custom-hash table is still fully findable" 0
+            (let ((h (make-hash-table = (lambda (k) (if (number? k) (* k 31) 0)))))
+              (do ((i 0 (+ i 1))) ((= i 100)) (hash-table-set! h i i))
+              (misses (hash-table-copy h) (lambda (i) i) 100)))
+
+;; Fixed in #2024: each entry caches its hash, so rehash runs no Scheme code
+;; and nothing can re-enter the table while the old entry array is live.
+(test-equal "a custom hash mutating its own table does not abort (#2024)" #t
+            (let ((h #f) (armed #t))
+              (set! h (make-hash-table = (lambda (k)
+                                           (when (and armed h)
+                                             (set! armed #f)
+                                             (do ((j 0 (+ j 1))) ((= j 5)) (hash-table-set! h (+ 100 j) j))
+                                             (set! armed #t))
+                                           (if (number? k) k 0))))
+              (do ((i 0 (+ i 1))) ((= i 5)) (hash-table-set! h i i))
+              (>= (hash-table-size h) 5)))
 
 ;;; --- callback discipline: continuations and blocking (D5) -------------
 
@@ -714,24 +755,24 @@
                   (loop (+ i 1)
                         (let ((v (hash (make-string i #\z) 97)))
                           (if (or (< v 0) (>= v 97)) (+ bad 1) bad))))))
-;; FAIL: #2025 (the unbounded arm masks to 62 bits and then makeFixnum keeps
-;; 48 with sign extension, so about half of all hashes come back negative)
+;; Fixed in #2025: the unbounded arm masks to 47 bits, the widest value that
+;; survives makeFixnum's 48-bit payload and toFixnum's i48 sign extension.
 ;; All three inputs below are pure byte arithmetic — no pointer, and the
 ;; values are stable run to run — so re-enabling these is portable.
 ;; `hash-by-identity` is deliberately NOT covered: its input is the object's
 ;; own bit pattern, so any assertion about it would be layout-dependent.
-;; (test-equal "unbounded string-hash is never negative (#2025)" 0
-;;             (let loop ((i 1) (bad 0))
-;;               (if (= i 60) bad
-;;                   (loop (+ i 1) (if (< (string-hash (make-string i #\a)) 0) (+ bad 1) bad)))))
-;; (test-equal "unbounded string-ci-hash is never negative (#2025)" 0
-;;             (let loop ((i 1) (bad 0))
-;;               (if (= i 60) bad
-;;                   (loop (+ i 1) (if (< (string-ci-hash (make-string i #\a)) 0) (+ bad 1) bad)))))
-;; (test-equal "unbounded hash is never negative (#2025)" 0
-;;             (let loop ((i 1) (bad 0))
-;;               (if (= i 60) bad
-;;                   (loop (+ i 1) (if (< (hash (make-string i #\a)) 0) (+ bad 1) bad)))))
+(test-equal "unbounded string-hash is never negative (#2025)" 0
+            (let loop ((i 1) (bad 0))
+              (if (= i 60) bad
+                  (loop (+ i 1) (if (< (string-hash (make-string i #\a)) 0) (+ bad 1) bad)))))
+(test-equal "unbounded string-ci-hash is never negative (#2025)" 0
+            (let loop ((i 1) (bad 0))
+              (if (= i 60) bad
+                  (loop (+ i 1) (if (< (string-ci-hash (make-string i #\a)) 0) (+ bad 1) bad)))))
+(test-equal "unbounded hash is never negative (#2025)" 0
+            (let loop ((i 1) (bad 0))
+              (if (= i 60) bad
+                  (loop (+ i 1) (if (< (hash (make-string i #\a)) 0) (+ bad 1) bad)))))
 
 (test-equal "hash with a zero bound raises" 'caught (caught (lambda () (hash 'x 0))))
 (test-equal "hash with a negative bound raises" 'caught (caught (lambda () (hash 'x -3))))
@@ -766,13 +807,31 @@
             (mode-agrees? equal? "abc" (string-copy "abc")))
 (test-equal "equal table agrees with equal? on shallow lists" #t
             (mode-agrees? equal? (list 1 2) (list 1 2)))
-;; FAIL: #2023 (of the 12 mode/predicate cells above and this one, this is
-;; the only one that disagrees; stated at scale because a single deep key in
-;; a small table can still be found by luck through linear probing)
-;; (test-equal "equal table agrees with equal? on 200 deep keys (#2023)" 0
-;;             (let ((ht (make-hash-table)))
-;;               (do ((i 0 (+ i 1))) ((= i 200)) (hash-table-set! ht (mk 11 i) i))
-;;               (misses ht (lambda (i) (mk 11 i)) 200)))
+;; SRFI 160 numeric vectors are compared by `deepEqual` (kind + raw bytes)
+;; but had no arm in `valueHashDepth`, so they fell through to the pointer
+;; hash — the same invariant break as #2023, at depth 0. Found while fixing
+;; it; `(equal? (f64vector 1 2 3) (f64vector 1 2 3))` was #t while the two
+;; hashed apart and the stored entry became unreachable.
+(test-equal "equal? f64vectors hash alike (#2023)" #t
+            (= (hash (f64vector 1 2 3)) (hash (f64vector 1 2 3))))
+(test-equal "an f64vector key does not collide with a same-length bytevector" #t
+            (let ((ht (make-hash-table)))
+              (hash-table-set! ht (f64vector 1 2 3) 'f64)
+              (hash-table-set! ht (bytevector 1 2 3) 'bv)
+              (equal? (list (hash-table-ref/default ht (f64vector 1 2 3) 'MISS)
+                            (hash-table-ref/default ht (bytevector 1 2 3) 'MISS))
+                      '(f64 bv))))
+(test-equal "200 f64vector keys all findable (#2023)" 0
+            (let ((ht (make-hash-table)))
+              (do ((i 0 (+ i 1))) ((= i 200)) (hash-table-set! ht (f64vector i 1.5) i))
+              (misses ht (lambda (i) (f64vector i 1.5)) 200)))
+
+;; Stated at scale because a single deep key in a small table can still be
+;; found by luck through linear probing (#2023).
+(test-equal "equal table agrees with equal? on 200 deep keys (#2023)" 0
+            (let ((ht (make-hash-table)))
+              (do ((i 0 (+ i 1))) ((= i 200)) (hash-table-set! ht (mk 11 i) i))
+              (misses ht (lambda (i) (mk 11 i)) 200)))
 
 ;;; --- accessors ---------------------------------------------------------
 

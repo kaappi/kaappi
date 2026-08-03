@@ -571,6 +571,12 @@ pub const HashEntryState = enum(u8) {
 pub const HashEntry = struct {
     key: Value,
     value: Value,
+    /// The key's hash, cached at insertion. `rehash` re-buckets from this
+    /// instead of re-deriving it, which is what keeps a custom Scheme hash
+    /// procedure from running while a soon-to-be-freed entry array is live
+    /// (#2024). Deliberately has no default so every insertion site must
+    /// supply the hash `findSlot` already computed.
+    hash: usize,
     state: HashEntryState = .empty,
 };
 

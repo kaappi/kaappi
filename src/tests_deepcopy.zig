@@ -159,7 +159,7 @@ test "deepCopy hash_table" {
     const value = types.makeFixnum(99);
     const hash = std.hash.Wyhash.hash(0, std.mem.asBytes(&key));
     const idx = hash & (ht.capacity - 1);
-    ht.entries[idx] = .{ .key = key, .value = value, .state = .occupied };
+    ht.entries[idx] = .{ .key = key, .value = value, .hash = @truncate(hash), .state = .occupied };
     ht.count = 1;
 
     const copied = try gc2.deepCopy(ht_val);

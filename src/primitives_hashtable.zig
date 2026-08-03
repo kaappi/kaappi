@@ -275,7 +275,17 @@ pub fn valueHash(key: Value) usize {
     return valueHashDepth(key, 0);
 }
 
+/// Nesting depth budget for structural hashing. Only *nesting* spends it —
+/// list length is bounded separately by MAX_HASH_SPINE.
 const MAX_HASH_DEPTH = 8;
+
+/// How many elements of one list spine are folded into the hash.
+const MAX_HASH_SPINE = 32;
+
+/// Folded in wherever a traversal budget runs out. Any fixed value works; what
+/// matters is that it is not derived from the key's address, so two `equal?`
+/// keys still hash alike (#2023).
+const DEEP_CUTOFF_HASH: usize = 0x27D4EB2D;
 
 fn valueHashDepth(key: Value, depth: usize) usize {
     if (types.isFixnum(key)) {
@@ -327,13 +337,29 @@ fn valueHashDepth(key: Value, depth: usize) usize {
         const hi: usize = @truncate(@as(u64, @bitCast(c.imag)) *% 2654435761);
         return hr *% 31 +% hi;
     }
-    if (depth >= MAX_HASH_DEPTH) return @truncate(key *% 2654435761);
+    // Structural types below are compared with `deepEqual`, so their hash must
+    // never look at the key's address: two `equal?` keys must hash alike. When
+    // the traversal budget runs out we fold in a fixed sentinel instead of the
+    // sub-object's pointer (#2023 — the unfixed half of #1180). That costs
+    // collisions, which `deepEqual` still resolves, rather than correctness.
     if (types.isPair(key)) {
-        const h1 = valueHashDepth(types.car(key), depth + 1);
-        const h2 = valueHashDepth(types.cdr(key), depth + 1);
-        return h1 *% 31 +% h2;
+        if (depth >= MAX_HASH_DEPTH) return DEEP_CUTOFF_HASH;
+        // Walk the cdr spine iteratively: list length must not consume the
+        // nesting budget, or every list longer than MAX_HASH_DEPTH would
+        // collapse to the same sentinel.
+        var h: usize = 0x9E3779B9;
+        var cur = key;
+        var elems: usize = 0;
+        while (types.isPair(cur)) {
+            if (elems >= MAX_HASH_SPINE) return h *% 31 +% DEEP_CUTOFF_HASH;
+            h = h *% 31 +% valueHashDepth(types.car(cur), depth + 1);
+            cur = types.cdr(cur);
+            elems += 1;
+        }
+        return h *% 31 +% valueHashDepth(cur, depth + 1);
     }
     if (types.isVector(key)) {
+        if (depth >= MAX_HASH_DEPTH) return DEEP_CUTOFF_HASH;
         const vec = types.toObject(key).as(types.Vector);
         var h: usize = vec.data.len *% 2654435761;
         const limit = @min(vec.data.len, 4);
@@ -346,28 +372,33 @@ fn valueHashDepth(key: Value, depth: usize) usize {
         for (bv.data) |b| h = h *% 31 +% b;
         return h;
     }
+    if (types.isNumericVector(key)) {
+        // `deepEqual` compares kind + raw bytes, so hashing the address here
+        // broke the same invariant the depth cutoff did (found while fixing
+        // #2023): `(equal? (f64vector 1 2 3) (f64vector 1 2 3))` is #t, but
+        // the two hashed apart and the table entry became unreachable.
+        const nv = types.toNumericVector(key);
+        var h: usize = @as(usize, @intFromEnum(nv.kind)) *% 2654435761 +% nv.data.len;
+        for (nv.data) |b| h = h *% 31 +% b;
+        return h;
+    }
+    // Everything left (procedures, ports, records, ...) is compared by identity
+    // by `deepEqual`, so hashing the address is consistent with equality.
     return @truncate(key *% 2654435761);
 }
 
 fn findKey(proc: []const u8, ht: *HashTable, key: Value) PrimitiveError!?usize {
     if (ht.capacity == 0) return null;
+    // A `.custom` hash procedure can re-enter and grow the table, so the mask
+    // is derived only after it has returned. `ht.entries` is re-read on every
+    // probe and entries are copied out by value, so an equality procedure that
+    // does the same cannot leave this loop reading a freed array.
+    const h = try hashForTable(proc, ht, key);
     const mask = ht.capacity - 1;
-    if (ht.compare_mode == .equal) {
-        var idx = valueHash(key) & mask;
-        var probes: usize = 0;
-        while (probes < ht.capacity) {
-            const entry = &ht.entries[idx];
-            if (entry.state == .empty) return null;
-            if (entry.state == .occupied and primitives.deepEqual(entry.key, key)) return idx;
-            idx = (idx + 1) & mask;
-            probes += 1;
-        }
-        return null;
-    }
-    var idx = (try hashForTable(proc, ht, key)) & mask;
+    var idx = h & mask;
     var probes: usize = 0;
     while (probes < ht.capacity) {
-        const entry = &ht.entries[idx];
+        const entry = ht.entries[idx];
         if (entry.state == .empty) return null;
         if (entry.state == .occupied and try equalForTable(proc, ht, entry.key, key)) return idx;
         idx = (idx + 1) & mask;
@@ -376,54 +407,45 @@ fn findKey(proc: []const u8, ht: *HashTable, key: Value) PrimitiveError!?usize {
     return null;
 }
 
-const FindSlotResult = struct { idx: usize, found: bool };
+const FindSlotResult = struct { idx: usize, found: bool, hash: usize };
 
 fn findSlot(proc: []const u8, ht: *HashTable, key: Value) PrimitiveError!FindSlotResult {
+    const h = try hashForTable(proc, ht, key);
     const mask = ht.capacity - 1;
-    if (ht.compare_mode == .equal) {
-        var idx = valueHash(key) & mask;
-        var first_tombstone: ?usize = null;
-        var probes: usize = 0;
-        while (probes < ht.capacity) {
-            const entry = &ht.entries[idx];
-            if (entry.state == .empty) {
-                return .{ .idx = first_tombstone orelse idx, .found = false };
-            }
-            if (entry.state == .tombstone) {
-                if (first_tombstone == null) first_tombstone = idx;
-            } else if (primitives.deepEqual(entry.key, key)) {
-                return .{ .idx = idx, .found = true };
-            }
-            idx = (idx + 1) & mask;
-            probes += 1;
-        }
-        return .{ .idx = first_tombstone orelse 0, .found = false };
-    }
-    var idx = (try hashForTable(proc, ht, key)) & mask;
+    var idx = h & mask;
     var first_tombstone: ?usize = null;
     var probes: usize = 0;
     while (probes < ht.capacity) {
-        const entry = &ht.entries[idx];
+        const entry = ht.entries[idx];
         if (entry.state == .empty) {
-            return .{ .idx = first_tombstone orelse idx, .found = false };
+            return .{ .idx = first_tombstone orelse idx, .found = false, .hash = h };
         }
         if (entry.state == .tombstone) {
             if (first_tombstone == null) first_tombstone = idx;
         } else if (try equalForTable(proc, ht, entry.key, key)) {
-            return .{ .idx = idx, .found = true };
+            return .{ .idx = idx, .found = true, .hash = h };
         }
         idx = (idx + 1) & mask;
         probes += 1;
     }
-    return .{ .idx = first_tombstone orelse 0, .found = false };
+    return .{ .idx = first_tombstone orelse 0, .found = false, .hash = h };
 }
 
-fn rehash(proc: []const u8, ht: *HashTable) PrimitiveError!void {
+/// Grow the table and re-bucket every live entry.
+///
+/// This runs no Scheme code at all: each entry carries the hash computed when
+/// it was inserted, so the loop below is pure Zig and nothing can re-enter the
+/// table while `old_entries` is live. It used to call `hashForTable` here, and
+/// a custom hash procedure that inserted into *its own* table then reached a
+/// nested `rehash` that swapped in its own array and freed `old_entries` — the
+/// outer loop kept iterating freed memory and freed it a second time, aborting
+/// the process with no diagnostic (#2024).
+fn rehash(ht: *HashTable) PrimitiveError!void {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const new_cap = if (ht.capacity == 0) 8 else ht.capacity * 2;
     const new_entries = memory.allocSliceNoFill(gc.allocator, HashEntry, new_cap) catch return PrimitiveError.OutOfMemory;
     for (new_entries) |*e| {
-        e.* = .{ .key = 0, .value = 0, .state = .empty };
+        e.* = .{ .key = 0, .value = 0, .hash = 0, .state = .empty };
     }
     const old_entries = ht.entries;
     const old_cap = ht.capacity;
@@ -433,11 +455,7 @@ fn rehash(proc: []const u8, ht: *HashTable) PrimitiveError!void {
     var new_count: usize = 0;
     for (old_entries[0..old_cap]) |entry| {
         if (entry.state == .occupied) {
-            const h = hashForTable(proc, ht, entry.key) catch |err| {
-                memory.freeSliceNoFill(gc.allocator, HashEntry, new_entries);
-                return err;
-            };
-            var idx = h & mask;
+            var idx = entry.hash & mask;
             while (new_entries[idx].state == .occupied) {
                 idx = (idx + 1) & mask;
             }
@@ -451,10 +469,10 @@ fn rehash(proc: []const u8, ht: *HashTable) PrimitiveError!void {
     memory.freeSliceNoFill(gc.allocator, HashEntry, old_entries);
 }
 
-fn growIfNeeded(proc: []const u8, ht: *HashTable) PrimitiveError!void {
+fn growIfNeeded(ht: *HashTable) PrimitiveError!void {
     // Grow when load factor > 75% (count uses > 3/4 of capacity)
     if (ht.capacity == 0 or ht.count * 4 >= ht.capacity * 3) {
-        try rehash(proc, ht);
+        try rehash(ht);
     }
 }
 
@@ -499,7 +517,7 @@ fn hashTableRefFn(args: []const Value) PrimitiveError!Value {
 // (hash-table-set! ht key value)
 fn hashTableSetFn(args: []const Value) PrimitiveError!Value {
     const ht = try getHashTable("hash-table-set!", args[0]);
-    try growIfNeeded("hash-table-set!", ht);
+    try growIfNeeded(ht);
     const slot = try findSlot("hash-table-set!", ht, args[1]);
     if (memory.gc_instance) |gc| {
         gc.writeBarrier(types.toObject(args[0]), args[1]);
@@ -508,7 +526,7 @@ fn hashTableSetFn(args: []const Value) PrimitiveError!Value {
     if (slot.found) {
         ht.entries[slot.idx].value = args[2];
     } else {
-        ht.entries[slot.idx] = .{ .key = args[1], .value = args[2], .state = .occupied };
+        ht.entries[slot.idx] = .{ .key = args[1], .value = args[2], .hash = slot.hash, .state = .occupied };
         ht.count += 1;
     }
     return types.VOID;
@@ -648,7 +666,7 @@ fn alistToHashTableFn(args: []const Value) PrimitiveError!Value {
         // Only add if key not already present (first occurrence wins)
         const slot = try findSlot("alist->hash-table", ht, key);
         if (!slot.found) {
-            ht.entries[slot.idx] = .{ .key = key, .value = value, .state = .occupied };
+            ht.entries[slot.idx] = .{ .key = key, .value = value, .hash = slot.hash, .state = .occupied };
             ht.count += 1;
         }
         current = types.cdr(current);
@@ -694,7 +712,7 @@ fn hashTableUpdateFn(args: []const Value) PrimitiveError!Value {
         return err;
     };
 
-    try growIfNeeded("hash-table-update!", ht);
+    try growIfNeeded(ht);
     const slot = try findSlot("hash-table-update!", ht, key);
     if (memory.gc_instance) |gc| {
         gc.writeBarrier(types.toObject(args[0]), key);
@@ -703,7 +721,7 @@ fn hashTableUpdateFn(args: []const Value) PrimitiveError!Value {
     if (slot.found) {
         ht.entries[slot.idx].value = new_val;
     } else {
-        ht.entries[slot.idx] = .{ .key = key, .value = new_val, .state = .occupied };
+        ht.entries[slot.idx] = .{ .key = key, .value = new_val, .hash = slot.hash, .state = .occupied };
         ht.count += 1;
     }
     return types.VOID;
@@ -727,7 +745,7 @@ fn hashTableUpdateDefaultFn(args: []const Value) PrimitiveError!Value {
         return err;
     };
 
-    try growIfNeeded("hash-table-update!/default", ht);
+    try growIfNeeded(ht);
     const slot = try findSlot("hash-table-update!/default", ht, key);
     if (memory.gc_instance) |gc| {
         gc.writeBarrier(types.toObject(args[0]), key);
@@ -736,10 +754,21 @@ fn hashTableUpdateDefaultFn(args: []const Value) PrimitiveError!Value {
     if (slot.found) {
         ht.entries[slot.idx].value = new_val;
     } else {
-        ht.entries[slot.idx] = .{ .key = key, .value = new_val, .state = .occupied };
+        ht.entries[slot.idx] = .{ .key = key, .value = new_val, .hash = slot.hash, .state = .occupied };
         ht.count += 1;
     }
     return types.VOID;
+}
+
+/// SRFI 69 requires a hash in `[0, bound)`, and every caller-visible bound is
+/// non-negative. `makeFixnum` keeps 48 bits and `toFixnum` sign-extends from
+/// i48, so masking a hash to anything wider than 47 bits hands back a negative
+/// integer for roughly half of all inputs (#2025 — the same mechanism as #46,
+/// #31 and #16). 47 bits is the widest value that survives the round trip.
+const HASH_FIXNUM_MASK: u64 = 0x7FFF_FFFF_FFFF;
+
+fn unboundedHash(h: u64) Value {
+    return types.makeFixnum(@intCast(h & HASH_FIXNUM_MASK));
 }
 
 // (hash obj [bound]) — generic hash function
@@ -751,7 +780,7 @@ fn hashFn(args: []const Value) PrimitiveError!Value {
         if (bound <= 0) return primitives.typeError("hash", "positive integer", args[1]);
         return types.makeFixnum(@intCast(@mod(h, @as(u64, @intCast(bound)))));
     }
-    return types.makeFixnum(@intCast(h & 0x3FFFFFFFFFFFFFFF));
+    return unboundedHash(h);
 }
 
 // (string-hash s [bound])
@@ -769,7 +798,7 @@ fn stringHashFn(args: []const Value) PrimitiveError!Value {
         if (bound <= 0) return primitives.typeError("string-hash", "positive integer", args[1]);
         return types.makeFixnum(@intCast(@mod(h, @as(u64, @intCast(bound)))));
     }
-    return types.makeFixnum(@intCast(h & 0x3FFFFFFFFFFFFFFF));
+    return unboundedHash(h);
 }
 
 // (string-ci-hash s [bound])
@@ -801,7 +830,7 @@ fn stringCiHashFn(args: []const Value) PrimitiveError!Value {
         if (bound <= 0) return primitives.typeError("string-ci-hash", "positive integer", args[1]);
         return types.makeFixnum(@intCast(@mod(h, @as(u64, @intCast(bound)))));
     }
-    return types.makeFixnum(@intCast(h & 0x3FFFFFFFFFFFFFFF));
+    return unboundedHash(h);
 }
 
 // (hash-by-identity obj [bound])
@@ -813,7 +842,7 @@ fn hashByIdentityFn(args: []const Value) PrimitiveError!Value {
         if (bound <= 0) return primitives.typeError("hash-by-identity", "positive integer", args[1]);
         return types.makeFixnum(@intCast(@mod(h, @as(u64, @intCast(bound)))));
     }
-    return types.makeFixnum(@intCast(h & 0x3FFFFFFFFFFFFFFF));
+    return unboundedHash(h);
 }
 
 // (hash-table-ref/default ht key default)
@@ -859,24 +888,42 @@ fn hashTableFoldFn(args: []const Value) PrimitiveError!Value {
 
 // (hash-table-merge! ht1 ht2)
 fn hashTableMergeFn(args: []const Value) PrimitiveError!Value {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const ht1 = try getHashTable("hash-table-merge!", args[0]);
     const ht2 = try getHashTable("hash-table-merge!", args[1]);
     if (ht1 == ht2) return args[0];
 
-    const gc = memory.gc_instance;
-    for (ht2.entries[0..ht2.capacity]) |entry| {
-        if (entry.state != .occupied) continue;
+    // Iterate a snapshot, not ht2's live array: `findSlot` on ht1 runs ht1's
+    // hash and equality procedures, and a custom one is free to mutate ht2 —
+    // which reallocates and frees the array this loop was walking (#2024).
+    // Same shape, and same fix, as walk/fold got in #1181.
+    const snapshot = snapshotLiveEntries(gc, ht2) orelse return PrimitiveError.OutOfMemory;
+    defer memory.freeSliceNoFill(gc.allocator, HashEntry, snapshot);
+
+    // The snapshot is the only holder of these keys/values once ht2 drops
+    // them, and inserting into ht1 can collect.
+    const scope = gc.rootedScope();
+    defer scope.release();
+    for (snapshot) |entry| {
+        gc.extra_roots.append(gc.allocator, entry.key) catch return PrimitiveError.OutOfMemory;
+        gc.extra_roots.append(gc.allocator, entry.value) catch return PrimitiveError.OutOfMemory;
+    }
+
+    for (snapshot) |entry| {
         const slot = try findSlot("hash-table-merge!", ht1, entry.key);
-        if (gc) |g| {
-            g.writeBarrier(types.toObject(args[0]), entry.key);
-            g.writeBarrier(types.toObject(args[0]), entry.value);
-        }
+        gc.writeBarrier(types.toObject(args[0]), entry.key);
+        gc.writeBarrier(types.toObject(args[0]), entry.value);
         if (slot.found) {
             ht1.entries[slot.idx].value = entry.value;
         } else {
-            try growIfNeeded("hash-table-merge!", ht1);
+            try growIfNeeded(ht1);
             const new_slot = try findSlot("hash-table-merge!", ht1, entry.key);
-            ht1.entries[new_slot.idx] = entry;
+            ht1.entries[new_slot.idx] = .{
+                .key = entry.key,
+                .value = entry.value,
+                .hash = new_slot.hash,
+                .state = .occupied,
+            };
             ht1.count += 1;
         }
     }
