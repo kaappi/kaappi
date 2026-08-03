@@ -1,36 +1,15 @@
 ;; Regression test for #440:
 ;; (not (not X)) must return a boolean, not X itself.
 
-(import (scheme base) (scheme write))
+(import (scheme base) (scheme write) (scheme process-context) (srfi 64))
 
-(define y (not (not "hello")))
-(if (eq? y #t)
-    (display "PASS: (not (not \"hello\")) is #t")
-    (begin
-      (display "FAIL: (not (not \"hello\")) returned ")
-      (write y)))
-(newline)
+(test-begin "not-not-non-boolean")
 
-(define z (not (not (+ 1 2))))
-(if (eq? z #t)
-    (display "PASS: (not (not 3)) is #t")
-    (begin
-      (display "FAIL: (not (not 3)) returned ")
-      (write z)))
-(newline)
+(test-equal "(not (not \"hello\")) is #t" #t (not (not "hello")))
+(test-equal "(not (not (+ 1 2))) is #t" #t (not (not (+ 1 2))))
+(test-equal "(not (not #f)) is #f" #f (not (not #f)))
+(test-equal "(not (not '())) is #t" #t (not (not '())))
 
-(define w (not (not #f)))
-(if (eq? w #f)
-    (display "PASS: (not (not #f)) is #f")
-    (begin
-      (display "FAIL: (not (not #f)) returned ")
-      (write w)))
-(newline)
-
-(define v (not (not '())))
-(if (eq? v #t)
-    (display "PASS: (not (not '())) is #t")
-    (begin
-      (display "FAIL: (not (not '())) returned ")
-      (write v)))
-(newline)
+(let ((runner (test-runner-current)))
+  (test-end "not-not-non-boolean")
+  (when (> (test-runner-fail-count runner) 0) (exit 1)))

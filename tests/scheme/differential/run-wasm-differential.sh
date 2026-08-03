@@ -68,6 +68,25 @@
 # divergence is replayed against a second native baseline, and dropped unless
 # it reproduces.  Paid only when something already looks wrong.
 #
+# WHY THE `agree` COUNT DROPPED IN kaappi#2116.  Converting the corpus's 56
+# verdictless files to the SRFI-64 exit-on-fail shape gave each of them an
+# `(import (srfi 64))`, and `(srfi 64)` is a file-backed `.sld`, which wasm32
+# cannot load (kaappi#2108).  Measured on macOS aarch64 at e62b90eb: `agree`
+# 176 -> 124 and LIBDIFF 179 -> 231, 52 files moving from compared to excluded.
+# That is a real, temporary reduction in this harness's reach, and it reverses
+# entirely when #2108 lands — it is not a sign that those files stopped
+# working.  Three files were deliberately left import-free for exactly this
+# reason and carry a hand-rolled `(exit 1)` instead, because LIBDIFF would
+# have destroyed what they exist to measure: `deep-nesting-print.scm` and
+# `large-index-bounds-1912.scm` (both KNOWN_DIFFS entries below, for #2107 and
+# #1912) and `deep-nesting-print-tier-margin.scm` (the positive control that
+# keeps #2107's margin under watch).  Do not "tidy" those three into SRFI-64.
+#
+# Unrelated pre-existing observation from that measurement, recorded so it is
+# not re-derived: `deep-nesting-print.scm`'s KNOWN_DIFFS entry is reported
+# STALE at e62b90eb with the file unmodified, i.e. #2107 no longer reproduces
+# for it on the current wasmtime.  Left in place for #2107's owner to judge.
+#
 # ---------------------------------------------------------------------------
 # Normalisation
 # ---------------------------------------------------------------------------

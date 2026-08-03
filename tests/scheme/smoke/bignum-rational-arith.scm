@@ -1,40 +1,22 @@
 ;; Regression test for #437:
 ;; toRationalParts must not treat bignums as zero.
 
-(import (scheme base) (scheme write))
+(import (scheme base) (scheme write) (scheme process-context) (srfi 64))
+
+(test-begin "bignum-rational-arith")
 
 ;; (- bignum rational) should not return (- 0 rational)
-(let ((result (- (expt 2 60) 1/3)))
-  (if (> result (expt 2 59))
-      (display "PASS: (- 2^60 1/3) is large")
-      (begin
-        (display "FAIL: (- 2^60 1/3) returned ")
-        (display result))))
-(newline)
+(test-assert "(- 2^60 1/3) is large" (> (- (expt 2 60) 1/3) (expt 2 59)))
 
 ;; (/ bignum rational) should not return 0
-(let ((result (/ (expt 2 60) 1/3)))
-  (if (> result (expt 2 59))
-      (display "PASS: (/ 2^60 1/3) is large")
-      (begin
-        (display "FAIL: (/ 2^60 1/3) returned ")
-        (display result))))
-(newline)
+(test-assert "(/ 2^60 1/3) is large" (> (/ (expt 2 60) 1/3) (expt 2 59)))
 
 ;; Sanity: (+ bignum rational) should still work
-(let ((result (+ (expt 2 60) 1/3)))
-  (if (> result (expt 2 59))
-      (display "PASS: (+ 2^60 1/3) is large")
-      (begin
-        (display "FAIL: (+ 2^60 1/3) returned ")
-        (display result))))
-(newline)
+(test-assert "(+ 2^60 1/3) is large" (> (+ (expt 2 60) 1/3) (expt 2 59)))
 
 ;; Sanity: (* bignum rational) should still work
-(let ((result (* (expt 2 60) 1/3)))
-  (if (> result (expt 2 58))
-      (display "PASS: (* 2^60 1/3) is large")
-      (begin
-        (display "FAIL: (* 2^60 1/3) returned ")
-        (display result))))
-(newline)
+(test-assert "(* 2^60 1/3) is large" (> (* (expt 2 60) 1/3) (expt 2 58)))
+
+(let ((runner (test-runner-current)))
+  (test-end "bignum-rational-arith")
+  (when (> (test-runner-fail-count runner) 0) (exit 1)))

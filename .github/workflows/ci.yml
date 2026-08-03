@@ -361,7 +361,7 @@ jobs:
         run: zig build test -Dtarget=riscv64-linux
 
       - name: R7RS test suite (riscv64 via QEMU)
-        run: zig-out/bin/kaappi tests/scheme/r7rs/r7rs-tests.scm
+        run: bash tools/run-r7rs-suite.sh zig-out/bin/kaappi
 
       # The little-endian control for the same step on s390x below: every
       # assertion in these suites is either host-independent or derived from
@@ -402,7 +402,7 @@ jobs:
         run: zig build test -Dtarget=s390x-linux
 
       - name: R7RS test suite (s390x via QEMU)
-        run: zig-out/bin/kaappi tests/scheme/r7rs/r7rs-tests.scm
+        run: bash tools/run-r7rs-suite.sh zig-out/bin/kaappi
 
       # THE POINT OF THE CANARY (audit v2, Phase 7C). Until this step, the
       # three things that ran here were the build, the unit suite and
@@ -445,7 +445,7 @@ jobs:
         run: zig build test -Dtarget=powerpc64le-linux
 
       - name: R7RS test suite (ppc64le via QEMU)
-        run: zig-out/bin/kaappi tests/scheme/r7rs/r7rs-tests.scm
+        run: bash tools/run-r7rs-suite.sh zig-out/bin/kaappi
 
       # POWER is little-endian in this configuration despite the architecture
       # family's big-endian history, so this is a control leg, not a second
@@ -819,7 +819,7 @@ jobs:
 
       - name: R7RS test suite
         shell: bash
-        run: bin/kaappi.exe tests/scheme/r7rs/r7rs-tests.scm
+        run: bash tools/run-r7rs-suite.sh bin/kaappi.exe
 
       - name: Scheme suites (VM-verified subset)
         shell: bash
@@ -969,7 +969,7 @@ jobs:
 
       - name: R7RS test suite
         shell: bash
-        run: bin/kaappi.exe tests/scheme/r7rs/r7rs-tests.scm
+        run: bash tools/run-r7rs-suite.sh bin/kaappi.exe
 
       - name: Scheme suites (VM-verified subset)
         shell: bash

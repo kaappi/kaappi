@@ -129,13 +129,34 @@ These are the ones where the grouping changes what a maintainer should do.
 
 Ranked by reachability × blast radius ÷ cost, not by severity label.
 
-1. **R10 — make failure detectable, before fixing anything else.** Until this
-   lands, every fix's regression test is of unknown value. Verified: the
+1. ~~**R10 — make failure detectable, before fixing anything else.**~~ **DONE**
+   (2026-08-03, [#2116](https://github.com/kaappi/kaappi/issues/2116),
+   [#2157](https://github.com/kaappi/kaappi/issues/2157),
+   [#2162](https://github.com/kaappi/kaappi/issues/2162),
+   [#2163](https://github.com/kaappi/kaappi/issues/2163)). Until this landed,
+   every fix's regression test was of unknown value. Verified: the
    `(chibi test)` shim prints `1 fail` and **exits 0**, and five `ci.yml` steps
-   run `r7rs-tests.scm` bare — 1,395 assertions gate nothing on those legs;
-   `run-all.sh:125`'s net requires a failure *count*, so it matches neither
-   `#f` nor a bare `FAIL:`, leaving 54 files unable to fail. Both are cheap.
-   This is the campaign's most-repeated finding and its only *meta* one.
+   ran `r7rs-tests.scm` bare — 1,395 assertions gated nothing on those legs;
+   `run-all.sh`'s net required a failure *count*, so it matched neither
+   `#f` nor a bare `FAIL:`, leaving 54 files unable to fail. This was the
+   campaign's most-repeated finding and its only *meta* one.
+
+   What shipped: all 56 verdictless files converted to the SRFI-64
+   exit-on-fail shape (55 from the issue's own enumeration plus
+   `deep-nesting-print-tier-margin.scm`, which that enumeration's predicate
+   missed because the word "assert" appears in one of its comments); a
+   **verdict-channel check** in `run-all.sh` so the count cannot grow back
+   from zero; the stdout net widened to a bare `FAIL` token; one shared
+   `tools/run-r7rs-suite.sh` behind all six R7RS callers; and `run-all.sh`
+   made to refuse rather than silently build a default binary, printing the
+   binary's `features --json` configuration in its header.
+
+   **The predicted second finding appeared immediately**, as the ordering
+   hazard in #2157 warned it would: the widened net caught
+   `smoke/fiber-error-handling.scm` asserting the #551 behaviour that
+   kaappi#1155 deliberately **reversed** — printing `FAIL - should have
+   raised` and exiting 0 ever since #1155 merged. That is the clearest
+   possible evidence the coverage did not previously exist.
 2. **R2 — four ways ordinary Scheme kills the process.** Reproduced two:
    a 27-field record (plain R7RS `define-record-type`) panics with an integer
    overflow in `allocRecordInstance`, and `#e` on a decimal near 2^63 panics

@@ -22,7 +22,18 @@
 ;;; the per-frame cost, shrinks the WASM stack, or raises MAX_PRINT_DEPTH shows
 ;;; up here as a tier divergence rather than silently eating the headroom.
 ;;;
-;;; Deliberately import-free so it costs nothing on the other tiers.
+;;; Deliberately import-free so it costs nothing on the other tiers — which is
+;;; also why it signals failure with a bare `(exit 1)` rather than the SRFI-64
+;;; epilogue every other file in the corpus uses (kaappi#2116).
+;;; `(import (srfi 64))` would make the WASM leg fail at library load
+;;; (kaappi#2108, no .sld on WASM), and run-wasm-differential.sh classifies
+;;; that as LIBDIFF — which would stop this file being the cross-tier control
+;;; it exists to be. The printed PASS/FAIL lines are the cross-tier comparison
+;;; channel and are unchanged; the exit status is the verdict layered on top.
+;;; Until #2116 it had no verdict at all: both checks below printed `FAIL:`
+;;; and exited 0, which neither runner reads as a failure.
+
+(define failures 0)
 
 (define (nest n acc) (if (= n 0) acc (nest (- n 1) (list acc))))
 
@@ -39,7 +50,8 @@
     (begin (display "PASS: car-nested write at depth 500, length=")
            (display actual)
            (newline))
-    (begin (display "FAIL: car-nested write at depth 500 — expected length ")
+    (begin (set! failures (+ failures 1))
+           (display "FAIL: car-nested write at depth 500 — expected length ")
            (display expected)
            (display ", got ")
            (display actual)
@@ -53,4 +65,7 @@
 (write (mk 200000 '()) flat-port)
 (if (= (string-length (get-output-string flat-port)) 400001)
     (begin (display "PASS: cdr-nested write of 200000 pairs") (newline))
-    (begin (display "FAIL: cdr-nested write of 200000 pairs") (newline)))
+    (begin (set! failures (+ failures 1))
+           (display "FAIL: cdr-nested write of 200000 pairs") (newline)))
+
+(if (> failures 0) (exit 1))

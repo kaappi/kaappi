@@ -1,50 +1,27 @@
 ;; Regression test for #441:
 ;; even? and odd? must reject non-integer flonums.
 
-(import (scheme base) (scheme write))
+(import (scheme base) (scheme write) (scheme process-context) (srfi 64))
+
+(test-begin "even-odd-non-integer")
+
+(define (raises? thunk)
+  (guard (exn (#t #t)) (thunk) #f))
 
 ;; Non-integer flonum should error
-(define caught-1 #f)
-(guard (exn (#t (set! caught-1 #t)))
-  (odd? 2.5))
-(if caught-1
-    (display "PASS: (odd? 2.5) raises error")
-    (display "FAIL: (odd? 2.5) did not raise error"))
-(newline)
-
-(define caught-2 #f)
-(guard (exn (#t (set! caught-2 #t)))
-  (even? 2.5))
-(if caught-2
-    (display "PASS: (even? 2.5) raises error")
-    (display "FAIL: (even? 2.5) did not raise error"))
-(newline)
+(test-assert "(odd? 2.5) raises" (raises? (lambda () (odd? 2.5))))
+(test-assert "(even? 2.5) raises" (raises? (lambda () (even? 2.5))))
 
 ;; Infinity should error
-(define caught-3 #f)
-(guard (exn (#t (set! caught-3 #t)))
-  (odd? +inf.0))
-(if caught-3
-    (display "PASS: (odd? +inf.0) raises error")
-    (display "FAIL: (odd? +inf.0) did not raise error"))
-(newline)
+(test-assert "(odd? +inf.0) raises" (raises? (lambda () (odd? +inf.0))))
 
 ;; NaN should error
-(define caught-4 #f)
-(guard (exn (#t (set! caught-4 #t)))
-  (even? +nan.0))
-(if caught-4
-    (display "PASS: (even? +nan.0) raises error")
-    (display "FAIL: (even? +nan.0) did not raise error"))
-(newline)
+(test-assert "(even? +nan.0) raises" (raises? (lambda () (even? +nan.0))))
 
 ;; Integer-valued flonums should work
-(if (even? 4.0)
-    (display "PASS: (even? 4.0) is #t")
-    (display "FAIL: (even? 4.0) should be #t"))
-(newline)
+(test-assert "(even? 4.0) is #t" (even? 4.0))
+(test-assert "(odd? 3.0) is #t" (odd? 3.0))
 
-(if (odd? 3.0)
-    (display "PASS: (odd? 3.0) is #t")
-    (display "FAIL: (odd? 3.0) should be #t"))
-(newline)
+(let ((runner (test-runner-current)))
+  (test-end "even-odd-non-integer")
+  (when (> (test-runner-fail-count runner) 0) (exit 1)))

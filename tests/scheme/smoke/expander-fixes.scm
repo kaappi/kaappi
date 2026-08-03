@@ -2,7 +2,9 @@
 ;; #309: flonum datum patterns in syntax-rules
 ;; #308: ellipsis escape hygiene
 
-(import (scheme base) (scheme write))
+(import (scheme base) (scheme write) (scheme process-context) (srfi 64))
+
+(test-begin "expander-fixes")
 
 ;; ---- #309: Flonum datum patterns ----
 
@@ -11,12 +13,9 @@
     ((check-pi 3.14) 'pi)
     ((check-pi _) 'other)))
 
-(display (check-pi 3.14))    ; pi
-(newline)
-(display (check-pi 2.71))    ; other
-(newline)
-(display (check-pi 42))      ; other
-(newline)
+(test-equal "flonum datum pattern matches 3.14" 'pi (check-pi 3.14))
+(test-equal "flonum datum pattern rejects 2.71" 'other (check-pi 2.71))
+(test-equal "flonum datum pattern rejects the fixnum 42" 'other (check-pi 42))
 
 ;; Integer datum patterns still work
 (define-syntax check-zero
@@ -24,10 +23,8 @@
     ((check-zero 0) 'zero)
     ((check-zero _) 'nonzero)))
 
-(display (check-zero 0))     ; zero
-(newline)
-(display (check-zero 1))     ; nonzero
-(newline)
+(test-equal "integer datum pattern matches 0" 'zero (check-zero 0))
+(test-equal "integer datum pattern rejects 1" 'nonzero (check-zero 1))
 
 ;; ---- #308: Ellipsis escape hygiene ----
 
@@ -38,14 +35,12 @@
     ((my-or a b)
      (... (let ((t a)) (if t t b))))))
 
-(let ((t 42))
-  (display (my-or #f t))      ; 42 (not shadowed by hygienic 't')
-  (newline))
+(test-equal "use-site t is not captured by the template's own t"
+            42 (let ((t 42)) (my-or #f t)))
 
-(display (my-or 1 2))         ; 1
-(newline)
-(display (my-or #f 99))       ; 99
-(newline)
+(test-equal "my-or returns its first true argument" 1 (my-or 1 2))
+(test-equal "my-or falls through a false first argument" 99 (my-or #f 99))
 
-(display "all passed")
-(newline)
+(let ((runner (test-runner-current)))
+  (test-end "expander-fixes")
+  (when (> (test-runner-fail-count runner) 0) (exit 1)))

@@ -11,11 +11,33 @@
 
 set -euo pipefail
 
-# Use pre-built binary if available, otherwise build once.
-if [[ ! -x zig-out/bin/kaappi ]]; then
-    zig build
-fi
 KAAPPI=zig-out/bin/kaappi
+
+# This script used to run a bare `zig build` when the binary was missing. That
+# convenience dates from when it was the only runner, and it silently
+# substituted a DEFAULT build for whatever configuration the caller meant to
+# measure (kaappi#2163). The natural two-command sequence for "run everything
+# under gc-stress" is the worst case:
+#
+#     zig build test -Dgc-stress=true      # stresses the unit suite...
+#     bash tests/scheme/run-all.sh         # ...and this built a PLAIN kaappi
+#
+# because `zig build test` installs no executable. The result was a full green
+# Scheme suite that stressed nothing, with nothing in the output naming the
+# configuration it actually ran. The same applies to -Doptimize=,
+# -Dmax-registers= and -Dgc-threshold=. Every CI caller builds first, so
+# refusing costs them nothing and costs a developer one command.
+if [[ ! -x "$KAAPPI" ]]; then
+    echo "run-all.sh: no executable at $KAAPPI." >&2
+    echo "  Build it first, with the options you want the suite run under:" >&2
+    echo "    zig build                        # default" >&2
+    echo "    zig build -Dgc-stress=true       # collection on every allocation" >&2
+    echo "    zig build -Doptimize=Debug       # ..." >&2
+    echo "  (This script deliberately does not build for you: a bare 'zig build'" >&2
+    echo "   here would silently run the corpus against a differently-configured" >&2
+    echo "   binary than you asked for -- kaappi#2163.)" >&2
+    exit 2
+fi
 
 # Isolate ~/.kaappi so the suite is hermetic: plain `kaappi <file>` runs write a
 # bytecode cache under $KAAPPI_HOME/cache (kaappi#1516), and we don't want the
@@ -24,9 +46,8 @@ KAAPPI=zig-out/bin/kaappi
 KAAPPI_HOME_TMP=$(mktemp -d /tmp/kaappi-test-home-XXXXXX)
 export KAAPPI_HOME="$KAAPPI_HOME_TMP"
 
-TMPSTDOUT=$(mktemp /tmp/kaappi-r7rs-stdout-XXXXXX)
-TMPSTDERR=$(mktemp /tmp/kaappi-r7rs-stderr-XXXXXX)
-trap 'rm -f "$TMPSTDOUT" "$TMPSTDERR"; rm -rf "$KAAPPI_HOME_TMP"' EXIT
+R7RS_COUNTS=$(mktemp /tmp/kaappi-r7rs-counts-XXXXXX)
+trap 'rm -f "$R7RS_COUNTS"; rm -rf "$KAAPPI_HOME_TMP"' EXIT
 
 TIMEOUT="${KAAPPI_TEST_TIMEOUT:-60}"
 # Shell-suite tests do real work (native compiles, sometimes a `zig build`) so
@@ -122,7 +143,16 @@ run_file_worker() {
         # that forgets it (or a stray chibi-test file — the shim exits 0
         # even when assertions fail) would otherwise slip through. Trust
         # the printed counts, not just the exit code.
-        if grep -Eq '(^|[^0-9])[1-9][0-9]* fail|unexpected (failures|errors) +[1-9]' "$slot.out"; then
+        #
+        # The third alternative is a bare FAIL token, added by kaappi#2116:
+        # the two count-shaped patterns before it require a failure COUNT,
+        # which the hand-rolled `(display "FAIL: ...")` style has none of, so
+        # 16 files printing exactly that were reported PASS. The token is
+        # anchored on both sides against word characters so it cannot fire on
+        # `FAILURES` or on a sentence mentioning failure in lower case, and
+        # the corpus was swept for a file that prints it as expected output —
+        # none does.
+        if grep -Eq '(^|[^0-9])[1-9][0-9]* fail|unexpected (failures|errors) +[1-9]|(^|[^A-Za-z0-9_])FAIL([^A-Za-z0-9_]|$)' "$slot.out"; then
             echo "FAIL_ASSERT" > "$slot.rec"
         else
             echo "PASS" > "$slot.rec"
@@ -449,6 +479,68 @@ check_unreachable_tests() {
     echo ""
 }
 
+# The sibling of the check above, and the same class of bug one level down: a
+# file the globs DO see, which has no way to report a failure (kaappi#2116).
+# 55 files printed their answers and exited 0 whatever those answers were —
+# `tests/scheme/smoke/thread-sleep-876.scm` was demonstrably green under the
+# very regression it was written to catch, and the stdout net in
+# run_file_worker cannot help, because a file that prints `#f` or a bare
+# `FAIL:` line has no failure COUNT for it to match.
+#
+# A file must carry at least one of the four things that can turn a wrong
+# answer into a nonzero exit: a SRFI-64 suite (`test-begin`, whose epilogue
+# exits), an explicit `(exit`, an `(error`, or an `(assert`. This is a
+# heuristic and knows it: `(error` inside a `guard` being TESTED is not a
+# verdict channel, so a determined file can still slip through. What it does
+# guarantee is that the count cannot grow back silently from zero, which is
+# what let 55 accumulate.
+#
+# `test-begin` is deliberately not made mandatory: three files must stay
+# import-free to keep working on other execution tiers (`(import (srfi 64))`
+# fails at library load on WASM, kaappi#2108), so they carry a bare `(exit 1)`
+# instead and say so in their own headers.
+check_verdictless_tests() {
+    echo "=== Verdict-channel check ==="
+    local found=0 dir f
+    for dir in $SCM_SUITE_DIRS; do
+        for f in tests/scheme/"$dir"/*.scm; do
+            [[ -e "$f" ]] || continue
+            if ! grep -Eq 'test-begin|\(exit|\(error|\(assert' "$f"; then
+                echo "  NO-VERDICT  $f"
+                found=$((found + 1))
+            fi
+        done
+    done
+    if [[ $found -gt 0 ]]; then
+        echo ""
+        echo "  $found test file(s) have no way to signal failure: whatever they compute,"
+        echo "  they exit 0 and both runners report them as passing. Give each one the"
+        echo "  SRFI-64 shape (test-begin ... test-end + the exit-on-fail epilogue)."
+        echo "  See tests/scheme/CLAUDE.md (Adding a test)."
+        FAIL=$((FAIL + found))
+    else
+        echo "  PASS  every globbed test file can report a failure"
+    fi
+    echo ""
+}
+
+# Name the binary that produced the counts below. Nothing about running a .scm
+# file reveals which build options compiled the interpreter, so a log without
+# this cannot distinguish a gc-stress run from a plain one, or a Debug leg from
+# a ReleaseFast one (kaappi#2163). `kaappi features --json` reports the
+# comptime options directly (src/features.zig); the sed is deliberately dumb so
+# a missing field degrades to a blank rather than failing the run.
+describe_binary() {
+    local json field
+    json=$("$KAAPPI" features --json 2>/dev/null) || return 0
+    for field in version build_id target build_mode gc_stress; do
+        printf '  %-11s %s\n' "$field" \
+            "$(printf '%s' "$json" | tr ',' '\n' | sed -n "s/.*\"$field\"[[:space:]]*:[[:space:]]*\"\{0,1\}\([^\"}]*\)\"\{0,1\}.*/\1/p" | head -1)"
+    done
+}
+echo "Binary under test: $KAAPPI"
+describe_binary
+echo ""
 echo "Running .scm suites with $JOBS parallel job(s) (override: KAAPPI_TEST_JOBS)."
 echo "Running shell suites with $SHELL_JOBS parallel job(s) (override: KAAPPI_SHELL_TEST_JOBS)."
 
@@ -472,6 +564,7 @@ fi
 echo ""
 
 check_unreachable_tests
+check_verdictless_tests
 
 run_suite "Smoke tests" tests/scheme/smoke/*.scm
 run_shell_suite "Smoke shell tests" tests/scheme/smoke
@@ -518,23 +611,30 @@ run_shell_suite "Package manager" tests/scheme/thottam
 # 227 extra files add no tier coverage, only runtime.
 run_shell_suite "Differential tiers" tests/scheme/differential
 
+# The R7RS suite is the one corpus file that reports failures without exiting
+# nonzero — the `(chibi test)` shim has no exit-on-fail epilogue — so its
+# verdict comes from its printed counts. That parsing used to live here; it now
+# lives in tools/run-r7rs-suite.sh, shared with the five ci.yml steps that used
+# to invoke the suite bare and therefore could not fail on a wrong answer
+# (kaappi#2157). The counts come back through a file rather than by re-parsing
+# the runner's own output, so there is still exactly one parser.
 echo "=== R7RS test suite ==="
 set +e
-"$KAAPPI" tests/scheme/r7rs/r7rs-tests.scm > "$TMPSTDOUT" 2> "$TMPSTDERR"
-R7RS_STATUS=$?
-R7RS_OUTPUT="$(cat "$TMPSTDOUT" "$TMPSTDERR")"
+KAAPPI_R7RS_COUNTS_OUT="$R7RS_COUNTS" bash tools/run-r7rs-suite.sh "$KAAPPI"
+R7RS_RUNNER_STATUS=$?
 set -e
 
-R7RS_PASS=$(printf "%s\n" "$R7RS_OUTPUT" | awk '{for (i = 1; i < NF; i++) { w=$(i+1); gsub(",", "", w); if ($i ~ /^[0-9]+$/ && w == "pass") s += $i }} END {print s + 0}')
-R7RS_FAIL=$(printf "%s\n" "$R7RS_OUTPUT" | awk '{for (i = 1; i < NF; i++) { w=$(i+1); gsub(",", "", w); if ($i ~ /^[0-9]+$/ && w == "fail") s += $i }} END {print s + 0}')
-echo "  $R7RS_PASS pass, $R7RS_FAIL fail"
-if [[ $R7RS_STATUS -ne 0 ]]; then
-    echo "  FAIL  tests/scheme/r7rs/r7rs-tests.scm (exit $R7RS_STATUS)"
-    echo "--- stderr output ---"
-    cat "$TMPSTDERR" 2>/dev/null || true
-    echo "--- last 20 lines stdout ---"
-    tail -20 "$TMPSTDOUT" 2>/dev/null || true
-    echo "--- end crash context ---"
+if [[ -s "$R7RS_COUNTS" ]]; then
+    # shellcheck disable=SC1090  # generated by tools/run-r7rs-suite.sh
+    . "$R7RS_COUNTS"
+elif [[ $R7RS_RUNNER_STATUS -ne 0 ]]; then
+    # The runner bailed before it had counts to report (no binary, missing
+    # suite file). Nothing to fold into the summary but the failure itself.
+    R7RS_STATUS_FAIL=1
+fi
+# Exit 2 is "the harness could not run it", which the counts alone cannot show:
+# 0 pass / 0 fail would otherwise read as a clean run of nothing.
+if [[ $R7RS_RUNNER_STATUS -eq 2 || ${R7RS_STATUS:-0} -ne 0 ]]; then
     R7RS_STATUS_FAIL=1
 fi
 

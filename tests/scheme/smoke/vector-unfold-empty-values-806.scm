@@ -1,18 +1,19 @@
 ;; Regression test for #806: vector-unfold / vector-unfold-right must not
 ;; abort when the step procedure returns (values) (zero values).
-(import (scheme base) (scheme write) (srfi 133))
 
-(define (test name thunk)
-  (let ((result (guard (exn (#t 'caught))
-                  (thunk))))
-    (if (eq? result 'caught)
-        (begin (display "PASS: ") (display name) (newline))
-        (begin (display "FAIL: ") (display name)
-               (display " — expected error but got: ") (display result)
-               (newline)))))
+(import (scheme base) (scheme write) (scheme process-context)
+        (srfi 64) (srfi 133))
 
-(test "vector-unfold with (values)"
-  (lambda () (vector-unfold (lambda (i) (values)) 1)))
+(test-begin "vector-unfold-empty-values-806")
 
-(test "vector-unfold-right with (values)"
-  (lambda () (vector-unfold-right (lambda (i) (values)) 3)))
+(define (raises? thunk)
+  (guard (exn (#t #t)) (thunk) #f))
+
+(test-assert "vector-unfold with (values) raises rather than aborting"
+             (raises? (lambda () (vector-unfold (lambda (i) (values)) 1))))
+(test-assert "vector-unfold-right with (values) raises rather than aborting"
+             (raises? (lambda () (vector-unfold-right (lambda (i) (values)) 3))))
+
+(let ((runner (test-runner-current)))
+  (test-end "vector-unfold-empty-values-806")
+  (when (> (test-runner-fail-count runner) 0) (exit 1)))

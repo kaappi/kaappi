@@ -850,13 +850,20 @@
 ;; platform.setEnv — so setEnvVarFn's raiseFileError branch is unreachable and
 ;; an EINVAL name silently does nothing.  A name containing "=" and an empty
 ;; name are both rejected by POSIX; both return normally here and set nothing.)
-;; (test-equal "(raised? (lambda () (set-environment-variable! 'KAAPPI=A2..." #t (raised? (lambda () (set-environment-variable! "KAAPPI=A212" "v"))))
+;; (test-equal "(raised? (lambda () (set-environment-variable! 'KAAPPI_A212_ABSENT=x' 'v')))" #t (raised? (lambda () (set-environment-variable! "KAAPPI_A212_ABSENT=x" "v"))))
 ;; (test-equal "(raised? (lambda () (set-environment-variable! '' 'v')))" #t (raised? (lambda () (set-environment-variable! "" "v"))))
 ;; Enabled control: the call really does nothing at all, under either spelling
-(set-environment-variable! "KAAPPI=A212" "v")
-(test-equal "(get-environment-variable 'KAAPPI')" #f (get-environment-variable "KAAPPI"))
-(test-equal "(get-environment-variable 'KAAPPI=A212')" #f (get-environment-variable "KAAPPI=A212"))
-(test-equal "(assoc 'KAAPPI' (get-environment-variables))" #f (assoc "KAAPPI" (get-environment-variables)))
+;; — neither the whole "name=value" string nor the part before the "=" ends up
+;; set.  Both names must be ones this test owns.  They used to be "KAAPPI=A212"
+;; and "KAAPPI", and "KAAPPI" is the name every harness in this repo uses for
+;; "the binary under test" (tests/scheme/shell-common.sh, both Windows CI
+;; `Shell suites` steps), so all three assertions went red the moment a runner
+;; exported it — for reasons with nothing to do with the code under test
+;; (kaappi#2162).
+(set-environment-variable! "KAAPPI_A212_ABSENT=x" "v")
+(test-equal "(get-environment-variable 'KAAPPI_A212_ABSENT')" #f (get-environment-variable "KAAPPI_A212_ABSENT"))
+(test-equal "(get-environment-variable 'KAAPPI_A212_ABSENT=x')" #f (get-environment-variable "KAAPPI_A212_ABSENT=x"))
+(test-equal "(assoc 'KAAPPI_A212_ABSENT' (get-environment-variables))" #f (assoc "KAAPPI_A212_ABSENT" (get-environment-variables)))
 
 ;;; =====================================================================
 ;;; G. Error taxonomy — which failures are file errors?

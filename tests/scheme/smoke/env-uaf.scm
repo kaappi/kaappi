@@ -5,6 +5,10 @@
 ;; environment's binding map alive even after the environment object
 ;; becomes otherwise unreachable.
 
+(import (scheme base) (scheme eval) (scheme process-context) (srfi 64))
+
+(test-begin "env-uaf")
+
 (define f (eval '(let ((secret 42)) (lambda () secret))
                 (environment '(scheme base))))
 
@@ -14,5 +18,9 @@
   (let churn ((n 200000) (acc '()))
     (if (= n 0) acc (churn (- n 1) (cons n acc)))))
 
-(display (= (f) 42))
-(newline)
+(test-equal "closure from a collected (environment ...) still reads its binding"
+            42 (f))
+
+(let ((runner (test-runner-current)))
+  (test-end "env-uaf")
+  (when (> (test-runner-fail-count runner) 0) (exit 1)))
