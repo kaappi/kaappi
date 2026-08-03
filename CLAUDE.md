@@ -44,7 +44,10 @@ zero overhead when absent — see `docs/dev/timings.md`),
 `--completions <shell>`.
 Subcommands: `kaappi compile <file> [-o output]` compiles to a native binary
 via LLVM; `kaappi check <file>` runs compile-only static analysis (reads,
-expands, compiles, executes nothing) reporting read/compile errors plus the
+expands, compiles, executes no program code — only the five
+`vm_eval.TopLevelHead.isEnvSetup()` declarations later forms are compiled
+*against*, which `--compile` and `--disassemble` share since kaappi#2156)
+reporting read/compile errors plus the
 `KP4xxx` lint findings — unknown top-level variable (warning), and arity or
 wrong-type-literal on direct built-in calls (errors); honors
 `--diagnostics=json` and `--deny-warnings` — see `docs/dev/check.md`;

@@ -11,6 +11,7 @@ pub const reader = @import("reader.zig");
 pub const compiler = @import("compiler.zig");
 pub const compiler_forms = @import("compiler_forms.zig");
 pub const vm_mod = @import("vm.zig");
+pub const vm_eval = @import("vm_eval.zig");
 pub const primitives = @import("primitives.zig");
 pub const primitives_arithmetic = @import("primitives_arithmetic.zig");
 pub const primitives_io = @import("primitives_io.zig");
@@ -766,7 +767,9 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
 
     var compiled_funcs: std.ArrayList(*types.Function) = .empty;
     defer compiled_funcs.deinit(allocator);
-    var has_imports = false;
+    // The first top-level declaration head seen, if any — it both disables the
+    // cache and names the reason `--timings` prints (#2114).
+    var first_toplevel_decl: ?vm_eval.TopLevelHead = null;
     var defines_syntax = false;
     var had_compile_error = false;
 
@@ -795,13 +798,17 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         vm.gc.pushRoot(&expr);
         defer vm.gc.popRoot();
 
-        // A top-level import/define-library/include runs library code here.
-        crash.noteStage(.executing);
-        timings.begin(.execute);
-        const maybe_top = vm.handleTopLevelForm(expr);
-        timings.end();
-        if (maybe_top) |top_result| {
-            has_imports = true;
+        // A top-level declaration — import/define-library/include runs library
+        // code here; the other five heads are interpreted directly. Classify
+        // before dispatching: evaluating one form can change how the next is
+        // classified, so the head and its handler must be read from the same
+        // moment (#2114).
+        if (vm.topLevelHead(expr)) |head| {
+            if (first_toplevel_decl == null) first_toplevel_decl = head;
+            crash.noteStage(.executing);
+            timings.begin(.execute);
+            const top_result = vm.runTopLevelHead(head, expr);
+            timings.end();
             const result = top_result catch |err| {
                 script_had_error = true;
                 toplevel_driver.reportRuntimeError(vm, err, .{ .source = path, .line = datum_lc.line });
@@ -855,15 +862,23 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         printTopLevelResult(allocator, result);
     }
 
-    // Cache compiled bytecode. Skipped when imports are used (GC may have
-    // freed collected function pointers during library loading), when a form
-    // registered a macro or syntax property at compile time (a HIT would not
-    // replay the registration and run-time `eval` would diverge — kaappi#2112),
-    // and when any form failed to compile (a HIT would silently run the
-    // partial program with exit 0 where the cold run reported the error with
-    // exit 1). Best-effort: a failed write (read-only home, etc.) just means
-    // the next run recompiles.
-    if (!has_imports and !defines_syntax and !had_compile_error and compiled_funcs.items.len > 0) {
+    // Cache compiled bytecode. Skipped in three cases.
+    //
+    // Any of the eight top-level declaration heads (kaappi#2114 — see
+    // `vm_eval.TopLevelHead` and `docs/dev/cache.md`): `handleTopLevelForm`
+    // consumes such a form and appends no Function here, so a HIT — which
+    // compiles nothing — would skip its work entirely. That, not the
+    // library-loading rationale this comment used to give, is why all eight
+    // disable the cache; the GC hazard is real but specific to the three that
+    // load libraries.
+    //
+    // A form that registered a macro or syntax property at compile time (a HIT
+    // would not replay the registration and run-time `eval` would diverge —
+    // kaappi#2112), and any form that failed to compile (a HIT would silently
+    // run the partial program with exit 0 where the cold run reported the error
+    // with exit 1). Best-effort: a failed write (read-only home, etc.) just
+    // means the next run recompiles.
+    if (first_toplevel_decl == null and !defines_syntax and !had_compile_error and compiled_funcs.items.len > 0) {
         if (sbc_path) |sp| {
             cache.ensureDir();
             if (bytecode_file.writeFileWithTopLevel(allocator, compiled_funcs.items, source_hash, path, sp)) |_| {
@@ -878,9 +893,12 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
             }
         }
     } else if (sbc_path != null) {
-        // A miss was recorded but nothing will be written — say why.
-        if (has_imports) {
-            timings.cacheReason("imports");
+        // A miss was recorded but nothing will be written — say why. Name the
+        // head that actually disabled it: every one of the eight used to be
+        // reported as `imports`, including files containing no import at all
+        // (#2114).
+        if (first_toplevel_decl) |head| {
+            timings.cacheReason(head.cacheReason());
         } else if (defines_syntax) {
             timings.cacheReason("define-syntax");
         } else if (had_compile_error) {
@@ -1022,22 +1040,36 @@ fn disassembleFile(vm: *vm_mod.VM, path: []const u8) !void {
         vm.gc.pushRoot(&expr);
         defer vm.gc.popRoot();
 
-        if (vm.handleTopLevelForm(expr)) |top_result| {
-            _ = top_result catch |err| {
+        // Same compile-only discipline as `--compile` (#2156): splice
+        // `begin` / `cond-expand` so their bodies are disassembled rather than
+        // run, and evaluate only the declarations the compiler depends on.
+        var forms = toplevel_driver.TopLevelForms.init(vm, allocator, expr);
+        defer forms.deinit();
+        while (forms.next()) |form_result| {
+            const form = form_result catch |err| {
                 script_had_error = true;
                 toplevel_driver.reportRuntimeError(vm, err, .{ .source = path, .line = datum_lc.line });
+                continue;
             };
-            continue;
+
+            if (vm.topLevelHead(form)) |head| {
+                if (!head.isEnvSetup()) continue;
+                _ = vm.runTopLevelHead(head, form) catch |err| {
+                    script_had_error = true;
+                    toplevel_driver.reportRuntimeError(vm, err, .{ .source = path, .line = datum_lc.line });
+                };
+                continue;
+            }
+
+            const func = compiler.compileExpressionWithMacrosAt(vm.gc, form, &vm.macros, vm.globals, datum_lc.line, path, false) catch |err| {
+                toplevel_driver.reportCompileError(path, datum_lc.line, datum_lc.col, err);
+                script_had_error = true;
+                continue;
+            };
+
+            const disasm = @import("disassembler.zig");
+            disasm.disassemble(func, allocator);
         }
-
-        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, datum_lc.line, path, false) catch |err| {
-            toplevel_driver.reportCompileError(path, datum_lc.line, datum_lc.col, err);
-            script_had_error = true;
-            continue;
-        };
-
-        const disasm = @import("disassembler.zig");
-        disasm.disassemble(func, allocator);
     }
 }
 
@@ -1102,25 +1134,48 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
         vm.gc.pushRoot(&expr);
         defer vm.gc.popRoot();
 
-        if (vm.handleTopLevelForm(expr)) |top_result| {
-            const form_src = printer.valueToString(allocator, expr, .write) catch continue;
-            _ = top_result catch |err| {
+        // Splice top-level `begin` / `cond-expand` instead of evaluating them:
+        // their bodies are ordinary program code and belong in the bytecode,
+        // not in this process (#2156).
+        var forms = toplevel_driver.TopLevelForms.init(vm, allocator, expr);
+        defer forms.deinit();
+        while (forms.next()) |form_result| {
+            const form = form_result catch |err| {
                 script_had_error = true;
                 toplevel_driver.reportRuntimeError(vm, err, .{ .source = path, .line = datum_lc.line });
+                continue;
             };
-            preamble.append(allocator, form_src) catch {
-                allocator.free(form_src);
+
+            if (vm.topLevelHead(form)) |head| {
+                // Record every declaration for replay when the artifact runs...
+                const form_src = printer.valueToString(allocator, form, .write) catch continue;
+                preamble.append(allocator, form_src) catch {
+                    allocator.free(form_src);
+                    continue;
+                };
+                // ...but evaluate only those the *compiler* depends on. A
+                // `define-values` needs nothing at compile time, and evaluating
+                // it ran its producer expression's side effects for real while
+                // writing the `.sbc`, on top of the replay just recorded — so
+                // `(define-values (a) (values (delete-file "x")))` deleted the
+                // file twice (#2156). `begin` and `cond-expand` never reach
+                // here; TopLevelForms already spliced them.
+                if (!head.isEnvSetup()) continue;
+                _ = vm.runTopLevelHead(head, form) catch |err| {
+                    script_had_error = true;
+                    toplevel_driver.reportRuntimeError(vm, err, .{ .source = path, .line = datum_lc.line });
+                };
+                continue;
+            }
+
+            const func = compiler.compileExpressionWithMacrosAt(vm.gc, form, &vm.macros, vm.globals, datum_lc.line, path, false) catch |err| {
+                toplevel_driver.reportCompileError(path, datum_lc.line, datum_lc.col, err);
+                script_had_error = true;
+                continue;
             };
-            continue;
+
+            compiled_funcs.append(allocator, func) catch {};
         }
-
-        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, datum_lc.line, path, false) catch |err| {
-            toplevel_driver.reportCompileError(path, datum_lc.line, datum_lc.col, err);
-            script_had_error = true;
-            continue;
-        };
-
-        compiled_funcs.append(allocator, func) catch {};
     }
 
     if (compiled_funcs.items.len > 0 or preamble.items.len > 0) {

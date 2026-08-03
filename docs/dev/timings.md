@@ -56,7 +56,7 @@ The cache line is never blank. When caching was not even attempted it says why:
 
 ```text
 cache: off (--no-ir-opt)     # or (sandbox), or (no home dir)
-cache: MISS (not cached: imports)   # imported programs are never cached (#1516)
+cache: MISS (not cached: top-level import)   # one of the eight top-level heads (#1516, #2114)
 ```
 
 ### Stages

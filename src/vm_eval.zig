@@ -69,12 +69,103 @@ pub fn eval(vm: *VM, source: []const u8) VMError!Value {
     return last_result;
 }
 
-pub fn handleTopLevelForm(vm: *VM, expr: Value) ?VMError!Value {
+/// The eight top-level heads `handleTopLevelForm` claims: forms `eval()`
+/// interprets directly instead of compiling to a reusable Function.
+///
+/// This enum is the single source of truth for that set. Four consumers read
+/// it — the dispatch chain in `runTopLevelHead` (an exhaustive `switch`, so a
+/// new head cannot reach the VM without a handler), the `.sbc` cache's decline
+/// predicate `isSpecialTopLevelForm`, `--timings`' "not cached: ..." reason,
+/// and `check.zig`'s env-setup allowlist. Until #2114 those were four
+/// hand-kept lists, and `--timings` reported every one of them as `imports`.
+pub const TopLevelHead = enum {
+    import,
+    define_library,
+    define_record_type,
+    define_values,
+    include,
+    include_ci,
+    begin,
+    cond_expand,
+
+    pub fn keyword(self: TopLevelHead) []const u8 {
+        return switch (self) {
+            .import => "import",
+            .define_library => "define-library",
+            .define_record_type => "define-record-type",
+            .define_values => "define-values",
+            .include => "include",
+            .include_ci => "include-ci",
+            .begin => "begin",
+            .cond_expand => "cond-expand",
+        };
+    }
+
+    pub fn fromKeyword(name: []const u8) ?TopLevelHead {
+        inline for (@typeInfo(TopLevelHead).@"enum".fields) |f| {
+            const cand: TopLevelHead = @enumFromInt(f.value);
+            if (std.mem.eql(u8, name, comptime cand.keyword())) return cand;
+        }
+        return null;
+    }
+
+    /// Static string naming this head in `--timings`' "not cached: ..." line.
+    /// Every one of the eight disables the `.sbc` cache for the same reason:
+    /// `handleTopLevelForm` consumes the form and appends no Function to the
+    /// run's `compiled_funcs`, so a HIT — which compiles nothing — would skip
+    /// the form's work entirely. See `docs/dev/cache.md`.
+    pub fn cacheReason(self: TopLevelHead) []const u8 {
+        return switch (self) {
+            inline else => |h| "top-level " ++ comptime h.keyword(),
+        };
+    }
+
+    /// Whether a *compile-only* driver has to evaluate this head for real.
+    /// True for the declarations that establish the environment later forms
+    /// are compiled against — `import`/`include`/`include-ci`/`define-library`
+    /// bring in bindings, macros and library code, and `define-record-type`
+    /// registers a type. False for the rest, whose bodies are ordinary program
+    /// code a compile-only command must never run (#2156): `begin` and
+    /// `cond-expand` splice (see `topLevelSpliceBody`), and `define-values`
+    /// only needs its *names*, never its producer expression's effects.
+    pub fn isEnvSetup(self: TopLevelHead) bool {
+        return switch (self) {
+            .import, .define_library, .include, .include_ci, .define_record_type => true,
+            .define_values, .begin, .cond_expand => false,
+        };
+    }
+};
+
+/// The `TopLevelHead` claiming `expr`, or null if `eval` would compile it as an
+/// ordinary expression. Callers that then dispatch should pass the result to
+/// `runTopLevelHead` rather than re-deriving it: evaluating one form (an
+/// `import` bringing a shadowing macro into scope) can change the answer for
+/// the next, so the two must be read from the same moment.
+pub fn topLevelHead(vm: *VM, expr: Value) ?TopLevelHead {
     if (!types.isPair(expr)) return null;
     const head = types.car(expr);
     if (!types.isSymbol(head)) return null;
-    const name = types.symbolName(head);
+    const found = TopLevelHead.fromKeyword(types.symbolName(head)) orelse return null;
 
+    // R7RS has no reserved words: an imported macro may shadow a special
+    // form keyword (compiler.zig's compileForm already honors this for
+    // every non-top-level use, e.g. SRFI-219 redefining `define` -- see
+    // its own comment). SRFI 136/131/57 each define their own
+    // define-record-type macro (extended record-type syntax reusing the
+    // same name); when one is in scope, report no head at all so the form
+    // reaches ordinary macro-aware compilation, exactly like every other
+    // top-level form does.
+    if (found == .define_record_type and isMacroShadowed(vm, "define-record-type")) return null;
+    return found;
+}
+
+pub fn handleTopLevelForm(vm: *VM, expr: Value) ?VMError!Value {
+    const head = topLevelHead(vm, expr) orelse return null;
+    return runTopLevelHead(vm, head, expr);
+}
+
+/// Evaluate a form already classified by `topLevelHead`.
+pub fn runTopLevelHead(vm: *VM, head: TopLevelHead, expr: Value) VMError!Value {
     // Root the form across the handlers: import/define-library load, compile,
     // and execute entire libraries (GC runs many times) while still walking
     // this datum, and most callers pass a freshly read, unrooted expr. Without
@@ -83,31 +174,41 @@ pub fn handleTopLevelForm(vm: *VM, expr: Value) ?VMError!Value {
     vm.gc.pushRoot(&expr_root);
     defer vm.gc.popRoot();
 
-    if (std.mem.eql(u8, name, "import")) return vm_library.handleImport(vm, types.cdr(expr));
-    if (std.mem.eql(u8, name, "define-library")) return vm_library.handleDefineLibrary(vm, types.cdr(expr));
-    // R7RS has no reserved words: an imported macro may shadow a special
-    // form keyword (compiler.zig's compileForm already honors this for
-    // every non-top-level use, e.g. SRFI-219 redefining `define` -- see
-    // its own comment). SRFI 136/131/57 each define their own
-    // define-record-type macro (extended record-type syntax reusing the
-    // same name); when one is in scope, fall through instead of returning
-    // here so the form reaches ordinary macro-aware compilation below,
-    // exactly like every other top-level form does.
-    if (std.mem.eql(u8, name, "define-record-type") and !isMacroShadowed(vm, "define-record-type"))
-        return vm_records.handleDefineRecordType(vm, types.cdr(expr));
-    if (std.mem.eql(u8, name, "define-values")) return handleDefineValues(vm, types.cdr(expr));
-    if (std.mem.eql(u8, name, "include")) return vm_library.handleTopLevelInclude(vm, types.cdr(expr), false);
-    if (std.mem.eql(u8, name, "include-ci")) return vm_library.handleTopLevelInclude(vm, types.cdr(expr), true);
+    const args = types.cdr(expr);
+    return switch (head) {
+        .import => vm_library.handleImport(vm, args),
+        .define_library => vm_library.handleDefineLibrary(vm, args),
+        .define_record_type => vm_records.handleDefineRecordType(vm, args),
+        .define_values => handleDefineValues(vm, args),
+        .include => vm_library.handleTopLevelInclude(vm, args, false),
+        .include_ci => vm_library.handleTopLevelInclude(vm, args, true),
+        // R7RS 5.1: top-level begin splices its body as top-level forms.
+        .begin => handleTopLevelBegin(vm, args),
+        // R7RS 4.2.1: a top-level cond-expand expands to the selected clause's
+        // forms in a top-level context, so its body may contain declarations
+        // (import, define-library, ...) that only work at top level (#1661).
+        .cond_expand => handleTopLevelCondExpand(vm, args),
+    };
+}
 
-    // R7RS 5.1: top-level begin splices its body as top-level forms
-    if (std.mem.eql(u8, name, "begin")) return handleTopLevelBegin(vm, types.cdr(expr));
-
-    // R7RS 4.2.1: a top-level cond-expand expands to the selected clause's forms
-    // in a top-level context, so its body may contain declarations (import,
-    // define-library, ...) that only work at top level (#1661).
-    if (std.mem.eql(u8, name, "cond-expand")) return handleTopLevelCondExpand(vm, types.cdr(expr));
-
-    return null;
+/// The forms a top-level `begin` or `cond-expand` splices into the enclosing
+/// top-level sequence, or null when `expr` is neither. The returned list is a
+/// sublist of `expr`, so a single root over `expr` keeps it alive.
+///
+/// This is the *non-evaluating* half of what `runTopLevelHead` does for those
+/// two heads, for drivers that must compile a body rather than run it: only a
+/// `cond-expand`'s branch **selection** is a compile-time question, its body is
+/// ordinary program code. `kaappi --compile` and `--disassemble` route every
+/// claimed head through the evaluator, so `(begin (delete-file "x"))` deleted
+/// the file while producing the `.sbc` — and again at run time from the
+/// recorded preamble (#2156).
+pub fn topLevelSpliceBody(vm: *VM, expr: Value) ?VMError!Value {
+    const head = topLevelHead(vm, expr) orelse return null;
+    switch (head) {
+        .begin => return types.cdr(expr),
+        .cond_expand => return selectCondExpandBody(vm, types.cdr(expr)),
+        else => return null,
+    }
 }
 
 // Whether `name` is shadowed by a macro in the currently-relevant scope: the
@@ -127,24 +228,13 @@ fn isMacroShadowed(vm: *VM, name: []const u8) bool {
     return vm.macros.get(name) != null;
 }
 
-// Predicate mirror of the dispatch chain in handleTopLevelForm: true for the
-// top-level-only forms that eval() interprets specially rather than compiling
-// to a single reusable Function. compileCachedForm (#1494) consults this to
-// decline caching such a form — the caller falls back to a plain eval(). Keep
-// this list in sync with handleTopLevelForm above.
+// True for the top-level-only forms that eval() interprets specially rather
+// than compiling to a single reusable Function. compileCachedForm (#1494)
+// consults this to decline caching such a form — the caller falls back to a
+// plain eval(). Derived from TopLevelHead, so it can no longer drift from the
+// dispatch chain the way the hand-kept mirror it replaced had (#2114).
 fn isSpecialTopLevelForm(vm: *VM, expr: Value) bool {
-    if (!types.isPair(expr)) return false;
-    const head = types.car(expr);
-    if (!types.isSymbol(head)) return false;
-    const name = types.symbolName(head);
-    return std.mem.eql(u8, name, "import") or
-        std.mem.eql(u8, name, "define-library") or
-        (std.mem.eql(u8, name, "define-record-type") and !isMacroShadowed(vm, "define-record-type")) or
-        std.mem.eql(u8, name, "define-values") or
-        std.mem.eql(u8, name, "include") or
-        std.mem.eql(u8, name, "include-ci") or
-        std.mem.eql(u8, name, "begin") or
-        std.mem.eql(u8, name, "cond-expand");
+    return topLevelHead(vm, expr) != null;
 }
 
 /// Compile a single expression for the native eval-fallback cache (#1494):
@@ -249,6 +339,16 @@ fn handleTopLevelBegin(vm: *VM, body: Value) VMError!Value {
 // `(cond-expand (else 1 . junk))`). Both are validated here so cond-expand's own
 // structure matches the compiler; begin's own leniency is left untouched.
 fn handleTopLevelCondExpand(vm: *VM, clauses_val: Value) VMError!Value {
+    // An unmatched cond-expand selects no body; splicing the empty list yields
+    // void, exactly as returning void directly did.
+    return handleTopLevelBegin(vm, try selectCondExpandBody(vm, clauses_val));
+}
+
+/// The selected clause's body, or nil when no clause matched. Split out of
+/// `handleTopLevelCondExpand` so a compile-only driver can make the same
+/// branch selection without running the body (#2156) — selection is the only
+/// part of a `cond-expand` that is a compile-time question.
+fn selectCondExpandBody(vm: *VM, clauses_val: Value) VMError!Value {
     var clauses = clauses_val;
     while (types.isPair(clauses)) : (clauses = types.cdr(clauses)) {
         const clause = types.car(clauses);
@@ -258,11 +358,11 @@ fn handleTopLevelCondExpand(vm: *VM, clauses_val: Value) VMError!Value {
         if (is_else or vm_library.evalLibFeatureReq(vm, feature_req)) {
             const body = types.cdr(clause);
             if (!isProperList(body)) return VMError.CompileError;
-            return handleTopLevelBegin(vm, body);
+            return body;
         }
     }
     if (clauses != types.NIL) return VMError.CompileError;
-    return types.VOID;
+    return types.NIL;
 }
 
 // A proper (nil-terminated) list? Used to reject improper clause bodies before

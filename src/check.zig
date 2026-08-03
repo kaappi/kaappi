@@ -30,6 +30,7 @@ const reader = @import("reader.zig");
 const compiler = @import("compiler.zig");
 const vm_mod = @import("vm.zig");
 const vm_library = @import("vm_library.zig");
+const vm_eval = @import("vm_eval.zig");
 const ir_mod = @import("ir.zig");
 const diagnostics = @import("diagnostics.zig");
 const lsp_diagnostic = @import("lsp_diagnostic.zig");
@@ -216,12 +217,13 @@ fn checkForm(vm: *VM, ctx: *check_lint.Context, arena: std.mem.Allocator, expr: 
 /// Forms `check` processes for their environment effect rather than compiling as
 /// ordinary expressions. `define-values` is deliberately absent: it is compiled
 /// (so its initializer is linted) and its names are gathered structurally.
+/// Derived from `vm_eval.TopLevelHead` so this shares one classification with
+/// `kaappi --compile` and `--disassemble`, which need exactly the same split
+/// between declarations a compile-only command must run and program code it
+/// must not (#2114/#2156).
 fn isEnvSetupForm(name: []const u8) bool {
-    return std.mem.eql(u8, name, "import") or
-        std.mem.eql(u8, name, "define-library") or
-        std.mem.eql(u8, name, "include") or
-        std.mem.eql(u8, name, "include-ci") or
-        std.mem.eql(u8, name, "define-record-type");
+    const head = vm_eval.TopLevelHead.fromKeyword(name) orelse return false;
+    return head.isEnvSetup();
 }
 
 // ── Structural collection of top-level define names ────────────────────────

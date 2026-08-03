@@ -124,9 +124,29 @@ to* the source as `file.sbc`. A central store is what makes `cache status` /
 - **Not cached — top-level forms the VM handles directly:** one occurrence of
   any of `import`, `define-library`, `include`, `include-ci`,
   `define-record-type`, `define-values`, `begin`, or `cond-expand` at top
-  level skips caching for the whole file (reason: `imports`). Library loading
-  can free collected function pointers, so these files' top-level functions
-  are not safe to serialize after the fact.
+  level skips caching for the whole file — every other form in it included.
+  These eight are `vm_eval.TopLevelHead`, the set `handleTopLevelForm`
+  claims; `--timings` names the one that fired (`not cached: top-level
+  cond-expand`). Until
+  [#2114](https://github.com/kaappi/kaappi/issues/2114) it reported all eight
+  as `imports`, so a file with no `import` in it was told an import was the
+  cause.
+
+  They are refused for one shared reason: `handleTopLevelForm` *interprets*
+  such a form and appends no `Function` to the run's compiled list, so a HIT —
+  which compiles nothing — would skip that form's work entirely. (The separate
+  hazard that library loading can free collected function pointers is real,
+  but specific to the three heads that load libraries.)
+
+  The rule is **top-level head position only**. The same constructs nested
+  inside a body are ordinary code and leave caching alive:
+
+  ```scheme
+  (define (a) (begin 1 2 3))                     ; still cacheable
+  (define (b) (cond-expand (else 'chosen)))
+  (define (c) (define-values (x y) (values 1 2)) (+ x y))
+  ```
+
 - **Not cached — compile-time registrations
   ([#2112](https://github.com/kaappi/kaappi/issues/2112)):** a top-level
   `define-syntax` or `define-property` (or a macro use expanding into one)
@@ -151,6 +171,21 @@ to* the source as `file.sbc`. A central store is what makes `cache status` /
   binary via `zig build -Dbundle=out.sbc`, not for the auto-run path. It is
   never read as the run-cache, so `--no-ir-opt --compile` can't poison a plain
   run.
+
+  `--compile` does **not** run the program. Of the eight heads above it
+  evaluates only the five `TopLevelHead.isEnvSetup()` names — the declarations
+  later forms are compiled *against* (`import`, `include`, `include-ci`,
+  `define-library`, `define-record-type`) — and records them in the artifact's
+  preamble for replay. `begin` and `cond-expand` are spliced into the form
+  stream so their bodies are compiled (only a `cond-expand`'s branch
+  *selection* is a compile-time question), and a `define-values` is recorded
+  without its producer expression being evaluated. Until
+  [#2156](https://github.com/kaappi/kaappi/issues/2156) all three were
+  evaluated for real, so `(begin (delete-file "x"))` deleted the file while
+  producing the `.sbc` and again at run time from the preamble — and, because
+  the preamble replays entirely *before* the compiled forms, a top-level
+  `begin` also ran out of program order in the artifact. `--disassemble`
+  follows the same discipline.
 - `.sld` library loads are never cached in either direction.
 
 ## Inspect, clear, bypass

@@ -77,8 +77,9 @@
 # WHICH FILES POPULATE THE CACHE.  `src/main.zig`'s `runFile` writes an entry
 # iff caching is enabled (no `--sandbox`, no `--no-ir-opt`, a home directory
 # resolves), at least one top-level form compiled to a Function, and none of
-# three refusal flags fired.  `has_imports` is set by ANY top-level form
-# `vm_eval.handleTopLevelForm` claims, which is eight head symbols, not one:
+# three refusal flags fired.  `first_toplevel_decl` is set by ANY top-level
+# form `vm_eval.handleTopLevelForm` claims, which is eight head symbols, not
+# one — the set is `vm_eval.TopLevelHead`:
 #
 #     import   define-library   define-record-type   define-values
 #     include  include-ci       begin                cond-expand
@@ -90,7 +91,8 @@
 # failed to compile, since a HIT would silently run the partial program with
 # exit 0 where the cold run reported the error with exit 1.  One occurrence of
 # any of these, anywhere at top level, makes the whole file uncacheable — and
-# `--timings` reports `not cached: imports` / `define-syntax` /
+# `--timings` reports `not cached: top-level <head>` (kaappi#2114 — it used to
+# report all eight as `imports`) / `define-syntax` /
 # `compile error`.  MEASURED over the default corpus: 40 of 345 files populate
 # the cache; of the 305 that do not, 303 have a top-level `import`, one is
 # disabled by a top-level `begin` and one by a top-level `define-values`.
