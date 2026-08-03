@@ -9,6 +9,7 @@
 const std = @import("std");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
+const vm_calls = @import("vm_calls.zig");
 const th = @import("testing_helpers.zig");
 
 const GC = memory.GC;
@@ -317,6 +318,55 @@ test "srfi 254: transport cell guardian and current-hash" {
     try expect(types.isTruthy(try ctx.vm.eval("(integer? (current-hash o))")));
     try expect(types.isTruthy(try ctx.vm.eval("(= (current-hash o) (current-hash o))")));
     try expect(types.isTruthy(try ctx.vm.eval("(>= (current-hash o) 0)")));
+}
+
+test "srfi 254: a guardian owned by another heap is refused, both paths (#2008)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // A guardian allocated by a *different* GC is exactly what a child thread
+    // sees through the shared globals map: the parent's own object, by
+    // pointer, never copied. Registering into it would grow the parent's raw
+    // ArrayList with this heap's allocator (#2008's silent abort), and its
+    // ready queue would hand back objects from a heap this VM does not own.
+    var other = GC.init(std.testing.allocator);
+    defer other.deinit();
+    // Nothing roots this heap's objects, so no collection may run in it --
+    // the same discipline the GC-semantics tests at the top of this file use.
+    other.enabled = false;
+    const foreign = try other.allocGuardian(false);
+
+    // Register path.
+    try std.testing.expectError(
+        error.InvalidArgument,
+        vm_calls.invokeGuardian(ctx.vm, foreign, &.{types.makeFixnum(1)}),
+    );
+    // Retrieve path (zero arguments) -- the check sits ahead of both.
+    try std.testing.expectError(
+        error.InvalidArgument,
+        vm_calls.invokeGuardian(ctx.vm, foreign, &.{}),
+    );
+    // Nothing was appended to the foreign heap's list.
+    try expectEqual(@as(usize, 0), types.toGuardian(foreign).registered.items.len);
+
+    // A transport cell guardian takes the same append path and is refused
+    // the same way.
+    const foreign_tg = try other.allocGuardian(true);
+    try std.testing.expectError(
+        error.InvalidArgument,
+        vm_calls.invokeGuardian(ctx.vm, foreign_tg, &.{ types.makeFixnum(1), types.makeFixnum(2) }),
+    );
+
+    // Control: this VM's own guardian still registers. Counted across both
+    // queues, since a collection between here and the read -- guaranteed
+    // under -Dgc-stress=true -- resurrects the entry from `registered` into
+    // `ready`, which is the guardian working, not the registration failing.
+    _ = try ctx.vm.eval("(import (srfi 254))");
+    _ = try ctx.vm.eval("(define g (make-guardian))");
+    _ = try ctx.vm.eval("(g (list 'live))");
+    const own = types.toGuardian(try ctx.vm.eval("g"));
+    try expectEqual(@as(usize, 1), own.registered.items.len + own.ready.items.len);
 }
 
 test "srfi 254: component libraries import in isolation" {

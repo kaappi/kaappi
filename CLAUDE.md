@@ -1469,16 +1469,29 @@ pinned by `tests/scheme/srfi/srfi18-sharing-model.scm`.
 fiber, mutex, condition variable, ffi-callback, the four SRFI-170 record
 types, environment, and the three SRFI-254 weak references). Channels are
 the exception: their arm promotes and aliases, which is what makes lexical
-capture the supported way to share one.
+capture the supported way to share one — subject to one entitlement check,
+applied in the **export** direction only (a copy out of the running heap
+into an `Envelope`, which must be a channel the running thread owns) and
+never on the import back out of an envelope an entitled thread already
+built. That check used to be skipped whenever the channel happened to be
+already promoted, so a thread could hand a globals-route channel down to a
+child that then held a perfectly working stub (#1934).
 
 **The globals route.** `VM.initForThread` shares the parent's `globals`
 map **by pointer**, so a thunk that *names* a top-level binding captures
 nothing — the child resolves it at run time and gets the parent's own
-object, uncopied. That list of 14 does not apply here, and 13 of the 14
-are freely usable this way. Only two types defend themselves, by comparing
+object, uncopied. That list of 14 does not apply here, and 11 of the 14
+are freely usable this way. Four types defend themselves, by comparing
 `Object.owner` against the running `GC.id`: channels
-(`primitives_fiber.zig`) and thread handles
-(`primitives_srfi18.checkThreadOwner`).
+(`primitives_fiber.zig`), thread handles
+(`primitives_srfi18.checkThreadOwner`), fibers (`fiber-join`, #2001 — it
+was returning the parent's own heap object to the child as its result, and
+calling another thread's still-running fiber a deadlock) and guardians
+(`vm_calls.invokeGuardian`, #2008 — `Guardian.registered`/`ready` are the
+only raw Zig containers Scheme can mutate across a heap boundary, and a
+child appending to the parent's list with the child's allocator aborted
+the process with no diagnostic at all). `channel?`, `thread?` and `fiber?`
+stay exempt: a total predicate answers rather than raising.
 
 So threads **can** share mutable heap state, and for mutexes and condition
 variables a global is the *only* supported way to share one — exactly

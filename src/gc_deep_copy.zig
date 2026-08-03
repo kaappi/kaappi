@@ -493,20 +493,49 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
         // reached with a mismatched owner when a channel is reached through
         // a shared global instead of being captured by a thunk or message
         // (Motivation Path 2), which is exactly the case this error exists
-        // to catch.
+        // to catch -- promoted or not (#1934).
         .channel => {
             const ch = obj.as(types.Channel);
-            // Aliasing an already-promoted stub needs no ownership check
-            // (and no memory_mod.gc_instance at all) -- any thread that
-            // legitimately holds a stub Value may pass it along further.
-            // Only a not-yet-promoted channel needs the current-thread
-            // check, since promoting is the operation invariant 4 restricts.
+            const current_gc = memory_mod.gc_instance;
+
+            // Entitlement (#1934), decided BEFORE `ch.shared` is read, so
+            // promotion state can no longer be what selects whether the
+            // invariant applies at all -- and so a foreign heap's `shared`
+            // field, which another thread may be writing, is never read on
+            // this path.
+            //
+            // The direction is what distinguishes the two cases, not the
+            // promotion state:
+            //
+            //   export (`gc` is some *other* heap -- always a private
+            //     Envelope heap in production): this is a value leaving the
+            //     running thread, so it must be one the running thread owns.
+            //     A promoted channel read out of a shared global is exactly
+            //     the escape this rejects; before it, an already-promoted
+            //     channel skipped the check that its unpromoted twin failed,
+            //     and a grandchild could reach a channel nobody handed it.
+            //
+            //   import (`gc` IS the running thread's heap): the source is an
+            //     Envelope built by a thread that already passed the export
+            //     check -- the thunk copy-in at thread-start!, the result at
+            //     thread-join!, a received message -- so its objects are
+            //     owned by that private heap, not by the importer, and
+            //     re-checking here would reject every legal message. All
+            //     three import sites set `gc_instance` to `gc` first.
+            if (current_gc) |cur| {
+                if (gc != cur and obj.owner != cur.id) return error.UncopyableType;
+            }
+
+            // Promotion additionally mutates the source object in place, so
+            // it stays restricted to the owner on every direction (KEP-0002
+            // invariant 4). An envelope only ever carries already-promoted
+            // stubs, so this never fires on an import.
             const sc = if (ch.shared) |s|
                 @as(*shared_channel.SharedChannel, @ptrCast(@alignCast(s)))
             else blk: {
-                const current_gc = memory_mod.gc_instance orelse return error.UncopyableType;
-                if (obj.owner != current_gc.id) return error.UncopyableType;
-                break :blk try shared_channel.promoteChannel(current_gc, ch);
+                const owner_gc = current_gc orelse return error.UncopyableType;
+                if (obj.owner != owner_gc.id) return error.UncopyableType;
+                break :blk try shared_channel.promoteChannel(owner_gc, ch);
             };
             // Allocate before retaining: if allocChannelStub fails, no new
             // stub exists to own the +1, and the source stub's own count

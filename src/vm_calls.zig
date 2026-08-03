@@ -35,6 +35,23 @@ pub fn invokeGuardian(vm: *VM, guardian: Value, args: []const Value) VMError!Val
     var self_val = guardian;
     vm.gc.pushRoot(&self_val);
     defer vm.gc.popRoot();
+
+    // `registered`/`ready` are raw Zig ArrayLists owned by the heap that
+    // allocated the guardian, and `vm.gc` below is the *calling* thread's GC.
+    // gc_deep_copy.zig refuses the `.guardian` tag, so a guardian reaches
+    // another thread only through the globals route (a top-level binding,
+    // shared by pointer) -- where, without this check, a child thread grows
+    // the parent's list with the child's own allocator and no lock at all
+    // (#2008: a deterministic abort with empty stdout and stderr), and
+    // registers child-heap objects the parent's collector later reads out of
+    // the freed child arena. Mirrors primitives_srfi18.checkThreadOwner and
+    // the channel checks in primitives_fiber.zig, and covers both the
+    // register and the retrieve path; `guardian?` stays a total predicate.
+    if (types.toObject(self_val).owner != vm.gc.id) {
+        vm.setErrorDetail("guardian belongs to another thread; a guardian may only be used by the thread that created it", .{});
+        return VMError.InvalidArgument;
+    }
+
     const g = types.toGuardian(self_val);
 
     if (args.len == 0) {

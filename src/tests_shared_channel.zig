@@ -171,9 +171,61 @@ test "deepCopy .channel arm rejects a foreign, unpromoted channel" {
     try std.testing.expect(types.toObject(ch_val).as(types.Channel).shared == null);
 }
 
+test "deepCopy .channel arm rejects a foreign PROMOTED channel too (#1934)" {
+    const baseline = shared_object.liveCount();
+    var gc1 = memory.GC.init(std.testing.allocator);
+    var gc2 = memory.GC.init(std.testing.allocator);
+    var gc3 = memory.GC.init(std.testing.allocator);
+
+    const saved_gc = memory.gc_instance;
+    defer memory.gc_instance = saved_gc;
+
+    var ch_val = try gc1.allocChannel();
+    gc1.pushRoot(&ch_val);
+
+    // Promote it legitimately: gc1 owns it, and gc1 is the running heap.
+    // In Scheme this is a first child capturing the channel in its thunk.
+    memory.gc_instance = &gc1;
+    var stub2 = try gc2.deepCopy(ch_val);
+    gc2.pushRoot(&stub2); // held across gc2's later allocations (-Dgc-stress)
+    try std.testing.expect(types.toObject(ch_val).as(types.Channel).shared != null);
+
+    // Now a thread that owns neither copies it out. Promotion state used to
+    // decide whether the ownership check applied at all, so this succeeded
+    // where the byte-identical unpromoted program above was refused -- and a
+    // grandchild ended up with a working stub for a channel nobody handed it.
+    memory.gc_instance = &gc3;
+    try std.testing.expectError(error.UncopyableType, gc2.deepCopy(ch_val));
+
+    // A thread holding a stub of its OWN may still pass it along: that is the
+    // legal hand-off (a received message, a thunk copy-in) and must not be
+    // caught by the same check.
+    memory.gc_instance = &gc2;
+    const stub3 = try gc3.deepCopy(stub2);
+    try std.testing.expectEqual(
+        types.toObject(stub2).as(types.Channel).shared,
+        types.toObject(stub3).as(types.Channel).shared,
+    );
+
+    gc2.popRoot(); // stub2
+    gc1.popRoot(); // ch_val
+    gc1.deinit();
+    gc2.deinit();
+    gc3.deinit();
+    try std.testing.expectEqual(baseline, shared_object.liveCount());
+}
+
 test "re-entrant promotion: a channel whose own queue contains itself (and the documented cycle leak)" {
     const baseline = shared_object.liveCount();
     var gc1 = memory.GC.init(std.testing.allocator);
+
+    // The drain below copies the queued channel OUT into an envelope, which
+    // is an export: gc1 must be the running thread's gc for that to be
+    // entitled (#1934). Set explicitly rather than inherited from whatever
+    // an earlier test left behind.
+    const saved_gc = memory.gc_instance;
+    defer memory.gc_instance = saved_gc;
+    memory.gc_instance = &gc1;
 
     var ch_val = try gc1.allocChannel();
     gc1.pushRoot(&ch_val);
@@ -276,10 +328,15 @@ test "reply-to worked example (§1): the received half, with the rc 1->2->3->2 p
     try std.testing.expect(reply_ch.shared != null); // promoted as a side effect of the send
     const reply_sc: *shared_channel.SharedChannel = @ptrCast(@alignCast(reply_ch.shared.?));
 
-    // Receive on a *different* heap: the copied-out value's alias arm runs
-    // against an envelope-owned stub (obj.owner = the envelope GC's id, not
-    // memory.gc_instance) -- exactly why the alias path deliberately skips
-    // the ownership check.
+    // Receive on a *different* heap, which in production means a different
+    // thread -- so the threadlocal moves with it, exactly as
+    // channelReceiveFn's own `memory.gc_instance` binding does. The
+    // copied-out value's alias arm then runs against an envelope-owned stub
+    // (obj.owner = the envelope GC's id, neither heap's), which is why the
+    // entitlement check is an export-direction one: on this import the
+    // destination IS the running heap, so the stub is copied in unchecked
+    // (#1934).
+    memory.gc_instance = &dest_gc;
     const recv_outcome = try shared_channel.receive(tasks_sc, &dest_gc, null, false);
     const received_val = switch (recv_outcome) {
         .value => |v| v,

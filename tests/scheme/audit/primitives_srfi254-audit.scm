@@ -475,33 +475,55 @@
 
 ;; A guardian reached through the GLOBALS route is *not* deep-copied: top-level
 ;; bindings are shared by pointer (docs/dev/thread-value-sharing.md), so a child
-;; gets the parent's own guardian object. invokeGuardian has no owner check —
-;; unlike channels (primitives_fiber.zig) and thread handles
-;; (primitives_srfi18.checkThreadOwner) — and the result is memory corruption.
-;; See #2008. Both shapes below are disabled: the first is nondeterministic
-;; (silent #f in ReleaseSafe, a type-confused live object under -Dgc-stress),
-;; the second aborts the process outright with no diagnostic at all.
-;;
-;; FAIL: #2008 (a child registering into a parent-shared guardian leaves a dangling watched pointer)
-;; (define uaf-g (make-guardian))
-;; (test-assert "cross-heap: an object registered by a child is resurrected as itself"
-;;              (let ((t (make-thread (lambda () (uaf-g (vector 'child)) 'ok))))
-;;                (thread-start! t) (thread-join! t)
-;;                (churn-rounds! 4)
-;;                (vector? (uaf-g))))
-;;
-;; FAIL: #2008 (concurrent registration on a shared guardian aborts, exit 133/134, no message)
-;; (define race-g (make-guardian))
-;; (test-assert "cross-heap: concurrent registration on one guardian survives"
-;;              (let ((t (make-thread (lambda ()
-;;                                      (do ((i 0 (+ i 1))) ((= i 2000)) (race-g (list 'c i)))
-;;                                      'done))))
-;;                (thread-start! t)
-;;                (do ((i 0 (+ i 1))) ((= i 2000)) (race-g (list 'p i)))
-;;                (eq? 'done (thread-join! t))))
+;; gets the parent's own guardian object. invokeGuardian therefore carries the
+;; same Object.owner check channels (primitives_fiber.zig) and thread handles
+;; (primitives_srfi18.checkThreadOwner) do (#2008). Without it, the first shape
+;; below left a dangling watched pointer (silent #f in ReleaseSafe, a
+;; type-confused live object under -Dgc-stress) and the second aborted the
+;; process outright — exit 133/134, empty stdout, empty stderr.
+(define uaf-g (make-guardian))
+(test-equal "cross-heap: a child registering into a parent's guardian is refused"
+            'refused
+            (let ((t (make-thread (lambda ()
+                                    (guard (e (#t 'refused))
+                                      (uaf-g (vector 'child)) 'registered)))))
+              (thread-start! t)
+              (thread-join! t)))
+(test-assert "cross-heap: the refused registration left nothing behind"
+             (begin (churn-rounds! 4) (not (uaf-g))))
+(test-assert "cross-heap: the refusal names the ownership rule"
+             (let ((t (make-thread
+                       (lambda ()
+                         (substring? "another thread"
+                                     (or (raised-message (lambda () (uaf-g (list 'x)))) ""))))))
+               (thread-start! t)
+               (thread-join! t)))
+(define race-g (make-guardian))
+(test-equal "cross-heap: concurrent registration on one guardian is refused, not aborted"
+            'refused
+            (let ((t (make-thread (lambda ()
+                                    (guard (e (#t 'refused))
+                                      (do ((i 0 (+ i 1))) ((= i 2000)) (race-g (list 'c i)))
+                                      'done)))))
+              (thread-start! t)
+              (do ((i 0 (+ i 1))) ((= i 2000)) (race-g (list 'p i)))
+              (thread-join! t)))
+;; The retrieve path is checked by the same guard, ahead of both branches.
+(test-equal "cross-heap: a child *reading* a parent's guardian is refused too"
+            'refused
+            (let ((t (make-thread (lambda () (guard (e (#t 'refused)) (race-g))))))
+              (thread-start! t)
+              (thread-join! t)))
+;; A transport cell guardian takes the same append path and is refused alike.
+(define race-tg (make-transport-cell-guardian))
+(test-equal "cross-heap: a shared transport cell guardian is refused"
+            'refused
+            (let ((t (make-thread (lambda () (guard (e (#t 'refused)) (race-tg 'k 'v) 'made)))))
+              (thread-start! t)
+              (thread-join! t)))
 
-;; Control for the disabled pair above: one guardian per thread, no sharing,
-;; is safe — which is what identifies the shared-guardian case as the defect.
+;; Control for the pair above: one guardian per thread, no sharing, is safe —
+;; which is what identifies the shared-guardian case as the defect.
 (test-equal "cross-heap control: a per-thread guardian is safe under contention" 'done
             (let ((t (make-thread (lambda ()
                                     (let ((h (make-guardian)))
