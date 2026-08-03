@@ -89,6 +89,53 @@ echo "== digit-led identifier reclassifies to KP1004 under check (kaappi#1723) =
 assert_out "3-state is KP1004, not KP1002"       'error\[KP1004\]' '(define (3-state x) x) x'
 assert_out "3-state message echoes the token"    "invalid number literal '3-state'" '(define (3-state x) x) x'
 
+echo "== a macro-shadowed define-record-type is compiled, not dropped (#2114 review) =="
+# R7RS has no reserved words, and SRFI 57/131/136/150 each bind
+# `define-record-type` as a macro. `check` classified by head *name*, so a
+# shadowed use entered the env-setup branch, `handleTopLevelForm` declined it
+# (it does consult the macro table), and the form was dropped uncompiled.
+# Diagnostics were lost in both directions.
+#
+# False negative: a use the shadowing macro cannot match is a real syntax
+# error, and `check` reported nothing and exited 0.
+assert_exit "malformed shadowed define-record-type use is an error" 1 \
+    '(define-syntax define-record-type
+       (syntax-rules () ((_ one-only) (display one-only))))
+     (define-record-type too many args here)'
+assert_out "...and reports KP2001" 'error\[KP2001\]' \
+    '(define-syntax define-record-type
+       (syntax-rules () ((_ one-only) (display one-only))))
+     (define-record-type too many args here)'
+
+# False positive, the more damaging half: dropping the form also dropped
+# whatever it was meant to bind, so every later form depending on it drew a
+# phantom diagnostic. A synthetic probe can't show this — `check` gathers
+# top-level define names structurally and so never sees a binding introduced by
+# any macro expansion, shadowed or not. The real SRFI files are the honest
+# guard, in the style of the R7RS conformance check below: both bind
+# `define-record-type` as a macro, both pass their own suites, and both drew
+# hard errors from `check` — srfi136 three KP2001 "invalid syntax" (its type
+# names are CPS introspection macros the dropped form never registered) plus a
+# phantom KP4001, srfi150 a KP2002.
+for probe in srfi136 srfi150; do
+    status=0
+    "$KAAPPI" check "$SCRIPT_DIR/../srfi/$probe.scm" > "$TMP/probe.out" 2>&1 || status=$?
+    if [[ "$status" -eq 0 ]]; then
+        echo "PASS: $probe.scm passes check with zero errors"
+        PASS=$((PASS + 1))
+    else
+        echo "FAIL: $probe.scm failed check (exit $status)"
+        grep -E 'error\[KP' "$TMP/probe.out" | head -5 || true
+        FAIL=$((FAIL + 1))
+    fi
+done
+
+# The unshadowed form must still be run for its effect, so its accessors are in
+# scope for later forms — the behaviour the env-setup branch exists for.
+assert_exit "unshadowed define-record-type still establishes accessors" 0 \
+    '(define-record-type <pt> (mk x) pt? (x pt-x))
+     (display (pt-x (mk 1)))'
+
 echo "== --diagnostics=json parity =="
 printf '(car 5)\n' > "$TMP/j.scm"
 JSON="$("$KAAPPI" check --diagnostics=json "$TMP/j.scm" 2>&1 || true)"

@@ -182,10 +182,30 @@ to* the source as `file.sbc`. A central store is what makes `cache status` /
   without its producer expression being evaluated. Until
   [#2156](https://github.com/kaappi/kaappi/issues/2156) all three were
   evaluated for real, so `(begin (delete-file "x"))` deleted the file while
-  producing the `.sbc` and again at run time from the preamble — and, because
-  the preamble replays entirely *before* the compiled forms, a top-level
-  `begin` also ran out of program order in the artifact. `--disassemble`
-  follows the same discipline.
+  producing the `.sbc` and again at run time from the preamble.
+  `--disassemble` follows the same discipline.
+
+  **The preamble replays in full before any compiled form**, so a recorded
+  declaration does not keep its position in the program. Splicing puts `begin`
+  and `cond-expand` bodies into the compiled stream, which is what restores
+  their order; the other six heads still replay first. For `import`,
+  `include`, `include-ci`, `define-library` and `define-record-type` that is
+  harmless — they are declarations, and hoisting them is what a preamble is
+  for. For `define-values` it is not, because its producer is arbitrary
+  program code that can depend on earlier forms:
+
+  ```scheme
+  (define x 1)
+  (define-values (a b) (values x 2))   ; replayed first, with x unbound
+  (display (list a b))
+  ```
+
+  The interpreter prints `(1 2)`; the standalone binary fails with
+  `preamble error[KP3001]: undefined variable 'x'` and exits 1. This
+  pre-dates #2156 and is unchanged by it — tracked separately as
+  [#2200](https://github.com/kaappi/kaappi/issues/2200), since fixing it needs
+  either an order-preserving preamble in the `.sbc` format or a compilable
+  `define-values`.
 - `.sld` library loads are never cached in either direction.
 
 ## Inspect, clear, bypass

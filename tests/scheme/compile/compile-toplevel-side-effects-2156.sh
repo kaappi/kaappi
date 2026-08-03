@@ -139,14 +139,21 @@ cat > "$WORK/prog.scm" <<SCM
 (begin (delete-file "$VICTIM"))
 SCM
 
-expected="$("$KAAPPI_ABS" "$WORK/prog.scm")"
-if [ "$expected" != "one
+# The interpreter is this tier's oracle (tests/scheme/CLAUDE.md). The golden
+# string stays as a second assertion *against the interpreter*, so a bug both
+# tiers share is still caught — but it is not the only thing standing between a
+# wrong artifact and a green run. This program has no bare top-level expression
+# and no top-level error, so none of the three by-design tier differences apply.
+interp_status=0
+interp_out="$(interp_stdout "$KAAPPI_ABS" "$WORK" "$WORK/prog.scm")" || interp_status=$?
+
+if [ "$interp_out" == "one
 two
 three
 9" ]; then
-    bad "interpreted run has the expected output" "actual: $expected"
-else
     ok "interpreted run has the expected output"
+else
+    bad "interpreted run has the expected output" "actual: $interp_out"
 fi
 # The interpreted run consumed the victim; restore it for the compiled run.
 echo hi > "$VICTIM"
@@ -161,14 +168,14 @@ fi
 
 # -p isolates the install prefix so a concurrent suite's zig-out is untouched.
 (cd "$REPO_ROOT" && zig build -Dbundle="$WORK/prog.sbc" -p "$WORK/bundle" > /dev/null 2>&1)
-actual="$("$WORK/bundle/bin/kaappi")"
+native_status=0
+native_out="$("$WORK/bundle/bin/kaappi" 2> /dev/null)" || native_status=$?
 
-if [ "$actual" == "$expected" ]; then
-    ok "the standalone binary's output matches the interpreted run"
+if assert_tiers_agree "standalone binary vs interpreter" \
+    "$interp_out" "$interp_status" "$native_out" "$native_status"; then
+    ok "the standalone binary agrees with the interpreter on stdout and exit status"
 else
-    bad "the standalone binary's output matches the interpreted run" \
-        "expected: $(printf '%s' "$expected" | tr '\n' '|')" \
-        "actual:   $(printf '%s' "$actual" | tr '\n' '|')"
+    FAIL=$((FAIL + 1))
 fi
 
 if [ ! -f "$VICTIM" ]; then

@@ -60,10 +60,18 @@ cache_line() {
         grep '^cache:' || echo "(no cache line)"
 }
 
-# expect_reason <head-name> <program-source>
-expect_reason() {
-    local head="$1" line
-    line="$(cache_line "$2")"
+# cache_line_for <program-path>: as cache_line, for a program that already
+# exists on disk (include/include-ci need a sibling file to include).
+cache_line_for() {
+    local home
+    home="$(mktemp -d "$WORK/home.XXXXXX")"
+    KAAPPI_HOME="$home" "$KAAPPI_ABS" --timings "$1" 2>&1 > /dev/null |
+        grep '^cache:' || echo "(no cache line)"
+}
+
+# assert_decline_reason <head-name> <cache-line>
+assert_decline_reason() {
+    local head="$1" line="$2"
     if [ "$line" == "cache: MISS (not cached: top-level $head)" ]; then
         ok "top-level $head is named as the reason"
     else
@@ -71,6 +79,11 @@ expect_reason() {
             "expected: cache: MISS (not cached: top-level $head)" \
             "actual:   $line"
     fi
+}
+
+# expect_reason <head-name> <program-source>
+expect_reason() {
+    assert_decline_reason "$1" "$(cache_line "$2")"
 }
 
 echo "=== each top-level head names itself ==="
@@ -92,20 +105,11 @@ cat > "$WORK/inc-body.scm" <<'SCM'
 (define included 7)
 SCM
 for head in include include-ci; do
-    home="$(mktemp -d "$WORK/home.XXXXXX")"
     cat > "$WORK/uses-$head.scm" <<SCM
 ($head "inc-body.scm")
 (display included)(newline)
 SCM
-    line="$(KAAPPI_HOME="$home" "$KAAPPI_ABS" --timings "$WORK/uses-$head.scm" 2>&1 > /dev/null |
-        grep '^cache:' || echo "(no cache line)")"
-    if [ "$line" == "cache: MISS (not cached: top-level $head)" ]; then
-        ok "top-level $head is named as the reason"
-    else
-        bad "top-level $head is named as the reason" \
-            "expected: cache: MISS (not cached: top-level $head)" \
-            "actual:   $line"
-    fi
+    assert_decline_reason "$head" "$(cache_line_for "$WORK/uses-$head.scm")"
 done
 
 echo "=== control: nested in a body, the same forms do not disable the cache ==="

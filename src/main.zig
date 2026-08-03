@@ -1147,11 +1147,15 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
             };
 
             if (vm.topLevelHead(form)) |head| {
-                // Record every declaration for replay when the artifact runs...
-                const form_src = printer.valueToString(allocator, form, .write) catch continue;
+                // Record every declaration for replay when the artifact runs.
+                // Propagate an allocation failure rather than dropping the
+                // form: silently continuing here writes an artifact missing an
+                // `import`, then prints `Compiled ... -> ...` and exits 0.
+                // `runFile`'s equivalent site returns error.OutOfMemory too.
+                const form_src = try printer.valueToString(allocator, form, .write);
                 preamble.append(allocator, form_src) catch {
                     allocator.free(form_src);
-                    continue;
+                    return error.OutOfMemory;
                 };
                 // ...but evaluate only those the *compiler* depends on. A
                 // `define-values` needs nothing at compile time, and evaluating
@@ -1174,7 +1178,9 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
                 continue;
             };
 
-            compiled_funcs.append(allocator, func) catch {};
+            // Likewise: dropping a compiled top-level form here would emit an
+            // artifact silently missing that code.
+            compiled_funcs.append(allocator, func) catch return error.OutOfMemory;
         }
     }
 
