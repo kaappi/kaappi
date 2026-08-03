@@ -77,7 +77,7 @@ pub const CacheOutcome = enum { none, hit, miss, off };
 
 var cache_outcome: CacheOutcome = .none;
 var cache_written: bool = false;
-/// A static-lifetime reason ("sandbox", "--no-ir-opt", "imports", …) — safe to
+/// A static-lifetime reason ("sandbox", "--no-ir-opt", "top-level import", …) — safe to
 /// alias since callers pass string literals.
 var cache_reason: []const u8 = "";
 var cache_path_buf: [max_path]u8 = undefined;

@@ -123,7 +123,10 @@ json="$(stderr_of "$KAAPPI" --timings=json "$IMP")"
 check_json_parses "imports json" "$json"
 check "imports json: recorded as a miss" '"status":"miss"' "$json"
 check "imports json: not written to cache" '"written":false' "$json"
-check "imports json: reason names imports" '"reason":"imports"' "$json"
+# kaappi#2114: the reason names the top-level head that actually fired, not a
+# blanket "imports" that also covered seven other heads. The full per-head
+# matrix lives in tests/scheme/cache/cache-decline-reason-2114.sh.
+check "imports json: reason names the import head" '"reason":"top-level import"' "$json"
 
 # ── 5b. Other honest not-cached reasons (kaappi#2112, #2113) ───────────────
 # A top-level define-syntax registers its transformer at compile time, which a

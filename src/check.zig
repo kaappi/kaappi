@@ -194,13 +194,31 @@ fn checkForm(vm: *VM, ctx: *check_lint.Context, arena: std.mem.Allocator, expr: 
         // Environment setup that later forms depend on: run it (suppressing lint
         // over the library/record code it compiles), so imported names/macros and
         // record accessors are in scope for the rest of the file.
-        if (isEnvSetupForm(name)) {
-            ctx.suppress_depth += 1;
-            defer ctx.suppress_depth -= 1;
-            if (vm.handleTopLevelForm(expr)) |result| {
-                _ = result catch |err| addRuntimeOrCompileError(vm, ctx, arena, err, line, col);
+        //
+        // Classify through `vm.topLevelHead`, not the head's spelling: it also
+        // answers null when a macro shadows `define-record-type` (SRFI 57/131/
+        // 136/150 each bind that name), which is exactly when the form must
+        // fall through to ordinary compilation. Matching on the name alone
+        // sent a shadowed use into this branch, where `handleTopLevelForm` —
+        // which does consult the macro table — declined it, and the `return`
+        // below dropped the form uncompiled. That cost diagnostics in both
+        // directions: a malformed shadowed use reported nothing and `check`
+        // exited 0, while every *later* form depending on what the dropped
+        // form was supposed to bind reported a phantom error. Real instance:
+        // `tests/scheme/srfi/srfi136.scm` — a valid, passing file — drew 3
+        // KP2001 "invalid syntax" errors plus an unknown-variable warning,
+        // because SRFI 136 binds each type name to a CPS introspection macro
+        // that the dropped form never registered. Pre-dates #2114; found
+        // reviewing that PR, whose enum makes the VM-aware answer available
+        // here.
+        if (vm.topLevelHead(expr)) |head| {
+            if (head.isEnvSetup()) {
+                ctx.suppress_depth += 1;
+                defer ctx.suppress_depth -= 1;
+                _ = vm.runTopLevelHead(head, expr) catch |err|
+                    addRuntimeOrCompileError(vm, ctx, arena, err, line, col);
+                return;
             }
-            return;
         }
     }
 
@@ -211,17 +229,6 @@ fn checkForm(vm: *VM, ctx: *check_lint.Context, arena: std.mem.Allocator, expr: 
     _ = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, line, path, false) catch |err| {
         addCompileError(ctx, arena, err, line, col);
     };
-}
-
-/// Forms `check` processes for their environment effect rather than compiling as
-/// ordinary expressions. `define-values` is deliberately absent: it is compiled
-/// (so its initializer is linted) and its names are gathered structurally.
-fn isEnvSetupForm(name: []const u8) bool {
-    return std.mem.eql(u8, name, "import") or
-        std.mem.eql(u8, name, "define-library") or
-        std.mem.eql(u8, name, "include") or
-        std.mem.eql(u8, name, "include-ci") or
-        std.mem.eql(u8, name, "define-record-type");
 }
 
 // ── Structural collection of top-level define names ────────────────────────

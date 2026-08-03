@@ -4,7 +4,8 @@
 ;;
 ;; `runFile` reports a compile error, skips the failed form, and keeps going —
 ;; so `compiled_funcs` holds only the forms that DID compile.  The cache write
-;; used to be gated only on `has_imports`, so this file wrote an entry holding
+;; used to be gated only on the top-level-declaration check (`has_imports` at
+;; the time, `first_toplevel_decl` since kaappi#2114), so this file wrote an entry holding
 ;; the partial program.  The warm run then HIT, executed the partial program
 ;; with no diagnostic at all, and exited 0:
 ;;

@@ -1175,6 +1175,18 @@ pub const VM = struct {
         return vm_eval.handleTopLevelForm(self, expr);
     }
 
+    pub fn topLevelHead(self: *VM, expr: Value) ?vm_eval.TopLevelHead {
+        return vm_eval.topLevelHead(self, expr);
+    }
+
+    pub fn runTopLevelHead(self: *VM, head: vm_eval.TopLevelHead, expr: Value) VMError!Value {
+        return vm_eval.runTopLevelHead(self, head, expr);
+    }
+
+    pub fn topLevelSpliceBody(self: *VM, expr: Value) ?VMError!Value {
+        return vm_eval.topLevelSpliceBody(self, expr);
+    }
+
     pub fn compileCachedForm(self: *VM, source: []const u8) VMError!Value {
         return vm_eval.compileCachedForm(self, source);
     }

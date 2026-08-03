@@ -251,6 +251,68 @@ pub fn printStackTrace(vm: *vm_mod.VM) void {
     }
 }
 
+/// Iterates one top-level datum as the sequence of top-level forms it
+/// contributes: a `begin` or a matched `cond-expand` contributes its body's
+/// forms, recursively; every other form contributes just itself.
+///
+/// Compile-only drivers (`kaappi --compile`, `kaappi --disassemble`) use this
+/// so those bodies are **compiled** rather than **evaluated**. Routing them
+/// through `handleTopLevelForm` ran user code while producing the artifact, so
+/// `(begin (delete-file "x"))` deleted the file at compile time — and again at
+/// run time from the preamble the artifact records (#2156). `check.zig` splices
+/// the same two heads for the same reason, by hand.
+///
+/// Every Value handed out is reachable from the `expr` the caller passed, so
+/// the caller's single root over `expr` keeps the whole traversal alive and the
+/// iterator roots nothing itself. Nesting is held on the heap rather than the
+/// native stack, so arbitrarily deep `(begin (begin ...))` cannot overflow it.
+pub const TopLevelForms = struct {
+    vm: *vm_mod.VM,
+    allocator: std.mem.Allocator,
+    /// The not-yet-visited tail of each spliced body, innermost last.
+    stack: std.ArrayList(types.Value),
+    /// The datum the caller passed, before its first `next()`.
+    root: ?types.Value,
+
+    pub fn init(vm: *vm_mod.VM, allocator: std.mem.Allocator, expr: types.Value) TopLevelForms {
+        return .{ .vm = vm, .allocator = allocator, .stack = .empty, .root = expr };
+    }
+
+    pub fn deinit(self: *TopLevelForms) void {
+        self.stack.deinit(self.allocator);
+    }
+
+    /// The next form, or null once the datum is exhausted. An error means a
+    /// malformed `cond-expand` — the same error `eval` reports for it.
+    pub fn next(self: *TopLevelForms) ?(vm_mod.VMError!types.Value) {
+        while (self.take()) |form| {
+            const spliced = self.vm.topLevelSpliceBody(form) orelse return form;
+            const body = spliced catch |err| return err;
+            self.stack.append(self.allocator, body) catch return vm_mod.VMError.OutOfMemory;
+        }
+        return null;
+    }
+
+    fn take(self: *TopLevelForms) ?types.Value {
+        if (self.root) |r| {
+            self.root = null;
+            return r;
+        }
+        while (self.stack.items.len > 0) {
+            const tail = &self.stack.items[self.stack.items.len - 1];
+            if (types.isPair(tail.*)) {
+                const form = types.car(tail.*);
+                // An improper body tail is silently ignored, matching the
+                // leniency of the `handleTopLevelBegin` this mirrors.
+                tail.* = types.cdr(tail.*);
+                return form;
+            }
+            _ = self.stack.pop();
+        }
+        return null;
+    }
+};
+
 pub fn printSourceSnippet(source: []const u8, line: u32) void {
     if (diagnostic_format == .json) return;
     if (line == 0 or source.len == 0) return;

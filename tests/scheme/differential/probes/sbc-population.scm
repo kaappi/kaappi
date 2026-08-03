@@ -12,25 +12,31 @@
 ;;   1. caching is enabled at all — not `--sandbox`, not `--no-ir-opt`, and a
 ;;      home directory resolves (`cache.pathForSource`);
 ;;   2. at least one top-level form compiled to a Function; and
-;;   3. `has_imports` stayed false — i.e. NO top-level form was claimed by
-;;      `vm_eval.handleTopLevelForm`.
+;;   3. `first_toplevel_decl` stayed null — i.e. NO top-level form was claimed
+;;      by `vm_eval.handleTopLevelForm`.
 ;;
-;; Condition 3 is the one that matters, and it is much broader than its name
-;; and than docs/dev/cache.md ("a program that does not `import`").
-;; `handleTopLevelForm` claims EIGHT head symbols:
+;; Condition 3 is the one that matters, and it is much broader than
+;; docs/dev/cache.md used to say ("a program that does not `import`").
+;; `handleTopLevelForm` claims EIGHT head symbols — the `vm_eval.TopLevelHead`
+;; enum, which is now the single source of truth all the consumers derive from:
 ;;
 ;;     import   define-library   define-record-type   define-values
 ;;     include  include-ci       begin                cond-expand
 ;;
 ;; Any one of them, once, anywhere at top level, makes the WHOLE file
-;; uncacheable — including the forms that have nothing to do with library
-;; loading, which is the rationale the source comment gives.  `--timings` then
-;; reports `cache: MISS (not cached: imports)` even for a file containing no
-;; `import` at all.  Measured over the harness's own default corpus: 40 of 345
+;; uncacheable.  They share one reason: `handleTopLevelForm` interprets such a
+;; form and appends no Function to the run's compiled list, so a HIT — which
+;; compiles nothing — would skip its work entirely.  (The library-loading
+;; rationale the source comment used to give covers only three of the eight.)
+;; Measured over the harness's own default corpus: 40 of 345
 ;; files populate the cache; of the 305 that do not, 303 have a top-level
 ;; `import` and the other two are disabled by a top-level `begin` and a
-;; top-level `define-values` respectively.  Tracked as kaappi#2114; the import
-;; half is kaappi#1888.
+;; top-level `define-values` respectively.  The import half is kaappi#1888.
+;;
+;; kaappi#2114 fixed the reporting: `--timings` names the head that actually
+;; fired (`cache: MISS (not cached: top-level begin)`) instead of blaming
+;; `imports` for all eight.  tests/scheme/cache/cache-decline-reason-2114.sh
+;; pins one case per head.
 ;;
 ;; This file therefore contains NONE of the eight at top level — and, as the
 ;; control, uses four of them in NESTED position, where they are ordinary
