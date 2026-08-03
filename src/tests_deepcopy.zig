@@ -1,6 +1,7 @@
 const std = @import("std");
 const memory = @import("memory.zig");
 const types = @import("types.zig");
+const hashtable = @import("primitives_hashtable.zig");
 
 test "deepCopy fixnum" {
     var gc = memory.GC.init(std.testing.allocator);
@@ -157,9 +158,12 @@ test "deepCopy hash_table" {
     const ht = types.toObject(ht_val).as(types.HashTable);
     const key = types.makeFixnum(42);
     const value = types.makeFixnum(99);
-    const hash = std.hash.Wyhash.hash(0, std.mem.asBytes(&key));
+    // Build the source entry the way an insertion would, so the fixture is a
+    // well-formed table for its own compare mode rather than one whose cached
+    // hash and slot disagree.
+    const hash = hashtable.hashForMode(ht.compare_mode, key);
     const idx = hash & (ht.capacity - 1);
-    ht.entries[idx] = .{ .key = key, .value = value, .state = .occupied };
+    ht.entries[idx] = .{ .key = key, .value = value, .hash = @truncate(hash), .state = .occupied };
     ht.count = 1;
 
     const copied = try gc2.deepCopy(ht_val);
@@ -170,6 +174,12 @@ test "deepCopy hash_table" {
     for (cht.entries[0..cht.capacity]) |entry| {
         if (entry.state == .occupied and entry.key == key) {
             try std.testing.expectEqual(value, entry.value);
+            // The copy must carry a cached hash the *destination* agrees with:
+            // a zeroed or stale one sends its next `rehash` to the wrong
+            // bucket and the entry stops being findable (kaappi#2024). This is
+            // not "same as the source" -- the non-custom arm deliberately
+            // re-hashes, since it also re-buckets.
+            try std.testing.expectEqual(@as(u32, @truncate(hashtable.hashForMode(cht.compare_mode, entry.key))), entry.hash);
             found = true;
         }
     }

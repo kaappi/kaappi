@@ -306,7 +306,7 @@ test "gc tracing: hash_table traces equiv/hash procs and every occupied entry" {
     ht.equiv_fn = eq;
     ht.hash_fn = hash;
     ht.compare_mode = .custom;
-    ht.entries[0] = .{ .key = key, .value = val, .state = .occupied };
+    ht.entries[0] = .{ .key = key, .value = val, .hash = 0, .state = .occupied };
     ht.count = 1;
     try expectTraced(&gc, ht_val, &.{ ref(eq, 1), ref(hash, 2), ref(key, 3), ref(val, 4) });
 }
@@ -863,7 +863,7 @@ test "gc tracing (remembered set): hash_table" {
     const ht = types.toObject(ht_val).as(types.HashTable);
     ht.equiv_fn = eq;
     ht.compare_mode = .custom;
-    ht.entries[2] = .{ .key = key, .value = val, .state = .occupied };
+    ht.entries[2] = .{ .key = key, .value = val, .hash = 2, .state = .occupied };
     ht.count = 1;
     gc.writeBarrier(&ht.header, key);
     try expectRememberedTrace(&gc, ht_val, &.{ ref(eq, 1), ref(key, 2), ref(val, 3) });
@@ -1425,7 +1425,11 @@ test "gc tracing: heap-struct field inventory is unchanged" {
     expectFields(types.TranscodeState, &.{
         "wrapped_port", "codec", "eol_style", "error_mode", "pending_cr",
     });
-    expectFields(types.HashEntry, &.{ "key", "value", "state" });
+    // `hash` (kaappi#2024) caches the key's hash so `rehash` never calls a
+    // Scheme hash procedure while the old entry array is live. Like `state`
+    // it is not Value-bearing, so it adds no marking or sweeping obligation
+    // -- only this re-pin.
+    expectFields(types.HashEntry, &.{ "key", "value", "hash", "state" });
     expectFields(types.GuardEntry, &.{ "watched", "payload" });
     expectFields(types.WindRecord, &.{ "before", "after" });
     expectFields(types.ExceptionHandler, &.{ "handler", "frame_count", "sticky" });

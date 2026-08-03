@@ -1150,7 +1150,7 @@ pub fn allocHashTable(self: *GC, initial_capacity: usize) !Value {
     const entries = try allocSliceNoFill(self.allocator, HashEntry, cap);
     errdefer freeSliceNoFill(self.allocator, HashEntry, entries);
     for (entries) |*e| {
-        e.* = .{ .key = 0, .value = 0, .state = .empty };
+        e.* = .{ .key = 0, .value = 0, .hash = 0, .state = .empty };
     }
     const ht = try self.allocator.create(HashTable);
     ht.* = .{

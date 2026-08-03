@@ -249,6 +249,9 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
                         new_ht.entries[i] = .{
                             .key = try deepCopyValue(gc, entry.key, visited),
                             .value = try deepCopyValue(gc, entry.value, visited),
+                            // Slot positions are preserved, so the source's
+                            // cached hash stays the right one for this slot.
+                            .hash = entry.hash,
                             .state = .occupied,
                         };
                         new_ht.count += 1;
@@ -261,11 +264,12 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
                     if (entry.state == .occupied) {
                         const nk = try deepCopyValue(gc, entry.key, visited);
                         const nv = try deepCopyValue(gc, entry.value, visited);
-                        var idx = hashtable.hashForMode(new_ht.compare_mode, nk) & (new_ht.capacity - 1);
+                        const nh = hashtable.hashForMode(new_ht.compare_mode, nk);
+                        var idx = nh & (new_ht.capacity - 1);
                         while (new_ht.entries[idx].state == .occupied) {
                             idx = (idx + 1) & (new_ht.capacity - 1);
                         }
-                        new_ht.entries[idx] = .{ .key = nk, .value = nv, .state = .occupied };
+                        new_ht.entries[idx] = .{ .key = nk, .value = nv, .hash = @truncate(nh), .state = .occupied };
                         new_ht.count += 1;
                     }
                 }

@@ -562,36 +562,16 @@ pub const Srfi18Time = types_threading.Srfi18Time;
 // Hash table (SRFI-69)
 // ---------------------------------------------------------------------------
 
-pub const HashEntryState = enum(u8) {
-    empty,
-    occupied,
-    tombstone,
-};
-
-pub const HashEntry = struct {
-    key: Value,
-    value: Value,
-    state: HashEntryState = .empty,
-};
-
-pub const CompareMode = enum(u8) {
-    equal, // equal? + hash (default)
-    eq, // eq? + hash-by-identity
-    eqv, // eqv? + hash
-    string_eq, // string=? + string-hash
-    string_ci, // string-ci=? + string-ci-hash
-    custom, // arbitrary Scheme procedures
-};
-
-pub const HashTable = struct {
-    header: Object,
-    entries: []HashEntry,
-    count: usize, // number of live entries
-    capacity: usize, // length of entries slice
-    compare_mode: CompareMode,
-    equiv_fn: Value, // Scheme equivalence procedure
-    hash_fn: Value, // Scheme hash procedure
-};
+// These lived here as a second, textually identical copy of `types_hashtable.zig`
+// until #2024: the #1731 domain split added that file but never wired it up, so
+// nothing imported it and the duplicate here was the one the build compiled.
+// Editing HashEntry meant editing both by hand, with no compile error if they
+// drifted -- and the unreferenced copy was never even type-checked.
+const types_hashtable = @import("types_hashtable.zig");
+pub const HashEntryState = types_hashtable.HashEntryState;
+pub const HashEntry = types_hashtable.HashEntry;
+pub const CompareMode = types_hashtable.CompareMode;
+pub const HashTable = types_hashtable.HashTable;
 
 pub const Bignum = types_numeric.Bignum;
 pub const Rational = types_numeric.Rational;
