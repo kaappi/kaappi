@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785688470784,
+  "lastUpdate": 1785720496716,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "40f04a6db595e198ccd8008a513184ab9ddd798a",
-          "message": "Release v0.22.1\n\nBug fixes and diagnostics. Three native-backend correctness fixes: an\ninternal define in a `let` body was never GC-rooted (#1854), the procedure\nshorthand `(define (f ...) ...)` compiled to a global define (#1861), and a\nnested `let` falling back to the interpreter lost the enclosing scope\n(#1862). Plus the `(srfi 120)` Windows wedge (#1870) and a library body that\ncould not reference an unimported global from its own top level (#1860).\n\nThe user-visible surface change is #1856: `(scheme base)` no longer exports\n22 `%`-prefixed internal primitives, so a user library defining its own\n`%name` loads again under v0.22.0's R7RS 5.2 enforcement. The ones portable\n`.sld` files need move to a new `(kaappi primitives)`.\n\nDiagnostics: every type error now names the expected type and the right\nargument (#1868), an uninitialized runtime reports KP9001 instead of a\ncaller type error (#1874/#1876/#1878), and two R6RS record conditions\nreport KP3007 rather than a bare KP3002 (#1880).\n\nBuilt-in procedures 690 -> 689 (`%length` deleted). The count command in\nthe release skill was undercounting by 2 -- it greps only for literal\n`.name = \"...\"`, and two entries converted to named constants this cycle --\nso it now resolves those too.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-31T11:50:24+05:30",
-          "tree_id": "dc5bbbf2a11807643f675b30b34648ed25440706",
-          "url": "https://github.com/kaappi/kaappi/commit/40f04a6db595e198ccd8008a513184ab9ddd798a"
-        },
-        "date": 1785482014724,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.3059,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.582863,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.571659,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.978246,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004648,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046357,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.310691,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057033,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.602668,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.231199,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.572815,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.278719,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.800123,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.620418,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043836,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.035582,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f7a960e7bbea70028f9c4fa412b67c9aa176d56d",
+          "message": "Stop two custom-port callback shapes from aborting the process (#2193)\n\n* Stop two custom-port callback shapes from aborting the process\n\nA SRFI 181 callback runs re-entrantly, under vm.callWithArgs with\ndispatched_from_scheduler forced false. Two things the port layer assumed\ncould not happen from there both could, and both killed the process\nuncatchably from ordinary Scheme.\n\nport.read_buf is a single slot, and the three fills that stash into it --\nthe fd burst, a custom read!'s result, a transcoded port's re-encoded\ncharacter -- each asserted it was empty first. A read! that reads from its\nown port runs a whole earlier read! to completion, so that slot already\nholds the earlier burst's leftovers when the outer invocation returns. At\n>= 2 bytes the assert fired: exit 134, and `guard` cannot catch it. At\nexactly 1 byte the assert did not fire and the later burst's byte was\nserved ahead of the earlier one's leftovers, so the stream was silently\nreordered instead. All three now go through takeFirstBufferingRest, which\nconcatenates in chronological order and hands out the front byte -- no\nabort, and bytes come out in the order read! produced them. Re-entrancy\nstays supported, as it already was for write!, flush and close, and the\nfd path keeps its allocation-free single-byte fast path.\n\nvm.in_custom_port_callback was read at exactly two sites, waitForFd and\nthread-sleep!. Every other blocking primitive -- channel-receive,\nchannel-send, fiber-join, thread-join!, mutex-lock!,\ncondition-variable-wait -- drove the scheduler recursively on the native\nstack instead, running whole sibling fibers to completion inside the\ncallback. Nesting grows one drive per level, so n fibers reading one such\nport died with SIGBUS at n = 2500 while n = 2400 was clean: far short of\ncallReentrant's max_native_depth = 3000, which is calibrated for a plain\nre-entrant call rather than a nested runUntil *plus* a drive. The check\nnow also sits in fiber.runSchedulerStep, the single shared body behind\nevery in-place drive, so a blocking primitive added later is covered\nwithout anyone having to list it. The two early checks stay, each having\nstate (a registered fd, an armed timer) it is cheaper never to arm.\n\nThe four assertions the two audit suites had disabled against these issues\nare re-enabled and corrected, and the deep-nesting case they deliberately\nleft out -- it took the runner down with it -- is now its own file, which\nstill aborts pre-fix and passes post-fix.\n\nCloses #1939\nCloses #2000\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Serve re-entrant leftovers before EOF, and test the two named D5 blockers\n\nReview follow-up on #1939/#2000.\n\nThe first commit routed every *non-empty* fill through\ntakeFirstBufferingRest but left all three EOF exits returning null\ndirectly, so it fixed two of the three sizes of the same bug and shipped\nthe third. When a nested read! leaves bytes in read_buf and the outer\ninvocation then returns 0, the custom-port path answered eof-object over\nthem and the *next* read produced the data: a spurious EOF mid-stream.\nConfirmed at f92df40 -- `(a #<eof>) (b 66)` where both should be 66.\n\nEvery EOF exit of all three fills now routes through the helper, which\nserves a pending byte before reporting EOF. The fd burst's and the\ntranscoded character's need re-entrancy on their own port to reach a\nnon-empty read_buf and no program was found that does; they are routed\nanyway, because three fills that look identical while one silently isn't\nis what produced this bug in the first place. The helper also handles the\npending-is-exactly-one, burst-is-empty case explicitly: alloc(u8, 0) would\notherwise leave read_buf non-null at read_buf_len 0, a state the drain\nfalls through into a spurious extra read! call.\n\nThe D5 doc comment named thread-join! and condition-variable-wait as\ncovered by the runSchedulerStep guard while testing neither. Both are\nreachable, so they are tested rather than the claim softened. Only\nthread-join!'s *fiber* path drives -- the OS-thread path joins the pthread\ndirectly, which is why primitives_srfi181-audit.scm's \"a read! that joins a\nshort-lived thread is NOT rejected\" control still passes; both directions\nare now pinned. The target must already have started: thread-join! on a\nspawn'd fiber still in .created spins in its own sleepNs poll without ever\ndriving the scheduler and hangs, which is unrelated to this guard and left\nalone.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-03T00:59:20Z",
+          "tree_id": "13a0a29381aa82b7522e2a76c0baa6f8548e7223",
+          "url": "https://github.com/kaappi/kaappi/commit/f7a960e7bbea70028f9c4fa412b67c9aa176d56d"
+        },
+        "date": 1785720495011,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.002101,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.846085,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.406451,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.105442,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004204,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.034203,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.217198,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.041212,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.05918,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.883177,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.120113,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.228902,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.259441,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.876078,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.033317,
             "unit": "seconds"
           }
         ]
