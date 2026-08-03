@@ -537,3 +537,57 @@ test "a variadic callee needing more than one argument is still rejected (#2034)
         \\  (lambda () (raise-continuable 'x)))
     ));
 }
+
+// #2034, native half: the same two helpers reach a *native* procedure through
+// their own branches, which had no arity check at all. A NativeFn body indexes
+// args[0], args[1], ... without bounds checks of its own -- the VM is supposed
+// to have validated arity first -- so a wrong-arity native handler or thunk read
+// past the end of a fixed-size argument array. Under the default ReleaseSafe
+// build that is a panic: a process abort out of five lines of ordinary Scheme,
+// not a catchable error. All four native call sites now share checkNativeArity.
+test "a wrong-arity native call-with-values producer is rejected, not aborted (#2034)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // `cons` has exact arity 2 and callThunk called it with zero arguments.
+    try std.testing.expectError(VMError.ArityMismatch, vm.eval("(call-with-values cons list)"));
+}
+
+test "a wrong-arity native exception handler is rejected, not aborted (#2034)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // callHandler builds a 1-element argument array; `cons` read args[1].
+    try std.testing.expectError(VMError.ArityMismatch, vm.eval(
+        \\(with-exception-handler cons (lambda () (raise-continuable 'x)))
+    ));
+}
+
+test "a wrong-arity native dynamic-wind after-thunk does not abort the process (#2034)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // `-` is variadic with a minimum of 1 and the unwind ran it with zero
+    // arguments, reading args[0] of an empty slice. The unwind loop discards a
+    // failing after-thunk, so the correct outcome is the ORIGINAL raise
+    // surviving -- what must not happen is the process dying on the way out.
+    try std.testing.expectError(VMError.ExceptionRaised, vm.eval(
+        \\(dynamic-wind (lambda () 1) (lambda () (raise 'x)) -)
+    ));
+}
+
+test "legal native handlers and thunks still run (#2034)" {
+    // Arity-correct natives on the same branches: `car` as a 1-argument
+    // handler, and variadic/0-argument producers.
+    try th.expectEval("(with-exception-handler car (lambda () (raise-continuable '(9))))", 9);
+    try th.expectEvalTrue("(equal? '(1 2) (call-with-values (lambda () (values 1 2)) list))");
+    // The variadic native producer yields one value, the empty list, which the
+    // consumer then wraps -- so the answer is (()), not ().
+    try th.expectEvalTrue("(equal? '(()) (call-with-values list list))");
+}
