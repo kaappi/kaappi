@@ -397,6 +397,29 @@
                          "custom port callback blocked")))
         (channel-send release 'go) ; let the holder unlock and retire
         r)))
+;; thread-join!'s *fiber* path is the one that drives. Its OS-thread path
+;; does not (reapOsThread joins the pthread, or polls with sleepNs), which
+;; is why primitives_srfi181-audit.scm's "a read! that joins a short-lived
+;; thread is NOT rejected" control keeps passing. The target must already
+;; have STARTED: thread-join! on a spawn'd fiber still in .created spins in
+;; its own sleepNs poll and never reaches the scheduler at all — unrelated
+;; to this guard, and it hangs, so it is not probed here.
+(test-assert "a custom-port read! that blocks in thread-join! on a started fiber is rejected"
+    (let ((started (make-channel)) (hold (make-channel)))
+      (let ((f (spawn (lambda () (channel-send started 'up) (channel-receive hold) 'done))))
+        (channel-receive started) ; f has run and is now parked on `hold`
+        (let ((r (msg-has? (lambda () (read-char (port-whose-read! (lambda () (thread-join! f)))))
+                           "custom port callback blocked")))
+          (channel-send hold 'go)
+          (thread-join! f) ; retire it rather than leave a parked fiber behind
+          r))))
+;; SRFI-18 spells a condition-variable wait `(mutex-unlock! mutex cv timeout)`.
+;; The timeout keeps this bounded if the guard ever stops firing.
+(test-assert "a custom-port read! that blocks in a condition-variable wait is rejected"
+    (let ((m (make-mutex)) (cv (make-condition-variable)))
+      (mutex-lock! m)
+      (msg-has? (lambda () (read-char (port-whose-read! (lambda () (mutex-unlock! m cv 0.05)))))
+                "custom port callback blocked")))
 ;; The TIMED variants are the ones that arm scheduler state (a .waiting
 ;; status, a waiter_index enrolment, a reactor timer) *before* the wait is
 ;; entered, so the rejection unwinds through more than the untimed ones do.

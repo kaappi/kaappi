@@ -1249,10 +1249,6 @@ fn flushCustomPortIfNeeded(vm: *vm_mod.VM, cb: *types.CustomBacking) PrimitiveEr
 /// Concatenating handles both: no abort, and bytes come out in the order
 /// read! produced them.
 fn takeFirstBufferingRest(port: *types.Port, bytes: []const u8) PrimitiveError!?u8 {
-    // Every caller already maps its own empty-burst case to EOF before
-    // getting here; treating it as EOF rather than asserting keeps this
-    // helper total, which is the whole point of replacing the asserts.
-    if (bytes.len == 0) return null;
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     // Live span is the *last* read_buf_len bytes — consumption advances
     // from the front by shrinking the count, the same cursor rule
@@ -1260,12 +1256,24 @@ fn takeFirstBufferingRest(port: *types.Port, bytes: []const u8) PrimitiveError!?
     const old = port.read_buf;
     const pending: []const u8 = if (old) |rb| rb[rb.len - port.read_buf_len ..] else &.{};
 
+    // Empty burst -- every EOF exit of all three fills routes here rather
+    // than returning null directly, so a re-entrant fill's leftovers are
+    // served before EOF is reported. Without it the custom-port path
+    // answered eof-object while chronologically earlier bytes sat in
+    // read_buf, and the *next* read then produced them: a spurious EOF
+    // mid-stream, the same #1939 root cause as the >= 1-byte cases above.
+    // Two of the three EOF exits (the fd burst's, the transcoded
+    // character's) need re-entrancy on their own port to reach a non-empty
+    // read_buf here and no program was found that does, but they route
+    // through this anyway: three fills that "look the same" while one
+    // silently isn't is exactly what produced the bug.
     if (pending.len == 0) {
         if (old) |rb| {
             gc.allocator.free(rb);
             port.read_buf = null;
             port.read_buf_len = 0;
         }
+        if (bytes.len == 0) return null;
         if (bytes.len > 1) {
             const rest = gc.allocator.dupe(u8, bytes[1..]) catch return PrimitiveError.OutOfMemory;
             port.read_buf = rest;
@@ -1275,10 +1283,18 @@ fn takeFirstBufferingRest(port: *types.Port, bytes: []const u8) PrimitiveError!?
     }
 
     // Re-entrant fill: serve the earlier burst's front byte and re-buffer
-    // its tail with this burst appended behind it. The fresh slice is
-    // entirely live (read_buf_len == len), so the cursor restarts at 0.
+    // its tail with this burst appended behind it (possibly empty, on
+    // EOF). The fresh slice is entirely live (read_buf_len == len), so
+    // the cursor restarts at 0.
     const first = pending[0];
-    const rest = gc.allocator.alloc(u8, pending.len - 1 + bytes.len) catch return PrimitiveError.OutOfMemory;
+    const rest_len = pending.len - 1 + bytes.len;
+    if (rest_len == 0) {
+        gc.allocator.free(old.?);
+        port.read_buf = null;
+        port.read_buf_len = 0;
+        return first;
+    }
+    const rest = gc.allocator.alloc(u8, rest_len) catch return PrimitiveError.OutOfMemory;
     @memcpy(rest[0 .. pending.len - 1], pending[1..]);
     @memcpy(rest[pending.len - 1 ..], bytes);
     gc.allocator.free(old.?);
@@ -1374,9 +1390,9 @@ pub fn readOneByte(port: *types.Port) PrimitiveError!?u8 {
                 try waitPortFd(port, .read);
                 continue;
             }
-            return null;
+            return takeFirstBufferingRest(port, &.{});
         }
-        if (raw == 0) return null;
+        if (raw == 0) return takeFirstBufferingRest(port, &.{});
         const n: usize = @intCast(raw);
         // One read(2) per burst, not per byte (#1460): hand out the next
         // stream byte and park the rest in read_buf for the consumption
@@ -1436,7 +1452,7 @@ fn readOneByteFromCustomPort(port: *types.Port, cb: *types.CustomBacking) Primit
     if (!types.isFixnum(result)) return raiseCustomPortBadReturn(vm, "read!");
     const n = types.toFixnum(result);
     if (n < 0 or n > read_chunk_size) return raiseCustomPortBadReturn(vm, "read!");
-    if (n == 0) return null; // EOF
+    if (n == 0) return takeFirstBufferingRest(port, &.{});
     const count: usize = @intCast(n);
 
     const bytes: []const u8 = if (port.is_binary)
@@ -1595,7 +1611,7 @@ fn readOneByteFromTranscodedPort(port: *types.Port, ts: *types.TranscodeState) P
     const wrapped = types.toObject(ts.wrapped_port).as(types.Port);
     if (!wrapped.is_open) return raiseWrappedPortClosed();
 
-    const cp = try decodeOneChar(wrapped, ts) orelse return null;
+    const cp = try decodeOneChar(wrapped, ts) orelse return takeFirstBufferingRest(port, &.{});
 
     var utf8_buf: [4]u8 = undefined;
     // cp is always a valid Unicode scalar value here (a successful

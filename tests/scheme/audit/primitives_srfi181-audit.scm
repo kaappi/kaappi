@@ -532,7 +532,9 @@
 ;;; chronologically ahead of the ones the outer invocation then produces —
 ;;; the single read_buf slot had both, and asserted instead. At exactly one
 ;;; outer byte the assert did not fire and the stream was silently reordered
-;;; instead, which is why both sizes are pinned below.
+;;; instead. An outer return of 0 (EOF) had the same class of bug: it
+;;; reported EOF while the inner leftover still sat in read_buf. All three
+;;; sizes are pinned below.
 ;;;
 ;;; Also pinned here: every neighbouring re-entrant shape completes cleanly.
 
@@ -576,6 +578,28 @@
     (set! got (cons (read-u8 self) got))
     (set! got (cons (read-u8 self) got))
     (reverse got)))
+
+;; Same nesting as the one-byte reorder case, but the outer callback
+;; returns 0 (EOF). The inner fill left a leftover in read_buf; serving
+;; EOF before that leftover would report a spurious EOF while the next
+;; read still yields the buffered byte.
+(test-equal "re-entrant read!: outer EOF still serves inner leftover before eof-object"
+  66
+  (let ((self #f) (depth 0))
+    (set! self (make-custom-binary-input-port "eof-reent"
+      (lambda (bv start count)
+        (set! depth (+ depth 1))
+        (cond ((= depth 1)
+               (read-u8 self) ; inner fill leaves a leftover in read_buf
+               (set! depth (- depth 1))
+               0)            ; outer reports EOF
+              (else
+               (set! depth (- depth 1))
+               (bytevector-u8-set! bv start 65)
+               (bytevector-u8-set! bv (+ start 1) 66)
+               2)))
+      #f #f #f))
+    (read-u8 self)))
 
 (test-equal "re-entrant read!: a textual inner read on the same port preserves stream order"
   '(#\a #\b #\c)

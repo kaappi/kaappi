@@ -44,8 +44,10 @@
 //! its own port runs a whole earlier read! to completion first, so the
 //! bytes it leaves buffered precede the ones the outer invocation then
 //! produces; primitives_io.takeFirstBufferingRest concatenates them in that
-//! order. It used to assert port.read_buf was empty there instead, which
-//! ordinary Scheme could turn into an uncatchable process abort (#1939).
+//! order, and every EOF exit routes through it too so a 0-element outer
+//! return cannot answer eof-object over them. Each of the three fills used
+//! to assert port.read_buf was empty instead, which ordinary Scheme could
+//! turn into an uncatchable process abort (#1939).
 //!
 //! Sandbox/WASM availability: unlike SRFI 192 (real OS lseek) or SRFI 18/
 //! 170/FFI (real threads/OS info/native code), nothing here touches
