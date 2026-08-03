@@ -552,6 +552,19 @@
 ;; KP3008 is a VM limit, and `errors.isUncatchable` puts it past every
 ;; handler by design (#1886), so no `guard` here can see it. Verified out of
 ;; band instead; the recipe is in #2024.
+
+;; Fixed in #2024: each entry caches its hash, so rehash runs no Scheme code
+;; and nothing can re-enter the table while the old entry array is live.
+(test-equal "a custom hash mutating its own table does not abort (#2024)" #t
+            (let ((h #f) (armed #t))
+              (set! h (make-hash-table = (lambda (k)
+                                           (when (and armed h)
+                                             (set! armed #f)
+                                             (do ((j 0 (+ j 1))) ((= j 5)) (hash-table-set! h (+ 100 j) j))
+                                             (set! armed #t))
+                                           (if (number? k) k 0))))
+              (do ((i 0 (+ i 1))) ((= i 5)) (hash-table-set! h i i))
+              (>= (hash-table-size h) 5)))
 ;; The second manifestation of #2024's root cause: `hash-table-merge!` walked
 ;; ht2's live entry array while `findSlot` on ht1 ran the same custom hash,
 ;; which reallocated and freed the array underneath it. It exited 0 with ht1
@@ -593,19 +606,6 @@
             (let ((h (make-hash-table = (lambda (k) (if (number? k) (* k 31) 0)))))
               (do ((i 0 (+ i 1))) ((= i 100)) (hash-table-set! h i i))
               (misses (hash-table-copy h) (lambda (i) i) 100)))
-
-;; Fixed in #2024: each entry caches its hash, so rehash runs no Scheme code
-;; and nothing can re-enter the table while the old entry array is live.
-(test-equal "a custom hash mutating its own table does not abort (#2024)" #t
-            (let ((h #f) (armed #t))
-              (set! h (make-hash-table = (lambda (k)
-                                           (when (and armed h)
-                                             (set! armed #f)
-                                             (do ((j 0 (+ j 1))) ((= j 5)) (hash-table-set! h (+ 100 j) j))
-                                             (set! armed #t))
-                                           (if (number? k) k 0))))
-              (do ((i 0 (+ i 1))) ((= i 5)) (hash-table-set! h i i))
-              (>= (hash-table-size h) 5)))
 
 ;;; --- callback discipline: continuations and blocking (D5) -------------
 
