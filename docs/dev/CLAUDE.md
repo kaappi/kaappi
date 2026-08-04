@@ -23,6 +23,9 @@ belongs here.
 | LLVM native backend | `llvm-backend.md` |
 | GC safety | `gc-safety-and-error-handling.md` |
 | SRFI-18 threads / what may cross a thread boundary | `thread-value-sharing.md` |
+| Fibers, the I/O reactor, port blocking | `fibers-and-reactor.md` |
+| Implementing or editing a SRFI library | `srfi-implementation-notes.md` |
+| The package manager | `thottam.md` |
 | Tests | `testing.md`, `test-runner.md` |
 | A slowdown (compiler or generated code) | `performance.md` |
 | Fuzzing | `fuzzing.md`, `fuzzing-feasibility.md` |
@@ -31,6 +34,7 @@ belongs here.
 | Diagnostics / lint codes | `diagnostics.md`, `diagnostics-json.md`, `explain.md` |
 | Claude Code harness | `claude-code-harness.md` |
 | SRFI policy | `srfi-exclusions.md`, `srfi-status-check.md` |
+| CLI flags themselves (what each one is for) | `cli-surface.md` |
 
 ## Conventions
 

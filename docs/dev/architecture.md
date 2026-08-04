@@ -38,90 +38,139 @@ Source code
 
 ## File Organization
 
-### Core Runtime
+### Core runtime
 
-| File | ~Lines | Responsibility |
-|------|--------|---------------|
-| `types.zig` | 1200 | Value type, `Object`/`ObjectTag`, opcodes, type predicates; re-export hub for 11 `types_*.zig` heap-type domain files (`types_ffi.zig`, `types_port.zig`, `types_continuation.zig`, ... — see `CLAUDE.md`'s File organization table) |
-| `memory.zig` | 850 | GC struct, lifecycle, write barrier, rooting, quarantine |
-| `gc_alloc.zig` | 1400 | All `allocXxx` heap-object constructors (aliased into `GC`) |
-| `gc_collect.zig` | 1000 | Collection orchestration, remembered set, marking, weak refs |
-| `gc_sweep.zig` | 600 | Sweep phase, `objectSize`, `freeObject` |
-| `reader.zig` | 700 | S-expression parser, Unicode lexing (core) |
-| `reader_tokens.zig` | 550 | Tokenizer / lexer (numbers, strings, identifiers) |
-| `reader_datum.zig` | 220 | Datum parsing, datum labels |
-| `expander.zig` | 1000 | Macro-use expansion, syntax-rules pattern matching, hygiene-strip walks |
-| `expander_instantiate.zig` | 1000 | Template instantiation, hygienic renaming (scope table) |
-| `printer.zig` | 300 | Value-to-string (write mode and display mode) |
+| File | Lines | Responsibility |
+|------|-------|---------------|
+| `types.zig` | ~1200 | Value type, `Object`/`ObjectTag`, opcodes, type predicates, hygiene helpers, re-export hub for the `types_*.zig` heap-type domain files below |
+| `memory.zig` | ~850 | GC struct, lifecycle, write barrier, rooting, quarantine; aliases the allocators below into `GC` |
+| `gc_alloc.zig` | ~1400 | All `allocXxx` heap-object constructors (delegated from memory.zig, aliased into `GC` so `gc.allocXxx(...)` is unchanged) |
+| `gc_collect.zig` | ~1000 | GC orchestration, remembered set, marking, SRFI 254 weak-ref processing (delegated from memory.zig) |
+| `gc_sweep.zig` | ~600 | Sweep phase: sweepYoung/sweepOld/sweep, `objectSize`, `freeObject` (delegated from gc_collect.zig) |
+| `gc_deep_copy.zig` | — | Cross-thread deep copy (delegated from memory.zig) |
+| `reader.zig` | ~700 | Tokenizer, S-expression parser, Unicode lexing |
+| `expander.zig` | ~1000 | Macro-use expansion engine: expandMacro/expandProceduralMacro, syntax-rules pattern matching, usertext/hygiene-strip walks |
+| `expander_instantiate.zig` | ~1000 | syntax-rules template instantiation + renameForHygiene/scope-table minting (shares expander.zig's threadlocal expansion context) |
+| `printer.zig` | ~1250 | Value → string: iterative label-aware print engine + hashmap cycle/sharing detection (write/display/write-shared/write-simple; exact at any depth) and the bounded diagnostic `printValue` |
+| `printer_pretty.zig` | ~320 | REPL pretty-printer (fits-or-wraps layout over the bounded diagnostic printer; re-exported as `printer.prettyPrint`) |
 
-### Compiler & IR (7 files)
+### Heap-type domain files (split into 11 files, kaappi#1731)
+
+`types.zig` re-exports every name below (`pub const Foo = types_x.Foo;`), so
+existing `types.Foo` call sites across the codebase are unaffected by which
+file actually defines a given type. Fundamental types with no natural
+domain-mate (`Pair`, `Symbol`, `SchemeString`, `Closure`, `Function`,
+`Vector`, `Bytevector`, `Promise`, `Complex`, `ParameterObject`,
+`SchemeEnvironment`, `RandomSource`, ...) stay directly in `types.zig`.
+
+| File | Heap types |
+|------|-----------|
+| `types_macro.zig` | `Transformer`, `TransformerKind`, `CapturedLocal` |
+| `types_error.zig` | `ErrorObject` |
+| `types_record.zig` | `RecordType`, `RecordInstance` |
+| `types_numeric.zig` | `NumericVector`, `NumericElementKind` (SRFI 160), `Bignum`, `Rational` |
+| `types_port.zig` | `Port` and its satellites: `Codec`, `EolStyle`, `ErrorMode`, `TranscodeState` (SRFI 181), `CustomBacking` (SRFI 181), `RandomKind`, `RandomGen` (SRFI 271) |
+| `types_continuation.zig` | `Continuation`, `CallFrame`, `SavedFrame`, `SavedHandler`, `ExceptionHandler`, `WindRecord`, `MultipleValues`, frame/register capacity constants |
+| `types_ffi.zig` | `FfiLibrary`, `FfiFunction`, `FfiCallback`, `FfiType` |
+| `types_threading.zig` | `Channel`, `Mutex`, `ConditionVariable`, `Srfi18Time`, `TimeType` |
+| `types_hashtable.zig` | `HashTable`, `HashEntry`, `HashEntryState`, `CompareMode` (SRFI 69) |
+| `types_filesystem.zig` | `FileInfo`, `UserInfo`, `GroupInfo`, `DirectoryObject` (SRFI 170) |
+| `types_weakrefs.zig` | `Ephemeron`, `Guardian`, `GuardEntry`, `TransportCell` (SRFI 254) |
+
+`Fiber` (`fiber.zig`) predates this split and follows neither convention:
+its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
+
+### Compiler & IR (11 files)
 
 | File | Responsibility |
 |------|---------------|
 | `ir.zig` | IR node types (18), AST→IR lowering, 1 analysis pass, 5 optimization passes |
-| `compiler.zig` | Core: IR pipeline orchestration (`compile()` lowers to IR, runs passes, emits via `compileFromNode()`), also retains `compileExpr()` for passthrough forms, scope/register management |
+| `compiler.zig` | Core: IR pipeline orchestration (`compile()` lowers to IR, runs passes), retains `compileExpr()` for passthrough forms, scope/register management, macro forms |
+| `compiler_ir.zig` | IR-to-bytecode: `compileFromNode()` dispatch, if, begin, call, lambda, define, set!, and, or, when, unless |
 | `compiler_lambda.zig` | lambda, define, set!, begin, delay, delay-force, body compilation |
 | `compiler_conditionals.zig` | and, or, when, unless, cond, cond-expand |
 | `compiler_bindings.zig` | let, let*, letrec, letrec*, named let, do, let-values, let*-values |
 | `compiler_advanced.zig` | case, case-lambda, guard, quasiquote |
-| `compiler_forms.zig` | Re-export hub (thin file that exposes all form compilers) |
+| `compiler_macro.zig` | Macro-use path: expandAndCompileMacroUse, hygiene injection walks, free-ref collection; re-exports compiler_define_syntax.zig |
+| `compiler_define_syntax.zig` | Macro-defining forms: define-syntax, let-syntax, letrec-syntax, define-property, transformer-spec resolution (SRFI 147), syntax-rules parsing, transformer finalization |
+| `compiler_forms.zig` | Re-export hub (thin file, don't edit directly) |
 
-### VM (8 files)
+### VM (split into 10 files)
 
 | File | Responsibility |
 |------|---------------|
 | `vm.zig` | VM struct, init/deinit, error handling, delegation wrappers |
-| `vm_dispatch.zig` | runUntil bytecode dispatch loop, opcode handlers |
+| `vm_dispatch.zig` | runUntil bytecode dispatch loop, opcode handlers; re-exports vm_dispatch_helpers.zig |
+| `vm_dispatch_helpers.zig` | Dispatch support: bytecode/operand readers, register-window validation, the shared global-resolution helper (lookupGlobalLocked, #1831/#1860), noinline error raisers, buildRestList |
 | `vm_calls.zig` | execute, run, callValue, callClosure, callNative, profile helpers |
 | `vm_eval.zig` | eval, handleTopLevelForm dispatcher |
-| `vm_library.zig` | handleImport (with only/except/rename/prefix), handleDefineLibrary, .sld file loading |
+| `vm_library.zig` | handleDefineLibrary, .sld file loading, SRFI 261 normalization, cond-expand features, include; re-exports vm_imports.zig |
+| `vm_imports.zig` | Import-set algebra: handleImport, processImportSet (only/except/rename/prefix), transformer free-ref copying |
 | `vm_records.zig` | handleDefineRecordType desugaring |
 | `vm_continuations.zig` | captureContinuation, restoreContinuation, performWindTransition, callWithCC |
-| `vm_debug.zig` | Stepping debugger: breakpoints, step/next/continue, locals, backtrace |
+| `vm_debug.zig` | Stepping debugger: breakpoints (with conditions), watch expressions, step/next/step-out/continue, up/down frame navigation, locals, backtrace |
 
-### Primitives (21 files)
+### Primitives (split into 31 files)
 
-| File | Domain |
-|------|--------|
+| File | Procedures |
+|------|-----------|
 | `primitives.zig` | Registration hub, core list/pair ops, type predicates, equivalence, map, for-each, apply |
 | `primitives_arithmetic.zig` | +, -, *, /, comparisons, trig, exp/log, gcd/lcm, complex |
-| `primitives_numeric.zig` | Rounding, exactness predicates, exact/inexact conversion |
-| `primitives_string.zig` | String ops, basic char comparisons, number-string conversion, UTF-8 codepoint indexing |
+| `primitives_numeric.zig` | rounding, exactness predicates, exact/inexact conversion |
+| `primitives_string.zig` | string ops, char comparisons, number↔string, UTF-8 codepoint indexing |
 | `primitives_string_ext.zig` | SRFI-13 string library (contains, prefix?, trim, split, join) |
-| `primitives_char.zig` | Unicode classification, case conversion, case-insensitive comparisons |
-| `primitives_vector.zig` | Vector operations, vector-map, vector-for-each |
-| `primitives_bytevector.zig` | Bytevector ops, binary I/O, bytevector ports |
+| `primitives_char.zig` | (scheme char): Unicode classification, case conversion, CI comparisons |
+| `primitives_vector.zig` | vector ops, vector-map, vector-for-each |
+| `primitives_bytevector.zig` | bytevector ops, binary I/O, bytevector ports |
 | `primitives_list.zig` | list-ref, list-tail, list-set!, list-copy, make-list, member, assoc |
-| `primitives_srfi1.zig` | SRFI-1 list library (fold, filter, find, iota, etc.) |
+| `primitives_srfi1.zig` | SRFI-1 list library (fold, filter, find, any, every, iota, lset-intersection, lset-difference, lset=) |
 | `primitives_hashtable.zig` | SRFI-69 hash tables |
 | `primitives_random.zig` | SRFI-27 random numbers |
 | `primitives_io.zig` | Port ops, file I/O, string ports, read/write/display |
-| `primitives_filesystem.zig` | SRFI-170 POSIX filesystem API (file-info, directory ops, symlinks, user/group info) |
+| `primitives_filesystem.zig` | SRFI-170: file-info (full stat), directory ops, symlinks, process state, user/group info, env vars, terminal? |
 | `primitives_control.zig` | raise, guard, with-exception-handler, call/cc, dynamic-wind, values |
 | `primitives_lazy.zig` | delay, force, make-promise, promise? |
-| `primitives_cxr.zig` | 24 car/cdr compositions (caaaar through cddddr) |
-| `primitives_ffi.zig` | FFI procedure registration (ffi-open, ffi-fn, ffi-close, ffi-callback). 18 FFI types. |
-| `primitives_r7rs.zig` | Time, process-context, eval, load, make-parameter |
+| `primitives_cxr.zig` | 24 car/cdr compositions (caaaar–cddddr) |
+| `primitives_ffi.zig` | C FFI: ffi-open, ffi-fn, ffi-close, ffi-callback. 18 types: int, long, double, float, string, pointer, void, bool, uint8, int8, int16, int32, int64, uint16, uint32, uint64, size_t, char. |
+| `primitives_r7rs.zig` | time, process-context, eval, load, make-parameter |
 | `primitives_srfi18.zig` | SRFI-18: threads, mutexes, condition variables, time objects |
+| `primitives_srfi258.zig` | SRFI-258: uninterned symbols (string->uninterned-symbol, symbol-interned?, generate-uninterned-symbol) |
+| `primitives_srfi260.zig` | SRFI-260: generated symbols (generate-symbol) |
+| `primitives_srfi160.zig` | SRFI-160: the 6 generic `%`-prefixed `NumericVector` primitives every per-type `.sld` builds on |
+| `primitives_srfi181.zig` | SRFI-181: custom ports (the 5 `make-custom-*-port` constructors) and `%transcoded-port` |
+| `primitives_srfi211.zig` | SRFI-211: `er-macro-transformer`, `lisp-transformer` procedural transformer constructors |
+| `primitives_srfi237.zig` | SRFI-237: R6RS record procedural layer (`(srfi 237 primitives)`) |
+| `primitives_srfi254.zig` | SRFI-254: ephemeron/guardian constructors, predicates, accessors (GC half lives in `gc_collect.zig`) |
+| `primitives_fiber.zig` | `(kaappi fibers)`: spawn, yield, fiber-join, channels |
+| `primitives_parallel.zig` | KEP-0002: the single native primitive backing `lib/kaappi/parallel.sld` |
+| `primitives_random_port.zig` | SRFI-271 random port `%`-prefixed internals |
+| `primitives_sysinfo.zig` | System inquiry shared by SRFI 59 (vicinity), 112 (environment), 193 (command line) |
 
 ### Other
 
 | File | Responsibility |
 |------|---------------|
-| `library.zig` | Library registry, standard library registration |
-| `linenoise.zig` | Zig FFI wrapper for vendored linenoise C library |
-| `main.zig` | Entry point, REPL loop, file execution, CLI flags (`--help`, `--version`, etc.) |
-| `thottam.zig` | Package manager binary: install, remove, list, update, verify |
-| `kaappi_lsp.zig` | Language server (LSP) for IDE integration |
-| `ffi.zig` | FFI call dispatcher (type marshaling, arity routing, `normalizeType`) |
-| `runtime_exports.zig` | C-ABI bridge for LLVM native backend (8 exported functions) |
-| `llvm_emit.zig` | LLVM IR text emitter (walks IR nodes, produces `.ll` files) |
+| `library.zig` | Library registry, standard library registration ((scheme base), etc.) |
 | `bignum.zig` | Arbitrary-precision integer arithmetic |
-| `bytecode_file.zig` | Bytecode serialization/deserialization (.sbc format) |
+| `ffi.zig` | C FFI call dispatcher (type marshaling, arity routing, `normalizeType` for extended integer types) |
+| `bytecode_file.zig` | `.sbc` codec hub: shared format contract (magic, version, tags, limits), `BytecodeError`, `compilerHash`/`sourceHash`/`getSbcPath`, re-exports of the read/write halves |
+| `bytecode_file_write.zig` | Serializer: `Writer`, `writeConstant`, function collection, `writeFileWithTopLevel`/`writeFileWithBundle` |
+| `bytecode_file_read.zig` | Deserializer: `Reader`, `readConstant`, bytecode validation, `deserializeFromBuffer`, `readHeaderInfo`, `DeserializeResult`/`HeaderInfo` |
 | `disassembler.zig` | Bytecode disassembler for `(disassemble proc)` |
+| `linenoise.zig` | Zig FFI wrapper for vendored linenoise C library |
+| `main.zig` | Entry point, REPL loop with linenoise, file execution, CLI flags, `pub const version`, `pub const panic` |
+| `cli_spec.zig` | **The** CLI flag/subcommand tables. Every parse loop (`cli.zig`, `explain`, `features`, `doctor`, `test_runner`, `cache`, `thottam`) dispatches on an exhaustive `switch` over one of its `Id` enums, `cli.printUsage` generates its `Options:` block from it, and `completions.zig` generates all six shell scripts from it — so a flag cannot reach a parser without the docs and completions following. See `docs/dev/cli-surface.md` |
+| `completions.zig` | bash/zsh/fish completion scripts for `kaappi` and `thottam`, generated at comptime from `cli_spec.zig`. Nothing here is hand-maintained |
+| `crash.zig` | Custom panic handler (`PanicHandler(name)`) + pipeline breadcrumb (`noteStage`/`noteFile`); prints version/target/build-mode + stage + report URL before the trace. See `docs/dev/crash-reporting.md` |
+| `native_compiler.zig` | LLVM IR emission, native binary compilation, C compiler discovery, linker invocation |
+| `thottam.zig` | Package manager binary (thottam): install, remove, list, update, verify |
+| `llvm_emit.zig` | LLVM IR text emitter core: LLVMEmitter struct/state, program orchestration, call emission, constants/interning (special-form/cond/case/do emitters live in `llvm_emit_forms.zig`; let/lambda/tailcall/inline/freevars satellites likewise) |
+| `runtime_exports.zig` | C-ABI bridge for LLVM native backend (21 exported functions) |
+| `fmt.zig` | `kaappi fmt`: comment-preserving CST reader (lexer + parser), CLI entry, real-reader `equal?` round-trip safety net |
+| `fmt_print.zig` | `kaappi fmt` layout engine: fits-or-breaks pretty-printer, special-form indentation rules |
 | `testing_helpers.zig` | Shared `makeTestVM` helper for unit tests |
-| `tests_ir.zig` | IR unit tests: bytecode parity, behavioral correctness, analysis passes, optimizations |
-| `tests_*.zig` | Unit tests by feature (core_eval, tail_calls, macros, etc.) |
+| `tests_ir.zig` | IR tests: bytecode parity, behavioral correctness, analysis, optimizations |
+| `tests_*.zig` | Unit tests by feature (core_eval, tail_calls, macros, io, etc.) |
 
 ---
 
