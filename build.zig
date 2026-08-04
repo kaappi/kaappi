@@ -86,9 +86,11 @@ pub fn build(b: *std.Build) void {
     const null_embed = wf.add("embedded_bytecode.zig", "pub const bytecode: ?[]const u8 = null;\n");
 
     const is_wasm_target = target.result.os.tag == .wasi;
-    // linenoise is POSIX-only (termios); the Windows REPL uses a plain
-    // stdin line loop instead (repl.zig).
-    const use_linenoise = !is_wasm_target and target.result.os.tag != .windows;
+    // isocline is the REPL line editor, on every hosted target: it has a
+    // native Windows console backend (term.c/tty.c switch on _WIN32), so
+    // unlike linenoise it needs no POSIX-only exclusion. WASI is still out —
+    // it has no tty layer, and main.zig never reaches the REPL there anyway.
+    const use_isocline = !is_wasm_target;
 
     // OpenBSD enforces BTCFI: an indirect branch must land on a `bti`
     // instruction, but Zig 0.16 emits no landing pads, so every Zig-linked
@@ -114,7 +116,7 @@ pub fn build(b: *std.Build) void {
     const main_mod = kaappiModule(b, options_mod, .{
         .target = target,
         .optimize = optimize,
-        .linenoise = use_linenoise,
+        .isocline = use_isocline,
         .strip = strip,
         .single_threaded = if (is_wasm_target) true else null,
     });
@@ -140,7 +142,7 @@ pub fn build(b: *std.Build) void {
         const compiler_mod = kaappiModule(b, options_mod, .{
             .target = target,
             .optimize = optimize,
-            .linenoise = use_linenoise,
+            .isocline = use_isocline,
             .embed = compiler_null_embed,
         });
 
@@ -208,7 +210,7 @@ pub fn build(b: *std.Build) void {
         .root = "src/runtime_exports.zig",
         .target = target,
         .optimize = optimize,
-        .linenoise = use_linenoise,
+        .isocline = use_isocline,
         .embed = null_embed,
     });
     const lib = b.addLibrary(.{
@@ -472,7 +474,7 @@ pub fn build(b: *std.Build) void {
     const cov_main_mod = kaappiModule(b, options_mod, .{
         .target = target,
         .optimize = .Debug,
-        .linenoise = use_linenoise,
+        .isocline = use_isocline,
         .embed = null_embed,
     });
     const cov_exe = b.addExecutable(.{
@@ -516,7 +518,7 @@ fn kaappiModule(b: *std.Build, options_mod: *std.Build.Module, opts: struct {
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     link_libc: bool = true,
-    linenoise: bool = false,
+    isocline: bool = false,
     embed: ?std.Build.LazyPath = null,
     strip: ?bool = null,
     single_threaded: ?bool = null,
@@ -559,12 +561,14 @@ fn kaappiModule(b: *std.Build, options_mod: *std.Build.Module, opts: struct {
         .target = opts.target,
         .optimize = opts.optimize,
     });
-    if (opts.linenoise) {
+    if (opts.isocline) {
+        // src/isocline.c #includes the other translation units, so this one
+        // file is the whole library (vendor/isocline/PATCHES.md).
         mod.addCSourceFile(.{
-            .file = b.path("vendor/linenoise/linenoise.c"),
-            .flags = &.{"-std=gnu99"},
+            .file = b.path("vendor/isocline/src/isocline.c"),
+            .flags = &.{"-std=c11"},
         });
-        mod.addIncludePath(b.path("vendor/linenoise"));
+        mod.addIncludePath(b.path("vendor/isocline/include"));
     }
     if (opts.embed) |embed_file| {
         mod.addAnonymousImport("embedded_bytecode", .{

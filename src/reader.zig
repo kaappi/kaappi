@@ -108,6 +108,14 @@ pub const Reader = struct {
     /// (file loading, string ports, the final parse at fd EOF) leave it
     /// false and keep the precise error kinds.
     incomplete_input: bool = false,
+    /// False for a parse whose data is thrown away — the REPL's
+    /// input-completeness probe (`repl.inputIncomplete`) reads the pending
+    /// buffer only to learn whether it is truncated, then discards every datum
+    /// it built. `source_spans` is keyed on heap pointers and is never pruned
+    /// (it lives as long as the GC), so recording spans for values that are
+    /// garbage before the next collection grows the table for nothing and
+    /// leaves keys that a recycled object can later alias.
+    record_spans: bool = true,
     /// Set when a `#!` directive was consumed. The incremental `read` loop
     /// must not discard a buffer that held one the way it discards pure
     /// whitespace/comments: a directive carries state (fold-case) forward,
@@ -158,6 +166,7 @@ pub const Reader = struct {
     /// its last character. A single scan from source start to `self.pos` yields
     /// both endpoints in 1-based `(line, col)` (kaappi#1506).
     pub fn recordSpan(self: *Reader, val: Value, start_pos: usize) void {
+        if (!self.record_spans) return;
         if (!types.isPair(val) and !types.isVector(val)) return;
         const end_pos = self.pos;
         var line: u32 = 1;

@@ -67,7 +67,7 @@ verification steps.
 
 ### Build from source
 
-Requires **Zig 0.16+** and a C toolchain (for the vendored linenoise library):
+Requires **Zig 0.16+** and a C toolchain (for the vendored isocline library):
 
 ```bash
 git clone https://github.com/kaappi/kaappi.git
@@ -111,7 +111,7 @@ Per-platform notes, each linking to the full port document:
   info) raises a catchable file error. Windows builds expose the `windows`
   `cond-expand` feature identifier instead of `posix`.
 - **[FreeBSD](docs/dev/freebsd.md)** — full POSIX with no degradations:
-  kqueue-backed fiber I/O, OS threads, complete SRFI-170, the full linenoise
+  kqueue-backed fiber I/O, OS threads, complete SRFI-170, the full isocline
   REPL, and thottam with `build:` support. `kaappi compile` links native
   binaries with the base system's `cc` — no extra toolchain needed.
 - **[OpenBSD](docs/dev/openbsd.md)** — the same full-POSIX kqueue platform, with

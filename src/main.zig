@@ -26,7 +26,14 @@ pub const primitives_r7rs = @import("primitives_r7rs.zig");
 pub const printer = @import("printer.zig");
 pub const expander = @import("expander.zig");
 pub const library = @import("library.zig");
-pub const ln = if (is_wasm or builtin_os.tag == .windows) struct {} else @import("linenoise.zig");
+// WASI only, matching build.zig's `use_isocline` and repl.zig's. The extra
+// `.windows` arm here was linenoise's POSIX-only gate, left behind: isocline
+// drives the Windows console API, so that target builds and links it like any
+// other. repl.zig imports isocline.zig directly and is reachable from here, so
+// the wrapper was still compiled on Windows either way — but this file's
+// import block is what makes a module's own tests reachable, and a stale
+// exclusion here would silently drop them if any were ever added.
+pub const ic = if (is_wasm) struct {} else @import("isocline.zig");
 pub const ffi = @import("ffi.zig");
 pub const primitives_ffi = @import("primitives_ffi.zig");
 pub const primitives_srfi1 = @import("primitives_srfi1.zig");
@@ -1253,7 +1260,7 @@ test {
     _ = printer;
     _ = expander;
     _ = library;
-    _ = ln;
+    _ = ic;
     _ = ffi;
     _ = primitives_ffi;
     _ = primitives_srfi1;

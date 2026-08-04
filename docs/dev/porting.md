@@ -73,10 +73,10 @@ What a port actually touches, in dependency order:
 | Non-blocking probe | `src/primitives_io.zig` (`maybeSetNonblocking`) | Per-OS strategy for flipping port fds to would-block mode, and the degradation trigger when the OS can't (see "the degradation ladder"). |
 | Feature identifiers | `src/types.zig` (`platform_features`) | The `cond-expand` table. Exactly one OS-class identifier per build (`posix` or `windows` today); capability identifiers (`kaappi-threads`, …) dropped where unsupported. `kaappi features`, `(features)`, and `cond-expand` all read this one table. |
 | Library/primitive gates | `src/primitives.zig` (`Lib.wasmAvailable`, `PrimSpec.wasm`), `src/library.zig` | Which built-in libraries and individual primitives register on a constrained target. |
-| REPL | `src/main.zig`, `src/repl.zig`, `build.zig` (`use_linenoise`) | linenoise is termios-only. Non-POSIX targets fall back to the plain line-reader REPL (full loop, no history/editing). |
+| REPL | `src/main.zig`, `src/repl.zig`, `build.zig` (`use_isocline`) | isocline covers POSIX and Windows (console API). Only WASI falls back to the plain line-reader REPL, and only to keep compiling — `main.zig` never reaches the REPL there. |
 | Package manager | `src/thottam.zig`, `src/thottam_fs.zig` | File operations run on shim-based helpers (no shell-outs) on every platform; `HOME` vs `USERPROFILE`; `build:` manifest lines need a platform build story. |
 | Paths | `src/kaappi_paths.zig` | Self-exe lookup per OS (`/proc/self/exe`, `_NSGetExecutablePath`, `GetModuleFileNameW`); returns null gracefully where none exists. UTF-8 with `/` separators at every internal boundary. |
-| Build gates | `build.zig` | `use_linenoise`, `single_threaded` (wasm), `emulated_target` (relaxes wall-clock fuzz deadlines under QEMU, #1573). |
+| Build gates | `build.zig` | `use_isocline` (hosted targets; off for WASI), `single_threaded` (wasm), `emulated_target` (relaxes wall-clock fuzz deadlines under QEMU, #1573). |
 | Test helpers | `src/testing_helpers.zig` | `makeFdPair`/`makeBidiFdPair` abstract POSIX pipes/socketpairs vs loopback TCP pairs so the reactor/scheduler/port-I/O unit suites run on every target. |
 | Scheme test gates | `tests/scheme/**` | `cond-expand` skip blocks in tests that exercise platform-only functionality; names stay bound so `guard` probes work. |
 | CI | `.github/workflows/ci.yml` | One job (or cross+execute job pair) per target. |
@@ -160,8 +160,8 @@ thottam → #1608 readiness), and it kept every intermediate PR shippable.
       binaries. `skip_foreign_checks = true` in `build.zig` makes this a
       compile-only gate on hosts that can't execute the target — CI runs
       exactly this for Windows.
-- [ ] Extend `build.zig` gates if needed: `use_linenoise` (POSIX
-      termios only), `single_threaded` (if the target has no OS threads).
+- [ ] Extend `build.zig` gates if needed: `use_isocline` (any target with
+      a tty or console), `single_threaded` (if the target has no OS threads).
 
 ### Stage 2 — the platform shim
 

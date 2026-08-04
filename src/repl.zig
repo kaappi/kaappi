@@ -5,24 +5,31 @@ const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const compiler = @import("compiler.zig");
 const reader = @import("reader.zig");
+const memory = @import("memory.zig");
 const printer = @import("printer.zig");
 const vm_library = @import("vm_library.zig");
 const reporting = @import("reporting.zig");
 const expander = @import("expander.zig");
 const toplevel_driver = @import("toplevel_driver.zig");
 const crash = @import("crash.zig");
-/// linenoise is POSIX-only (termios). The Windows REPL keeps the whole
-/// eval/print/debug-command loop and swaps only the line source: a plain
-/// prompt + buffered stdin read (no editing/history/completion).
-const use_linenoise = !is_wasm and !platform.is_windows;
-const ln = if (use_linenoise) @import("linenoise.zig") else struct {};
+/// isocline is the line editor (`vendor/isocline/`). It holds a whole form in
+/// one buffer, so `ic.readline` returns a finished expression — newlines and
+/// all — instead of one physical line, and every line of it stays editable
+/// until submit. Kaappi's copy is patched with an input-completeness callback;
+/// see `vendor/isocline/PATCHES.md`.
+///
+/// Windows included: isocline drives the console API directly there, so that
+/// platform gets editing, history, and completion for the first time. Only
+/// WASI falls back to the plain stdin loop below, and only to keep compiling —
+/// main.zig never reaches the REPL on that target.
+const use_isocline = !is_wasm;
+const ic = if (use_isocline) @import("isocline.zig") else struct {};
 
 const config_mod = @import("config.zig");
 const version = @import("main.zig").version;
 
 var repl_vm: ?*vm_mod.VM = null;
 var terminal_width: u16 = 80;
-var accumulated_input: []const u8 = "";
 var theme: config_mod.Theme = .{};
 var highlight_enabled: bool = true;
 
@@ -31,12 +38,17 @@ fn getTerminalWidth() u16 {
     return platform.terminalWidth() orelse 80;
 }
 
-/// One REPL line. linenoise where available; otherwise write the prompt
-/// and read a plain line from fd 0 (Windows). Returns a malloc'd
-/// NUL-terminated line without its trailing newline — the linenoise
-/// return contract — freed by `freeReplLine`. Null on EOF.
+/// One complete REPL input. Under isocline this is a whole expression, which
+/// may span lines: the editor keeps prompting (via `isCompleteCallback`) until
+/// the form closes, so the returned string can contain newlines. The WASI
+/// fallback writes the prompt and reads a single plain line from fd 0, and its
+/// caller still has to accumulate continuation lines itself.
+///
+/// Returns a NUL-terminated string owned by the editor, released by
+/// `freeReplLine`. Null on EOF (ctrl-D on empty input). Note ctrl-C returns an
+/// *empty string*, not null — a cancelled line, not end of input.
 fn readReplLine(prompt: [*:0]const u8) ?[*:0]u8 {
-    if (comptime use_linenoise) return @ptrCast(ln.linenoise(prompt));
+    if (comptime use_isocline) return ic.readline(prompt);
 
     const prompt_s = std.mem.span(prompt);
     _ = platform.write(1, prompt_s.ptr, prompt_s.len);
@@ -67,11 +79,11 @@ fn readReplLine(prompt: [*:0]const u8) ?[*:0]u8 {
 }
 
 fn freeReplLine(line_ptr: [*:0]u8) void {
-    if (comptime use_linenoise) {
-        ln.free(@ptrCast(line_ptr));
+    if (comptime use_isocline) {
+        ic.free(@ptrCast(line_ptr));
         return;
     }
-    // Mirror of readReplLine's raw_c_allocator ownership: reconstruct the
+    // Mirror of readReplLine's c_allocator ownership: reconstruct the
     // allocation (bytes incl. the NUL) and free it.
     const len = std.mem.len(line_ptr);
     std.heap.c_allocator.free(line_ptr[0 .. len + 1]);
@@ -87,48 +99,65 @@ fn isIdentBreak(c: u8) bool {
     };
 }
 
-fn completionCallback(buf: [*c]const u8, lc: [*c]ln.c.linenoiseCompletions) callconv(.c) void {
-    const vm = repl_vm orelse return;
-    const b: ?[*:0]const u8 = @ptrCast(buf);
-    const line = if (b) |bp| std.mem.span(bp) else return;
-    if (line.len == 0) return;
+const repl_commands = [_][*:0]const u8{
+    ",time ",  ",type ",       ",describe ", ",apropos ",
+    ",env ",   ",profile ",    ",expand ",   ",gc",
+    ",break ", ",breakpoints", ",delete ",   ",step ",
+    ",help",   ",quit",        ",exit",      ",version",
+    ",load ",  ",import ",     ",dis ",      ",condition ",
+};
 
-    if (line[0] == ',') {
-        const commands = [_][*:0]const u8{
-            ",time ",  ",type ",       ",describe ", ",apropos ",
-            ",env ",   ",profile ",    ",expand ",   ",gc",
-            ",break ", ",breakpoints", ",delete ",   ",step ",
-            ",help",   ",quit",        ",exit",      ",version",
-            ",load ",  ",import ",     ",dis ",      ",condition ",
-        };
-        for (&commands) |cmd| {
+/// Identifier characters, for isocline's word splitting. The inverse of
+/// `isIdentBreak`: `-`, `?`, `!`, `->` stay *inside* a Scheme identifier
+/// (kaappi#676), which is why the default separator class will not do.
+fn isIdentChar(s: [*c]const u8, len: c_long) callconv(.c) bool {
+    if (len != 1) return true; // any multi-byte utf8 char is an identifier char
+    return !isIdentBreak(s[0]);
+}
+
+/// Completes the word at the cursor. Registered with isocline, which strips
+/// the word out of the buffer for us and splices the chosen completion back
+/// in — the old linenoise callback had to rebuild the whole line by hand, and
+/// silently dropped any candidate that made it longer than 1024 bytes.
+fn completeWordCallback(cenv: ?*ic.CompletionEnv, prefix: [*c]const u8) callconv(.c) void {
+    const vm = repl_vm orelse return;
+    const word = if (prefix) |p| std.mem.span(@as([*:0]const u8, @ptrCast(p))) else return;
+
+    var buf: [512:0]u8 = undefined;
+    var it = vm.globals.keyIterator();
+    while (it.next()) |key| {
+        if (!std.mem.startsWith(u8, key.*, word)) continue;
+        if (key.*.len >= buf.len) continue;
+        @memcpy(buf[0..key.*.len], key.*);
+        buf[key.*.len] = 0;
+        if (!ic.addCompletion(cenv, &buf)) return; // isocline has enough
+    }
+}
+
+fn completionCallback(cenv: ?*ic.CompletionEnv, prefix: [*c]const u8) callconv(.c) void {
+    const line = if (prefix) |p| std.mem.span(@as([*:0]const u8, @ptrCast(p))) else return;
+
+    // Comma commands match against the whole line, not a word: the leading
+    // ',' is a separator, so word completion would never see it.
+    if (line.len > 0 and line[0] == ',') {
+        // After the command word, complete a path — `,load ` and `,import `
+        // take one. Previously nothing was offered here at all.
+        if (std.mem.indexOfScalar(u8, line, ' ')) |sp| {
+            const cmd = line[0 .. sp + 1];
+            if (std.mem.eql(u8, cmd, ",load ") or std.mem.eql(u8, cmd, ",import ")) {
+                ic.completeFilename(cenv, prefix, 0, null, ".scm;.sld;.sbc");
+            }
+            return;
+        }
+        for (&repl_commands) |cmd| {
             if (std.mem.startsWith(u8, std.mem.span(cmd), line)) {
-                ln.addCompletion(lc, cmd);
+                if (!ic.addCompletion(cenv, cmd)) return;
             }
         }
         return;
     }
 
-    var ident_start = line.len;
-    while (ident_start > 0 and !isIdentBreak(line[ident_start - 1])) {
-        ident_start -= 1;
-    }
-    const ident_prefix = line[ident_start..];
-    if (ident_prefix.len == 0) return;
-    const line_prefix = line[0..ident_start];
-
-    var it = vm.globals.keyIterator();
-    while (it.next()) |key| {
-        if (std.mem.startsWith(u8, key.*, ident_prefix)) {
-            var completion_buf: [1024:0]u8 = undefined;
-            const total_len = line_prefix.len + key.*.len;
-            if (total_len >= completion_buf.len) continue;
-            @memcpy(completion_buf[0..line_prefix.len], line_prefix);
-            @memcpy(completion_buf[line_prefix.len..][0..key.*.len], key.*);
-            completion_buf[total_len] = 0;
-            ln.addCompletion(lc, &completion_buf);
-        }
-    }
+    ic.completeWord(cenv, prefix, &completeWordCallback, &isIdentChar);
 }
 
 // Colors are configured via theme (loaded from ~/.kaappi/config)
@@ -167,18 +196,58 @@ fn isNumberLike(word: []const u8) bool {
     return false;
 }
 
-fn findMatchingOpen(input: []const u8, close_pos: usize) ?usize {
-    const close_ch = input[close_pos];
-    const open_ch: u8 = if (close_ch == ')') '(' else if (close_ch == ']') '[' else return null;
-    var stack: [512]usize = undefined;
-    var stack_len: usize = 0;
+// Style names registered with isocline at REPL start (see `applyTheme`).
+// `ic-bracematch` and `ic-prompt` are isocline's own names, redefined so the
+// user's theme drives them too.
+const style_keyword = "kaappi-keyword";
+const style_string = "kaappi-string";
+const style_number = "kaappi-number";
+const style_comment = "kaappi-comment";
+const style_boolean = "kaappi-boolean";
+const style_paren = "kaappi-paren";
+
+/// Hands each styled span to isocline, which records it in an attribute buffer
+/// and renders it. Nothing is allocated and no escape sequence is written by
+/// hand — which is what made the old emitter's allocator mismatch possible
+/// (kaappi#234).
+const IsoclineEmitter = struct {
+    henv: ?*ic.HighlightEnv,
+    fn emit(self: @This(), start: usize, end: usize, style: [*:0]const u8) void {
+        if (end <= start) return;
+        ic.highlight(self.henv, @intCast(start), @intCast(end - start), style);
+    }
+};
+
+/// isocline highlighter. Unlike the linenoise callback this replaced, it gets
+/// the whole form — every line of it — rather than the current physical line,
+/// so the `accumulated_input` splice that used to reach back across the
+/// continuation seam is gone. It also gets no cursor position: matching-paren
+/// highlighting is isocline's own job now (`ic_enable_brace_matching`), styled
+/// through `ic-bracematch`.
+fn highlightCallback(henv: ?*ic.HighlightEnv, input_c: [*c]const u8, arg: ?*anyopaque) callconv(.c) void {
+    _ = arg;
+    if (!highlight_enabled) return;
+    const input = if (input_c) |p| std.mem.span(@as([*:0]const u8, @ptrCast(p))) else return;
+    scanHighlight(input, IsoclineEmitter{ .henv = henv });
+}
+
+/// Splits `input` into styled spans, calling `ctx.emit(start, end, style)` for
+/// each. Separated from the isocline call so the token rules can be tested
+/// without a terminal — `ic_highlight` needs a live editor to write into.
+fn scanHighlight(input: []const u8, ctx: anytype) void {
+    if (input.len == 0) return;
+
     var i: usize = 0;
-    while (i <= close_pos) {
+    while (i < input.len) {
         const ch = input[i];
+        const start = i;
+
         if (ch == ';') {
             while (i < input.len and input[i] != '\n') : (i += 1) {}
+            ctx.emit(start, i, style_comment);
             continue;
         }
+
         if (ch == '#' and i + 1 < input.len and input[i + 1] == '|') {
             i += 2;
             var depth: u32 = 1;
@@ -193,8 +262,38 @@ fn findMatchingOpen(input: []const u8, close_pos: usize) ?usize {
                     i += 1;
                 }
             }
+            ctx.emit(start, i, style_comment);
             continue;
         }
+
+        // #; datum comment prefix
+        if (ch == '#' and i + 1 < input.len and input[i + 1] == ';') {
+            i += 2;
+            ctx.emit(start, i, style_comment);
+            continue;
+        }
+
+        // #!fold-case / #!no-fold-case directives
+        if (ch == '#' and i + 1 < input.len and input[i + 1] == '!') {
+            while (i < input.len and !isDelimiter(input[i])) : (i += 1) {}
+            ctx.emit(start, i, style_comment);
+            continue;
+        }
+
+        // #u8( bytevector literal
+        if (ch == '#' and i + 3 < input.len and input[i + 1] == 'u' and input[i + 2] == '8' and input[i + 3] == '(') {
+            i += 4;
+            ctx.emit(start, i, style_paren);
+            continue;
+        }
+
+        // #( vector literal
+        if (ch == '#' and i + 1 < input.len and input[i + 1] == '(') {
+            i += 2;
+            ctx.emit(start, i, style_paren);
+            continue;
+        }
+
         if (ch == '"') {
             i += 1;
             while (i < input.len) {
@@ -208,8 +307,16 @@ fn findMatchingOpen(input: []const u8, close_pos: usize) ?usize {
                 }
                 i += 1;
             }
+            ctx.emit(start, i, style_string);
             continue;
         }
+
+        if (ch == '(' or ch == ')' or ch == '[' or ch == ']') {
+            i += 1;
+            ctx.emit(start, i, style_paren);
+            continue;
+        }
+
         if (ch == '#' and i + 1 < input.len and input[i + 1] == '\\') {
             i += 2;
             if (i < input.len) {
@@ -220,8 +327,57 @@ fn findMatchingOpen(input: []const u8, close_pos: usize) ?usize {
                     i += 1;
                 }
             }
+            ctx.emit(start, i, style_number);
             continue;
         }
+
+        // #true / #false (R7RS extended boolean)
+        if (ch == '#' and i + 4 < input.len) {
+            if (std.mem.startsWith(u8, input[i..], "#true") and (i + 5 >= input.len or isDelimiter(input[i + 5]))) {
+                i += 5;
+                ctx.emit(start, i, style_boolean);
+                continue;
+            }
+            if (i + 5 < input.len and std.mem.startsWith(u8, input[i..], "#false") and (i + 6 >= input.len or isDelimiter(input[i + 6]))) {
+                i += 6;
+                ctx.emit(start, i, style_boolean);
+                continue;
+            }
+        }
+
+        // #t / #f (short boolean)
+        if (ch == '#' and i + 1 < input.len and (input[i + 1] == 't' or input[i + 1] == 'f')) {
+            if (i + 2 >= input.len or isDelimiter(input[i + 2])) {
+                i += 2;
+                ctx.emit(start, i, style_boolean);
+                continue;
+            }
+        }
+
+        // #b #o #x #d #e #i number prefix
+        if (ch == '#' and i + 1 < input.len) {
+            const next = input[i + 1];
+            if (next == 'b' or next == 'o' or next == 'x' or next == 'd' or next == 'e' or next == 'i') {
+                while (i < input.len and !isDelimiter(input[i])) : (i += 1) {}
+                ctx.emit(start, i, style_number);
+                continue;
+            }
+        }
+
+        // ,@ unquote-splicing
+        if (ch == ',' and i + 1 < input.len and input[i + 1] == '@') {
+            i += 2;
+            ctx.emit(start, i, style_keyword);
+            continue;
+        }
+
+        if (ch == '\'' or ch == '`' or ch == ',') {
+            i += 1;
+            ctx.emit(start, i, style_keyword);
+            continue;
+        }
+
+        // |...| pipe-quoted symbol: left unstyled, as before
         if (ch == '|') {
             i += 1;
             while (i < input.len and input[i] != '|') {
@@ -231,428 +387,144 @@ fn findMatchingOpen(input: []const u8, close_pos: usize) ?usize {
             if (i < input.len) i += 1;
             continue;
         }
-        if (ch == open_ch) {
-            if (stack_len < stack.len) {
-                stack[stack_len] = i;
-                stack_len += 1;
-            }
-            i += 1;
-            continue;
-        }
-        if (ch == close_ch) {
-            if (i == close_pos) {
-                return if (stack_len > 0) stack[stack_len - 1] else null;
-            }
-            if (stack_len > 0) stack_len -= 1;
-            i += 1;
-            continue;
-        }
-        i += 1;
-    }
-    return null;
-}
-
-fn highlightCallback(buf: [*c]const u8, len: usize, pos: usize, out_len: [*c]usize) callconv(.c) [*c]u8 {
-    if (len == 0 or !highlight_enabled) {
-        out_len.* = 0;
-        return null;
-    }
-    const input = buf[0..len];
-
-    var result: std.ArrayList(u8) = .empty;
-    const allocator = std.heap.c_allocator;
-
-    var match_open: ?usize = null;
-    var match_close: ?usize = null;
-    if (pos > 0 and pos <= input.len and (input[pos - 1] == ')' or input[pos - 1] == ']')) {
-        match_open = findMatchingOpen(input, pos - 1);
-        if (match_open != null) {
-            match_close = pos - 1;
-        } else if (accumulated_input.len > 0) {
-            const ctx = accumulated_input;
-            const total = ctx.len + 1 + input.len;
-            const combined = allocator.alloc(u8, total) catch null;
-            if (combined) |buf2| {
-                defer allocator.free(buf2);
-                @memcpy(buf2[0..ctx.len], ctx);
-                buf2[ctx.len] = '\n';
-                @memcpy(buf2[ctx.len + 1 ..][0..input.len], input);
-                if (findMatchingOpen(buf2, ctx.len + 1 + pos - 1)) |abs_pos| {
-                    if (abs_pos >= ctx.len + 1)
-                        match_open = abs_pos - ctx.len - 1
-                    else
-                        match_open = null;
-                    match_close = pos - 1;
-                }
-            }
-        }
-    }
-
-    var i: usize = 0;
-    while (i < input.len) {
-        const ch = input[i];
-
-        if (ch == ';') {
-            result.appendSlice(allocator, theme.comment) catch return null;
-            while (i < input.len and input[i] != '\n') : (i += 1) {
-                result.append(allocator, input[i]) catch return null;
-            }
-            result.appendSlice(allocator, theme.reset) catch return null;
-            continue;
-        }
-
-        if (ch == '#' and i + 1 < input.len and input[i + 1] == '|') {
-            result.appendSlice(allocator, theme.comment) catch return null;
-            result.append(allocator, '#') catch return null;
-            result.append(allocator, '|') catch return null;
-            i += 2;
-            var depth: u32 = 1;
-            while (i < input.len and depth > 0) {
-                if (input[i] == '#' and i + 1 < input.len and input[i + 1] == '|') {
-                    depth += 1;
-                    result.appendSlice(allocator, "#|") catch return null;
-                    i += 2;
-                } else if (input[i] == '|' and i + 1 < input.len and input[i + 1] == '#') {
-                    depth -= 1;
-                    result.appendSlice(allocator, "|#") catch return null;
-                    i += 2;
-                } else {
-                    result.append(allocator, input[i]) catch return null;
-                    i += 1;
-                }
-            }
-            result.appendSlice(allocator, theme.reset) catch return null;
-            continue;
-        }
-
-        // #; datum comment prefix
-        if (ch == '#' and i + 1 < input.len and input[i + 1] == ';') {
-            result.appendSlice(allocator, theme.comment) catch return null;
-            result.appendSlice(allocator, "#;") catch return null;
-            result.appendSlice(allocator, theme.reset) catch return null;
-            i += 2;
-            continue;
-        }
-
-        // #!fold-case / #!no-fold-case directives
-        if (ch == '#' and i + 1 < input.len and input[i + 1] == '!') {
-            result.appendSlice(allocator, theme.comment) catch return null;
-            while (i < input.len and !isDelimiter(input[i])) {
-                result.append(allocator, input[i]) catch return null;
-                i += 1;
-            }
-            result.appendSlice(allocator, theme.reset) catch return null;
-            continue;
-        }
-
-        // #u8( bytevector literal
-        if (ch == '#' and i + 3 < input.len and input[i + 1] == 'u' and input[i + 2] == '8' and input[i + 3] == '(') {
-            const is_match = (match_open != null and i + 3 == match_open.?);
-            const color = if (is_match) theme.match_paren else theme.paren;
-            result.appendSlice(allocator, color) catch return null;
-            result.appendSlice(allocator, "#u8(") catch return null;
-            result.appendSlice(allocator, theme.reset) catch return null;
-            i += 4;
-            continue;
-        }
-
-        // #( vector literal
-        if (ch == '#' and i + 1 < input.len and input[i + 1] == '(') {
-            const is_match = (match_open != null and i + 1 == match_open.?);
-            const color = if (is_match) theme.match_paren else theme.paren;
-            result.appendSlice(allocator, color) catch return null;
-            result.appendSlice(allocator, "#(") catch return null;
-            result.appendSlice(allocator, theme.reset) catch return null;
-            i += 2;
-            continue;
-        }
-
-        if (ch == '"') {
-            result.appendSlice(allocator, theme.string) catch return null;
-            result.append(allocator, '"') catch return null;
-            i += 1;
-            while (i < input.len) {
-                result.append(allocator, input[i]) catch return null;
-                if (input[i] == '\\' and i + 1 < input.len) {
-                    i += 1;
-                    result.append(allocator, input[i]) catch return null;
-                } else if (input[i] == '"') {
-                    i += 1;
-                    break;
-                }
-                i += 1;
-            }
-            result.appendSlice(allocator, theme.reset) catch return null;
-            continue;
-        }
-
-        if (ch == '(' or ch == ')' or ch == '[' or ch == ']') {
-            const is_match = (match_open != null and i == match_open.?) or
-                (match_close != null and i == match_close.?);
-            const color = if (is_match) theme.match_paren else theme.paren;
-            result.appendSlice(allocator, color) catch return null;
-            result.append(allocator, ch) catch return null;
-            result.appendSlice(allocator, theme.reset) catch return null;
-            i += 1;
-            continue;
-        }
-
-        if (ch == '#' and i + 1 < input.len and input[i + 1] == '\\') {
-            result.appendSlice(allocator, theme.number) catch return null;
-            result.append(allocator, '#') catch return null;
-            result.append(allocator, '\\') catch return null;
-            i += 2;
-            if (i < input.len) {
-                const first = input[i];
-                if ((first >= 'a' and first <= 'z') or (first >= 'A' and first <= 'Z')) {
-                    while (i < input.len and ((input[i] >= 'a' and input[i] <= 'z') or (input[i] >= 'A' and input[i] <= 'Z'))) {
-                        result.append(allocator, input[i]) catch return null;
-                        i += 1;
-                    }
-                } else {
-                    result.append(allocator, first) catch return null;
-                    i += 1;
-                }
-            }
-            result.appendSlice(allocator, theme.reset) catch return null;
-            continue;
-        }
-
-        // #true / #false (R7RS extended boolean)
-        if (ch == '#' and i + 4 < input.len) {
-            if (std.mem.startsWith(u8, input[i..], "#true") and (i + 5 >= input.len or isDelimiter(input[i + 5]))) {
-                result.appendSlice(allocator, theme.boolean) catch return null;
-                result.appendSlice(allocator, "#true") catch return null;
-                result.appendSlice(allocator, theme.reset) catch return null;
-                i += 5;
-                continue;
-            }
-            if (i + 5 < input.len and std.mem.startsWith(u8, input[i..], "#false") and (i + 6 >= input.len or isDelimiter(input[i + 6]))) {
-                result.appendSlice(allocator, theme.boolean) catch return null;
-                result.appendSlice(allocator, "#false") catch return null;
-                result.appendSlice(allocator, theme.reset) catch return null;
-                i += 6;
-                continue;
-            }
-        }
-
-        // #t / #f (short boolean)
-        if (ch == '#' and i + 1 < input.len and (input[i + 1] == 't' or input[i + 1] == 'f')) {
-            const is_bool = (i + 2 >= input.len or isDelimiter(input[i + 2]));
-            if (is_bool) {
-                result.appendSlice(allocator, theme.boolean) catch return null;
-                result.append(allocator, '#') catch return null;
-                result.append(allocator, input[i + 1]) catch return null;
-                result.appendSlice(allocator, theme.reset) catch return null;
-                i += 2;
-                continue;
-            }
-        }
-
-        // #b #o #x #d #e #i number prefix
-        if (ch == '#' and i + 1 < input.len) {
-            const next = input[i + 1];
-            if (next == 'b' or next == 'o' or next == 'x' or next == 'd' or next == 'e' or next == 'i') {
-                const start = i;
-                while (i < input.len and !isDelimiter(input[i])) : (i += 1) {}
-                const word = input[start..i];
-                result.appendSlice(allocator, theme.number) catch return null;
-                result.appendSlice(allocator, word) catch return null;
-                result.appendSlice(allocator, theme.reset) catch return null;
-                continue;
-            }
-        }
-
-        // ,@ unquote-splicing
-        if (ch == ',' and i + 1 < input.len and input[i + 1] == '@') {
-            result.appendSlice(allocator, theme.keyword) catch return null;
-            result.appendSlice(allocator, ",@") catch return null;
-            result.appendSlice(allocator, theme.reset) catch return null;
-            i += 2;
-            continue;
-        }
-
-        if (ch == '\'' or ch == '`' or ch == ',') {
-            result.appendSlice(allocator, theme.keyword) catch return null;
-            result.append(allocator, ch) catch return null;
-            result.appendSlice(allocator, theme.reset) catch return null;
-            i += 1;
-            continue;
-        }
-
-        // |...| pipe-quoted symbol
-        if (ch == '|') {
-            result.append(allocator, '|') catch return null;
-            i += 1;
-            while (i < input.len and input[i] != '|') {
-                if (input[i] == '\\' and i + 1 < input.len) {
-                    result.append(allocator, input[i]) catch return null;
-                    i += 1;
-                }
-                result.append(allocator, input[i]) catch return null;
-                i += 1;
-            }
-            if (i < input.len) {
-                result.append(allocator, '|') catch return null;
-                i += 1;
-            }
-            continue;
-        }
 
         if (!isDelimiter(ch)) {
-            const start = i;
             while (i < input.len and !isDelimiter(input[i])) : (i += 1) {}
             const word = input[start..i];
-
             if (isSchemeKeyword(word)) {
-                result.appendSlice(allocator, theme.keyword) catch return null;
-                result.appendSlice(allocator, word) catch return null;
-                result.appendSlice(allocator, theme.reset) catch return null;
+                ctx.emit(start, i, style_keyword);
             } else if (isNumberLike(word)) {
-                result.appendSlice(allocator, theme.number) catch return null;
-                result.appendSlice(allocator, word) catch return null;
-                result.appendSlice(allocator, theme.reset) catch return null;
-            } else {
-                result.appendSlice(allocator, word) catch return null;
+                ctx.emit(start, i, style_number);
             }
             continue;
         }
 
-        result.append(allocator, ch) catch return null;
         i += 1;
     }
-
-    out_len.* = result.items.len;
-    const owned = result.toOwnedSlice(allocator) catch return null;
-    return @ptrCast(owned.ptr);
 }
 
-fn parenDepth(src: []const u8) i32 {
-    var depth: i32 = 0;
-    var in_string = false;
-    var in_escape = false;
-    var in_line_comment = false;
-    var block_comment_depth: i32 = 0;
-    var i: usize = 0;
-    while (i < src.len) : (i += 1) {
-        const ch = src[i];
-        if (in_line_comment) {
-            if (ch == '\n') in_line_comment = false;
-            continue;
-        }
-        if (block_comment_depth > 0) {
-            if (ch == '#' and i + 1 < src.len and src[i + 1] == '|') {
-                block_comment_depth += 1;
-                i += 1;
-            } else if (ch == '|' and i + 1 < src.len and src[i + 1] == '#') {
-                block_comment_depth -= 1;
-                i += 1;
-            }
-            continue;
-        }
-        if (in_escape) {
-            in_escape = false;
-            continue;
-        }
-        if (in_string) {
-            if (ch == '\\') in_escape = true else if (ch == '"') in_string = false;
-            continue;
-        }
-        if (ch == '#' and i + 1 < src.len and src[i + 1] == '|') {
-            block_comment_depth += 1;
-            i += 1;
-            continue;
-        }
-        // Datum comment: #; — skip the next datum for paren counting
-        if (ch == '#' and i + 1 < src.len and src[i + 1] == ';') {
-            i += 2;
-            // Skip whitespace
-            while (i < src.len and (src[i] == ' ' or src[i] == '\t' or src[i] == '\n' or src[i] == '\r')) : (i += 1) {}
-            if (i >= src.len) {
-                depth += 1;
-                continue;
-            }
-            if (src[i] == '(' or src[i] == '[') {
-                var datum_depth: i32 = 1;
-                i += 1;
-                var dc_in_string = false;
-                var dc_escape = false;
-                while (i < src.len and datum_depth > 0) {
-                    if (dc_escape) {
-                        dc_escape = false;
-                        i += 1;
-                        continue;
-                    }
-                    if (dc_in_string) {
-                        if (src[i] == '\\') dc_escape = true else if (src[i] == '"') dc_in_string = false;
-                        i += 1;
-                        continue;
-                    }
-                    if (src[i] == '"') {
-                        dc_in_string = true;
-                    } else if (src[i] == '(' or src[i] == '[') {
-                        datum_depth += 1;
-                    } else if (src[i] == ')' or src[i] == ']') {
-                        datum_depth -= 1;
-                    }
-                    i += 1;
-                }
-                if (datum_depth > 0) depth += 1;
-                i -= 1;
-            } else if (src[i] == '"') {
-                i += 1;
-                while (i < src.len) {
-                    if (src[i] == '\\' and i + 1 < src.len) {
-                        i += 2;
-                        continue;
-                    }
-                    if (src[i] == '"') break;
-                    i += 1;
-                }
-            } else {
-                while (i < src.len and src[i] != ' ' and src[i] != '\t' and src[i] != '\n' and
-                    src[i] != ')' and src[i] != '(' and src[i] != ';') : (i += 1)
-                {}
-                i -= 1;
-            }
-            continue;
-        }
-        // Character literals: #\x or #\space etc.
-        if (ch == '#' and i + 1 < src.len and src[i + 1] == '\\') {
-            i += 2; // skip #\ — now i points at the character after backslash
-            if (i >= src.len) continue;
-            // The character itself (could be anything: paren, letter, etc.)
-            const first = src[i];
-            // Check for multi-char names: if it's a letter, consume until delimiter
-            if ((first >= 'a' and first <= 'z') or (first >= 'A' and first <= 'Z')) {
-                i += 1;
-                while (i < src.len and ((src[i] >= 'a' and src[i] <= 'z') or (src[i] >= 'A' and src[i] <= 'Z'))) : (i += 1) {}
-                i -= 1; // back up for outer loop's i+=1
-            }
-            // For single-char names like #\( or #\), i stays on that char
-            // and the outer loop's i+=1 skips past it
-            continue;
-        }
-        // Pipe-quoted symbols: |...|
-        if (ch == '|') {
-            i += 1;
-            while (i < src.len and src[i] != '|') {
-                if (src[i] == '\\' and i + 1 < src.len) i += 1;
-                i += 1;
-            }
-            continue;
-        }
-        switch (ch) {
-            '"' => in_string = true,
-            ';' => in_line_comment = true,
-            '(' => depth += 1,
-            ')' => depth -= 1,
-            else => {},
-        }
+/// True when `src` is a truncated prefix of a form, so the REPL should show the
+/// continuation prompt instead of evaluating.
+///
+/// This asks the reader rather than counting parens: `Reader.incomplete_input`
+/// (kaappi#1893/#1920/#1940/#1945) makes every proper prefix of a datum report
+/// `UnexpectedEof`, which is exactly the question the prompt needs answered. It
+/// is the same scanner the file path uses, so `#;`, `#|…|#`, `#\(`, `|sym|`,
+/// strings, and line comments cannot disagree between the two.
+///
+/// A hand-written counter lived here until it had drifted from the reader
+/// twice — kaappi#358 (char literals, pipe-quoted symbols) and #542 (`#;`
+/// scanned as a line comment). Both were cases of the prompt and the reader
+/// disagreeing about where a datum ended; deriving the answer from the reader
+/// removes the class rather than the instances.
+///
+/// Only "needs more input" continues. A genuine syntax error returns false so
+/// the form is submitted and the reader reports it at the prompt, unchanged.
+fn inputIncomplete(gc: *memory.GC, src: []const u8) bool {
+    // `src` has had its terminating newline stripped, so to the reader it ends
+    // mid-token: in incomplete-input mode a trailing `42` or `foo` cannot be
+    // finalized, since more bytes could extend it. Pressing Enter *is* that
+    // delimiter, so probe with it restored — without this every atom typed at
+    // the prompt reports UnexpectedEof and strands the user on "  ... ".
+    const probe = std.mem.concat(gc.allocator, u8, &.{ src, "\n" }) catch return false;
+    defer gc.allocator.free(probe);
+
+    var r = reader.Reader.init(gc, probe);
+    r.incomplete_input = true;
+    // The datums below are discarded; don't record spans for them.
+    r.record_spans = false;
+    defer r.deinit();
+    while (true) {
+        const datum = r.readDatumOrEof() catch |err| {
+            return err == reader.ReadError.UnexpectedEof;
+        };
+        // null = nothing left but whitespace/comments/directives: complete.
+        if (datum == null) return false;
     }
-    if (in_string) depth += 1;
-    if (block_comment_depth > 0) depth += 1;
-    return depth;
+}
+
+/// isocline's Enter handler (Kaappi patch 1, `vendor/isocline/PATCHES.md`).
+/// Returning false keeps the editor open and adds a newline, so the answer to
+/// "is this form finished?" comes from the reader — the same scanner that will
+/// parse it a moment later.
+fn isCompleteCallback(input_c: [*c]const u8, arg: ?*anyopaque) callconv(.c) bool {
+    _ = arg;
+    const vm = repl_vm orelse return true;
+    const input = if (input_c) |p| std.mem.span(@as([*:0]const u8, @ptrCast(p))) else return true;
+
+    // A comma command is a REPL directive, not Scheme; it never continues.
+    const trimmed = std.mem.trimStart(u8, input, " \t\r\n");
+    if (trimmed.len > 0 and trimmed[0] == ',') return true;
+
+    return !inputIncomplete(vm.gc, input);
+}
+
+/// Translate one of `config.Theme`'s SGR escapes into an isocline style string.
+///
+/// The theme stores escapes because linenoise was handed raw bytes; isocline
+/// takes style *names* and does its own rendering, which is what lets it
+/// measure widths correctly and downsample color for the terminal. `config.zig`
+/// only ever produces `\x1b[<n>m` or `\x1b[1;<n>m` (from a color name, via
+/// `colorToAnsi`), or the empty string for `none`, so the mapping is total.
+/// Anything unrecognized yields "" — isocline's default, i.e. unstyled.
+fn ansiToIcStyle(escape: []const u8, buf: []u8) [:0]const u8 {
+    const empty: [:0]const u8 = "";
+    if (escape.len < 4) return empty;
+    if (!std.mem.startsWith(u8, escape, "\x1b[")) return empty;
+    if (escape[escape.len - 1] != 'm') return empty;
+    var body = escape[2 .. escape.len - 1];
+
+    var bold = false;
+    if (std.mem.startsWith(u8, body, "1;")) {
+        bold = true;
+        body = body[2..];
+    }
+    const code = std.fmt.parseInt(u8, body, 10) catch return empty;
+    const name: []const u8 = switch (code) {
+        30 => "ansi-black",
+        31 => "ansi-maroon",
+        32 => "ansi-green",
+        33 => "ansi-olive",
+        34 => "ansi-navy",
+        35 => "ansi-purple",
+        36 => "ansi-teal",
+        37 => "ansi-silver",
+        90 => "ansi-darkgray",
+        91 => "ansi-red",
+        92 => "ansi-lime",
+        93 => "ansi-yellow",
+        94 => "ansi-blue",
+        95 => "ansi-fuchsia",
+        96 => "ansi-aqua",
+        97 => "ansi-white",
+        else => return empty,
+    };
+    const s = if (bold)
+        std.fmt.bufPrintZ(buf, "bold {s}", .{name}) catch return empty
+    else
+        std.fmt.bufPrintZ(buf, "{s}", .{name}) catch return empty;
+    return s;
+}
+
+/// Register the configured theme with isocline. `ic-prompt` and `ic-bracematch`
+/// are isocline's own style names, redefined here so the user's `repl.color.*`
+/// settings reach the prompt and the matching-paren highlight that isocline now
+/// draws itself.
+fn applyTheme(t: config_mod.Theme) void {
+    var buf: [32]u8 = undefined;
+    const pairs = [_]struct { name: [*:0]const u8, escape: []const u8 }{
+        .{ .name = style_keyword, .escape = t.keyword },
+        .{ .name = style_string, .escape = t.string },
+        .{ .name = style_number, .escape = t.number },
+        .{ .name = style_comment, .escape = t.comment },
+        .{ .name = style_boolean, .escape = t.boolean },
+        .{ .name = style_paren, .escape = t.paren },
+        .{ .name = "ic-bracematch", .escape = t.match_paren },
+        .{ .name = "ic-prompt", .escape = t.prompt },
+    };
+    for (pairs) |p| {
+        ic.styleDef(p.name, ansiToIcStyle(p.escape, &buf));
+    }
 }
 
 pub fn repl(vm: *vm_mod.VM) !void {
@@ -669,29 +541,50 @@ pub fn repl(vm: *vm_mod.VM) !void {
     repl_vm = vm;
 
     var hist_path_buf: [512]u8 = undefined;
-    const hist_path: ?[*:0]const u8 = if (comptime use_linenoise) blk: {
-        ln.setMultiLine(true);
-        ln.historySetMaxLen(cfg.history_length);
+    if (comptime use_isocline) {
+        ic.init(false);
+        ic.enableMultiline(true);
+        ic.enableMultilineIndent(true);
+        // Kaappi's reader gives `[` and `]` no meaning (`0]` is KP1002), so
+        // pairing them would highlight a match that the reader rejects.
+        ic.enableBraceMatching(true);
+        ic.setMatchingBraces("()");
+        // Auto-closing a paren makes every buffer balanced, which would make
+        // `isCompleteCallback` submit the moment an opening paren is typed.
+        ic.enableBraceInsertion(false);
+        ic.enableHighlight(highlight_enabled);
+        ic.enableHint(false); // no hint callback is wired up
+        applyTheme(cfg.theme);
+
+        ic.setIsComplete(&isCompleteCallback, null);
+        ic.setCompleter(&completionCallback, null);
+        if (highlight_enabled) ic.setHighlighter(&highlightCallback, null);
+        // The prompt text carries no escapes: isocline measures it to place the
+        // cursor, and styles it via `ic-prompt`. Continuation lines are indented
+        // under it rather than prefixed with "  ... ".
+        ic.setPromptMarker("", null);
+
         const kaappi_paths = @import("kaappi_paths.zig");
         var home_buf: [256]u8 = undefined;
-        const kaappi_home = kaappi_paths.getHome(&home_buf) orelse break :blk null;
-        const dir = std.fmt.bufPrintZ(hist_path_buf[0..500], "{s}", .{kaappi_home}) catch break :blk null;
-        _ = platform.mkdir(dir, 0o755);
-        const path = std.fmt.bufPrintZ(&hist_path_buf, "{s}/history", .{kaappi_home}) catch break :blk null;
-        break :blk path;
-    } else null;
-    if (comptime use_linenoise) {
-        if (hist_path) |p| ln.historyLoad(p);
-        ln.setCompletionCallback(&completionCallback);
-        if (highlight_enabled) {
-            ln.setHighlightCallback(&highlightCallback);
+        if (kaappi_paths.getHome(&home_buf)) |kaappi_home| {
+            if (std.fmt.bufPrintZ(hist_path_buf[0..500], "{s}", .{kaappi_home})) |dir| {
+                _ = platform.mkdir(dir, 0o755);
+                if (std.fmt.bufPrintZ(&hist_path_buf, "{s}/history", .{kaappi_home})) |path| {
+                    // isocline loads, appends, and saves on every submit — a
+                    // crash no longer loses the session (the old code saved
+                    // only at exit).
+                    ic.setHistory(path, cfg.history_length);
+                } else |_| {}
+            } else |_| {}
         }
     }
 
-    // Build colored prompt strings: <color>text<reset>\0
+    // Prompt strings. Under isocline these stay unstyled (see above); the
+    // fallback reader embeds the color itself since nothing else will.
     var primary_prompt_buf: [128:0]u8 = @splat(0);
     var cont_prompt_buf: [128:0]u8 = @splat(0);
     const primary_prompt: [*:0]const u8 = blk: {
+        if (comptime use_isocline) break :blk cfg.prompt();
         const color = cfg.theme.prompt;
         const text = cfg.prompt_buf[0..cfg.prompt_len];
         const reset = cfg.theme.reset;
@@ -720,21 +613,14 @@ pub fn repl(vm: *vm_mod.VM) !void {
     defer input_buf.deinit(allocator);
 
     while (true) {
+        // Under isocline `input_buf` is only ever a whole form — the editor
+        // handles continuation internally, so it is empty at the top of every
+        // iteration and the continuation prompt below is the fallback's.
         const prompt: [*:0]const u8 = if (input_buf.items.len > 0) continuation_prompt else primary_prompt;
-        accumulated_input = input_buf.items;
         const line_ptr = readReplLine(prompt) orelse {
-            if (comptime use_linenoise) {
-                // linenoise signals ctrl-C via EAGAIN: reset any pending
-                // multi-line input instead of exiting.
-                const err = std.c._errno().*;
-                if (err == @intFromEnum(std.posix.E.AGAIN)) {
-                    if (input_buf.items.len > 0) {
-                        input_buf.clearRetainingCapacity();
-                    }
-                    writeStdout("\n");
-                    continue;
-                }
-            }
+            // Null means EOF (ctrl-D on empty input). ctrl-C returns an empty
+            // string instead, which falls through to the blank-input `continue`
+            // below and redraws the prompt (kaappi#742).
             if (input_buf.items.len > 0) {
                 input_buf.clearRetainingCapacity();
                 writeStdout("\n");
@@ -745,16 +631,19 @@ pub fn repl(vm: *vm_mod.VM) !void {
         defer freeReplLine(line_ptr);
 
         const line = std.mem.span(line_ptr);
-        const trimmed = std.mem.trim(u8, line, " \t\r");
+        const trimmed = std.mem.trim(u8, line, " \t\r\n");
 
         if (input_buf.items.len == 0 and trimmed.len == 0) continue;
         if (input_buf.items.len == 0 and std.mem.eql(u8, trimmed, "(exit)")) break;
 
-        // If pasted text contains newlines, echo it clearly
-        const has_newlines = std.mem.indexOf(u8, line, "\n") != null;
-        if (has_newlines and input_buf.items.len == 0) {
-            writeStdout(line);
-            writeStdout("\n");
+        if (comptime !use_isocline) {
+            // Pasted multi-line text arrives in one read here without having
+            // been drawn; isocline renders its own buffer, so echoing it there
+            // would print the form twice.
+            if (std.mem.indexOfScalar(u8, line, '\n') != null and input_buf.items.len == 0) {
+                writeStdout(line);
+                writeStdout("\n");
+            }
         }
 
         if (input_buf.items.len > 0) {
@@ -762,7 +651,12 @@ pub fn repl(vm: *vm_mod.VM) !void {
         }
         input_buf.appendSlice(allocator, line) catch continue;
 
-        if (parenDepth(input_buf.items) > 0) continue;
+        // isocline already asked `isCompleteCallback` before returning, so the
+        // buffer is a finished form. The fallback reads one raw line at a time
+        // and has to accumulate until it is.
+        if (comptime !use_isocline) {
+            if (inputIncomplete(vm.gc, input_buf.items)) continue;
+        }
 
         const full_input = input_buf.items;
         const debug_trimmed = std.mem.trim(u8, full_input, " \t\r\n");
@@ -1097,22 +991,15 @@ pub fn repl(vm: *vm_mod.VM) !void {
             continue;
         }
 
-        if (comptime use_linenoise) {
-            var hist_buf: std.ArrayList(u8) = .empty;
-            defer hist_buf.deinit(allocator);
-            hist_buf.appendSlice(allocator, full_input) catch {};
-            hist_buf.append(allocator, 0) catch {};
-            ln.historyAdd(@ptrCast(hist_buf.items.ptr));
-        }
-
+        // isocline records and persists each submitted form itself, escaping
+        // embedded newlines on the way to disk — so a multi-line entry comes
+        // back as one editable entry rather than the old flattened line
+        // (kaappi#821). Nothing to add here.
         evalInputTyped(vm, allocator, full_input, .store_last);
 
         input_buf.clearRetainingCapacity();
     }
 
-    if (comptime use_linenoise) {
-        if (hist_path) |p| ln.historySave(p);
-    }
     repl_vm = null;
 }
 
@@ -1226,152 +1113,290 @@ fn evalInput(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u8) vo
     evalInputInner(vm, allocator, input, .normal);
 }
 
-test "findMatchingOpen — simple" {
-    try std.testing.expectEqual(@as(?usize, 0), findMatchingOpen("(+ 1 2)", 6));
+/// `inputIncomplete` over a throwaway GC. Split so each case reads as the two
+/// lines a user would actually type.
+fn expectIncomplete(src: []const u8, want: bool) !void {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    try std.testing.expectEqual(want, inputIncomplete(&gc, src));
 }
 
-test "findMatchingOpen — nested" {
-    try std.testing.expectEqual(@as(?usize, 3), findMatchingOpen("(+ (* 3) 2)", 7));
-    try std.testing.expectEqual(@as(?usize, 0), findMatchingOpen("(+ (* 3) 2)", 10));
+test "inputIncomplete — balanced form is complete" {
+    try expectIncomplete("(+ 1 2)", false);
+    try expectIncomplete("42", false);
+    try expectIncomplete("", false);
 }
 
-test "findMatchingOpen — unmatched" {
-    try std.testing.expectEqual(@as(?usize, null), findMatchingOpen("+ 1)", 3));
+test "inputIncomplete — a bare atom submits" {
+    // The reader's incomplete-input mode will not finalize a token that ends
+    // at end-of-buffer, so without the probe's restored newline each of these
+    // reports UnexpectedEof and hangs the prompt forever.
+    try expectIncomplete("42", false);
+    try expectIncomplete("foo", false);
+    try expectIncomplete("#t", false);
+    try expectIncomplete("\"done\"", false);
+    try expectIncomplete("#\\a", false);
+    try expectIncomplete("1.5e3", false);
+    try expectIncomplete("#x1f", false);
 }
 
-test "findMatchingOpen — string containing parens" {
-    try std.testing.expectEqual(@as(?usize, 0), findMatchingOpen("(display \"(hi)\")", 15));
+test "inputIncomplete — open form continues" {
+    try expectIncomplete("(define (f x)", true);
+    try expectIncomplete("(define (f x)\n  (+ x 1)", true);
+    try expectIncomplete("(define (f x)\n  (+ x 1))", false);
 }
 
-test "findMatchingOpen — character literal paren" {
-    try std.testing.expectEqual(@as(?usize, 0), findMatchingOpen("(char=? #\\( x)", 13));
+test "inputIncomplete — brackets are not list syntax here" {
+    // kaappi's reader gives `[` and `]` no special meaning (KP1002 on `0]`),
+    // so a bracket binding is a syntax error, not an unfinished form — it must
+    // submit and be reported, not sit at the continuation prompt. The
+    // highlighter diverges from that, cosmetically: `scanHighlight` styles
+    // brackets with `style_paren` like any other delimiter, though nothing
+    // pairs them — `setMatchingBraces` is given "()" alone.
+    try expectIncomplete("(let loop ([i 0]) i)", false);
+    // The enclosing parens still govern continuation.
+    try expectIncomplete("(let loop ((i 0))", true);
+    try expectIncomplete("(let loop ((i 0)) i)", false);
 }
 
-test "findMatchingOpen — line comment" {
-    try std.testing.expectEqual(@as(?usize, 0), findMatchingOpen("(+ 1 ; )\n 2)", 11));
+test "inputIncomplete — datum comment spanning lines (kaappi#542)" {
+    try expectIncomplete("#;(a", true);
+    try expectIncomplete("#;(a\nb) (+ 7 7)", false);
 }
 
-test "findMatchingOpen — block comment" {
-    try std.testing.expectEqual(@as(?usize, 0), findMatchingOpen("(+ #| ) |# 2)", 12));
+test "inputIncomplete — block comment spanning lines" {
+    try expectIncomplete("(+ 1 #| still", true);
+    try expectIncomplete("(+ 1 #| gone |# 2)", false);
 }
 
-test "findMatchingOpen — square brackets" {
-    try std.testing.expectEqual(@as(?usize, 6), findMatchingOpen("(cond [#t 1])", 11));
+test "inputIncomplete — line comment does not swallow the close (kaappi#821)" {
+    try expectIncomplete("(+ 1 ; one", true);
+    try expectIncomplete("(+ 1 ; one\n2)", false);
+    // A comment alone is trivia, not an unfinished form.
+    try expectIncomplete("; just a comment", false);
 }
 
-test "findMatchingOpen — pipe-quoted symbol" {
-    try std.testing.expectEqual(@as(?usize, 0), findMatchingOpen("(|foo(|)", 7));
+test "inputIncomplete — char literals and pipe symbols (kaappi#358)" {
+    try expectIncomplete("(char=? #\\( x)", false);
+    try expectIncomplete("(char=? #\\) x)", false);
+    try expectIncomplete("(list '|foo(bar|)", false);
+    try expectIncomplete("(list '|foo(bar", true);
 }
 
-test "highlightCallback — matching parens highlighted" {
-    const input = "(+ 1)";
-    var out_len: usize = 0;
-    const result = highlightCallback(input.ptr, input.len, input.len, &out_len);
-    if (result) |r| {
-        defer std.heap.c_allocator.free(r[0..out_len]);
-        const output = r[0..out_len];
-        try std.testing.expect(std.mem.indexOf(u8, output, theme.match_paren) != null);
-    } else {
-        return error.TestUnexpectedResult;
+test "inputIncomplete — unterminated string continues" {
+    try expectIncomplete("(display \"ab", true);
+    try expectIncomplete("(display \"ab\ncd\")", false);
+}
+
+test "inputIncomplete — several datums on one line" {
+    try expectIncomplete("(+ 1 2) (+ 3 4)", false);
+    try expectIncomplete("(+ 1 2) (+ 3", true);
+}
+
+test "inputIncomplete — a syntax error submits rather than hanging" {
+    // Extra close paren: not "needs more input". Submitting lets the reader
+    // report it; continuing would strand the user at the "  ... " prompt.
+    try expectIncomplete("(+ 1 2))", false);
+}
+
+test "inputIncomplete — probe records no source spans" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    try std.testing.expectEqual(@as(usize, 0), gc.source_spans.count());
+    _ = inputIncomplete(&gc, "(define (f x) (+ x 1))");
+    try std.testing.expectEqual(@as(usize, 0), gc.source_spans.count());
+}
+
+/// Collects the spans `scanHighlight` emits, so the token rules can be checked
+/// without a live isocline editor.
+const SpanCollector = struct {
+    styles: *std.ArrayList([]const u8),
+    starts: *std.ArrayList(usize),
+    ends: *std.ArrayList(usize),
+    fn emit(self: @This(), start: usize, end: usize, style: [*:0]const u8) void {
+        if (end <= start) return;
+        self.styles.append(std.testing.allocator, std.mem.span(style)) catch {};
+        self.starts.append(std.testing.allocator, start) catch {};
+        self.ends.append(std.testing.allocator, end) catch {};
+    }
+};
+
+/// Assert that `input[expect_start..expect_end]` is styled `style`.
+fn expectSpan(input: []const u8, expect_start: usize, expect_end: usize, style: []const u8) !void {
+    var styles: std.ArrayList([]const u8) = .empty;
+    var starts: std.ArrayList(usize) = .empty;
+    var ends: std.ArrayList(usize) = .empty;
+    defer styles.deinit(std.testing.allocator);
+    defer starts.deinit(std.testing.allocator);
+    defer ends.deinit(std.testing.allocator);
+    scanHighlight(input, SpanCollector{ .styles = &styles, .starts = &starts, .ends = &ends });
+    for (styles.items, starts.items, ends.items) |st, a, b| {
+        if (a == expect_start and b == expect_end and std.mem.eql(u8, st, style)) return;
+    }
+    std.debug.print("no {s} span at [{d},{d}) in \"{s}\"; got:\n", .{ style, expect_start, expect_end, input });
+    for (styles.items, starts.items, ends.items) |st, a, b| {
+        std.debug.print("  [{d},{d}) {s} = \"{s}\"\n", .{ a, b, st, input[a..b] });
+    }
+    return error.TestUnexpectedResult;
+}
+
+/// Assert no span of `style` covers any of `input`.
+fn expectNoStyle(input: []const u8, style: []const u8) !void {
+    var styles: std.ArrayList([]const u8) = .empty;
+    var starts: std.ArrayList(usize) = .empty;
+    var ends: std.ArrayList(usize) = .empty;
+    defer styles.deinit(std.testing.allocator);
+    defer starts.deinit(std.testing.allocator);
+    defer ends.deinit(std.testing.allocator);
+    scanHighlight(input, SpanCollector{ .styles = &styles, .starts = &starts, .ends = &ends });
+    for (styles.items) |st| {
+        if (std.mem.eql(u8, st, style)) return error.TestUnexpectedResult;
     }
 }
 
-test "highlightCallback — match across continuation lines" {
-    const saved = accumulated_input;
-    defer accumulated_input = saved;
-    accumulated_input = "(define (foo x)";
-    const line = "  (+ x 1))";
-    var out_len: usize = 0;
-    const result = highlightCallback(line.ptr, line.len, line.len, &out_len);
-    if (result) |r| {
-        defer std.heap.c_allocator.free(r[0..out_len]);
-        const output = r[0..out_len];
-        try std.testing.expect(std.mem.indexOf(u8, output, theme.match_paren) != null);
-    } else {
-        return error.TestUnexpectedResult;
+test "scanHighlight — keywords and parens" {
+    try expectSpan("(define x 1)", 0, 1, style_paren);
+    try expectSpan("(define x 1)", 1, 7, style_keyword);
+    try expectSpan("(define x 1)", 11, 12, style_paren);
+}
+
+test "scanHighlight — spans a multi-line form" {
+    // The whole form reaches the highlighter now, not just one line, so an
+    // offset past the newline must still resolve.
+    const src = "(define (f x)\n  (+ x 1))";
+    try expectSpan(src, 1, 7, style_keyword);
+    try expectSpan(src, 16, 17, style_paren);
+}
+
+test "scanHighlight — string and comment" {
+    try expectSpan("(display \"hi\")", 9, 13, style_string);
+    try expectSpan("(+ 1) ; note", 6, 12, style_comment);
+    try expectSpan("(+ #| b |# 1)", 3, 10, style_comment);
+}
+
+test "scanHighlight — a comment ends at the newline, not the buffer" {
+    const src = "; one\n(+ 1 2)";
+    try expectSpan(src, 0, 5, style_comment);
+    try expectSpan(src, 6, 7, style_paren);
+}
+
+test "scanHighlight — #true/#false get boolean style" {
+    try expectSpan("#true", 0, 5, style_boolean);
+    try expectSpan("#false", 0, 6, style_boolean);
+    try expectSpan("#t", 0, 2, style_boolean);
+}
+
+test "scanHighlight — #trueish is not boolean" {
+    try expectNoStyle("#trueish", style_boolean);
+}
+
+test "scanHighlight — vector and bytevector open" {
+    try expectSpan("#(1 2)", 0, 2, style_paren);
+    try expectSpan("#u8(1 2)", 0, 4, style_paren);
+}
+
+test "scanHighlight — radix prefixes are numbers" {
+    try expectSpan("#xff", 0, 4, style_number);
+    try expectSpan("#b101", 0, 5, style_number);
+    try expectSpan("#o77", 0, 4, style_number);
+    try expectSpan("#e1.5", 0, 5, style_number);
+}
+
+test "scanHighlight — quote forms are keywords" {
+    try expectSpan(",@x", 0, 2, style_keyword);
+    try expectSpan("'x", 0, 1, style_keyword);
+    try expectSpan("`x", 0, 1, style_keyword);
+}
+
+test "scanHighlight — datum comment and directive" {
+    try expectSpan("#; foo", 0, 2, style_comment);
+    try expectSpan("#!fold-case", 0, 11, style_comment);
+}
+
+test "scanHighlight — |symbol| is not a keyword" {
+    try expectNoStyle("|define|", style_keyword);
+}
+
+test "scanHighlight — char literal parens do not become parens" {
+    try expectSpan("#\\(", 0, 3, style_number);
+    try expectNoStyle("#\\(", style_paren);
+}
+
+test "scanHighlight — infinities and nan are numbers" {
+    try expectSpan("+inf.0", 0, 6, style_number);
+    try expectSpan("-nan.0", 0, 6, style_number);
+}
+
+test "ansiToIcStyle — every colour config.zig emits maps to an isocline name" {
+    var buf: [32]u8 = undefined;
+    const cases = [_]struct { escape: []const u8, want: []const u8 }{
+        .{ .escape = "\x1b[30m", .want = "ansi-black" },
+        .{ .escape = "\x1b[31m", .want = "ansi-maroon" },
+        .{ .escape = "\x1b[32m", .want = "ansi-green" },
+        .{ .escape = "\x1b[33m", .want = "ansi-olive" },
+        .{ .escape = "\x1b[34m", .want = "ansi-navy" },
+        .{ .escape = "\x1b[35m", .want = "ansi-purple" },
+        .{ .escape = "\x1b[36m", .want = "ansi-teal" },
+        .{ .escape = "\x1b[37m", .want = "ansi-silver" },
+        .{ .escape = "\x1b[90m", .want = "ansi-darkgray" },
+        .{ .escape = "\x1b[91m", .want = "ansi-red" },
+        .{ .escape = "\x1b[92m", .want = "ansi-lime" },
+        .{ .escape = "\x1b[93m", .want = "ansi-yellow" },
+        .{ .escape = "\x1b[94m", .want = "ansi-blue" },
+        .{ .escape = "\x1b[95m", .want = "ansi-fuchsia" },
+        .{ .escape = "\x1b[96m", .want = "ansi-aqua" },
+        .{ .escape = "\x1b[97m", .want = "ansi-white" },
+        // The `1;` form config.zig produces for a `bold <colour>` setting.
+        .{ .escape = "\x1b[1;30m", .want = "bold ansi-black" },
+        .{ .escape = "\x1b[1;93m", .want = "bold ansi-yellow" },
+        .{ .escape = "\x1b[1;90m", .want = "bold ansi-darkgray" },
+    };
+    for (cases) |c| {
+        try std.testing.expectEqualStrings(c.want, ansiToIcStyle(c.escape, &buf));
     }
 }
 
-test "highlightCallback — no match when cursor not after close paren" {
-    const input = "(+ 1)";
-    var out_len: usize = 0;
-    const result = highlightCallback(input.ptr, input.len, 3, &out_len);
-    if (result) |r| {
-        defer std.heap.c_allocator.free(r[0..out_len]);
-        const output = r[0..out_len];
-        try std.testing.expect(std.mem.indexOf(u8, output, theme.match_paren) == null);
-    } else {
-        return error.TestUnexpectedResult;
+test "ansiToIcStyle — unrecognized input is unstyled, never a wrong style" {
+    var buf: [32]u8 = undefined;
+    const rejects = [_][]const u8{
+        "", // what `none` produces
+        "\x1b[m", // shorter than any real escape
+        "\x1b[0m", // reset: not a foreground colour
+        "\x1b[39m", // default foreground: no isocline name for it
+        "\x1b[42m", // a background colour, not a foreground one
+        "0;31m", // no CSI introducer
+        "\x1b[31", // no terminator
+        "\x1b[xxm", // body is not a number
+        "\x1b[1;xm", // ...nor after the bold prefix
+        "\x1b[999m", // out of range for the u8 parse
+    };
+    for (rejects) |r| {
+        try std.testing.expectEqualStrings("", ansiToIcStyle(r, &buf));
     }
 }
 
-fn expectHighlightContains(input: []const u8, expected_code: []const u8) !void {
-    var out_len: usize = 0;
-    const result = highlightCallback(input.ptr, input.len, 0, &out_len);
-    if (result) |r| {
-        defer std.heap.c_allocator.free(r[0..out_len]);
-        const output = r[0..out_len];
-        try std.testing.expect(std.mem.indexOf(u8, output, expected_code) != null);
-    } else {
-        return error.TestUnexpectedResult;
+test "ansiToIcStyle — both built-in themes round-trip through applyTheme's buffer" {
+    // The coupling check, and the reason this function is worth testing at all:
+    // it is the only bridge between config.zig's SGR escapes and isocline's
+    // style names, and every failure mode returns "" — which renders unstyled
+    // with nothing to notice. If config.zig ever changes how it spells a
+    // colour, or a style name outgrows applyTheme's [32]u8 (bufPrintZ failing
+    // is also just ""), all eight styles would quietly go plain. Assert the
+    // real themes map instead of trusting hand-written escapes to stay in step.
+    var buf: [32]u8 = undefined;
+    for ([_]config_mod.Theme{ config_mod.Theme.dark, config_mod.Theme.light }) |t| {
+        // Exactly the eight fields applyTheme feeds through.
+        const escapes = [_][]const u8{
+            t.keyword, t.string,      t.number, t.comment,
+            t.boolean, t.match_paren, t.paren,  t.prompt,
+        };
+        for (escapes) |e| {
+            const style = ansiToIcStyle(e, &buf);
+            try std.testing.expect(style.len > 0);
+            try std.testing.expect(std.mem.startsWith(u8, style, "ansi-") or
+                std.mem.startsWith(u8, style, "bold ansi-"));
+        }
     }
-}
-
-fn expectHighlightNotContains(input: []const u8, unexpected_code: []const u8) !void {
-    var out_len: usize = 0;
-    const result = highlightCallback(input.ptr, input.len, 0, &out_len);
-    if (result) |r| {
-        defer std.heap.c_allocator.free(r[0..out_len]);
-        const output = r[0..out_len];
-        try std.testing.expect(std.mem.indexOf(u8, output, unexpected_code) == null);
-    } else {
-        return error.TestUnexpectedResult;
-    }
-}
-
-test "highlightCallback — #true/#false get boolean color" {
-    try expectHighlightContains("#true", theme.boolean);
-    try expectHighlightContains("#false", theme.boolean);
-}
-
-test "highlightCallback — #trueish is not boolean" {
-    try expectHighlightNotContains("#trueish", theme.boolean);
-}
-
-test "highlightCallback — #( gets paren color" {
-    try expectHighlightContains("#(1 2)", theme.paren);
-}
-
-test "highlightCallback — #u8( gets paren color" {
-    try expectHighlightContains("#u8(1 2)", theme.paren);
-}
-
-test "highlightCallback — radix prefix gets number color" {
-    try expectHighlightContains("#xff", theme.number);
-    try expectHighlightContains("#b101", theme.number);
-    try expectHighlightContains("#o77", theme.number);
-    try expectHighlightContains("#e1.5", theme.number);
-}
-
-test "highlightCallback — ,@ gets keyword color" {
-    try expectHighlightContains(",@x", theme.keyword);
-}
-
-test "highlightCallback — #; gets comment color" {
-    try expectHighlightContains("#; foo", theme.comment);
-}
-
-test "highlightCallback — #! directive gets comment color" {
-    try expectHighlightContains("#!fold-case", theme.comment);
-}
-
-test "highlightCallback — |symbol| does not get keyword color" {
-    try expectHighlightNotContains("|define|", theme.keyword);
-}
-
-test "highlightCallback — +inf.0 gets number color" {
-    try expectHighlightContains("+inf.0", theme.number);
-    try expectHighlightContains("-nan.0", theme.number);
 }
 
 fn evalInputInner(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u8, mode: EvalMode) void {
