@@ -392,11 +392,13 @@ It holds a whole form in one buffer, which is why `repl.zig` no longer joins
 continuation lines: `ic_readline` returns a finished expression, newlines
 included, and every line of it stays editable until submit.
 
-**The copy is patched** — two changes, each marked `KAAPPI PATCH` in the source
-and documented in `vendor/isocline/PATCHES.md`: an input-completeness callback
-(upstream's Enter always submits) and a configurable history size (upstream
-caps at 200). Re-apply both when updating; `grep -rn 'KAAPPI PATCH'
-vendor/isocline/` finds every site.
+**The copy is patched** — three changes, each marked `KAAPPI PATCH` in the
+source and documented in `vendor/isocline/PATCHES.md`: an input-completeness
+callback (upstream's Enter always submits), a configurable history size
+(upstream caps at 200), and structural s-expression editing — slurp, barf,
+raise, rotate, whose transforms live in `src/repl_sexp.zig` (`docs/dev/repl.md`).
+Re-apply all three when updating; `grep -rn 'KAAPPI PATCH' vendor/isocline/`
+finds every site.
 
 ## Package manager (thottam)
 

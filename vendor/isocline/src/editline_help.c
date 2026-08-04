@@ -93,6 +93,18 @@ static const char* help[] = {
   NULL, NULL
 };
 
+// KAAPPI PATCH 3: shown only when a structural-edit callback is set, since the
+// four keys do nothing without one. See vendor/isocline/PATCHES.md.
+static const char* help_sexp[] = {
+  "", "Structural editing:",
+  "alt-shift-S", "slurp: pull the next datum in past the closing paren",
+  "alt-shift-B", "barf: push the last datum out past the closing paren",
+  "alt-shift-R", "raise: replace the enclosing form with the datum at point",
+  "alt-y",       "rotate the form's arguments, leaving the head in place",
+  " ","",
+  NULL, NULL
+};
+
 static const char* help_initial = 
   "[ic-info]"
   "Isocline v1.1, copyright (c) 2021-2026 Daan Leijen.\n"
@@ -122,17 +134,23 @@ static const char* help_initial =
   "       ctrl-u                          ctrl-k\n"
   "[/ansi-lightgray][/ic-info]\n";
 
+static void edit_show_help_entries(ic_env_t* env, const char** entries) {
+  for (ssize_t i = 0; entries[i] != NULL && entries[i+1] != NULL; i += 2) {
+    if (entries[i][0] == 0) {
+      bbcode_printf(env->bbcode, "[ic-info]%s[/]\n", entries[i+1]);
+    }
+    else {
+      bbcode_printf(env->bbcode, "  [ic-emphasis]%-13s[/][ansi-lightgray]%s%s[/]\n", entries[i], (entries[i+1][0] == 0 ? "" : ": "), entries[i+1]);
+    }
+  }
+}
+
 static void edit_show_help(ic_env_t* env, editor_t* eb) {
   edit_clear(env, eb);
   bbcode_println(env->bbcode, help_initial);
-  for (ssize_t i = 0; help[i] != NULL && help[i+1] != NULL; i += 2) {
-    if (help[i][0] == 0) {  
-      bbcode_printf(env->bbcode, "[ic-info]%s[/]\n", help[i+1]);
-    }
-    else {
-      bbcode_printf(env->bbcode, "  [ic-emphasis]%-13s[/][ansi-lightgray]%s%s[/]\n", help[i], (help[i+1][0] == 0 ? "" : ": "), help[i+1]);
-    }
-  }
+  edit_show_help_entries(env, help);
+  // KAAPPI PATCH 3: see vendor/isocline/PATCHES.md
+  if (env->sexp_edit != NULL) { edit_show_help_entries(env, help_sexp); }
 
   eb->cur_rows = 0;
   eb->cur_row = 0;

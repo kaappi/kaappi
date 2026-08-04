@@ -322,6 +322,40 @@ void ic_set_default_is_complete(ic_is_complete_fun_t* is_complete, void* arg);
 /// \}
 
 //--------------------------------------------------------------
+// Structural editing (KAAPPI PATCH 3)
+//--------------------------------------------------------------
+
+/// \defgroup sexp_edit Structural editing
+/// Paren-moving edits, carried out by the host language.
+/// \{
+
+/// A structural edit command. isocline owns the keys; the host language owns
+/// the syntax, so it does the rewriting.
+typedef enum ic_sexp_command_e {
+  IC_SEXP_SLURP  = 0,   ///< alt+shift+S: pull the next datum in past the closing paren
+  IC_SEXP_BARF   = 1,   ///< alt+shift+B: push the last datum out past the closing paren
+  IC_SEXP_RAISE  = 2,   ///< alt+shift+R: replace the enclosing form with the datum at point
+  IC_SEXP_ROTATE = 3    ///< alt+y: rotate the datums of the enclosing form
+} ic_sexp_command_t;
+
+/// Rewrite `input` for `cmd`. `*pos` is the cursor as a byte offset into
+/// `input`, read on the way in and written on the way out. Return a new
+/// NUL-terminated buffer allocated with `ic_malloc()` — isocline takes
+/// ownership and frees it — or NULL to leave the input exactly as it was,
+/// which is how a command declines (an unbalanced form, nothing to slurp).
+///
+/// Upstream isocline has no such hook; there is no structural editing there at
+/// all. The commands are bestline's, the implementation is not — see
+/// `vendor/isocline/PATCHES.md`.
+typedef char* (ic_sexp_fun_t)(ic_sexp_command_t cmd, const char* input, long* pos, void* arg);
+
+/// Set the structural-edit callback. There can only be one; setting it again
+/// replaces the previous one. Pass NULL to leave the four keys unbound.
+void ic_set_default_sexp_edit(ic_sexp_fun_t* sexp_edit, void* arg);
+
+/// \}
+
+//--------------------------------------------------------------
 // Readline with a specific completer and highlighter
 //--------------------------------------------------------------
 

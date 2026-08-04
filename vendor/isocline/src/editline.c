@@ -612,6 +612,22 @@ static void edit_cursor_row_down(ic_env_t* env, editor_t* eb) {
 }
 
 
+// KAAPPI PATCH 3: structural editing. isocline owns the key, the host language
+// owns the syntax — it is handed the buffer and the cursor and returns a
+// rewritten buffer, or NULL to decline. See vendor/isocline/PATCHES.md.
+static void edit_sexp(ic_env_t* env, editor_t* eb, ic_sexp_command_t cmd) {
+  if (env->sexp_edit == NULL) return;
+  long pos = (long)eb->pos;
+  char* res = (*env->sexp_edit)(cmd, sbuf_string(eb->input), &pos, env->sexp_edit_arg);
+  if (res == NULL) return;   // the command does not apply here: leave the input alone
+  editor_start_modify(eb);   // so ^z undoes the whole structural edit as one step
+  sbuf_replace(eb->input, res);
+  mem_free(env->mem, res);
+  const ssize_t len = sbuf_len(eb->input);
+  eb->pos = (pos < 0 ? 0 : (pos > (long)len ? len : (ssize_t)pos));
+  edit_refresh(env, eb);
+}
+
 static void edit_cursor_match_brace(ic_env_t* env, editor_t* eb) {
   ssize_t match = find_matching_brace( sbuf_string(eb->input), eb->pos, ic_env_get_match_braces(env), NULL );
   if (match < 0) return;
@@ -1054,6 +1070,20 @@ static char* edit_line( ic_env_t* env, const char* prompt_text )
         break;
       case WITH_ALT('m'):
         edit_cursor_match_brace(env,&eb);
+        break;
+
+      // structural editing (KAAPPI PATCH 3)
+      case WITH_ALT('S'):
+        edit_sexp(env,&eb,IC_SEXP_SLURP);
+        break;
+      case WITH_ALT('B'):
+        edit_sexp(env,&eb,IC_SEXP_BARF);
+        break;
+      case WITH_ALT('R'):
+        edit_sexp(env,&eb,IC_SEXP_RAISE);
+        break;
+      case WITH_ALT('y'):
+        edit_sexp(env,&eb,IC_SEXP_ROTATE);
         break;
 
       // deletion

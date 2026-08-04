@@ -7,9 +7,10 @@
 //! `readline` returns a finished expression — newlines and all — and every line
 //! of it stays editable until the user submits.
 //!
-//! Kaappi's copy carries two patches, both documented in
+//! Kaappi's copy carries three patches, all documented in
 //! `vendor/isocline/PATCHES.md`: an input-completeness callback (upstream's
-//! Enter always submits) and a configurable history size (upstream caps at 200).
+//! Enter always submits), a configurable history size (upstream caps at 200),
+//! and structural s-expression editing (upstream has none).
 //!
 //! Isocline is not thread-safe: `readline` and `print` must be called from one
 //! thread. That holds here — only the REPL loop touches it.
@@ -117,6 +118,38 @@ pub fn styleDef(name: [*:0]const u8, fmt: [*:0]const u8) void {
 /// `vendor/isocline/PATCHES.md`.
 pub fn setIsComplete(cb: ?*const fn ([*c]const u8, ?*anyopaque) callconv(.c) bool, arg: ?*anyopaque) void {
     c.ic_set_default_is_complete(cb, arg);
+}
+
+// --- Structural editing (Kaappi patch 3) -----------------------------------
+
+/// Set the callback the four structural-edit keys (alt+shift+S/B/R, alt+y)
+/// dispatch to. It is handed the whole buffer and the cursor as a byte offset,
+/// and returns a replacement buffer from `alloc` below — isocline takes
+/// ownership and frees it — or null to decline and leave the input untouched.
+/// See `vendor/isocline/PATCHES.md`.
+pub fn setSexpEdit(
+    cb: ?*const fn (c.ic_sexp_command_t, [*c]const u8, [*c]c_long, ?*anyopaque) callconv(.c) [*c]u8,
+    arg: ?*anyopaque,
+) void {
+    comptime {
+        // The command numbering is the contract between `repl_sexp.Command`
+        // and isocline's enum; a silent drift would run the wrong command.
+        // This lives in a function body rather than at container scope
+        // because the latter is analyzed eagerly, and `zig build test` does
+        // not compile the C library at all.
+        const Command = @import("repl_sexp.zig").Command;
+        std.debug.assert(@intFromEnum(Command.slurp) == c.IC_SEXP_SLURP);
+        std.debug.assert(@intFromEnum(Command.barf) == c.IC_SEXP_BARF);
+        std.debug.assert(@intFromEnum(Command.raise) == c.IC_SEXP_RAISE);
+        std.debug.assert(@intFromEnum(Command.rotate) == c.IC_SEXP_ROTATE);
+    }
+    c.ic_set_default_sexp_edit(cb, arg);
+}
+
+/// Allocate `n` bytes from isocline's allocator, for a buffer handed back to
+/// it. Null when isocline is not initialized or the allocation fails.
+pub fn alloc(n: usize) ?[*]u8 {
+    return @ptrCast(c.ic_malloc(n));
 }
 
 // --- Options ---------------------------------------------------------------
