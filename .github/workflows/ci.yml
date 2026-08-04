@@ -948,6 +948,16 @@ jobs:
         # hold on Windows — the compile/ suite needs a native Zig toolchain
         # (#1613) — reports itself instead of failing. KAAPPI_HOME is
         # isolated like run-all.sh does, so suites never touch a real cache.
+        #
+        # The directory list mirrors run-all.sh's, plus sandbox and
+        # robustness (which run-all.sh leaves to CI). completions, lsp,
+        # thottam and differential were outside it until #2220 — which is
+        # how completions/completions.sh came to fail on Windows unobserved
+        # for as long as it did. Expect two of the four to report SKIP here:
+        # thottam-lifecycle.sh builds git fixtures at POSIX paths, and
+        # run-wasm-differential.sh wants wasmtime. run-differential.sh is
+        # the expensive one at ~9 min on the reference VM, roughly tripling
+        # this step; the job sits ~6 min against its timeout, so it fits.
         shell: bash
         run: |
           # Some drivers validate JSON with python3; the arm image ships
@@ -963,7 +973,8 @@ jobs:
           export KAAPPI=bin/kaappi.exe
           export KAAPPI_HOME="$RUNNER_TEMP/kaappi-test-home"
           fail=0
-          for dir in smoke errors compile test-runner pipeline doctor fmt cache timings sandbox robustness; do
+          for dir in smoke errors compile test-runner pipeline doctor fmt cache timings \
+                     completions lsp thottam differential sandbox robustness; do
             for s in tests/scheme/$dir/*.sh; do
               [ -e "$s" ] || continue
               # `|| status=$?`: the runner's `shell: bash` implies -e, which
@@ -1098,6 +1109,16 @@ jobs:
         # hold on Windows — the compile/ suite hard-skips on the OS — reports
         # itself instead of failing. KAAPPI_HOME is isolated like run-all.sh
         # does, so suites never touch a real cache.
+        #
+        # The directory list mirrors run-all.sh's, plus sandbox and
+        # robustness (which run-all.sh leaves to CI). completions, lsp,
+        # thottam and differential were outside it until #2220 — which is
+        # how completions/completions.sh came to fail on Windows unobserved
+        # for as long as it did. Expect two of the four to report SKIP here:
+        # thottam-lifecycle.sh builds git fixtures at POSIX paths, and
+        # run-wasm-differential.sh wants wasmtime. run-differential.sh is
+        # the expensive one at ~9 min on the reference VM, roughly tripling
+        # this step; the job sits ~6 min against its timeout, so it fits.
         shell: bash
         run: |
           # Some drivers validate JSON with python3; shim python3 when the
@@ -1112,7 +1133,8 @@ jobs:
           export KAAPPI=bin/kaappi.exe
           export KAAPPI_HOME="$RUNNER_TEMP/kaappi-test-home"
           fail=0
-          for dir in smoke errors compile test-runner pipeline doctor fmt cache timings sandbox robustness; do
+          for dir in smoke errors compile test-runner pipeline doctor fmt cache timings \
+                     completions lsp thottam differential sandbox robustness; do
             for s in tests/scheme/$dir/*.sh; do
               [ -e "$s" ] || continue
               # `|| status=$?`: the runner's `shell: bash` implies -e, which

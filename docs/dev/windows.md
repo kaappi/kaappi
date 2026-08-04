@@ -283,18 +283,34 @@ that `windows-cross` cross-compiles into each artifact
 (`zig cc -target <arch>-windows-gnu -shared`).
 
 The shell-based drivers (errors, test-runner, pipeline, doctor, fmt,
-cache, timings, the smoke `.sh` scripts, sandbox, robustness) run under
-the runner's Git Bash, whose MSYS userland supplies bash, coreutils,
-git, and — via a CI shim when the image only exposes `python` — python3.
+cache, timings, completions, lsp, thottam, differential, the smoke
+`.sh` scripts, sandbox, robustness) run under the runner's Git Bash,
+whose MSYS userland supplies bash, coreutils, git, and — via a CI shim
+when the image only exposes `python` — python3.
+
+**Keep that list in step with `run-all.sh`.** It is a hand-maintained
+enumeration in two places in ci.yml, not a directory glob, so a suite
+added to `run-all.sh` is covered everywhere *except* Windows until
+someone edits both loops. The first four names above were missing for
+exactly that reason, and `completions/completions.sh` failed on Windows
+unobserved the whole time — it wrote `$TMP/kaappi.exe.bash` and sourced
+`$TMP/kaappi.bash`, 19 of 39 checks, fixed in #2220 along with the
+coverage gap that hid it. `differential/run-differential.sh` is the
+expensive addition, ~9 min on the reference VM against a job that
+otherwise runs in ~6.
+
 A driver whose premise cannot hold on Windows sources
 `tests/scheme/shell-common.sh` and calls `skip_on_windows <reason>`,
 exiting 77 (the shell analogue of the `cond-expand (windows ...)` gate
 the `.scm` tests use); run-all.sh and the CI loop report those as SKIP.
 Today that is the `compile/` suite (each script rebuilds the runtime
 archive or interpreter with a native `zig` on the box — #1613, so the
-gates lift work at the 0.17.0 toolchain bump) and
+gates lift work at the 0.17.0 toolchain bump),
 `profile-json-escaping.sh` (it plants `"`/`\` in a real directory name,
-which Windows filenames cannot contain). shell-common.sh also carries
+which Windows filenames cannot contain), `thottam-lifecycle.sh` (its
+fixture builds local git repos at POSIX paths) and
+`run-wasm-differential.sh` (no wasmtime on the runners).
+shell-common.sh also carries
 the portability helpers the drivers need on Windows: `native_path` (the
 C:/-style spelling the binary itself prints, via `cygpath -m` — MSYS
 `/tmp/...` paths never appear in kaappi's own output), `rt_lib_name`
@@ -328,12 +344,24 @@ Two environment notes for the suite:
   `/tmp/...`, which Windows resolves to `\tmp` on the current drive.
 * Run from a writable directory; a few tests create files in the CWD.
 
-Verified on Windows 11 ARM64 (build 26100): full unit suite, the
-complete R7RS suite, every `tests/scheme/{smoke,compliance,
-continuations,hygiene,srfi,ffi,audit}` file, and the shell-based
-suites under Git Bash (34 pass, 15 skip: the 14 `compile/` gates plus
-`profile-json-escaping.sh`) — the same set the `windows-arm-test` CI
-job now runs on every PR.
+Verified on Windows 11 ARM64, most recently build 26200: full unit
+suite (1667 pass, 16 skip), thottam suite (68 pass, 3 skip), the
+complete R7RS suite (1395/0), 612 files across
+`tests/scheme/{smoke,compliance,continuations,hygiene,srfi,ffi,audit,
+errors}`, and the shell-based suites under Git Bash — **46 pass, 0
+fail, 28 skip**, running the exact directory list the CI loop
+iterates. The 28 are the 25 `compile/` gates plus
+`profile-json-escaping.sh`, `thottam-lifecycle.sh`, and
+`run-wasm-differential.sh`. The earlier record for build 26100 read
+34 pass / 15 skip against a smaller CI list and a `compile/` suite
+that had fewer scripts; both numbers grew, neither is a regression.
+
+The interactive REPL is the one surface no CI job can reach. Drive it
+from a pty over ssh — the OpenSSH server hands the session a ConPTY,
+so isocline's Windows console backend gets real key events and VT
+sequences sent as input arrive as arrow keys. Run the binary through a
+`.cmd` launcher rather than an inline command: the box's default shell
+is PowerShell, which rejects `&&` and eats the quoting.
 
 The **x86_64** build was verified on the same reference machine via
 Windows 11's built-in x64 emulation layer (x64 binaries run
@@ -341,7 +369,8 @@ transparently on ARM64 Windows), which is also how to re-test it
 there: cross-compile with `-Dtarget=x86_64-windows`, ship, run. The
 full set passed under emulation — unit suite (1166/0, 15 skips),
 thottam suite, R7RS, all 436 `.scm` suite files, the shell suites
-(same 34/15/0 profile as aarch64), the post-release acceptance script
+(the 34/15/0 profile aarch64 also had at that time), the post-release
+acceptance script
 (34/34), and the native-backend e2e (see above). A stripped x86_64
 kaappi.exe starts and runs correctly — the #1607 strip crash does not
 exist on this arch. Emulation is a fidelity compromise (it validates
