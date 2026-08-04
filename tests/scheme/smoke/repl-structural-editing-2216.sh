@@ -24,6 +24,20 @@ command -v python3 >/dev/null 2>&1 || {
     exit 77
 }
 
+# Resolve to an absolute path for the driver, which execs it directly. A value
+# with no slash is a PATH lookup; anything else is a path as given. A binary
+# that cannot be executed is a *failure*, not a skip — the skip below exists
+# for platforms with no usable terminal, and letting a missing build take that
+# exit would make this test silently green.
+case "$KAAPPI" in
+    */*) kaappi_abs="$(cd "$(dirname "$KAAPPI")" 2>/dev/null && pwd)/$(basename "$KAAPPI")" ;;
+    *)   kaappi_abs="$(command -v "$KAAPPI" || true)" ;;
+esac
+if [ ! -x "$kaappi_abs" ]; then
+    echo "FAIL: $KAAPPI is not an executable file (build first: zig build)"
+    exit 1
+fi
+
 # Isolate history and config: the REPL reads ~/.kaappi, and a developer's own
 # `repl.prompt` would move the sentinel this script waits for.
 work="$(mktemp -d)"
@@ -47,36 +61,51 @@ CASES = [
 
 pid, fd = pty.fork()
 if pid == 0:
-    os.environ['TERM'] = 'xterm'
-    os.environ['NO_COLOR'] = '1'
-    os.execv(kaappi, [kaappi])
+    # The child must exec or die: `pty.fork` gives it the parent's code, so a
+    # raising execv would otherwise let a traceback land in the pty slave and
+    # muddy the buffer the parent is matching against.
+    try:
+        os.environ['TERM'] = 'xterm'
+        os.environ['NO_COLOR'] = '1'
+        os.execv(kaappi, [kaappi])
+    except BaseException:
+        pass
+    os._exit(127)
 
 # A pty starts out 0x0, which gives the editor no room to render in.
 fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 200, 0, 0))
 
 buf = b''
+eof = False
 deadline = time.time() + 90
 
 def pump(timeout):
-    global buf
+    global buf, eof
     try:
         r, _, _ = select.select([fd], [], [], timeout)
     except OSError:
+        eof = True
         return False
     if not r:
         return False
     try:
         chunk = os.read(fd, 65536)
     except OSError:
+        eof = True
         return False
     if not chunk:
+        eof = True
         return False
     buf += chunk
     return True
 
 def seen(mark=0):
-    """Everything the child has written since byte `mark`, escapes stripped."""
-    return ansi.sub(b'', buf)[mark:]
+    """Everything the child has written since *raw* byte `mark`, escapes
+    stripped. The mark indexes `buf`, not the stripped text, because stripped
+    indices are not stable: a read that ends mid-escape-sequence leaves bytes
+    the regex cannot match yet, and they disappear once the rest arrives —
+    shifting every index taken before that."""
+    return ansi.sub(b'', buf[mark:])
 
 def wait_for(needle, mark=0, timeout=20):
     """Wait for `needle` in output written *after* `mark`. The mark matters:
@@ -86,6 +115,8 @@ def wait_for(needle, mark=0, timeout=20):
     while time.time() < end:
         if needle in seen(mark):
             return True
+        if eof:
+            break          # the child is gone; no more output is coming
         pump(0.2)
     return needle in seen(mark)
 
@@ -102,15 +133,22 @@ def send(data):
     os.write(fd, data)
     time.sleep(0.05)
 
-# No prompt at all means this platform gave us no usable terminal; that is a
-# skip, not a failure — the alternative is a flake on every emulated CI leg.
 if not wait_for(b'kaappi> ', 0, 25):
+    # Two very different things look alike here, and conflating them is how a
+    # test goes quietly green: a REPL that wrote *nothing at all* did not run,
+    # which is a failure; a REPL that wrote something but never prompted has no
+    # usable terminal, which is a skip (the alternative is a flake on every
+    # emulated CI leg).
+    if not buf:
+        sys.stdout.write('the REPL produced no output at all; it did not start\n')
+        sys.exit(1)
+    sys.stdout.write('no prompt in:\n%r\n' % seen())
     sys.exit(77)
 idle()
 
 failures = []
 for typed, lefts, key, expect, reject in CASES:
-    mark = len(seen())
+    mark = len(buf)
     send(typed)
     # The echoed text is proof the editor has the buffer — a plain sleep is not,
     # and typing on while the REPL is still evaluating puts the bytes in the
@@ -148,8 +186,6 @@ for key, expect, produced in failures:
     sys.stdout.write('FAIL %r: expected %r in\n%r\n\n' % (key, expect, produced))
 sys.exit(1 if failures else 0)
 PY
-
-kaappi_abs="$(cd "$(dirname "$KAAPPI")" && pwd)/$(basename "$KAAPPI")"
 
 set +e
 KAAPPI_HOME="$work/home" python3 "$driver" "$kaappi_abs"
