@@ -22,8 +22,19 @@
 ;;       its delay so much larger than the intervening work that no
 ;;       plausible slowdown can close the gap. The intervening work is
 ;;       synchronous request/reply over a channel -- ~0.1 ms healthy -- so
-;;       the delays below (600-1000 ms) leave a margin of several thousand
+;;       the delays below (800-2000 ms) leave a margin of several thousand
 ;;       times, not the ~300x a 30 ms delay left.
+;;
+;;       "Schedule it LAST" removes the following *calls*, never the
+;;       deadlines already set. A block whose last statement schedules
+;;       nothing can still be racing an earlier task's delay -- which is
+;;       what the timer-cancel! and no-error-handler blocks below were
+;;       still doing at 570 ms each, the two smallest margins in the file
+;;       and the two assertions netbsd-test actually went red on, long
+;;       after the ordering fix. Both were found by injecting a delay at
+;;       each block's racy point and bisecting for the value that breaks
+;;       it; the margins are measured, not assumed, and every one is
+;;       pinned in srfi120-slow-setup.scm.
 ;;
 ;;   R2. Never observe a PERIODIC task through a channel and then assert
 ;;       "nothing more arrives". `make-channel` with no capacity argument is
@@ -184,20 +195,25 @@
 ;; exactly what went red on netbsd-test (kaappi#1870). Two one-shots give
 ;; the same two guarantees with nothing to queue: `early` proves the timer
 ;; was genuinely running, `late` proves cancellation stopped it.
-;; R1: `late`'s 600 ms delay has to outlast `early` firing (30 ms) plus the
-;; receive and the cancel; only the last two scale with machine speed, and
-;; they are ~0.2 ms healthy.
-;; R3: the negative wait (1.0 s) outlasts `late`'s 600 ms delay, so a
+;; R1: `late` is scheduled LAST, once `early` has already been received. It
+;; used to be scheduled first, which put the `early` receive inside its
+;; margin alongside the cancel and left 570 ms for both -- the smallest
+;; margin in the file, guarding the very assertion netbsd-test went red on.
+;; Scheduling it here empties that window of deadlines altogether: injecting
+;; a 1.4 s stall between the receive and this schedule now changes nothing,
+;; where 0.6 s used to fail. The only work left inside `late`'s 1200 ms is
+;; timer-cancel! itself.
+;; R3: the negative wait (1.5 s) outlasts `late`'s 1200 ms delay, so a
 ;; cancellation that failed to stop the timer would be caught.
 (let* ((sig (make-channel))
        (t (make-timer)))
-  (timer-schedule! t (lambda () (channel-send sig 'late)) 600)
   (timer-schedule! t (lambda () (channel-send sig 'early)) 30)
   (test-equal "timer-cancel!: at least one firing happens before cancellation"
               'early (channel-receive sig 3.0 'timeout))
+  (timer-schedule! t (lambda () (channel-send sig 'late)) 1200)
   (timer-cancel! t)
   (test-equal "timer-cancel!: no further firings after cancellation"
-              'timeout (channel-receive sig 1.0 'timeout)))
+              'timeout (channel-receive sig 1.5 'timeout)))
 
 ;;; --- error-handler ---------------------------------------------------------
 
@@ -222,16 +238,25 @@
 ;; "timer is not responding" -- which is precisely what went red on
 ;; netbsd-test (kaappi#1870, srfi120.scm:153 on PR #2076): the old order
 ;; scheduled the erroring task first, at 30 ms, and then needed its own next
-;; line to beat that 30 ms deadline. Nothing follows the erroring schedule
-;; now, so there is no deadline left to lose.
-;; R3: the should-not-fire task's 600 ms delay is still well inside the
-;; 1.0 s negative wait, so a timer that failed to stop would be caught.
+;; line to beat that 30 ms deadline.
+;;
+;; That ordering removed the "not responding" failure mode but NOT every
+;; deadline, and this comment used to claim it had ("nothing follows the
+;; erroring schedule now, so there is no deadline left to lose"). It is the
+;; general R1 trap: `should-not-fire` still has to outlast the erroring
+;; timer-schedule! that is meant to stop the timer first. At 600 ms that
+;; left 570 ms, and injecting 0.6 s here failed the block for real -- with
+;; `should-not-fire` arriving, not with "not responding", so the ordering
+;; fix was genuinely intact and simply did not cover this. 1200 ms brings
+;; the margin into line with the rest of the file.
+;; R3: the should-not-fire task's 1200 ms delay is still inside the 1.5 s
+;; negative wait, so a timer that failed to stop would be caught.
 (let* ((sig (make-channel))
        (t (make-timer)))
-  (timer-schedule! t (lambda () (channel-send sig 'should-not-fire)) 600)
+  (timer-schedule! t (lambda () (channel-send sig 'should-not-fire)) 1200)
   (timer-schedule! t (lambda () (error "srfi-120 test: unhandled")) 30)
   (test-equal "no error-handler: the timer stops, so later tasks never fire"
-              'timeout (channel-receive sig 1.0 'timeout))
+              'timeout (channel-receive sig 1.5 'timeout))
   ;; SRFI 120: "the procedure raises the preserved error if there is" --
   ;; timer-cancel! on an already-stopped-by-error timer must re-raise it.
   (test-assert "timer-cancel!: raises the preserved error from an unhandled task failure"
