@@ -18,20 +18,21 @@ Source code
 |  lexer)|     |  rules)  |     |      |     |          |     |          |     |          |     |    |
 +--------+     +----------+     +------+     +----------+     +----------+     +----------+     +----+
                                                                                                   |
-                                                                                            +-----+-----+
-                                                                                            | GC (mark  |
-                                                                                            | & sweep)  |
-                                                                                            +-----------+
+                                                                                          +-------+-------+
+                                                                                          | GC (generat-  |
+                                                                                          | ional mark    |
+                                                                                          | & sweep)      |
+                                                                                          +---------------+
 ```
 
 | Stage | File(s) | Role |
 |-------|---------|------|
-| **Reader** | `reader.zig` | Tokenizer + recursive descent parser. Handles full R7RS lexical syntax including Unicode identifiers, `#\lambda` character literals, `#(...)` vectors, `#u8(...)` bytevectors, datum labels. |
-| **Expander** | `expander.zig` | `syntax-rules` pattern matching with ellipsis, literal identifiers, and underscore wildcards. Template instantiation with hygienic renaming (gensym-based). |
+| **Reader** | `reader.zig` + `reader_tokens.zig`, `reader_datum.zig` | Tokenizer + recursive descent parser. Handles full R7RS lexical syntax including Unicode identifiers, `#\lambda` character literals, `#(...)` vectors, `#u8(...)` bytevectors, datum labels. |
+| **Expander** | `expander.zig` + `expander_instantiate.zig` | `syntax-rules` pattern matching with ellipsis, literal identifiers, and underscore wildcards. Template instantiation with hygienic renaming (gensym-based). |
 | **IR** | `ir.zig` | Lowers S-expressions to a tree-structured IR (18 node types, one of which — `sexpr_form` — carries 18 `FormKind`s). Runs 1 analysis pass (tail positions) and 5 optimization passes (constant folding, dead branch elimination, boolean simplification, identity elimination, begin simplification). See [ir.md](ir.md) for details. |
-| **Compiler** | `compiler.zig` + 5 sub-modules | Emits register-based bytecode from IR nodes via `compileFromNode()`. Retains `compileExpr()` for forms delegated via `passthrough`. Dispatches 32 syntax forms across 6 files. |
-| **VM** | `vm.zig` + 7 sub-modules | Executes bytecode with a growable register file, call frame stack, exception handler stack, and dynamic-wind stack (all heap-allocated, double-on-overflow; exceeding a hard cap is an uncatchable KP3008). First-class continuations via stack copying, plus a stepping debugger. |
-| **GC** | `memory.zig` | Mark-and-sweep collector with intrusive linked list. Root tracking via `pushRoot`/`popRoot`. Triggered after N allocations. |
+| **Compiler** | `compiler.zig` + 9 sub-modules | Emits register-based bytecode from IR nodes via `compileFromNode()` (in `compiler_ir.zig`). Retains `compileExpr()` for forms delegated via `passthrough`. See the [Compiler & IR](#compiler--ir-11-files) table for the per-file split. |
+| **VM** | `vm.zig` + 10 sub-modules | Executes bytecode with a growable register file, call frame stack, exception handler stack, and dynamic-wind stack (all heap-allocated, double-on-overflow; exceeding a hard cap is an uncatchable KP3008). First-class continuations via stack copying, plus a stepping debugger. |
+| **GC** | `memory.zig` | Generational (young/old) mark-and-sweep collector over an intrusive linked list, with a write barrier and remembered set for old→young references. Root tracking via `pushRoot`/`popRoot`. Triggered after N allocations. |
 | **Primitives** | 31 `primitives_*.zig` files | 689 built-in procedures organized by domain. |
 
 ---
@@ -42,13 +43,15 @@ Source code
 
 | File | Lines | Responsibility |
 |------|-------|---------------|
-| `types.zig` | ~1200 | Value type, `Object`/`ObjectTag`, opcodes, type predicates, hygiene helpers, re-export hub for the `types_*.zig` heap-type domain files below |
-| `memory.zig` | ~850 | GC struct, lifecycle, write barrier, rooting, quarantine; aliases the allocators below into `GC` |
+| `types.zig` | ~1300 | Value type, `Object`/`ObjectTag`, opcodes, type predicates, hygiene helpers, re-export hub for the `types_*.zig` heap-type domain files below |
+| `memory.zig` | ~900 | GC struct, lifecycle, write barrier, rooting, quarantine; aliases the allocators below into `GC` |
 | `gc_alloc.zig` | ~1400 | All `allocXxx` heap-object constructors (delegated from memory.zig, aliased into `GC` so `gc.allocXxx(...)` is unchanged) |
 | `gc_collect.zig` | ~1000 | GC orchestration, remembered set, marking, SRFI 254 weak-ref processing (delegated from memory.zig) |
 | `gc_sweep.zig` | ~600 | Sweep phase: sweepYoung/sweepOld/sweep, `objectSize`, `freeObject` (delegated from gc_collect.zig) |
-| `gc_deep_copy.zig` | — | Cross-thread deep copy (delegated from memory.zig) |
-| `reader.zig` | ~700 | Tokenizer, S-expression parser, Unicode lexing |
+| `gc_deep_copy.zig` | ~580 | Cross-thread deep copy (delegated from memory.zig) |
+| `reader.zig` | ~1000 | `Reader`/`Token`/`ReadError` definitions and the read entry points |
+| `reader_tokens.zig` | ~975 | Tokenizer: Unicode lexing, string/character escapes, number-literal parsing |
+| `reader_datum.zig` | ~360 | Datum construction: lists, vectors, bytevectors, quote forms, datum labels |
 | `expander.zig` | ~1000 | Macro-use expansion engine: expandMacro/expandProceduralMacro, syntax-rules pattern matching, usertext/hygiene-strip walks |
 | `expander_instantiate.zig` | ~1000 | syntax-rules template instantiation + renameForHygiene/scope-table minting (shares expander.zig's threadlocal expansion context) |
 | `printer.zig` | ~1250 | Value → string: iterative label-aware print engine + hashmap cycle/sharing detection (write/display/write-shared/write-simple; exact at any depth) and the bounded diagnostic `printValue` |
@@ -93,13 +96,15 @@ its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
 | `compiler_advanced.zig` | case, case-lambda, guard, quasiquote |
 | `compiler_macro.zig` | Macro-use path: expandAndCompileMacroUse, hygiene injection walks, free-ref collection; re-exports compiler_define_syntax.zig |
 | `compiler_define_syntax.zig` | Macro-defining forms: define-syntax, let-syntax, letrec-syntax, define-property, transformer-spec resolution (SRFI 147), syntax-rules parsing, transformer finalization |
+| `compiler_passthrough.zig` | The `passthrough` path's form compilers: quote, if, call, and the tail-position specializations (`apply`, `call-with-values`, `call/cc`, `eval`) |
 | `compiler_forms.zig` | Re-export hub (thin file, don't edit directly) |
 
-### VM (split into 10 files)
+### VM (split into 11 files)
 
 | File | Responsibility |
 |------|---------------|
 | `vm.zig` | VM struct, init/deinit, error handling, delegation wrappers |
+| `vm_bootstrap.zig` | Scheme-level implementations of the higher-order procedures that must drive their callbacks through the dispatch loop rather than the Zig call stack |
 | `vm_dispatch.zig` | runUntil bytecode dispatch loop, opcode handlers; re-exports vm_dispatch_helpers.zig |
 | `vm_dispatch_helpers.zig` | Dispatch support: bytecode/operand readers, register-window validation, the shared global-resolution helper (lookupGlobalLocked, #1831/#1860), noinline error raisers, buildRestList |
 | `vm_calls.zig` | execute, run, callValue, callClosure, callNative, profile helpers |
@@ -165,7 +170,7 @@ its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
 | `native_compiler.zig` | LLVM IR emission, native binary compilation, C compiler discovery, linker invocation |
 | `thottam.zig` | Package manager binary (thottam): install, remove, list, update, verify |
 | `llvm_emit.zig` | LLVM IR text emitter core: LLVMEmitter struct/state, program orchestration, call emission, constants/interning (special-form/cond/case/do emitters live in `llvm_emit_forms.zig`; let/lambda/tailcall/inline/freevars satellites likewise) |
-| `runtime_exports.zig` | C-ABI bridge for LLVM native backend (21 exported functions) |
+| `runtime_exports.zig` | C-ABI bridge for LLVM native backend (28 exported functions) |
 | `fmt.zig` | `kaappi fmt`: comment-preserving CST reader (lexer + parser), CLI entry, real-reader `equal?` round-trip safety net |
 | `fmt_print.zig` | `kaappi fmt` layout engine: fits-or-breaks pretty-printer, special-form indentation rules |
 | `testing_helpers.zig` | Shared `makeTestVM` helper for unit tests |
@@ -213,12 +218,20 @@ Every heap object starts with an `Object` header:
 ```zig
 pub const Object = struct {
     tag: ObjectTag,      // u6 -- which type (64 slots)
-    marked: bool = false, // GC mark bit
+    flags: Flags,        // packed u8: marked, generation:u1, survive_count:u2, immutable
+    owner: u32,          // id of the GC that tracks this object (fits in padding)
     next: ?*Object,      // intrusive linked list for GC
+    _align: Align,       // forces 8-byte alignment for the pointer tag check
 };
 ```
 
-### ObjectTag enum (35 types)
+`owner` is what lets an SRFI-18 child thread's heap hold references into the
+parent's without either collector writing mark bits on the other's objects
+(#958); in Debug and gc-stress builds, freeing stamps it with
+`memory.FREED_OWNER` so a later mark of the dead header panics deterministically
+(#1687).
+
+### ObjectTag enum (41 types)
 
 | Tag | Value | Type |
 |-----|-------|------|
@@ -257,20 +270,37 @@ pub const Object = struct {
 | `mutex` | 32 | SRFI-18 mutex |
 | `condition_variable` | 33 | SRFI-18 condition variable |
 | `srfi18_time` | 34 | SRFI-18 time object |
+| `native_closure` | 35 | Zig closure over captured Values (a native procedure with state) |
+| `scheme_environment` | 36 | First-class environment (`eval`'s second argument) |
+| `ephemeron` | 37 | SRFI-254 ephemeron (key/datum pair the GC treats weakly) |
+| `guardian` | 38 | SRFI-254 guardian |
+| `transport_cell` | 39 | SRFI-254 transport cell (an ordinary strong pair on a non-moving GC) |
+| `numeric_vector` | 40 | SRFI-160 homogeneous numeric vector (u8 stays a plain bytevector) |
 
 ---
 
 ## Garbage Collector
 
-The GC is a **mark-and-sweep** collector using an **intrusive linked list**.
+The GC is a **generational mark-and-sweep** collector using an **intrusive
+linked list**.
 
 ### Design
 
 - All heap objects are linked via their `Object.next` pointer.
+- Every object carries a generation bit (young/old) and a survive count in its
+  header; surviving a few collections promotes a young object to old.
 - The GC maintains a count of allocations since the last collection.
 - When the count exceeds a threshold, a collection cycle runs:
   1. **Mark**: Traverse all roots, mark reachable objects.
   2. **Sweep**: Walk the linked list, free unmarked objects.
+- A **minor** collection only marks and sweeps the young generation. Old→young
+  references are found through the **remembered set**, which `gc.writeBarrier`
+  populates whenever a Value is stored into an old object's field — omitting
+  that barrier is the classic way to corrupt a minor collection. A **full**
+  collection covers both generations.
+
+Orchestration and marking live in `gc_collect.zig`, the sweep phase in
+`gc_sweep.zig`; `memory.zig` holds the `GC` struct and aliases both in.
 
 ### Root tracking
 
@@ -283,8 +313,11 @@ gc.pushRoot(&val);    // protect
 gc.popRoot();         // unprotect (must be LIFO)
 ```
 
-Roots are stored in a fixed-size root stack. `pushRoot`/`popRoot` calls must
-be balanced and follow LIFO order.
+The root stack grows geometrically and is hard-capped at
+`GC.MAX_ROOT_CAPACITY` (65536); exceeding it panics. `pushRoot`/`popRoot` calls
+must be balanced and follow LIFO order — see
+[gc-safety-and-error-handling.md](gc-safety-and-error-handling.md) for why a
+`defer popRoot()` is not always the safe spelling.
 
 ---
 

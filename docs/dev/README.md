@@ -89,7 +89,7 @@ investigations.
 | [ecosystem-library-bar.md](ecosystem-library-bar.md) | Quality bar for `kaappi-*` packages (applies ecosystem-wide, not just this repo) |
 | [github-issues.md](github-issues.md) | Issue tracker: the four label axes, the priority rubric (what separates critical from high), severity-vs-priority, the one-priority-per-open-issue invariant |
 | [srfi-exclusions.md](srfi-exclusions.md) | The 30 SRFIs deliberately not implemented, one section each, with the reason |
-| [srfi-status-check.md](srfi-status-check.md) | How to re-derive the SRFI counts after a release |
+| [srfi-status-check.md](srfi-status-check.md) | The CI guard that fails if a shipped SRFI is `draft` or `withdrawn` in the canonical registry — and how the counts are re-derived from the binary |
 | [understanding-map.md](understanding-map.md) | Where theory must live in a maintainer's head (core tier) vs. where a contract fences deliberate shallowness (fenced tier); the reification ladder; comprehension practices incl. `/quiz` |
 
 ## Adding a new document

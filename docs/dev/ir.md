@@ -2,10 +2,10 @@
 
 The compiler IR is a tree-structured intermediate representation that sits
 between the macro expander and bytecode emission. It enables shared analysis
-and optimization passes that benefit both the bytecode VM and LLVM backend, and
-provides a clean lowering target for a future native backend.
+and optimization passes that benefit both the bytecode VM and the LLVM native
+backend.
 
-**Source:** `src/ir.zig` (~1,400 lines)
+**Source:** `src/ir.zig` (~1,450 lines)
 **Tests:** `src/tests_ir.zig` (~850 lines)
 
 **See also:** [KEP-0008](https://github.com/kaappi/keps/blob/main/keps/0008-shared-ir-contract.md)
@@ -255,7 +255,7 @@ Structural cleanup:
 
 ## Bytecode Emission
 
-`compileFromNode()` in `compiler.zig` dispatches on the IR node tag:
+`compileFromNode()` in `compiler_ir.zig` dispatches on the IR node tag:
 
 - **Fully-lowered forms** (`constant`, `global_ref`, `call`, `if`, `begin`,
   `and_form`, `or_form`, `when_form`, `unless_form`, `define`, `set_form`,
@@ -298,10 +298,16 @@ There is no longer a bytecode-parity group. It tested `ir.zig`'s standalone
 
 ---
 
-## Future: Native Backend
+## The native backend's second reading of this IR
 
-The IR is designed to serve as input for a future LLVM IR native backend
-(Stage 6, issue #99). The direct-style IR (not CPS) was chosen to serve
-both the bytecode and native backends without conversion. See
+The LLVM native backend consumes the same IR, which is why it is direct-style
+rather than CPS — one representation serves both tiers without conversion. See
 [continuation-strategy.md](decisions/continuation-strategy.md) for the hybrid
 approach to `call/cc` in native code.
+
+The consequence worth knowing before editing either side: because the binding
+tags and `sexpr_form` hold their tails as raw S-expressions, every lambda,
+closure and `let` body reaches the backend unlowered and gets *re-lowered*
+during emission. `LLVMEmitter.lowerScoped` is the only correct way to do that —
+a bare `ir.lowerSingleExpr*` drops `bound_names`/`set_targets` and reopens
+kaappi#2117/#2118. [llvm-backend.md](llvm-backend.md) is the full reference.
