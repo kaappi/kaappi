@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785874786838,
+  "lastUpdate": 1785878354435,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6114398ba48db971cd17792170b82d92e3f439fd",
-          "message": "Tick the eight units landed in the first two batches (#1948)\n\nThe tracker read 2 of 53 while eight units were merged, because each\nunit's PR added its test file without touching the tracker. The document\ncalls that tracker the single source of truth, so a stale one is the same\nfailure Phase 0B existed to fix: the next session to open it would have\nre-run work already done and re-filed issues already filed.\n\nEach entry records its PR and the issues it produced, so the tracker\nanswers what a unit found without needing eight PRs opened alongside it.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-31T20:49:37+05:30",
-          "tree_id": "3994183ec5106eb2bdac9eda445056deddab5073",
-          "url": "https://github.com/kaappi/kaappi/commit/6114398ba48db971cd17792170b82d92e3f439fd"
-        },
-        "date": 1785512696769,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.352258,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.083364,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.59766,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.981369,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004997,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047616,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.319096,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057249,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.645299,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.231968,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.619376,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.284556,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.815246,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.648532,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043738,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.034518,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f74e87091d181a737aa0956cd14a886da3212145",
+          "message": "Close the last two racing margins in srfi120.scm (#1870) (#2222)\n\n#2120 de-flaked five blocks in this file and pinned each in\nsrfi120-slow-setup.scm. Two of them were still racing a deadline\nafterwards, at 570 ms each -- the two smallest margins in the file, and\nthe two assertions netbsd-test actually went red on.\n\nBoth survived because \"schedule the deadline-bearing task LAST\" was read\nas removing every deadline, when it only removes the following *calls*.\nThe no-error-handler block's comment said so outright (\"nothing follows\nthe erroring schedule now, so there is no deadline left to lose\") while\n`should-not-fire`'s own 600 ms still had to outlast the erroring\ntimer-schedule! meant to stop the timer first. The timer-cancel! block\nscheduled `late` first, so its 600 ms covered the `early` receive as well\nas the cancel. The 200 ms pins #2120 left cannot see a 570 ms margin,\nwhich is why both looked covered.\n\nMargins are now measured rather than assumed -- each block's racy point\nwas injected with a delay and bisected for the value that breaks it:\n\n  block            was      now\n  task-remove      800 ms   800 ms   (unchanged)\n  reschedule      1000 ms  1000 ms   (unchanged)\n  period-0        2000 ms  2000 ms   (unchanged)\n  timer-cancel!    570 ms  1200 ms\n  no-handler       570 ms  1200 ms\n\ntimer-cancel! is fixed structurally, not by headroom: `late` is scheduled\nafter the `early` receive, which empties that window of deadlines\naltogether -- a 1.4 s stall between the receive and the schedule now\nchanges nothing, where 0.6 s used to fail. Only the cancel itself remains\ninside `late`'s 1200 ms. no-handler has no such reordering available, so\nits delay is widened to match the rest of the file.\n\nDetection is not traded away: both negative waits still outlast the delay\nof the task they disprove (R3), 1.5 s against 1200 ms.\n\nBoth slow-setup pins are raised 200 ms -> 800 ms, which exceeds the\nmargin the shape they replaced had, so each fails against that shape.\nMutation-tested: the new pins applied to the old blocks fail 3 of 5\nassertions, including both netbsd-test failures by name. The third is a\ncascade -- the negative wait returns early on the leaked value, so\ntimer-cancel! beats the erroring task and finds nothing to re-raise.\n\nAssertion counts unchanged (41 and 12). srfi120.scm 5.02 s -> 5.37 s,\nsrfi120-slow-setup.scm 3.80 s -> 5.49 s. Both files 25x under concurrent\nrun-all.sh load: 50/50.\n\nCloses #1870\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-04T20:47:09Z",
+          "tree_id": "64741b458cab64db6a2ccb93aeacf58d7b5350b7",
+          "url": "https://github.com/kaappi/kaappi/commit/f74e87091d181a737aa0956cd14a886da3212145"
+        },
+        "date": 1785878351892,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.957583,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.159905,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.563553,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.884068,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004938,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.045391,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.295501,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056986,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.341157,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.162213,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.52503,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.305582,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.716301,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.766348,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045794,
             "unit": "seconds"
           }
         ]
