@@ -9,12 +9,105 @@ on:
 permissions:
   id-token: write
   contents: read
+  # Read-only, for the changed-path classifier in `format` below. Remember
+  # that a job-level `permissions:` block replaces this one wholesale rather
+  # than merging (docs/dev/github-actions.md) -- `benchmark` has its own.
+  pull-requests: read
 
 jobs:
   format:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      # 'true' only when every changed path is provably inert. Consumers gate
+      # on `!= 'true'`, so an empty or missing value still runs the matrix.
+      docs_only: ${{ steps.classify.outputs.docs_only }}
     steps:
+      # A docs-only PR used to pay the full ~194 runner-minutes and 20-30 min
+      # of wall clock for nothing, and 11 of the 40 PRs before #2214 touched
+      # no code at all.
+      #
+      # This classifier lives in `format` rather than in a dedicated `changes`
+      # job on purpose, and the reason is the whole safety argument. A skipped
+      # job reports Success to branch protection ("A job that is skipped will
+      # report its status as 'Success'. It will not prevent a pull request
+      # from merging, even if it is a required check"), and a job whose
+      # `needs` failed is itself skipped -- so a standalone gate job that
+      # errored would turn all seven heavy required contexts green with
+      # nothing built, on a branch that requires no approving review. `format`
+      # is already a required context AND already every heavy job's `needs`,
+      # so a broken classifier here is a red required check instead of a
+      # silent pass.
+      #
+      # Workflow-level `paths:` cannot be used for the same reason in reverse:
+      # a workflow that does not run never reports, and the required checks
+      # sit "Expected -- Waiting for status to be reported" forever. Only
+      # job-level `if:` both skips the work and satisfies the check.
+      #
+      # Allowlist, never denylist: a path nobody anticipated must fall through
+      # to running everything. `.github/workflows/**` is the thing under test
+      # and `.claude/**` holds executable hooks, so neither is inert -- but a
+      # `.md` under either is, because nothing in CI reads one. Every
+      # `docs/`-or-`.md` reference in build.zig, tools/, src/tests_*.zig and
+      # tests/scheme/**/*.sh is a comment, so no markdown change can fail the
+      # suites this skips.
+      - name: Classify changed paths
+        id: classify
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # The REST API, not `git diff`: it needs no fetch-depth: 0, and it
+          # gives push and pull_request the same shape. Both endpoints
+          # truncate large changesets (3000 files for a PR, 300 for a commit),
+          # and a truncated list could read as all-inert -- so anything at or
+          # past the smaller cap runs the full matrix rather than guessing.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            files=$(gh api --paginate \
+              "repos/${{ github.repository }}/pulls/${{ github.event.number }}/files" \
+              --jq '.[].filename')
+          else
+            files=$(gh api \
+              "repos/${{ github.repository }}/commits/${{ github.sha }}" \
+              --jq '.files[].filename')
+          fi
+
+          count=$(printf '%s\n' "$files" | grep -c . || true)
+          docs_only=true
+          reason=""
+
+          if [ "$count" -eq 0 ]; then
+            docs_only=false
+            reason="no changed paths reported"
+          elif [ "$count" -ge 300 ]; then
+            docs_only=false
+            reason="$count changed paths -- at the API truncation cap"
+          else
+            while IFS= read -r f; do
+              [ -n "$f" ] || continue
+              case "$f" in
+                *.md|docs/*|LICENSE) ;;
+                *) docs_only=false; reason="$f is not an inert path"; break ;;
+              esac
+            done <<< "$files"
+          fi
+
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Changed-path classification"
+            echo
+            if [ "$docs_only" = "true" ]; then
+              echo "\`docs_only=true\` -- $count inert path(s), skipping the build/test matrix."
+            else
+              echo "\`docs_only=false\` -- running the full matrix ($reason)."
+            fi
+            echo
+            echo '```'
+            printf '%s\n' "$files"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -57,6 +150,7 @@ jobs:
   # change is fresh and its author is present to write it.
   test:
     needs: format
+    if: needs.format.outputs.docs_only != 'true'
     # Explicit name, deliberately NOT including matrix.timeout: this job's
     # auto-generated name would otherwise fold in every matrix property
     # present for a given combination (including include-only ones like
@@ -217,6 +311,7 @@ jobs:
   # already spends 18 legs' worth of.
   gc-stress:
     needs: format
+    if: needs.format.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     # Not a budget -- a hang bound. A rooting bug can present as a livelock in
     # the collector rather than a crash, and that must not sit until the job
@@ -252,6 +347,7 @@ jobs:
   # all; this makes it a gate rather than a one-off.
   gc-stress-scheme:
     needs: format
+    if: needs.format.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -336,6 +432,7 @@ jobs:
 
   riscv64-test:
     needs: format
+    if: needs.format.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -377,6 +474,7 @@ jobs:
   # suites; user VA stays below 2^42, inside the 48-bit NaN-box payload).
   s390x-test:
     needs: format
+    if: needs.format.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -420,6 +518,7 @@ jobs:
   # suites; 128 TB = 2^47 default map window fits the NaN-box payload).
   ppc64le-test:
     needs: format
+    if: needs.format.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -466,6 +565,7 @@ jobs:
   # 15.1 aarch64 (docs/dev/freebsd.md).
   freebsd-test:
     needs: format
+    if: needs.format.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -528,6 +628,7 @@ jobs:
   # releases, so the Zig-targeted release and the VM release must agree.
   openbsd-test:
     needs: format
+    if: needs.format.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -591,6 +692,7 @@ jobs:
 
   netbsd-test:
     needs: format
+    if: needs.format.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -673,6 +775,7 @@ jobs:
   # windows-x64-test below.
   windows-cross:
     needs: format
+    if: needs.format.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -1051,6 +1154,7 @@ jobs:
 
   wasm:
     needs: format
+    if: needs.format.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     # 20, not 10: this job now also builds the native binary and runs the
     # cross-tier differential over the shared corpus (~60s locally).

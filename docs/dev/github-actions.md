@@ -72,3 +72,61 @@ data, the release workflow's `contents: write` for creating releases —
 scope it at the job or workflow level. Remember that a job-level
 `permissions:` block *replaces* the workflow-level one entirely rather
 than merging with it.
+
+## Skipping work without breaking (or silently satisfying) required checks
+
+`main` requires eight CI contexts plus `DCO`:
+
+```text
+format
+test (ubuntu-latest, ReleaseSafe)
+test (ubuntu-latest, ReleaseFast)
+test (ubuntu-latest, Debug)
+test (ubuntu-24.04-arm, ReleaseSafe)
+test (macos-latest, ReleaseSafe)
+riscv64-test
+wasm
+DCO
+```
+
+Two GitHub behaviours govern anything that makes CI do less work, and they
+point in opposite directions:
+
+1. A workflow that does not run **never reports**. Its checks sit
+   *"Expected — Waiting for status to be reported"* and the PR is
+   permanently unmergeable.
+2. A job that is skipped **reports Success** — GitHub's words: *"A job that
+   is skipped will report its status as 'Success'. It will not prevent a
+   pull request from merging, even if it is a required check."*
+
+So workflow-level `paths:`/`paths-ignore:` is unusable in `ci.yml`: it
+triggers (1). `benchmark-pr.yml` uses `paths:` safely only because none of
+its checks is required.
+
+The usable shape is a job-level `if:`, which skips the work *and* satisfies
+the check. But (2) is a loaded gun. A job whose `needs` **failed** is also
+skipped, and therefore also reports Success — so a dedicated gate job that
+errors would turn every heavy required context green with nothing built, on
+a branch that requires no approving review.
+
+`ci.yml` therefore computes its changed-path classification **inside
+`format`**, which is both a required context and every heavy job's `needs`.
+A broken classifier is then a red required check, not a silent pass. Two
+supporting rules:
+
+- **Gate on `!= 'true'`, not `== 'false'`.** An empty or missing output must
+  fall through to running the matrix.
+- **Allowlist the inert paths** (`**/*.md`, `docs/**`, `LICENSE`); never
+  denylist code. A path nobody anticipated has to default to running CI.
+  `.github/workflows/**` is the thing under test and `.claude/**` holds
+  executable hooks, so neither is inert — but markdown under either is,
+  because nothing in CI reads a `.md` file's contents.
+
+Jobs downstream of a gated job (`windows-*-test` via `windows-cross`,
+`coverage`/`benchmark` via `test`) inherit the skip and need no `if:` of
+their own.
+
+**When adding a required context, gate it the same way or not at all.** A
+new required job that always runs is safe; a new required job gated on a
+condition that can never be satisfied repeats the #1728 deadlock from the
+other side.
