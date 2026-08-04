@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785828117694,
+  "lastUpdate": 1785864583786,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "cbbf0f94087cbaa7a6d1055f2cbb12fec58bff12",
-          "message": "Phase 1B: delimiter sweep — 494 cells, 382 splits, and a guard that has never executed (#1931)\n\n* Sweep trailing-delimiter checking across every numeric prefix\n\nR7RS 7.1.1 requires a number to end at a <delimiter> or end of input.\n`Reader.readNumber` (src/reader.zig:366) enforces that, but only for\nun-prefixed decimals: `readNumberPrefixed` (src/reader_tokens.zig:481)\ncalls the unguarded `reader_tokens.*` functions directly, so any `#`\nprefix at all disables the check and one token silently reads as two\ndatums.\n\nThe systematic 19x26 sweep (19 prefix spellings x 26 trailing characters)\nsplits 382 of 494 cells; all 26 un-prefixed cells are correct, which is\nthe control axis. `string->number` rejects every failing cell, so each\ndisabled assertion is paired with an enabled oracle assertion. Chibi 0.12\nand Guile 3 raise on all of them too.\n\n148 assertions pass; 58 are disabled (55 under #1892, 3 under TBD for two\nnon-delimiter reader/string->number divergences the same sweep surfaced).\nThe enabled groups also pin the syntax a fix must not regress: SRFI 270\nhex floats, SRFI 169 digit separators, rationals, complex tails, and hex\n`e`/`d` as digits rather than exponent markers.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Point delimiter FAIL markers at #1929\n\n#1892 reported the radix-prefix case; the sweep showed one bypassed call\nsite produces all 382 failing cells across every prefix spelling, so the\nmarkers name the wider issue that a fix will actually close.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-31T19:40:15+05:30",
-          "tree_id": "f355651720339ada74bc4939f6ba72a5663ff21d",
-          "url": "https://github.com/kaappi/kaappi/commit/cbbf0f94087cbaa7a6d1055f2cbb12fec58bff12"
-        },
-        "date": 1785509664474,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.358727,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.57382,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.5796,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.009405,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004694,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047051,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.319169,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057043,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.636414,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.230923,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.61636,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.276379,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.804693,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.58907,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042981,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044893,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d717d0b4d8e34df2e8dcc8b2fa55e8d533e78d54",
+          "message": "Stop two shell drivers tripping over the .exe suffix (#2220)\n\n* Stop two shell drivers tripping over the .exe suffix\n\nFound running the whole of tests/scheme/**/*.sh on the Windows 11 ARM64\nreference VM. Neither script is reached by the Windows CI loop — it iterates a\nfixed list of eleven suite directories, and completions/ is not among them —\nso both had been failing there unobserved. The behaviour under test is fine in\neach case; only the harness was wrong.\n\ncompletions.sh generated its scripts into $TMP/$(basename \"$bin\").$shell and\nthen went on sourcing a hardcoded $TMP/kaappi.bash. On Windows the binary is\nkaappi.exe, so it wrote kaappi.exe.bash and every reader missed: 19 of 39\nchecks failed with \"No such file or directory\" and \"_kaappi: command not\nfound\". The generated names are now keyed to the *tool* — kaappi, thottam —\nwhich is the one spelling stable across platforms and across however the\ncaller spelled the binary. §2's loop already iterated tool names; its variable\nis renamed from bin to tool so it stops reading like a path.\n\nThe suffix is worth naming as a class, because it is invisible from POSIX and\nhalf-invisible from Windows. Runners spell the binary both ways: bin/kaappi.exe\nin the CI jobs, plain zig-out/bin/kaappi from a Git Bash checkout — and the\nbare spelling *works*, because MSYS appends .exe when executing. So a script\nthat only ever runs the result is fine; one that names the file, -x-tests it,\nor derives an output name from its basename is not. That is why THOTTAM, built\nas \"$(dirname \"$KAAPPI\")/thottam\", executed correctly on the box while the\nkaappi half of the same suite was failing. New shell-common.sh helper\nsibling_tool takes the suffix from the path the caller passed rather than from\nis_windows, so the two cannot drift apart.\n\naudit-baseline.sh moves to tools/. It is a developer report generator, not a\ntest: it drives `zig build` and takes an *output directory* as $1, the opposite\nof every driver under tests/scheme/, which takes the kaappi binary there.\nrun-all.sh never ran it — run_shell_suite globs a suite directory and no call\npasses tests/scheme itself — but any sweep of tests/scheme/**/*.sh picks it up,\nhands it the binary path, and gets `mkdir -p zig-out/bin/kaappi.exe` followed\nby a summary grep against a path that is not a directory. Living in tools/,\nbeside run-r7rs-suite.sh and run-gc-stress-suite.sh, makes that unreachable\nrather than merely unlikely. Its four references are updated in step.\n\nVerified on the win11 box, both spellings of the binary: completions.sh goes\nfrom 20 pass / 19 fail to 39 pass / 0 fail, exit 0. On macOS it stays 41 pass /\n0 fail (two more than Windows: zsh and fish are installed, so their -n gates\nrun). Full run-all.sh clean.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Run the four uncovered shell suites on Windows too\n\ncompletions, lsp, thottam and differential were outside the Windows CI\nloop's directory list. That list is a hand-maintained enumeration in two\nplaces in ci.yml rather than a glob, so a suite wired into run-all.sh is\ncovered on every platform except this one until someone edits both loops\n— and nothing says so out loud. completions/completions.sh had been\nfailing there the whole time, 19 of its 39 checks, seen only when\nsomebody swept tests/scheme/**/*.sh on the reference VM by hand.\n\nMeasured on that VM before wiring them in, because these run on every\nPR. The exact new list gives 46 pass, 0 fail, 28 skip (25 compile/\ngates, profile-json-escaping.sh, thottam-lifecycle.sh,\nrun-wasm-differential.sh — the last two are the newcomers' own skips:\ngit fixtures at POSIX paths, and no wasmtime on the runners).\n\ndifferential/run-differential.sh is the one real cost at ~9 minutes,\nagainst jobs that currently finish in about 6 and are capped at 40 and\n45. That roughly triples the step and still leaves most of the budget;\nit earns its place because cold-vs-warm .sbc cache agreement is exactly\nthe kind of thing a platform's path handling breaks.\n\nwindows.md now states the keep-in-step rule where the list is described,\nand its verification record is re-measured rather than adjusted: 46/0/28\non build 26200. The older 34/15/0 line is left as the point-in-time\nrecord it was, with the framing corrected so it no longer claims to\ndescribe the current CI set.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-04T22:26:27+05:30",
+          "tree_id": "fbd02753ca25bb8d1e665855658c263bb5a4bf25",
+          "url": "https://github.com/kaappi/kaappi/commit/d717d0b4d8e34df2e8dcc8b2fa55e8d533e78d54"
+        },
+        "date": 1785864582103,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.006302,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.222618,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.589212,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.858977,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005546,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.045183,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.298468,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054021,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.376192,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.166547,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.535739,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.304756,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.731238,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.839798,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046371,
             "unit": "seconds"
           }
         ]
