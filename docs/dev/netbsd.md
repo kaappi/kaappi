@@ -145,7 +145,7 @@ clang. Two accommodations:
   base libc/libm/libpthread; `kaappi doctor`'s smoke-link check confirms
   it per machine.
 
-The interpreter, thottam, REPL (full linenoise), FFI, and SRFI-170 need no
+The interpreter, thottam, REPL (full isocline), FFI, and SRFI-170 need no
 packages beyond the base system.
 
 ## cond-expand / (features)

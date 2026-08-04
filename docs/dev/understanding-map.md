@@ -170,7 +170,8 @@ the leakiness measurement.
 | thottam (`src/thottam.zig`) | CLI contract + end-to-end install flows; blast radius contained to `~/.kaappi` | |
 | Reader lexical syntax (`src/reader*.zig`) | R7RS §7.1 formal grammar + compliance tests | Borderline — see below |
 | Bignum arithmetic (`src/bignum.zig`) | Audit tests against mathematical ground truth | #1414 lived here, but it was a GC-rule violation, not an arithmetic one |
-| Vendored + generated (`vendor/linenoise/`, `src/unicode_tables.zig`) | Upstream project / the generator | Never hand-edit |
+| Generated (`src/unicode_tables.zig`) | The generator | Never hand-edit |
+| Vendored (`vendor/isocline/`) | Upstream project | Patched — every local change is marked `KAAPPI PATCH` and documented in `vendor/isocline/PATCHES.md`. Re-apply on update; do not edit casually. |
 
 Anything unlisted defaults to fenced-if-tested. Being repeatedly surprised
 by an unlisted area is evidence for promotion — change this map in the

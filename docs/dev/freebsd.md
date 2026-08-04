@@ -20,7 +20,7 @@ Nothing else changed: `platform.zig`'s non-Linux fallthroughs
 (`std.c.fstatat`, `arc4random`, …) are plain POSIX that FreeBSD provides
 natively (the `.linux` blocks are statx/getrandom fast paths, not
 requirements); `dl_suffixes` already tries `.so`; thottam takes the
-`.so`/`$HOME` paths, including `build:` manifests; linenoise (termios)
+`.so`/`$HOME` paths, including `build:` manifests; isocline (termios)
 works, so the REPL is the full one — history, editing, completion.
 SRFI-170 is complete (uid/gid, symlinks, user/group info — the POSIX
 slice Windows refuses).

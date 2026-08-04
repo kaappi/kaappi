@@ -166,7 +166,7 @@ fn isBufferedFdPort(port: *types.Port) bool {
 /// Lazily flips the port's fd to O_NONBLOCK the first time it is used while
 /// a fiber scheduler exists — the precondition for any reactor wait to
 /// engage. Never touches fd 0/1/2: those share their open file description
-/// with the shell/terminal (and linenoise reads fd 0 directly in REPL
+/// with the shell/terminal (and isocline reads fd 0 directly in REPL
 /// mode), so flipping them would leak non-blocking mode outside this
 /// process. Without a scheduler nothing is flipped and sequential programs
 /// keep blocking fds. Pub only for tests_port_io's guard checks.

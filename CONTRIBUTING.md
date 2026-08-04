@@ -18,7 +18,7 @@ build/test/PR workflow specifically.
 
 - **Zig 0.16+** -- download from [ziglang.org/download](https://ziglang.org/download/)
   or `brew install zig` on macOS
-- **C toolchain** -- GCC or Clang (for building the vendored linenoise library)
+- **C toolchain** -- GCC or Clang (for building the vendored isocline library)
 - **Git**
 
 ## Getting Started

@@ -26,7 +26,7 @@ pub const primitives_r7rs = @import("primitives_r7rs.zig");
 pub const printer = @import("printer.zig");
 pub const expander = @import("expander.zig");
 pub const library = @import("library.zig");
-pub const ln = if (is_wasm or builtin_os.tag == .windows) struct {} else @import("linenoise.zig");
+pub const ic = if (is_wasm or builtin_os.tag == .windows) struct {} else @import("isocline.zig");
 pub const ffi = @import("ffi.zig");
 pub const primitives_ffi = @import("primitives_ffi.zig");
 pub const primitives_srfi1 = @import("primitives_srfi1.zig");
@@ -1253,7 +1253,7 @@ test {
     _ = printer;
     _ = expander;
     _ = library;
-    _ = ln;
+    _ = ic;
     _ = ffi;
     _ = primitives_ffi;
     _ = primitives_srfi1;

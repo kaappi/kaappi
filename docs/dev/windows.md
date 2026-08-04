@@ -206,9 +206,11 @@ The issue's stage-2 question — do pipes/files justify a completion-based
   libraries, so thottam errors clearly instead — pure-Scheme packages
   (most of the ecosystem) have no `build:` line and install fine. Needs
   Git for Windows on PATH, like every git operation.
-* **REPL** uses a plain prompt + line reader (linenoise is termios-only):
-  the full REPL loop — debug commands, multi-line input, themes — works,
-  without history/completion/editing.
+* **REPL** is fully featured. isocline drives the Windows console API
+  directly (`term.c`/`tty.c` switch on `_WIN32`), so editing, history,
+  tab completion, syntax highlighting, and multi-line forms all work —
+  the same experience as on POSIX. Before 0.23 this platform got a plain
+  prompt + line reader, because linenoise is termios-only.
 
 ## cond-expand / (features)
 

@@ -10,7 +10,7 @@ below names the document that owns it. `docs/dev/README.md` is the full index.
 
 ```bash
 zig build                          # build executable (zig-out/bin/kaappi)
-zig build run                      # launch REPL (linenoise: arrow keys, history, tab completion)
+zig build run                      # launch REPL (isocline: multi-line editing, history, completion)
 zig build run -- f.scm             # run a Scheme file
 zig build test                     # run all unit tests
 zig build test -Dtest-filter=tests_io  # only tests whose NAMES match (repeatable)
@@ -24,7 +24,7 @@ zig build -Dbundle=program.sbc     # standalone binary from pre-compiled .sbc
 zig build wasm                     # WebAssembly binary (wasm32-wasi)
 ```
 
-Requires Zig 0.16+ and libc (for linenoise terminal handling).
+Requires Zig 0.16+ and libc (for isocline terminal handling).
 
 Builds default to **ReleaseSafe** (fast, bounds/safety checks retained; fixnum
 overflow auto-promotes to bignum). Debug is ~500x slower for allocation- and
@@ -383,9 +383,20 @@ library and vendored code are excluded).
 
 ## Dependencies
 
-**linenoise** (vendored in `vendor/linenoise/`): BSD-licensed C library for
-REPL line editing, history, and tab completion. Compiled as part of the Zig
-build.
+**isocline** (vendored in `vendor/isocline/`): MIT-licensed C library for REPL
+line editing, history, completion, and syntax highlighting, on POSIX *and*
+Windows. Compiled as part of the Zig build — `src/isocline.c` `#include`s the
+other translation units, so it is one C file to the build system.
+
+It holds a whole form in one buffer, which is why `repl.zig` no longer joins
+continuation lines: `ic_readline` returns a finished expression, newlines
+included, and every line of it stays editable until submit.
+
+**The copy is patched** — two changes, each marked `KAAPPI PATCH` in the source
+and documented in `vendor/isocline/PATCHES.md`: an input-completeness callback
+(upstream's Enter always submits) and a configurable history size (upstream
+caps at 200). Re-apply both when updating; `grep -rn 'KAAPPI PATCH'
+vendor/isocline/` finds every site.
 
 ## Package manager (thottam)
 
