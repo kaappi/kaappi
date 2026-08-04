@@ -137,7 +137,7 @@ These exact patterns are in the `allow` array:
 | `Bash(sudo *)` | No privilege escalation |
 | `Bash(git push*--force*)` | Remote history protection |
 | `Read(.env*)` | Secrets protection |
-| `Write(.git/**)` | Repository integrity |
+| `Edit(.git/**)` | Repository integrity |
 
 ### Ask (empty)
 
@@ -158,8 +158,8 @@ matter inside each rule file (not in `settings.json`).
 
 Loaded when editing GC-sensitive code (the primitives files, the GC core and
 its gc_alloc/gc_collect/gc_sweep/gc_deep_copy satellites, the VM files, and
-the compiler/expander files, which do GC-sensitive rooting directly).
-Enforces three rules:
+the compiler/expander files, which do GC-sensitive rooting directly). The
+headline rules:
 
 1. **Write barrier required** — call `gc.writeBarrier(container, new_val)`
    after storing a Value into a heap object field. Missing barriers corrupt the
@@ -174,27 +174,49 @@ Enforces three rules:
 3. **Root Function\* before vm.execute()** — `execute()` allocates a closure
    wrapper internally, so unrooted Function pointers can be collected.
 
-Includes a dangerous/safe code example and a stress-test tip
-(`-Dgc-threshold=1` forces GC on every allocation).
+4. **`popRoot()` is LIFO, not per-variable** — a `defer gc.popRoot()` is only
+   safe when nothing else can push to the same stack before it fires. The rule
+   carries a worked instance where a deferred pop removed the wrong root and
+   surfaced much later as a baffling "invalid syntax" error.
+
+5. **Tag a `gc_instance`/`vm_instance` guard by what the function was going to
+   return anyway** — `OutOfMemory` for an allocator, the helper's own tag for
+   an error-message helper, `InvalidBytecode` for everything else.
+
+It also covers what the allocators root for you, the error-path root-stack
+reset at the pipeline boundaries (#1855), injecting an OOM with
+`gc.oom_countdown`, dangerous/safe code examples, and the stress-test lever
+(`-Dgc-stress=true` forces a collection on every allocation).
+[gc-safety-and-error-handling.md](gc-safety-and-error-handling.md) is the full
+rationale the rule condenses.
 
 ### `compiler-forms.md`
 
 **Globs:** `src/compiler*.zig`, `src/ir.zig`, `src/tests_ir.zig`
 
-Loaded when editing compiler or IR code (main compiler, 4 sub-modules,
-re-export hub, IR module, IR tests). Provides a 6-step checklist for adding a
-new compiler form:
+Loaded when editing compiler or IR code (the main compiler, its nine
+sub-modules, the IR module, and the IR tests). It splits the checklist by which
+kind of form you are adding, because the two cost wildly different amounts:
 
-1. Add IR node type in `ir.zig` — variant in `NodeTag`, `Data` union variant,
-   lowering in `lowerFormWithMacros()`/`lowerForm()`, handle in all 3 analysis
-   pass switch arms and all 5 optimization pass switch arms.
-2. Add dispatch in `compileFromNode()` in `compiler.zig`.
-3. Implement in the appropriate `compiler_*.zig` file.
-4. Re-export through `compiler_forms.zig`.
-5. Add IR tests in `tests_ir.zig` — bytecode parity with the legacy
-   `compileExpr()` path.
-6. Handle tail position — pass `tail=true` to sub-expressions that should
-   receive tail call optimization.
+**A delegating form** — the common case, ~4 edits. The form keeps its tail as a
+raw S-expression and rides the single `sexpr_form` node: add a `FormKind`
+variant with its `keyword()`, add the `sexpr_form_map` entry, add a dispatch
+arm in `compileFromNode()` (`compiler_ir.zig`), implement it in the right
+`compiler_*.zig` and re-export through `compiler_forms.zig`, then add IR
+behavioral tests. Nothing in `NodeTag`, `freeNode`, the analysis pass, or the
+five optimization passes needs touching — they all handle `.sexpr_form`
+through `else` arms.
+
+**A structured form** — 7 steps, for forms that lower into IR-level children
+like `if` and `when`: `NodeTag` variant and `Data` union field, lowering in
+`lowerFormWithMacros()` plus a `makeXxx()` constructor, a `freeNode` arm if it
+owns heap slices, a `markTailPositions` arm with the right tail propagation, an
+`llvm_node_table` entry with its capability, dispatch, then implement and test.
+
+Notably absent, and deliberately: there is no bytecode-parity test group any
+more. It compared `ir.zig`'s standalone `Emitter` against the direct compiler
+path, and that emitter was removed in v0.13.0 — `compileFromNode()` is now the
+only IR-to-bytecode path.
 
 ## Skills
 
@@ -203,17 +225,26 @@ Skills are slash-command workflows defined as Markdown files in
 
 ### `/add-builtin`
 
-Guides adding a new built-in Scheme procedure. Steps: write the function in
-the appropriate `primitives_*.zig` file with the standard signature, register
-it in the file's `registerXxx` function with correct arity (`.exact` or
-`.variadic`), add to library exports in `library.zig`.
+Guides adding a new built-in Scheme procedure. Steps: write the function in the
+appropriate `primitives_*.zig` domain file with the standard signature, report
+type errors through `primitives.typeError` rather than a bare
+`PrimitiveError.TypeError`, then add **one** entry to that file's `specs`
+table carrying name, function, arity and exporting libraries.
+
+The single-registration-point part is the bit worth internalizing: there is no
+second list and no manual `reg()` call. `registerAll` walks `all_specs`, and
+`library.zig` derives every export set from the same `libs` tags, so a spec
+entry is the whole registration. A `%`-prefixed internal helper takes
+`primitives.INTERNAL` instead — registered in `vm.globals`, exported by
+nothing, so it does not reserve the name against user libraries (kaappi#1856).
+[adding-features.md](adding-features.md) is the long-form reference.
 
 ### `/audit-primitives`
 
 Audits a primitives file for R7RS correctness. Takes a filename argument
 (e.g., `primitives_arithmetic.zig`). Five-step workflow:
 
-1. Extract all procedures registered with `try reg(vm, ...)`.
+1. List every entry in the file's `specs` table (the single registration point).
 2. Cross-reference against R7RS sections 6.1–6.14 — check correct behavior,
    type errors, boundary conditions, higher-order callbacks, optional args.
 3. Write test file at `tests/scheme/audit/<basename>-audit.scm`.
@@ -299,6 +330,16 @@ architectures:
 | riscv64 | Cross-compile, run in RISC-V container via QEMU | ~5 min |
 
 Uses `kaappi-builder` Docker images from `ci-images/builder/`.
+
+### `/vm-test`
+
+Powers on one of the local UTM virtual machines via `utmctl` and runs the build
+and test battery on it over SSH. These VMs are the reference machines for the
+OS/architecture ports — FreeBSD, OpenBSD, NetBSD, Windows, and the s390x and
+ppc64le Alpine guests — so this is the way to reproduce a CI failure on a real
+guest rather than an emulated cross-compile. Complements `/linux-test`
+(podman) and `/do-linux-test` (DigitalOcean) with the local fleet; the per-OS
+particulars are in [porting.md](porting.md) and the four BSD/Windows docs.
 
 ### `/do-linux-test`
 
@@ -393,10 +434,11 @@ The plugin manifest lives at `infra/.claude-plugin/plugin.json`.
 
 | Skill | Purpose |
 |-------|---------|
-| `/kaappi-dev:test-ecosystem` | Run tests for one or all 16 ecosystem libraries against the local kaappi binary |
-| `/kaappi-dev:repo-status` | Git status dashboard across all 24 repos (branch, dirty files, ahead/behind, CI) |
+| `/kaappi-dev:test-ecosystem` | Run tests for one or all 20 ecosystem libraries against the local kaappi binary |
+| `/kaappi-dev:repo-status` | Git status dashboard across all repos (branch, dirty files, ahead/behind, CI) |
 | `/kaappi-dev:ci-check` | GitHub Actions status across all repos plus nightly workflow |
-| `/kaappi-dev:pull-all` | Fetch and rebase all 24 repos on `origin/main` |
+| `/kaappi-dev:pull-all` | Fetch and rebase every repo on `origin/main` |
+| `/kaappi-dev:new-ecosystem-lib` | Scaffold a new `kaappi-*` library with the standard layout, CI, and tests (`--ffi`, `--depends`) |
 | `/kaappi-dev:release-ecosystem` | Cut a release for an ecosystem library (version bump, changelog, tag, push) |
 | `/kaappi-dev:coverage-report` | Procedure-level `--coverage` across all ecosystem libs, highlights <80% |
 
@@ -425,8 +467,9 @@ Reports issues by severity: error, warning, suggestion.
 
 The `infra/` repo also contains non-plugin resources:
 
-- `repos.json` — inventory of all 24 repos with categories and expected files
-- `labels.json` — 10 standard GitHub labels synced across all repos
+- `repos.json` — inventory of all 27 repos with categories and expected files
+  (20 ecosystem, 3 meta, plus core, tooling, infra and docs)
+- `labels.json` — the standard GitHub labels synced across all repos
 - `scripts/` — Kaappi Scheme scripts for repo auditing and license generation
 - `docs/` — repo conventions, CI architecture, and release process docs
 - `.github/workflows/sync-labels.yml` — syncs labels to all org repos

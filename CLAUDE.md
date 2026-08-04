@@ -166,7 +166,7 @@ single word with zero heap allocation:
 - **0xFFFE | payload**: immediate (nil, true, false, void, eof, char with 21-bit codepoint)
 
 Heap objects share an `Object` header with `ObjectTag` (u6, 64 slots), GC mark
-bit, generation (u1), and survive count (u2) — 36 types.
+bit, generation (u1), and survive count (u2) — 41 types.
 
 ### Strings
 
@@ -207,7 +207,8 @@ resolved relative to the `.sld`), and `(export (rename ...))` in
   library**; several carry hard-won constraints that are invisible from the
   code.
 - **`docs/dev/srfi-exclusions.md`** — the 30 excluded SRFIs, one section each.
-- **`docs/dev/srfi-status-check.md`** — re-deriving the counts.
+- **`docs/dev/srfi-status-check.md`** — the CI guard that fails if a shipped
+  SRFI is `draft` or `withdrawn`, and how it re-derives the set from the binary.
 
 ## Zig 0.16 patterns
 
@@ -467,7 +468,7 @@ Path-scoped rules in `.claude/rules/` load automatically:
 Skills in `.claude/skills/`: `/add-builtin`, `/audit-primitives`,
 `/bytecode-isa`, `/github-release`, `/create-announcement`, `/r7rs-reader`,
 `/linux-test`, `/do-linux-test`, `/do-stress-test`, `/do-gate-benchmark`,
-`/parallel-issues`, `/quiz`. The `infra/` repo additionally hosts the
+`/parallel-issues`, `/quiz`, `/vm-test`. The `infra/` repo additionally hosts the
 `kaappi-dev` plugin (ecosystem-wide skills, a bash guard, an
 `ecosystem-reviewer` agent), loaded from the workspace-level settings.
 

@@ -14,8 +14,9 @@ string-set!, record field mutation):
 
 - **Root before allocating**: if you hold a pointer to a heap object and then
   allocate (which may trigger GC), root the value first with
-  `gc.pushRoot(&val)` / `gc.popRoot()`. `pushRoot` is infallible (panics on
-  overflow at 1024 slots) — no `try` or `catch` needed.
+  `gc.pushRoot(&val)` / `gc.popRoot()`. `pushRoot` is infallible — the root
+  buffer grows geometrically and only panics on exceeding
+  `GC.MAX_ROOT_CAPACITY` (65536), so no `try` or `catch` is needed.
 
 - **Allocator Value arguments are auto-rooted**: `allocPair(car, cdr)` and
   other `allocXxx` functions that take Value arguments root them internally

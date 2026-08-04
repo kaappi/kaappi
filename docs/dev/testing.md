@@ -21,7 +21,8 @@ All must pass before any change is considered complete.
 
 ### Location
 
-Unit tests live in `src/tests_*.zig`, organized by feature:
+Unit tests live in `src/tests_*.zig`, organized by feature. There are ~50 of
+them; the ones below are the entry points you are most likely to want:
 
 | File | Coverage |
 |------|----------|
@@ -37,7 +38,7 @@ Unit tests live in `src/tests_*.zig`, organized by feature:
 | `tests_continuations.zig` | Continuations (call/cc, dynamic-wind) |
 | `tests_advanced.zig` | Advanced R7RS features |
 | `tests_filesystem.zig` | SRFI-170 filesystem operations |
-| `tests_ir.zig` | IR lowering, analysis passes, optimization passes, bytecode parity |
+| `tests_ir.zig` | IR lowering, the analysis pass, optimization passes, behavioral correctness |
 | `tests_robustness.zig` | Edge cases and stress tests |
 
 ### Helper: makeTestVM
@@ -147,27 +148,45 @@ Scheme tests live in `tests/scheme/`, organized by purpose:
 
 ```text
 tests/scheme/
+  CLAUDE.md         Directory layout rules + the verdict-channel inventory
   r7rs/             R7RS test suite (1,395 tests via chibi test)
     r7rs-tests.scm  Canonical suite — imports (chibi test)
-  smoke/            Quick sanity checks
-    basic.scm       Arithmetic, if, define, lambda, pairs
-    tail-calls.scm  Proper tail recursion
-    derived.scm     and/or/when/unless/cond/do/case/let*
-    numeric.scm     Flonums, inf/nan, mixed arithmetic
-    macros.scm      syntax-rules, ellipsis, hygiene
-    libraries.scm   import/only/rename/prefix
+
+  # .scm suites (globbed by run-all.sh, one fresh interpreter per file)
+  smoke/            Quick sanity checks (basic, tail-calls, derived, numeric,
+                    macros, libraries) plus per-issue regressions
   compliance/       Targeted conformance tests by topic
-    strings.scm, vectors.scm, chars.scm, unicode.scm, etc.
+                    (strings.scm, vectors.scm, chars.scm, unicode.scm, …)
   continuations/    Advanced call/cc and call/ec edge cases
   hygiene/          Macro hygiene edge cases
   srfi/             SRFI library tests
-  ffi/              C FFI tests
+  ffi/              C FFI tests (+ fixtures/ built on the fly by run-all.sh)
   audit/            Primitives correctness audits
-  errors/           Error message format regression tests
-  robustness/       Malformed and adversarial input handling
-  sandbox/          Sandbox escape prevention tests
+
+  # shell suites (each directory's *.sh, run in parallel)
+  errors/           Error format, diagnostics JSON, exit codes, crash handler
+  compile/          Native tier — the only suite that runs `kaappi compile`
+  test-runner/      `kaappi test`: discovery, --json, --seed, --jobs
+  pipeline/         `kaappi ast` / `expand` / `ir` dumps
+  doctor/ fmt/ cache/ timings/ completions/ lsp/ thottam/
+                    One per CLI subcommand or tool surface
+  differential/     Execution-tier differential (opt-off, warm cache, WASM)
+
+  # not run by run-all.sh
+  robustness/       Malformed and adversarial input handling (its own .sh)
+  sandbox/          Sandbox escape prevention (its own .sh)
+  bench/ coverage/  Deliberately skipped by run-all.sh
+
   run-all.sh        Run all suites with summary
+  shell-common.sh   Shared helpers for the .sh suites
 ```
+
+Two structural checks run before any suite. **Reachability** fails the run if a
+file containing `test-begin` sits in a suite *subdirectory*, where the
+non-recursive globs cannot see it — that is how `tests/scheme/srfi/slow/` hid
+two full SRFI 257 suites for eleven days (kaappi#1900). **Verdict-channel**
+fails it if a globbed file contains none of `test-begin`, `(exit`, `(error` or
+`(assert`; see "Do not write a test that prints its answer" below.
 
 ### Running
 
@@ -274,14 +293,29 @@ conversions); keep any count here in step with it.
 
 ## Shell-Based Test Suites
 
-Three shell scripts test behaviors that are easier to verify from outside
-the interpreter:
+Roughly sixty shell scripts test behaviors that are easier to verify from
+outside the interpreter — exit codes, stderr text, subcommand output, native
+compilation. Most live in a per-topic directory that `run-all.sh` picks up
+wholesale via `run_shell_suite` (see the tree above); each sources
+`tests/scheme/shell-common.sh` for the shared assertion helpers.
+
+### Compile (`tests/scheme/compile/*.sh`)
+
+The native tier's only test surface. A `.scm` regression test is
+interpreter-only evidence: it never reaches `kaappi compile`, and three of them
+passed for years while the native backend failed them. Any fix touching the
+LLVM backend belongs here.
+
+```bash
+bash tests/scheme/compile/native-lexical-scope-fold-2117-2118.sh
+```
 
 ### Robustness (`tests/scheme/robustness/robustness.sh`)
 
-Tests that malformed, adversarial, or extreme inputs produce clean errors
-rather than panics or crashes. Uses `assert_error` (must produce `error:`)
-and `assert_no_crash` (must not exit by signal) helpers.
+Not wired into `run-all.sh` — CI invokes it directly. Tests that malformed,
+adversarial, or extreme inputs produce clean errors rather than panics or
+crashes. Uses `assert_error` (must produce `error:`) and `assert_no_crash`
+(must not exit by signal) helpers.
 
 ```bash
 bash tests/scheme/robustness/robustness.sh
@@ -289,10 +323,10 @@ bash tests/scheme/robustness/robustness.sh
 
 ### Sandbox escape (`tests/scheme/sandbox/sandbox-escape.sh`)
 
-Verifies that `--sandbox` mode blocks all restricted operations (FFI,
-file I/O, eval, load, environment access) while allowing safe operations
-(arithmetic, string ports, hash tables). Uses `assert_blocked` and
-`assert_works` helpers.
+Also invoked directly by CI rather than through `run-all.sh`. Verifies that
+`--sandbox` mode blocks all restricted operations (FFI, file I/O, eval, load,
+environment access) while allowing safe operations (arithmetic, string ports,
+hash tables). Uses `assert_blocked` and `assert_works` helpers.
 
 ```bash
 bash tests/scheme/sandbox/sandbox-escape.sh
@@ -300,6 +334,7 @@ bash tests/scheme/sandbox/sandbox-escape.sh
 
 ### Error format (`tests/scheme/errors/error-format.sh`)
 
+One of the `errors/` suite's scripts, so `run-all.sh` already covers it.
 Checks that error messages include proper `file:line` location info for
 reader, compile, and runtime errors.
 
@@ -307,7 +342,7 @@ reader, compile, and runtime errors.
 bash tests/scheme/errors/error-format.sh
 ```
 
-All three are run by CI on every push and pull request.
+CI runs all of these on every push and pull request.
 
 ---
 
@@ -324,8 +359,8 @@ Tests live in `tests/acceptance/`:
 
 | File | Purpose |
 |------|---------|
-| `acceptance.sh` | 34 tests: version, arithmetic, data structures, Unicode, library imports, file execution, tail calls, closures, continuations, error handling, sandbox, thottam |
-| `test-wasm.sh` | 14 WASM-specific tests via wasmtime (no FFI) |
+| `acceptance.sh` | ~36 assertions: version, arithmetic, data structures, Unicode, library imports, file execution, tail calls, closures, continuations, error handling, sandbox, thottam |
+| `test-wasm.sh` | ~13 WASM-specific assertions via wasmtime (no FFI) |
 | `hello.scm` | Minimal test program for file execution |
 
 ### Running locally
@@ -341,16 +376,18 @@ KAAPPI_WASM=./zig-out/bin/kaappi.wasm \
 ### CI workflow
 
 The `post-release.yml` workflow triggers automatically on `release: published`
-events. It runs 6 jobs in parallel:
+events. It runs these jobs in parallel, then a `summary` job that fails the run
+if any of them did:
 
 | Job | What it tests |
 |-----|--------------|
 | `test-macos` | macOS ARM release binary |
 | `test-linux-x86` | Linux x86_64 release binary |
 | `test-linux-arm` | Linux ARM release binary |
+| `test-windows-x64` | Windows x86_64 release binary |
 | `test-wasm` | WASM binary via wasmtime |
 | `test-checksums` | SHA256SUMS verification + GPG signature |
-| `test-install-script` | Full install script end-to-end |
+| `test-install-script` | The live install script from the docs repo, end to end |
 
 To trigger manually against an existing release:
 
@@ -519,13 +556,24 @@ matrix covers:
 
 | Job | Platforms | What it runs |
 |-----|-----------|-------------|
-| `format` | Ubuntu | `zig fmt --check`, TypeError regression baseline |
-| `test` | Ubuntu (x86, ARM), macOS | Unit tests, all Scheme suites, robustness, sandbox, error format, thottam integration |
+| `format` | Ubuntu | `zig fmt --check`, markdownlint, bare-`TypeError` ratchet (zero allowed) |
+| `test` | Ubuntu (x86, ARM), macOS | Unit tests, `run-all.sh`, robustness, sandbox, thottam integration, SRFI final-status guard |
+| `gc-stress` | Ubuntu | Unit suite under `-Dgc-stress=true` |
+| `gc-stress-scheme` | Ubuntu | Scheme suites under `-Dgc-stress=true` |
 | `riscv64-test` | Ubuntu (QEMU) | Cross-compiled unit tests + R7RS suite |
+| `s390x-test` | Ubuntu (QEMU) | Big-endian leg — the byte-order canary (kaappi#1654) |
+| `ppc64le-test` | Ubuntu (QEMU) | Cross-compiled unit tests + R7RS suite |
+| `freebsd-test`, `openbsd-test`, `netbsd-test` | Ubuntu (VM action) | Per-BSD build + tests; see the matching `docs/dev/<os>.md` |
+| `windows-cross` | Ubuntu | Cross-compile check for both Windows targets |
+| `windows-arm-test` | Windows 11 ARM | Native build + tests |
+| `windows-x64-test` | Windows x86_64 | Native build + tests |
 | `wasm` | Ubuntu | WASM build + wasmtime smoke test |
 | `coverage` | Ubuntu (push to main only) | kcov unit + Scheme coverage, Codecov upload |
 | `benchmark` | Ubuntu (push to main only) | Performance benchmarks, trend data to `gh-pages` |
-| `benchmark-pr` | Ubuntu (PRs, path-filtered) | PR vs base branch benchmark comparison |
+| `benchmark-pr` | Ubuntu (PRs, path-filtered) | PR vs base branch benchmark comparison (`benchmark-pr.yml`) |
+
+`fuzz.yml` runs the fuzz targets on a schedule — see
+[fuzzing.md](fuzzing.md).
 
 Post-release: `post-release.yml` runs automatically after each release,
 testing the actual published artifacts on all platforms.
@@ -542,24 +590,21 @@ identical output to the interpreter. They live in `tests/e2e/`:
 ```text
 tests/e2e/
   run-e2e.sh              Shell runner (BDD specs + native parity tests)
+  run-e2e.ps1             PowerShell equivalent for the Windows legs
   test-llvm-backend.scm   BDD specs using kaappi-bdd
-  programs/               Scheme programs compiled to native binaries
-    arithmetic.scm         Constant-folded addition
-    string.scm             String display
-    define.scm             Global variable binding
-    if-expr.scm            Conditional branching
-    lambda-basic.scm       Lambda and application
-    lambda-closure.scm     Closures with upvalues
-    nested-calls.scm       Non-foldable nested calls
-    and-or.scm             Short-circuit boolean logic
-    when-unless.scm        Conditional body execution
-    set-bang.scm           Variable mutation
-    let-binding.scm        Local bindings via kaappi_eval
-    import.scm             Library imports
-    symbol-eq.scm          Symbol identity in closures
-    quoted-list.scm        Quoted list constants
-    macro.scm              User-defined macros
+  test-argv.scm           Command-line argument handling in a native binary
+  programs/               ~37 Scheme programs compiled to native binaries,
+                          covering the language surface the backend emits
+                          directly (arithmetic, closures, captures, variadic
+                          and mutual tail calls, cond/case/do, guard, call/cc)
+                          plus the cache and fallback paths
 ```
+
+Each program is run through the interpreter and through a compiled binary; any
+output difference is a failure. Adding one is the cheapest way to pin a native
+codegen fix — but note that a bug reproducible only through `kaappi compile`
+with a *specific* flag or import belongs in `tests/scheme/compile/*.sh`
+instead, where the invocation itself is part of the test.
 
 ### Running
 
@@ -590,4 +635,6 @@ When making changes, verify:
 4. `bash tests/scheme/run-all.sh` passes all suites
 5. New features have both Zig unit tests and Scheme integration tests
 6. Bug fixes include a regression test that fails without the fix
-7. No regressions in related areas
+7. Anything touching the native tier has a `tests/scheme/compile/*.sh` test —
+   a `.scm` file never reaches `kaappi compile` and so proves nothing about it
+8. No regressions in related areas
