@@ -29,6 +29,9 @@ investigation produced analysis worth keeping.
 | [netbsd.md](netbsd.md) | NetBSD port: the versioned-libc-symbol audit (`__kevent50`, `__opendir30`, `__getpwnam50`), the aarch64 FPCR flush-to-zero fix, no-swap OOM and default limits, pkgsrc clang for the native backend, the CI VM job |
 | [porting.md](porting.md) | Porting to a new OS or CPU architecture: the support matrix, where portability lives, the degradation ladder, staged checklists, what "supported" means |
 | [adding-features.md](adding-features.md) | Step-by-step guides for the most common extension tasks |
+| [fibers-and-reactor.md](fibers-and-reactor.md) | KEP-0001: the per-thread reactor, parking vs. driving in place, lazy non-blocking mode as the platform probe, write buffering |
+| [srfi-implementation-notes.md](srfi-implementation-notes.md) | How each non-trivial SRFI is implemented: what needed engine changes, resolved spec ambiguities, bugs each port surfaced |
+| [thottam.md](thottam.md) | The package manager: commands, `kaappi.pkg`, auto-discovery, the ecosystem library layout |
 | [testing.md](testing.md) | The four test layers, how to run them, where new tests go |
 | [performance.md](performance.md) | Investigating a slowdown: finding the stage vs. the caller, measuring before theorizing, trustworthy A/B protocol, benchmarking generated code |
 | [test-runner.md](test-runner.md) | `kaappi test`: the first-class SRFI-64 runner — discovery, worker subprocesses, `--json` schema, `--seed` |
@@ -43,7 +46,9 @@ investigation produced analysis worth keeping.
 | [features.md](features.md) | `kaappi features [--json]`: machine-readable capability discovery — version/build id, subsystems (the shared `cond-expand` table), SRFIs, limits |
 | [doctor.md](doctor.md) | `kaappi doctor`: installation/environment self-check — the checks, the exit-code contract, the native-backend smoke link |
 | [cache.md](cache.md) | The `.sbc` bytecode cache: what the key contains (source hash + build id), where entries live, what invalidates them, how to inspect/clear/bypass |
-| [cli-surface.md](cli-surface.md) | `src/cli_spec.zig`, the one flag table every parser, `--help`, and all six shell completion scripts are derived from — and the comptime gate that keeps them from drifting |
+| [check.md](check.md) | `kaappi check`: compile-only static analysis, the `KP4xxx` lint findings, `--deny-warnings` |
+| [timings.md](timings.md) | `--timings`: per-stage pipeline wall time and cache HIT/MISS, text or JSON |
+| [cli-surface.md](cli-surface.md) | The annotated flag/subcommand surface, plus `src/cli_spec.zig` — the one table every parser, `--help`, and all six shell completion scripts are derived from, and the comptime gate that keeps them from drifting |
 | [claude-code-harness.md](claude-code-harness.md) | Hooks, permissions, path-scoped rules, and skills for AI-assisted development |
 
 ## Design decisions
@@ -83,6 +88,8 @@ investigations.
 |----------|----------|
 | [ecosystem-library-bar.md](ecosystem-library-bar.md) | Quality bar for `kaappi-*` packages (applies ecosystem-wide, not just this repo) |
 | [github-issues.md](github-issues.md) | Issue tracker: the four label axes, the priority rubric (what separates critical from high), severity-vs-priority, the one-priority-per-open-issue invariant |
+| [srfi-exclusions.md](srfi-exclusions.md) | The 30 SRFIs deliberately not implemented, one section each, with the reason |
+| [srfi-status-check.md](srfi-status-check.md) | How to re-derive the SRFI counts after a release |
 | [understanding-map.md](understanding-map.md) | Where theory must live in a maintainer's head (core tier) vs. where a contract fences deliberate shallowness (fenced tier); the reification ladder; comprehension practices incl. `/quiz` |
 
 ## Adding a new document

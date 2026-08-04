@@ -15,6 +15,51 @@ whether it takes a value, or what it does reads that file:
 **Add a flag in one place and every one of those follows.** There is no second
 list to update and no golden file to regenerate.
 
+## The surface itself
+
+`kaappi --help` is generated from the table and is the authority. This is the
+annotated version — what each flag is *for*, and which document explains it.
+
+### Global flags
+
+| Flag | Notes |
+|------|-------|
+| `-h`/`--help`, `--version` | |
+| `--lib-path <path>` | Prepends to the library search path |
+| `--compile`, `-o <file>` | Compile to `.sbc`, or name the output |
+| `--disassemble` | |
+| `--no-ir-opt` | Disables the IR optimization passes, and skips the `.sbc` cache in **both** directions. Useful for miscompilation triage and `--disassemble` comparisons. The cache key folds in the git build id, so a rebuilt binary never serves the old binary's bytecode — the old "delete the cache before testing compiler changes" footgun is fixed (`cache.md`) |
+| `--sandbox` | Restricts filesystem and process access |
+| `--gc-stats`, `--profile` | |
+| `--timings[=text\|json]` | Per-stage pipeline wall time (read/expand/lower/optimize/emit/execute, plus native `llvm-emit`/`link`) and cache HIT/MISS + path, all on stderr. Disjoint self-timed stages, zero overhead when absent — `timings.md` |
+| `--coverage` | |
+| `--diagnostics=<text\|json>` | JSON Lines of LSP `Diagnostic` objects on stderr — `diagnostics-json.md` |
+| `--deny-warnings` | `check`-only: promotes lint warnings to errors |
+| `--completions <shell>` | |
+
+### Subcommands
+
+| Subcommand | What it does | Doc |
+|------------|--------------|-----|
+| `compile <file> [-o out]` | Compiles to a native binary via LLVM | `llvm-backend.md` |
+| `check <file>` | Compile-only static analysis — reads, expands, compiles, executes no program code (only the five `vm_eval.TopLevelHead.isEnvSetup()` declarations that later forms are compiled *against*, which `--compile` and `--disassemble` have shared since kaappi#2156). Reports read/compile errors plus the `KP4xxx` lint findings: unknown top-level variable (warning), arity or wrong-type-literal on direct built-in calls (errors). Honors `--diagnostics=json` and `--deny-warnings` | `check.md` |
+| `explain <code>` | Prints a diagnostic's reference entry | `explain.md` |
+| `features [--json]` | This build's capabilities — version + git build id, target triple, build mode, compiled-in subsystems (the KEP-0004 `cond-expand` identifiers, sharing `types.platform_features`), built-in vs portable SRFIs, initial VM/GC limits. All derived; no hardcoded second list | `features.md` |
+| `test [paths…]` | Runs SRFI-64 suites (`--json`, `--seed <n>`, `--lib-path`), aggregating from the runner's own counters. `-j`/`--jobs <n>` runs files concurrently (default one per CPU; Windows always 1) with verdicts and output order identical at any job count, since each file was already its own worker process. `--changed`/`--list-affected` (with `--since <rev>`) select only suites whose R7RS import closure changed, falling back to a loud full run when the graph can't be trusted | `test-runner.md` |
+| `ast\|expand\|ir <file>` | Read-only pipeline-stage dumps. `ast` prints post-read datums (`read`+`write`); `expand` prints the program after full macro expansion (round-trips); `ir` prints the IR tree (`--no-opt` = before the optimization passes). None executes program code | `observing-the-pipeline.md` |
+| `doctor [--json]` | Installation/environment self-check (binary, library search path, thottam state, native backend + smoke link, REPL, FFI), printing `PASS`/`WARN`/`FAIL` per check with a fix for each failure. Exit is nonzero only on `FAIL` | `doctor.md` |
+| `fmt [--check] files…` | The canonical, comment-preserving formatter: 2-space R7RS indentation, single-space separators, closing parens gathered, reflowed to 80 cols. Rewrites in place (or formats stdin to stdout); `--check` writes nothing and exits nonzero listing paths that need formatting. Every write is guarded by a real-reader `equal?` round-trip, so it can never change a program | `fmt.md` |
+| `cache status\|clear` | Inspects and wipes the central bytecode cache. `status` prints location, entry count, total size, and per entry the size, producing build id (current vs. stale) and source path. `clear` removes every entry — the supported way to wipe it, so you never need to know the path | `cache.md` |
+
+### Environment
+
+| Variable | Effect |
+|----------|--------|
+| `KAAPPI_LIB_DIR` | Overrides `libkaappi_rt.a` lookup |
+| `KAAPPI_HOME` (default `~/.kaappi`) | Locates the bytecode cache (`$KAAPPI_HOME/cache`), installed libraries, and REPL history |
+
+The version string is `pub const version` in `main.zig`.
+
 ## Why it exists
 
 The completion scripts used to be hand-written string literals parallel to the

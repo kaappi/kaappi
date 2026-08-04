@@ -261,7 +261,7 @@ keyword of its own, like named `let`, is instead detected structurally in its
 
 Adding a `FormKind` also enrolls the keyword in `eval_fallback_form_names`
 automatically, which is what keeps the LLVM backend's native/eval-fallback
-decision correct — see the note in the root `CLAUDE.md`.
+decision correct — see `llvm-backend.md`.
 
 ### 2. Add compilation dispatch
 
@@ -345,8 +345,8 @@ pub const MyType = struct {
 ```
 
 `src/types.zig` re-exports every heap type from a set of `types_*.zig`
-domain files (kaappi#1731 — see its own File organization table in
-`CLAUDE.md`) so existing `types.Foo` call sites work regardless of which
+domain files (kaappi#1731 — see the File organization table in
+`architecture.md`) so existing `types.Foo` call sites work regardless of which
 file defines `Foo`. Put the new struct in the matching domain file (e.g.
 an FFI type goes in `types_ffi.zig`) if one fits, or directly in
 `src/types.zig` if it's a core type or doesn't fit an existing domain. If
@@ -413,13 +413,23 @@ messages can name it.
 
 ### 6. Add display support
 
-In `src/printer.zig`, add a case for how the object should be printed:
+In `src/printer.zig`, add a case to `printValueOnce` for how the object should
+be printed:
 
 ```zig
 .my_type => {
     try writer.writeAll("#<my-type>");
 },
 ```
+
+**If the new arm recurses into contained Values, it must also join
+`isTraversable` and `childAt` in the same file, and push engine tasks instead
+of recursing.** A printed edge that cycle detection cannot see is exactly the
+four-procedure hang of kaappi#1954: the printer follows the edge forever
+because the shared-structure pass never learned the edge exists. Add a
+self-referential instance of the new type to the per-tag termination test in
+`src/tests_printer.zig` ("every traversable container…"), which is what makes
+the omission fail the build rather than hang a user's program.
 
 ### 7. Test
 

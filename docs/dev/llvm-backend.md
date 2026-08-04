@@ -96,6 +96,18 @@ zig build native -Dnative-src=program.scm            # all-in-one
 library references `__zig_probe_stack` and other Zig compiler-rt intrinsics
 that `clang` cannot resolve.
 
+### Where `kaappi compile` looks for `libkaappi_rt.a`
+
+In order: the `KAAPPI_LIB_DIR` environment variable, `<exe_dir>/../lib/`,
+`zig-out/lib/`, then `/usr/local/lib/`. It searches `PATH` for a C compiler
+(`zig cc`, `cc`, `clang`, `gcc`).
+
+`~/.kaappi/lib` is deliberately **not** on that list — it is thottam's
+Scheme-library and FFI-`dlopen` directory, so an archive placed there is
+invisible to `kaappi compile`. The install script therefore puts the archive in
+`<INSTALL_DIR>/../lib` (`~/.local/lib` by default), which lands on the
+`<exe_dir>/../lib` entry with no environment variable set.
+
 ## Optimization and IR verification
 
 The emitter produces deliberately naive IR and relies on LLVM to clean it up:
@@ -535,7 +547,15 @@ same name.
 The five keywords (then including `apply`) were missing because the
 `passthrough` **node** is `.capability = .native` in `llvm_node_table`, which
 is right for the one shape `emitPassthrough` compiles (a `(define (f …) …)`
-shorthand) and wrong for every other. They are contributed instead by
+shorthand) and wrong for every other.
+
+The set is **comptime-derived** and needs no maintenance: it walks
+`llvm_node_table`, then every `FormKind` field (skipping those
+`isNativeLoweredForm` accepts), then `other_special_forms` — so a new
+`FormKind` joins it automatically, and a comptime block enforces one
+`llvm_node_table` entry per `NodeTag`.
+
+The five keywords above are contributed by
 `ir.other_special_forms`, whose `bool` payload records exactly "an evaluated
 form headed by this keyword becomes a passthrough the interpreter runs".
 `else`, `=>`, `_`, `...`, `unquote`/`unquote-splicing` and the keywords
@@ -564,6 +584,46 @@ re-evaluates that whole scope as one unit and so keeps the bindings. Publishing
 the locals was the other option and is worse: a boxed local hits the same
 by-location problem as a boxed param (kaappi#1422), and both weaknesses above
 would extend to let-locals.
+
+### The second gate: `isRejectedFormHead` (kaappi#1896)
+
+`sexprNeedsEvalFallback` is not the only gate. `isRejectedFormHead`
+(`llvm_emit_forms.zig`) routes `cond`/`case`/`do` through
+`exprNativeEmittable`, and until kaappi#1896 it was a hand-maintained 32-name
+array structurally independent of the derived set. It had drifted by exactly
+one name: `define-property`.
+
+That was not theoretical. `define-property` is a *compile-time* form —
+`compileDefineProperty` evaluates its expression while the enclosing form is
+compiled — so a top-level
+
+```scheme
+(cond (#t (display "B") (define-property x k (begin (display "P") 1)) (display "C")))
+```
+
+printed `PBC` interpreted and `BPC` compiled: the `cond` was emitted natively
+and the registration left behind as a run-time `kaappi_eval`. `case` diverged
+the same way. `do` did not compile at all (`KP9001`), because `emitDo` installs
+loop-variable locals before reaching the deferred form and `emitFormEval`
+refuses to eval inside a lexical scope. The lexical-scope path was never at
+risk — `sexprNeedsEvalFallback` consults the *derived* set, so any enclosing
+`let`/`lambda` had already declined.
+
+The gate is derived now, and needs no maintenance:
+
+```text
+rejected_form_heads = (eval_fallback_form_names \ derived_exclusions)
+                      ∪ extra_rejected_heads
+```
+
+`derived_exclusions` is empty. `extra_rejected_heads` holds the six names the
+gate rejects for its own reasons: `lambda`, `define`, `unquote`,
+`unquote-splicing`, `else`, `=>`.
+
+A comptime block rejects a stale exclusion, a duplicate extra, and any derived
+name that escapes the gate. A deliberately stricter runtime test in
+`tests_native.zig` fails if `derived_exclusions` gains an entry *at all*, so
+weakening the gate takes two edits rather than one quiet line.
 
 ### Native `apply` (kaappi#1803)
 

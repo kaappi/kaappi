@@ -26,7 +26,7 @@
 ---
 
 Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/)
-— 689 built-in procedures, 32 syntax forms, and all 14 standard libraries — plus
+— 689 built-in procedures, 32 syntax forms, and all 16 standard libraries — plus
 178 SRFIs, a C FFI, OS threads and fibers, an LLVM native-code backend, a package
 manager, and a stepping debugger. The runtime is a register-based bytecode VM
 with generational garbage collection and stack-copying first-class continuations.
@@ -97,45 +97,35 @@ zig build test                       # run the unit tests
 The WASM build (`zig build wasm`) runs in browsers and WASI runtimes — it
 powers the [playground](https://kaappi-lang.org/playground/).
 
-The Windows port (`zig build -Dtarget=aarch64-windows` or
-`-Dtarget=x86_64-windows`) covers the full
-interpreter — REPL (plain line editing, no history/completion), fibers,
-channels, OS threads, FFI (`LoadLibrary`), and the `kaappi test` runner.
-thottam installs packages on Windows too (with Git for Windows on PATH);
-only manifests with a `build:` command are refused — the C-FFI packages'
-Makefiles target POSIX.
-Platform differences: fd readiness covers sockets (event-driven,
-WSAEventSelect) and pipes (polled) — file ports keep blocking reads
-(timers and cross-thread wakeups always work) — and the POSIX-only
-slice of SRFI-170 (uid/gid, symlinks, chmod/umask, user/group info)
-raises a catchable file error. `cond-expand` distinguishes the
-platforms: Windows builds expose the `windows` feature identifier
-instead of `posix`.
+Every non-macOS target cross-compiles with `zig build -Dtarget=<arch>-<os>`.
+Per-platform notes, each linking to the full port document:
 
-The FreeBSD port (`zig build -Dtarget=x86_64-freebsd` or
-`aarch64-freebsd`) is full POSIX with no degradations: kqueue-backed
-fiber I/O, OS threads, complete SRFI-170, the full linenoise REPL, and
-thottam with `build:` support. `kaappi compile` links native binaries
-with the base system's `cc` — no extra toolchain needed.
-
-The OpenBSD port (`zig build -Dtarget=x86_64-openbsd` or
-`aarch64-openbsd`) is the same full-POSIX kqueue platform — fiber I/O,
-threads, complete SRFI-170, the full REPL, `build:` support, and native
-compilation with base `cc`. Two accommodations for OpenBSD's hardening,
-both automatic: each binary is marked `PT_OPENBSD_NOBTCFI` at build time
-to opt out of BTCFI enforcement (Zig 0.16 emits no BTI landing pads), and
-the interpreter raises its own stack limit at startup to clear OpenBSD's
-tight 4 MiB default. See [`docs/dev/openbsd.md`](docs/dev/openbsd.md).
-
-The NetBSD port (`zig build -Dtarget=x86_64-netbsd` or `aarch64-netbsd`)
-completes the BSD trio — the same full-POSIX kqueue feature set, verified
-on NetBSD 10.1. The runtime binds NetBSD's versioned libc symbols
-explicitly (`__kevent50`, `__opendir30`, `__getpwnam50` — the plain names
-are old-ABI compat symbols that silently misparse modern structs) and
-resets the aarch64 FPCR at startup, which NetBSD boots in flush-to-zero
-mode that would break IEEE gradual underflow. The native backend
-(`kaappi compile`) needs clang from pkgsrc — NetBSD's base `cc` is GCC,
-which can't consume LLVM IR. See [`docs/dev/netbsd.md`](docs/dev/netbsd.md).
+- **[Windows](docs/dev/windows.md)** — the complete interpreter: REPL (plain
+  line editing, no history or completion), fibers, channels, OS threads, FFI
+  (`LoadLibrary`), and the `kaappi test` runner. thottam installs packages too
+  (with Git for Windows on PATH); only manifests with a `build:` command are
+  refused, since the C-FFI packages' Makefiles target POSIX. fd readiness
+  covers sockets (event-driven, WSAEventSelect) and pipes (polled) — file ports
+  keep blocking reads, while timers and cross-thread wakeups always work. The
+  POSIX-only slice of SRFI-170 (uid/gid, symlinks, chmod/umask, user/group
+  info) raises a catchable file error. Windows builds expose the `windows`
+  `cond-expand` feature identifier instead of `posix`.
+- **[FreeBSD](docs/dev/freebsd.md)** — full POSIX with no degradations:
+  kqueue-backed fiber I/O, OS threads, complete SRFI-170, the full linenoise
+  REPL, and thottam with `build:` support. `kaappi compile` links native
+  binaries with the base system's `cc` — no extra toolchain needed.
+- **[OpenBSD](docs/dev/openbsd.md)** — the same full-POSIX kqueue platform, with
+  two automatic accommodations for OpenBSD's hardening: each binary is marked
+  `PT_OPENBSD_NOBTCFI` at build time to opt out of BTCFI enforcement (Zig 0.16
+  emits no BTI landing pads), and the interpreter raises its own stack limit at
+  startup to clear OpenBSD's tight 4 MiB default.
+- **[NetBSD](docs/dev/netbsd.md)** — the same feature set, verified on NetBSD
+  10.1. The runtime binds NetBSD's versioned libc symbols explicitly
+  (`__kevent50`, `__opendir30`, `__getpwnam50` — the plain names are old-ABI
+  compat symbols that silently misparse modern structs) and resets the aarch64
+  FPCR at startup, which NetBSD boots in flush-to-zero mode that would break
+  IEEE gradual underflow. `kaappi compile` needs clang from pkgsrc; NetBSD's
+  base `cc` is GCC, which can't consume LLVM IR.
 
 ## A taste of Kaappi
 
@@ -458,16 +448,36 @@ parked; it instead dispatches sibling fibers in place while it waits, so
 progress continues either way. Ports on fds other than 0/1/2 buffer output
 until `flush-output-port`, `close-port`, a read on the same port, the
 buffer filling (8 KiB), or program exit; stdin/stdout/stderr remain
-unbuffered. WASI builds keep blocking single-fiber I/O (the reactor's WASI
-backend is timer-only until KEP-0001 Phase 4).
+unbuffered.
+
+On WASI, whether a port can park a fiber depends on the host. Ports flip to
+non-blocking only if `fd_fdstat_set_flags(NONBLOCK)` succeeds; where it does
+not — the playground's browser shim, for one — no fd is ever registered and the
+reactor falls back to timer-only waits, leaving I/O blocking and single-fiber.
+Timers and `thread-sleep!` work either way.
 
 ### OS threads (SRFI-18)
 
-Each OS thread gets its own GC with an independent heap. Values are deep-copied
-when crossing thread boundaries (at `thread-start!` and `thread-join!`). This
-means threads cannot share mutable state directly — use channels or return
-values to communicate. Child threads can allocate and GC independently without
-affecting the parent.
+Each OS thread gets its own VM and GC with an independent heap, and can
+allocate and collect without affecting the parent. A value reaches another
+thread by one of **two routes**, which behave differently:
+
+- **By copy** — the thunk closure at `thread-start!`, the result at
+  `thread-join!`, and every channel message are deep-copied. Fourteen types are
+  refused outright on this route (ports, continuations, fibers, mutexes,
+  condition variables, and more).
+- **By reference** — top-level bindings are shared *by pointer*, so a thunk
+  that merely *names* a global gets the parent's own object, uncopied. The
+  refusal list above does not apply, and only four types (channels, thread
+  handles, fibers, guardians) check that the caller owns them.
+
+So threads **can** share mutable state, through a top-level binding — and for
+mutexes and condition variables that is the *only* supported way to share one.
+Doing it with ordinary data is a hazard rather than an idiom: nothing
+synchronizes the writes, the child collects independently, and the child heap
+is freed after `thread-join!`. Prefer channels and return values. The full
+per-type matrix, and which route checks what, is in
+[docs/dev/thread-value-sharing.md](docs/dev/thread-value-sharing.md).
 
 A `(kaappi fibers)` channel captured by a thread's thunk (or nested inside a
 value sent over one) crosses safely: it is promoted to a mutex-protected,
