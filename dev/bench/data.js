@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785864583786,
+  "lastUpdate": 1785866814433,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c5ddfe48acfbf8af321b798530fc53b24821b4bb",
-          "message": "Phase 5C: cross-thread boundary audit — 49 assertions, six new findings including a read-direction UAF (#1938)\n\n* Map the cross-thread heap boundary, and pin the half of it that works\n\nPhase 5C of the v2 audit campaign. #1924 established that a child thread\nmutating a heap object reachable from a top-level binding leaves the parent\nreading freed memory. This maps how far that reaches, and — as importantly —\nwhere the boundary is actually sound, so those parts need not be re-audited.\n\n49 enabled assertions pin the working boundary: immediates (fixnum, char,\nboolean, flonum) survive every container; raw-byte content does too\n(string-set! including the widening rebuild, string-copy!, bytevector and\nf64vector elements); interned symbols survive because a child stamps them\nwith the parent's GC id; a child may store a parent-heap value into a\nparent-heap object and keep eq?; a child may grow a parent hash table across\na rehash; parameters are per-thread; a mutex left locked by a dead child\nreads as abandoned; join deep-copies results, nested objects included; and\nall seven reachable uncopyable tags are refused in both directions.\n\n24 assertions are commented out behind `;; FAIL:` markers rather than\ntest-expect-fail, because reading freed memory can take down the runner.\nSeventeen are #1924's shape across every mutable heap type — including the\nshared globals map itself and promise memoisation, which its own matrix\ndoes not cover. Seven are new and are marked TBD:\n\n  * the read direction, which #1924 does not cover: the parent's collector\n    reclaims an object a LIVE child still references, since markVMRoots\n    returns early unless vm.gc == gc. Under -Dgc-stress=true this escalates\n    to the engine's own UAF panic, 3/3, with the no-drop control clean 3/3.\n  * a plain R7RS record returned through thread-join! arrives as a\n    DIFFERENT record type: pt? answers #f and every accessor raises. The\n    supported worker-thread path, no globals and no mutation involved. A\n    SRFI 237 nongenerative type is the control and is enabled — its uid\n    registry is the one identity-preserving path in gc_deep_copy.\n  * gc_deep_copy's .channel arm skips the ownership check for an\n    already-promoted channel, so a grandchild that only ever reached a\n    channel through a shared global gets a working stub. The unpromoted\n    control is enabled and refuses.\n  * symbol interning is one level deep: at thread depth >= 2 a grandchild's\n    string->symbol no longer dedupes against the process table.\n  * a continuation invoked cross-thread returns a value satisfying no type\n    predicate at all.\n\nCLAUDE.md's claim that top-level bindings are shared by pointer while\nlexical captures are deep-copied-and-re-owned is confirmed, and both halves\nare now asserted directly.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Point cross-thread FAIL markers at the filed issues\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-31T19:40:55+05:30",
-          "tree_id": "4aa2be03e1a6302c71fd7fd1dfa0dfcaea17a740",
-          "url": "https://github.com/kaappi/kaappi/commit/c5ddfe48acfbf8af321b798530fc53b24821b4bb"
-        },
-        "date": 1785510205407,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.335597,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.604451,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.450512,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.416965,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004082,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.034737,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.230712,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.042794,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.831192,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.896954,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.172455,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.237944,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.305979,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.440092,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.035719,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046371,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "48fe81d3f32b71d2f476075df51e7971b6ca0879",
+          "message": "Move the REPL onto isocline for real multi-line editing (#2219)\n\n* Move the REPL onto isocline for real multi-line editing\n\nThe prompt read one physical line per call and joined continuation lines\nitself, so once Enter was pressed that line had left the editor: a typo on\nline 1 of a define, spotted on line 4, meant Ctrl-C and retyping the form.\nThis replaces linenoise with isocline, which holds a whole form in one buffer,\nso up/down move within the form and reach history only at its edges.\n\nThe vendored linenoise fork cannot close that gap. Its refreshMultiLine sizes\nthe screen with pure wrap arithmetic (rows = (pwidth+bufwidth+cols-1)/cols)\nand knows nothing about embedded newlines — which is why it folds pasted\nmulti-line text to \"[... N pasted lines ...]\" rather than drawing it. Teaching\nit newlines means rewriting its refresh engine, cursor motion, and up/down\nhandling. isocline is that rewrite, already done and shipping (it is Koka's\neditor). See kaappi#2218 for the full analysis, including why bestline is not\nthe answer.\n\nThe reader decides what is complete. parenDepth — a second, hand-written\nScheme scanner, 127 lines — drifted from the real one twice: kaappi#358 (char\nliterals and pipe-quoted symbols) and kaappi#542 (`#;` scanned as a line\ncomment). It is replaced by inputIncomplete, which asks\nReader.incomplete_input, the same scanner the file path uses, so the two\ncannot disagree about where a datum ends. The probe restores the newline the\neditor stripped: without it the reader refuses to finalize a token at\nend-of-buffer, since more bytes could extend it, and every bare atom typed at\nthe prompt would report UnexpectedEof and strand the session on \"  ... \". A\nnew record_spans flag keeps the probe from populating gc.source_spans with\ndatums it throws away — that table is never pruned.\n\nVendored at upstream 8d6dc1ef95b1b46711e66eb23d39d4467a0fcdac (v1.1.0), MIT.\nsrc/isocline.c #includes the other translation units, so it is one C file to\nthe build. Two patches, marked KAAPPI PATCH in the source and documented in\nvendor/isocline/PATCHES.md:\n\n  1. An input-completeness callback. Upstream submits on Enter unless the line\n     ends in a continuation character; a Lisp prompt needs the text, not the\n     keystroke, to decide.\n  2. Configurable history size. Upstream clamps every history to 200 entries\n     regardless of the request; repl.history-length defaults to 1000.\n\nEverything else falls out of the one-buffer model:\n\n  - findMatchingOpen and the accumulated_input splice are deleted. That hack\n    reached back across the continuation seam for paren matching; there is no\n    seam now, and isocline matches braces itself — limited to \"()\" because the\n    reader gives brackets no meaning (`0]` is KP1002).\n\n  - ic_highlight takes spans, so ~270 lines of ANSI emission become style\n    names and the c_allocator round-trip behind #234 has nothing left to get\n    wrong. Token rules are unchanged, split into scanHighlight so they stay\n    testable without a terminal, with 13 tests over spans rather than escape\n    substrings.\n\n  - ic_complete_word splits the word out of the buffer and splices the choice\n    back in, dropping the hand-rolled prefix arithmetic and its 1024-byte\n    ceiling, which silently discarded longer candidates. `,load` and `,import`\n    complete filenames now, which they never did.\n\nThree integration decisions, all recorded in docs/dev/repl.md. Brace insertion\nis off: auto-closing a paren makes every buffer balanced, and the completeness\ncallback would submit the moment one was typed — found by testing, not by\nreading. Prompt strings carry no escapes, since isocline measures the prompt\nto place the cursor; the theme reaches it through the ic-prompt style, with a\nnew ansiToIcStyle translating repl.color.*. And history persists on every\nsubmit with newlines escaped, so a crash no longer drops the session and\nmulti-line entries return editable rather than folded.\n\nWindows gets a real REPL for the first time. isocline drives the Windows\nconsole API directly — term.c and tty.c switch on _WIN32 — so the POSIX-only\nexclusion linenoise needed no longer applies; that platform had been falling\nback to a byte-at-a-time stdin loop with no editing, history, completion, or\nhighlighting. The build gate now keeps only WASI, and only so repl.zig still\ncompiles there: main.zig returns before reaching the REPL on that target.\n\nBehavior changes: comma commands now enter history, which isocline manages\nitself (recalling `,load foo.scm` seemed worth more than matching the old\nexclusion), and the \"  ... \" continuation prompt is gone — continuation lines\nare indented under the prompt instead.\n\nBehavior was verified by driving the real binary through a pty, not by\ninspection. The decisive case: type `(+ 1`, Enter, Up to line 1, ctrl-E, ` 10`,\nDown, `2)`, Enter → 13; line 1 was still editable after Enter. Also covered:\nmulti-line define, history recall of a multi-line entry, line/datum/block\ncomments spanning lines, strings across lines, #\\( literals, a stray close\nparen reported rather than hanging, and comma commands. The isocline patches\nwere verified the same way before the port, including running pristine\nupstream to confirm patch 2 is load-bearing (1000 entries stored where stock\nisocline stores 200).\n\nUnit suite, 2075 Scheme tests (0 fail, 1 skip), and zig fmt --check all pass;\ncross-compiles clean for x86_64-windows, aarch64-linux, aarch64-macos, and\nwasm32-wasi. Adds 12 tests for inputIncomplete, which had none, and 13 for\nscanHighlight. Docs: docs/dev/repl.md rewritten, vendor/isocline/PATCHES.md\nadded, plus windows.md, porting.md, architecture.md, understanding-map.md,\nREADME.md, CLAUDE.md, and CONTRIBUTING.md.\n\nNot verified: Windows was only cross-compiled, never run — the claim that its\nREPL works end-to-end rests on isocline's console backend, not on evidence.\n-Dgc-stress=true was also not run; it is worth a pass given the new\nper-keystroke reader allocations in inputIncomplete.\n\nCloses #2218.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01KkyTMuGQGSqM1kpkM2aqGF\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: align the last isocline gate, and test the theme bridge\n\nThree stale-comment/gate fixes and one genuine coverage gap, from the\nreview of this PR.\n\nmain.zig's `ic` still carried linenoise's POSIX-only exclusion, so it\nread `is_wasm or .windows` where build.zig and repl.zig both say\n`!is_wasm`. Three gates for one decision, and this was the odd one out.\nThe practical effect was smaller than it looks — repl.zig imports\nisocline.zig directly and is itself reachable from main.zig, so the\nwrapper compiled and type-checked on Windows regardless, and\nisocline.zig has no test blocks to lose. What the exclusion did cost was\nthe invariant: this import block is how a module's own tests become\nreachable, so the next test added to isocline.zig would have silently\nskipped the one platform the file exists to serve.\n\nTwo comments described code this PR deleted. `readReplLine`'s doc called\nthe plain stdin path \"the Windows fallback\" four lines after the block\nabove it correctly says only WASI falls back. And an inputIncomplete\ntest cited \"the highlighter's findMatchingOpen *does* pair brackets\" —\nfindMatchingOpen went with the linenoise matching-paren code. The\ndivergence it was describing is still real but different: scanHighlight\nstyles brackets with style_paren, and nothing pairs them, because\nsetMatchingBraces is given \"()\" alone.\n\nansiToIcStyle had no tests. It is the only bridge from config.zig's SGR\nescapes to isocline's style names, and every failure path returns \"\" —\nunrecognized escape, unparseable code, and a bufPrintZ that outgrows\napplyTheme's [32]u8 all render unstyled with nothing to notice. Three\ntests: the 16 colours plus the bold form, the inputs that must yield \"\"\n(including `none`'s empty string and a background colour, which must not\nbe mistaken for a foreground one), and — the one that would actually\ncatch drift — both built-in themes driven through the same eight fields\napplyTheme feeds, asserting each still maps. A table of hand-written\nescapes alone would keep passing while config.zig moved on.\n\nVerified: full unit suite, 2076 Scheme assertions, zig fmt --check, and\ncross-compiles for aarch64-windows, x86_64-windows, aarch64-linux and\n`zig build wasm`, plus the aarch64/x86_64 Windows *test* builds, which\nare what the gate change affects. The new tests were mutation-checked:\nthey fail when the expected style is wrong.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-04T17:32:17Z",
+          "tree_id": "58a45b703aaf5c74a4a78a4dd0f18f175423815f",
+          "url": "https://github.com/kaappi/kaappi/commit/48fe81d3f32b71d2f476075df51e7971b6ca0879"
+        },
+        "date": 1785866811672,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.337154,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.487895,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.578788,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.050197,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00465,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046889,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.315182,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06024,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.729586,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.242704,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.594024,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.283119,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.805151,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.654046,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043744,
             "unit": "seconds"
           }
         ]
