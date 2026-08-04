@@ -158,11 +158,22 @@ pub const LLVMEmitter = struct {
     // because those tests never exercise macros inside these forms.
     macros: ?*const std.StringHashMap(Value) = null,
     // GC backing the Values being emitted, threaded into every scratch IR
-    // this emitter lowers (lowerSingleExpr/lowerSingleExprTail, and the
+    // this emitter lowers (lowerScoped, and the
     // per-lambda body_ir in llvm_emit_lambda.zig) so lowerQuote can strip
     // hygiene renames from a macro-produced quoted datum (#1801). Null when
     // driven without a VM (unit tests that never exercise such macros).
     gc: ?*memory.GC = null,
+    // Names that are the target of a `set!` anywhere in the program being
+    // compiled, threaded into every scratch lowering as `IR.set_targets` so
+    // the constant folders never fold a call to a primitive the program
+    // reassigns (#2117 route 1). The interpreter gets this from the
+    // Compiler's own per-form pre-scan; a lambda body re-lowered here has no
+    // Compiler, so native_compiler.zig hands its accumulated map over
+    // instead. Whole-program rather than per-form — every form of a compiled
+    // binary runs in one process, and the emitter runs only after all of
+    // them have been read. Null when the emitter is driven without one (unit
+    // tests), which folds exactly as before.
+    set_targets: ?*const std.StringHashMap(void) = null,
     params: ?std.StringHashMap(u8),
     upvalues: ?std.StringHashMap(u8),
     tmp_counter: u32,
@@ -523,6 +534,63 @@ pub const LLVMEmitter = struct {
         return false;
     }
 
+    // Every name lexically bound at the current emission point, in
+    // isNameShadowed's order, plus `extra` — the parameters of a frame whose
+    // scope is not installed yet, since a lambda body is lowered before
+    // emitLambdaFunction swaps `params` in.
+    //
+    // This is what a scratch lowering gets as `IR.bound_names`, standing in
+    // for the Compiler scope it has no access to. Deriving it from the same
+    // four maps `emitGlobalRef` resolves against is deliberate: a parallel
+    // list maintained alongside them is exactly what drifted before (the
+    // backend passed only the immediate frame's parameters, so a binding one
+    // level out was invisible and `(define (outer +) (lambda () (+ 5 2)))`
+    // folded to 7 — #2117 route 2, #2118's upvalue case).
+    //
+    // Allocated on the emitter arena; valid for the rest of emission.
+    pub fn lexicalNames(self: *LLVMEmitter, extra: []const []const u8) error{OutOfMemory}![]const []const u8 {
+        var out: std.ArrayList([]const u8) = .empty;
+        try out.appendSlice(self.allocator(), extra);
+        if (self.locals) |loc| {
+            var it = loc.keyIterator();
+            while (it.next()) |k| try out.append(self.allocator(), k.*);
+        }
+        if (self.boxes) |bx| {
+            var it = bx.keyIterator();
+            while (it.next()) |k| try out.append(self.allocator(), k.*);
+        }
+        if (self.rest_param_name) |rp| try out.append(self.allocator(), rp);
+        if (self.params) |p| {
+            var it = p.keyIterator();
+            while (it.next()) |k| try out.append(self.allocator(), k.*);
+        }
+        if (self.upvalues) |uv| {
+            var it = uv.keyIterator();
+            while (it.next()) |k| try out.append(self.allocator(), k.*);
+        }
+        return out.items;
+    }
+
+    // Lower one raw sub-expression through a scratch IR carrying this
+    // emitter's lexical scope and `set!` targets. THE way the backend
+    // re-lowers a sub-form — the scope-less `ir.lowerSingleExpr*` this
+    // replaced dropped both and is deleted, since a scratch IR without them
+    // reads every shadowing binding as absent (#2117/#2118). `extra` names a
+    // not-yet-installed frame's parameters (see lexicalNames); pass `&.{}`
+    // from inside an installed scope.
+    pub fn lowerScoped(
+        self: *LLVMEmitter,
+        expr: Value,
+        is_tail: bool,
+        extra: []const []const u8,
+    ) ir.CompileError!*ir.Node {
+        var scratch = ir.IR.init(self.allocator());
+        scratch.gc = self.gc;
+        scratch.bound_names = try self.lexicalNames(extra);
+        scratch.set_targets = self.set_targets;
+        return ir.lowerAndOptimize(&scratch, expr, null, is_tail);
+    }
+
     // Whether `name` resolves to a top-level global rather than a lexical
     // capture: a built-in / special form (ir.isKnownGlobal), or a name reserved
     // for a top-level define emitted later in the program (#1499). The latter is
@@ -855,7 +923,7 @@ pub const LLVMEmitter = struct {
         // calls correctly; the standalone IR lowering below runs without a
         // macro table and would mis-lower a top-level (set! x (some-macro ...)).
         if (!self.inLexicalScope()) return self.emitEvalExpr(value);
-        const node = ir.lowerSingleExpr(self.allocator(), self.gc, value) catch return self.emitEvalExpr(value);
+        const node = self.lowerScoped(value, false, &.{}) catch return self.emitEvalExpr(value);
         return self.emitNode(node);
     }
 

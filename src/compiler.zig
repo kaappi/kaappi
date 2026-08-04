@@ -1035,7 +1035,12 @@ const SetScanBudget = struct {
 /// macro is encountered, it is expanded and the expansion is scanned
 /// (#1250). Only the top-level pre-scan expands; the per-expansion Part B
 /// scan passes null (see scanSetTargets).
-fn collectSetTargets(self: *Compiler, expr: Value, out: *std.StringHashMap(void), depth: u16, budget: ?*SetScanBudget) CompileError!void {
+///
+/// `self` is needed only to expand macros, i.e. only when `budget` is
+/// non-null — a null `budget` makes the whole walk a pure function of `expr`,
+/// which is what `scanSetTargetsWithoutMacros` below exposes to the LLVM
+/// native backend (it has no Compiler at all).
+fn collectSetTargets(self: ?*Compiler, expr: Value, out: *std.StringHashMap(void), depth: u16, budget: ?*SetScanBudget) CompileError!void {
     // This is the scan's *own* recursion cap, deliberately not shared with
     // compiler_macro.MAX_MACRO_EXPANSION_DEPTH despite both being 256: they
     // count different things. That one bounds the real expansion of code that
@@ -1064,34 +1069,39 @@ fn collectSetTargets(self: *Compiler, expr: Value, out: *std.StringHashMap(void)
                     }
                 }
             } else if (budget) |b| {
-                if (self.lookupMacro(types.symbolName(head))) |transformer| {
+                // Only a budgeted scan expands, and only a budgeted scan is
+                // ever handed a Compiler — so `self.?` below is reached only
+                // when `maybe_macro` was non-null, which requires one.
+                const maybe_macro = if (self) |c| c.lookupMacro(types.symbolName(head)) else null;
+                if (maybe_macro) |transformer| {
                     if (b.expansions_left == 0) {
                         b.truncated = true;
                         return;
                     }
                     b.expansions_left -= 1;
+                    const c = self.?;
                     // Best-effort expansion: uses an empty UseSiteBindingCheck
                     // (no locals exist at pre-scan time), so patterns with
                     // literals may diverge from the real expansion.  Part B
                     // (scanSetTargets in expandAndCompileMacroUse) corrects
                     // any misses at real-expansion time.
-                    self.gc.no_collect += 1;
+                    c.gc.no_collect += 1;
                     const expanded = expander.expandMacro(
-                        self.gc,
+                        c.gc,
                         cur,
                         transformer,
-                        self.globals,
-                        &self.macros,
+                        c.globals,
+                        &c.macros,
                         .{},
                     ) catch {
-                        self.gc.no_collect -= 1;
+                        c.gc.no_collect -= 1;
                         cur = types.cdr(cur);
                         continue;
                     };
                     var expanded_root = expanded;
-                    self.gc.pushRoot(&expanded_root);
-                    defer self.gc.popRoot();
-                    self.gc.no_collect -= 1;
+                    c.gc.pushRoot(&expanded_root);
+                    defer c.gc.popRoot();
+                    c.gc.no_collect -= 1;
                     // Fixed point (e.g. SRFI-219 rule 3: (define x e) →
                     // (define x e)): the expansion is the input, so scanning
                     // it again can only repeat what this pass already did.
@@ -1162,6 +1172,16 @@ fn collectSetTargets(self: *Compiler, expr: Value, out: *std.StringHashMap(void)
         try collectSetTargets(self, head, out, depth, budget);
         cur = types.cdr(cur);
     }
+}
+
+/// The `set!`-target scan for callers with no Compiler — the LLVM native
+/// backend, which re-lowers each lambda/let body through a scratch IR and
+/// needs the same suppression set the interpreter's per-form pre-scan builds
+/// (#2117). Macros are not expanded (that needs a Compiler); the backend
+/// declines native compilation of any body containing a macro use anyway
+/// (`sexprHasMacroUse`, #1807), so the two limits line up.
+pub fn scanSetTargetsWithoutMacros(expr: Value, out: *std.StringHashMap(void)) CompileError!void {
+    return collectSetTargets(null, expr, out, 0, null);
 }
 
 // ---------------------------------------------------------------------------

@@ -183,6 +183,55 @@ The emitter (`src/llvm_emit.zig`) walks IR nodes and produces LLVM IR text
 | `letrec`, `letrec*`, `guard`, quasiquote, named `let` | Serialize to source text, `call @kaappi_eval_cached(...)` (see [Cached eval fallback](#cached-eval-fallback)) |
 | `passthrough` | Serialize to source text, `call @kaappi_eval_cached(...)` |
 
+### Lexical scope in a re-lowered body (kaappi#2117, kaappi#2118)
+
+The backend does not emit from the IR tree it was handed. Every `lambda`,
+closure and `let` body is a raw S-expression at that point, **re-lowered**
+during emission through a scratch `ir.IR` — `LLVMEmitter.lowerScoped`, and the
+three `body_ir` instances in `llvm_emit_lambda.zig`. A scratch IR has no
+`Compiler`, and `IR` asks the `Compiler` two separate questions while lowering:
+
+- **is this name lexically bound?** (`lowerFormWithMacros`'s `is_shadowed`) —
+  decides whether `(if 1 2)` is the special form or a call to a binding named
+  `if`. R7RS has no reserved words (§4.3.1).
+- **may this name's value change?** (`isRedefined`) — gates constant folding,
+  from both a shadowing binding and a `set!` elsewhere in the form.
+
+Two `IR` fields stand in for the Compiler on this path, and **both must be
+supplied at every lowering site** or the tiers silently disagree:
+
+| Field | Native source | What it replaces |
+|-------|---------------|------------------|
+| `bound_names` | `LLVMEmitter.lexicalNames(extra)` | `Compiler.isLexicallyBound` |
+| `set_targets` | `LLVMEmitter.set_targets`, from `native_compiler.zig` | `Compiler.compile`'s per-form `set!` pre-scan |
+
+`lexicalNames` is **derived**, not maintained: it reads the same
+`locals`/`boxes`/`rest_param_name`/`params`/`upvalues` maps `emitGlobalRef`
+resolves against, in that order, plus an `extra` list for a frame whose scope
+is not installed yet (a lambda body is lowered before `emitLambdaFunction`
+swaps `params` in). A hand-kept parallel list is exactly what drifted: the
+backend passed only the immediate frame's parameter names, so a binding one
+level out was invisible to *both* questions, and `set_targets` was never
+passed at all. `(define (outer +) (lambda () (+ 5 2)))` folded to 7,
+`(define (f) (set! + -) (+ 5 2))` folded to 7, and `(define (f if) (if 1 2))`
+lowered as the special form — each a plausible number from a binary whose
+interpreter run gives a different one.
+
+`set_targets` is whole-program here rather than per-top-level-form: the
+emitter runs only after the read loop has seen every form, and every form of a
+compiled binary runs in one process anyway. It is strictly more conservative
+than the interpreter's own pre-scan, which costs folding and never
+correctness. `compiler.scanSetTargetsWithoutMacros` is that pre-scan minus
+macro expansion (which needs a `Compiler`); the backend already declines
+native compilation of any body containing a macro use (kaappi#1807), so the
+two limits line up.
+
+`tests/scheme/compile/native-lexical-scope-fold-2117-2118.sh` runs the three
+`.scm` regression suites these bugs already owned — `#788`, `#790`,
+`set-redefine-fold` — through `kaappi compile`. Nothing had, which is why all
+three passed under the interpreter while failing 9, 1 and 6 assertions
+natively.
+
 ### Internal defines in a `let` body
 
 An internal `(define <symbol> <expr>)` in a natively emitted `let` body is a
@@ -723,6 +772,15 @@ backends support `tailcc`/`musttail`. Other hosts keep the uniform-only ABI
 unchanged; RISC-V can be enabled once its `musttail` support is confirmed.
 
 ## Testing
+
+Per-issue native regressions live in `tests/scheme/compile/*.sh`, each
+comparing the compiled binary against the interpreter as oracle (see the
+"interpreter as the native tier's oracle" block in
+`tests/scheme/shell-common.sh`). A `.scm` regression test that only ever runs
+under the interpreter proves nothing about this tier — three of them silently
+regressed that way (kaappi#2117/#2118), so a fix here that already has a `.scm`
+suite should get a `compile/` script that runs *that file* through
+`kaappi compile` rather than a fresh hand-typed golden value.
 
 End-to-end tests live in `tests/e2e/`:
 

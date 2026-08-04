@@ -48,7 +48,7 @@ fn fmt(self: *LLVMEmitter, comptime f: []const u8, a: anytype) EmitError![]const
 // in-scope form to its enclosing form's abandon path (a top-level form has no
 // partial state to unwind at this point — the leaf lowers before any branch).
 fn lower(self: *LLVMEmitter, expr: Value, tail: bool) EmitError!*ir.Node {
-    return ir.lowerSingleExprTail(self.allocator(), self.gc, expr, tail) catch return error.UnsupportedNodeType;
+    return self.lowerScoped(expr, tail, &.{}) catch return error.UnsupportedNodeType;
 }
 
 // ---------------------------------------------------------------------------
@@ -1139,7 +1139,7 @@ pub fn emitApplyForm(self: *LLVMEmitter, expr: Value, is_tail: bool) EmitError![
 // enclosing scope — emitScopedValue's emitEvalExpr fallback would run the
 // operand in the global environment, the exact #1799 failure mode.
 pub fn emitScopedOperand(self: *LLVMEmitter, operand: Value) EmitError![]const u8 {
-    const node = ir.lowerSingleExpr(self.allocator(), self.gc, operand) catch return error.UnsupportedNodeType;
+    const node = self.lowerScoped(operand, false, &.{}) catch return error.UnsupportedNodeType;
     return self.emitNode(node);
 }
 
