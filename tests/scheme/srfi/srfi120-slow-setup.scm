@@ -18,8 +18,16 @@
 ;;   task-remove       300 ms       400 ms      800 ms
 ;;   reschedule       1000 ms       400 ms     1000 ms   (unchanged; pinned)
 ;;   period-0           40 ms       200 ms     2000 ms
-;;   timer-cancel!      30 ms       200 ms      600 ms
-;;   no-handler         30 ms       200 ms      none (nothing follows)
+;;   timer-cancel!     570 ms       800 ms     1200 ms
+;;   no-handler        570 ms       800 ms     1200 ms
+;;
+;; The last two rows were fixed TWICE. The first pass (2026-08-01) reordered
+;; each block so the erroring/`late` task was no longer raced by a following
+;; call, and pinned each at 200 ms -- but both still carried a deadline the
+;; reorder did not touch, at 570 ms, and a 200 ms pin cannot see a 570 ms
+;; margin. Each margin below is now the bisected value at which the block
+;; actually breaks, and each injection is larger than the margin the
+;; previous shape had, so every row fails against the shape it replaced.
 ;;
 ;; The injected delays are what make this file deterministic, so do not
 ;; remove them to "speed it up" -- without them the file asserts nothing the
@@ -81,17 +89,26 @@
   (timer-cancel! t))
 
 ;;; --- timer-cancel! --------------------------------------------------------
-;; OLD: one periodic 30/30 task, so ticks queued between the first receive
-;; and the cancel. This is the shape that produced netbsd-test's
-;; "timer-cancel!: no further firings after cancellation".
+;; OLD (1st shape): one periodic 30/30 task, so ticks queued between the
+;; first receive and the cancel. This is the shape that produced
+;; netbsd-test's "timer-cancel!: no further firings after cancellation".
+;; OLD (2nd shape): two one-shots, but `late` was scheduled FIRST, so its
+;; 600 ms had to cover the `early` receive AND the cancel -- 570 ms in
+;; practice. `late` is now scheduled after the receive, so the only work
+;; inside its 1200 ms is timer-cancel! itself.
+;;
+;; The sleep sits immediately before the cancel, which pins both shapes at
+;; once: here it is the surviving schedule-to-cancel window (1200 ms, so
+;; 800 ms passes), while in either old shape the same statement fell inside
+;; the 570 ms receive-to-cancel window and 800 ms breaks it.
 
 (let* ((sig (make-channel))
        (t (make-timer)))
-  (timer-schedule! t (lambda () (channel-send sig 'late)) 600)
   (timer-schedule! t (lambda () (channel-send sig 'early)) 30)
   (test-equal "slow setup: a task fires before cancellation"
               'early (channel-receive sig 3.0 'timeout))
-  (thread-sleep! 0.2)
+  (timer-schedule! t (lambda () (channel-send sig 'late)) 1200)
+  (thread-sleep! 0.8)
   (timer-cancel! t)
   (test-equal "slow setup: still no further firings after a delayed cancellation"
               'timeout (channel-receive sig 0.4 'timeout)))
@@ -101,20 +118,25 @@
 ;; had to get its second timer-schedule! in before the timer stopped. This
 ;; is the shape that produced netbsd-test's
 ;; "srfi120.scm:153 error[KP3000]: timer-schedule!: timer is not responding".
-;; The fix is ordering, not headroom: nothing calls into the timer after the
-;; erroring task is queued, so the delay below cannot break it however long
-;; it is.
+;; Ordering fixed THAT failure mode -- nothing calls into the timer after
+;; the erroring task is queued, so no delay can make the schedule below
+;; raise -- but it left `should-not-fire`'s own deadline untouched, and at
+;; 600 ms that was 570 ms of margin for the erroring schedule that has to
+;; stop the timer first. So the two assertions below fail for two different
+;; reasons, and only the first is about ordering: at 800 ms the schedule
+;; still never raises, while `should-not-fire` really did arrive until its
+;; delay was widened to 1200 ms.
 
 (let* ((sig (make-channel))
        (t (make-timer)))
-  (timer-schedule! t (lambda () (channel-send sig 'should-not-fire)) 600)
-  (thread-sleep! 0.2)
+  (timer-schedule! t (lambda () (channel-send sig 'should-not-fire)) 1200)
+  (thread-sleep! 0.8)
   (test-assert "slow setup: scheduling the erroring task last never raises"
     (guard (c (#t #f))
       (timer-schedule! t (lambda () (error "srfi-120 test: unhandled")) 30)
       #t))
   (test-equal "slow setup: the timer still stops, so the later task never fires"
-              'timeout (channel-receive sig 1.0 'timeout))
+              'timeout (channel-receive sig 1.5 'timeout))
   (test-assert "slow setup: timer-cancel! still re-raises the preserved error"
     (guard (c (#t (and (error-object? c)
                        (string=? (error-object-message c) "srfi-120 test: unhandled"))))
