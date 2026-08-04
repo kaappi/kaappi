@@ -195,6 +195,8 @@ Conventions:
   above. `shell-common.sh` also provides `is_windows`, `native_path`
   (the C:/-style path spelling kaappi itself prints, for output
   assertions), `rt_lib_name` (`libkaappi_rt.a` / `kaappi_rt.lib`),
+  `sibling_tool` (the path to `thottam`/`kaappi-lsp` next to the binary
+  under test, carrying the `.exe` suffix the caller used),
   `skip_without_zig` (skip when the script itself must rebuild with a
   Zig toolchain — boxes running cross-compiled binaries have none, see
   `docs/dev/freebsd.md`), `ensure_runtime_lib` (freshen

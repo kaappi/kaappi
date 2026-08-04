@@ -41,6 +41,28 @@ rt_lib_name() {
     if is_windows; then echo "kaappi_rt.lib"; else echo "libkaappi_rt.a"; fi
 }
 
+# sibling_tool <kaappi-binary> <tool>: the path to another shipped binary
+# (thottam, kaappi-lsp) next to the one under test, with the platform's
+# executable suffix.
+#
+# The suffix is taken from the given path rather than from is_windows,
+# because runners spell it both ways: `bin/kaappi.exe` in the Windows CI
+# jobs, plain `zig-out/bin/kaappi` from a Git Bash checkout (MSYS appends
+# .exe when *executing*, which is why the bare spelling works there at
+# all). Mirroring what the caller passed keeps the two in step, and a
+# script that only ever executes the result would not notice — but one
+# that names the file, tests it with -x, or derives an output filename
+# from its basename would.
+sibling_tool() {
+    local ref="$1" tool="$2" dir suffix
+    dir="$(dirname "$ref")"
+    case "$(basename "$ref")" in
+        *.exe) suffix=".exe" ;;
+        *) suffix="" ;;
+    esac
+    printf '%s\n' "$dir/$tool$suffix"
+}
+
 # skip_without_zig <reason>: exit 77 (SKIP) when no Zig toolchain is on
 # PATH. For scripts whose test itself rebuilds with zig (e.g. the
 # -Dbundle standalone-binary tests). Boxes that run cross-compiled
