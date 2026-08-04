@@ -533,6 +533,36 @@ test "child thread leaves no child-heap values in shared globals (#958)" {
     }
 }
 
+// #2127: the gc-stress free-quarantine (#1687) exists so a dangling value
+// still reads the FREED_OWNER sentinel at the next mark instead of a recycled
+// object — but a joined child's GC.deinit drained its quarantine straight
+// back to the allocator, so the one heap teardown that most often leaves the
+// parent holding a dangling value was also the one the detector could not
+// see. The child now names the parent as its quarantine heir. With the
+// parent's own collector disabled, any quarantined byte it gains across the
+// join can only have arrived from the child's teardown; before the fix the
+// count did not move at all.
+test "a joined child's freed slots pass to the parent's quarantine (#2127)" {
+    if (comptime !memory.free_quarantine) return error.SkipZigTest;
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    gc.enabled = false;
+    const before = gc.quarantine_bytes; // whatever VM setup already collected
+
+    const result = try vm.eval(
+        \\(let ((t (make-thread (lambda () (list 1 2 3)))))
+        \\  (thread-start! t)
+        \\  (thread-join! t)
+        \\  'joined)
+    );
+    try std.testing.expect(types.isSymbol(result));
+    try std.testing.expectEqualStrings("joined", types.symbolName(result));
+    try std.testing.expect(gc.quarantine_bytes > before);
+}
+
 // Thread results are deep-copied child->parent at thread-join!, after which
 // the child heap is freed. deepCopyValue used to alias NativeFn objects
 // instead of copying them, so a result containing a primitive procedure kept

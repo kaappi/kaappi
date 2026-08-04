@@ -112,6 +112,13 @@ modes that let #1682 pass twelve nightly stress runs. Plain Debug builds
 stamp and check the sentinel too (best-effort, without the quarantine);
 release builds compile both features out.
 
+This covers *cross-heap* dangling values only because a joined SRFI-18
+child hands its withheld slots to the parent GC (`quarantine_heir`) rather
+than to the allocator. Until #2127 it did not, and a stress run over a
+child-heap use-after-free was byte-identical to a release run — so treat
+"the gc-stress suite is green" as evidence only for teardown paths that
+name an heir (`docs/dev/gc-safety-and-error-handling.md`).
+
 ### Injecting an out-of-memory failure
 
 `gc.oom_countdown` fails a chosen heap allocation: set it to `n` and the

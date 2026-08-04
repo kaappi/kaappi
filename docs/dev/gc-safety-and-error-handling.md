@@ -127,6 +127,22 @@ the two escape modes that let the #1682 dangling-local bug survive twelve
 nightly stress runs. Release builds compile out both the stamp/check and
 the quarantine.
 
+A GC that is torn down has no later mark/sweep to release its withheld
+slots at, so `GC.deinit` has to hand them somewhere: to `quarantine_heir`
+if one was named, otherwise straight back to the allocator. That drain is
+what made the machinery blind to *cross-heap* use-after-free for a year
+(#2127) — a joined SRFI-18 child's slots went back to the allocator, the
+parent's next allocation recycled one, and a parent value still pointing
+into the dead child heap read a live-looking object at the next mark. The
+join path (`freeChildResources` in `primitives_srfi18.zig`) now names the
+parent as the child's heir, so those slots stay withheld across the
+parent's marks and the panic fires. **Any new "free every object on a GC
+that is going away" path needs the same decision**: an heir when something
+longer-lived could still hold a pointer into that heap, a drain when
+nothing can. `setQuarantineHeir` must be called from the thread doing the
+teardown, once no other thread can still be freeing on either GC — the
+heir's quarantine has no lock of its own.
+
 ### Unwinding the root stack on error (#1855)
 
 Rooting around a fallible call has a hole the rules above cannot close:

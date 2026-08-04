@@ -44,7 +44,7 @@ Source code
 | File | Lines | Responsibility |
 |------|-------|---------------|
 | `types.zig` | ~1300 | Value type, `Object`/`ObjectTag`, opcodes, type predicates, hygiene helpers, re-export hub for the `types_*.zig` heap-type domain files below |
-| `memory.zig` | ~900 | GC struct, lifecycle, write barrier, rooting, quarantine; aliases the allocators below into `GC` |
+| `memory.zig` | ~1000 | GC struct, lifecycle, write barrier, rooting, quarantine; aliases the allocators below into `GC` |
 | `gc_alloc.zig` | ~1400 | All `allocXxx` heap-object constructors (delegated from memory.zig, aliased into `GC` so `gc.allocXxx(...)` is unchanged) |
 | `gc_collect.zig` | ~1000 | GC orchestration, remembered set, marking, SRFI 254 weak-ref processing (delegated from memory.zig) |
 | `gc_sweep.zig` | ~600 | Sweep phase: sweepYoung/sweepOld/sweep, `objectSize`, `freeObject` (delegated from gc_collect.zig) |

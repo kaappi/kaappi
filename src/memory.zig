@@ -237,6 +237,16 @@ pub const GC = struct {
     /// Cap on withheld bytes. A field (not a const) so tests can shrink it to
     /// exercise eviction without freeing megabytes.
     quarantine_max_bytes: usize = 4 << 20,
+    /// GC that inherits this one's still-withheld slots at `deinit` instead of
+    /// the allocator getting them back (#2127). Set — via `setQuarantineHeir`,
+    /// from the thread that is doing the tearing down — whenever this GC dies
+    /// while a *longer-lived* GC may still hold a value pointing into its
+    /// heap: a joined SRFI-18 child is the case that matters, since every
+    /// cross-heap dangling reference is born there. Without an heir the drain
+    /// hands every slot straight back, the next parent allocation recycles it,
+    /// and the FREED_OWNER sentinel the whole #1687 machinery rests on is
+    /// overwritten before the parent's next mark can read it.
+    quarantine_heir: ?*GC = null,
 
     pub const QuarantineEntry = struct {
         ptr: [*]u8,
@@ -297,9 +307,13 @@ pub const GC = struct {
         // entirely while any thread-start!ed child is still alive (kaappi#1792)
         // — so this needs no lock.
         for (self.foreign_symbols.items) |o| gc_collect.freeObject(self, o);
-        // The freeObject calls above append to the quarantine in gc-stress
-        // builds; give every slot back before the allocator is torn down.
-        self.quarantineDrain();
+        // Every freeObject above appends to the quarantine in gc-stress
+        // builds, and this GC will never reach another release point — so the
+        // slots go somewhere now or leak. To an heir if one was named (a
+        // joined child hands them to the parent, which still has marks to run
+        // over any value dangling into this heap — #2127), otherwise back to
+        // the allocator.
+        if (self.quarantine_heir) |heir| self.quarantineHandOff(heir) else self.quarantineDrain();
         self.quarantine.deinit(self.allocator);
         self.foreign_symbols.deinit(self.allocator);
         self.symbols.deinit();
@@ -586,6 +600,48 @@ pub const GC = struct {
         while (self.quarantine.items.len > 0) self.quarantineReleaseOldest();
     }
 
+    /// Name the GC that inherits this one's withheld slots at `deinit`
+    /// (#2127). Call it from the thread performing the teardown, and only
+    /// once that thread knows no other thread can still be freeing objects on
+    /// either GC — `heir.quarantine` is a plain ArrayList with no lock of its
+    /// own, and the handoff appends to it. The SRFI-18 join path qualifies:
+    /// it runs on the parent thread after the child's OS thread has been
+    /// joined.
+    pub fn setQuarantineHeir(self: *GC, heir: *GC) void {
+        self.quarantine_heir = heir;
+    }
+
+    /// Move every still-withheld slot to `heir`'s quarantine, so the slots
+    /// stay out of the allocator's hands until `heir` has run at least one
+    /// more mark phase over its own roots — which is exactly what turns a
+    /// parent value dangling into a dead child heap into the deterministic
+    /// FREED_OWNER panic (#2127) instead of a silently recycled object.
+    ///
+    /// `heir` releases them with *its* allocator, so an heir that does not
+    /// share this GC's allocator is refused and the slots are drained here
+    /// instead: weaker detection, never a mismatched free. Every real caller
+    /// shares one (a child GC is built with the parent's allocator).
+    fn quarantineHandOff(self: *GC, heir: *GC) void {
+        if (comptime !free_quarantine) return;
+        const a = self.allocator;
+        const b = heir.allocator;
+        if (a.ptr != b.ptr or a.vtable != b.vtable) {
+            self.quarantineDrain();
+            return;
+        }
+        const pending = self.quarantine.items[self.quarantine_head..];
+        heir.quarantine.appendSlice(heir.allocator, pending) catch {
+            // Same degradation as quarantinePut's: detection is best-effort,
+            // memory accounting is not.
+            self.quarantineDrain();
+            return;
+        };
+        for (pending) |e| heir.quarantine_bytes += e.len;
+        self.quarantine.clearRetainingCapacity();
+        self.quarantine_head = 0;
+        self.quarantine_bytes = 0;
+    }
+
     pub const RootedSlot = struct {
         gc: *GC,
         idx: usize,
@@ -817,6 +873,71 @@ test "quarantine evicts oldest-first once over the byte cap (gc-stress)" {
 
     gc.collect(); // now over the cap: A (oldest) is released, B stays
     try std.testing.expectEqual(@as(usize, @sizeOf(Pair)), gc.quarantine_bytes);
+}
+
+// #2127. A child GC dies while the parent is still running, so its withheld
+// slots must outlive it — otherwise the drain hands them back, the parent's
+// next allocation recycles one, and a parent value dangling into the dead
+// child heap reads a live-looking object at the next mark instead of the
+// sentinel. That is the whole cross-heap UAF class going undetected by the
+// build whose only purpose is to detect it.
+test "an heir inherits a dead GC's quarantined slots instead of the allocator (gc-stress)" {
+    if (comptime !free_quarantine) return error.SkipZigTest;
+    var parent = GC.init(std.testing.allocator);
+    defer parent.deinit();
+    parent.enabled = false;
+
+    var child = GC.initForThread(std.testing.allocator, &parent);
+    const v = try child.allocPair(types.makeFixnum(1), types.NIL);
+    const child_obj = types.toObject(v);
+
+    child.setQuarantineHeir(&parent);
+    child.deinit();
+
+    try std.testing.expectEqual(@as(usize, @sizeOf(Pair)), parent.quarantine_bytes);
+    // Reading the dead header is defined only because the slot is withheld —
+    // which is the property under test.
+    try std.testing.expectEqual(FREED_OWNER, child_obj.owner);
+
+    // And the parent must not be handed the slot back by its own allocator.
+    const fresh = try parent.allocPair(types.makeFixnum(2), types.NIL);
+    try std.testing.expect(types.toObject(fresh) != child_obj);
+    try std.testing.expectEqual(FREED_OWNER, child_obj.owner);
+}
+
+test "a GC with no heir still drains its quarantine at deinit (gc-stress)" {
+    if (comptime !free_quarantine) return error.SkipZigTest;
+    var parent = GC.init(std.testing.allocator);
+    defer parent.deinit();
+    parent.enabled = false;
+
+    var child = GC.initForThread(std.testing.allocator, &parent);
+    _ = try child.allocPair(types.makeFixnum(1), types.NIL);
+    child.deinit(); // no heir named: slots go back to the allocator
+
+    try std.testing.expectEqual(@as(usize, 0), parent.quarantine_bytes);
+}
+
+test "handoff is refused across allocators (gc-stress)" {
+    if (comptime !free_quarantine) return error.SkipZigTest;
+    // An heir releases inherited slots with its OWN allocator, so a mismatch
+    // must degrade to a drain rather than free a pointer the heir's allocator
+    // never handed out. No production caller can hit this — a child GC is
+    // built with the parent's allocator — but nothing in the type system says
+    // so, and a wrong free is worse than weaker detection.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var parent = GC.init(std.testing.allocator);
+    defer parent.deinit();
+    parent.enabled = false;
+
+    var child = GC.init(arena.allocator());
+    _ = try child.allocPair(types.makeFixnum(1), types.NIL);
+    child.setQuarantineHeir(&parent);
+    child.deinit();
+
+    try std.testing.expectEqual(@as(usize, 0), parent.quarantine_bytes);
 }
 
 test "mark worklist retains capacity across collections" {
