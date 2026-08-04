@@ -1177,9 +1177,21 @@ fn collectSetTargets(self: ?*Compiler, expr: Value, out: *std.StringHashMap(void
 /// The `set!`-target scan for callers with no Compiler — the LLVM native
 /// backend, which re-lowers each lambda/let body through a scratch IR and
 /// needs the same suppression set the interpreter's per-form pre-scan builds
-/// (#2117). Macros are not expanded (that needs a Compiler); the backend
-/// declines native compilation of any body containing a macro use anyway
-/// (`sexprHasMacroUse`, #1807), so the two limits line up.
+/// (#2117). Macros are not expanded, since that needs a Compiler.
+///
+/// For the body case that limit costs nothing: the backend declines native
+/// compilation of any body containing a macro use (`sexprHasMacroUse`,
+/// #1807), so a `set!` only a macro would reveal is in a body the
+/// interpreter — and its macro-expanding pre-scan — has already taken over.
+///
+/// At *top level across forms* the same is NOT true, and this scan does not
+/// close that: a macro use in form N that expands to `(set! + -)` leaves `+`
+/// unrecorded, so form N+1 can still fold it. That is kaappi#2212 — the
+/// pre-existing macro-blindness of #822's `collectRedefinedNames`, which this
+/// scan runs alongside rather than replaces. The interpreter is immune for an
+/// unrelated reason (it has already *executed* form N, so the globals check in
+/// isRedefined sees the rebound value), which is why only the compiled tier
+/// diverges.
 pub fn scanSetTargetsWithoutMacros(expr: Value, out: *std.StringHashMap(void)) CompileError!void {
     return collectSetTargets(null, expr, out, 0, null);
 }

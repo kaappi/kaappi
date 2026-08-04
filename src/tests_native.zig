@@ -1753,6 +1753,17 @@ fn fixnumImm(buf: []u8, n: i64) ![]const u8 {
 // for it, which a bare-name search would match unconditionally.
 const call_scheme = "call i64 @kaappi_call_scheme(ptr %vm";
 
+// Every assertion below that a fold did NOT happen is satisfied vacuously if
+// the frame never compiled natively at all — the interpreter would then be
+// doing the work and the emitted module would contain neither the fold nor
+// anything else. Pin the tier first: `name` has a native definition and the
+// module reaches no code eval fallback, so what the rest of the test inspects
+// is genuinely the native lowering's output.
+fn expectNativeTier(ll: []const u8, name: []const u8) !void {
+    try expectNativeDef(ll, name);
+    try std.testing.expectEqual(@as(usize, 0), countEvalFallbacks(ll));
+}
+
 test "LLVM emit: an enclosing frame's parameter suppresses a fold in a nested lambda (#2117)" {
     // The nested lambda's body is re-lowered through a scratch IR that has no
     // Compiler, so IR.bound_names is the only thing that can tell it `+` is
@@ -1764,6 +1775,7 @@ test "LLVM emit: an enclosing frame's parameter suppresses a fold in a nested la
 
     var res = try emitMultiResult("(define (outer +) (lambda () (+ 5 2)))");
     defer res.deinit();
+    try expectNativeTier(res.toSlice(), "outer");
     try expectNotContains(res.toSlice(), folded);
     // The captured upvalue is called instead.
     try expectContains(res.toSlice(), call_scheme);
@@ -1772,6 +1784,7 @@ test "LLVM emit: an enclosing frame's parameter suppresses a fold in a nested la
     // above is about the shadowing and not about folding being off entirely.
     var ctl = try emitMultiResult("(define (outer y) (lambda () (+ 5 2)))");
     defer ctl.deinit();
+    try expectNativeTier(ctl.toSlice(), "outer");
     try expectContains(ctl.toSlice(), folded);
     try expectNotContains(ctl.toSlice(), call_scheme);
 }
@@ -1782,10 +1795,14 @@ test "LLVM emit: a let-bound name suppresses a fold in the let body (#2117)" {
 
     var res = try emitMultiResult("(define (f) (let ((+ -)) (+ 5 2)))");
     defer res.deinit();
+    try expectNativeTier(res.toSlice(), "f");
     try expectNotContains(res.toSlice(), folded);
+    // The let-local is called rather than folded away.
+    try expectContains(res.toSlice(), call_scheme);
 
     var ctl = try emitMultiResult("(define (f) (let ((y -)) (+ 5 2)))");
     defer ctl.deinit();
+    try expectNativeTier(ctl.toSlice(), "f");
     try expectContains(ctl.toSlice(), folded);
 }
 
@@ -1803,6 +1820,7 @@ test "LLVM emit: a set! in the body suppresses every fold in it (#2117)" {
 
     var res = try emitMultiResultWithSetTargets("(define (f) (set! + -) (+ 5 2))", &targets);
     defer res.deinit();
+    try expectNativeTier(res.toSlice(), "f");
     try expectNotContains(res.toSlice(), folded);
 
     // Control: the same body, with no name declared as a set! target, folds.
@@ -1810,6 +1828,7 @@ test "LLVM emit: a set! in the body suppresses every fold in it (#2117)" {
     defer empty.deinit();
     var ctl = try emitMultiResultWithSetTargets("(define (f) (set! + -) (+ 5 2))", &empty);
     defer ctl.deinit();
+    try expectNativeTier(ctl.toSlice(), "f");
     try expectContains(ctl.toSlice(), folded);
 }
 
@@ -1819,6 +1838,7 @@ test "LLVM emit: a parameter shadowing a keyword lowers the form as a call (#211
     // binary printed 2 where the interpreter printed 99.
     var res = try emitMultiResult("(define (f if) (if 1 2))");
     defer res.deinit();
+    try expectNativeTier(res.toSlice(), "f");
     try expectContains(res.toSlice(), call_scheme);
 
     // Control: unshadowed, the same body IS the special form — no call at all,
@@ -1827,6 +1847,7 @@ test "LLVM emit: a parameter shadowing a keyword lowers the form as a call (#211
     const folded = try fixnumImm(&buf, 2);
     var ctl = try emitMultiResult("(define (f x) (if 1 2))");
     defer ctl.deinit();
+    try expectNativeTier(ctl.toSlice(), "f");
     try expectNotContains(ctl.toSlice(), call_scheme);
     try expectContains(ctl.toSlice(), folded);
 }
@@ -1834,10 +1855,15 @@ test "LLVM emit: a parameter shadowing a keyword lowers the form as a call (#211
 test "LLVM emit: an enclosing frame's parameter shadows a keyword too (#2118)" {
     var res = try emitMultiResult("(define (outer quote) (lambda () (quote 5)))");
     defer res.deinit();
+    try expectNativeTier(res.toSlice(), "outer");
     try expectContains(res.toSlice(), call_scheme);
 
     // Control: `(quote 5)` unshadowed is the literal 5, never a call.
     var ctl = try emitMultiResult("(define (outer y) (lambda () (quote 5)))");
     defer ctl.deinit();
+    try expectNativeTier(ctl.toSlice(), "outer");
     try expectNotContains(ctl.toSlice(), call_scheme);
+    // The literal 5 is materialized as an immediate, not built at runtime.
+    var qbuf: [64]u8 = undefined;
+    try expectContains(ctl.toSlice(), try fixnumImm(&qbuf, 5));
 }

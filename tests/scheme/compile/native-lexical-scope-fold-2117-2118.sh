@@ -55,15 +55,40 @@ n=0
 # --- Part A: the pre-existing .scm suites, on the native tier --------------
 #
 # These are self-checking: each prints a sentinel and exits nonzero on any
-# failed assertion. Their stdout is NOT compared between tiers — they leave
-# bare `#t` results at top level, which the VM echoes and a native binary
-# does not (difference 1 in shell-common.sh). The sentinel plus the exit
-# status is the whole verdict, and it is the same verdict the interpreter
-# already gets from these files in the smoke suite.
+# failed assertion. They are also compared tier-to-tier like everything else,
+# with one normalization: each `check` call is a bare top-level expression
+# returning #t, and the VM echoes that value while a native binary does not
+# (difference 1 in shell-common.sh). Dropping lines that are exactly `#t` from
+# the interpreter's stdout removes precisely that echo — none of the three
+# files ever displays a boolean itself, and a FAIL line carries its name and
+# both values, so nothing else in the transcript is `#t` alone.
+strip_echo() { grep -v '^#t$' || true; }
+
 check_suite() {
     local name="$1" sentinel="$2"
     local src="$REPO_DIR/tests/scheme/smoke/$name.scm"
     local bin="$DIR/$name.bin"
+    n=$((n + 1))
+
+    local interp_raw interp_out interp_status=0
+    interp_raw="$(interp_stdout "$KAAPPI_ABS" "$REPO_DIR" "$src")" || interp_status=$?
+    interp_out="$(printf '%s\n' "$interp_raw" | strip_echo)"
+    if [[ $interp_status -ne 0 ]]; then
+        echo "FAIL: $name — interpreter exited $interp_status:" >&2
+        printf '%s\n' "$interp_raw" >&2
+        fail=1
+        return
+    fi
+    # The golden assertion, against the interpreter: these suites announce
+    # their own verdict, so the sentinel is what "no assertion failed" looks
+    # like. Kept alongside the tier comparison because a bug BOTH tiers share
+    # would leave them agreeing on a transcript full of FAIL lines.
+    if [[ "$interp_out" != *"$sentinel"* ]]; then
+        echo "FAIL: $name — interpreter output missing '$sentinel':" >&2
+        printf '%s\n' "$interp_out" >&2
+        fail=1
+        return
+    fi
 
     (cd "$REPO_DIR" && "$KAAPPI_ABS" compile "$src" -o "$bin" > /dev/null 2>&1) || {
         echo "FAIL: $name — native compile failed" >&2
@@ -72,17 +97,7 @@ check_suite() {
     }
     local out status=0
     out="$("$bin" 2> /dev/null)" || status=$?
-    if [[ $status -ne 0 ]]; then
-        echo "FAIL: $name — native binary exited $status:" >&2
-        printf '%s\n' "$out" >&2
-        fail=1
-        return
-    fi
-    if [[ "$out" != *"$sentinel"* ]]; then
-        echo "FAIL: $name — native output missing '$sentinel':" >&2
-        printf '%s\n' "$out" >&2
-        fail=1
-    fi
+    assert_tiers_agree "$name" "$interp_out" "$interp_status" "$out" "$status" || fail=1
 }
 
 check_suite lambda-param-shadows-keyword-788 "all passed"
@@ -219,6 +234,20 @@ check_both do-result-shadowed-primitive 3 '(define (outer +) (do ((i 0 (- i 1)))
 check_both apply-operand-shadowed-primitive '(3)' '(define (outer +) (apply list (list (+ 5 2))))
 (display (outer -)) (newline)'
 
+# The binding INITIALIZERS are their own lowering sites (llvm_emit_let.zig:212
+# for a parallel let, :264 for let*), distinct from the body at :361 — a
+# shadowed operator evaluated in an initializer had no coverage until now.
+check_both let-init-shadowed-primitive 3 '(define (outer +) (let ((x (+ 5 2))) x))
+(display (outer -)) (newline)'
+
+# let* is the sharper of the two: the initializer is shadowed by an EARLIER
+# binding of this same let*, not by an enclosing frame.
+check_both letstar-init-sees-earlier-binding -1 '(define (f) (let* ((+ -) (x (+ 1 2))) x))
+(display (f)) (newline)'
+
+check_both letstar-init-shadowed-by-frame 3 '(define (outer +) (let* ((y 1) (x (+ 5 2))) x))
+(display (outer -)) (newline)'
+
 # A let shadowing survives into a nested let, in both nesting directions.
 check_both let-shadow-into-inner-let 3 '(define (f) (let ((+ -)) (let ((y 1)) (+ 5 2))))
 (display (f)) (newline)'
@@ -245,4 +274,4 @@ if [[ $fail -ne 0 ]]; then
     exit 1
 fi
 
-echo "PASS ($n tier comparisons + 3 native suites)"
+echo "PASS ($n tier comparisons, 3 of them the pre-existing .scm suites)"
