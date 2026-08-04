@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785866814433,
+  "lastUpdate": 1785874786838,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "912b1e6246e05b822fe3968f982e614c1b8fe19a",
-          "message": "Phase 2.2: primitives_io audit — 49 → 197 assertions, all 45 specs covered, one process-abort panic (#1947)\n\n* Phase 2.2: cover the 1100 lines primitives_io.zig grew after its audit\n\nThe audit test for src/primitives_io.zig was written against a version of\nthat file that predates custom ports, transcoded ports, the write-buffering\nlayer, and SRFI 192 — 112 lines of assertions against 1941 lines of code.\nThis takes it to 197 passing assertions covering all 45 spec entries, and\nleaves 8 disabled assertions marking defects the coverage found.\n\nFour defects, each paired with an enabled discriminating control so the\nmarker says *because of what*, not just *that it fails*:\n\n- A custom-port read! that re-enters a read on its own port trips\n  std.debug.assert(port.read_buf == null) and ABORTS the process — the\n  single-slot read buffer assumes no re-entrancy. Reachable at two sites\n  (readOneByteFromCustomPort, readOneByteFromTranscodedPort). Control: the\n  same shape returning one byte per call never populates read_buf and\n  completes cleanly. Its non-aborting sibling silently reorders the byte\n  stream.\n- SRFI 192's string-port branch ignores the port's own peek-byte read-ahead,\n  which the fd branch corrects for: port-position over-reports by one after\n  a pushed-back byte, and set-port-position! does not discard the stale byte,\n  so a seek is followed by a read of data from the old position. Controls:\n  the identical cases on a file port are both right.\n- port-has-set-port-position!? is registered to the same function as\n  port-has-port-position?, so it answers about get-position instead of\n  set-position! — wrong in both directions for a custom port with only one\n  of the two. Controls: ports with both, and with neither, answer correctly.\n- flush-output-port on a transcoded port is a silent no-op; it has custom-\n  backend and buffered-fd branches but no transcode branch, and a transcoded\n  port carries the fd -1 sentinel. Controls: flushing the wrapped port works,\n  and close-port does cascade.\n\nConfirmed correct along the way: the 8 KiB high-water drain and its\nflush/close/read triggers, fd-port positions corrected for read-ahead and\nwrite-behind, the freshly-re-read UTF-8 byte-offset conversion after a\nwidth-changing string-set! inside read!, CRLF decode and encode, both\ndecoding error modes, close-port's flush-and-cascade discipline, the\nblocking-callback rejection, and gc_deep_copy's refusal to carry a port\nacross a thread boundary.\n\nFound by: systematic audit v2, Phase 2.2 (docs/audit-strategy.md).\nDiscovery only — no source changes.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Point primitives_io FAIL markers at the filed issues\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-31T19:41:33+05:30",
-          "tree_id": "dcf0c4b87487858c011e4a12cc7ad5a6041cbef6",
-          "url": "https://github.com/kaappi/kaappi/commit/912b1e6246e05b822fe3968f982e614c1b8fe19a"
-        },
-        "date": 1785511043172,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.945213,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.399424,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.56213,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.853622,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005031,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.044442,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.297564,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.055146,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.299306,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.157885,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.510634,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.305477,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.695136,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.760242,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044976,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043744,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a7798d99eb3e3e8eec377251fd0f4bd97fdbb60e",
+          "message": "Add paredit-style structural editing to the REPL (#2221)\n\n* Add paredit-style structural editing to the REPL\n\nFour keys now move a paren rather than a character: slurp (alt+shift+S),\nbarf (alt+shift+B), raise (alt+shift+R) and rotate (alt+y). On a Lisp\nprompt these are the edits worth having, and a character-oriented editor\nmakes every one of them tedious.\n\nThe transforms live in src/repl_sexp.zig as pure functions over\n(buffer, byte cursor), so they test without a terminal. The keys and the\nbuffer swap are KAAPPI PATCH 3 in the vendored editor; a pty-driven\nshell test covers that half, since nothing in Zig can reach it. This had\nto wait for the isocline migration — on one editable physical line per\ncall there is no whole form to restructure.\n\nkaappi#2216 proposed porting the four commands from bestline. Two of\nthem are not there to port: bestlineEditRaise is an empty stub, and\nbestlineEditRotate rotates the kill ring (emacs yank-pop) rather than\nthe datums of a form. The two that do exist walk runes with a mirror\nstack and no notion of strings, comments or character literals — the\nbug class the issue asked the port to avoid. So the scanner here takes\nReader.isDelimiter from reader.zig directly rather than copying it, and\nthe attribution is for the design and the keybindings, not the code.\n\nRotate keeps the head and cycles the arguments. Rotating the head too\nwould turn every call form into something unevaluatable ((+ 1 2) ->\n(1 2 +)), and the point of a cycle is that repeating it restores the\noriginal.\n\nAlso closes the divergence the issue noted in passing: the highlighter\npainted [ and ] like parens while the reader gives them no meaning\n(0] is KP1002). repl.isDelimiter is now an alias of Reader.isDelimiter,\nso the colors, the brace matcher, the reader and repl_sexp all agree.\n\nCloses #2216\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Make the REPL pty test fail loudly when the binary never starts\n\nReview of #2221 pointed at the exec path in the pty driver. The stated\nfailure mode does not exist — `pty.fork()` is called once at module top\nlevel, not in a loop, so a raising `os.execv` propagates and the child\nexits; it cannot fork again. Measured with a missing binary: process\ncount 596 -> 600, no growth.\n\nChasing it down did surface a real hole, and a worse one. A binary that\nnever started exited 77, which run-all.sh counts as a skip and reports\ngreen. The test could silently not-run. It now separates the two cases\nthat were being conflated: no output at all means the REPL did not\nstart, which fails; output without a prompt means no usable terminal,\nwhich still skips, because that is what keeps the emulated CI legs from\nflaking.\n\nThe bash side resolves $KAAPPI up front — a value with no slash through\nPATH, anything else as given — and fails with a clear message rather\nthan letting execv fail ambiguously. That also fixes the bare-command\nform, which dirname turned into $PWD/<name>.\n\nAlso mark against the raw buffer rather than the ANSI-stripped one.\nStripped indices are not stable: a read ending mid-escape leaves bytes\nthe regex cannot match yet, and they vanish once the rest arrives,\nshifting every index taken before that. Raw offsets only grow.\n\nThe child now execs or `_exit(127)`s, so it can never run the parent's\ncode and drop a traceback into the pty slave.\n\nRe-verified by mutation: with edit_sexp stubbed out the suite still\nexits 1, and each failure mode now returns the exit code it means.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-04T19:51:00Z",
+          "tree_id": "220148ceec35ec8df6df1beae427322b6199ae4b",
+          "url": "https://github.com/kaappi/kaappi/commit/a7798d99eb3e3e8eec377251fd0f4bd97fdbb60e"
+        },
+        "date": 1785874784693,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.000411,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 5.981656,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.41491,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.159737,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004267,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.035801,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.220359,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.039242,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.066296,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.905619,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.197532,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.230073,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.281805,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.836963,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.034518,
             "unit": "seconds"
           }
         ]
