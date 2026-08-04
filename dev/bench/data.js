@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785823182518,
+  "lastUpdate": 1785828117694,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5dcf4e3776e00eae9b64a70f3cc550d528aa5646",
-          "message": "Phase 4B: differential harness for the opt-off and cache tiers — 557 files, one real divergence (#1923)\n\n* Turn the execution-tier differential into a repeatable gate\n\nThe reconnaissance pass ran tiers (b) `--no-ir-opt` and (d) cold-vs-warm\n`.sbc` cache once, across 333 files, and found nothing. A one-off green\nrun is not a gate, and — for tier (b) — it was not even much of a\nnegative: only 3 of the 550 pre-existing corpus files make the IR\noptimiser do anything at all, because every `define`/`lambda` body lowers\nto an opaque `passthrough` node and the five passes only ever reach\ntop-level expression position. The other 547 compile identically with the\noptimiser off, so the comparison was vacuous for 99.5% of the corpus.\n\nSo the harness does three things the one-off sweep did not.\n\nIt measures its own vacuity. The summary reports how many files change IR\nunder `--no-ir-opt` and how many populated the bytecode cache (40 of 330\nby default; a program that imports is never cached), so a regression that\nsilently disables either shows up as a count collapsing rather than as a\nstill-green run.\n\nIt ships probes that the passes actually reach. `probes/` puts foldable,\ndead-branch, `not`-rewrite, identity and nested-`begin` shapes at top\nlevel, where the passes live, and leans on the cases where the rewrite is\nonly conditionally sound: `(if 0 ...)` is true in Scheme, `(* 1.5 0)` is\nnot `1.5`, and a shadowed `+`/`*`/`not` must suppress the rewrite\nentirely. Six of the seven are verified non-vacuous, tripling the number\nof corpus files that exercise the optimiser.\n\nIt decides nondeterminism by measurement instead of by a guessed skip\nlist. A tier mismatch has to survive three controls before it is\nreported: the file must actually be cached (otherwise cold and warm are\nthe same configuration, so a tier-(d) mismatch cannot be a cache effect),\ntwo cold baselines must agree, and the divergence must reproduce. The\nfirst control is what distinguishes a real finding from\n`nested-wait-under-sleep-dirty-snapshot-1490.scm`, which hung once under\nload and read as a cache divergence until the check was added. The static\nskip list is consequently empty.\n\nOne real divergence, found by the probes and suppressed via KNOWN_DIFFS\nso the suite stays green: on a cache HIT a runtime error loses its source\nline and snippet whenever the location comes from `Function.source_line`\nrather than the line table, because `vmErrorLocation`'s `fallback_line`\nis a hardcoded 0 on the cache-HIT path where the fresh-compile path\npasses the top-level datum's line. Exit code and stdout agree; only the\ndiagnostic degrades. `probes/cache-error-location.scm` carries the repro\nand its control side by side — `vector-ref` out of range, located by the\nline table, prints identically in both runs.\n\nUnlike the `;; FAIL: #1234` convention, that suppression cannot rot\nquietly: when a listed entry stops diverging the summary says so and asks\nfor it to be deleted. It is a note rather than a failure, because a gate\nthat goes red the moment someone fixes a bug teaches people to distrust\nit.\n\nWired into run-all.sh over the smoke+compliance+audit corpus plus the\nprobes: 330 files, 116s, inside the 300s shell-suite budget.\n`KAAPPI_DIFF_FULL=1` adds continuations/, hygiene/ and srfi/ — 557 files,\n210s — and is opt-in rather than the default because the extra 227 files\nbuy no additional tier coverage: zero of them change the IR, and they add\nseven cached files.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Point the known cache divergence at kaappi#1922\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Reduce the differential corpus to probes/ on a Debug build\n\nCI's Debug leg killed the suite at run-all.sh's 300s SHELL_TIMEOUT. Debug\nruns the whole pipeline unoptimised and is ~500x slower on allocation-heavy\nwork, and the harness is ~1000 interpreter invocations, so the same sweep\nthat takes 110s on ReleaseSafe does not finish.\n\nReducing to probes/ rather than skipping the suite or raising the budget,\nbecause the census the harness itself reports says probes/ is where the\nsignal is: 9 of 331 corpus files make the optimiser do anything and 6 of\nthose 9 are the probes. Debug now runs 7 files in 15s and still covers 6 of\nthe 9 discriminating ones, so what it drops is the part that was vacuous by\nconstruction.\n\nDetected from {\"version\":\"0.22.0\",\"build_id\":\"ca18ae6\",\"target\":\"aarch64-macos-none\",\"build_mode\":\"ReleaseSafe\",\"gc_stress\":false,\"sandbox_available\":true,\"features\":[\"r7rs\",\"kaappi\",\"ieee-float\",\"exact-closed\",\"exact-complex\",\"kaappi-fibers\",\"kaappi-reactor\",\"kaappi-diagnostics\",\"posix\",\"kaappi-threads\"],\"srfis\":{\"builtin\":[1,9,13,18,39,69,133,170,192,254,258,260],\"portable\":[0,2,4,5,6,7,8,11,14,16,17,19,23,25,26,27,28,29,30,31,34,35,36,37,38,41,42,43,44,45,46,48,51,54,57,59,60,61,62,63,64,66,67,70,71,74,78,86,87,90,94,95,98,101,111,112,113,115,116,117,118,120,123,125,126,127,128,129,130,131,132,134,135,136,137,139,140,141,143,144,145,146,147,148,149,150,151,152,153,156,158,161,162,164,165,166,167,168,169,171,173,174,175,178,180,181,185,188,189,190,193,194,195,196,197,201,202,203,207,209,210,213,214,215,216,217,219,221,222,223,224,225,227,228,229,231,232,233,234,235,236,237,238,239,240,241,242,244,247,248,250,251,252,253,255,257,259,263,264,267,270,271]},\"limits\":{\"initial_frame_capacity\":480,\"initial_register_capacity\":2048,\"gc_initial_threshold\":8192}} rather than an env var, so it is\nright whether the build came from CI, a local -Doptimize=Debug, or a stale\nzig-out. KAAPPI_DIFF_FULL=1 still forces the whole corpus.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-31T19:39:36+05:30",
-          "tree_id": "8976b3f277bc70b7a9d4ba341d32f72610c96978",
-          "url": "https://github.com/kaappi/kaappi/commit/5dcf4e3776e00eae9b64a70f3cc550d528aa5646"
-        },
-        "date": 1785509657923,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.973515,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.444874,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.566195,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.842375,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004866,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.044536,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.297518,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.055164,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.305599,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.158962,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.507275,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.302923,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.833881,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.777322,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044957,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043819,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ec875b3f0bb5e53ed94f4b1684d0f5b4db79ae90",
+          "message": "Compact CLAUDE.md into docs/dev, and correct the drift found doing it (#2213)\n\n* Move CLAUDE.md's reference detail into docs/dev\n\nCLAUDE.md had grown to 1623 lines and was being read in full on every\nsession. Most of it was reference material rather than orientation: a\n~650-line SRFI implementation narrative (in places single 20,000-character\nparagraphs), the fiber reactor, the package manager, and file-organization\ntables duplicated from architecture.md.\n\nNone of it is deleted. Each passage moves to the docs/dev document that\nowns the subject, and CLAUDE.md keeps a pointer:\n\n  srfi-implementation-notes.md  new — the whole SRFI narrative\n  fibers-and-reactor.md         new — KEP-0001 reactor and parking\n  thottam.md                    new — package manager and manifest\n  architecture.md               now owns the file-organization tables\n  llvm-backend.md               gains the #1896 gate, the derivation walk,\n                                and the libkaappi_rt.a search path\n  cli-surface.md                gains the annotated flag surface\n  thread-value-sharing.md       gains the implementation map\n  adding-features.md            gains the printer cycle rule (#1954)\n\narchitecture.md's tables were stale enough to mislead — 7 compiler files\nagainst a real 11, 8 VM against 10, 21 primitives against 31 — and it\npointed back at CLAUDE.md for the current version. That cycle is gone.\n\nVerified by extracting every backticked identifier and issue reference\nfrom the old file and confirming each still resolves somewhere in\nCLAUDE.md, docs/dev, or .claude/rules. Also corrects the R7RS suite count\nto the measured 1,395 and points at tools/run-r7rs-suite.sh, since a bare\ninvocation exits 0 with failures (kaappi#2157).\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Correct three README claims that no longer match the code\n\nFound while verifying the README against the implementation rather than\nagainst itself. CLAUDE.md names README the single source of truth for\nKnown limitations, so a wrong entry there is the authority.\n\nThe WASI fiber note said the reactor backend is \"timer-only until\nKEP-0001 Phase 4\". Phase 4 has shipped: reactor.zig's WasiPollBackend\nmakes real poll_oneoff fd subscriptions. The actual behaviour is a\nhost-capability probe (primitives_io.zig:174) — ports flip to\nnon-blocking only if fd_fdstat_set_flags(NONBLOCK) succeeds, and only\nwhen it fails does the reactor fall back to timer-only waits.\n\nThe OS-threads note said threads \"cannot share mutable state directly\".\nThey can: a child thread mutating a top-level vector is observed by the\nparent, because VM.initForThread shares globals by pointer. That is the\nglobals route docs/dev/thread-value-sharing.md describes, and the\n14-tag refusal list does not apply to it. The section now covers both\nroutes, notes that mutexes and condition variables can only be shared\nthrough a global, and keeps the \"prefer channels\" guidance as advice\nrather than a false impossibility.\n\nThe library count said 14. R7RS Appendix A defines 16, confirmed against\ndocs/errata-corrected-r7rs.pdf, and all 16 import and work here —\n(scheme case-lambda) and (scheme r5rs) included, which are the two a\ncount of 14 omits.\n\nAlso folds the five per-OS platform paragraphs into a linked list. Every\nfact is kept; each port doc already carries the detail, and Windows and\nFreeBSD gain the links they were missing.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Teach the release skill to refresh the docs site's counts\n\nStep 5 recomputes the built-in procedure count and greps for stale\ncitations, but only within this repo. The docs site cites the same\nnumbers and is a separate repo, so nothing ever refreshed it: the site\nsat at 601 built-in procedures while this repo was at 689, and at 14\nstandard libraries against a real 16.\n\nAdds a second grep over ../kaappi.github.io, notes that it needs its own\ncommit, and records that the \"600+\" phrasing on prose pages is\ndeliberate — it never goes stale, so only docs/conformance.md, which\nmirrors CONFORMANCE.md, should carry the exact figure.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-04T12:20:09+05:30",
+          "tree_id": "28cc8e16f8ab49dbeb5f93a4c96003ac8a09280f",
+          "url": "https://github.com/kaappi/kaappi/commit/ec875b3f0bb5e53ed94f4b1684d0f5b4db79ae90"
+        },
+        "date": 1785828116638,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.940312,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.542765,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.581398,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.837402,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004997,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.045584,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.297365,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053876,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.384336,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.156596,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.533936,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.302503,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.736819,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.8518,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044893,
             "unit": "seconds"
           }
         ]
