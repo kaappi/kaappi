@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785787360309,
+  "lastUpdate": 1785823182518,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "8cb776be89da98a9c82728d0f93c01d5e8eeffe5",
-          "message": "Phase 1C: port refill sweep — 1714 configurations, a silent-split class, and a correction to #1893 (#1946)\n\n* Pin the reader's port-refill boundary with a token x offset sweep\n\n`(read port)` on an fd-backed port reads 4096-byte chunks and re-parses\nthe accumulated buffer after each one, treating only\n`ReadError.UnexpectedEof` as \"incomplete, read more\". A token straddling\na chunk boundary therefore survives only if its scanner happens to\nreport truncation with that exact error.\n\nSweeping 26 token kinds against every interior split point at both the\n4096 and 8192 boundaries -- against a string-port oracle over the same\nbytes, which cannot refill -- shows 12 kinds that do not, in two modes:\na hard `KP3000: read error` (strings, raw strings, `#u8\"...\"`, `#u8(`,\n`|sym\\x41;|`, and a multi-byte UTF-8 codepoint split anywhere, even\ninside a list) and a silent truncation with no error at all (bare\nsymbols, numbers, `#\\space`, `#\\x41`, `#true`, and line comments, whose\nremaining body is then read as program data).\n\nThe passing kinds are enabled and swept; the failing ones are commented\nout with a `;; FAIL:` marker. Fixtures are generated at run time and\ndeleted, so no 4 KB blobs are committed.\n\nWorth recording: #1893's own stated discriminating control -- \"the same\nfile with a bare symbol payload reads all 1024 datums\" -- does not hold.\nThe symbol only survived because it was wrapped in a list, which does\nrefill, and because the check counted datums instead of comparing them.\nAt top level the same symbol splits in two, silently.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Point port-refill FAIL markers at the filed issues\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-31T18:42:38+05:30",
-          "tree_id": "14d1054f4c209b7d0452ed420c561133b5d348ef",
-          "url": "https://github.com/kaappi/kaappi/commit/8cb776be89da98a9c82728d0f93c01d5e8eeffe5"
-        },
-        "date": 1785508159081,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.354779,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.93978,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.583787,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.979059,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004746,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047034,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.318927,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057266,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.62904,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.234423,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.605772,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.28174,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.803356,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.649718,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043638,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044557,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fbd9f4643a8fe15a94a2951559efdca49a26c5a4",
+          "message": "Give the native backend's re-lowered bodies their lexical scope (#2210)\n\n* Give the native backend's re-lowered bodies their lexical scope\n\nThe LLVM backend does not emit from the IR tree it is handed: every\nlambda, closure and let body is still a raw S-expression there and is\nre-lowered during emission through a scratch IR that has no Compiler.\nTwo IR fields stand in for that Compiler, and both were under-supplied.\n\n`bound_names` held only the immediate frame's parameter names, so a\nbinding one level out was invisible — and it feeds two different\ndecisions, not one: `isRedefined`'s fold gate (#2117) and\n`lowerFormWithMacros`'s special-form-vs-call dispatch (#2118). It is now\n`LLVMEmitter.lexicalNames`, derived from the same locals/boxes/rest/\nparams/upvalues maps `emitGlobalRef` resolves against rather than kept\nas a parallel list, since a parallel list is what drifted.\n\n`set_targets` was never supplied at all, so a `set!` in the enclosing\nbody did not suppress a later fold in that same body (#2117 route 1).\nnative_compiler now runs the interpreter's own `set!` pre-scan — minus\nmacro expansion, which needs a Compiler, and which the backend already\ndeclines a body for (#1807) — and hands the map to the emitter.\n\n`lowerScoped` is now the one way to re-lower a sub-form; the scope-less\n`ir.lowerSingleExpr`/`lowerSingleExprTail` it replaces are deleted so\nthe omission cannot recur. That also closes the let-body and cond/case/do\ncases, which had no shadowing information whatsoever: `(let ((+ -)) (+ 1 2))`\nprinted 3 natively and -1 under the interpreter.\n\nThe three .scm suites that already owned these bugs —\nlambda-param-shadows-keyword-788, lambda-param-shadow-fold-790,\nset-redefine-fold — passed the whole time because no suite ran them\nthrough `kaappi compile`. The new compile script does, alongside 16\nper-route tier comparisons including the issues' own discriminating\ncontrols; against the unfixed backend the three suites fail 9, 1 and 6\nassertions respectively.\n\nCloses #2117\nCloses #2118\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Cover #2211's four scope-less lowering sites in the compile test\n\nThe compile script pinned four of the eleven divergences #2211 reports.\nAdd the other seven — let*, a let-bound `quote`, case, do, an apply\noperand, and a let shadowing seen from a nested let in both nesting\ndirections — plus that issue's own control, a lambda capturing an\nunboxed let-local, which declines native compilation outright and so was\ncorrect on both tiers all along.\n\n18 of the 24 comparisons now diverge against the pre-fix backend; the\nother 6 are the controls.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: pin the tier, compare Part A, cover initializers\n\nThree of CodeRabbit's findings on #2210 were right.\n\nThe tests_native assertions were shaped \"this fold did not happen\",\nwhich a frame that never compiled natively satisfies vacuously. All nine\nprograms do compile natively today (checked: zero eval fallbacks), so\nnothing was passing falsely — but the shape is the bug, not the current\nanswer. expectNativeTier now pins the tier first.\n\nPart A checked only the compiled suites' sentinel and exit status, not\ntier agreement, on the grounds that the VM echoes their bare `#t`\nresults. Stripping exactly those lines makes the comparison work, and it\nis strictly more informative: against the pre-fix backend the three\nsuites now report a stdout mismatch and an exit-status mismatch rather\nthan just a missing sentinel.\n\nThe let/let* binding INITIALIZERS (llvm_emit_let.zig:212 and :264) had\nno coverage — every case exercised the body at :361. Three added; all\nthree diverge pre-fix, including a let* initializer shadowed by an\nearlier binding of its own let*.\n\n24 of the 30 comparisons now diverge against the pre-fix backend.\n\nAlso correct the scanSetTargetsWithoutMacros comment, which claimed its\nmacro-free limit \"lines up\" with the backend's macro-use decline. True\nfor a body; false at top level across forms, where a macro expanding to\n(set! + -) leaves the name unrecorded and a later form still folds it.\nThat is pre-existing (#822's tracker is macro-blind the same way) and\nreproduces identically at 798cb607, so it is filed as #2212 rather than\nfixed here.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-04T05:30:45Z",
+          "tree_id": "7adef1ce2dd485701fadaeb82787d9ad1bd6a010",
+          "url": "https://github.com/kaappi/kaappi/commit/fbd9f4643a8fe15a94a2951559efdca49a26c5a4"
+        },
+        "date": 1785823180872,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.356961,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.33172,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.587946,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.994815,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004701,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047533,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.314747,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.0584,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.698916,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.234025,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.627507,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.286174,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.802624,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.654116,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043819,
             "unit": "seconds"
           }
         ]
