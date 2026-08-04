@@ -40,7 +40,7 @@ fn getTerminalWidth() u16 {
 
 /// One complete REPL input. Under isocline this is a whole expression, which
 /// may span lines: the editor keeps prompting (via `isCompleteCallback`) until
-/// the form closes, so the returned string can contain newlines. The Windows
+/// the form closes, so the returned string can contain newlines. The WASI
 /// fallback writes the prompt and reads a single plain line from fd 0, and its
 /// caller still has to accumulate continuation lines itself.
 ///
@@ -1149,9 +1149,10 @@ test "inputIncomplete — open form continues" {
 test "inputIncomplete — brackets are not list syntax here" {
     // kaappi's reader gives `[` and `]` no special meaning (KP1002 on `0]`),
     // so a bracket binding is a syntax error, not an unfinished form — it must
-    // submit and be reported, not sit at the continuation prompt. Note the
-    // highlighter's findMatchingOpen *does* pair brackets; that divergence is
-    // cosmetic and predates this function.
+    // submit and be reported, not sit at the continuation prompt. The
+    // highlighter diverges from that, cosmetically: `scanHighlight` styles
+    // brackets with `style_paren` like any other delimiter, though nothing
+    // pairs them — `setMatchingBraces` is given "()" alone.
     try expectIncomplete("(let loop ([i 0]) i)", false);
     // The enclosing parens still govern continuation.
     try expectIncomplete("(let loop ((i 0))", true);
@@ -1324,6 +1325,78 @@ test "scanHighlight — char literal parens do not become parens" {
 test "scanHighlight — infinities and nan are numbers" {
     try expectSpan("+inf.0", 0, 6, style_number);
     try expectSpan("-nan.0", 0, 6, style_number);
+}
+
+test "ansiToIcStyle — every colour config.zig emits maps to an isocline name" {
+    var buf: [32]u8 = undefined;
+    const cases = [_]struct { escape: []const u8, want: []const u8 }{
+        .{ .escape = "\x1b[30m", .want = "ansi-black" },
+        .{ .escape = "\x1b[31m", .want = "ansi-maroon" },
+        .{ .escape = "\x1b[32m", .want = "ansi-green" },
+        .{ .escape = "\x1b[33m", .want = "ansi-olive" },
+        .{ .escape = "\x1b[34m", .want = "ansi-navy" },
+        .{ .escape = "\x1b[35m", .want = "ansi-purple" },
+        .{ .escape = "\x1b[36m", .want = "ansi-teal" },
+        .{ .escape = "\x1b[37m", .want = "ansi-silver" },
+        .{ .escape = "\x1b[90m", .want = "ansi-darkgray" },
+        .{ .escape = "\x1b[91m", .want = "ansi-red" },
+        .{ .escape = "\x1b[92m", .want = "ansi-lime" },
+        .{ .escape = "\x1b[93m", .want = "ansi-yellow" },
+        .{ .escape = "\x1b[94m", .want = "ansi-blue" },
+        .{ .escape = "\x1b[95m", .want = "ansi-fuchsia" },
+        .{ .escape = "\x1b[96m", .want = "ansi-aqua" },
+        .{ .escape = "\x1b[97m", .want = "ansi-white" },
+        // The `1;` form config.zig produces for a `bold <colour>` setting.
+        .{ .escape = "\x1b[1;30m", .want = "bold ansi-black" },
+        .{ .escape = "\x1b[1;93m", .want = "bold ansi-yellow" },
+        .{ .escape = "\x1b[1;90m", .want = "bold ansi-darkgray" },
+    };
+    for (cases) |c| {
+        try std.testing.expectEqualStrings(c.want, ansiToIcStyle(c.escape, &buf));
+    }
+}
+
+test "ansiToIcStyle — unrecognized input is unstyled, never a wrong style" {
+    var buf: [32]u8 = undefined;
+    const rejects = [_][]const u8{
+        "", // what `none` produces
+        "\x1b[m", // shorter than any real escape
+        "\x1b[0m", // reset: not a foreground colour
+        "\x1b[39m", // default foreground: no isocline name for it
+        "\x1b[42m", // a background colour, not a foreground one
+        "0;31m", // no CSI introducer
+        "\x1b[31", // no terminator
+        "\x1b[xxm", // body is not a number
+        "\x1b[1;xm", // ...nor after the bold prefix
+        "\x1b[999m", // out of range for the u8 parse
+    };
+    for (rejects) |r| {
+        try std.testing.expectEqualStrings("", ansiToIcStyle(r, &buf));
+    }
+}
+
+test "ansiToIcStyle — both built-in themes round-trip through applyTheme's buffer" {
+    // The coupling check, and the reason this function is worth testing at all:
+    // it is the only bridge between config.zig's SGR escapes and isocline's
+    // style names, and every failure mode returns "" — which renders unstyled
+    // with nothing to notice. If config.zig ever changes how it spells a
+    // colour, or a style name outgrows applyTheme's [32]u8 (bufPrintZ failing
+    // is also just ""), all eight styles would quietly go plain. Assert the
+    // real themes map instead of trusting hand-written escapes to stay in step.
+    var buf: [32]u8 = undefined;
+    for ([_]config_mod.Theme{ config_mod.Theme.dark, config_mod.Theme.light }) |t| {
+        // Exactly the eight fields applyTheme feeds through.
+        const escapes = [_][]const u8{
+            t.keyword, t.string,      t.number, t.comment,
+            t.boolean, t.match_paren, t.paren,  t.prompt,
+        };
+        for (escapes) |e| {
+            const style = ansiToIcStyle(e, &buf);
+            try std.testing.expect(style.len > 0);
+            try std.testing.expect(std.mem.startsWith(u8, style, "ansi-") or
+                std.mem.startsWith(u8, style, "bold ansi-"));
+        }
+    }
 }
 
 fn evalInputInner(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u8, mode: EvalMode) void {
