@@ -1,5 +1,17 @@
 #!/bin/bash
-# audit-baseline.sh — structured failure report
+# audit-baseline.sh — structured failure report (docs/audit-strategy.md).
+#
+# A developer report generator, not a test: it drives `zig build` and writes a
+# directory of logs, so it needs a Zig toolchain and takes an *output
+# directory* as $1 — the opposite of every driver under tests/scheme/, which
+# takes the kaappi binary there and reports pass/fail through its exit status.
+#
+# It lives in tools/ for exactly that reason. While it sat at the top level of
+# tests/scheme/ nothing in run-all.sh ran it (run_shell_suite globs a suite
+# *directory*, and no call passed tests/scheme itself) — but any sweep of
+# tests/scheme/**/*.sh picked it up, handed it the binary path, and got
+# `mkdir -p zig-out/bin/kaappi.exe` followed by a summary grep against a
+# path that is not a directory.
 set -uo pipefail
 OUT=${1:-/tmp/audit-baseline}
 mkdir -p "$OUT"

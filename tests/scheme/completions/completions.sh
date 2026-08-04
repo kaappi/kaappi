@@ -29,7 +29,7 @@ KAAPPI="${1:-${KAAPPI:-zig-out/bin/kaappi}}"
 # *write* a file named after its argument, and a probe that does that in the
 # repo checkout leaves droppings in the working tree.
 KAAPPI="$(cd "$(dirname "$KAAPPI")" && pwd)/$(basename "$KAAPPI")"
-THOTTAM="$(dirname "$KAAPPI")/thottam"
+THOTTAM="$(sibling_tool "$KAAPPI" thottam)"
 PASS=0
 FAIL=0
 TMP="$(mktemp -d)"
@@ -43,11 +43,26 @@ pass() { echo "PASS: $1"; PASS=$((PASS + 1)); }
 fail() { echo "FAIL: $1 — $2"; FAIL=$((FAIL + 1)); }
 
 # ── 1. Every shell emits a script, and unknown shells are a usage error ─────
+#
+# The generated scripts are named after the *tool* (kaappi, thottam), never
+# after the binary file: on Windows that file is kaappi.exe, and every reader
+# below — `bash -n`, the sourced completion function, the grep assertions —
+# wants one stable spelling. Deriving the name from `basename "$bin"` wrote
+# kaappi.exe.bash while §3 and §4 went on sourcing kaappi.bash, which is 19
+# of this suite's 39 checks failing on Windows for no reason of their own.
+
+bin_for() { # <tool> -> the binary path for that tool
+    case "$1" in
+        kaappi) printf '%s\n' "$KAAPPI" ;;
+        thottam) printf '%s\n' "$THOTTAM" ;;
+    esac
+}
 
 for shell in bash zsh fish; do
-    for bin in "$KAAPPI" "$THOTTAM"; do
-        name="$(basename "$bin") --completions $shell"
-        out="$TMP/$(basename "$bin").$shell"
+    for tool in kaappi thottam; do
+        bin="$(bin_for "$tool")"
+        name="$tool --completions $shell"
+        out="$TMP/$tool.$shell"
         status=0
         "$bin" --completions "$shell" > "$out" 2> "$TMP/err" || status=$?
         if [[ "$status" -ne 0 ]]; then
@@ -62,20 +77,20 @@ done
 
 # ── 2. The scripts parse as the shell they claim to be ──────────────────────
 
-for bin in kaappi thottam; do
-    if bash -n "$TMP/$bin.bash" 2> "$TMP/err"; then
-        pass "$bin bash script parses (bash -n)"
+for tool in kaappi thottam; do
+    if bash -n "$TMP/$tool.bash" 2> "$TMP/err"; then
+        pass "$tool bash script parses (bash -n)"
     else
-        fail "$bin bash script parses (bash -n)" "$(cat "$TMP/err")"
+        fail "$tool bash script parses (bash -n)" "$(cat "$TMP/err")"
     fi
 done
 
 if command -v zsh > /dev/null 2>&1; then
-    for bin in kaappi thottam; do
-        if zsh -n "$TMP/$bin.zsh" 2> "$TMP/err"; then
-            pass "$bin zsh script parses (zsh -n)"
+    for tool in kaappi thottam; do
+        if zsh -n "$TMP/$tool.zsh" 2> "$TMP/err"; then
+            pass "$tool zsh script parses (zsh -n)"
         else
-            fail "$bin zsh script parses (zsh -n)" "$(cat "$TMP/err")"
+            fail "$tool zsh script parses (zsh -n)" "$(cat "$TMP/err")"
         fi
     done
 else
@@ -83,11 +98,11 @@ else
 fi
 
 if command -v fish > /dev/null 2>&1; then
-    for bin in kaappi thottam; do
-        if fish --no-execute "$TMP/$bin.fish" 2> "$TMP/err"; then
-            pass "$bin fish script parses (fish --no-execute)"
+    for tool in kaappi thottam; do
+        if fish --no-execute "$TMP/$tool.fish" 2> "$TMP/err"; then
+            pass "$tool fish script parses (fish --no-execute)"
         else
-            fail "$bin fish script parses (fish --no-execute)" "$(cat "$TMP/err")"
+            fail "$tool fish script parses (fish --no-execute)" "$(cat "$TMP/err")"
         fi
     done
 else

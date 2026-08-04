@@ -393,7 +393,7 @@ Read this before every session. The phase sections say *what*; this says *how*.
 ### Footguns
 
 - **`timeout` does not exist on stock macOS.** Use the `run_timeout` helper in
-  `tests/scheme/audit-baseline.sh` (tries `timeout`, then `gtimeout`, then
+  `tools/audit-baseline.sh` (tries `timeout`, then `gtimeout`, then
   `perl -e 'alarm shift; exec @ARGV' 30 <cmd>`). A hang is a finding.
 - **Run expanded/reformatted files in the original's directory.** A
   round-trip harness that runs the output from a different cwd breaks relative
@@ -572,7 +572,7 @@ F1–F13 (reproducing the two `[A]` rows first).
 zig build test
 kaappi test tests
 bash tests/scheme/run-all.sh
-bash tests/scheme/audit-baseline.sh /tmp/audit-v2-baseline
+bash tools/audit-baseline.sh /tmp/audit-v2-baseline
 ```
 
 The 2026-07-31 baseline (`261fde5f`, macOS aarch64, ReleaseSafe) was **624/624

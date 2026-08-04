@@ -297,8 +297,18 @@ gates lift work at the 0.17.0 toolchain bump) and
 which Windows filenames cannot contain). shell-common.sh also carries
 the portability helpers the drivers need on Windows: `native_path` (the
 C:/-style spelling the binary itself prints, via `cygpath -m` — MSYS
-`/tmp/...` paths never appear in kaappi's own output) and `rt_lib_name`
-(`kaappi_rt.lib` vs `libkaappi_rt.a`).
+`/tmp/...` paths never appear in kaappi's own output), `rt_lib_name`
+(`kaappi_rt.lib` vs `libkaappi_rt.a`), and `sibling_tool` (the path to
+`thottam` or `kaappi-lsp` beside the binary under test, carrying the
+`.exe` suffix). The suffix is the recurring trap: runners spell the
+binary both ways — `bin/kaappi.exe` in CI, plain `zig-out/bin/kaappi`
+from a Git Bash checkout, which works because MSYS appends `.exe` when
+*executing*. A script that merely runs the result never notices; one
+that names the file, `-x`-tests it, or derives an output filename from
+its basename does. `completions/completions.sh` wrote its generated
+scripts to `$TMP/$(basename "$bin").$shell` and then sourced a
+hardcoded `$TMP/kaappi.bash`, so 19 of its 39 checks failed on Windows
+until the generated names were keyed to the tool rather than the file.
 
 What CI still can't run — interactive surfaces like the console REPL —
 is verified against a real Windows 11 ARM64 machine (e.g. a UTM VM with

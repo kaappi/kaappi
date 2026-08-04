@@ -228,7 +228,7 @@ VERBOSE="${KAAPPI_DIFF_VERBOSE:-0}"
 
 # Portable timeout: GNU coreutils `timeout` is absent on stock macOS, and the
 # perl fallback is the only thing guaranteed present on the BSD reference
-# boxes.  Same ladder as tests/scheme/audit-baseline.sh.
+# boxes.  Same ladder as tools/audit-baseline.sh.
 if command -v timeout > /dev/null 2>&1; then
     run_timeout() { timeout "$@"; }
 elif command -v gtimeout > /dev/null 2>&1; then
