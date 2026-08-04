@@ -150,6 +150,19 @@ Update the count in each match (README.md and CONFORMANCE.md are user-facing;
 entries untouched — they record what was true at the time. Include any changed
 files in the release commit (Step 7).
 
+**The docs site cites the count too, and it is a separate repo** — so it needs
+its own grep and its own commit, in `../kaappi.github.io`:
+
+```bash
+grep -rn "built-in procedures\|standard libraries" ../kaappi.github.io/docs/ ../kaappi.github.io/overrides/
+```
+
+Omitting this is not hypothetical: the site sat at **601** while the core repo
+was at 689, because Step 5 only ever grepped this repo. Pages that say "600+"
+rather than an exact figure are deliberate and need no edit — prefer that
+phrasing for prose pages, and reserve the exact count for
+`docs/conformance.md`, which mirrors `CONFORMANCE.md`.
+
 ## Step 6: Build verification
 
 ```bash
