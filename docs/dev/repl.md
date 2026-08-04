@@ -21,6 +21,7 @@ which `main.zig` never reaches.
 |---|---|---|
 | `ic_set_default_is_complete` | `isCompleteCallback` → `inputIncomplete` | Enter submits only when the **reader** says the form is finished. Not upstream isocline — see `vendor/isocline/PATCHES.md`. |
 | `ic_set_default_completer` | `completionCallback` | Comma commands match the whole line; everything else goes through `ic_complete_word` over `vm.globals`. `,load`/`,import` complete filenames. |
+| `ic_set_default_sexp_edit` | `sexpEditCallback` → `repl_sexp.apply` | The four structural-edit keys. Not upstream isocline — patch 3. |
 | `ic_set_default_highlighter` | `highlightCallback` → `scanHighlight` | Emits styled spans; `scanHighlight` is separated so the token rules are testable without a terminal. |
 | `ic_style_def` | `applyTheme` | `repl.color.*` names become isocline styles via `ansiToIcStyle`. `ic-prompt` and `ic-bracematch` are isocline's own names, redefined. |
 | `ic_enable_brace_matching` | — | Limited to `"()"`: the reader gives `[`/`]` no meaning (`0]` is KP1002). |
@@ -34,6 +35,47 @@ Two settings are deliberate rather than default:
 
 History is written on every submit, with embedded newlines escaped, so a crash
 no longer loses the session.
+
+## Structural editing
+
+Four keys move a *paren* rather than a character (kaappi#2216). `|` marks the
+cursor:
+
+| Key | Command | Effect |
+|---|---|---|
+| alt+shift+S | slurp | `(a\| b) c d` → `(a\| b c) d` |
+| alt+shift+B | barf | `(a\| b c)` → `(a\| b) c` |
+| alt+shift+R | raise | `(+ 1 (* 2 \|3))` → `(+ 1 \|3)` |
+| alt+y | rotate | `(if a\| b c)` → `(if b c a\|)` |
+
+They are listed under F1 too, and only when the callback is set. Each is
+`ESC` followed by the character, so a terminal that does not send Option as
+Meta (macOS Terminal.app, unless "Use Option as Meta key" is on) will not
+deliver them.
+
+`src/repl_sexp.zig` holds the transforms — pure functions over
+`(buffer, byte cursor)`, so they unit-test without a terminal. The keys and the
+buffer swap live in the vendored editor (`vendor/isocline/PATCHES.md`, patch
+3); `tests/scheme/smoke/repl-structural-editing-2216.sh` drives that half over
+a real pty, since nothing in Zig can reach it.
+
+Three things are worth knowing before changing them:
+
+- **The scanner derives its rules from `reader.zig`.** `Reader.isDelimiter`
+  decides where an atom ends, and strings, `;` and `#|…|#` comments, `#;`
+  datum comments, `#\(` character literals and `|pipe|` symbols all hide their
+  parens. That is not decoration: bestline's originals, which the issue
+  proposed porting, count parens with none of it.
+- **`[` and `]` are ordinary atom characters**, because the reader gives them
+  no meaning (`0]` is KP1002). `scanHighlight` used to paint them like parens;
+  it no longer does, so the colors, `ic_enable_brace_matching`, the reader and
+  `repl_sexp` now all agree.
+- **An unbalanced form declines.** Every command needs a close paren to move,
+  so a half-typed form is left exactly as it is rather than guessed at.
+
+Rotate keeps the head in place and cycles the arguments. Rotating the head too
+would turn every call form into something unevaluatable (`(+ 1 2)` → `(1 2 +)`);
+as it stands, repeating it n-1 times on n arguments restores the original.
 
 ## Comma commands
 
@@ -88,6 +130,7 @@ Width-aware pretty-printing for long output — tracked in
 | Component | Location |
 |-----------|----------|
 | REPL loop, command dispatch, completeness/completion/highlight callbacks | `src/repl.zig` |
+| Structural editing transforms (slurp, barf, raise, rotate) | `src/repl_sexp.zig` |
 | Entry point / CLI flags | `src/main.zig` |
 | Import handling | `src/vm_library.zig` (`handleImport`) |
 | Stepping debugger | `src/vm_debug.zig` |

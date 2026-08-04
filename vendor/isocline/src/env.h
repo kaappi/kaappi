@@ -36,6 +36,9 @@ struct ic_env_s {
   // KAAPPI PATCH 1: see vendor/isocline/PATCHES.md
   ic_is_complete_fun_t* is_complete; // "is this input a finished form?" callback
   void*           is_complete_arg;  // user state for is_complete.
+  // KAAPPI PATCH 3: see vendor/isocline/PATCHES.md
+  ic_sexp_fun_t*  sexp_edit;        // structural (paren-moving) edit callback
+  void*           sexp_edit_arg;    // user state for sexp_edit.
   const char*     match_braces;     // matching braces, e.g "()[]{}"
   const char*     auto_braces;      // auto insertion braces, e.g "()[]{}\"\"''"
   char            multiline_eol;    // character used for multiline input ("\") (set to 0 to disable)

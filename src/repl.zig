@@ -12,6 +12,7 @@ const reporting = @import("reporting.zig");
 const expander = @import("expander.zig");
 const toplevel_driver = @import("toplevel_driver.zig");
 const crash = @import("crash.zig");
+const repl_sexp = @import("repl_sexp.zig");
 /// isocline is the line editor (`vendor/isocline/`). It holds a whole form in
 /// one buffer, so `ic.readline` returns a finished expression — newlines and
 /// all — instead of one physical line, and every line of it stays editable
@@ -182,9 +183,13 @@ fn isSchemeKeyword(word: []const u8) bool {
     return false;
 }
 
-fn isDelimiter(ch: u8) bool {
-    return ch == ' ' or ch == '\t' or ch == '(' or ch == ')' or ch == '[' or ch == ']' or ch == '"' or ch == ';' or ch == '|' or ch == '\n' or ch == '\r';
-}
+/// Where a token ends, for the highlighter. This is `Reader.isDelimiter` — not
+/// a copy of it — so the colors cannot disagree with the parse. In particular
+/// `[` and `]` are *not* delimiters: the reader gives them no meaning (`0]` is
+/// KP1002), so `[i` and `0]` are one atom each, and painting them like parens
+/// advertised a structure neither the reader nor `repl_sexp` believes in
+/// (kaappi#2216).
+const isDelimiter = reader.Reader.isDelimiter;
 
 fn isNumberLike(word: []const u8) bool {
     if (word.len == 0) return false;
@@ -311,7 +316,7 @@ fn scanHighlight(input: []const u8, ctx: anytype) void {
             continue;
         }
 
-        if (ch == '(' or ch == ')' or ch == '[' or ch == ']') {
+        if (ch == '(' or ch == ')') {
             i += 1;
             ctx.emit(start, i, style_paren);
             continue;
@@ -459,6 +464,45 @@ fn isCompleteCallback(input_c: [*c]const u8, arg: ?*anyopaque) callconv(.c) bool
     return !inputIncomplete(vm.gc, input);
 }
 
+/// isocline's structural-edit handler (Kaappi patch 3,
+/// `vendor/isocline/PATCHES.md`). isocline owns the keys; `repl_sexp` owns the
+/// syntax and does the rewriting, on the whole buffer rather than one physical
+/// line — which is why kaappi#2216 waited for the isocline migration.
+///
+/// Returning null declines: isocline leaves the input exactly as it was, which
+/// is what a command that does not apply here should do.
+fn sexpEditCallback(
+    cmd: ic.c.ic_sexp_command_t,
+    input_c: [*c]const u8,
+    pos: [*c]c_long,
+    arg: ?*anyopaque,
+) callconv(.c) [*c]u8 {
+    _ = arg;
+    const input = if (input_c) |p| std.mem.span(@as([*:0]const u8, @ptrCast(p))) else return null;
+    const cursor: usize = if (pos.* < 0) 0 else @intCast(pos.*);
+    // An unknown command id can only mean isocline and `repl_sexp.Command`
+    // have drifted; decline rather than guess (see `ic.setSexpEdit`).
+    const command: repl_sexp.Command = switch (cmd) {
+        ic.c.IC_SEXP_SLURP => .slurp,
+        ic.c.IC_SEXP_BARF => .barf,
+        ic.c.IC_SEXP_RAISE => .raise,
+        ic.c.IC_SEXP_ROTATE => .rotate,
+        else => return null,
+    };
+
+    const allocator = std.heap.c_allocator;
+    const edit = repl_sexp.apply(allocator, command, input, cursor) orelse return null;
+    defer allocator.free(edit.text);
+
+    // isocline frees what it is handed, so the result has to come from its
+    // allocator, not ours.
+    const buf = ic.alloc(edit.text.len + 1) orelse return null;
+    @memcpy(buf[0..edit.text.len], edit.text);
+    buf[edit.text.len] = 0;
+    pos.* = @intCast(edit.pos);
+    return @ptrCast(buf);
+}
+
 /// Translate one of `config.Theme`'s SGR escapes into an isocline style string.
 ///
 /// The theme stores escapes because linenoise was handed raw bytes; isocline
@@ -557,6 +601,7 @@ pub fn repl(vm: *vm_mod.VM) !void {
         applyTheme(cfg.theme);
 
         ic.setIsComplete(&isCompleteCallback, null);
+        ic.setSexpEdit(&sexpEditCallback, null);
         ic.setCompleter(&completionCallback, null);
         if (highlight_enabled) ic.setHighlighter(&highlightCallback, null);
         // The prompt text carries no escapes: isocline measures it to place the
@@ -880,6 +925,13 @@ pub fn repl(vm: *vm_mod.VM) !void {
                 \\  ,step <expr>      Evaluate with single-stepping
                 \\  ,condition <id> <expr>  Set breakpoint condition
                 \\
+                \\ -- Structural editing (moves a paren, not a character):
+                \\  alt-shift-S       Slurp: pull the next datum into the form
+                \\  alt-shift-B       Barf: push the last datum out of the form
+                \\  alt-shift-R       Raise: replace the form with the datum at point
+                \\  alt-y             Rotate the form's arguments
+                \\  F1                All editor keys
+                \\
                 \\ -- System:
                 \\  ,gc               Show GC statistics
                 \\  ,version          Show Kaappi version
@@ -1149,10 +1201,7 @@ test "inputIncomplete — open form continues" {
 test "inputIncomplete — brackets are not list syntax here" {
     // kaappi's reader gives `[` and `]` no special meaning (KP1002 on `0]`),
     // so a bracket binding is a syntax error, not an unfinished form — it must
-    // submit and be reported, not sit at the continuation prompt. The
-    // highlighter diverges from that, cosmetically: `scanHighlight` styles
-    // brackets with `style_paren` like any other delimiter, though nothing
-    // pairs them — `setMatchingBraces` is given "()" alone.
+    // submit and be reported, not sit at the continuation prompt.
     try expectIncomplete("(let loop ([i 0]) i)", false);
     // The enclosing parens still govern continuation.
     try expectIncomplete("(let loop ((i 0))", true);
@@ -1320,6 +1369,15 @@ test "scanHighlight — |symbol| is not a keyword" {
 test "scanHighlight — char literal parens do not become parens" {
     try expectSpan("#\\(", 0, 3, style_number);
     try expectNoStyle("#\\(", style_paren);
+}
+
+test "scanHighlight — brackets are not parens (kaappi#2216)" {
+    // The reader pairs neither, `setMatchingBraces` is given "()" alone, and
+    // `repl_sexp` treats them as ordinary atom characters. The highlighter
+    // used to paint them anyway.
+    try expectNoStyle("[i 0]", style_paren);
+    try expectSpan("(let loop ([i 0]) i)", 0, 1, style_paren);
+    try expectSpan("(let loop ([i 0]) i)", 10, 11, style_paren);
 }
 
 test "scanHighlight — infinities and nan are numbers" {

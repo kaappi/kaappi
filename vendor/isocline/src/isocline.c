@@ -337,6 +337,13 @@ ic_public void ic_set_default_is_complete(ic_is_complete_fun_t* is_complete, voi
   env->is_complete_arg = arg;
 }
 
+// KAAPPI PATCH 3: see vendor/isocline/PATCHES.md
+ic_public void ic_set_default_sexp_edit(ic_sexp_fun_t* sexp_edit, void* arg) {
+  ic_env_t* env = ic_get_env(); if (env==NULL) return;
+  env->sexp_edit = sexp_edit;
+  env->sexp_edit_arg = arg;
+}
+
 
 ic_public void ic_free( void* p ) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return;
