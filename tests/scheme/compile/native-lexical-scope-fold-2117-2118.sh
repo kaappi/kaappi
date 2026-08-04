@@ -1,7 +1,8 @@
 #!/bin/bash
-# Regression test for #2117 and #2118 (LLVM native backend): a scratch IR
-# lowering must carry the lexical scope and the `set!` targets of the point it
-# is lowering at, or the native tier silently disagrees with the interpreter.
+# Regression test for #2117, #2118 and #2211 (LLVM native backend): a scratch
+# IR lowering must carry the lexical scope and the `set!` targets of the point
+# it is lowering at, or the native tier silently disagrees with the
+# interpreter.
 #
 # The backend re-lowers every lambda/closure/let body through a fresh IR that
 # has no Compiler, so `IR.bound_names` and `IR.set_targets` stand in for the
@@ -23,10 +24,14 @@
 # natively — 6, 1 and 9 assertions respectively — because no suite had ever
 # run them through `kaappi compile`. That gap is what this part closes.
 #
-# Part B pins the individual routes as tier comparisons, including the two
-# discriminating controls from the issues (the same shadowing used in the
-# frame that binds it, which was already correct) so a fix that simply stops
-# folding everywhere would not pass.
+# Part B pins the individual routes as tier comparisons, including the
+# discriminating controls from all three issues (the same shadowing used in
+# the frame that binds it; a `set!` reachable only through quoted data) so a
+# fix that simply stops folding everywhere would not pass.
+#
+# #2211 is the same root cause at four sites neither #2117 nor #2118 names:
+# `let`/`let*` initializers and bodies, cond/case/do sub-forms, and apply
+# operands, which passed NO scope rather than an incomplete one.
 #
 # Usage: bash tests/scheme/compile/native-lexical-scope-fold-2117-2118.sh [path-to-kaappi]
 
@@ -184,9 +189,48 @@ check_both upvalue-shadows-if 99 '(define (outer if) (lambda () (if 1 2)))
 check_both let-local-shadows-if 99 '(define (f) (let ((if (lambda (a b) 99))) (if 1 2)))
 (display (f)) (newline)'
 
-# The shadow also has to reach a form the backend lowers itself (#1496).
+# --- #2211: the four sites that carried no scope at all --------------------
+#
+# `let`/`let*` initializers and bodies, every sub-form of a natively emitted
+# cond/case/do (#1496), and apply operands (#1803) each re-lowered through a
+# scratch IR built from nothing but an allocator and a GC. The three cases
+# just above (let-local-shadowed-primitive, toplevel-let-shadowed-primitive,
+# let-local-shadows-if) are the let half; these are the rest.
+
+check_both letstar-shadowed-primitive -1 '(define (f) (let* ((y 1) (+ -)) (+ 1 2)))
+(display (f)) (newline)'
+
+# A let-bound keyword, where the wrong answer is a different value rather than
+# a coincidence of arithmetic — `quote`s role in #2118, one scope out.
+check_both let-local-shadows-quote -5 '(display (let ((quote -)) (quote 5))) (newline)'
+
+# cond/case/do are NOT saved by the enclosing frame's own bound_names: `outer`s
+# parameter `+` is in it, and each of these forms re-lowers its sub-forms from
+# an empty scratch IR, throwing the shadowing away one level down.
 check_both cond-body-shadowed-primitive 3 '(define (outer +) (cond (#t (+ 5 2))))
 (display (outer -)) (newline)'
+
+check_both case-body-shadowed-primitive 3 '(define (outer +) (case 1 ((1) (+ 5 2)) (else 0)))
+(display (outer -)) (newline)'
+
+check_both do-result-shadowed-primitive 3 '(define (outer +) (do ((i 0 (- i 1))) ((= i -1) (+ 5 2))))
+(display (outer -)) (newline)'
+
+check_both apply-operand-shadowed-primitive '(3)' '(define (outer +) (apply list (list (+ 5 2))))
+(display (outer -)) (newline)'
+
+# A let shadowing survives into a nested let, in both nesting directions.
+check_both let-shadow-into-inner-let 3 '(define (f) (let ((+ -)) (let ((y 1)) (+ 5 2))))
+(display (f)) (newline)'
+
+check_both inner-let-shadows-under-outer-let 3 '(define (f) (let ((x 1)) (let ((+ -)) (+ 5 2))))
+(display (f)) (newline)'
+
+# #2211 control: a lambda capturing an unboxed let-local declines native
+# compilation outright, so the interpreter runs the whole form — correct on
+# both tiers before the fix and after it.
+check_both let-shadow-captured-by-lambda 3 '(define (f) (let ((+ -)) (lambda () (+ 5 2))))
+(display ((f))) (newline)'
 
 # #2118 control: the same forms with no shadowing binding still compile as the
 # special form on both tiers.
