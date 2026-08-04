@@ -13,6 +13,7 @@
   <a href="https://github.com/kaappi/kaappi/releases/latest"><img src="https://img.shields.io/github/v/release/kaappi/kaappi" alt="Latest release"></a>
   <a href="https://codecov.io/gh/kaappi/kaappi"><img src="https://codecov.io/gh/kaappi/kaappi/branch/main/graph/badge.svg" alt="Coverage"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
+  <a href="https://www.buymeacoffee.com/baiju"><img src="https://img.shields.io/badge/buy%20me%20a%20coffee-support-ffdd00?logo=buy-me-a-coffee&logoColor=black" alt="Buy Me A Coffee"></a>
 </p>
 
 <p align="center">
@@ -535,6 +536,12 @@ when you're ready to contribute directly.
 
 Every bug fix needs a regression test; see the
 [testing guide](docs/dev/testing.md).
+
+## Support This Project
+
+If you find Kaappi useful, consider supporting its development:
+
+[![Buy Me A Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://www.buymeacoffee.com/baiju)
 
 ## License
 
