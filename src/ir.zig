@@ -318,9 +318,15 @@ pub const IR = struct {
     // (issues #788, #790). Null for standalone lowering, where only the
     // globals check applies.
     compiler: ?*const compiler_mod.Compiler = null,
-    // Extra lexically-bound names that shadow primitives, for lowering paths
-    // that have no Compiler (the LLVM native backend passes a lambda's own
-    // parameter names here). Also consulted by isRedefined (issue #790).
+    // Extra lexically-bound names, for lowering paths that have no Compiler
+    // (the LLVM native backend passes every name visible at the emission
+    // point — this frame's parameters plus the enclosing frames' params,
+    // upvalues, locals and boxes — see LLVMEmitter.lexicalNames). Stands in
+    // for `compiler.isLexicallyBound` at BOTH places that consult it: the
+    // fold gate in isRedefined (#790/#2117) and the special-form-vs-call
+    // decision in lowerFormWithMacros (#788/#2118). Feeding it only the
+    // immediate frame's parameters, as the native backend once did, left a
+    // shadowing binding one level out invisible to both.
     bound_names: ?[]const []const u8 = null,
     // Names that are the target of a `set!` somewhere in the enclosing form
     // being compiled. Folding a call to such a name is unsound: the `set!`
@@ -346,12 +352,31 @@ pub const IR = struct {
         };
     }
 
+    /// True when `name` is lexically bound according to the scope this
+    /// lowering was given: the enclosing Compiler's own scope, or the
+    /// `bound_names` list a Compiler-less path (the LLVM native backend)
+    /// supplies in its place. The single answer to "does a binding hide the
+    /// keyword/primitive spelled `name` here?", shared by the fold gate
+    /// (isRedefined) and the special-form dispatch (lowerFormWithMacros) so
+    /// the two can never disagree about the same binding again (#2117/#2118).
+    pub fn isLexicallyBound(self: *const IR, name: []const u8) bool {
+        if (self.compiler) |c| {
+            if (c.isLexicallyBound(name)) return true;
+        }
+        if (self.bound_names) |names| {
+            for (names) |n| {
+                if (std.mem.eql(u8, n, name)) return true;
+            }
+        }
+        return false;
+    }
+
     pub fn isRedefined(self: *const IR, name: []const u8) bool {
         // A lexical binding (lambda parameter or enclosing local) shadowing the
         // primitive makes any fold that assumes the built-in's semantics wrong.
-        // The globals map never sees these, so consult the compiler's scope.
+        // The globals map never sees these, so consult the lexical scope.
+        if (self.isLexicallyBound(name)) return true;
         if (self.compiler) |c| {
-            if (c.isLexicallyBound(name)) return true;
             // A truncated `set!` pre-scan means "any name may be reassigned"
             // (kaappi#1775); suppress every fold rather than trust a partial
             // set_targets map. Every caller of isRedefined is an optimization
@@ -361,11 +386,6 @@ pub const IR = struct {
             // quiet about its direct built-in calls. Nothing here decides
             // special-form-vs-call lowering.
             if (c.set_targets_all) return true;
-        }
-        if (self.bound_names) |names| {
-            for (names) |n| {
-                if (std.mem.eql(u8, n, name)) return true;
-            }
         }
         // A `set!` target in the enclosing form suppresses folding even when
         // the global still holds the original primitive at compile time.
@@ -644,8 +664,15 @@ fn lowerFormWithMacros(ir: *IR, expr: Value, macros: ?*std.StringHashMap(Value))
         // Mirrors the `is_shadowed` guard in the legacy compileForm path.
         // A hygienic rename (effective_name != name) is never shadowed: it
         // came from a macro template and must keep its special-form meaning.
+        //
+        // `isLexicallyBound` answers from the Compiler's scope when there is
+        // one and from `bound_names` otherwise, so the LLVM native backend —
+        // which lowers every lambda/let body through a scratch IR with no
+        // Compiler — honours the binding too (#2118). Without that it read
+        // `(define (f if) (if 1 2))` as the special form and printed 2 where
+        // the interpreter printed 99.
         const is_shadowed = std.mem.eql(u8, effective_name, name) and
-            if (ir.compiler) |c| c.isLexicallyBound(name) else false;
+            ir.isLexicallyBound(name);
 
         if (!is_shadowed) {
             // R7RS has no reserved words: an imported macro may shadow a
@@ -731,15 +758,14 @@ pub fn lowerAndOptimize(
     return node;
 }
 
-pub fn lowerSingleExpr(allocator: std.mem.Allocator, gc: ?*memory.GC, expr: Value) CompileError!*Node {
-    return lowerSingleExprTail(allocator, gc, expr, false);
-}
-
-pub fn lowerSingleExprTail(allocator: std.mem.Allocator, gc: ?*memory.GC, expr: Value, is_tail: bool) CompileError!*Node {
-    var scratch = IR.init(allocator);
-    scratch.gc = gc;
-    return lowerAndOptimize(&scratch, expr, null, is_tail);
-}
+// The scope-less `lowerSingleExpr` / `lowerSingleExprTail` that used to live
+// here are gone (kaappi#2117/#2118). Their only callers were the LLVM native
+// backend's re-lowering sites, and a scratch IR built with neither
+// `bound_names` nor `set_targets` answers "is this name bound here?" and "may
+// this name's value change?" as if the program had no lexical scope at all —
+// which is exactly how a shadowed keyword lowered as the special form and a
+// `set!`-clobbered primitive folded to its stale value. `LLVMEmitter.lowerScoped`
+// replaces both and cannot be called without a scope.
 
 fn lowerIf(ir: *IR, args: Value, macros: ?*std.StringHashMap(Value)) CompileError!*Node {
     if (args == types.NIL) return CompileError.InvalidSyntax;

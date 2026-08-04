@@ -183,7 +183,12 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
 
     // Track names that are targets of define or set! in previous top-level
     // forms so constant folding does not inline primitive semantics for a
-    // name that will be rebound at runtime (#822).
+    // name that will be rebound at runtime (#822), plus every `set!` target
+    // nested anywhere inside the form about to be lowered — a `set!` in a
+    // lambda body runs before a call in that same body, so the primitive's
+    // compile-time value is already stale there (#2117 route 1). The
+    // interpreter gets the second half from Compiler.compile's own per-form
+    // pre-scan; this is the same scan, minus macro expansion.
     var redefined_names = std.StringHashMap(void).init(allocator);
     defer redefined_names.deinit();
     ir_instance.set_targets = &redefined_names;
@@ -236,6 +241,11 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
             }
         }
 
+        // `try`, not a swallowed error: the only failure is OOM growing the
+        // map, and continuing with a partial set would silently fold a call
+        // the scan had not finished proving unsafe.
+        try compiler.scanSetTargetsWithoutMacros(expr, &redefined_names);
+
         const root = ir_mod.lowerAndOptimize(&ir_instance, expr, &vm.macros, false) catch |err| {
             const code = diagnostics.compileErrorCode(err);
             var cbuf: [diagnostics.Code.render_width]u8 = undefined;
@@ -266,6 +276,10 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
     // Threaded into every scratch IR the emitter lowers, so lowerQuote can
     // strip hygiene renames from a macro-produced quoted datum (#1801).
     emitter.gc = vm.gc;
+    // Likewise for the `set!` targets: by now the read loop above has seen
+    // every top-level form, so this map covers the whole program — and the
+    // emitter re-lowers lambda/let bodies from here on (#2117).
+    emitter.set_targets = &redefined_names;
     timings.begin(.llvm_emit); // kaappi#1515: IR → LLVM IR text codegen
     emitter.emitProgram(ir_nodes.items) catch |err| {
         timings.end();

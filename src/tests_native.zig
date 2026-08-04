@@ -149,6 +149,47 @@ pub fn emitMultiResultOpts(source: []const u8, optimize: bool) !EmitResult {
     return .{ .gc = gc, .ir_instance = ir_instance, .emitter = emitter };
 }
 
+/// Like emitMultiResult, but wires `set_targets` into the emitter the way
+/// native_compiler.zig does, so a lambda body re-lowered during emission sees
+/// the program's `set!` targets and declines to fold a call to one (#2117).
+/// Every other helper here leaves the field null — its default, and the same
+/// "no name is reassigned" answer those tests want. `set_targets` is
+/// caller-owned and must outlive `res`.
+fn emitMultiResultWithSetTargets(
+    source: []const u8,
+    set_targets: *const std.StringHashMap(void),
+) !EmitResult {
+    var gc = memory.GC.init(emitter_alloc);
+    errdefer gc.deinit();
+
+    // See emitSourceResult: collection is deferred until emission is done.
+    gc.no_collect += 1;
+
+    var reader = reader_mod.Reader.init(&gc, source);
+    defer reader.deinit();
+
+    var ir_instance = ir_mod.IR.init(emitter_alloc);
+    errdefer ir_instance.deinit();
+    ir_instance.set_targets = set_targets;
+
+    var ir_nodes: std.ArrayList(*ir_mod.Node) = .empty;
+    defer ir_nodes.deinit(emitter_alloc);
+
+    while (try reader.hasMore()) {
+        const expr = try reader.readDatum();
+        const root = try ir_mod.lowerAndOptimize(&ir_instance, expr, null, false);
+        try ir_nodes.append(emitter_alloc, root);
+    }
+
+    var emitter = llvm_emit.LLVMEmitter.init(emitter_alloc);
+    errdefer emitter.deinit();
+    emitter.set_targets = set_targets;
+    try emitter.emitProgram(ir_nodes.items);
+
+    gc.no_collect -= 1;
+    return .{ .gc = gc, .ir_instance = ir_instance, .emitter = emitter };
+}
+
 fn expectContains(haystack: []const u8, needle: []const u8) !void {
     if (std.mem.indexOf(u8, haystack, needle) == null) {
         std.debug.print("\n--- Expected to find ---\n{s}\n--- in output (len={d}) ---\n", .{ needle, haystack.len });
@@ -1698,4 +1739,131 @@ test "LLVM emit: an internal shorthand define drops the direct-call binding (#18
     var ctl = try emitMultiResult("(define (g) 1) (let ((a 2)) (display a)) (g)");
     defer ctl.deinit();
     try std.testing.expect(hasDirectNativeCall(mainBody(ctl.toSlice())));
+}
+
+// The immediate an emitted constant fixnum appears as, e.g. `add i64 0, -84…`
+// for 7. A folded `(+ 5 2)` is exactly this; a call to a shadowed `+` is not.
+fn fixnumImm(buf: []u8, n: i64) ![]const u8 {
+    return std.fmt.bufPrint(buf, "add i64 0, {d}", .{@as(i64, @bitCast(types.makeFixnum(n)))});
+}
+
+// A generic call through a Value operator, as emitted for a call whose head is
+// a lexical binding rather than a known primitive. Spelled as the `call`
+// instruction, not the bare symbol: every module also carries a `declare` line
+// for it, which a bare-name search would match unconditionally.
+const call_scheme = "call i64 @kaappi_call_scheme(ptr %vm";
+
+// Every assertion below that a fold did NOT happen is satisfied vacuously if
+// the frame never compiled natively at all — the interpreter would then be
+// doing the work and the emitted module would contain neither the fold nor
+// anything else. Pin the tier first: `name` has a native definition and the
+// module reaches no code eval fallback, so what the rest of the test inspects
+// is genuinely the native lowering's output.
+fn expectNativeTier(ll: []const u8, name: []const u8) !void {
+    try expectNativeDef(ll, name);
+    try std.testing.expectEqual(@as(usize, 0), countEvalFallbacks(ll));
+}
+
+test "LLVM emit: an enclosing frame's parameter suppresses a fold in a nested lambda (#2117)" {
+    // The nested lambda's body is re-lowered through a scratch IR that has no
+    // Compiler, so IR.bound_names is the only thing that can tell it `+` is
+    // bound. It used to get the immediate frame's parameters only — and the
+    // nested lambda has none — so `(+ 5 2)` folded to 7 and the compiled
+    // binary printed 7 where the interpreter printed 3.
+    var buf: [64]u8 = undefined;
+    const folded = try fixnumImm(&buf, 7);
+
+    var res = try emitMultiResult("(define (outer +) (lambda () (+ 5 2)))");
+    defer res.deinit();
+    try expectNativeTier(res.toSlice(), "outer");
+    try expectNotContains(res.toSlice(), folded);
+    // The captured upvalue is called instead.
+    try expectContains(res.toSlice(), call_scheme);
+
+    // Control: rename the parameter and the same body folds, so the assertion
+    // above is about the shadowing and not about folding being off entirely.
+    var ctl = try emitMultiResult("(define (outer y) (lambda () (+ 5 2)))");
+    defer ctl.deinit();
+    try expectNativeTier(ctl.toSlice(), "outer");
+    try expectContains(ctl.toSlice(), folded);
+    try expectNotContains(ctl.toSlice(), call_scheme);
+}
+
+test "LLVM emit: a let-bound name suppresses a fold in the let body (#2117)" {
+    var buf: [64]u8 = undefined;
+    const folded = try fixnumImm(&buf, 7);
+
+    var res = try emitMultiResult("(define (f) (let ((+ -)) (+ 5 2)))");
+    defer res.deinit();
+    try expectNativeTier(res.toSlice(), "f");
+    try expectNotContains(res.toSlice(), folded);
+    // The let-local is called rather than folded away.
+    try expectContains(res.toSlice(), call_scheme);
+
+    var ctl = try emitMultiResult("(define (f) (let ((y -)) (+ 5 2)))");
+    defer ctl.deinit();
+    try expectNativeTier(ctl.toSlice(), "f");
+    try expectContains(ctl.toSlice(), folded);
+}
+
+test "LLVM emit: a set! in the body suppresses every fold in it (#2117)" {
+    // Route 1: the set! runs before the call, so the compile-time value of `+`
+    // is already stale by the time `(+ 5 2)` evaluates. The emitter gets the
+    // program's set! targets from native_compiler; emitMultiResult drives it
+    // without one, so supply the same map here.
+    var targets = std.StringHashMap(void).init(std.testing.allocator);
+    defer targets.deinit();
+    try targets.put("+", {});
+
+    var buf: [64]u8 = undefined;
+    const folded = try fixnumImm(&buf, 7);
+
+    var res = try emitMultiResultWithSetTargets("(define (f) (set! + -) (+ 5 2))", &targets);
+    defer res.deinit();
+    try expectNativeTier(res.toSlice(), "f");
+    try expectNotContains(res.toSlice(), folded);
+
+    // Control: the same body, with no name declared as a set! target, folds.
+    var empty = std.StringHashMap(void).init(std.testing.allocator);
+    defer empty.deinit();
+    var ctl = try emitMultiResultWithSetTargets("(define (f) (set! + -) (+ 5 2))", &empty);
+    defer ctl.deinit();
+    try expectNativeTier(ctl.toSlice(), "f");
+    try expectContains(ctl.toSlice(), folded);
+}
+
+test "LLVM emit: a parameter shadowing a keyword lowers the form as a call (#2118)" {
+    // `(if 1 2)` as the special form constant-folds to 2; as a call to the
+    // parameter `if` it must reach kaappi_call_scheme instead. The native
+    // binary printed 2 where the interpreter printed 99.
+    var res = try emitMultiResult("(define (f if) (if 1 2))");
+    defer res.deinit();
+    try expectNativeTier(res.toSlice(), "f");
+    try expectContains(res.toSlice(), call_scheme);
+
+    // Control: unshadowed, the same body IS the special form — no call at all,
+    // and the folded 2 in its place.
+    var buf: [64]u8 = undefined;
+    const folded = try fixnumImm(&buf, 2);
+    var ctl = try emitMultiResult("(define (f x) (if 1 2))");
+    defer ctl.deinit();
+    try expectNativeTier(ctl.toSlice(), "f");
+    try expectNotContains(ctl.toSlice(), call_scheme);
+    try expectContains(ctl.toSlice(), folded);
+}
+
+test "LLVM emit: an enclosing frame's parameter shadows a keyword too (#2118)" {
+    var res = try emitMultiResult("(define (outer quote) (lambda () (quote 5)))");
+    defer res.deinit();
+    try expectNativeTier(res.toSlice(), "outer");
+    try expectContains(res.toSlice(), call_scheme);
+
+    // Control: `(quote 5)` unshadowed is the literal 5, never a call.
+    var ctl = try emitMultiResult("(define (outer y) (lambda () (quote 5)))");
+    defer ctl.deinit();
+    try expectNativeTier(ctl.toSlice(), "outer");
+    try expectNotContains(ctl.toSlice(), call_scheme);
+    // The literal 5 is materialized as an immediate, not built at runtime.
+    var qbuf: [64]u8 = undefined;
+    try expectContains(ctl.toSlice(), try fixnumImm(&qbuf, 5));
 }

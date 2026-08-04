@@ -73,9 +73,11 @@ fn tryCompilePureLambdaAsNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) 
     var body_ir = ir.IR.init(self.allocator());
     body_ir.gc = self.gc;
     defer body_ir.deinit();
-    // Parameters shadow primitives of the same name; don't fold calls to them
-    // using the built-in's semantics (issue #790).
-    body_ir.bound_names = param_names.items;
+    // This frame's parameters plus every binding still visible from the
+    // enclosing frames shadow both primitives (no fold — #790/#2117) and
+    // syntactic keywords (lower as a call, not the special form — #788/#2118).
+    body_ir.bound_names = self.lexicalNames(param_names.items) catch return null;
+    body_ir.set_targets = self.set_targets;
     var body_nodes: std.ArrayList(*ir.Node) = .empty;
     var body_expr = body_list;
     while (body_expr != types.NIL and types.isPair(body_expr)) {
@@ -149,9 +151,11 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
     var body_ir = ir.IR.init(self.allocator());
     body_ir.gc = self.gc;
     defer body_ir.deinit();
-    // Parameters shadow primitives of the same name; don't fold calls to them
-    // using the built-in's semantics (issue #790).
-    body_ir.bound_names = param_names.items;
+    // Same scope-wide shadowing set as the sibling tier above (#790/#2117,
+    // #788/#2118). A closure's own body sees the enclosing frame's bindings
+    // as upvalues, so passing only `param_names` here missed every one.
+    body_ir.bound_names = self.lexicalNames(param_names.items) catch return null;
+    body_ir.set_targets = self.set_targets;
     var body_nodes: std.ArrayList(*ir.Node) = .empty;
     var body_expr = body_list;
     while (body_expr != types.NIL and types.isPair(body_expr)) {
@@ -519,16 +523,16 @@ pub fn tryCompileDefineFunction(self: *LLVMEmitter, name: []const u8, formals: V
     var body_ir = ir.IR.init(self.allocator());
     body_ir.gc = self.gc;
     defer body_ir.deinit();
-    // Parameters (including a rest parameter) shadow primitives of the same
-    // name; don't fold calls to them using the built-in's semantics (#790).
-    if (rest_name) |rn| {
-        var bound_names: std.ArrayList([]const u8) = .empty;
-        bound_names.appendSlice(self.allocator(), param_names.items) catch return null;
-        bound_names.append(self.allocator(), rn) catch return null;
-        body_ir.bound_names = bound_names.items;
-    } else {
-        body_ir.bound_names = param_names.items;
+    // Parameters (including a rest parameter) and every binding still visible
+    // from the enclosing frames shadow primitives (no fold — #790/#2117) and
+    // syntactic keywords (lower as a call — #788/#2118).
+    {
+        var own: std.ArrayList([]const u8) = .empty;
+        own.appendSlice(self.allocator(), param_names.items) catch return null;
+        if (rest_name) |rn| own.append(self.allocator(), rn) catch return null;
+        body_ir.bound_names = self.lexicalNames(own.items) catch return null;
     }
+    body_ir.set_targets = self.set_targets;
 
     var body_nodes: std.ArrayList(*ir.Node) = .empty;
     var body_expr = body;

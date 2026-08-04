@@ -234,6 +234,31 @@ name that escapes the gate; a deliberately stricter runtime test in
 `tests_native.zig` fails if `derived_exclusions` gains an entry at all, so
 weakening the gate takes two edits, not one quiet line.
 
+A third thing the backend re-derives is **lexical scope**. It does not emit
+from the IR tree it was handed: every lambda/closure/`let` body is still a raw
+S-expression there and is re-lowered during emission through a scratch `ir.IR`
+that has no `Compiler` — so `IR.bound_names` and `IR.set_targets` stand in for
+`Compiler.isLexicallyBound` and the per-form `set!` pre-scan. Both feed two
+*different* decisions (`lowerFormWithMacros`'s special-form-vs-call dispatch
+and `isRedefined`'s fold gate), and until kaappi#2117/#2118 both were
+under-supplied: `bound_names` held only the immediate frame's parameter names
+and `set_targets` was never passed at all. A binding one level out was
+therefore invisible, so `(define (outer +) (lambda () (+ 5 2)))` printed 7,
+`(define (f) (set! + -) (+ 5 2))` printed 7, and `(define (f if) (if 1 2))`
+lowered `if` as the special form — each a plausible number the interpreter
+disagrees with. `LLVMEmitter.lexicalNames` now **derives** the name set from
+the same four maps `emitGlobalRef` resolves against rather than keeping a
+parallel list, and `LLVMEmitter.lowerScoped` is the one way to re-lower a
+sub-form (a bare `ir.lowerSingleExpr*` in `llvm_emit*.zig` drops both fields
+and reopens the bug). See `docs/dev/llvm-backend.md`.
+
+The lesson worth carrying: `tests/scheme/smoke/lambda-param-shadows-keyword-788.scm`
+and its two siblings were the regression tests for exactly these bugs and
+passed the whole time — no suite ran them through `kaappi compile`. A `.scm`
+regression test is interpreter-only evidence;
+`tests/scheme/compile/native-lexical-scope-fold-2117-2118.sh` now compiles
+those three files too.
+
 **Always use `zig cc` (not `clang`) for linking native binaries against
 `libkaappi_rt.a`.** The Zig-compiled static library references
 `__zig_probe_stack` and other Zig compiler-rt intrinsics that `clang`
