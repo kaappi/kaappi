@@ -7,8 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.22.2] - 2026-08-05
+
 ### Added
 
+- **The REPL now edits a whole form at once** (#2218). It ran on a vendored
+  linenoise fork that read one physical line per call and joined continuation
+  lines itself, so once Enter was pressed that line had left the editor: a typo
+  on line 1 of a `define`, spotted on line 4, meant Ctrl-C and retyping the
+  form. isocline holds the whole form in one buffer, so up and down move within
+  it and reach history only at its edges, and a multi-line paste is drawn
+  rather than folded to `[... N pasted lines ...]`. Completeness is now decided
+  by `Reader.incomplete_input` — the same scanner the file path uses — retiring
+  a second, hand-written 127-line Scheme scanner that had drifted from the real
+  one twice (#358, #542).
+- **Paredit-style structural editing in the REPL** (#2216): slurp
+  (`alt+shift+S`), barf (`alt+shift+B`), raise (`alt+shift+R`) and rotate
+  (`alt+y`) move a paren rather than a character. Rotate keeps the head and
+  cycles the arguments, so repeating it restores the original. The transforms
+  are pure functions over (buffer, byte cursor) and take `Reader.isDelimiter`
+  directly, so strings, comments and character literals are understood rather
+  than approximated. This needed the isocline migration first — on one editable
+  physical line there is no whole form to restructure.
+- **SRFI 41's `stream-map` and `stream-for-each` accept multiple streams**, per
+  the SRFI, stopping at the shortest.
 - **`kaappi test -j` / `--jobs <n>`** runs test files concurrently, defaulting
   to one job per CPU (#1887). Every file was already an isolated worker
   process, so this is a scheduling change only: verdicts, per-file output and
@@ -63,6 +85,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   runaway recursion. It now says `apply: too many arguments (limit 255)`. It
   is an ordinary argument fault rather than a VM limit, so it stays catchable:
   it is also the bound that stops `apply` walking a circular argument list.
+- **The `.sbc` bytecode cache is now transparent: a HIT behaves like a MISS**
+  (#2110, #2111, #2112, #2113, #1922). Format v11 gives pair, string, vector
+  and bytevector constants their immutability byte, so a `set-car!` on a
+  literal raises `KP3002` warm exactly as cold; a shareable constant reached
+  twice is emitted once and referenced by backref, so datum-label sharing keeps
+  `eq?`, shared DAGs stay linear on disk (a 20-level DAG drops from 4.7 MB to
+  474 B) and cyclic literals terminate and load; and list spines are walked
+  iteratively on both halves, so a quoted list past 257 elements is cacheable.
+  The writer now refuses — never truncates — anything the reader would reject,
+  so an entry that recompiles forever cannot be written. Two files are no
+  longer cached at all, because a HIT compiles nothing: one whose compilation
+  registered a macro or syntax property (detected semantically, so a macro
+  expanding into `define-syntax` is covered), and one with a top-level compile
+  error, whose warm run used to execute the partial program with exit 0 and no
+  diagnostic. `--timings` names the real reason. Runtime errors on the HIT path
+  keep their `file:line` and snippet (#1922). Existing caches are invalidated
+  by the format bump and regenerate on first use.
+- **The printer is exact, iterative and cycle-safe, and `write-simple` is no
+  longer an alias for `write`** (#1902, #1953, #1954, #1955, #2107). It
+  silently truncated at fixed 1024-entry limits, recursed on the native stack,
+  and its cycle pre-pass walked fewer containers than its print arms did — so
+  an exact rational at nesting depth 1023 printed as `.../...` and read back as
+  a symbol; a cycle reached only through an error-object irritant or a
+  mutex/condition-variable name hung `write`, `display`, `write-shared` and
+  `write-simple` alike; `write-simple` emitted the datum labels the spec
+  forbids; and on wasm32 the recursion exhausted the 16 MiB shadow stack at
+  depth 848 as an uncatchable module abort. One iterative, label-aware engine
+  over a heap-allocated task stack now serves all of them, enumerating children
+  through the same `childAt` the engine uses, so detection and printing cannot
+  disagree about which edges exist. No capacity or depth constant remains on
+  the exact path, and no native stack is consumed regardless of nesting.
+  `write-simple` gets its own label-free implementation and raises a catchable
+  error on cyclic input, where the spec anticipates non-termination.
+- **`kaappi fmt` writes LF line endings** (#2093), on every platform, and says
+  so.
+- **All six shell completion scripts are generated from `src/cli_spec.zig` at
+  comptime** (#2099). They were hand-written string literals parallel to the
+  argument parsers and had drifted in both directions: `--no-ir-opt` and
+  `kaappi test`'s `-j`/`--jobs`, `--changed`, `--list-affected`, `--since` and
+  `--seed` were accepted by the CLI but offered nowhere, while zsh and fish
+  offered the entire global flag set inside `explain`, `features`, `test`,
+  `doctor` and `cache` — which parse their own argv and reject 15 of 16 probed
+  flags with exit 2. `printUsage`'s `Options:` block, a fourth parallel list,
+  is generated from the same table.
 
 ### Fixed
 
@@ -344,6 +410,138 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   these are `KP9001 internal error` and out-of-memory respectively — the same
   tags the byte-for-byte twin helper 950 lines down the same file already used.
   Unreachable in a working build; the tag is what the next maintainer reads.
+- **Four ordinary programs no longer abort the process** (#1973, #1976, #1983,
+  #2185). All four were unguarded narrow arithmetic at a representation
+  boundary, each an exit-134 abort invisible to `guard`: the first instance of
+  any record with 27 or more fields (the allocation was sized in `u8`
+  arithmetic, and under `ReleaseFast` it corrupted GC accounting silently);
+  `file-info` on any devfs path, because a signed `dev_t` was cast into `u64`
+  and macOS `/dev/null` stats as `st_dev = -1296473318`; SRFI-18's
+  `seconds->time` and `thread-sleep!` on out-of-range values, which now
+  saturate or raise per procedure; and calls at the 255-argument ISA limit.
+  254 fields is the construction ceiling everywhere, loudly.
+- **Non-positive segment sizes are rejected across SRFIs 152, 160, 178 and
+  196** (#1949, #2084, #2172). Each loop advances by the size per iteration, so
+  `n = 0` never advanced — an unbounded-allocation hang for `%uvec-segment` on
+  all 12 element kinds, `string-segment` and `range-segment`, and unbounded
+  recursion into an uncatchable `KP3008` for `bitvector-segment`. All four now
+  raise a catchable error for any size that is not an exact positive integer,
+  as SRFI 171's `tsegment` already did. `bitvector-segment` also consed outside
+  its recursive call, so a legal call on a 200,000-bit vector died with a stack
+  overflow; it now accumulates in tail position.
+- **`(read port)` is safe across the 4096-byte chunk boundary** (#1893, #1920,
+  #1940, #1945). The incremental read loop refills on exactly `UnexpectedEof`
+  and treats every other outcome as final, and tokens straddling a boundary
+  broke that both ways: scanners reporting truncation as a different error made
+  valid files unreadable (strings, dotted pairs, split UTF-8 codepoints, raw
+  and byte strings, `#`-prefixes), while scanners treating end-of-buffer as a
+  terminator silently split symbols, numbers, characters and booleans — and fed
+  a line comment's tail back in as program data. One new `incomplete_input`
+  reader mode, set only by the chunk loop, replaces per-site patches: never
+  finalize a token more bytes could extend, never reject one more bytes could
+  complete. The whole-input parse at EOF keeps today's precise errors.
+  Relatedly, exhausted input where `)` belongs is now `UnexpectedEof` in every
+  mode, the error object names what failed (`read error: unterminated string
+  literal`) instead of a bare `read error`, and a trailing `#!` directive
+  yields the EOF object rather than a spurious error.
+- **The reader's `#e` and `#i` prefixes agree with `string->number`** (#1891,
+  #1907, #1908, #1909, #1910, #1911, #1921). Each had its own `applyExactness`
+  with a structurally different strategy — `string->number` rebuilt exact
+  values from the decimal digits, while the reader parsed to `f64` first and
+  un-rounded it with a continued fraction under a fixed tolerance — so R7RS
+  §6.2.7's requirement that the two agree was met only by coincidence, and
+  every past fix had landed in one copy at a time. The reader now re-parses
+  through `parseNumberText`, `string->number`'s own body, so `#e` no longer
+  drops precision past `i64`, `#i` honours the radix, and the off-by-one panic
+  at the 2^63 guard that aborted `check`, `fmt` and `ast` is gone. Complex
+  tokens keep their own wider grammar, where exactness is the two flags and
+  `#e` refuses non-finite parts.
+- **Six port-layer defects, each a branch never written for a port without an
+  fd** (#1941, #1942, #1943, #1995, #1997, #1998). Custom and transcoded ports
+  both carry the `fd = -1` sentinel, so a path missing their branch syscalled
+  on -1, got `EBADF`, and reported it as ordinary end of input or as nothing at
+  all. `read` returned `#<eof>` on every custom and transcoded port, because
+  `readDatumFn` is the one input primitive that bypasses `readOneByte` and its
+  refill never invoked the `read!` callback even once. A `crlf` transcoder's
+  encode half converted only `#\newline` while its decode half already handled
+  bare CR, bare LF and CRLF, so a round trip doubled every line break; a CRLF
+  split across two writes now stays one line ending. And `flush-output-port` on
+  a transcoded port was a silent no-op.
+- **Two custom-port callback shapes no longer abort the process** (#1939,
+  #2000) — including a channel receive performed inside a callback.
+- **SRFI-69 hashing agrees with the table's equality again** (#2023, #2024,
+  #2025). The depth cutoff returned the *pointer* of whatever sat at depth 8
+  while lookup compares with `deepEqual`, so two `equal?` keys whose structure
+  reached that depth hashed to unrelated buckets and the stored entry became
+  unreachable — 200 of 200 twelve-element keys unfindable, and the same through
+  `(srfi 125)`, `(srfi 126)` and `(srfi 146 hash)`. A list spine is now walked
+  iteratively, so length no longer spends the nesting budget; SRFI 160 numeric
+  vectors, compared structurally but with no hash arm at all, are covered too.
+  `rehash` no longer calls a hash procedure that can mutate the table it is
+  rebuilding, and a hash procedure returning a negative value is handled rather
+  than indexing out of bounds.
+- **Three cross-heap uses that the owner checks were missing are now refused**
+  (#1934, #2001, #2008). The globals map is shared by pointer, so a thunk that
+  merely *names* a top-level binding hands a child the parent's own object, yet
+  only channels and thread handles compared `Object.owner` against the running
+  GC. `fiber-join` was the worst, because the API itself performs the hand-off:
+  it returned the parent's heap object to the child as its documented result,
+  so a `set-car!` in the child was observed by the parent — and a still-running
+  foreign fiber was reported as a deadlock, sending the reader to hunt a cycle
+  that does not exist. `invokeGuardian` mutated a shared guardian's registry
+  with the calling thread's allocator and no lock, aborting the process 5 times
+  out of 5 with empty output, and left the parent holding a pointer into a
+  freed child arena.
+- **Two GC roots the collector could not see** (#2160, #2161). SRFI-1's
+  accumulators and the uid registry held heap values in memory outside the
+  root set, so a collection at the wrong moment freed live data.
+- **Four SRFI-18 concurrency defects** (#1982, #2125, #2194). `thread-join!` on
+  a never-dispatched `(kaappi fibers)` fiber polled `fiber.status` in a sleep
+  loop without ever driving the cooperative scheduler — and that scheduler is
+  the joining thread's own, so the status could never change and the join hung
+  forever (or timed out) on a fiber that would have completed instantly, while
+  `fiber-join` on the same object returned at once. `thread-terminate!` could
+  not interrupt a native wait, and a fiber's thread-handle identity was not
+  recoverable from the fiber itself.
+- **Arity is validated in the two call paths that build their frames by hand**
+  (#1999, #2034). `callHandler`, `callThunk` and the fiber scheduler's
+  `spawnFiber` inherited none of `callClosure`'s check, so a wrong-arity
+  procedure ran anyway with its surplus parameters reading whatever the
+  register file held — a live value from a neighbouring frame, not an undefined
+  slot, because the hand-built frames also never cleared past the staged
+  argument. A 3-argument exception handler received the caller's `list`
+  procedure as its third argument, deterministically. Every re-entrant frame
+  now binds through one helper that validates arity and folds surplus arguments
+  into a variadic callee's rest list, covering the `with-exception-handler`
+  handler, the `call-with-values` producer, and the `call/cc` and `call/ec`
+  receivers in non-tail position. `with-exception-handler` and
+  `%call-with-unwind-handler` check their thunk before installing the handler,
+  so a bad thunk is not swallowed by the handler it just installed.
+- **The native backend's re-lowered bodies get their enclosing lexical scope**
+  (#2117, #2118, #2211). The LLVM backend re-lowers every lambda, closure and
+  `let` body from a raw S-expression during emission, and the two IR fields
+  standing in for the absent `Compiler` were both under-supplied: `bound_names`
+  held only the immediate frame's parameters, so a binding one level out was
+  invisible to both the constant-fold gate and the special-form-versus-call
+  dispatch, and `set_targets` was never supplied at all, so a `set!` in the
+  enclosing body did not suppress a later fold. Both are now derived from the
+  maps the emitter already resolves against, rather than kept as parallel lists.
+- **`--compile` and `--disassemble` no longer run program code** (#2114,
+  #2156). Three of the eight top-level heads the dispatcher claims carry
+  ordinary code, and both flags routed all eight through the *evaluator* — so a
+  `delete-file` inside a top-level `begin`, `cond-expand` or `define-values`
+  ran for real while the artifact was produced, and was recorded in the
+  preamble too, so across compile and run the effect happened twice. A bare
+  top-level `(delete-file ...)` was never executed, which is what made this the
+  dispatcher's fault rather than "compiling runs the program". `begin` and
+  `cond-expand` are now spliced into the driver's form stream and compiled;
+  only the five declarations later forms are compiled against are evaluated.
+  This also repaired an ordering divergence, since the preamble replays
+  entirely before the compiled forms.
+- **REPL: comma-command TAB completion replaces rather than appends** (#2224),
+  and **pasted input is no longer discarded when the REPL leaves raw mode**
+  (#2226) — a multi-line paste that submitted partway through silently lost its
+  still-unread tail.
 
 ## [0.22.1] - 2026-07-31
 
