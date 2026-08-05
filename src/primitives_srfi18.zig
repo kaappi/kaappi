@@ -961,6 +961,16 @@ fn freeChildResources(fiber_key: usize) void {
         const allocator = res.child_gc.allocator;
         res.child_vm.deinit();
         allocator.destroy(res.child_vm);
+        // #2127: the parent may still hold a value pointing into this child's
+        // heap (`mutex-state` hands out the owning *Fiber*). Give the freed
+        // header slots to the parent's quarantine rather than the allocator,
+        // so the parent's next mark reads FREED_OWNER and panics instead of
+        // finding a recycled object. gc-stress only; a no-op elsewhere. Safe
+        // here and not on threadEntryFn's own error paths because every
+        // caller is the joining parent, past reapOsThread's thread.join().
+        if (memory.gc_instance) |parent| {
+            if (parent != res.child_gc) res.child_gc.setQuarantineHeir(parent);
+        }
         res.child_gc.deinit();
         allocator.destroy(res.child_gc);
     }
