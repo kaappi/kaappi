@@ -66,6 +66,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A record returned from a thread keeps its type** (#1932). `(thread-join!
+  t)` on a thunk returning a `define-record-type` instance handed back a value
+  that *printed* as a well-formed `#<<pt> 1 2>` while its predicate answered
+  `#f` and every accessor raised `expected <pt>, got #<record_instance>` — so
+  a `cond` dispatching on the predicate silently took the wrong branch. Record
+  type identity was the `RecordType` address, and every thread boundary deep-
+  copies into a separate heap, which necessarily changes it; a lexically
+  captured predicate failed the same way on the way *in*, and the uncaught-
+  exception path a third time. Identity is now a process-global counter
+  carried across the copy, so all four boundaries (thunk capture, join result,
+  raised object, channel message) preserve it. Generativity is untouched: two
+  evaluations of a `define-record-type` form still make two distinct types.
+  A `nongenerative` (SRFI 237 uid) type was the one working case before, and
+  still works.
+
+- **An FFI handle created on a child thread is no longer freed under the
+  receiver** (#2027). `gc_deep_copy.zig` aliased `ffi-library` and
+  `ffi-function` across heaps instead of copying them, on the reasoning that a
+  dlopen handle cannot be duplicated per-heap — true of the handle, but the
+  *wrapper* is an ordinary object owned by one GC, and marking skips
+  foreign-owner objects. The receiver therefore held a reference neither
+  collector could see: the sender's own collector reclaimed it, whether or not
+  the sender had exited, and the recycled slot read back as `(0.0 . 0.0)` — an
+  ordinary pair that passes `write` and every non-FFI type check, so a stored
+  handle failed later with `KP3005: not a procedure`, at an arbitrary distance
+  from the thread that produced it. The wrapper is now copied and the
+  process-global handle and symbol address shared by value, at all three copy
+  boundaries. A handle created on the *parent* and captured by a child kept
+  working throughout and still does — which is why refusing FFI handles
+  outright was not the fix. `ffi-callback` remains refused: it wraps a live
+  Scheme closure, not a process-global address. One consequence: `ffi-close`
+  now nulls the handle in one wrapper only, so a copy on another heap does not
+  see the library as closed — closing a library another thread is calling was
+  already undefined behaviour, and this moves where it is diagnosed.
+
 - **SRFI 42's generic `:` qualifier works, along with `:real-range`,
   `:char-range`, `:dispatched`, and the full dispatch machinery** (#2177).
   `(list-ec (: i 5) i)` — the first form in every SRFI 42 tutorial — was

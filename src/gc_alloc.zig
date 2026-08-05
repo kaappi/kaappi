@@ -361,6 +361,7 @@ pub fn allocRecordType(self: *GC, name: []const u8, num_fields: u8) !Value {
         .header = .{ .tag = .record_type },
         .name = owned_name,
         .num_fields = num_fields,
+        .identity = types.nextRecordTypeIdentity(),
     };
     self.finishAlloc(&rt.header, @sizeOf(RecordType) + name.len);
     return types.makePointer(&rt.header);
@@ -435,6 +436,7 @@ pub fn allocRecordTypeExtended(
         .uid = owned_uid,
         .sealed = sealed,
         .is_opaque = is_opaque,
+        .identity = types.nextRecordTypeIdentity(),
     };
 
     var extra_bytes: usize = owned_field_names.len * @sizeOf([]const u8);

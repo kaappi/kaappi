@@ -107,11 +107,11 @@ fn asRecordType(v: Value) *RecordType {
 }
 
 /// Walks from `start` up through `.parent` looking for `target` -- the
-/// inheritance-aware analogue of R7RS's `ri.record_type == rt` exact check.
+/// inheritance-aware analogue of R7RS's exact `types.sameRecordType` check.
 fn isOrDescendsFrom(start: *RecordType, target: *RecordType) bool {
     var rt: ?*RecordType = start;
     while (rt) |r| {
-        if (r == target) return true;
+        if (types.sameRecordType(r, target)) return true;
         rt = r.parent;
     }
     return false;

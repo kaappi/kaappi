@@ -810,8 +810,10 @@
             (record-type-uid (record-rtd xt-joined)))
 (test-assert "cross-thread: the joined record is still a record" (record? xt-joined))
 
-;; A GENERATIVE type has no registry entry, so the child heap's copy gets a
-;; fresh rtd and the parent's predicate no longer recognizes it (#1932).
+;; A GENERATIVE type has no registry entry, so the copy in the receiving heap
+;; is a different rtd OBJECT. It is still the same TYPE: rtd identity is
+;; RecordType.identity, carried across the copy, not the rtd's address
+;; (#1932). Before that fix the parent's predicate answered #f here.
 (define GT (make-record-type-descriptor 'GT #f #f #f #f #((immutable v))))
 (define gt-ctor (root-ctor GT))
 (define gt-joined
@@ -819,18 +821,18 @@
     (thread-start! t)
     (thread-join! t)))
 
-;; Enabled: the current, broken behaviour, pinned so #1932's fix flips it.
-(test-assert "cross-thread: a generative record loses its type across thread-join! (#1932)"
-             (not ((record-predicate GT) gt-joined)))
-(test-assert "cross-thread control: it is still *a* record, just not of the original type"
+(test-assert "cross-thread: a generative record keeps its type across thread-join! (#1932)"
+             ((record-predicate GT) gt-joined))
+(test-equal "cross-thread: a generative record's field reads after join" 42
+            ((record-accessor GT 'v) gt-joined))
+(test-assert "cross-thread control: it is still *a* record"
              (record? gt-joined))
 
-;; FAIL: #1932 (a generative record type is not preserved across thread-join!)
-;; (test-assert "cross-thread: a generative record keeps its type across thread-join!"
-;;              ((record-predicate GT) gt-joined))
-;; FAIL: #1932 (a generative record type is not preserved across thread-join!)
-;; (test-equal "cross-thread: a generative record's field reads after join" 42
-;;             ((record-accessor GT 'v) gt-joined))
+;; The control that constrains the fix: identity is per DEFINITION, so a
+;; second, identically shaped generative type stays disjoint after the copy.
+(define GT2 (make-record-type-descriptor 'GT #f #f #f #f #((immutable v))))
+(test-assert "cross-thread: a look-alike generative type stays disjoint (#1932)"
+             (not ((record-predicate GT2) gt-joined)))
 
 
 ;;; ===================================================================

@@ -13,10 +13,10 @@
 ;; which documents the two routes and is the table this file keeps honest.
 ;;
 ;; THE MATRIX. src/types.zig's ObjectTag has 41 members, and gc_deep_copy's
-;; switch puts each in exactly one of three classes — 24 + 3 + 14 = 41.
+;; switch puts each in exactly one of three classes — 26 + 1 + 14 = 41.
 ;; This file covers every REACHABLE cell:
 ;;
-;;   copied   24 arms — 22 reachable from interpreted Scheme and
+;;   copied   26 arms — 24 reachable from interpreted Scheme and
 ;;                      round-tripped below for type AND content fidelity.
 ;;                      The 2 unreachable ones are `flonum` (vestigial:
 ;;                      allocFlonum returns a NaN-boxed immediate, so no
@@ -27,9 +27,12 @@
 ;;                      *inside* another value — a Function rides along in
 ;;                      every closure test; MultipleValues never survives
 ;;                      to a boundary at all.
-;;   aliased   3 tags — ffi_library and ffi_function (UNSAFE — section E,
-;;                      kaappi#2027) plus channel (safe, KEP-0002, and
-;;                      Phase 2.6's subject rather than this file's).
+;;                      ffi_library and ffi_function joined this class when
+;;                      kaappi#2027 was fixed: the WRAPPER is copied and the
+;;                      process-global dlopen handle / symbol address are
+;;                      shared by value (section E).
+;;   aliased   1 tag  — channel (safe, KEP-0002, and Phase 2.6's subject
+;;                      rather than this file's).
 ;;   refused  14 tags — 13 reachable, each asserted at BOTH copy
 ;;                      boundaries in section D. `transport_cell` is
 ;;                      unreachable: a transport-cell guardian on this
@@ -349,26 +352,32 @@
              (crossed? (lambda () (symbol->string (record-type-name mrec)))
                        (lambda (r) (string=? r "mrec"))))
 
-;; FAIL: #1932 (a generative record type is re-manufactured by the copy, so
-;; the instance is of a disjoint type — the accessor raises)
-;; (test-assert "IN record_instance: fields readable in the child"
-;;              (let ((v (make-mrec 10 20)))
-;;                (crossed? (lambda () (list (mrec-a v) (mrec-b v)))
-;;                          (lambda (r) (equal? r '(10 20))))))
-;;
-;; FAIL: #1932 (same root cause, out of the child)
-;; (test-assert "OUT record_instance: a child-built record arrives with its fields"
-;;              (let ((r (join-thunk (lambda () (make-mrec 30 40)))))
-;;                (and (mrec? r) (= (mrec-a r) 30) (= (mrec-b r) 40))))
+;; Enabled by the #1932 fix: RecordType.identity is carried across the copy,
+;; so a generative type is still the same type in the receiving heap.
+(test-assert "IN record_instance: fields readable in the child"
+             (let ((v (make-mrec 10 20)))
+               (crossed? (lambda () (list (mrec-a v) (mrec-b v)))
+                         (lambda (r) (equal? r '(10 20))))))
 
-;; Pinned enabled so #1932's fix flips them rather than leaving a silent gap.
-(test-assert "IN record_instance: generative type's predicate wrongly answers #f (#1932)"
-             (eq? #f (join-thunk (let ((v (make-mrec 10 20))) (lambda () (mrec? v))))))
+(test-assert "OUT record_instance: a child-built record arrives with its fields"
+             (let ((r (join-thunk (lambda () (make-mrec 30 40)))))
+               (and (mrec? r) (= (mrec-a r) 30) (= (mrec-b r) 40))))
 
-(test-assert "OUT record_instance: generative type's predicate wrongly answers #f (#1932)"
-             (not (mrec? (join-thunk (lambda () (make-mrec 30 40))))))
+;; The predicate rows the bug used to pin, now flipped to the correct answer.
+(test-assert "IN record_instance: generative type's predicate answers #t (#1932)"
+             (eq? #t (join-thunk (let ((v (make-mrec 10 20))) (lambda () (mrec? v))))))
 
-;; The control: with a uid, both directions are correct today.
+(test-assert "OUT record_instance: generative type's predicate answers #t (#1932)"
+             (mrec? (join-thunk (lambda () (make-mrec 30 40)))))
+
+;; Generativity is not weakened: a SECOND type with the same shape is still
+;; disjoint after the copy, which is what a name- or shape-keyed fix would
+;; have broken while passing everything above.
+(define-record-type mrec2 (fields a b))
+(test-assert "OUT record_instance: a look-alike type stays disjoint (#1932)"
+             (not (mrec2? (join-thunk (lambda () (make-mrec 30 40))))))
+
+;; The control: with a uid, both directions were correct even before #1932.
 (test-assert "IN record_instance: nongenerative type keeps identity into the child"
              (let ((v (make-nrec 10 20)))
                (crossed? (lambda () (list (nrec? v) (nrec-a v)))
@@ -420,15 +429,11 @@
 (test-assert "EXC vector: the raised vector is the reason"
              (equal? (raised-reason (lambda () (raise (vector 1 2)))) #(1 2)))
 
-;; FAIL: #1932 (the raise path shares the record-copy arm, so a generative
-;; type loses its identity here too — a third direction the issue's own
-;; repro did not cover)
-;; (test-assert "EXC record_instance: a raised record keeps its type and fields"
-;;              (let ((r (raised-reason (lambda () (raise (make-mrec 1 2))))))
-;;                (and (mrec? r) (= (mrec-b r) 2))))
-
-(test-assert "EXC record_instance: generative type's predicate wrongly answers #f (#1932)"
-             (not (mrec? (raised-reason (lambda () (raise (make-mrec 1 2)))))))
+;; The raise path shares the record-copy arm, so the #1932 fix reaches it too
+;; — a third direction the issue's own repro did not cover.
+(test-assert "EXC record_instance: a raised record keeps its type and fields"
+             (let ((r (raised-reason (lambda () (raise (make-mrec 1 2))))))
+               (and (mrec? r) (= (mrec-b r) 2))))
 
 (test-assert "EXC record_instance: nongenerative type keeps identity on the raise path"
              (let ((r (raised-reason (lambda () (raise (make-nrec 1 2))))))
@@ -605,72 +610,54 @@
                (= (pfn -5) 5))
 
   ;; CONTROL 1 — parent-owned handle, used by the child through lexical
-  ;; capture. The alias points into the parent heap, which outlives the
-  ;; child, so this is the sound direction.
+  ;; capture. Sound before #2027 too (the alias pointed into the parent
+  ;; heap, which outlives the child); kept because a fix that REFUSED FFI
+  ;; handles would have broken it.
   (test-assert "IN ffi_function: parent-owned handle is callable in the child"
                (crossed? (lambda () (pfn -5)) (lambda (r) (eqv? r 5))))
 
   (test-assert "IN ffi_function: parent's handle still works after the join"
                (= (pfn -6) 6))
 
-  ;; CONTROL 2 — parent-owned handle captured AND returned. Aliased back
-  ;; into the heap that already owns it: still sound.
+  ;; CONTROL 2 — parent-owned handle captured AND returned.
   (test-assert "OUT ffi_function: a parent-owned handle returned by the child survives"
                (let ((r (join-thunk (lambda () pfn))))
                  (and (procedure? r) (= (r -8) 8))))
 
-  ;; THE FAILING CELL — child-allocated handle returned through the join.
-  ;; Same code path as the two controls; the only difference is which heap
-  ;; owns the object. Left disabled: the value that comes back has been
-  ;; observed reading as the pair (0.0 . 0.0), so asserting anything about
-  ;; its contents dereferences freed memory.
-  ;;
-  ;; FAIL: #2027 (child-created ffi_function/ffi_library is aliased across
-  ;; thread-join!, so the parent receives a freed object: procedure? is #f
-  ;; and the slot reads back as (0.0 . 0.0))
-  ;; (test-assert "OUT ffi_function: a child-created handle arrives callable"
-  ;;              (let ((r (join-thunk (lambda ()
-  ;;                                     (ffi-fn (ffi-open ffi-name) "abs"
-  ;;                                             '(int) 'int)))))
-  ;;                (and (procedure? r) (= (r -9) 9))))
-  ;;
-  ;; FAIL: #2027 (same root cause, ffi_library rather than ffi_function)
-  ;; (test-assert "OUT ffi_library: a child-created library handle arrives usable"
-  ;;              (let ((r (join-thunk (lambda () (ffi-open ffi-name)))))
-  ;;                (procedure? (ffi-fn r "abs" '(int) 'int))))
+  ;; THE CELL #2027 FIXED — child-allocated handle returned through the
+  ;; join. Same code path as the two controls; the only difference is which
+  ;; heap owns the object, and that is what used to decide whether the
+  ;; receiver got a live object or a freed slot reading as (0.0 . 0.0).
+  ;; The wrapper is now copied into the receiving heap, so its contents are
+  ;; safe to touch.
+  (test-assert "OUT ffi_function: a child-created handle arrives callable"
+               (let ((r (join-thunk (lambda ()
+                                      (ffi-fn (ffi-open ffi-name) "abs"
+                                              '(int) 'int)))))
+                 (and (procedure? r) (= (r -9) 9))))
 
-  ;; What IS safe to assert: the returned object is not a usable handle.
-  ;; This pins the bug without touching its contents, so it flips when the
-  ;; aliasing is fixed.
+  (test-assert "OUT ffi_library: a child-created library handle arrives usable"
+               (let ((r (join-thunk (lambda () (ffi-open ffi-name)))))
+                 (procedure? (ffi-fn r "abs" '(int) 'int))))
+
+  ;; The classification row, kept from when it was all this cell could
+  ;; safely assert. The child re-opens the library BY NAME rather than
+  ;; capturing `ffi-name`, and `crossed?`-style shape checking is what makes
+  ;; it meaningful: `procedure?` must not answer #f merely because an error
+  ;; list came back, which is how it would read on a platform where FFI does
+  ;; not work at all.
   ;;
-  ;; The child re-opens the library BY NAME rather than capturing `ffi-name`
-  ;; from the parent, and the two-part assertion below is what makes the
-  ;; result meaningful: `crossed?` must be #t (the boundary itself did not
-  ;; refuse — otherwise `procedure?` would answer #f merely because an error
-  ;; list came back, and the assertion would pass on a platform where FFI
-  ;; does not work at all).
+  ;; Its historical other half — `(not (procedure? r))`, pinning the bug as
+  ;; still present — is deliberately gone rather than inverted-and-kept:
+  ;; whether an ALIASED handle stayed usable after the far heap freed it was
+  ;; an accident of the allocator (it held on macOS, failed on freebsd-test),
+  ;; not a property of the code. Same class as the #2023 pin that held on
+  ;; ReleaseSafe and failed on the Debug leg.
   (let ((r (join-thunk (lambda () (ffi-fn (ffi-open ffi-name) "abs" '(int) 'int)))))
     (test-assert "OUT ffi_function: the join itself does not refuse the handle"
                  (not (and (pair? r) (eq? (car r) 'RAISED))))
-    ;; FAIL: #2027 — DO NOT re-enable as a bug-presence pin.
-    ;;
-    ;;   (test-assert "OUT ffi_function: child-created handle does NOT arrive
-    ;;                 callable (bug pinned, #2027)"
-    ;;                (not (procedure? r)))
-    ;;
-    ;; This asserted that the bug is still THERE, and whether an aliased
-    ;; handle is still usable after the far heap frees it is an accident of
-    ;; the allocator, not a property of the code.  It held on macOS and
-    ;; failed on freebsd-test, where the handle arrives callable.  Same class
-    ;; as the #2023 pin that held on ReleaseSafe and failed on the Debug leg.
-    ;;
-    ;; The assertion above it is the stable half and is the one the matrix
-    ;; actually needs: `ffi_function` is in the ALIASED class, not the
-    ;; REFUSED class, and "the join does not refuse it" is exactly that
-    ;; classification.  When #2027 is fixed, that assertion flips — a fixed
-    ;; implementation must refuse or copy, not alias — so the row still has
-    ;; a tripwire without depending on how a freed pointer happens to behave.
-    (if #f #f))
+    (test-assert "OUT ffi_function: the copy is a real, callable handle"
+                 (and (procedure? r) (= (r -12) 12))))
 
   ;; ffi_callback is the one refused FFI tag, and docs/dev/thread-value-sharing.md
   ;; records it as "not probed". Only some signatures are supported, so this

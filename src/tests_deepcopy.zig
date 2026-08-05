@@ -493,6 +493,106 @@ test "deepCopy native procedures survive freeing the source heap" {
     try std.testing.expectEqual(types.makeFixnum(5), nc.upvalues[0]);
 }
 
+// kaappi#1932. Record type identity used to BE the RecordType pointer, which
+// a copy necessarily changes -- so a record returned through thread-join!
+// printed as `#<<pt> 1 2>` while `pt?` answered #f and every accessor raised.
+// `identity` is the part of the type that survives the copy.
+test "deepCopy preserves record type identity across heaps (#1932)" {
+    var gc1 = memory.GC.init(std.testing.allocator);
+    defer gc1.deinit();
+    var gc2 = memory.GC.init(std.testing.allocator);
+    defer gc2.deinit();
+
+    const rt_val = try gc1.allocRecordType("point", 2);
+    const rt = types.toObject(rt_val).as(types.RecordType);
+    const ri = try gc1.allocRecordInstance(rt, &.{ types.makeFixnum(10), types.makeFixnum(20) });
+
+    const cri = types.toObject(try gc2.deepCopy(ri)).as(types.RecordInstance);
+    // A distinct object in the receiving heap, but the SAME type -- which is
+    // exactly what `%record?`/`%record-ref` ask via types.sameRecordType.
+    try std.testing.expect(@intFromPtr(rt) != @intFromPtr(cri.record_type));
+    try std.testing.expect(types.sameRecordType(cri.record_type, rt));
+
+    // The SRFI 237 path (parent/uid/sealed/opaque metadata) is a separate arm
+    // and carries the identity the same way.
+    const ext_val = try gc1.allocRecordTypeExtended("ext", null, &.{"a"}, &.{true}, null, false, true);
+    const ext = types.toObject(ext_val).as(types.RecordType);
+    const cext = types.toObject(try gc2.deepCopy(ext_val)).as(types.RecordType);
+    try std.testing.expect(@intFromPtr(ext) != @intFromPtr(cext));
+    try std.testing.expect(types.sameRecordType(cext, ext));
+
+    // The control the fix must not break: two separately DEFINED types stay
+    // distinct however alike they look, so `define-record-type` keeps its
+    // generative semantics.
+    const other = types.toObject(try gc1.allocRecordType("point", 2)).as(types.RecordType);
+    try std.testing.expect(!types.sameRecordType(other, rt));
+    try std.testing.expect(!types.sameRecordType(other, cri.record_type));
+}
+
+// kaappi#2027. The dlopen handle and symbol address are process-global, but
+// the wrapper objects belong to one heap. Aliasing them handed the receiver a
+// pointer neither collector tracks; the sender's own collector then freed it.
+const fake_handle: *anyopaque = @ptrFromInt(0x1000);
+const fake_symbol: *anyopaque = @ptrFromInt(0x2000);
+
+test "deepCopy FFI wrappers are copied, not aliased (#2027)" {
+    var gc1 = memory.GC.init(std.testing.allocator);
+    defer gc1.deinit();
+    var gc2 = memory.GC.init(std.testing.allocator);
+    defer gc2.deinit();
+
+    var lib_val = try gc1.allocFfiLibrary(fake_handle, "libprobe");
+    gc1.pushRoot(&lib_val);
+    defer gc1.popRoot();
+    const params = [_]types.FfiType{ .int, .double };
+    const fn_val = try gc1.allocFfiFunction(fake_symbol, lib_val, "probe", &params, .int64);
+
+    const copied = try gc2.deepCopy(fn_val);
+    try std.testing.expect(fn_val != copied);
+    const cf = types.toObject(copied).as(types.FfiFunction);
+    try std.testing.expectEqual(fake_symbol, cf.symbol);
+    try std.testing.expectEqualStrings("probe", cf.name);
+    try std.testing.expectEqualSlices(types.FfiType, &params, cf.param_types);
+    try std.testing.expectEqual(types.FfiType.int64, cf.return_type);
+    try std.testing.expectEqual(@as(u8, 2), cf.param_count);
+
+    // The library rides along as a copy too -- an aliased one would be the
+    // same dangling reference one level down.
+    try std.testing.expect(cf.library != lib_val);
+    const cl = types.toObject(cf.library).as(types.FfiLibrary);
+    try std.testing.expectEqual(fake_handle, cl.handle);
+    try std.testing.expectEqualStrings("libprobe", cl.name);
+}
+
+// The thread-join! shape of #2027, mirroring the #958 test above: the child GC
+// is deinited right after the result is copied out. Before the fix the parent
+// held the child's freed slot, which read back as an ordinary pair.
+test "deepCopy FFI wrappers survive freeing the source heap (#2027)" {
+    var gc2 = memory.GC.init(std.testing.allocator);
+    defer gc2.deinit();
+
+    var copied: types.Value = undefined;
+    {
+        var gc1 = memory.GC.init(std.testing.allocator);
+        defer gc1.deinit();
+        var lib_val = try gc1.allocFfiLibrary(fake_handle, "libgone");
+        gc1.pushRoot(&lib_val);
+        defer gc1.popRoot();
+        const params = [_]types.FfiType{.int};
+        const fn_val = try gc1.allocFfiFunction(fake_symbol, lib_val, "gone", &params, .int);
+        copied = try gc2.deepCopy(fn_val);
+    }
+
+    const cf = types.toObject(copied).as(types.FfiFunction);
+    try std.testing.expectEqual(types.ObjectTag.ffi_function, types.toObject(copied).tag);
+    try std.testing.expectEqual(fake_symbol, cf.symbol);
+    try std.testing.expectEqualStrings("gone", cf.name);
+    const cl = types.toObject(cf.library).as(types.FfiLibrary);
+    try std.testing.expectEqual(types.ObjectTag.ffi_library, types.toObject(cf.library).tag);
+    try std.testing.expectEqual(fake_handle, cl.handle);
+    try std.testing.expectEqualStrings("libgone", cl.name);
+}
+
 test "deepCopy rejects port" {
     var gc1 = memory.GC.init(std.testing.allocator);
     defer gc1.deinit();

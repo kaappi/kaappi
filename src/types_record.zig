@@ -1,6 +1,33 @@
+const std = @import("std");
 const types = @import("types.zig");
 const Value = types.Value;
 const Object = types.Object;
+
+/// Source of `RecordType.identity`. Process-global and atomic because
+/// SRFI-18 threads allocate record types concurrently on independent heaps
+/// (each with its own GC), and the whole point of the counter is that no
+/// two *distinct* types ever collide, whichever heap minted them. Starts at
+/// 1 so a zero-initialised RecordType never accidentally matches a real one.
+var next_identity: std.atomic.Value(u64) = .init(1);
+
+/// Mints the identity for a freshly *defined* record type. A record type
+/// COPIED across a thread boundary must not call this -- gc_deep_copy
+/// carries the source's identity over instead (see `identity` below).
+pub fn nextRecordTypeIdentity() u64 {
+    return next_identity.fetchAdd(1, .monotonic);
+}
+
+/// The type-identity predicate behind `pt?`, `%record-ref`'s type check,
+/// and SRFI 237's inheritance walk. Not pointer equality: a record type
+/// that crosses a thread boundary is deep-copied into the receiving heap,
+/// so the same type is represented by two distinct RecordType objects
+/// (kaappi#1932). `identity` is what survives that copy.
+pub fn sameRecordType(a: *const RecordType, b: *const RecordType) bool {
+    if (a == b) return true;
+    // 0 means "never went through the allocators", so it identifies nothing
+    // -- two such types must not become interchangeable by both being 0.
+    return a.identity != 0 and a.identity == b.identity;
+}
 
 pub const RecordType = struct {
     header: Object,
@@ -45,6 +72,17 @@ pub const RecordType = struct {
     /// definitions that disagree about having a protocol stays conservative,
     /// because refusing is recoverable and a wrong field value is not.
     has_protocol: bool = false,
+    /// Process-globally unique, assigned once by `nextRecordTypeIdentity` at
+    /// definition and PRESERVED verbatim by gc_deep_copy. This is what makes
+    /// a record type still be the same type after crossing an SRFI-18 thread
+    /// boundary: the copy lands in another heap and therefore has another
+    /// address, so the RecordType *pointer* cannot be the identity
+    /// (kaappi#1932). Compare with `sameRecordType`, never with `==`.
+    ///
+    /// Only 0 for a RecordType built outside the GC allocators (none in
+    /// shipped code); `sameRecordType` treats 0 as identifying nothing, so
+    /// such a type matches only itself, by address.
+    identity: u64 = 0,
 };
 
 pub const RecordInstance = struct {

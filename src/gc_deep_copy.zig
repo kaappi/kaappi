@@ -25,6 +25,17 @@ pub fn deepCopy(gc: *GC, src: Value) DeepCopyError!Value {
     return deepCopyValue(gc, src, &visited);
 }
 
+/// Record-type identity is the `identity` counter, not the RecordType
+/// address -- so a copy is the SAME type as its source, and a record built
+/// on a child thread still satisfies the parent's predicate and accessors
+/// after thread-join! (kaappi#1932). The allocators mint a fresh identity
+/// for every RecordType they build; a copy must overwrite that with the
+/// source's, which is the one thing that distinguishes copying a type from
+/// defining a new one.
+fn carryIdentity(src_rt: *const types.RecordType, new_val: Value) void {
+    types.toObject(new_val).as(types.RecordType).identity = src_rt.identity;
+}
+
 fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) DeepCopyError!Value {
     if (!types.isPointer(src)) return src;
 
@@ -316,6 +327,7 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
                 // a type with no SRFI 237 metadata at all, so a type that has
                 // any must take the slow path below.
                 const new_val = try gc.allocRecordType(rt.name, rt.num_fields);
+                carryIdentity(rt, new_val);
                 try visited.put(src_ptr, new_val);
                 return new_val;
             }
@@ -365,6 +377,7 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
             // construction on the defining path too (vm_records.zig), since
             // only the desugarer's generated code knows a protocol was given.
             types.toObject(new_val).as(types.RecordType).has_protocol = rt.has_protocol;
+            carryIdentity(rt, new_val);
             try visited.put(src_ptr, new_val);
             if (rt.uid != null) {
                 if (vm_mod.vm_instance) |dest_vm| {
@@ -462,11 +475,49 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
             }
             return new_val;
         },
-        // FFI objects wrap process-global dlopen handles that cannot be
-        // duplicated per-heap, so they are aliased. Known limitation: an FFI
-        // handle created inside a child thread and returned through
-        // thread-join! dangles once the child heap is freed.
-        .ffi_library, .ffi_function => src,
+        // The dlopen handle and the symbol address are process-global, but the
+        // OBJECTS that wrap them are ordinary heap objects owned by one GC.
+        // Aliasing them (the behaviour until kaappi#2027) handed the receiving
+        // heap a raw pointer neither collector accounts for: the receiver never
+        // marks a foreign-owner object and the sender never finds a root for
+        // it, so a child-created handle returned through thread-join! or sent
+        // down a channel was freed under the parent and read back as whatever
+        // landed in the recycled slot -- typically `(0.0 . 0.0)`, an ordinary
+        // pair that passes every non-FFI type check.
+        //
+        // So copy the wrapper, exactly like `.native_fn` above copies the
+        // object around a static function pointer. The handle and symbol are
+        // shared by value, which is what makes the copy usable: no second
+        // dlopen, no per-heap duplication of anything process-global.
+        //
+        // Consequence to know: `ffi-close` nulls the handle in ONE wrapper, so
+        // a copy on another heap no longer sees the library as closed. Closing
+        // a library another thread is still calling was already undefined
+        // (dlclose unmaps the code out from under it); this only moves where
+        // it is diagnosed. `ffi_callback` stays refused -- it wraps a live
+        // Scheme closure, not a process-global address.
+        .ffi_library => {
+            const lib = obj.as(types.FfiLibrary);
+            const new_val = try gc.allocFfiLibrary(lib.handle, lib.name);
+            try visited.put(src_ptr, new_val);
+            return new_val;
+        },
+        .ffi_function => {
+            const f = obj.as(types.FfiFunction);
+            // `library` is an FfiLibrary Value, or #f for a synthesised
+            // function with no owning library. deepCopyValue passes the
+            // latter straight through.
+            const new_lib = try deepCopyValue(gc, f.library, visited);
+            const new_val = try gc.allocFfiFunction(
+                f.symbol,
+                new_lib,
+                f.name,
+                f.param_types,
+                f.return_type,
+            );
+            try visited.put(src_ptr, new_val);
+            return new_val;
+        },
         .srfi18_time => {
             const t = obj.as(types.Srfi18Time);
             return try gc.allocSrfi18Time(t.seconds, t.nanoseconds, t.time_type);
