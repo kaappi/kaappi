@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`(srfi 146 hash)` keys its tables with the comparator you passed** (#2044).
+  Every constructor built a bare `(make-hash-table)` and stashed the
+  comparator in the record, where `hashmap-key-comparator` handed it back —
+  and nothing else ever consulted it. Key identity was always `equal?` with
+  the native `equal?` hash, so under a comparator whose equality is `=` (or a
+  case-insensitive string comparator) `1` and `1.0` stayed distinct keys and
+  `Foo` never matched `foo`, while the ordered `(srfi 146)` library handled
+  the same comparators correctly. All nine `make-hash-table` call sites
+  (`hashmap`, `hashmap-unfold`, `hashmap-map`, `hashmap-filter`,
+  `hashmap-partition`, `hashmap-intersection`, `hashmap-difference`,
+  `hashmap-xor`, `alist->hashmap`) now thread the comparator through, and the
+  built-in SRFI-69 table falls into `.custom` mode calling the comparator's
+  own equality and hash functions.
+
+- **SRFI-113 bags can no longer hold negative multiplicities, and the three
+  procedures that expanded a multiplicity no longer hang on one** (#2085).
+  `bag-increment!` ignored the spec's "but not less than zero" clamp, so a
+  negative count drove a multiplicity below zero and `bag->list`,
+  `bag-for-each` and `bag-fold` — each looping `(= i count)` — never
+  terminated, allocating without bound. `bag-product` was a second route:
+  its `n` was never validated (the reference implementation's `valid-n`
+  check discards its result), so a negative `n` multiplied every count
+  negative. `bag-increment!` now drops the element when the result would be
+  non-positive (matching `bag-decrement!`), `bag-product!` clamps a negative
+  `n` at zero, and the three loops test `(>= i count)` so no count value can
+  loop forever.
+
+- **`first-ec`, `any?-ec` and `every?-ec` stop the comprehension early, per
+  SRFI 42** (#2179). All three materialized the entire result first —
+  `first-ec` expanded to `list-ec` and took `car`, and the two predicates
+  ran the whole `do-ec` loop — so `(first-ec #f (:integers i) i)` and
+  `(any?-ec (:integers i) (> i 5))` hung forever despite the spec giving all
+  three early-exit semantics ("stop the loop after the first value"; "as
+  soon as the result is known"). Each now allocates its own stop flag and
+  sets it from the body, and the existing `%do-ec` flag mechanism unwinds
+  every generator loop.
+
 ## [0.22.2] - 2026-08-05
 
 ### Added

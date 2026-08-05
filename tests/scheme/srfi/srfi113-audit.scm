@@ -220,17 +220,12 @@
 (test-equal "bag-decrement! of an absent element changes nothing"
             '((1 . 1)) (ba (bag-decrement! (B 1) 9 1)))
 
-;; FAIL: #2085 (bag-increment! with a negative count is not clamped at zero, and
-;;              the resulting negative multiplicity makes bag->list, bag-fold and
-;;              bag-for-each loop forever)
-;; (test-equal "bag-increment! with a negative count is clamped at zero"
-;;             0 (bag-element-count (bag-increment! (B 1 1) 1 -5) 1))
-;; FAIL: #2085
-;; (test-equal "a bag built by bag-increment! with a negative count still lists"
-;;             0 (length (bag->list (bag-increment! (B 1 1) 1 -5))))
-;; FAIL: #2085
-;; (test-assert "bag-product with a negative n does not produce a negative count"
-;;              (>= (bag-size (bag-product -1 (B 1 1))) 0))
+(test-equal "bag-increment! with a negative count is clamped at zero"
+            0 (bag-element-count (bag-increment! (B 1 1) 1 -5) 1))
+(test-equal "a bag built by bag-increment! with a negative count still lists"
+            0 (length (bag->list (bag-increment! (B 1 1) 1 -5))))
+(test-assert "bag-product with a negative n does not produce a negative count"
+             (>= (bag-size (bag-product -1 (B 1 1))) 0))
 
 ;; Discriminating controls: the same loops terminate for zero and positive
 ;; multiplicities, so the non-termination is specific to a negative count.

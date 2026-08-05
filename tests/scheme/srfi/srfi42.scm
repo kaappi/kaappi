@@ -33,6 +33,37 @@
 (test-equal "vector-ec" #(0 1) (vector-ec (:range i 2) i))
 (test-equal "append-ec" '(1 2 3 4) (append-ec (:list xs '((1 2) (3 4))) xs))
 
+;;; --- first-ec / any?-ec / every?-ec stop early (#2179) ---
+;;; The spec gives all three early-exit semantics: first-ec stops "after the
+;;; first value" and any?-ec/every?-ec stop "as soon as the result is
+;;; known", so they must terminate on infinite generators -- before the fix
+;;; each materialised the whole comprehension and hung.
+(test-equal "first-ec on an infinite generator" 0
+            (first-ec #f (:integers i) i))
+(test-equal "any?-ec on an infinite generator" #t
+            (any?-ec (:integers i) (> i 5)))
+(test-equal "every?-ec on an infinite generator" #f
+            (every?-ec (:integers i) (< i 5)))
+;; Work measurement: expr runs exactly once under first-ec, and the
+;; ?-ec predicates stop as soon as the answer is known.
+(test-equal "first-ec evaluates expr once" 1
+            (let ((n 0))
+              (first-ec 'none (:integers i) (begin (set! n (+ n 1)) n))))
+(test-equal "any?-ec stops at the first true value" 4
+            (let ((n 0))
+              (any?-ec (:integers i) (begin (set! n (+ n 1)) (> n 3)))
+              n))
+(test-equal "every?-ec stops at the first false value" 3
+            (let ((n 0))
+              (every?-ec (:integers i) (begin (set! n (+ n 1)) (< n 3)))
+              n))
+;; first-ec stops the whole comprehension, not just the innermost generator.
+(test-equal "first-ec stops the whole nested product" '(1 3)
+            (first-ec 'none (:list a '(1 2)) (:list b '(3 4)) (list a b)))
+;; Early exit composes with guards.
+(test-equal "any?-ec with a guard on an infinite generator" #t
+            (any?-ec (:integers i) (if (even? i)) (> i 10)))
+
 ;;; --- do-ec for effects ---
 (test-equal "do-ec"
   '(0 1 2)

@@ -620,11 +620,20 @@
         ((_ qualifier ... expr)
          (apply max (list-ec qualifier ... expr)))))
 
+    ;; SRFI 42 gives all three accumulators early-exit semantics: first-ec
+    ;; "stop[s] the loop after the first value" and any?-ec/every?-ec stop
+    ;; "as soon as the result is known" — the spec's own examples use them
+    ;; on infinite :integers generators.  Each allocates its own stop flag
+    ;; (%s) and sets it from the body; every generator loop in %do-ec
+    ;; checks (not s) before each iteration, so setting it unwinds the whole
+    ;; comprehension (#2179).
     (define-syntax first-ec
       (syntax-rules ()
         ((_ default qualifier ... expr)
-         (let ((%result (list-ec qualifier ... expr)))
-           (if (null? %result) default (car %result))))))
+         (let ((%s #f) (%result default))
+           (%do-ec %s qualifier ...
+                   (begin (set! %result expr) (set! %s #t)))
+           %result))))
 
     (define-syntax last-ec
       (syntax-rules ()
@@ -637,13 +646,15 @@
     (define-syntax any?-ec
       (syntax-rules ()
         ((_ qualifier ... expr)
-         (let ((%ec-r #f))
-           (do-ec qualifier ... (when expr (set! %ec-r #t)))
+         (let ((%s #f) (%ec-r #f))
+           (%do-ec %s qualifier ...
+                   (if expr (begin (set! %ec-r #t) (set! %s #t))))
            %ec-r))))
 
     (define-syntax every?-ec
       (syntax-rules ()
         ((_ qualifier ... expr)
-         (let ((%ec-r #t))
-           (do-ec qualifier ... (unless expr (set! %ec-r #f)))
+         (let ((%s #f) (%ec-r #t))
+           (%do-ec %s qualifier ...
+                   (if (not expr) (begin (set! %ec-r #f) (set! %s #t))))
            %ec-r))))))
