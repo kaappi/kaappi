@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785910334593,
+  "lastUpdate": 1785911132923,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "589aba141046e3b8544cf84787b4cb1b8a1579ad",
-          "message": "Phase 2.4: SRFI 160 audit — 1066 assertions across 12 element kinds, one hang (#1952)\n\n* Phase 2.4: audit primitives_srfi160 across all 12 element kinds\n\nsrc/primitives_srfi160.zig is 280 lines and six %-prefixed generic\nprimitives, but those six are the entire native surface under 12 element\nkinds and ~732 exported names across 13 .sld files. It had no audit test,\nand the existing tests/scheme/srfi/srfi160.scm is 75% s8.\n\nAdds tests/scheme/audit/primitives_srfi160-audit.scm: 1066 assertions,\nevery 12-kind sweep generated from one kind table rather than written out\nper kind.\n\nConfirmed correct, systematically rather than by spot check: the 8\ninteger kinds at min/min+1/min-1/max/max-1/max+1 and against nine\ntype/exactness rejection classes; the two independent range checks\n(%uvec-elt-valid? in Scheme, expectSignedInRange/expectReal in Zig) agree\non a 12x23 corpus; f32 really truncates to single precision; -0.0, +-inf.0\nand NaN survive; c64/c128 pack two components independently and at the\nright width; a rejected set! never leaves a half-written element; the\nu8-as-bytevector seam holds in both directions; every per-type wrapper\nfixes its own kind symbol (12x12 predicate matrix plus every\nkind-constructing entry point); and callback errors propagate out of all\n18 higher-order generics, with an out-of-range callback result rejected\nrather than truncated.\n\nThree findings, disabled with a marker and an enabled control each:\n\n- Uvector-segment with n = 0 never terminates. %uvec-segment advances by\n  (min len (+ start n)), so start never moves while a fresh zero-length\n  copy is consed each iteration. All 12 kinds, both dispatch branches.\n  SRFI 160 makes n = 0 \"an error\", so a raise would conform; a hang does\n  not. Controls: n = -1 raises, n = 1 and n = 3 work, empty vector with\n  n = 0 returns ().\n\n- c64/c128 comparator hash raises on every value. %uvec-hash folds with\n  number-hash, which is (abs x)-based and rejects a complex. c64/c128\n  elements always decode to a Complex, so this fires even when every\n  imaginary part is zero. SRFI 160 requires the comparator to provide\n  hashing. Controls: the s8, f64 and u8 comparator hashes all work.\n\n- A zero-imaginary c64/c128 element writes as a form that reads back as a\n  different type: real? is #f, yet write emits \"1.5\", which reads as a\n  flonum. Affects the default fill, so every fresh c64/c128 vector has\n  such elements. Only decodeElement can produce them -- make-rectangular\n  normalises a zero imaginary part away. The vector printer prints\n  \"1.5+0.0i\" for the same bytes, so the two printer paths disagree.\n\nByte order is host-native by design and, on this evidence, not observable\nfrom Scheme: there is no NumericVector-to-bytes view, and NumericVector\nis not .sbc-serialisable. The printer and the primitives are two separate\nhand-written native-endian decoders, so the section 8 assertions use\nvalues whose byte-reverse is a different in-range number -- they assert\nencoder/decoder agreement rather than a little-endian layout, so they\npass on any host and would fail on s390x only if the two drifted apart.\n\nFound by: systematic audit v2, Phase 2.4\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Point SRFI 160 FAIL markers at the filed issues\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-31T23:11:25+05:30",
-          "tree_id": "c2c96809d17d13065b03b09200c18c067ea72f26",
-          "url": "https://github.com/kaappi/kaappi/commit/589aba141046e3b8544cf84787b4cb1b8a1579ad"
-        },
-        "date": 1785521556195,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.140581,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.408456,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.447896,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.214184,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004263,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.036742,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.228824,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.041613,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.243518,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.981944,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.252776,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.241359,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.35194,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.763942,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.034544,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043005,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9e50a1200f4a6c0dc0adc9bdb48c7f0043ac6c31",
+          "message": "Stop discarding pasted input when the REPL drops out of raw mode (#2227)\n\n* Stop discarding pasted input when the REPL drops out of raw mode\n\nPasting a block with more than one top-level Scheme form into the REPL only\nevaluated the first form; everything after it silently vanished. Terminals\ncommonly deliver a pasted newline as a literal CR, the same byte a real Enter\nkeypress sends, so once the first form was complete on its own,\nisCompleteCallback submitted right there and ic_editline returned before the\nrest of the still-unread paste had even been read from the pty.\ntty_start_raw/tty_end_raw (vendor/isocline/src/tty.c) used TCSAFLUSH on every\nraw-mode transition, which discards exactly that unread input. Switch both to\nTCSADRAIN, which waits for pending output but leaves unread input alone.\n\nFixes #2226\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Detect signal-terminated REPL shutdown in the paste regression test\n\nAlso carry over the skip-vs-fail rationale comment from\nrepl-structural-editing-2216.sh at the same call, so a future reviewer of\nthis file doesn't have to rediscover why a missing prompt after real output\nis a skip rather than a failure.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-05T11:11:17+05:30",
+          "tree_id": "949bd98179fea963b941f6800f56d10e45f13c3a",
+          "url": "https://github.com/kaappi/kaappi/commit/9e50a1200f4a6c0dc0adc9bdb48c7f0043ac6c31"
+        },
+        "date": 1785911131993,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.264674,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.634688,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.590761,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.958973,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004699,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047049,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.312081,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055955,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.684729,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.224335,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.587427,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.285688,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.793822,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.704496,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044126,
             "unit": "seconds"
           }
         ]
