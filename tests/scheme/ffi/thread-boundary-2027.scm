@@ -27,74 +27,96 @@
       (begin (set! fail (+ fail 1))
              (display "FAIL: ") (display name) (newline))))
 
-;; Same library basic.scm uses: libm on POSIX, the CRT on Windows.
+;; Same library and symbol basic.scm uses: libm on POSIX, the CRT on Windows,
+;; and `sqrt` rather than a name the platform might inline away (OpenBSD's
+;; libm exports no `fabs`).
 (define libm-name (cond-expand (windows "ucrtbase") (else "libm")))
-(define parent-fn (ffi-fn (ffi-open libm-name) "fabs" '(double) 'double))
+
+(define (open-sqrt) (ffi-fn (ffi-open libm-name) "sqrt" '(double) 'double))
+
+;; Probe once, the way tests/scheme/audit/srfi18-deepcopy-matrix-audit.scm
+;; does: a platform with no loadable libm has nothing to say about deep copy,
+;; and must not fail this file. basic.scm is the unconditional canary that FFI
+;; works at all on each leg, so this skip cannot hide a broken FFI.
+(define parent-fn (guard (e (#t #f)) (open-sqrt)))
 
 (define (join-thunk thunk)
   (let ((t (make-thread thunk)))
     (thread-start! t)
     (thread-join! t)))
 
-(check "control: the parent's own handle works before any thread"
-       (= (parent-fn -5.0) 5.0))
+(if (not parent-fn)
+    (begin
+      (display "SKIP: no loadable ")
+      (display libm-name)
+      (display " with a `sqrt` symbol on this platform")
+      (newline))
+    (begin
 
-;; A — parent-owned handle, called by the child through lexical capture.
-(check "A: parent-owned handle is callable in the child"
-       (= (join-thunk (lambda () (parent-fn -5.0))) 5.0))
+      (check "control: the parent's own handle works before any thread"
+             (= (parent-fn 9.0) 3.0))
 
-;; A' — and the parent's own handle is undisturbed by the copy.
-(check "A': parent's handle still works after the join"
-       (= (parent-fn -6.0) 6.0))
+      ;; A — parent-owned handle, called by the child through lexical capture.
+      (check "A: parent-owned handle is callable in the child"
+             (= (join-thunk (lambda () (parent-fn 16.0))) 4.0))
 
-;; B — parent-owned handle captured AND returned. Must keep working: this is
-;; the cell a blanket refusal would have broken.
-(let ((r (join-thunk (lambda () parent-fn))))
-  (check "B: a parent-owned handle returned by the child is a procedure"
-         (procedure? r))
-  (check "B: ...and is callable" (= (r -8.0) 8.0)))
+      ;; A' — and the parent's own handle is undisturbed by the copy.
+      (check "A': parent's handle still works after the join"
+             (= (parent-fn 25.0) 5.0))
 
-;; C — THE BUG. Child-allocated handle returned through thread-join!.
-(let ((r (join-thunk (lambda ()
-                       (ffi-fn (ffi-open libm-name) "fabs" '(double) 'double)))))
-  (check "C: a child-created ffi-fn arrives as a procedure" (procedure? r))
-  (check "C: ...and is callable" (= (r -9.0) 9.0)))
+      ;; B — parent-owned handle captured AND returned. Must keep working:
+      ;; this is the cell a blanket refusal would have broken.
+      (let ((r (join-thunk (lambda () parent-fn))))
+        (check "B: a parent-owned handle returned by the child is a procedure"
+               (procedure? r))
+        (check "B: ...and is callable" (and (procedure? r) (= (r 36.0) 6.0))))
 
-;; C, one level down: the ffi-library wrapper itself must cross too, since the
-;; ffi-function's `library` field is what `callFfi` reads the handle from.
-(let ((lib (join-thunk (lambda () (ffi-open libm-name)))))
-  (check "C: a child-created ffi-library yields a working ffi-fn"
-         (= ((ffi-fn lib "fabs" '(double) 'double) -11.0) 11.0)))
+      ;; C — THE BUG. Child-allocated handle returned through thread-join!.
+      (let ((r (join-thunk (lambda () (open-sqrt)))))
+        (check "C: a child-created ffi-fn arrives as a procedure" (procedure? r))
+        (check "C: ...and is callable" (and (procedure? r) (= (r 49.0) 7.0))))
 
-;; The channel boundary, where the child is still RUNNING when the parent
-;; receives — so this cannot be explained away as "the child heap was freed at
-;; join".
-(let ((ch (make-channel)))
-  (let ((t (make-thread (lambda ()
-                          (channel-send ch (ffi-fn (ffi-open libm-name)
-                                                   "fabs" '(double) 'double))
-                          (thread-sleep! 0.05)
-                          'sent))))
-    (thread-start! t)
-    (let ((got (channel-receive ch)))
-      (check "channel: a child-created handle arrives as a procedure"
-             (procedure? got))
-      (check "channel: ...and is callable while the child still runs"
-             (= (got -13.0) 13.0))
-      (thread-join! t)
-      (if #f #f))))
+      ;; C, one level down: the ffi-library wrapper itself must cross too,
+      ;; since the ffi-function's `library` field is what `callFfi` reads the
+      ;; handle from.
+      (let ((lib (join-thunk (lambda () (ffi-open libm-name)))))
+        (check "C: a child-created ffi-library yields a working ffi-fn"
+               (guard (e (#t #f))
+                 (= ((ffi-fn lib "sqrt" '(double) 'double) 64.0) 8.0))))
 
-;; ffi-callback stays REFUSED: it wraps a live Scheme closure, not a
-;; process-global address, so there is nothing safe to copy.
-(let ((cb (guard (e (#t #f))
-            (ffi-callback (lambda (a b) 0) '(pointer pointer) 'int))))
-  (when cb
-    (check "ffi-callback is still refused at the join"
-           (guard (e (#t #t))
-             (join-thunk (lambda ()
-                           (ffi-callback (lambda (a b) 0)
-                                         '(pointer pointer) 'int)))
-             #f))))
+      ;; The channel boundary, where the child is still RUNNING when the parent
+      ;; receives — so this cannot be explained away as "the child heap was
+      ;; freed at join".
+      ;;
+      ;; The child's send is unconditional: a `guard` turns any failure into a
+      ;; sentinel it still sends, so a broken cell fails an assertion here
+      ;; instead of leaving the parent blocked in channel-receive forever.
+      (let ((ch (make-channel)))
+        (let ((t (make-thread (lambda ()
+                                (channel-send ch (guard (e (#t 'child-raised))
+                                                   (open-sqrt)))
+                                (thread-sleep! 0.05)
+                                'sent))))
+          (thread-start! t)
+          (let ((got (channel-receive ch)))
+            (check "channel: a child-created handle arrives as a procedure"
+                   (procedure? got))
+            (check "channel: ...and is callable while the child still runs"
+                   (and (procedure? got) (= (got 81.0) 9.0)))
+            (thread-join! t)
+            (if #f #f))))
+
+      ;; ffi-callback stays REFUSED: it wraps a live Scheme closure, not a
+      ;; process-global address, so there is nothing safe to copy.
+      (let ((cb (guard (e (#t #f))
+                  (ffi-callback (lambda (a b) 0) '(pointer pointer) 'int))))
+        (when cb
+          (check "ffi-callback is still refused at the join"
+                 (guard (e (#t #t))
+                   (join-thunk (lambda ()
+                                 (ffi-callback (lambda (a b) 0)
+                                               '(pointer pointer) 'int)))
+                   #f))))))
 
 (display pass) (display " passed, ") (display fail) (display " failed")
 (newline)

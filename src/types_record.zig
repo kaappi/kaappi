@@ -1,20 +1,36 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const types = @import("types.zig");
 const Value = types.Value;
 const Object = types.Object;
 
-/// Source of `RecordType.identity`. Process-global and atomic because
-/// SRFI-18 threads allocate record types concurrently on independent heaps
-/// (each with its own GC), and the whole point of the counter is that no
-/// two *distinct* types ever collide, whichever heap minted them. Starts at
-/// 1 so a zero-initialised RecordType never accidentally matches a real one.
-var next_identity: std.atomic.Value(u64) = .init(1);
+/// Source of `RecordType.identity`. Process-global because SRFI-18 threads
+/// allocate record types concurrently on independent heaps (each with its
+/// own GC), and the whole point of the counter is that no two *distinct*
+/// types ever collide, whichever heap minted them. Starts at 1 so a
+/// zero-initialised RecordType never accidentally matches a real one.
+///
+/// It stays 64-bit rather than joining the u32 counters elsewhere
+/// (`next_gc_id`, the expander's scope ids) because those tolerate
+/// wrapping and this one must not: two types sharing an identity are
+/// silently interchangeable, which is the very bug #1932 was.
+var next_identity: u64 = 1;
 
 /// Mints the identity for a freshly *defined* record type. A record type
 /// COPIED across a thread boundary must not call this -- gc_deep_copy
 /// carries the source's identity over instead (see `identity` below).
 pub fn nextRecordTypeIdentity() u64 {
-    return next_identity.fetchAdd(1, .monotonic);
+    // wasm32 has no 64-bit atomic RMW, and `zig build wasm` is
+    // -fsingle-threaded, so there is no concurrent minter to race with
+    // there. A future 32-bit target built WITH threads would fail to
+    // compile on the branch below rather than race silently -- which is
+    // the right way for it to surface (docs/dev/porting.md).
+    if (comptime builtin.single_threaded) {
+        const id = next_identity;
+        next_identity += 1;
+        return id;
+    }
+    return @atomicRmw(u64, &next_identity, .Add, 1, .monotonic);
 }
 
 /// The type-identity predicate behind `pt?`, `%record-ref`'s type check,
