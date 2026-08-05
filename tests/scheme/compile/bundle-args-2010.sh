@@ -26,6 +26,8 @@ skip_without_zig "rebuilds the interpreter with -Dbundle on this machine"
 KAAPPI="${1:-zig-out/bin/kaappi}"
 REPO_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 FIXTURE="$REPO_DIR/tests/scheme/compile/fixtures/bundle-replay"
+# interp_stdout cds into its workdir, so the binary path must be absolute.
+KAAPPI_ABS="$(cd "$(dirname "$KAAPPI")" && pwd)/$(basename "$KAAPPI")"
 
 DIR=$(mktemp -d)
 trap 'rm -rf "$DIR"' EXIT
@@ -42,7 +44,7 @@ FAIL=0
 # golden on purpose: bundled (command-line) intentionally differs from direct
 # source execution (no script path, kaappi#2010).
 interp_status=0
-interp_out="$(interp_stdout "$KAAPPI" "$FIXTURE" "$FIXTURE/main.scm")" || interp_status=$?
+interp_out="$(interp_stdout "$KAAPPI_ABS" "$FIXTURE" "$FIXTURE/main.scm")" || interp_status=$?
 bundle_status=0
 bundle_out="$("$BUNDLE_BIN" 2>&1)" || bundle_status=$?
 if ! assert_tiers_agree "bundled vs interpreter (no args)" \
