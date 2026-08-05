@@ -25,6 +25,7 @@ skip_without_zig "rebuilds the interpreter with -Dbundle on this machine"
 
 KAAPPI="${1:-zig-out/bin/kaappi}"
 REPO_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
+FIXTURE="$REPO_DIR/tests/scheme/compile/fixtures/bundle-replay"
 
 DIR=$(mktemp -d)
 trap 'rm -rf "$DIR"' EXIT
@@ -33,6 +34,21 @@ BUNDLE_BIN="$DIR/main-standalone"
 bundle_fixture_binary "$REPO_DIR" "$BUNDLE_BIN"
 
 FAIL=0
+
+# Interpreter-as-oracle baseline (tests/scheme/CLAUDE.md): with no arguments
+# the bundled (command-line) is () and the interpreter's is ("main.scm"), so
+# the fixture's conditional cmdline print stays silent on both tiers and the
+# two must agree exactly. The per-argument golden assertions below stay
+# golden on purpose: bundled (command-line) intentionally differs from direct
+# source execution (no script path, kaappi#2010).
+interp_status=0
+interp_out="$(interp_stdout "$KAAPPI" "$FIXTURE" "$FIXTURE/main.scm")" || interp_status=$?
+bundle_status=0
+bundle_out="$("$BUNDLE_BIN" 2>&1)" || bundle_status=$?
+if ! assert_tiers_agree "bundled vs interpreter (no args)" \
+    "$interp_out" "$interp_status" "$bundle_out" "$bundle_status"; then
+    exit 1
+fi
 
 # Every kaappi inline subcommand plus the pre-VM dispatch words: the bundled
 # binary must treat each as an ordinary first argument of its own program.
