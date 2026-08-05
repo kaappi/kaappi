@@ -594,6 +594,16 @@ pub const SleepWait = struct {
     pub fn isDone(_: SleepWait) bool {
         return false; // a pure sleep only ever ends via me.timed_out
     }
+    // See MutexWait.pollCapNs: thread-terminate! from another OS thread is
+    // observed only by polling -- nothing wakes a sleep park on termination
+    // -- so a sleep in a program with other live OS threads must not block
+    // for its whole duration on the offchance the terminator is one of
+    // them (#1982); the runSchedulerStep loop re-checks the termination
+    // flag at this cadence. Solo (no other OS thread can exist to
+    // terminate this one) it stays a single true reactor block.
+    pub fn pollCapNs(_: SleepWait) ?u64 {
+        return if (crossThreadWaitPossible()) CROSS_THREAD_POLL_NS else null;
+    }
 };
 
 /// A timed park on the reactor's timer heap instead of a whole-thread

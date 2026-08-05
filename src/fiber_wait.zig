@@ -288,7 +288,26 @@ pub fn parkOnReactor(vm: *VM, sched: *FiberScheduler, cap_ns: ?u64) VMError!bool
 /// independent progress while a descendant is active regardless, so
 /// excluding them from selection changes no genuine liveness outcome —
 /// only the parked fiber's own loop, right here, ever consumes its wake).
+/// thread-terminate! sets the *handle's* `terminated` flag, which an
+/// OS-thread child's VM reaches through `terminate_flag` (the bytecode
+/// safepoint's own check) and a local fiber reaches directly (`me` IS the
+/// handle). A native wait must consult both: it never executes bytecode, so
+/// without this a thread parked in thread-sleep!/a mutex/a condvar wait
+/// never observes termination, never unwinds, and the joining thread hangs
+/// forever in reapOsThread's thread.join() (#1982).
+fn waitTerminated(vm: *VM, me: *Fiber) bool {
+    if (vm.terminate_flag) |flag| {
+        if (@atomicLoad(bool, flag, .monotonic)) return true;
+    }
+    return @atomicLoad(bool, &me.terminated, .monotonic);
+}
+
 pub fn runSchedulerStep(comptime Ctx: type, ctx: Ctx, vm: *VM, sched: *FiberScheduler, me: *Fiber) VMError!bool {
+    // Checked at the top of every loop iteration: a capped park (pollCapNs,
+    // which the SRFI-18 waits set whenever another OS thread could terminate
+    // this one) re-enters this loop at that cadence, and a local sibling
+    // terminator runs inside this very drive and is observed on the next
+    // iteration.
     // SRFI 181: reaching here from inside a custom port callback means that
     // callback is about to block, which it may not do -- see
     // vm.in_custom_port_callback's doc comment. The guard lives at this
@@ -363,6 +382,7 @@ pub fn runSchedulerStep(comptime Ctx: type, ctx: Ctx, vm: *VM, sched: *FiberSche
     defer _ = sched.driving_waits.pop();
 
     while (!ctx.isDone() and !me.timed_out) {
+        if (waitTerminated(vm, me)) return VMError.Terminated;
         const next_idx = sched.scheduleForDispatch() orelse {
             // Nothing dispatchable — but scheduleForDispatch's own per-tick
             // runReactorTick may have just resolved *this* wait, after the

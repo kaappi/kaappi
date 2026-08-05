@@ -373,10 +373,13 @@ test "#1625: every wait context still satisfies runSchedulerStep's duck type" {
         if (!@hasDecl(row.Ctx, "isDone")) return error.MissingIsDone;
         if (@hasDecl(row.Ctx, "pollCapNs")) with_cap += 1;
     }
-    // Only the two SRFI-18 waits that can be resolved by another OS thread
-    // need a poll cap; a third would mean a new cross-thread resolution
-    // path worth reviewing.
-    try std.testing.expectEqual(@as(usize, 2), with_cap);
+    // The two SRFI-18 waits resolvable by another OS thread (mutex unlock,
+    // condvar signal) plus SleepWait, whose cap exists not for resolution
+    // but so a sleeping thread observes thread-terminate! from another OS
+    // thread within a poll cadence (#1982) -- the only way a terminate can
+    // interrupt an otherwise timer-bounded sleep park. A new cap beyond
+    // these three means a new cross-thread path worth reviewing.
+    try std.testing.expectEqual(@as(usize, 3), with_cap);
 }
 
 // --- anyAncestorWaitResolved, directly ------------------------------------
