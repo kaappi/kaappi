@@ -560,6 +560,12 @@ pub const VM = struct {
     /// current fiber IS the thread. The handle is foreign to this GC and is
     /// rooted by the parent while the child runs, so markValue skips it.
     thread_handle: ?Value = null,
+    /// The root VM (the one with owns_globals == true, never freed): what a
+    /// child thread's threadEntryFn prologue must dereference, not the
+    /// immediate parent's VM, whose struct and tables a grandchild's parent
+    /// join can free underneath it (#2129). Resolved at initForThread by
+    /// walking the parent chain; null on the root itself.
+    root_vm: ?*VM = null,
 
     pub fn init(gc: *memory.GC) !VM {
         const frames = try gc.allocator.alloc(CallFrame, INITIAL_FRAME_CAPACITY);
@@ -635,6 +641,11 @@ pub const VM = struct {
             .lib_paths = parent.lib_paths,
             .param_overrides = std.AutoHashMap(usize, Value).init(gc.allocator),
             .owns_globals = false,
+            // Chain to the root VM (never freed), not the immediate parent:
+            // threadEntryFn dereferences this for GC.initForThread's symbol
+            // tables and for the shared maps, and a grandchild's parent join
+            // frees the middle VM/GC underneath it (#2129).
+            .root_vm = parent.root_vm orelse parent,
             // Shared reference, not a copy: SRFI 59/193 want a thread's
             // `program-vicinity`/`script-file` to still answer for the
             // top-level script, not #f. Never freed by the child -- see the

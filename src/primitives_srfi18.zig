@@ -450,8 +450,15 @@ fn threadStartImpl(args: []const Value) PrimitiveError!Value {
     // it one below the true count with other children alive), letting
     // crossThreadWaitPossible wrongly conclude no other thread exists.
     _ = @atomicRmw(usize, &live_child_threads, .Add, 1, .release);
+    // Pass the ROOT VM, not this thread's own: threadEntryFn's prologue
+    // dereferences it (GC.initForThread's shared symbol tables, and the
+    // shared maps), and a middle thread's VM/GC are freed when *it* is
+    // joined -- a grandchild still starting (or interning symbols) would
+    // then read freed memory (#2129). The root VM lives for the whole
+    // process, so every descendant chains its shared state to it.
+    const root_vm = vm.root_vm orelse vm;
     fiber.os_thread = std.Thread.spawn(.{}, threadEntryFn, .{
-        fiber, gc.allocator, vm, envelope,
+        fiber, gc.allocator, root_vm, envelope,
     }) catch {
         _ = @atomicRmw(usize, &live_child_threads, .Sub, 1, .release);
         envelope.deinit();
@@ -461,7 +468,11 @@ fn threadStartImpl(args: []const Value) PrimitiveError!Value {
     return args[0];
 }
 
-fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_vm: *vm_mod.VM, envelope: *shared_channel.Envelope) void {
+fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, root_vm: *vm_mod.VM, envelope: *shared_channel.Envelope) void {
+    // `root_vm` is the ROOT VM (see threadStartImpl): its struct, GC and
+    // shared maps are never freed, so the whole prologue below -- and this
+    // thread's later symbol interning into GC.initForThread's shared tables
+    // -- cannot race a join of whatever thread spawned this one (#2129).
     // Balances the increment in threadStartFn on every exit path (including
     // the early GC/VM-init failures below), so crossThreadWaitPossible's "is
     // another OS thread still alive" check stays accurate.
@@ -475,7 +486,7 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_v
         @atomicStore(fiber_mod.FiberStatus, &fiber.status, .errored, .release);
         return;
     };
-    child_gc.* = memory.GC.initForThread(allocator, parent_vm.gc);
+    child_gc.* = memory.GC.initForThread(allocator, root_vm.gc);
 
     const child_vm = allocator.create(vm_mod.VM) catch {
         child_gc.deinit();
@@ -484,7 +495,7 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_v
         return;
     };
     @memset(std.mem.asBytes(child_vm), 0);
-    child_vm.* = vm_mod.VM.initForThread(child_gc, parent_vm) catch {
+    child_vm.* = vm_mod.VM.initForThread(child_gc, root_vm) catch {
         allocator.destroy(child_vm);
         child_gc.deinit();
         allocator.destroy(child_gc);
@@ -502,10 +513,18 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_v
     // The thread handle (the parent-heap fiber make-thread returned) this
     // child runs for, so mutex-state on a mutex this thread locks reports
     // the thread the caller holds -- not the child's internal current
-    // fiber, which lives in this child heap (#2125). Foreign to this GC;
-    // the parent roots the handle while the child runs, and isYoungPointer
-    // returns false for it, so no write barrier is needed.
-    child_vm.thread_handle = types.makePointer(&fiber.header);
+    // fiber, which lives in this child heap (#2125). Recorded only when the
+    // handle is ROOT-heap (this thread's creator was the root thread): a
+    // middle thread's handle lives in the middle's heap and is freed when
+    // the middle is joined, while this child -- and any mutex-state query on
+    // a mutex it locked -- can outlive that join, so a recorded middle-heap
+    // handle would dangle (#2129's grandchild shape). Such a child falls
+    // back to its own (never-freed, un-joinable) current fiber, the
+    // pre-#2125 behaviour. Foreign to this GC either way; the owner roots
+    // the handle, and isYoungPointer returns false for it, so no write
+    // barrier is needed.
+    if (fiber.header.owner == root_vm.gc.id)
+        child_vm.thread_handle = types.makePointer(&fiber.header);
 
     child_registry.put(@intFromPtr(fiber), .{ .child_gc = child_gc, .child_vm = child_vm }) catch {
         fiber.result = types.VOID;
