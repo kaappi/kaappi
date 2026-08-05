@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785942776644,
+  "lastUpdate": 1785948711045,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e58801829acda296b6fcddb1f86d945d9af05ff1",
-          "message": "Stop piping into grep -q under pipefail (#1966)\n\n`grep -q` exits the moment it matches. When the match is on an early line\nof the output, the writer on the left of the pipe can still be mid-write\nand dies of SIGPIPE — and `set -o pipefail`, which every one of these\nscripts sets, then reports the whole pipeline as failed even though the\nmatch succeeded. The assertion fails while printing the very text it was\nlooking for.\n\nIt is a race, so it passes locally and on 16 of 17 CI legs, then fails on\nthe slowest one. #1957 made run-all.sh dispatch the shell suites\nconcurrently, which raised the load enough to fire it: three assertions in\ntests/scheme/errors/ failed on freebsd-test, each matching the first or\nsecond line of a multi-line output, each with the expected text visible in\nthe failure it printed. In every case the assertion beside it matching the\n*last* line passed, because grep then reads to EOF and the writer never\nsees a closed pipe.\n\nReproduced directly: with an early match and a large output, `echo \"$x\" |\ngrep -q PATTERN` under pipefail reports no-match 20 times out of 20, and\nthe here-string form 0 times out of 20. At the real ~3-line size it is\nabout 1 in 16,000 on an idle machine — rare enough to have gone unnoticed,\ncommon enough to bite three times in one run on an emulated 4-core VM.\n\nA here-string has no pipeline for pipefail to judge: same grep, same\npattern, same exit status, no second process whose death can be mistaken\nfor a failed match. Converted all 29 sites rather than the three that\nfailed, since they are one latent bug and the rest would surface next.\n\nTwo piped `grep -q` uses remain, in errors/reader-*-errors.sh: those have a\ncommand on the left rather than a variable, and neither script sets\npipefail, so neither can hit this.",
-          "timestamp": "2026-08-01T01:18:44+05:30",
-          "tree_id": "41a345cc698f8dd2d6924bd845d24699e9a8d1ad",
-          "url": "https://github.com/kaappi/kaappi/commit/e58801829acda296b6fcddb1f86d945d9af05ff1"
-        },
-        "date": 1785529566020,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.959296,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.117832,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.595535,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.829967,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004863,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.044767,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.296501,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.05944,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.504309,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.16581,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.524644,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.308806,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.687212,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.817554,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044673,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045129,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "65bc8ff84bb335765b4ab28f2c972e9d23e024ba",
+          "message": "Retire a joined thread's resources while its descendants are live (#2129)\n\nthread-join! unconditionally destroyed the joined thread's GC and VM\n(freeChildResources) even when that thread had itself started other\nthreads. A descendant dereferences its own fiber handle -- the\ndispatch-loop safepoint polls its `terminated` flag every 1024\ninstructions, and the terminal `status` store happens at exit -- for its\nwhole life, not just its startup prologue. That handle lives in the\nspawning thread's heap, so the join freed the grandchild's handle out\nfrom under it: a use-after-free for the grandchild's entire remaining\nlifetime, silent under the default allocator and a live crash under\nGuard Malloc. Reachable from any \"worker kicks off a background task and\nreports back\" shape, and from (srfi 120)'s make-timer inside a thread\n(the timer thread is meant to outlive make-timer, so the middle thread\ncannot join it -- which is why the crash was 24/30, not a corner).\n\nThe previous fix (PR #2230) chained every thread's shared symbol tables\nand maps to the ROOT VM, closing the prologue half. This closes the\nhandle half:\n\n- Fiber gains `live_descendants`, incremented in threadStartImpl on the\n  SPAWNING thread's own handle (vm.thread_handle, now set unconditionally\n  so the count is maintained for every thread, whatever heap the handle\n  lives in) and released by the child's threadEntryFn defer once the\n  child's OWN subtree has drained. The drain matters: my descendants'\n  defers dereference my fiber, so releasing my spawner's count early\n  would let its join free the heap I live in under a still-running\n  descendant. The wait cannot hang the spawner's join -- the join does\n  not join me, and the threads I wait for make progress independently.\n\n- reapOsThread now RETIRES the child_registry entry when the joined\n  thread has live descendants instead of freeing it; the last\n  descendant's defer frees the retired entry (fetchRemoveIfRetired) once\n  the subtree drains. thread-join! itself still returns immediately, and\n  retirement is bounded unless a descendant genuinely never finishes\n  (then the resources last until process exit, the #1792 pattern). The\n  markRetired re-read closes the race where the last descendant already\n  passed its fetchRemoveIfRetired window before the entry was retired.\n\n- mutex-lock!'s owner_thread reporting now guards the (now-unconditional)\n  thread_handle with a root-ownership check (reportableOwnerHandle), so a\n  middle-heap handle still never escapes into a mutex that can outlive\n  the middle's join -- the #2125 behavior is unchanged.\n\nTests: srfi18-join-spawn-grandchild-2129.scm grows a busy-grandchild\nvariant (safepoints + symbol interning past the join) and a deep-chain\ncontrol (middle joins g where g spawned an unjoined gg; the join chain\nmust wait for gg -- pinned observably, and it fails without this fix).\nsrfi120-thread-boundary.scm now asserts the make-timer-inside-a-thread\nshape live instead of commenting it out: the join raises the documented\n\"uncopyable type\" error cleanly instead of aborting the process.\n\nVerified: m7.scm 25/25 and the srfi-120 repro 25/25 clean on ReleaseSafe\nand under -Dgc-stress (issue measured 22/25 and 24/30 crashes pre-fix);\nfull run-all.sh 2085/2085; unit suite green including -Dgc-stress=true;\nWASM build still compiles.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-05T21:49:44+05:30",
+          "tree_id": "0b3ba722908755f4a8f449f6443cb1fae2643698",
+          "url": "https://github.com/kaappi/kaappi/commit/65bc8ff84bb335765b4ab28f2c972e9d23e024ba"
+        },
+        "date": 1785948710012,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.301459,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.813651,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.561917,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.944593,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004633,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04646,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.308392,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05736,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.636149,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.237584,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.57093,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.275066,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.822825,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.602592,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043048,
             "unit": "seconds"
           }
         ]
