@@ -75,6 +75,18 @@ keeps it alive.
    and allocate during the rooted build phase, or use `gc.extra_roots`
    (see `readVector` in `reader_datum.zig` for the pattern).
 
+   What makes this one easy to get half-right: an element the primitive's
+   own `args` still reaches — a `car` of an input list — is rooted by the
+   VM's registers whatever the buffer does, so a whole file of
+   accumulate-then-`buildList` primitives can be correct while the few that
+   accumulate *freshly allocated* values (a callback's result, a `cons` the
+   primitive just made) are not. `primitives_srfi1.zig` was exactly that:
+   kaappi#1027 rooted four callback-result accumulators, and
+   `list-tabulate`, `zip` and `alist-copy` stayed broken until kaappi#2160.
+   Rooting inside the *consumer* does not help — the element is already
+   freed by the time the list gets built — so the root has to go on at the
+   append (`appendRooted` there).
+
 5. **Symbols are safe.** Interned symbols live in `gc.symbols` and are
    always reachable — no rooting needed.
 

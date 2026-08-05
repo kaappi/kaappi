@@ -237,6 +237,20 @@ rather than constructing a wrong record. That combination is what makes
 the SRFI's own worked Examples section run — a procedural type inheriting
 from a syntactic one whose construction a protocol governs.
 
+`VM.record_uid_registry` — the map that makes `nongenerative` mean
+anything — is a `StringHashMap` that **does not own its keys**, so every
+insert must supply a key that outlives the entry. There are three inserts
+and they must all key off the *rtd's own* `RecordType.uid`, an owned copy:
+`gc_deep_copy.zig` always did, `vm_records.zig`'s syntactic path gets away
+with an interned symbol's name (interned symbols are permanently rooted),
+and the procedural `%make-record-type-descriptor` keyed off the uid
+argument's `SchemeString` bytes until kaappi#2161. That string is transient
+— `lib/srfi/237/base.sld` makes it fresh with `symbol->string` on every
+call — so ordinary allocation between two same-uid definitions collected it,
+the key dangled, the lookup missed, and the second definition quietly built
+a second, non-interoperable type for one uid. Silent, and only on the
+procedural path.
+
 ### SRFI 137 — Minimal Unique Types
 
 SRFI 137 (Minimal Unique

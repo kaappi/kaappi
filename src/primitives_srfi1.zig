@@ -97,6 +97,25 @@ fn isTruthyResult(v: Value) bool {
     return types.isTruthy(v);
 }
 
+/// Append `val` to a to-be-`buildList`ed accumulator *and* to the GC's extra
+/// roots, so it stays alive until the buffer is consumed.
+///
+/// `ArrayList(Value)` storage is caller-owned Zig memory the collector cannot
+/// see, so a value that is reachable from *nothing else* dies at the next
+/// allocation — the callback's own next call, or `buildList`'s first
+/// `allocPair`. That is only safe for values the primitive's `args` still
+/// reach (an element of an input list); anything freshly allocated — a
+/// callback result, a `cons` this primitive just made — must go through here.
+/// The caller owns a `gc.rootedScope()` spanning the whole accumulation
+/// (kaappi#1027, kaappi#2160).
+fn appendRooted(gc: *memory.GC, list: *std.ArrayList(Value), val: Value) PrimitiveError!void {
+    list.append(gc.allocator, val) catch return PrimitiveError.OutOfMemory;
+    gc.extra_roots.append(gc.allocator, val) catch return PrimitiveError.OutOfMemory;
+}
+
+/// Cons `items` onto `tail`, right to left. Rooting `items` here would not
+/// help: every element must already be reachable when this is called, since
+/// the very first `allocPair` can collect. See `appendRooted`.
 fn buildList(gc: *memory.GC, items: []const Value, tail: Value) PrimitiveError!Value {
     var result = tail;
     gc.pushRoot(&result);
@@ -507,6 +526,8 @@ fn zipFn(args: []const Value) PrimitiveError!Value {
     var iter = MultiListIter.init(args, false);
     var results: std.ArrayList(Value) = .empty;
     defer results.deinit(gc.allocator);
+    const scope = gc.rootedScope();
+    defer scope.release();
 
     while (try iter.next("zip")) |call_args| {
         var row: Value = types.NIL;
@@ -515,7 +536,8 @@ fn zipFn(args: []const Value) PrimitiveError!Value {
             j -= 1;
             row = gc.allocPair(call_args[j], row) catch return PrimitiveError.OutOfMemory;
         }
-        results.append(gc.allocator, row) catch return PrimitiveError.OutOfMemory;
+        // `row` is fresh, and the next row's allocPair can collect it.
+        try appendRooted(gc, &results, row);
         iter.advance();
     }
 
@@ -655,10 +677,7 @@ fn filterMapFn(args: []const Value) PrimitiveError!Value {
     var iter = MultiListIter.init(args[1..], false);
     while (try iter.next("filter-map")) |call_args| {
         const result = try callVM(proc, call_args);
-        if (isTruthyResult(result)) {
-            results.append(gc.allocator, result) catch return PrimitiveError.OutOfMemory;
-            gc.extra_roots.append(gc.allocator, result) catch return PrimitiveError.OutOfMemory;
-        }
+        if (isTruthyResult(result)) try appendRooted(gc, &results, result);
         iter.advance();
     }
 
@@ -683,8 +702,7 @@ fn appendMapFn(args: []const Value) PrimitiveError!Value {
         while (sub != types.NIL) {
             if (!types.isPair(sub)) return primitives.typeError("append-map", "pair", sub);
             const elem = types.car(sub);
-            all_elems.append(gc.allocator, elem) catch return PrimitiveError.OutOfMemory;
-            gc.extra_roots.append(gc.allocator, elem) catch return PrimitiveError.OutOfMemory;
+            try appendRooted(gc, &all_elems, elem);
             sub = types.cdr(sub);
         }
         iter.advance();
@@ -952,11 +970,15 @@ fn listTabulateFn(args: []const Value) PrimitiveError!Value {
 
     var elems: std.ArrayList(Value) = .empty;
     defer elems.deinit(gc.allocator);
+    const scope = gc.rootedScope();
+    defer scope.release();
     var i: i64 = 0;
     while (i < n) : (i += 1) {
         const call_args = [1]Value{types.makeFixnum(i)};
         const val = try callVM(proc, &call_args);
-        elems.append(gc.allocator, val) catch return PrimitiveError.OutOfMemory;
+        // `val` is whatever the callback allocated, reachable from nothing
+        // once the callback's frame is gone.
+        try appendRooted(gc, &elems, val);
     }
 
     return buildList(gc, elems.items, types.NIL);
@@ -1348,13 +1370,17 @@ fn alistCopyFn(args: []const Value) PrimitiveError!Value {
 
     var elems: std.ArrayList(Value) = .empty;
     defer elems.deinit(gc.allocator);
+    const scope = gc.rootedScope();
+    defer scope.release();
 
     while (current != types.NIL) {
         if (!types.isPair(current)) return primitives.typeError("alist-copy", "pair", current);
         const entry = types.car(current);
         if (!types.isPair(entry)) return primitives.typeError("alist-copy", "pair", entry);
         const new_entry = gc.allocPair(types.car(entry), types.cdr(entry)) catch return PrimitiveError.OutOfMemory;
-        elems.append(gc.allocator, new_entry) catch return PrimitiveError.OutOfMemory;
+        // `new_entry` is a fresh copy — the input alist reaches the original,
+        // not this one.
+        try appendRooted(gc, &elems, new_entry);
         current = types.cdr(current);
     }
 
@@ -1511,8 +1537,7 @@ fn unfoldFn(args: []const Value) PrimitiveError!Value {
 
         const map_args = [1]Value{seed};
         const val = try callVM(f, &map_args);
-        elems.append(gc.allocator, val) catch return PrimitiveError.OutOfMemory;
-        gc.extra_roots.append(gc.allocator, val) catch return PrimitiveError.OutOfMemory;
+        try appendRooted(gc, &elems, val);
 
         const succ_args = [1]Value{seed};
         seed = try callVM(g, &succ_args);
@@ -1736,8 +1761,7 @@ fn mapInOrderFn(args: []const Value) PrimitiveError!Value {
     var iter = MultiListIter.init(args[1..], false);
     while (try iter.next("map-in-order")) |call_args| {
         const result = try callVM(proc, call_args);
-        results.append(gc.allocator, result) catch return PrimitiveError.OutOfMemory;
-        gc.extra_roots.append(gc.allocator, result) catch return PrimitiveError.OutOfMemory;
+        try appendRooted(gc, &results, result);
         iter.advance();
     }
 

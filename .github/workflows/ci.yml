@@ -404,13 +404,10 @@ jobs:
           #     gate is green for everything else, exactly as the campaign
           #     comments out a failing assertion behind a `;; FAIL: #N` marker
           #     rather than leaving the suite red. Each fix PR deletes its
-          #     names from this list:
-          #       #2160  primitives_srfi1 buildList reads freed values from its
-          #              unrooted `items` slice -- all three abort with
-          #              "GC: marking freed object (use-after-free)"
-          #       #2161  record_uid_registry keys are borrowed slices into
-          #              GC-owned strings, so a nongenerative uid stops
-          #              resolving once its string is collected (19 assertions)
+          #     names from this list -- #2160 (primitives_srfi1-audit.scm,
+          #     srfi1-ext.scm, srfi1-gc-stress.scm) and #2161
+          #     (primitives_srfi237-audit.scm, srfi237.scm, srfi240-audit.scm)
+          #     are gone from it for that reason, leaving:
           #       #2027  srfi18-deepcopy-matrix-audit.scm's section E binds a
           #              child-created ffi_function returned through
           #              thread-join!, which is aliased rather than copied --
@@ -439,8 +436,6 @@ jobs:
           KAAPPI_GC_STRESS_SKIP: >-
             trampoline-polish-1375.scm srfi14.scm srfi264.scm
             reader-port-refill-gaps.scm srfi178-segment-stack-2084.scm
-            primitives_srfi1-audit.scm srfi1-ext.scm srfi1-gc-stress.scm
-            primitives_srfi237-audit.scm srfi237.scm srfi240-audit.scm
             srfi18-deepcopy-matrix-audit.scm
 
   riscv64-test:

@@ -293,13 +293,21 @@ fn makeRecordTypeDescriptorFn(args: []const Value) PrimitiveError!Value {
         else => PrimitiveError.OutOfMemory,
     };
 
-    if (uid) |u| {
+    if (uid != null) {
         const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
+        // Key by the NEW rtd's own uid, never by `uid` itself: that is a slice
+        // into args[2]'s SchemeString bytes, which the registry outlives.
+        // Collect that string and the key dangles, so the uid stops resolving
+        // and a `nongenerative` type silently stops being nongenerative
+        // (kaappi#2161). `RecordType.uid` is an owned copy, kept alive by this
+        // very entry -- registry values are GC roots -- which is the same
+        // reasoning gc_deep_copy.zig documents at its own insert into this map.
+        const owned_uid = asRecordType(new_val).uid.?;
         // Root across put(): a Value reachable only from this local isn't
         // yet visible to markVMRoots' registry scan until the insert lands.
         gc.pushRoot(&new_val);
         defer gc.popRoot();
-        vm.record_uid_registry.put(u, new_val) catch return PrimitiveError.OutOfMemory;
+        vm.record_uid_registry.put(owned_uid, new_val) catch return PrimitiveError.OutOfMemory;
     }
 
     return new_val;
