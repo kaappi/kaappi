@@ -150,9 +150,33 @@ idle(0.3)
 send(b',quit\r')
 while pump(1.0):
     pass
+
+# Bounded reap: a hung `,quit` must fail the test, not hang the process
+# (and the CI worker after it, since the outer shell timeout only kills this
+# script's own pid, not a grandchild it never waited for).
+shutdown_deadline = time.time() + 10
+exit_status = None
+while time.time() < shutdown_deadline:
+    try:
+        reaped, exit_status = os.waitpid(pid, os.WNOHANG)
+    except OSError:
+        reaped = pid  # already reaped
+    if reaped == pid:
+        break
+    time.sleep(0.1)
+else:
+    failures.append(('shutdown: REPL did not exit after ,quit', seen()))
+    try:
+        os.kill(pid, 9)
+        os.waitpid(pid, 0)
+    except OSError:
+        pass
+
+if exit_status is not None and os.WIFEXITED(exit_status) and os.WEXITSTATUS(exit_status) != 0:
+    failures.append(('shutdown: REPL exited with status %d' % os.WEXITSTATUS(exit_status), b''))
+
 try:
     os.close(fd)
-    os.waitpid(pid, 0)
 except OSError:
     pass
 
