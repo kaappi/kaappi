@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785919427502,
+  "lastUpdate": 1785942776644,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "db8e3d074fe64ead9d14b6b389d913e1a9dff132",
-          "message": "Test what is inside each per-tag GC arm, not just that one exists (#1963)\n\nZig's exhaustiveness check guarantees markObjectContents, markValueInner,\nreferencesYoung, objectSize and freeObject each have an arm for all 41\nObjectTag members. Nothing guarantees the arm traces the tag's Value\nfields: one that forgets a field compiles cleanly and silently frees a\nlive object. Port's satellites are hand-written at five sites, and\nmarkValueInner deliberately duplicates markPortValues rather than calling\nit, so a third Value-bearing Port field would be invisible in up to five\nplaces at once.\n\nTwo runtime shapes, because the three mark-graph switches are reached by\ntwo different paths. Rooting a container makes markValueInner the only\nthing that can keep a referent alive. Promoting a container to the old\ngeneration, repointing a field through writeBarrier, then dropping the\nroot before a minor collection makes the remembered-set walk\n(markObjectContents, its only caller) the only route, and exposes\npruneRememberedSet's referencesYoung decision directly. Every rooted case\nends by dropping the root and asserting the referents die: an assertion\nthat cannot fail is not a test.\n\nLiveness is decided by walking the GC's own object lists for the\nreferent's address, never by dereferencing it -- reading back a swept\nreferent would be the use-after-free this file exists to detect.\n\nThe comptime inventory pins the exact field list of every heap struct\nthese switches dispatch on, plus the satellites they reach through\n(CustomBacking, TranscodeState, HashEntry, GuardEntry, WindRecord,\nExceptionHandler, SavedFrame, CallFrame). Value is u64, so no comptime\ntype test can tell a real Value from profile_calls -- pinning the whole\nlist is what makes the guard sound. Adding a field is now a build error\nnaming all five switches until someone has looked at them.\n\nMutation-tested: eight deliberate single-field deletions across\nmarkValueInner, markPortValues, referencesYoung and markFiberState each\nfailed exactly the intended case and nothing else, and a seventh Value\nfield on CustomBacking fails the build with the inventory error.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T00:04:40+05:30",
-          "tree_id": "0b6e9a3003744e22473bbbb692aae9841479b758",
-          "url": "https://github.com/kaappi/kaappi/commit/db8e3d074fe64ead9d14b6b389d913e1a9dff132"
-        },
-        "date": 1785526087883,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.058264,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.199712,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.432448,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.27726,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.003749,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03479,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.229581,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.042564,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.803694,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.898721,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.181508,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.239669,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.307003,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.380815,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.037203,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045259,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5c9b8901679235d4fa912608b56e52914d8f4d35",
+          "message": "Fix four SRFI-18 concurrency bugs from the v0.22.2 audit (#2129, #2194, #1982, #2125) (#2230)\n\n* Drive the scheduler for never-dispatched fibers in thread-join! (#2194)\n\nthread-join!'s never-started path polled fiber.status in a sleepNs loop\nwithout ever driving the cooperative scheduler. That is right for a\nmake-thread handle awaiting thread-start! from outside (#878) -- the\nstatus changes externally -- but a (kaappi fibers) spawn'd fiber can\nonly ever be dispatched by the joining thread's own scheduler, and the\npoll loop is exactly what starves it: the status never changes, so the\njoin hung forever (or reported a timeout) on a fiber that would have\ncompleted instantly. fiber-join on the same object returned immediately.\n\nDiscriminate the two by sched_idx, which addFiber alone sets: a\nmake-thread object is never added to any scheduler and leaves it at 0,\nso it keeps polling; a spawn'd fiber (sched_idx != 0) falls through to\nthe fiber path, which drives the scheduler. os_thread alone is not a\nsafe discriminator -- a handle about to be started has os_thread ==\nnull for the whole window before thread-start!'s std.Thread.spawn and\nmust keep polling.\n\nEvery regression probe is deadline-bounded so a regression fails loudly\nwith 'timed-out instead of wedging the test runner.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Unwind native SRFI-18 waits on thread-terminate! (#1982)\n\nThe bytecode safepoint polls VM.terminate_flag every 1024 instructions\n(#933), but only while executing bytecode. thread-sleep!, mutex-lock!\nand mutex-unlock!'s condvar branch each wait inside runSchedulerStep's\nnative loop, so a thread parked there never observed the flag:\nthread-terminate! flipped the handle's status to .errored from the\nparent, the join's poll exited immediately, and reapOsThread's\nthread.join() then blocked forever on a child that would never unwind.\n\nrunSchedulerStep now checks termination at the top of every loop\niteration and unwinds with VMError.Terminated, exactly like the\nsafepoint. The check reads both the VM's terminate_flag (an OS-thread\nchild reaches its parent-heap handle's flag that way) and the fiber's\nown terminated flag (a local fiber IS the handle), so the fix covers\nthe SRFI-18 waits, the (kaappi fibers) channel/fd waits, and the\nlocal-fiber sibling-terminate case in one place.\n\nSleepWait gains pollCapNs so a sleeping thread wakes at the 1ms\ncross-thread cadence and observes the flag; without it the sleep park\nblocks for its full duration with nothing to wake it. The cap applies\nonly when another OS thread exists to terminate this one; solo sleeps\nstay a single true reactor block. MutexWait/CondVarWait already had\ntheir caps, and their outer retry loops propagate the Terminated error\nthrough the existing try.\n\nThe wait-context duck-type comptime test moves from 2 to 3 poll caps\n(SleepWait's is a terminate-abort cap, not a resolution path) and\ndocuments why.\n\nRegression test: all four native-wait shapes now terminate promptly\nand the two controls (mutex released, condvar broadcast) still join\nnormally with the thunk's value. Shared mutexes/condvars are top-level\nglobals -- a lexically captured sync primitive is deep-copy-rejected at\nthread-start! and would make the terminate probes pass vacuously.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Report the owner thread handle, not the internal fiber, from mutex-state (#2125)\n\nMutex.owner tracks the fiber that acquired the lock, which is what\nabandonFiberMutexes compares against on fiber death. For an OS-thread\nchild that fiber is the child-heap current fiber (fiber 0 of the\nchild's own heap): mutex-state returned it, so the owner it reported\nwas not eq? to any thread the caller holds, and it was a dangling\npointer once the join freed the child heap (the #2127 quarantine was\nthe detector-side mitigation, not the fix).\n\nRecord the owner thread handle alongside the owner: a new\nMutex.owner_thread field, set at every owner write site. For an OS-\nthread child it is the parent-heap handle make-thread returned, so the\nparent's GC owns and marks it; for a local/main thread it is the owner\nfiber itself (the fiber IS the thread there). threadEntryFn stashes the\nhandle on the child VM (vm.thread_handle, foreign to the child GC and\nrooted by the parent, so no write barrier is needed), and mutex-lock!'s\nfast and slow paths resolve it the same way they resolve the owner,\nhonouring an explicit SRFI-18 owner argument. mutex-unlock! and\nabandonFiberMutexes clear both fields together.\n\nmutex-state returns owner_thread for the owned state; the two unowned\nstates are unchanged. The whole exposure is closed: the value handed\nout is always a parent-heap object that stays valid past join, so the\nobvious synchronisation idiom `(eq? (mutex-state m) t)` finally works.\n\nThe existing cross-heap-abandoned-mutex test's \"held\" probe was a\nworkaround for this (excluding the two unowned symbols); it is now the\nreal eq? comparison, which is also the regression shape -- it spun to\nits retry budget pre-fix. New regression test pins the issue's exact\nshape: child-held mutex reports the handle, thread?, the captured owner\nsurvives the join that frees the child heap, and the local-thread and\nexplicit-owner-argument cases are unchanged. GC tracing pins updated\nfor the new Mutex field.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Chain every thread's shared state to the root VM, never the spawning thread (#2129)\n\nthreadEntryFn's prologue dereferences the spawning thread's VM and GC:\nGC.initForThread reads parent_vm.gc for the shared symbol tables\n(shared_symbols = &parent.symbols, used by every symbol interning for\nthe thread's whole life), and VM.initForThread reads the parent's\nshared maps. freeChildResources had no interlock, so joining a thread\nthat had itself called thread-start! freed its GC/VM out from under the\ngrandchild -- mid-prologue (the deepCopy of its thunk interns symbols\ninto the freed table) or later, at its next symbol interning. The crash\nreproduced at 18/20 runs (ReleaseSafe) and 13/15 (gc-stress): \"a\nthread that spawns a thread and returns\" is an ordinary shape.\n\nChildren now receive the ROOT VM from threadStartImpl instead of the\nspawning thread's: VM.root_vm is resolved in initForThread by walking\nthe parent chain (`parent.root_vm orelse parent`, null on the root\nitself), and threadEntryFn uses it for both GC.initForThread and\nVM.initForThread. Every descendant therefore chains its symbol tables,\nforeign_symbols and shared maps to the root's, which lives for the\nwhole process -- a middle thread's own tables stay empty and its\nGC/VM can be freed at its join without anything a descendant holds\npointing into them. The VM-level shared maps were already root-owned\n(root.globals == middle.globals by pointer), so the only behaviour\nchange is the symbol-table root.\n\nThe thread_handle added for #2125 is recorded only when the handle is\nroot-heap (fiber.header.owner == root_vm.gc.id): a middle thread's\nhandle lives in the middle's heap and is freed at its join, while a\ngrandchild's mutex-state query can outlive that join -- a recorded\nmiddle-heap handle would dangle (the gc-stress detector caught exactly\nthis). Such a child falls back to its own current fiber (never freed:\ngrandchildren of a joined thread are un-joinable), the pre-#2125\nbehaviour.\n\nRegression test runs the discriminating shape 30 times (pre-fix it\ncrashed the process on the vast majority of runs) plus the two\ncontrols from the issue: a middle that joins its own child first, and\na middle that spawns nothing.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review comments on the SRFI-18 audit PR (#2230)\n\n- mutex-lock! (both paths): compute the owner and owner-thread values\n  before publishing either and store owner_thread first, so a concurrent\n  mutex-state can never observe a partially initialized owner pair;\n  mutex-state now gates on owner_thread alone (single-field read, no\n  cross-field race) instead of gating on owner and returning owner_thread.\n- runSchedulerStep's termination unwind now sets the same \"thread\n  terminated\" error detail the bytecode safepoint does, so a local fiber\n  terminated mid-wait surfaces a real message at the top level instead of\n  a contentless `error[KP9000]: error`.\n- waitTerminated moved above the ~40-line doc block it was stealing from\n  runSchedulerStep (Zig binds /// to the next declaration), and the loop-top\n  termination comment moved from the top of the function body to the check\n  it describes, next to the unrelated SRFI-181 guard it was shadowing.\n- SleepWait.pollCapNs documents the measured cost of the 1ms cap on child\n  threads (~5k involuntary switches for a pair of multi-second sleeps vs\n  33 without; linear in duration and thread count) and the notifier-based\n  follow-up.\n- srfi18-join-created-fiber-2194.scm pins the other half of the sched_idx\n  discriminator: a never-started make-thread handle joined with a deadline\n  times out (the #878 poll path) rather than raising the fiber path's\n  deadlock error, and the same handle then starts and joins normally.\n- srfi18-join-spawn-grandchild-2129.scm: 12 iterations instead of 30 (the\n  un-joinable grandchildren leak by design), and the header now documents\n  the known residual -- the grandchild's middle-heap handle is freed at the\n  middle's join and dereferenced (terminate_flag/status) for its whole\n  life; pre-existing, silent under the default allocator, a live\n  use-after-free under Guard Malloc. The test pins only the symbol-table\n  half this PR fixed; the handle half stays tracked in #2129.\n- docs/dev/thread-value-sharing.md and CLAUDE.md: the globals route and the\n  GC.initForThread/VM.initForThread table rows now say the shared symbol\n  tables and maps chain to the ROOT's, not the immediate parent's\n  (kaappi#2129) -- the distinction the fix turns on.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-05T20:11:16+05:30",
+          "tree_id": "95a07608327520c43935329ac0c14def02170edf",
+          "url": "https://github.com/kaappi/kaappi/commit/5c9b8901679235d4fa912608b56e52914d8f4d35"
+        },
+        "date": 1785942775449,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.016828,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.508448,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.557474,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.053801,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004855,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.044802,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.296341,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05355,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.30413,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.171277,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.511165,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.300971,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.699406,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.638527,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045129,
             "unit": "seconds"
           }
         ]
