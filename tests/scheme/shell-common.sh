@@ -234,9 +234,9 @@ ensure_runtime_lib() {
     fi
 }
 
-# bundle_fixture_binary <repo-dir> <kaappi> <dest>: build the standalone binary
-# that embeds tests/scheme/compile/fixtures/bundle-replay, and copy it to
-# <dest>. Callers must have passed skip_without_zig first.
+# bundle_fixture_binary <repo-dir> <dest>: build the standalone binary that
+# embeds tests/scheme/compile/fixtures/bundle-replay, and copy it to <dest>.
+# Callers must have passed skip_without_zig first.
 #
 # `zig build -Dbundle=…` recompiles the whole interpreter — the embedded
 # bytecode is part of the compiled module graph — which is ~180s on a 4-core
@@ -244,6 +244,18 @@ ensure_runtime_lib() {
 # and paying for it twice was 85% of the shell suites' entire wall time
 # (kaappi#1926). They share one fixture program instead, so the second caller's
 # build is a ~0.2s hit in Zig's own content-addressed cache.
+#
+# The .sbc's compiler hash folds in the producing binary's git build id
+# (docs/dev/cache.md). A .sbc made by whatever zig-out/bin/kaappi happens to
+# be lying around disagrees with a bundler rebuilt from current source the
+# moment the tree moved — a new commit, or a clean<->dirty flip — and the
+# bundled binary then dies with "invalid embedded bytecode", naming nothing
+# (kaappi#1930). So this builds the interpreter from the SAME source the
+# bundler comes from, into an isolated prefix, and produces the .sbc with
+# THAT binary. The caller's zig-out/bin/kaappi is never touched (it is the
+# binary under test; kaappi#2163), and the -Dbundle rebuild that follows
+# shares this build's compiled units, so the second `zig build` is a cache
+# hit rather than a second full rebuild (kaappi#1926).
 #
 # Regenerating the .sbc on every call is what keeps that honest: it is
 # deterministic, so unchanged sources give byte-identical bytes and a cache
@@ -258,21 +270,28 @@ ensure_runtime_lib() {
 bundle_fixture_binary() {
     # `rc`, not `status`: this file is sourced, and `status` is read-only in
     # some shells.
-    local repo="$1" kaappi="$2" dest="$3" fixture out sbc kaappi_abs log rc
+    local repo="$1" dest="$2" fixture out sbc interp log rc
     fixture="$repo/tests/scheme/compile/fixtures/bundle-replay"
     out="$repo/.zig-cache/kaappi-test-fixtures"
     sbc="$out/bundle-replay.sbc"
-    kaappi_abs="$(cd "$(dirname "$kaappi")" && pwd)/$(basename "$kaappi")"
+    interp="$out/interp/bin/kaappi"
     log=$(mktemp)
 
     build_lock "$repo" bundle-fixture
     rc=0
     (
         mkdir -p "$out"
-        # Compile from inside the fixture directory so the paths recorded in
-        # the .sbc are relative, and its bytes therefore identical run to run.
-        cd "$fixture" &&
-            "$kaappi_abs" --lib-path lib --compile -o "$sbc" main.scm &&
+        # Build the interpreter from current source with the SAME options as
+        # the bundler below, so the .sbc and the bundler share one build id
+        # (kaappi#1930 — see the header comment). --prefix keeps zig-out/ and
+        # the caller's binary untouched.
+        cd "$repo" &&
+            zig build -Doptimize=ReleaseSafe --prefix "$out/interp" &&
+            [ -x "$interp" ] &&
+            cd "$fixture" &&
+            # Compile from inside the fixture directory so the paths recorded in
+            # the .sbc are relative, and its bytes therefore identical run to run.
+            "$interp" --lib-path lib --compile -o "$sbc" main.scm &&
             [ -f "$sbc" ] &&
             cd "$repo" &&
             zig build -Dbundle="$sbc" -Doptimize=ReleaseSafe \

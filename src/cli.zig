@@ -265,6 +265,29 @@ pub fn parse(args: std.process.Args) Options {
     return opts;
 }
 
+/// Bundled standalone (kaappi#2010): the binary *is* the bundled program, so
+/// none of kaappi's flags or subcommands apply — the whole argv after argv[0]
+/// is the bundled program's (command-line), verbatim. In particular a first
+/// argument that spells a kaappi subcommand ("check", "fmt", "ast",
+/// "compile") or a kaappi flag ("--gc-stats", ...) must reach the program,
+/// not be interpreted by the dispatcher: the old behaviour silently dropped
+/// those words from (command-line), so a bundled program could not define a
+/// CLI that collided with kaappi's own words.
+///
+/// No .exit_ok action exists here: there is no kaappi --help/--version to
+/// show — those are the bundled program's own arguments.
+pub fn parseBundled(args: std.process.Args) Options {
+    var opts: Options = .{};
+    var iter = platform.argsIterate(args);
+    _ = iter.skip(); // argv[0]
+    var script_args: std.ArrayList([]const u8) = .empty;
+    while (iter.next()) |arg| {
+        script_args.append(std.heap.c_allocator, arg) catch oomCollectingArgs();
+    }
+    opts.script_args_slice = script_args.toOwnedSlice(std.heap.c_allocator) catch oomCollectingArgs();
+    return opts;
+}
+
 fn oomCollectingArgs() noreturn {
     usageError("kaappi: out of memory collecting command-line arguments\n");
 }
@@ -547,6 +570,40 @@ test "parse: script args after filename" {
     try std.testing.expectEqualStrings("test.scm", opts.scriptArgs()[0]);
     try std.testing.expectEqualStrings("arg1", opts.scriptArgs()[1]);
     try std.testing.expectEqualStrings("arg2", opts.scriptArgs()[2]);
+}
+
+test "parseBundled: every argv element after argv[0] reaches the program" {
+    // kaappi#2010: a bundled standalone binary *is* the bundled program, so
+    // none of kaappi's flags or subcommands may be interpreted. Words that
+    // cli.parse would swallow (subcommands, --flags) must all land in
+    // (command-line), in order, and no action (help/version) may be set.
+    const argv = [_][*:0]const u8{
+        "avbin",
+        "check",
+        "z.scm",
+        "--gc-stats",
+        "compile",
+        "--help",
+        "plain",
+    };
+    const opts = parseBundled(testArgs(&argv));
+    try std.testing.expectEqual(Options.Action.run, opts.action);
+    try std.testing.expect(opts.file_path == null);
+    try std.testing.expect(!opts.check_mode);
+    try std.testing.expect(!opts.native_compile_mode);
+    try std.testing.expect(!opts.gc_stats_mode);
+    const expected = [_][]const u8{ "check", "z.scm", "--gc-stats", "compile", "--help", "plain" };
+    try std.testing.expectEqual(expected.len, opts.scriptArgs().len);
+    for (expected, opts.scriptArgs()) |want, got| {
+        try std.testing.expectEqualStrings(want, got);
+    }
+}
+
+test "parseBundled: no args at all" {
+    const argv = [_][*:0]const u8{"avbin"};
+    const opts = parseBundled(testArgs(&argv));
+    try std.testing.expectEqual(Options.Action.run, opts.action);
+    try std.testing.expectEqual(@as(usize, 0), opts.scriptArgs().len);
 }
 
 test "parse: script args past the 64th are kept (#1652)" {

@@ -40,9 +40,10 @@ Folding the build id into the key covers the committed cases:
 ### The one case it does *not* cover: two dirty builds
 
 `-dirty` is a **flag, not a hash of the working tree** (`gitBuildId` in
-`build.zig` appends the literal suffix whenever `git status --porcelain`
-prints anything). So every uncommitted state at the same commit shares one
-build id:
+`build.zig` appends the literal suffix whenever `git status --porcelain -uno`
+prints anything — tracked changes only; untracked files are not part of a
+tracked-source build's output, kaappi#2097). So every uncommitted state at the
+same commit shares one build id:
 
 ```text
 edit A, uncommitted, at 370d8e85  →  370d8e85-dirty

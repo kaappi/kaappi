@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A `-Dbundle` standalone binary no longer interprets kaappi's own flags or
+  subcommands** (#2010). With bytecode bundled, the binary *is* the bundled
+  program, so its whole argv belongs to that program's `(command-line)` — but
+  a first argument that happened to spell a kaappi subcommand was silently
+  dropped from `(command-line)` (`check`, `fmt`, `ast`, `compile`) or ran
+  *instead of* the bundled program (`explain`, `doctor`, `test`). A bundled
+  program could not define a CLI of its own: any subcommand name it picked
+  that collided with kaappi's was unreachable, with no error, just a shorter
+  argument list. Bundled mode now bypasses kaappi's argument parsing entirely;
+  `(command-line)` is the full argv after `argv[0]`, whatever it looks like.
+
+- **Bundled binaries name a stale `.sbc` instead of "invalid embedded
+  bytecode"** (#1930). The `.sbc`'s compiler hash folds in the producing
+  binary's git build id, so a tree that moved (a new commit, or a clean↔dirty
+  flip) between producing a `.sbc` and building the bundler made the binary
+  reject its own payload as foreign — a message that read like a
+  serialisation bug and was actually a staleness mismatch. The fatal
+  diagnostic now says the two build ids and "rebuild the bundle". The
+  `tests/scheme/compile` harness no longer trips over the same mismatch:
+  `bundle_fixture_binary` and the `-Dbundle` section of
+  `compile-toplevel-side-effects-2156.sh` build the interpreter into an
+  isolated prefix from the same source as the bundler and produce the `.sbc`
+  with that binary, so the two steps cannot disagree (kaappi#2097's untracked
+  file was one way the tree moved).
+
+- **An untracked file no longer marks the build id `-dirty`** (#2097).
+  `gitBuildId` counted `git status --porcelain`'s untracked files as
+  uncommitted changes, so a brand-new file (say, a test being written)
+  silently flipped every later build id to `-dirty` — invalidating an existing
+  `zig-out/bin/kaappi` built moments earlier and tripping the bundle tests.
+  An untracked file is not part of a tracked-source build's output, so
+  `gitBuildId` now uses `--porcelain -uno`; committed-but-modified and staged
+  files still mark the tree dirty.
+
 ## [0.22.2] - 2026-08-05
 
 ### Added

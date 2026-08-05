@@ -44,7 +44,7 @@ if [[ "$INTERP_LINE" != "$EXPECTED" ]]; then
 fi
 
 BUNDLE_BIN="$DIR/main-standalone"
-bundle_fixture_binary "$REPO_DIR" "$KAAPPI" "$BUNDLE_BIN"
+bundle_fixture_binary "$REPO_DIR" "$BUNDLE_BIN"
 
 # Run the bundled binary — must not crash or show preamble errors
 OUTPUT=$("$BUNDLE_BIN" 2>&1)
