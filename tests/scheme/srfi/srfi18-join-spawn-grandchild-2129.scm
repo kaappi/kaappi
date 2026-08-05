@@ -13,10 +13,20 @@
 ;;
 ;; The discriminating shape (from the issue): a thread that spawns a thread
 ;; and returns without joining it -- a worker that kicks off a background
-;; task and reports back. Run it many times: pre-fix this crashed 14-18 of
-;; 20 runs (ReleaseSafe) and 13-15 of 15 (gc-stress); post-fix it never
-;; does. A regression crashes the whole runner loudly (the crash is a
-;; process abort, not a Scheme condition).
+;; task and reports back. Run it many times: pre-fix this crashed the
+;; process on the vast majority of runs (the grandchild's prologue interned
+;; symbols into the middle thread's freed table); post-fix it never does.
+;; A regression crashes the whole runner loudly (a process abort, not a
+;; Scheme condition).
+;;
+;; KNOWN RESIDUAL (#2129 stays open): each iteration leaves one un-joinable
+;; grandchild OS thread behind -- its child resources are never reaped (no
+;; one may join it) and, pre-existing since before this PR, the grandchild
+;; dereferences its middle-heap handle (terminate_flag/status) for its whole
+;; life, which the middle's join frees. Silent under the default allocator,
+;; a live use-after-free under Guard Malloc. This test therefore pins only
+;; the half this PR fixed (the prologue/symbol-table crash); the iterations
+;; are kept small so the contained leak does not tax the suite.
 
 (import (scheme base) (scheme write) (scheme process-context) (srfi 18) (srfi 64))
 
@@ -32,12 +42,12 @@
     (thread-join! t)))
 
 (define failures 0)
-(let loop ((n 30))
+(let loop ((n 12))
   (when (> n 0)
     (unless (eq? (run-shape (lambda () (thread-sleep! 0.3) 'g)) 'plain)
       (set! failures (+ failures 1)))
     (loop (- n 1))))
-(test-equal "30 middle threads each spawning an unjoined grandchild all return 'plain"
+(test-equal "12 middle threads each spawning an unjoined grandchild all return 'plain"
   0 failures)
 
 ;; CONTROL: the middle joining its own child first is clean -- the child is

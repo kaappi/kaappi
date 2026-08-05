@@ -44,6 +44,24 @@
   'timed-out
   (thread-join! (spawn (lambda () (channel-receive (make-channel)))) 0.5 'timed-out))
 
+;; The other half of the sched_idx discriminator: a make-thread handle
+;; joined before it is ever started must keep the #878 poll path (sched_idx
+;; == 0), not fall through to the fiber path. With a deadline the poll
+;; reports the timeout value; the fiber path would instead raise a deadlock
+;; error (nothing local can ever complete the target), which is how the two
+;; are told apart. The same handle must then start and join normally.
+(test-equal "a never-started make-thread handle times out rather than taking the fiber path"
+  'timed-out
+  (let ((t (make-thread (lambda () 'late))))
+    (thread-join! t 0.2 'timed-out)))
+
+(test-equal "a handle that timed out unstarted starts and joins normally afterwards"
+  'late
+  (let ((t (make-thread (lambda () 'late))))
+    (thread-join! t 0.2 'timed-out)
+    (thread-start! t)
+    (thread-join! t)))
+
 ;; The make-thread side of the sched_idx discriminator must keep working: a
 ;; handle whose OS thread has completed still joins normally.
 (test-equal "thread-join! on a completed OS thread still joins"

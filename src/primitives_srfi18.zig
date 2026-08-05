@@ -628,6 +628,15 @@ pub const SleepWait = struct {
     // them (#1982); the runSchedulerStep loop re-checks the termination
     // flag at this cadence. Solo (no other OS thread can exist to
     // terminate this one) it stays a single true reactor block.
+    //
+    // Cost of the cap: crossThreadWaitPossible() is unconditionally true on
+    // a child thread (!vm.owns_globals), so a child's (thread-sleep! 60)
+    // wakes 60,000 times -- measured ~5k involuntary context switches and
+    // ~0.04s CPU for a pair of 2.5s/3.0s sleeps vs 33 switches and 0.00s
+    // without the cap. Small per-sleep, linear in duration and thread
+    // count. A notifier-based interrupt (thread-terminate! notifying the
+    // victim's reactor) would make termination immediate and remove the
+    // wakeups; the cap is the minimal correct fix.
     pub fn pollCapNs(_: SleepWait) ?u64 {
         return if (crossThreadWaitPossible()) CROSS_THREAD_POLL_NS else null;
     }
@@ -1090,7 +1099,7 @@ fn mutexStateFn(args: []const Value) PrimitiveError!Value {
         const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         return gc.allocSymbol("not-abandoned") catch return PrimitiveError.OutOfMemory;
     }
-    if (m.owner != types.VOID) return m.owner_thread;
+    if (m.owner_thread != types.VOID) return m.owner_thread;
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.allocSymbol("not-owned") catch return PrimitiveError.OutOfMemory;
 }
@@ -1169,12 +1178,17 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
         const ctx = try ensureScheduler();
         if (ctx.vm.current_fiber) |cf| {
             const cf_val = types.makePointer(&cf.header);
-            m.owner = resolveMutexOwner(args, cf_val);
             // The owner's thread handle: the explicit owner arg when given,
             // else this thread's handle -- for an OS-thread child that is
             // the parent-heap handle (vm.thread_handle), NOT cf_val, which
             // belongs to the child heap and would dangle past join (#2125).
-            m.owner_thread = resolveMutexOwner(args, if (ctx.vm.thread_handle) |h| h else cf_val);
+            // Compute both before publishing either, and publish owner_thread
+            // first: mutex-state gates on owner_thread alone, so a concurrent
+            // reader can never observe a partially initialized owner pair.
+            const owner = resolveMutexOwner(args, cf_val);
+            const owner_thread = resolveMutexOwner(args, if (ctx.vm.thread_handle) |h| h else cf_val);
+            m.owner_thread = owner_thread;
+            m.owner = owner;
             if (memory.gc_instance) |gc| {
                 gc.writeBarrier(&m.header, m.owner);
                 gc.writeBarrier(&m.header, m.owner_thread);
@@ -1278,19 +1292,22 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
     if (deadline != null) ctx.reactor.removeTimer(me);
     me.deadline_ns = null;
 
-    m.owner = if (owner_arg) |oa|
-        (if (types.isFiber(oa)) oa else if (oa == types.FALSE) types.VOID else types.makePointer(&me.header))
-    else
-        types.makePointer(&me.header);
+    const owner_fiber = types.makePointer(&me.header);
+    const owner_handle = if (ctx.vm.thread_handle) |h| h else owner_fiber;
     // Same resolution for the reported owner thread (see the fast path):
     // an OS-thread child reports its parent-heap handle, not me.header
-    // (#2125). Kept in sync with `owner` so mutex-state and abandonment
-    // never disagree.
-    const owner_handle = if (ctx.vm.thread_handle) |h| h else types.makePointer(&me.header);
-    m.owner_thread = if (owner_arg) |oa|
+    // (#2125). Computed before publishing either field and owner_thread
+    // stored first, as in the fast path.
+    const owner = if (owner_arg) |oa|
+        (if (types.isFiber(oa)) oa else if (oa == types.FALSE) types.VOID else owner_fiber)
+    else
+        owner_fiber;
+    const owner_thread = if (owner_arg) |oa|
         (if (types.isFiber(oa)) oa else if (oa == types.FALSE) types.VOID else owner_handle)
     else
         owner_handle;
+    m.owner_thread = owner_thread;
+    m.owner = owner;
     if (memory.gc_instance) |gc| {
         gc.writeBarrier(&m.header, m.owner);
         gc.writeBarrier(&m.header, m.owner_thread);
