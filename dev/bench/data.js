@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785904768382,
+  "lastUpdate": 1785910334593,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1c6b02f3115b2b4f910a0bcdf8ee1a59142b5fb3",
-          "message": "Stop three diagnostics from misdescribing what they are about (#1958)\n\nEach of these sent a reader looking at the wrong thing.\n\nAn integral flonum rendered without its `.0`, so a type error on 1.0 read\n\"expected exact integer, got 1\" -- and 1 is an exact integer, so the message\nargued against itself. `safeValueDescription` formatted flonums with a bare\n`{d}` instead of the printer, so this affected every type error in the\ncodebase, not just the numeric-vector ones it was found in. It now goes\nthrough `printer.formatFlonum`, which is safe in this deliberately-defensive\nhelper: a flonum is inline under NaN-boxing, so nothing heap-shaped is read.\n\nA multi-limb bignum handed to a (srfi 160) constructor was reported as\n\"expected exact integer, got #<bignum>\". It is an exact integer; its only\nfault is not fitting s8..u64. `magnitudeAndSign` returned a plain `?MagSign`,\nwhich gave \"too wide\" and \"not an integer at all\" the same answer. Splitting\nthem into `ExactMag.too_wide` / `.not_exact` lets an out-of-range bignum say\n\"in-range\", matching what an out-of-range fixnum has always said -- and say\n\"non-negative\" instead when it is negative, since then the sign is the real\ncomplaint.\n\n`%record?` and `%transcoded-port` reported their errors as `record?` and\n`transcoded-port`. Those are not cosmetic truncations: both are real,\ndifferent procedures, exported by (srfi 237) and (srfi 181), with different\nargument lists -- `(record? 5 5)` is an arity error, not a type error. Both\nnow use the shared-constant convention primitives_srfi237.zig's MAKE_RTD\nalready documented for exactly this reason, so the name cannot drift again.\n\nThe audit that found these (#1890, Phase 2.1) had already written the\nassertions and commented them out as known failures; they are enabled here,\nalongside their original controls and three cases the audit did not cover\n(a negative multi-limb bignum, a signed-kind overflow, and a genuine\nnon-integer, which is what keeps \"in-range everywhere\" from passing). One\nof the four could not be enabled as written: `(not (has-substring? msg\n\"got 1\"))` cannot pass whatever the code does, since \"got 1\" is a prefix of\nthe correct \"got 1.0\" -- it is stated positively instead, which is fully\ndiscriminating because the buggy message was exactly \"got 1\".\n\nMutation-tested: reverting each of the three fixes in turn fails exactly the\nassertions belonging to it and no others.\n\nFixes #1916\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-31T22:47:11+05:30",
-          "tree_id": "4e4667e4a449d0e129efd701cdcc4272bc647d0f",
-          "url": "https://github.com/kaappi/kaappi/commit/1c6b02f3115b2b4f910a0bcdf8ee1a59142b5fb3"
-        },
-        "date": 1785520126466,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.115725,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.261311,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.443981,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.183069,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004164,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.035738,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.225216,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.041166,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.147257,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.96069,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.211298,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.23357,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.281543,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.81746,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04029,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044513,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9bc2de0dee0c23af91f79cdf0c72349d29f0e106",
+          "message": "Root what the collector cannot see: SRFI-1 accumulators and the uid registry (#2228)\n\nTwo places parked a heap Value where the GC could not reach it and kept\nallocating, so the next collection reclaimed it and the code later read\nfreed memory.\n\nprimitives_srfi1 (#2160). buildList's caller-owned ArrayList(Value) is\ninvisible to the collector. That is harmless for elements the primitive's\nown args still reach, which is most of them -- but not for freshly\nallocated ones. kaappi#1027 rooted four callback-result accumulators and\nleft three siblings: list-tabulate (a callback result), zip (the row it\njust consed) and alist-copy (the entry it just copied). All three abort\nwith \"GC: marking freed object\" at three elements under -Dgc-stress=true;\nlist-tabulate also returns silently wrong data on a default build once the\nlist is long enough to cross the GC threshold.\n\nRooting inside buildList -- the fix the issue first suggested -- would not\nhelp: the element is already freed by the time the list gets built. The\nroot has to go on at the append, so all seven sites now share one\nappendRooted helper and buildList documents why it is not the place.\n\nrecord_uid_registry (#2161). The map does not own its keys, and\n%make-record-type-descriptor keyed off the uid argument's SchemeString\nbytes -- a string lib/srfi/237/base.sld makes fresh with symbol->string on\nevery call. Collect it and the key dangles, so a second definition with\nthe same uid stops finding the first and quietly builds a second,\nnon-interoperable type for one uid: exactly the R6RS guarantee\n`nongenerative` exists to provide, lost silently. Key by the new rtd's own\nowned uid copy instead, whose lifetime is the entry's -- the same thing\ngc_deep_copy.zig already does at its own insert into this map. The\nsyntactic path (vm_records.zig) keys off an interned symbol name and was\nalready safe.\n\nTests: src/tests_gc_runtime_stress.zig turns on the GC's runtime stress\nflag so the #2160 cases are deterministic at n = 3; pre-fix they abort\nunder -Doptimize=Debug and -Dgc-stress=true. #2161 is pinned as pointer\nidentity of the registry key, since observing the miss in-process needs\nthe freed bytes to be reused, which a unit test cannot arrange. Both also\nget corpus assertions that fail pre-fix -- srfi1-gc-stress.scm on a plain\nbuild as well as stressed, srfi237.scm on the stressed leg.\n\nThat lets the six files this gate found the bugs in come off\nKAAPPI_GC_STRESS_SKIP in ci.yml, as that list's own comment requires.\n\nCloses #2160\nCloses #2161\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-05T11:10:53+05:30",
+          "tree_id": "a465307999ebabddc41e0820db232fe1078b4aa1",
+          "url": "https://github.com/kaappi/kaappi/commit/9bc2de0dee0c23af91f79cdf0c72349d29f0e106"
+        },
+        "date": 1785910333181,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.280883,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.964826,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.567328,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.939577,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004636,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047281,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.309849,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055618,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.655247,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.223715,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.580448,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.27493,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.774589,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.584749,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043005,
             "unit": "seconds"
           }
         ]
