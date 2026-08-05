@@ -66,6 +66,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`thread-join!` no longer frees a joined thread's GC/VM while a thread it
+  started is still running** (#2129, handle half). The v0.22.2 audit's first
+  pass fixed the startup-prologue half by chaining every thread's shared
+  symbol tables and maps to the root VM, but a descendant dereferences its
+  own fiber handle — the dispatch-loop safepoint polls its `terminated` flag
+  every 1024 instructions, and the terminal `status` store happens at exit —
+  for its whole life, not just its prologue. That handle lives in the
+  spawning thread's heap, so a join of a thread that had spawned another
+  freed the grandchild's handle out from under it: a use-after-free for the
+  grandchild's entire remaining lifetime (silent under the default
+  allocator, a live crash under Guard Malloc), reachable from any ordinary
+  "worker kicks off a background task and reports back" shape, and from
+  `(srfi 120)`'s `make-timer` inside a thread. Each fiber now carries a
+  `live_descendants` count (incremented at `thread-start!`, released by the
+  child's exit defer once its own subtree drains); a join of a thread with
+  live descendants **retires** its resources instead of freeing them, and
+  the last descendant's defer frees them once the subtree drains — so the
+  join still returns immediately and the retirement is bounded unless a
+  descendant genuinely never finishes. `thread-join!` from inside a thread
+  that spawned a timer now raises the documented "result contains an
+  uncopyable type" error cleanly instead of aborting the process.
+
 - **A record returned from a thread keeps its type** (#1932). `(thread-join!
   t)` on a thunk returning a `define-record-type` instance handed back a value
   that *printed* as a well-formed `#<<pt> 1 2>` while its predicate answered

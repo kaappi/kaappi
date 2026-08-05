@@ -85,6 +85,16 @@ pub const Fiber = struct {
     driving: bool = false,
     terminated: bool = false,
     os_thread: ?std.Thread = null,
+    /// #2129 (handle half): OS threads this fiber's thread has directly
+    /// started (via `thread-start!`) whose `threadEntryFn` exit defer has
+    /// not yet fired. Incremented in `threadStartImpl` before spawning,
+    /// decremented by the child's defer once the child's OWN subtree has
+    /// drained. `reapOsThread` reads it to decide whether the joined
+    /// thread's GC/VM may be freed: a nonzero count means some descendant
+    /// still dereferences THIS fiber -- its handle lives in this fiber's
+    /// thread's heap, which the join would free -- so the join retires the
+    /// resources instead, and the last descendant's defer frees them.
+    live_descendants: u32 = 0,
     /// Set together with `.io_waiting` when a blocking I/O primitive parks
     /// on the reactor (KEP-0001 Phase 3). Unused by anything shipped in
     /// Phase 2, but the fields must exist now so the scheduler/GC plumbing

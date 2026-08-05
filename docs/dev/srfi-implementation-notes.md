@@ -149,13 +149,15 @@ deep-copied at all, so that list has no bearing on it; what refuses there
 is the control channel's `Object.owner` check. Five entry paths (both
 copy-route and globals-route, plus a channel payload, a task thunk closing
 over a second timer, and a top-level *container*) are pinned by
-`tests/scheme/srfi/srfi120-thread-boundary.scm`. What *is* a live hazard
-is **kaappi#2129**: do not call `make-timer` from inside a SRFI-18 thread
-— `thread-join!` frees the joined thread's GC/VM while a thread it spawned
-is still in its startup prologue, and the process dies (24/30 runs) when
-the creating thread is joined. That is an engine bug reproducible with no
-timers at all, and `(srfi 120)` cannot work around it. See
-`lib/srfi/120.sld`'s header. SRFI 21 and 230 are excluded — see `docs/dev/srfi-exclusions.md`.
+`tests/scheme/srfi/srfi120-thread-boundary.scm`. The one live hazard
+was **kaappi#2129**: `thread-join!` used to free the joined thread's
+GC/VM while a thread it spawned was still dereferencing its fiber
+handle in the joined heap, and the process died (24/30 runs) when the
+creating thread was joined. Fixed in the v0.22.2 audit (a join now
+retires rather than frees the resources of a thread that still has live
+descendants) — but `make-timer` from inside a SRFI-18 thread still
+raises the documented "uncopyable type" error at the join, since the
+timer record holds a thread handle. See `lib/srfi/120.sld`'s header. SRFI 21 and 230 are excluded — see `docs/dev/srfi-exclusions.md`.
 
 ### SRFI 237 — R6RS Records, refined
 

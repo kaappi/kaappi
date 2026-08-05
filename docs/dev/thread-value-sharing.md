@@ -257,12 +257,31 @@ thread gets its own VM and GC with an independent heap.
 | `VM.initForThread` | `src/vm.zig` | Per-thread VM, sharing the **root's** globals and libraries **by pointer** |
 | `VM.owns_globals` | `src/vm.zig` | Stops a child VM freeing the shared maps on deinit |
 | `symbol_mutex` | `src/memory.zig` | Spinlock protecting concurrent symbol interning |
-| `child_resources` | `src/primitives_srfi18.zig` | Global map holding child GC/VM references |
+| `child_resources` | `src/primitives_srfi18.zig` | Global map holding child GC/VM references; entries are freed at `thread-join!` or, when the join retires them because the thread still has live descendants, by the last descendant's `threadEntryFn` defer once the subtree drains (kaappi#2129) |
 | `Object.owner` vs `GC.id` | `src/gc_collect.zig` | Every heap object records its owning GC; marking skips objects owned by another GC, so a child's collections never write mark bits on parent-heap objects reached through shared globals (kaappi#958) |
 
 The deep copy happens at exactly three boundaries: the thunk closure at
 `thread-start!`, the result (or uncaught exception) at `thread-join!`, and a
 channel message in each direction.
+
+### When a thread's heap may be freed (kaappi#2129)
+
+A thread's fiber handle lives in the heap of the thread that created it,
+and every descendant dereferences its own handle — the dispatch-loop
+safepoint polls its `terminated` flag every 1024 instructions, and the
+terminal `status` store happens at exit — for its whole life, not just its
+startup prologue. `thread-join!` therefore must not free the joined thread's
+GC/VM while any thread it started is still live. Each fiber carries a
+`live_descendants` count (incremented by `threadStartImpl` before spawning,
+released by the child's `threadEntryFn` defer once the child's own subtree
+has drained); `reapOsThread` frees immediately only when the count is zero,
+and otherwise **retires** the `child_resources` entry, leaving the GC/VM
+allocated so the descendant can keep dereferencing its handle. The last
+descendant's defer frees the retired entry once its subtree drains, so the
+retirement is bounded unless a descendant genuinely never finishes (then the
+resources last until process exit, the kaappi#1792 pattern). `thread-join!`
+itself still returns immediately — it never waits for the joined thread's
+descendants.
 
 ## Keeping it honest
 

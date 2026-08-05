@@ -555,10 +555,17 @@ pub const VM = struct {
     /// For child OS threads (SRFI-18): the thread handle (the fiber value
     /// make-thread returned, in the parent's heap) this VM was started for,
     /// so mutex-state can report the owner as the thread the caller holds
-    /// rather than this child's internal current fiber (#2125). Set by
-    /// threadEntryFn. Null for the main VM and for local fibers -- there the
-    /// current fiber IS the thread. The handle is foreign to this GC and is
-    /// rooted by the parent while the child runs, so markValue skips it.
+    /// rather than this child's internal current fiber (#2125). Set
+    /// unconditionally by threadEntryFn, whatever heap the handle lives in:
+    /// threadStartImpl reads it to maintain the fiber's live-descendant
+    /// count for every thread, and the #2129 retirement protocol keeps the
+    /// handle's heap alive until this thread's whole descendant subtree has
+    /// drained. mutex-lock!'s owner_thread reporting re-checks
+    /// root-ownership before publishing the handle (reportableOwnerHandle),
+    /// so a middle-heap handle never escapes into a mutex that can outlive
+    /// the middle's join. Null for the main VM and for local fibers -- there
+    /// the current fiber IS the thread. The handle is foreign to this GC and
+    /// is rooted by the parent while the child runs, so markValue skips it.
     thread_handle: ?Value = null,
     /// The root VM (the one with owns_globals == true, never freed): what a
     /// child thread's threadEntryFn prologue must dereference, not the

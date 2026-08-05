@@ -103,12 +103,21 @@ const ChildThreadResources = struct {
     // diagnostic at thread-join!, not silently collapse into a void
     // reason -- see reapOsThread's `.failed` arm for the synthesized error.
     exception: JoinResult = .none,
+    // #2129 (handle half): set by retireOrFreeChild when a join leaves the
+    // entry in place because the thread still has live descendants. Only a
+    // retired entry may be freed by a descendant's threadEntryFn defer
+    // (fetchRemoveIfRetired): an un-retired entry's thread may still be
+    // running, and its result/exception envelopes must survive for a future
+    // join while its GC/VM are still in use.
+    retired: bool = false,
 };
 
-// Entries are freed only when a thread is joined (freeChildResources called
-// from reapOsThread). Threads that complete but are never joined leak their
-// child VM and GC — the result must survive until the parent copies it out
-// of its envelope, and automatic cleanup would race with that copy.
+// Entries are freed when a thread is joined (freeChildResources called from
+// reapOsThread) or, when the join retires the entry because the thread still
+// has live descendants, by the last descendant's threadEntryFn defer once the
+// subtree drains (#2129). Threads that complete but are never joined leak
+// their child VM and GC — the result must survive until the parent copies it
+// out of its envelope, and automatic cleanup would race with that copy.
 const ChildRegistry = struct {
     map: std.AutoHashMap(usize, ChildThreadResources),
     mutex: std.atomic.Mutex,
@@ -153,6 +162,32 @@ const ChildRegistry = struct {
     fn fetchRemove(self: *ChildRegistry, key: usize) ?ChildThreadResources {
         memory.spinLock(&self.mutex);
         defer memory.spinUnlock(&self.mutex);
+        if (self.map.fetchRemove(key)) |kv| return kv.value;
+        return null;
+    }
+
+    // #2129 (handle half): flags the entry as retired (see the field doc).
+    // Called by retireOrFreeChild from the joining parent, under the same
+    // lock fetchRemoveIfRetired takes, so a descendant's defer either sees
+    // the flag or not atomically with its own remove.
+    fn markRetired(self: *ChildRegistry, key: usize) void {
+        memory.spinLock(&self.mutex);
+        defer memory.spinUnlock(&self.mutex);
+        if (self.map.getPtr(key)) |entry| entry.retired = true;
+    }
+
+    // #2129 (handle half): removes the entry only if it has been retired.
+    // A descendant's threadEntryFn defer calls this with its spawner's key
+    // when its decrement brings the spawner's live-descendant count to
+    // zero; the spawner's join may concurrently fetchRemove the same entry
+    // (retireOrFreeChild's re-read path), and the lock makes exactly one of
+    // them win, so the GC/VM are freed exactly once.
+    fn fetchRemoveIfRetired(self: *ChildRegistry, key: usize) ?ChildThreadResources {
+        memory.spinLock(&self.mutex);
+        defer memory.spinUnlock(&self.mutex);
+        if (self.map.getPtr(key)) |entry| {
+            if (!entry.retired) return null;
+        }
         if (self.map.fetchRemove(key)) |kv| return kv.value;
         return null;
     }
@@ -450,6 +485,22 @@ fn threadStartImpl(args: []const Value) PrimitiveError!Value {
     // it one below the true count with other children alive), letting
     // crossThreadWaitPossible wrongly conclude no other thread exists.
     _ = @atomicRmw(usize, &live_child_threads, .Add, 1, .release);
+    // #2129 (handle half): count this spawn on the SPAWNING thread's own
+    // handle, so a join of the spawner can tell a live descendant apart.
+    // The spawner's own fiber is vm.thread_handle (set unconditionally by
+    // threadEntryFn; null on the main thread, whose heap is never freed and
+    // never joined). Released by the child's threadEntryFn defer once the
+    // child's own subtree has drained; a nonzero count means a join of the
+    // spawner must retire (not free) its GC/VM, because this child's fiber
+    // lives in the spawner's heap and is still dereferenced (terminate
+    // flag, status, live-descendant count) for its whole life.
+    const spawner: ?*fiber_mod.Fiber = if (vm.thread_handle) |h|
+        types.toObject(h).as(fiber_mod.Fiber)
+    else
+        null;
+    if (spawner) |s| {
+        _ = @atomicRmw(u32, &s.live_descendants, .Add, 1, .release);
+    }
     // Pass the ROOT VM, not this thread's own: threadEntryFn's prologue
     // dereferences it (GC.initForThread's shared symbol tables, and the
     // shared maps), and a middle thread's VM/GC are freed when *it* is
@@ -458,9 +509,12 @@ fn threadStartImpl(args: []const Value) PrimitiveError!Value {
     // process, so every descendant chains its shared state to it.
     const root_vm = vm.root_vm orelse vm;
     fiber.os_thread = std.Thread.spawn(.{}, threadEntryFn, .{
-        fiber, gc.allocator, root_vm, envelope,
+        fiber, spawner, gc.allocator, root_vm, envelope,
     }) catch {
         _ = @atomicRmw(usize, &live_child_threads, .Sub, 1, .release);
+        if (spawner) |s| {
+            _ = @atomicRmw(u32, &s.live_descendants, .Sub, 1, .release);
+        }
         envelope.deinit();
         return PrimitiveError.OutOfMemory;
     };
@@ -468,7 +522,7 @@ fn threadStartImpl(args: []const Value) PrimitiveError!Value {
     return args[0];
 }
 
-fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, root_vm: *vm_mod.VM, envelope: *shared_channel.Envelope) void {
+fn threadEntryFn(fiber: *fiber_mod.Fiber, spawner: ?*fiber_mod.Fiber, allocator: std.mem.Allocator, root_vm: *vm_mod.VM, envelope: *shared_channel.Envelope) void {
     // `root_vm` is the ROOT VM (see threadStartImpl): its struct, GC and
     // shared maps are never freed, so the whole prologue below -- and this
     // thread's later symbol interning into GC.initForThread's shared tables
@@ -477,6 +531,40 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, root_vm:
     // the early GC/VM-init failures below), so crossThreadWaitPossible's "is
     // another OS thread still alive" check stays accurate.
     defer _ = @atomicRmw(usize, &live_child_threads, .Sub, 1, .release);
+    // #2129 (handle half): release the spawning thread's live-descendant
+    // count (incremented in threadStartImpl), but only once this thread's
+    // OWN descendant subtree has fully drained. The drain matters: this
+    // fiber lives in the spawner's heap, and MY descendants' defers keep
+    // dereferencing it (they decrement MY count) -- if I released my
+    // spawner's count while a descendant was still running, the spawner's
+    // join could read zero and free the heap this fiber lives in under that
+    // descendant. Waiting here cannot hang the spawner's join: the join
+    // does not join me, and the threads I wait for make progress
+    // independently (my thunk has finished, so nothing they need from me
+    // will ever come). Runs after envelope.deinit and before the
+    // live_child_threads decrement, so main.zig's hasLiveChildThreads still
+    // covers the whole wait.
+    defer {
+        if (spawner) |s| {
+            while (@atomicLoad(u32, &fiber.live_descendants, .acquire) > 0) {
+                sleepNs(CROSS_THREAD_POLL_NS);
+            }
+            const old = @atomicRmw(u32, &s.live_descendants, .Sub, 1, .acq_rel);
+            if (old == 1) {
+                // I was my spawner's last live descendant: if its join has
+                // already retired its resources (retireOrFreeChild), free
+                // them now -- the subtree has drained, so nothing
+                // dereferences the spawner's heap anymore. No quarantine
+                // heir from here: the heir handoff appends to the heir's
+                // quarantine list from THIS thread, which would race the
+                // heir's own concurrent collection; drain instead (weaker
+                // #2127 detection under gc-stress, no race).
+                if (child_registry.fetchRemoveIfRetired(@intFromPtr(s))) |res| {
+                    freeChildResourcesEntry(res, null);
+                }
+            }
+        }
+    }
     // envelope is owned solely by this function (unlike the result/exception
     // envelopes built below, which escape into child_registry for the
     // parent to consume) -- every exit path needs it freed exactly once.
@@ -513,18 +601,19 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, root_vm:
     // The thread handle (the parent-heap fiber make-thread returned) this
     // child runs for, so mutex-state on a mutex this thread locks reports
     // the thread the caller holds -- not the child's internal current
-    // fiber, which lives in this child heap (#2125). Recorded only when the
-    // handle is ROOT-heap (this thread's creator was the root thread): a
-    // middle thread's handle lives in the middle's heap and is freed when
-    // the middle is joined, while this child -- and any mutex-state query on
-    // a mutex it locked -- can outlive that join, so a recorded middle-heap
-    // handle would dangle (#2129's grandchild shape). Such a child falls
-    // back to its own (never-freed, un-joinable) current fiber, the
-    // pre-#2125 behaviour. Foreign to this GC either way; the owner roots
-    // the handle, and isYoungPointer returns false for it, so no write
-    // barrier is needed.
-    if (fiber.header.owner == root_vm.gc.id)
-        child_vm.thread_handle = types.makePointer(&fiber.header);
+    // fiber, which lives in this child heap (#2125). Set unconditionally,
+    // whatever heap the handle lives in: threadStartImpl reads it to
+    // maintain this fiber's live-descendant count for EVERY thread, and
+    // #2129's retirement protocol keeps the handle's heap alive until this
+    // thread's whole descendant subtree has drained, so the handle cannot
+    // be freed under us mid-run. mutex-lock!'s owner_thread reporting
+    // re-checks root-ownership before publishing the handle (see
+    // reportableOwnerHandle), so a middle-heap handle never escapes into a
+    // mutex that can outlive the middle's join -- such a child reports its
+    // own current fiber instead, the pre-#2125 behaviour. Foreign to this
+    // GC either way; the owner roots the handle, and isYoungPointer returns
+    // false for it, so no write barrier is needed.
+    child_vm.thread_handle = types.makePointer(&fiber.header);
 
     child_registry.put(@intFromPtr(fiber), .{ .child_gc = child_gc, .child_vm = child_vm }) catch {
         fiber.result = types.VOID;
@@ -968,14 +1057,14 @@ fn reapOsThread(target: *fiber_mod.Fiber, fiber_val: Value) PrimitiveError!Value
                 target.result = gc.deepCopy(env.value) catch {
                     target.result = types.VOID;
                     env.deinit();
-                    freeChildResources(fiber_key);
+                    retireOrFreeChild(target, fiber_key);
                     return PrimitiveError.OutOfMemory;
                 };
                 gc.writeBarrier(fiber_obj, target.result);
                 env.deinit();
             },
             .failed => |err| {
-                freeChildResources(fiber_key);
+                retireOrFreeChild(target, fiber_key);
                 if (err == error.UncopyableType) {
                     // Same DeepCopyError for two different causes: a
                     // genuinely uncopyable type (port, continuation, ...),
@@ -1017,28 +1106,66 @@ fn reapOsThread(target: *fiber_mod.Fiber, fiber_val: Value) PrimitiveError!Value
             },
         }
     }
-    freeChildResources(fiber_key);
+    retireOrFreeChild(target, fiber_key);
     return threadJoinResult(target);
+}
+
+/// #2129 (handle half): free a joined thread's GC/VM only when nothing can
+/// still dereference its heap. The joined thread's OWN fiber is in the
+/// CALLER's heap (checkThreadOwner), but the fibers of any thread it started
+/// are in ITS heap -- and a descendant dereferences its own fiber (terminate
+/// flag, status, live-descendant count) for its whole life, which can extend
+/// past this join. So when the target has live descendants, keep the
+/// resources (retire the registry entry) and let the last descendant's
+/// threadEntryFn defer free them once the subtree drains; they are otherwise
+/// freed at process exit (#1792's pattern). When the count is already zero
+/// the whole subtree has drained -- each child's defer waits for its own
+/// subtree before releasing the count -- so freeing now is safe.
+fn retireOrFreeChild(target: *fiber_mod.Fiber, fiber_key: usize) void {
+    if (@atomicLoad(u32, &target.live_descendants, .acquire) == 0) {
+        freeChildResources(fiber_key);
+        return;
+    }
+    child_registry.markRetired(fiber_key);
+    // Close the race where the last descendant's defer decremented the count
+    // (old == 1) and passed its fetchRemoveIfRetired window while the entry
+    // was not yet marked retired: re-read; a count of zero means the subtree
+    // has drained and nothing dereferences this heap, so free it ourselves.
+    // Both free paths take the registry lock (fetchRemove), so exactly one
+    // wins and the GC/VM are freed once.
+    if (@atomicLoad(u32, &target.live_descendants, .acquire) == 0) {
+        freeChildResources(fiber_key);
+    }
 }
 
 fn freeChildResources(fiber_key: usize) void {
     if (child_registry.fetchRemove(fiber_key)) |res| {
-        const allocator = res.child_gc.allocator;
-        res.child_vm.deinit();
-        allocator.destroy(res.child_vm);
-        // #2127: the parent may still hold a value pointing into this child's
-        // heap (`mutex-state` hands out the owning *Fiber*). Give the freed
-        // header slots to the parent's quarantine rather than the allocator,
-        // so the parent's next mark reads FREED_OWNER and panics instead of
-        // finding a recycled object. gc-stress only; a no-op elsewhere. Safe
-        // here and not on threadEntryFn's own error paths because every
-        // caller is the joining parent, past reapOsThread's thread.join().
-        if (memory.gc_instance) |parent| {
-            if (parent != res.child_gc) res.child_gc.setQuarantineHeir(parent);
-        }
-        res.child_gc.deinit();
-        allocator.destroy(res.child_gc);
+        freeChildResourcesEntry(res, memory.gc_instance);
     }
+}
+
+/// Frees one joined-or-retired child's GC/VM. `heir` names the GC that
+/// inherits the freed heap's #2127 quarantine slots; see the two callers for
+/// when a null heir is deliberate.
+fn freeChildResourcesEntry(res: ChildThreadResources, heir: ?*memory.GC) void {
+    const allocator = res.child_gc.allocator;
+    res.child_vm.deinit();
+    allocator.destroy(res.child_vm);
+    if (heir) |h| {
+        // #2127: the joining parent may still hold a value pointing into this
+        // child's heap (`mutex-state` hands out the owning *Fiber*). Give the
+        // freed header slots to the parent's quarantine rather than the
+        // allocator, so the parent's next mark reads FREED_OWNER and panics
+        // instead of finding a recycled object. gc-stress only; a no-op
+        // elsewhere. Safe here -- the joining parent's thread, past
+        // reapOsThread's thread.join() -- because the handoff appends to the
+        // heir's quarantine list from this very thread; threadEntryFn's
+        // descendant-side free passes null instead, since handing off from
+        // THAT thread would race the heir's own concurrent collection.
+        if (h != res.child_gc) res.child_gc.setQuarantineHeir(h);
+    }
+    res.child_gc.deinit();
+    allocator.destroy(res.child_gc);
 }
 
 fn threadJoinResult(target: *fiber_mod.Fiber) PrimitiveError!Value {
@@ -1110,6 +1237,24 @@ fn mutexStateFn(args: []const Value) PrimitiveError!Value {
 fn resolveMutexOwner(args: []const Value, fallback: Value) Value {
     if (args.len > 2 and types.isFiber(args[2])) return args[2];
     if (args.len > 2 and args[2] == types.FALSE) return types.VOID;
+    return fallback;
+}
+
+/// #2129 (handle half): the thread handle mutex-state may report for a mutex
+/// this thread locks. Publish the parent-heap handle only when it is
+/// ROOT-heap (never freed): a middle-thread handle lives in the creator's
+/// heap, which its join frees while a mutex this thread locked -- and any
+/// mutex-state on it -- can outlive that join. Fall back to `fallback` (this
+/// thread's own current fiber, in its never-freed-if-unjoined heap) in every
+/// other case, the pre-#2125 behaviour. Safe to read `h` here: the #2129
+/// retirement protocol keeps the handle's heap alive until this thread's
+/// whole descendant subtree has drained, and this runs while the thread is
+/// still executing.
+fn reportableOwnerHandle(vm: *const vm_mod.VM, fallback: Value) Value {
+    if (vm.thread_handle) |h| {
+        const root_vm = vm.root_vm orelse return fallback;
+        if (types.toObject(h).owner == root_vm.gc.id) return h;
+    }
     return fallback;
 }
 
@@ -1186,7 +1331,7 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
             // first: mutex-state gates on owner_thread alone, so a concurrent
             // reader can never observe a partially initialized owner pair.
             const owner = resolveMutexOwner(args, cf_val);
-            const owner_thread = resolveMutexOwner(args, if (ctx.vm.thread_handle) |h| h else cf_val);
+            const owner_thread = resolveMutexOwner(args, reportableOwnerHandle(ctx.vm, cf_val));
             m.owner_thread = owner_thread;
             m.owner = owner;
             if (memory.gc_instance) |gc| {
@@ -1293,7 +1438,7 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
     me.deadline_ns = null;
 
     const owner_fiber = types.makePointer(&me.header);
-    const owner_handle = if (ctx.vm.thread_handle) |h| h else owner_fiber;
+    const owner_handle = reportableOwnerHandle(ctx.vm, owner_fiber);
     // Same resolution for the reported owner thread (see the fast path):
     // an OS-thread child reports its parent-heap handle, not me.header
     // (#2125). Computed before publishing either field and owner_thread

@@ -244,16 +244,22 @@
   (timer-cancel! tmr))
 
 ;; ---------------------------------------------------------------------
-;; FAIL: #2129 -- make-timer inside a SRFI-18 thread crashes the process at
-;; that thread's join (thread-join! frees the joined thread's GC/VM while
-;; the timer thread is still in its startup prologue). 24/30 on ReleaseSafe,
-;; 13/15 under -Dgc-stress=true. Commented out rather than test-expect-fail:
-;; it aborts the process, which would take the whole runner down.
-;;
-;; (let ((t (make-thread (lambda () (make-timer)))))
-;;   (thread-start! t)
-;;   (test-assert "a timer created inside a thread does not survive its join"
-;;     (guard (e (#t #t)) (thread-join! t) #f)))
+;; #2129 (fixed in the v0.22.2 audit): make-timer inside a SRFI-18 thread
+;; used to crash the process at that thread's join -- thread-join! freed the
+;; joined thread's GC/VM while the timer thread (a grandchild) was still
+;; dereferencing its fiber handle in the joined heap. 24/30 on ReleaseSafe,
+;; 13/15 under -Dgc-stress=true; commented out because it aborted the whole
+;; runner. The join now raises the documented "result contains an uncopyable
+;; type" error (the timer record holds a thread handle) and the timer thread
+;; keeps running against the RETIRED -- not freed -- middle heap (see
+;; srfi18-join-spawn-grandchild-2129.scm). Asserted live: the old failure
+;; mode was a process abort, so a regression must surface as a loud runner
+;; failure, not a skipped block. The uncancelled timer thread leaks until
+;; process exit, like any unjoined thread.
+(let ((t (make-thread (lambda () (make-timer)))))
+  (thread-start! t)
+  (test-assert "a timer created inside a thread does not survive its join"
+    (guard (e (#t #t)) (thread-join! t) #f)))
 
 (let ((runner (test-runner-current)))
   (test-end "srfi-120-thread-boundary")

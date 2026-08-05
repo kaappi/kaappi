@@ -1400,8 +1400,8 @@ test "gc tracing: heap-struct field inventory is unchanged" {
         "thunk",             "result",               "waiting_on",         "id",
         "name",              "specific",             "param_overrides",    "deadline_ns",
         "timed_out",         "driving",              "terminated",         "os_thread",
-        "io_fd",             "io_interest",          "io_buffer",          "sched_idx",
-        "queued",            "rv_demand_on",         "owned_mutexes",
+        "live_descendants",  "io_fd",                "io_interest",        "io_buffer",
+        "sched_idx",         "queued",               "rv_demand_on",       "owned_mutexes",
     });
     expectFields(types.Channel, &.{
         "header", "head", "tail", "queue_len", "capacity", "rv_demand", "closed", "shared",

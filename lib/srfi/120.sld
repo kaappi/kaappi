@@ -102,20 +102,27 @@
 ;;; and a timer reached through a top-level *container* rather than a
 ;;; top-level binding of its own.
 ;;;
-;;; HAZARD, and it is a real one: do not call `make-timer` from inside a
-;;; SRFI-18 thread. kaappi#2129 -- `thread-join!` frees the joined thread's
-;;; GC and VM while a thread that thread started is still in its startup
-;;; prologue, and `make-timer` returns at exactly that moment. The process
-;;; dies with a SIGSEGV or a Zig panic when the creating thread is joined
-;;; (24/30 runs on ReleaseSafe, 13/15 under `-Dgc-stress=true`). This is
-;;; not a `(srfi 120)` defect -- a bare `thread-start!` of any thread that
-;;; itself spawns one reproduces it with no timers involved -- and this
-;;; library cannot work around it, since the timer thread is meant to
-;;; outlive `make-timer`. Create timers on the thread that will use them.
+;;; HAZARD, still worth knowing: do not call `make-timer` from inside a
+;;; SRFI-18 thread. This was kaappi#2129 -- `thread-join!` used to free the
+;;; joined thread's GC and VM while a thread that thread started was still
+;;; dereferencing its fiber handle in the joined heap, and `make-timer`
+;;; returns at exactly that moment; the process died with a SIGSEGV or a
+;;; Zig panic when the creating thread was joined (24/30 runs on
+;;; ReleaseSafe, 13/15 under `-Dgc-stress=true`). Fixed in v0.22.2: a join
+;;; now retires (rather than frees) the resources of a thread that still
+;;; has live descendants, so the crash is gone -- but the shape is still
+;;; unusable in a different, loud way: joining the creating thread raises
+;;; the documented "result contains an uncopyable type" error (the timer
+;;; record holds a thread handle) while the timer thread keeps running, and
+;;; its resources are only freed once the timer exits. This is not a
+;;; `(srfi 120)` defect -- a bare `thread-start!` of any thread that itself
+;;; spawns one reproduces it with no timers involved -- and this library
+;;; cannot work around it, since the timer thread is meant to outlive
+;;; `make-timer`. Create timers on the thread that will use them.
 ;;;
-;;; So: single-thread-only remains the supported usage, the guard rails are
-;;; real and named, and the old corruption claim is not a live hazard to
-;;; design around. #2129 is.
+;;; So: single-thread-only remains the supported usage, and the guard rails
+;;; are real and named. The old corruption claim was not a live hazard to
+;;; design around; #2129 was, and is fixed.
 ;;;
 ;;; LIMITATION: the spec requires a task to "be able to cancel or
 ;;; reschedule other tasks" on the same timer -- e.g. a health-check task
