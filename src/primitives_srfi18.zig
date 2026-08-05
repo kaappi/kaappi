@@ -807,8 +807,27 @@ fn threadJoinFn(args: []const Value) PrimitiveError!Value {
         return reapOsThread(target, args[0]);
     }
 
-    // Never-started thread: poll until started+finished or timeout
-    if (@atomicLoad(fiber_mod.FiberStatus, &target.status, .acquire) == .created) {
+    // Never-started target, in two kinds discriminated by sched_idx (set only
+    // by addFiber; a make-thread object is never added to any scheduler and
+    // leaves it at 0):
+    //
+    //  * A make-thread handle awaiting thread-start! (sched_idx == 0): poll.
+    //    The status is changed from outside this loop, so polling observes it
+    //    (#878). os_thread alone is NOT a safe discriminator here -- a handle
+    //    about to be started has os_thread == null for the whole window before
+    //    thread-start!'s std.Thread.spawn, and must keep polling, not fall
+    //    through to the cooperative path.
+    //
+    //  * A (kaappi fibers) spawn'd fiber (sched_idx != 0) still in .created:
+    //    only THIS thread's cooperative scheduler can dispatch it, and the
+    //    poll loop below is exactly what starves it -- the status can never
+    //    change from outside, so without a timeout the loop is unbounded and
+    //    thread-join! hangs on a fiber that would have completed instantly
+    //    (#2194). Fall through to the fiber path below, which drives the
+    //    scheduler.
+    if (target.sched_idx == 0 and
+        @atomicLoad(fiber_mod.FiberStatus, &target.status, .acquire) == .created)
+    {
         while (@atomicLoad(fiber_mod.FiberStatus, &target.status, .acquire) != .completed and
             @atomicLoad(fiber_mod.FiberStatus, &target.status, .acquire) != .errored)
         {
