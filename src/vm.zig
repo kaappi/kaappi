@@ -223,6 +223,10 @@ fn markVMRoots(gc: *memory.GC) void {
     if (vm.callback_error_value) |exc| gc.markValue(exc);
     gc.markValue(vm.continuation_value);
     gc.markValue(vm.default_random_source);
+    // Foreign (parent-heap) for a child thread, so markValue skips it; the
+    // parent roots the handle. Marked here for the same reason every other
+    // Value field is: a same-heap value would be kept alive by it (#2125).
+    if (vm.thread_handle) |h| gc.markValue(h);
 
     // Only mark globals/macros when this VM owns them. Child threads
     // share the parent's maps — the parent GC keeps those values alive.
@@ -548,6 +552,14 @@ pub const VM = struct {
     /// thread-terminate! from another thread can stop this VM. Written by the
     /// parent thread, read here — access must be atomic.
     terminate_flag: ?*bool = null,
+    /// For child OS threads (SRFI-18): the thread handle (the fiber value
+    /// make-thread returned, in the parent's heap) this VM was started for,
+    /// so mutex-state can report the owner as the thread the caller holds
+    /// rather than this child's internal current fiber (#2125). Set by
+    /// threadEntryFn. Null for the main VM and for local fibers -- there the
+    /// current fiber IS the thread. The handle is foreign to this GC and is
+    /// rooted by the parent while the child runs, so markValue skips it.
+    thread_handle: ?Value = null,
 
     pub fn init(gc: *memory.GC) !VM {
         const frames = try gc.allocator.alloc(CallFrame, INITIAL_FRAME_CAPACITY);

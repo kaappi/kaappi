@@ -499,6 +499,14 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_v
     // loop safepoint polls this flag and unwinds with VMError.Terminated.
     child_vm.terminate_flag = &fiber.terminated;
 
+    // The thread handle (the parent-heap fiber make-thread returned) this
+    // child runs for, so mutex-state on a mutex this thread locks reports
+    // the thread the caller holds -- not the child's internal current
+    // fiber, which lives in this child heap (#2125). Foreign to this GC;
+    // the parent roots the handle while the child runs, and isYoungPointer
+    // returns false for it, so no write barrier is needed.
+    child_vm.thread_handle = types.makePointer(&fiber.header);
+
     child_registry.put(@intFromPtr(fiber), .{ .child_gc = child_gc, .child_vm = child_vm }) catch {
         fiber.result = types.VOID;
         @atomicStore(fiber_mod.FiberStatus, &fiber.status, .errored, .release);
@@ -1063,7 +1071,7 @@ fn mutexStateFn(args: []const Value) PrimitiveError!Value {
         const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         return gc.allocSymbol("not-abandoned") catch return PrimitiveError.OutOfMemory;
     }
-    if (m.owner != types.VOID) return m.owner;
+    if (m.owner != types.VOID) return m.owner_thread;
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.allocSymbol("not-owned") catch return PrimitiveError.OutOfMemory;
 }
@@ -1141,14 +1149,24 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
     if (tryClaimMutex(m)) {
         const ctx = try ensureScheduler();
         if (ctx.vm.current_fiber) |cf| {
-            m.owner = resolveMutexOwner(args, types.makePointer(&cf.header));
-            if (memory.gc_instance) |gc| gc.writeBarrier(&m.header, m.owner);
+            const cf_val = types.makePointer(&cf.header);
+            m.owner = resolveMutexOwner(args, cf_val);
+            // The owner's thread handle: the explicit owner arg when given,
+            // else this thread's handle -- for an OS-thread child that is
+            // the parent-heap handle (vm.thread_handle), NOT cf_val, which
+            // belongs to the child heap and would dangle past join (#2125).
+            m.owner_thread = resolveMutexOwner(args, if (ctx.vm.thread_handle) |h| h else cf_val);
+            if (memory.gc_instance) |gc| {
+                gc.writeBarrier(&m.header, m.owner);
+                gc.writeBarrier(&m.header, m.owner_thread);
+            }
             // Only track when *this* fiber became the owner: an explicit
             // owner arg naming another fiber (possibly on another thread)
             // must not append to this fiber's list.
-            if (m.owner == types.makePointer(&cf.header)) trackOwnedMutex(cf, args[0]);
+            if (m.owner == cf_val) trackOwnedMutex(cf, args[0]);
         } else {
             m.owner = resolveMutexOwner(args, types.VOID);
+            m.owner_thread = m.owner;
             if (memory.gc_instance) |gc| gc.writeBarrier(&m.header, m.owner);
         }
         if (tryClaimAbandoned(m)) return raiseError(.abandoned_mutex, "mutex was abandoned", types.VOID);
@@ -1245,7 +1263,19 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
         (if (types.isFiber(oa)) oa else if (oa == types.FALSE) types.VOID else types.makePointer(&me.header))
     else
         types.makePointer(&me.header);
-    if (memory.gc_instance) |gc| gc.writeBarrier(&m.header, m.owner);
+    // Same resolution for the reported owner thread (see the fast path):
+    // an OS-thread child reports its parent-heap handle, not me.header
+    // (#2125). Kept in sync with `owner` so mutex-state and abandonment
+    // never disagree.
+    const owner_handle = if (ctx.vm.thread_handle) |h| h else types.makePointer(&me.header);
+    m.owner_thread = if (owner_arg) |oa|
+        (if (types.isFiber(oa)) oa else if (oa == types.FALSE) types.VOID else owner_handle)
+    else
+        owner_handle;
+    if (memory.gc_instance) |gc| {
+        gc.writeBarrier(&m.header, m.owner);
+        gc.writeBarrier(&m.header, m.owner_thread);
+    }
     // Track only when `me` itself became the owner (see the fast path).
     if (m.owner == types.makePointer(&me.header)) trackOwnedMutex(me, mutex_val);
 
@@ -1290,6 +1320,7 @@ fn mutexUnlockFn(args: []const Value) PrimitiveError!Value {
     // acquirer that wins the locked CAS right after the store below could
     // write its own owner, and this line would then stomp it back to VOID.
     m.owner = types.VOID;
+    m.owner_thread = types.VOID;
     @atomicStore(bool, &m.locked, false, .release);
 
     const ctx = try ensureScheduler();

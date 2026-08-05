@@ -1096,6 +1096,7 @@ pub fn abandonFiberMutexes(fiber: *Fiber, sched: ?*FiberScheduler) void {
             // abandonment).
             @atomicStore(bool, &m.abandoned, true, .release);
             m.owner = types.VOID;
+            m.owner_thread = types.VOID;
             @atomicStore(bool, &m.locked, false, .release);
             if (sched) |s| s.wakeMutexWaiters(m_val);
         }

@@ -474,12 +474,14 @@ test "gc tracing: mutex traces name, owner and specific" {
     defer gc.deinit();
     const name = try young(&gc, 1);
     const owner = try young(&gc, 2);
+    const owner_thread = try young(&gc, 4);
     const specific = try young(&gc, 3);
     const m_val = try gc.allocMutex(name);
     const m = types.toObject(m_val).as(types.Mutex);
     m.owner = owner;
+    m.owner_thread = owner_thread;
     m.specific = specific;
-    try expectTraced(&gc, m_val, &.{ ref(name, 1), ref(owner, 2), ref(specific, 3) });
+    try expectTraced(&gc, m_val, &.{ ref(name, 1), ref(owner, 2), ref(owner_thread, 4), ref(specific, 3) });
 }
 
 test "gc tracing: condition_variable traces name and specific" {
@@ -1083,13 +1085,16 @@ test "gc tracing (remembered set): mutex" {
     try promoteToOld(&gc, m_val);
     const name = try young(&gc, 1);
     const owner = try young(&gc, 2);
+    const owner_thread = try young(&gc, 4);
     const specific = try young(&gc, 3);
     const m = types.toObject(m_val).as(types.Mutex);
     m.name = name;
     m.owner = owner;
+    m.owner_thread = owner_thread;
     m.specific = specific;
     gc.writeBarrier(&m.header, owner);
-    try expectRememberedTrace(&gc, m_val, &.{ ref(name, 1), ref(owner, 2), ref(specific, 3) });
+    gc.writeBarrier(&m.header, owner_thread);
+    try expectRememberedTrace(&gc, m_val, &.{ ref(name, 1), ref(owner, 2), ref(owner_thread, 4), ref(specific, 3) });
 }
 
 test "gc tracing (remembered set): condition_variable" {
@@ -1402,7 +1407,7 @@ test "gc tracing: heap-struct field inventory is unchanged" {
         "header", "head", "tail", "queue_len", "capacity", "rv_demand", "closed", "shared",
     });
     expectFields(types.Mutex, &.{
-        "header", "name", "owner", "locked", "abandoned", "specific",
+        "header", "name", "owner", "owner_thread", "locked", "abandoned", "specific",
     });
     expectFields(types.ConditionVariable, &.{
         "header", "name", "specific", "signal_generation",

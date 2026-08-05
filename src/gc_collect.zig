@@ -252,7 +252,7 @@ fn referencesYoung(gc: *GC, obj: *Object) bool {
         },
         .mutex => {
             const m = obj.as(types.Mutex);
-            if (isYoungPointer(gc, m.name) or isYoungPointer(gc, m.owner) or isYoungPointer(gc, m.specific)) return true;
+            if (isYoungPointer(gc, m.name) or isYoungPointer(gc, m.owner) or isYoungPointer(gc, m.owner_thread) or isYoungPointer(gc, m.specific)) return true;
         },
         .condition_variable => {
             const cv = obj.as(types.ConditionVariable);
@@ -553,6 +553,7 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
             const m = obj.as(types.Mutex);
             markValue(gc, m.name);
             markValue(gc, m.owner);
+            markValue(gc, m.owner_thread);
             markValue(gc, m.specific);
         },
         .condition_variable => {
@@ -908,6 +909,7 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
             const m = obj.as(types.Mutex);
             worklist.append(gc.allocator, m.name) catch @panic("GC mark: worklist OOM");
             worklist.append(gc.allocator, m.owner) catch @panic("GC mark: worklist OOM");
+            worklist.append(gc.allocator, m.owner_thread) catch @panic("GC mark: worklist OOM");
             worklist.append(gc.allocator, m.specific) catch @panic("GC mark: worklist OOM");
         },
         .condition_variable => {
