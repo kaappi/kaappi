@@ -1192,9 +1192,9 @@
 (test-assert "D6: a codec symbol survives thread-join! with eqv? identity intact"
   (eqv? (utf-8-codec) (thread-join! (thread-start! (make-thread (lambda () (utf-8-codec)))))))
 
-;; FAIL: #1932 (a record returned through thread-join! loses its type)
-;; (test-assert "D6: a transcoder record survives thread-join! and stays a transcoder?"
-;;   (transcoder? (thread-join! (thread-start! (make-thread (lambda () (native-transcoder)))))))
+;; Enabled by #1932: a record's type now survives the copy at the join.
+(test-assert "D6: a transcoder record survives thread-join! and stays a transcoder?"
+  (transcoder? (thread-join! (thread-start! (make-thread (lambda () (native-transcoder)))))))
 
 ;;; ==================================================================
 ;;; 11. Port lifecycle

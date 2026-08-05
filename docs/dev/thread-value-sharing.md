@@ -66,6 +66,27 @@ its unpromoted twin failed, so a thread that read one out of a shared
 global could still hand it down to a child, and that child got a working
 stub for a channel nobody gave it.
 
+FFI handles are not on that list either — `ffi-library` and `ffi-function`
+are **copied**, and only the callback is refused. The dlopen handle and the
+symbol address are process-global and are shared by value; it is the
+wrapper object that gets duplicated into the receiving heap, exactly as
+`native-fn` duplicates the object around a static function pointer. Until
+kaappi#2027 the arm aliased them instead, which handed the receiver a
+pointer neither collector accounts for — a child-created handle was freed
+by the child's own collector, running or not, and read back in the parent
+as `(0.0 . 0.0)`. One consequence to know: `ffi-close` nulls the handle in
+one wrapper only, so a copy on another heap no longer reports the library
+as closed. (Closing a library another thread is calling was already
+undefined; this moves where it is diagnosed, not whether it is safe.)
+
+Record types are copied, and the copy is **the same type**. Type identity
+is `RecordType.identity`, a process-global counter carried across every
+copy boundary, not the RecordType address — which each copy necessarily
+changes. Until kaappi#1932 it was the address, so a record returned by
+`thread-join!` printed as a well-formed `#<<pt> 1 2>` while `pt?` answered
+`#f` and every accessor raised. Generativity is unaffected: two evaluations
+of a `define-record-type` form still mint two identities.
+
 A refusal surfaces as `error.UncopyableType`, which the boundary turns
 into a catchable error naming neither the type nor the offending value:
 
@@ -110,7 +131,10 @@ usable from a child thread through a global.
 
 ## The actual matrix
 
-Verified at `e24e594e`, ReleaseSafe, isolated `KAAPPI_HOME`. "capture"
+Verified at `e24e594e`, ReleaseSafe, isolated `KAAPPI_HOME` — except the
+two **copied** rows, which describe behaviour that commit predates and
+which were verified on kaappi#1932 / kaappi#2027's own branch. Their
+regression suites are named under "Keeping it honest" below. "capture"
 means bound in a `let` and closed over by the thunk; "global" means bound
 with a top-level `define` and named by the thunk.
 
@@ -126,6 +150,8 @@ with a top-level `define` and named by the thunk.
 | `scheme-environment` | refused | works (`eval` in it succeeds) | unchecked |
 | `file-info` / `user-info` / `group-info` | refused | works | unchecked |
 | directory object | refused | works | unchecked |
+| ffi-library / ffi-function | **copied** | works | **coherent** since kaappi#2027 — the wrapper crosses, the process-global handle is shared by value |
+| record type / instance | **copied, same type** | works | **coherent** since kaappi#1932 — identity is a counter carried by the copy, not the address |
 | guardian | refused | refused (kaappi#2008) | **coherent** — the raw-container mutation made a check mandatory |
 | ephemeron | refused | works | unchecked — bound to one GC's collection cycle, but nothing mutates a raw container through it |
 | transport cell | refused | — | unreachable from Scheme: on this non-moving collector a transport-cell guardian always yields `#f` |
@@ -257,3 +283,12 @@ duplicating: `src/tests_deepcopy.zig` asserts the port and continuation
 refusals at the `GC.deepCopy` level directly, and
 `src/tests_shared_channel.zig` asserts that a channel *message* carrying a
 port is refused the same way.
+
+The two copied rows added above have their own regression suites, each
+covering all four boundaries (into the child, out of it, the raise path, a
+channel message): `tests/scheme/srfi/srfi18-record-identity-1932.scm` and
+`tests/scheme/ffi/thread-boundary-2027.scm`. Both carry the control that
+constrains the fix — a second look-alike record type that must stay
+disjoint, and the parent-owned FFI handle a blanket refusal would have
+broken. `tests/scheme/audit/srfi18-deepcopy-matrix-audit.scm` remains the
+per-tag enumeration.

@@ -590,11 +590,13 @@
 ;; ---------------------------------------------------------------------
 ;; 10. Record type identity across the copy
 ;;
-;; gc_deep_copy.zig's `.record_type` arm MANUFACTURES A NEW RecordType for
-;; a plain R7RS record type: same name, same field count, different
-;; identity. The one identity-preserving path is SRFI 237's
-;; `nongenerative` uid, which the arm looks up in the destination VM's
-;; `record_uid_registry` and reuses.
+;; gc_deep_copy.zig's `.record_type` arm builds a NEW RecordType object in
+;; the receiving heap -- it must, the source belongs to another GC -- but
+;; that object is the SAME TYPE: `RecordType.identity` is a process-global
+;; counter carried across the copy, and `types.sameRecordType` compares it
+;; rather than the address (#1932). Before that, identity WAS the address,
+;; and the only path that survived was SRFI 237's `nongenerative` uid, which
+;; the arm looks up in the destination VM's `record_uid_registry` and reuses.
 ;; ---------------------------------------------------------------------
 
 ;; Control: an instance built in this thread is of course recognised.
@@ -607,27 +609,25 @@
   (let ((r (on-thread (lambda () (make-upt 1)))))
     (and (upt? r) (= 1 (upt-x r)))))
 
-;; FAIL: #1932 (a PLAIN R7RS record constructed by a child and returned
-;; through thread-join! arrives as an instance of a DIFFERENT record type:
-;; `pt?` answers #f and every accessor raises "type error in '%record-ref':
-;; expected <pt>, got #<record_instance>", even though it prints as
-;; #<<pt> 1 2>. Verified 3/3. No shared global and no mutation is involved
-;; -- this is the plain, supported worker-thread path, and it is a
-;; wrong-but-stable answer rather than a memory-safety problem. The
-;; nongenerative case above is the discriminating control.)
-;; (test-assert "a plain record returned by a child is usable in the parent"
-;;   (let ((r (on-thread (lambda () (make-pt 1 2)))))
-;;     (and (pt? r) (= 1 (pt-x r)) (= 2 (pt-y r)))))
+;; The plain, supported worker-thread path: no shared global, no mutation.
+;; It used to hand back an instance of a DIFFERENT type -- `pt?` answered #f
+;; and every accessor raised "expected <pt>, got #<record_instance>", even
+;; though it printed as #<<pt> 1 2> (#1932).
+(test-assert "a plain record returned by a child is usable in the parent"
+  (let ((r (on-thread (lambda () (make-pt 1 2)))))
+    (and (pt? r) (= 1 (pt-x r)) (= 2 (pt-y r)))))
 
-;; FAIL: #1932 (same root cause, reached from the other side: a record
-;; accessor/mutator/predicate LEXICALLY CAPTURED by a thunk is copied
-;; together with a fresh copy of its record type, so applying it to a
-;; parent-heap instance fails -- the predicate answers #f for a genuine
-;; instance, and the accessor raises.)
-;; (test-assert "a captured record predicate still recognises a parent instance"
-;;   (let ((b (make-abox 5)))
-;;     (set! probe-container b)
-;;     (on-thread (let ((p abox?)) (lambda () (p probe-container))))))
+;; The same root cause reached from the other side: a record
+;; predicate/accessor LEXICALLY CAPTURED by a thunk is copied together with
+;; its record type, so it used to reject a genuine parent-heap instance.
+;; Compared against #t rather than used as a truth value: on-thread answers
+;; (raised . msg) when the child raises, which is itself truthy and would let
+;; this row pass on a boundary failure. The neighbouring row escapes that only
+;; because pt? happens to reject the pair.
+(test-assert "a captured record predicate still recognises a parent instance"
+  (let ((b (make-abox 5)))
+    (set! probe-container b)
+    (eq? #t (on-thread (let ((p abox?)) (lambda () (p probe-container)))))))
 
 ;; FAIL: #1936 (a continuation reached through a global is invoked by a child
 ;; with no check: the parent's continuation is NOT resumed, and

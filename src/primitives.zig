@@ -1051,7 +1051,7 @@ fn recordCheckFn(args: []const Value) PrimitiveError!Value {
     const rt = types.toObject(args[1]).as(types.RecordType);
     if (!types.isRecordInstance(args[0])) return types.FALSE;
     const ri = types.toObject(args[0]).as(types.RecordInstance);
-    return if (ri.record_type == rt) types.TRUE else types.FALSE;
+    return if (types.sameRecordType(ri.record_type, rt)) types.TRUE else types.FALSE;
 }
 
 fn recordRefFn(args: []const Value) PrimitiveError!Value {
@@ -1060,7 +1060,7 @@ fn recordRefFn(args: []const Value) PrimitiveError!Value {
     const rt = types.toObject(args[2]).as(types.RecordType);
     if (!types.isRecordInstance(args[0])) return typeError("%record-ref", rt.name, args[0]);
     const ri = types.toObject(args[0]).as(types.RecordInstance);
-    if (ri.record_type != rt) return typeError("%record-ref", rt.name, args[0]);
+    if (!types.sameRecordType(ri.record_type, rt)) return typeError("%record-ref", rt.name, args[0]);
     if (!types.isFixnum(args[1])) return typeError("%record-ref", "exact integer", args[1]);
     const raw_idx = types.toFixnum(args[1]);
     if (raw_idx < 0) return PrimitiveError.TypeError; // bare-ok: internal record primitive
@@ -1075,7 +1075,7 @@ fn recordSetFn(args: []const Value) PrimitiveError!Value {
     const rt = types.toObject(args[3]).as(types.RecordType);
     if (!types.isRecordInstance(args[0])) return typeError("%record-set!", rt.name, args[0]);
     const ri = types.toObject(args[0]).as(types.RecordInstance);
-    if (ri.record_type != rt) return typeError("%record-set!", rt.name, args[0]);
+    if (!types.sameRecordType(ri.record_type, rt)) return typeError("%record-set!", rt.name, args[0]);
     if (!types.isFixnum(args[1])) return typeError("%record-set!", "exact integer", args[1]);
     const raw_idx = types.toFixnum(args[1]);
     if (raw_idx < 0) return PrimitiveError.TypeError; // bare-ok: internal record primitive

@@ -19,9 +19,7 @@
 (import (scheme base) (scheme write) (scheme case-lambda) (srfi 64)
         (srfi 8) (srfi 11) (srfi 16) (srfi 28) (srfi 31) (srfi 34)
         (srfi 111) (srfi 145) (srfi 229)
-        ;; (srfi 18) is imported only for the disabled #1932 assertion far below,
-        ;; so that uncommenting it is a one-line change. Every other test file
-        ;; in this directory that needs threads imports it the same way.
+        ;; (srfi 18) is for the thread-join! box assertion far below (#1932).
         (srfi 18))
 
 (test-begin "srfi-notest-batch")
@@ -341,15 +339,13 @@
 (test-assert "111: box with no argument raises" (guard (e (#t #t)) (box) #f))
 (test-assert "111: box with two arguments raises" (guard (e (#t #t)) (box 1 2) #f))
 
-;; FAIL: #1932 (a record returned through thread-join! loses its type; an SRFI
-;; 111 box is a record, so a box built on a worker thread comes back with
-;; box? => #f and unbox raising). The Phase 5C suite pins #1932 for a
-;; user-defined record; this is the same defect reaching a *spec-mandated*
-;; type, which is why it is worth a second pin.
-;; (test-equal "111: a box survives thread-join!" '(#t 42)
-;;             (let ((t (make-thread (lambda () (box 42)))))
-;;               (thread-start! t)
-;;               (let ((r (thread-join! t))) (list (box? r) (unbox r)))))
+;; An SRFI 111 box is a record, so this was #1932 reaching a *spec-mandated*
+;; type: a box built on a worker thread came back with box? => #f and unbox
+;; raising. Enabled now that record identity survives the copy.
+(test-equal "111: a box survives thread-join!" '(#t 42)
+            (let ((t (make-thread (lambda () (box 42)))))
+              (thread-start! t)
+              (let ((r (thread-join! t))) (list (box? r) (unbox r)))))
 
 ;;; ====================================================================
 ;;; SRFI 145 -- assume

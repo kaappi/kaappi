@@ -467,6 +467,8 @@ pub const ErrorObject = types_error.ErrorObject;
 const types_record = @import("types_record.zig");
 pub const RecordType = types_record.RecordType;
 pub const RecordInstance = types_record.RecordInstance;
+pub const nextRecordTypeIdentity = types_record.nextRecordTypeIdentity;
+pub const sameRecordType = types_record.sameRecordType;
 
 pub const Vector = struct {
     header: Object,
