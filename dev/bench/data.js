@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785948711045,
+  "lastUpdate": 1785953284168,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "db0533161a6b1294321bf611b13206ca6504472b",
-          "message": "Tick the third batch, and mark 5B as landed-but-blocked (#1968)\n\n1D, 2.4 and 7B are merged. 5B is ticked as complete work with its PR\nstill open, because it is blocked by a CI regression on main (#1967)\nrather than by anything in the unit -- leaving it unticked would imply\nthe work is outstanding when what is outstanding is someone else's\nFreeBSD failure.\n\nEach entry records what the unit found AND what it confirmed correct.\nThe two units that found no bugs in their target are the ones most at\nrisk of being read as wasted, so their entries say what they closed:\nnine untested false rows in the unwind asymmetry, and a 41-tag mark\ngraph whose arm contents nothing could check.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T02:00:15+05:30",
-          "tree_id": "10d24394df48e68650b6ebf4b7772864a79c6d27",
-          "url": "https://github.com/kaappi/kaappi/commit/db0533161a6b1294321bf611b13206ca6504472b"
-        },
-        "date": 1785533974500,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.961673,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.607652,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.557629,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.834074,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004867,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.044936,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.295251,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.059248,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.510185,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.15452,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.613622,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.302184,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.764885,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.783166,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045887,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043048,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "006b263e53a6ba8ec6b460d1019240be929c2ef0",
+          "message": "Release v0.22.2\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-05T23:00:19+05:30",
+          "tree_id": "ca31edb5295e922e75cd3ebf59cb381daa97c52a",
+          "url": "https://github.com/kaappi/kaappi/commit/006b263e53a6ba8ec6b460d1019240be929c2ef0"
+        },
+        "date": 1785953281921,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.334868,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.979594,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.566515,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.954446,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00463,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04699,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.308918,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057278,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.641668,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.22866,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.586526,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.278009,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.831381,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.456433,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043538,
             "unit": "seconds"
           }
         ]
