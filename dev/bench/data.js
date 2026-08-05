@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785892997623,
+  "lastUpdate": 1785904768382,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "3de5281fede1fbbdb530005faa9bcc902479cc30",
-          "message": "Phase 1D: printer audit — 79 assertions, five hangs, and a legal-but-wrong datum at depth 1023 (#1956)\n\n* Audit v2 Phase 1D: sweep the printer's structural round-trip\n\n`src/printer.zig` had no Scheme-level test of its own beyond a handful of\nZig unit tests.  Sweep it against the round-trip oracle -- (equal? x (read\n(open-input-string <written x>))) -- across every printable type and every\nstructural shape, with the four `write`-family contracts checked against\ntheir own R7RS 6.13.3 text rather than against each other.\n\n79 enabled assertions, 16 disabled.  Each disabled assertion is paired with\nan enabled control -- a near-identical input that behaves differently -- so\nthe file keeps proving the neighbouring path still works.\n\nBeyond the three symptoms already filed as #1902, the sweep separates that\nissue's single \"1024\" into three independent mechanisms with three distinct\ncliffs (markShared's cdr-spine depth; the seen[] cap, which makes detection\ndepend on an object's *position*; and the shared[] cap), and turns up five\nfindings it does not cover:\n\n- `write-simple` is registered as `.func = &write`, so it emits datum labels\n  on circular structure, which R7RS says it never may.\n- All four output procedures loop forever on a cycle reachable only through\n  a container the cycle pre-pass does not walk (error objects, mutex and\n  condition-variable names).  #1713 fixed this shape for record instances\n  and left the other arms behind.\n- An exact rational at nesting depth 1023 prints as \".../...\" and reads back\n  as a *symbol*: the printer's depth counter outruns the reader's nesting\n  count for that one arm, and the plain printer's truncation sentinel \"...\"\n  is itself a legal identifier.\n- `write-shared` becomes exponential once seen[] is full, so the same two\n  objects in a two-element vector print instantly one way round and never\n  terminate the other.\n- Closed issue #859 (REPL prettyPrint hang) still reproduces; the fix that\n  closed it removed the unbounded memory growth but not the hang, which now\n  lives in `exactFlatLen`.\n\nFindings only -- no printer changes.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Point printer FAIL markers at the filed issues\n\nAlso drops the claim that #859 still reproduces. A properly constructed\npty test -- one that checks whether the REPL still services later input,\nrather than whether the process is merely alive -- shows it responding at\nboth COLUMNS=200 and COLUMNS=12, so that closed issue stays closed.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-31T22:46:53+05:30",
-          "tree_id": "1ec2247abc3ba02ae0a922b3488a7df7d6aea9c4",
-          "url": "https://github.com/kaappi/kaappi/commit/3de5281fede1fbbdb530005faa9bcc902479cc30"
-        },
-        "date": 1785519951230,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.302085,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.678265,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.57334,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.981789,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004664,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046303,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.310848,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.055927,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.61012,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.230189,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.55831,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.280802,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.772434,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.5987,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045189,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045839,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e1accbb3173b555540be73512fb2aef4d096b0f9",
+          "message": "Fix REPL comma-command TAB completion appending instead of replacing (#2225)\n\n* Fix REPL comma-command TAB completion appending instead of replacing\n\ncompletionCallback called ic.addCompletion directly for comma-commands\nlike ,help, bypassing ic.completeWord. isocline's ic_add_completion\ndefaults delete_before to 0, so it spliced the replacement in at the\ncursor without deleting the typed prefix first — TAB after ,h produced\n,h,help instead of ,help. Route the command-name branch through\nic.completeWord, same as scheme-identifier completion already does,\nso isocline computes the correct deletion from the word boundary.\n\nFixes #2224\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Bound REPL shutdown reap in the comma-completion regression test\n\nReview feedback on #2225: os.waitpid(pid, 0) after ,quit had no\ndeadline and the child's exit status went unchecked. Poll with\nWNOHANG up to 10s, kill and reap on timeout, and fail the test on a\nnonzero exit — so a future ,quit regression fails this test instead\nof hanging it (and, since the outer shell timeout only kills this\nscript's own pid, potentially the CI worker after it).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-05T04:07:09Z",
+          "tree_id": "6e17d93d8d719afef186bfad13142bf48946c05d",
+          "url": "https://github.com/kaappi/kaappi/commit/e1accbb3173b555540be73512fb2aef4d096b0f9"
+        },
+        "date": 1785904766554,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.245023,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.088833,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.565924,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.95734,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004624,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047225,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.308723,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055784,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.731792,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.223572,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.604818,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.27998,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.789925,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.598997,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044513,
             "unit": "seconds"
           }
         ]
