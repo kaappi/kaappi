@@ -99,6 +99,46 @@
   (check "unfold-alloc first" (car result) '(0 . 0))
   (check "unfold-alloc last" (list-ref result 499) '(499 . 249001)))
 
+;; list-tabulate with an allocating callback — regression #2160
+;;
+;; The sibling #1027 missed. Every element is a fresh list reachable from
+;; nothing but the primitive's own ArrayList, which the collector cannot see,
+;; so the next callback's allocation frees it. Unlike the three above, this
+;; one is visible on a *default* build as well, which is why it is the one
+;; case here sized past the 8192-object GC threshold rather than to the 200-500
+;; the rest of this file uses: at 2000 three-pair elements a plain build
+;; returns (1 1 1)-shaped garbage for element 0.
+;; Compared as booleans, not values: a lost element comes back spliced into
+;; the recycled tail, so printing the "got" side of element 0 dumps hundreds
+;; of pairs into the log.
+(let ((result (list-tabulate 2000 (lambda (i) (list i i i)))))
+  (check "list-tabulate-alloc first" (equal? (car result) '(0 0 0)) #t)
+  (check "list-tabulate-alloc middle" (equal? (list-ref result 1000) '(1000 1000 1000)) #t)
+  (check "list-tabulate-alloc last" (equal? (list-ref result 1999) '(1999 1999 1999)) #t))
+
+;; The control: an immediate needs no rooting, so this half was always
+;; correct. If it ever fails, list-tabulate itself is broken, not its buffer.
+(let ((result (list-tabulate 500 values)))
+  (check "list-tabulate-immediate first" (car result) 0)
+  (check "list-tabulate-immediate last" (list-ref result 499) 499))
+
+;; zip and alist-copy — regression #2160
+;;
+;; Neither takes a callback, so #1027 never looked at them, but both allocate
+;; their elements directly and park them in the same unrooted buffer: zip's
+;; rows and alist-copy's copied entries. Both abort at three elements under
+;; -Dgc-stress=true.
+(let ((result (zip (list-tabulate 200 values) (list-tabulate 200 values))))
+  (check "zip first row" (car result) '(0 0))
+  (check "zip last row" (list-ref result 199) '(199 199)))
+
+(let* ((original (map (lambda (i) (cons i i)) (list-tabulate 200 values)))
+       (result (alist-copy original)))
+  (check "alist-copy first entry" (car result) '(0 . 0))
+  (check "alist-copy last entry" (list-ref result 199) '(199 . 199))
+  (check "alist-copy is a copy, not the original spine"
+    (eq? (car result) (car original)) #f))
+
 (display pass) (display " passed, ") (display fail) (display " failed")
 (newline)
 (if (> fail 0) (error "SRFI-1 GC stress tests failed" fail))

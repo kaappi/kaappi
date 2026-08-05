@@ -214,6 +214,34 @@
 (test-eq "record-uid->rtd resolves a registered uid" proc-uid-rtd1 (record-uid->rtd 'proc-uid-example))
 (test-assert "record-uid->rtd returns #f for an unregistered uid" (not (record-uid->rtd 'never-registered-uid)))
 
+;; regression #2161 — the two assertions above pass only because nothing
+;; allocates between the two definitions. The registry used to key off the
+;; uid argument's own SchemeString bytes (`symbol->string` of the uid, made
+;; fresh by the portable layer on every call), so once that string was
+;; collected the key dangled, the lookup missed, and the second definition
+;; built a fresh, non-interoperable rtd — silently, which is the one thing
+;; `nongenerative` is for.
+;;
+;; The gate for this is the -Dgc-stress=true leg, where these three failed
+;; pre-fix and the 200-iteration loop below is not even needed. A *default*
+;; build reaches the same corruption with ordinary allocation, but only once
+;; it crosses the GC threshold — the issue's own repro needs 300,000
+;; iterations, which stressed would be quadratic and take the whole job's
+;; budget. So the loop is sized for the stressed leg, not the plain one.
+(define uid-rtd-before (make-record-type-descriptor 'churned #f 'churn-uid #f #f #((immutable v))))
+(let loop ((i 0)) (when (< i 200) (list i i i) (loop (+ i 1))))
+(test-eq "nongenerative uid survives allocation between definitions"
+  uid-rtd-before
+  (make-record-type-descriptor 'churned #f 'churn-uid #f #f #((immutable v))))
+(test-eq "nongenerative uid still resolves after allocation"
+  uid-rtd-before
+  (record-uid->rtd 'churn-uid))
+;; The control: a dangling key can collide as easily as it can miss, so
+;; "found" alone is not the property being pinned.
+(test-assert "a different uid is still a different rtd after the churn"
+  (not (eq? uid-rtd-before
+            (make-record-type-descriptor 'churned #f 'other-churn-uid #f #f #((immutable v))))))
+
 ;;; --- error paths --------------------------------------------------------
 
 (test-assert "record-accessor on an unknown field name raises"
