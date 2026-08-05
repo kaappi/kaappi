@@ -450,8 +450,15 @@ fn threadStartImpl(args: []const Value) PrimitiveError!Value {
     // it one below the true count with other children alive), letting
     // crossThreadWaitPossible wrongly conclude no other thread exists.
     _ = @atomicRmw(usize, &live_child_threads, .Add, 1, .release);
+    // Pass the ROOT VM, not this thread's own: threadEntryFn's prologue
+    // dereferences it (GC.initForThread's shared symbol tables, and the
+    // shared maps), and a middle thread's VM/GC are freed when *it* is
+    // joined -- a grandchild still starting (or interning symbols) would
+    // then read freed memory (#2129). The root VM lives for the whole
+    // process, so every descendant chains its shared state to it.
+    const root_vm = vm.root_vm orelse vm;
     fiber.os_thread = std.Thread.spawn(.{}, threadEntryFn, .{
-        fiber, gc.allocator, vm, envelope,
+        fiber, gc.allocator, root_vm, envelope,
     }) catch {
         _ = @atomicRmw(usize, &live_child_threads, .Sub, 1, .release);
         envelope.deinit();
@@ -461,7 +468,11 @@ fn threadStartImpl(args: []const Value) PrimitiveError!Value {
     return args[0];
 }
 
-fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_vm: *vm_mod.VM, envelope: *shared_channel.Envelope) void {
+fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, root_vm: *vm_mod.VM, envelope: *shared_channel.Envelope) void {
+    // `root_vm` is the ROOT VM (see threadStartImpl): its struct, GC and
+    // shared maps are never freed, so the whole prologue below -- and this
+    // thread's later symbol interning into GC.initForThread's shared tables
+    // -- cannot race a join of whatever thread spawned this one (#2129).
     // Balances the increment in threadStartFn on every exit path (including
     // the early GC/VM-init failures below), so crossThreadWaitPossible's "is
     // another OS thread still alive" check stays accurate.
@@ -475,7 +486,7 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_v
         @atomicStore(fiber_mod.FiberStatus, &fiber.status, .errored, .release);
         return;
     };
-    child_gc.* = memory.GC.initForThread(allocator, parent_vm.gc);
+    child_gc.* = memory.GC.initForThread(allocator, root_vm.gc);
 
     const child_vm = allocator.create(vm_mod.VM) catch {
         child_gc.deinit();
@@ -484,7 +495,7 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_v
         return;
     };
     @memset(std.mem.asBytes(child_vm), 0);
-    child_vm.* = vm_mod.VM.initForThread(child_gc, parent_vm) catch {
+    child_vm.* = vm_mod.VM.initForThread(child_gc, root_vm) catch {
         allocator.destroy(child_vm);
         child_gc.deinit();
         allocator.destroy(child_gc);
@@ -498,6 +509,22 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_v
     // Let thread-terminate! from the parent stop this thread: the dispatch
     // loop safepoint polls this flag and unwinds with VMError.Terminated.
     child_vm.terminate_flag = &fiber.terminated;
+
+    // The thread handle (the parent-heap fiber make-thread returned) this
+    // child runs for, so mutex-state on a mutex this thread locks reports
+    // the thread the caller holds -- not the child's internal current
+    // fiber, which lives in this child heap (#2125). Recorded only when the
+    // handle is ROOT-heap (this thread's creator was the root thread): a
+    // middle thread's handle lives in the middle's heap and is freed when
+    // the middle is joined, while this child -- and any mutex-state query on
+    // a mutex it locked -- can outlive that join, so a recorded middle-heap
+    // handle would dangle (#2129's grandchild shape). Such a child falls
+    // back to its own (never-freed, un-joinable) current fiber, the
+    // pre-#2125 behaviour. Foreign to this GC either way; the owner roots
+    // the handle, and isYoungPointer returns false for it, so no write
+    // barrier is needed.
+    if (fiber.header.owner == root_vm.gc.id)
+        child_vm.thread_handle = types.makePointer(&fiber.header);
 
     child_registry.put(@intFromPtr(fiber), .{ .child_gc = child_gc, .child_vm = child_vm }) catch {
         fiber.result = types.VOID;
@@ -593,6 +620,25 @@ fn threadYieldFn(_: []const Value) PrimitiveError!Value {
 pub const SleepWait = struct {
     pub fn isDone(_: SleepWait) bool {
         return false; // a pure sleep only ever ends via me.timed_out
+    }
+    // See MutexWait.pollCapNs: thread-terminate! from another OS thread is
+    // observed only by polling -- nothing wakes a sleep park on termination
+    // -- so a sleep in a program with other live OS threads must not block
+    // for its whole duration on the offchance the terminator is one of
+    // them (#1982); the runSchedulerStep loop re-checks the termination
+    // flag at this cadence. Solo (no other OS thread can exist to
+    // terminate this one) it stays a single true reactor block.
+    //
+    // Cost of the cap: crossThreadWaitPossible() is unconditionally true on
+    // a child thread (!vm.owns_globals), so a child's (thread-sleep! 60)
+    // wakes 60,000 times -- measured ~5k involuntary context switches and
+    // ~0.04s CPU for a pair of 2.5s/3.0s sleeps vs 33 switches and 0.00s
+    // without the cap. Small per-sleep, linear in duration and thread
+    // count. A notifier-based interrupt (thread-terminate! notifying the
+    // victim's reactor) would make termination immediate and remove the
+    // wakeups; the cap is the minimal correct fix.
+    pub fn pollCapNs(_: SleepWait) ?u64 {
+        return if (crossThreadWaitPossible()) CROSS_THREAD_POLL_NS else null;
     }
 };
 
@@ -807,8 +853,27 @@ fn threadJoinFn(args: []const Value) PrimitiveError!Value {
         return reapOsThread(target, args[0]);
     }
 
-    // Never-started thread: poll until started+finished or timeout
-    if (@atomicLoad(fiber_mod.FiberStatus, &target.status, .acquire) == .created) {
+    // Never-started target, in two kinds discriminated by sched_idx (set only
+    // by addFiber; a make-thread object is never added to any scheduler and
+    // leaves it at 0):
+    //
+    //  * A make-thread handle awaiting thread-start! (sched_idx == 0): poll.
+    //    The status is changed from outside this loop, so polling observes it
+    //    (#878). os_thread alone is NOT a safe discriminator here -- a handle
+    //    about to be started has os_thread == null for the whole window before
+    //    thread-start!'s std.Thread.spawn, and must keep polling, not fall
+    //    through to the cooperative path.
+    //
+    //  * A (kaappi fibers) spawn'd fiber (sched_idx != 0) still in .created:
+    //    only THIS thread's cooperative scheduler can dispatch it, and the
+    //    poll loop below is exactly what starves it -- the status can never
+    //    change from outside, so without a timeout the loop is unbounded and
+    //    thread-join! hangs on a fiber that would have completed instantly
+    //    (#2194). Fall through to the fiber path below, which drives the
+    //    scheduler.
+    if (target.sched_idx == 0 and
+        @atomicLoad(fiber_mod.FiberStatus, &target.status, .acquire) == .created)
+    {
         while (@atomicLoad(fiber_mod.FiberStatus, &target.status, .acquire) != .completed and
             @atomicLoad(fiber_mod.FiberStatus, &target.status, .acquire) != .errored)
         {
@@ -1034,7 +1099,7 @@ fn mutexStateFn(args: []const Value) PrimitiveError!Value {
         const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         return gc.allocSymbol("not-abandoned") catch return PrimitiveError.OutOfMemory;
     }
-    if (m.owner != types.VOID) return m.owner;
+    if (m.owner_thread != types.VOID) return m.owner_thread;
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.allocSymbol("not-owned") catch return PrimitiveError.OutOfMemory;
 }
@@ -1112,14 +1177,29 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
     if (tryClaimMutex(m)) {
         const ctx = try ensureScheduler();
         if (ctx.vm.current_fiber) |cf| {
-            m.owner = resolveMutexOwner(args, types.makePointer(&cf.header));
-            if (memory.gc_instance) |gc| gc.writeBarrier(&m.header, m.owner);
+            const cf_val = types.makePointer(&cf.header);
+            // The owner's thread handle: the explicit owner arg when given,
+            // else this thread's handle -- for an OS-thread child that is
+            // the parent-heap handle (vm.thread_handle), NOT cf_val, which
+            // belongs to the child heap and would dangle past join (#2125).
+            // Compute both before publishing either, and publish owner_thread
+            // first: mutex-state gates on owner_thread alone, so a concurrent
+            // reader can never observe a partially initialized owner pair.
+            const owner = resolveMutexOwner(args, cf_val);
+            const owner_thread = resolveMutexOwner(args, if (ctx.vm.thread_handle) |h| h else cf_val);
+            m.owner_thread = owner_thread;
+            m.owner = owner;
+            if (memory.gc_instance) |gc| {
+                gc.writeBarrier(&m.header, m.owner);
+                gc.writeBarrier(&m.header, m.owner_thread);
+            }
             // Only track when *this* fiber became the owner: an explicit
             // owner arg naming another fiber (possibly on another thread)
             // must not append to this fiber's list.
-            if (m.owner == types.makePointer(&cf.header)) trackOwnedMutex(cf, args[0]);
+            if (m.owner == cf_val) trackOwnedMutex(cf, args[0]);
         } else {
             m.owner = resolveMutexOwner(args, types.VOID);
+            m.owner_thread = m.owner;
             if (memory.gc_instance) |gc| gc.writeBarrier(&m.header, m.owner);
         }
         if (tryClaimAbandoned(m)) return raiseError(.abandoned_mutex, "mutex was abandoned", types.VOID);
@@ -1212,11 +1292,26 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
     if (deadline != null) ctx.reactor.removeTimer(me);
     me.deadline_ns = null;
 
-    m.owner = if (owner_arg) |oa|
-        (if (types.isFiber(oa)) oa else if (oa == types.FALSE) types.VOID else types.makePointer(&me.header))
+    const owner_fiber = types.makePointer(&me.header);
+    const owner_handle = if (ctx.vm.thread_handle) |h| h else owner_fiber;
+    // Same resolution for the reported owner thread (see the fast path):
+    // an OS-thread child reports its parent-heap handle, not me.header
+    // (#2125). Computed before publishing either field and owner_thread
+    // stored first, as in the fast path.
+    const owner = if (owner_arg) |oa|
+        (if (types.isFiber(oa)) oa else if (oa == types.FALSE) types.VOID else owner_fiber)
     else
-        types.makePointer(&me.header);
-    if (memory.gc_instance) |gc| gc.writeBarrier(&m.header, m.owner);
+        owner_fiber;
+    const owner_thread = if (owner_arg) |oa|
+        (if (types.isFiber(oa)) oa else if (oa == types.FALSE) types.VOID else owner_handle)
+    else
+        owner_handle;
+    m.owner_thread = owner_thread;
+    m.owner = owner;
+    if (memory.gc_instance) |gc| {
+        gc.writeBarrier(&m.header, m.owner);
+        gc.writeBarrier(&m.header, m.owner_thread);
+    }
     // Track only when `me` itself became the owner (see the fast path).
     if (m.owner == types.makePointer(&me.header)) trackOwnedMutex(me, mutex_val);
 
@@ -1261,6 +1356,7 @@ fn mutexUnlockFn(args: []const Value) PrimitiveError!Value {
     // acquirer that wins the locked CAS right after the store below could
     // write its own owner, and this line would then stomp it back to VOID.
     m.owner = types.VOID;
+    m.owner_thread = types.VOID;
     @atomicStore(bool, &m.locked, false, .release);
 
     const ctx = try ensureScheduler();

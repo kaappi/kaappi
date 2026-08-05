@@ -414,10 +414,13 @@
 ;; thread-join!'s *fiber* path is the one that drives. Its OS-thread path
 ;; does not (reapOsThread joins the pthread, or polls with sleepNs), which
 ;; is why primitives_srfi181-audit.scm's "a read! that joins a short-lived
-;; thread is NOT rejected" control keeps passing. The target must already
-;; have STARTED: thread-join! on a spawn'd fiber still in .created spins in
-;; its own sleepNs poll and never reaches the scheduler at all — unrelated
-;; to this guard, and it hangs, so it is not probed here.
+;; thread is NOT rejected" control keeps passing. Since #2194 a spawn'd
+;; fiber still in .created is routed to the fiber path (sched_idx != 0), so
+;; the custom-port guard fires for it too -- but this probe keeps joining a
+;; *started* fiber parked on a channel: that is the shape that exercises the
+;; guard on a genuinely-parked fiber without depending on the #2194 dispatch
+;; fix, and a never-dispatched probe would wedge the runner (unbounded poll)
+;; if that fix regressed.
 (test-assert "a custom-port read! that blocks in thread-join! on a started fiber is rejected"
     (let ((started (make-channel)) (hold (make-channel)))
       (let ((f (spawn (lambda () (channel-send started 'up) (channel-receive hold) 'done))))

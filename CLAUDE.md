@@ -373,8 +373,9 @@ library and vendored code are excluded).
   another thread by one of **two routes with separate, unrelated enforcement**:
   the **copy route** (deep copy at thread start, join, and channel messages;
   `gc_deep_copy.zig` refuses 14 tags) and the **globals route**
-  (`VM.initForThread` shares the parent's `globals` map *by pointer*, so
-  naming a top-level binding gets the parent's own uncopied object — that list
+  (`VM.initForThread` shares the root's `globals` map *by pointer* — every
+  thread chains to the same map its ancestors use, kaappi#2129 — so
+  naming a top-level binding gets the root's own uncopied object — that list
   of 14 does not apply, and only four types defend themselves via
   `Object.owner`). Consequence worth memorizing: **mutexes and condition
   variables must be shared through a global; channels must be captured

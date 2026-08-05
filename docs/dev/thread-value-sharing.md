@@ -97,9 +97,11 @@ uncaught exception in thread: thread thunk contains an uncopyable type
 
 ## The globals route
 
-`VM.initForThread` shares the parent's `globals` map **by pointer**. A
-child thread reading a top-level binding gets the parent's object itself,
-in the parent's heap, with no copy and no check at the point of access.
+`VM.initForThread` shares the **root** VM's `globals` map **by pointer**,
+resolved through the parent chain: a child uses the same map its parent
+uses, so every thread's pointer is the root's map (kaappi#2129). A
+child thread reading a top-level binding gets the root's object itself,
+in the root's heap, with no copy and no check at the point of access.
 
 Four types defend themselves at the primitive level, by comparing
 `Object.owner` against the running thread's `GC.id`:
@@ -250,9 +252,9 @@ thread gets its own VM and GC with an independent heap.
 | Piece | Where | What it does |
 |-------|-------|--------------|
 | `vm_instance`, `gc_instance` | `src/vm.zig`, `src/memory.zig` | `threadlocal` — the running thread's VM and GC |
-| `GC.initForThread` | `src/memory.zig` | Per-thread GC, sharing the parent's symbol table |
+| `GC.initForThread` | `src/memory.zig` | Per-thread GC, sharing the **root's** symbol table (chained through the parent chain; a joined middle thread's own tables stay empty, kaappi#2129) |
 | `GC.deepCopy` / `deepCopyValue` | `src/memory.zig` (impl in `gc_deep_copy.zig`) | Deep-copies values between GC heaps; owns the 14-tag refusal list |
-| `VM.initForThread` | `src/vm.zig` | Per-thread VM, sharing the parent's globals and libraries **by pointer** |
+| `VM.initForThread` | `src/vm.zig` | Per-thread VM, sharing the **root's** globals and libraries **by pointer** |
 | `VM.owns_globals` | `src/vm.zig` | Stops a child VM freeing the shared maps on deinit |
 | `symbol_mutex` | `src/memory.zig` | Spinlock protecting concurrent symbol interning |
 | `child_resources` | `src/primitives_srfi18.zig` | Global map holding child GC/VM references |

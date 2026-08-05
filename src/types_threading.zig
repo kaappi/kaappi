@@ -39,7 +39,17 @@ pub const Channel = struct {
 pub const Mutex = struct {
     header: Object,
     name: Value,
+    /// The fiber that owns the mutex, used for abandonment tracking
+    /// (abandonFiberMutexes compares identity on this). For an OS-thread
+    /// child this is the child-heap current fiber -- NOT a value the
+    /// parent's GC owns, so mutex-state must not hand it out.
     owner: Value,
+    /// The owning thread handle as the caller knows it: the fiber value
+    /// make-thread returned for an OS-thread child (parent heap), or the
+    /// owner fiber itself for a local/main thread. What mutex-state
+    /// returns for the owned state (#2125). Kept in sync with `owner` at
+    /// every write site.
+    owner_thread: Value = types.VOID,
     locked: bool,
     abandoned: bool,
     specific: Value,
