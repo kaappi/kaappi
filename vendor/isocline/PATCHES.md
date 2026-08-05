@@ -4,7 +4,7 @@ Vendored from <https://github.com/daanx/isocline> at commit
 `8d6dc1ef95b1b46711e66eb23d39d4467a0fcdac` (2026-04-23, v1.1.0), MIT licensed —
 see `LICENSE`.
 
-**This is a patched copy.** Three changes diverge from upstream. Each is marked
+**This is a patched copy.** Four changes diverge from upstream. Each is marked
 in the source with a `KAAPPI PATCH <n>` comment pointing here. When updating
 isocline, re-apply them; `grep -rn 'KAAPPI PATCH' vendor/isocline/` finds every
 site.
@@ -92,6 +92,37 @@ The commands and keybindings come from [bestline](https://github.com/jart/bestli
 (BSD-2-Clause) by way of kaappi#2216. The code does not: bestline's `raise` is
 an empty stub, its `rotate` rotates the kill ring rather than a form, and its
 barf and slurp count parens with no awareness of strings or comments.
+
+## Patch 4 — don't discard buffered input when leaving/entering raw mode
+
+**File:** `src/tty.c`
+
+Upstream's `tty_start_raw`/`tty_end_raw` — called at the start and end of
+*every* `ic_readline` call — used `tcsetattr(..., TCSAFLUSH, ...)`.
+`TCSAFLUSH` discards any input the kernel has already received but the
+process hasn't `read(2)`ed yet.
+
+That is fine for a shell reading one physical line at a time, and wrong for a
+Lisp prompt reading a whole form: pasting a block with more than one
+top-level form delivers it to the pty as a single burst, often with each
+pasted newline arriving as a literal CR (terminals commonly translate a
+pasted newline into the same byte a real Enter keypress sends). If the first
+form alone is already complete, `isCompleteCallback` (Patch 1) submits right
+there and `ic_editline` returns — before the rest of the still-unread paste
+has been read at all. The `TCSAFLUSH` in `tty_end_raw` then throws it away
+before the REPL's next `ic_readline` call ever gets a chance to read it
+(kaappi#2226).
+
+The fix is `TCSADRAIN` in both `tty_start_raw` and `tty_end_raw`: it still
+waits for pending output (the prompt, the echoed line) to finish writing, but
+leaves unread input alone. Both call sites need the change, not just
+`tty_end_raw` — otherwise the next `tty_start_raw` discards on the way back
+in what the previous `tty_end_raw` spared.
+
+The `TCSAFLUSH` in the termination-signal handler (`sig_handler`, for
+SIGINT/SIGTSTP/etc.) is untouched: the process is dying or suspending there,
+not reading the next form, so discarding stray input is the right call and
+out of scope for this bug.
 
 ## Deliberately not patched
 

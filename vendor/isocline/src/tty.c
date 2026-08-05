@@ -653,7 +653,10 @@ static void signals_restore(void) {
 ic_private bool tty_start_raw(tty_t* tty) {
   if (tty == NULL) return false;
   if (tty->raw_enabled) return true;
-  if (tcsetattr(tty->fd_in,TCSAFLUSH,&tty->raw_ios) < 0) return false;
+  // KAAPPI PATCH 4: TCSADRAIN, not TCSAFLUSH — see tty_end_raw below, whose
+  // matching TCSAFLUSH is the actual bug; this one is symmetric so a byte
+  // that survives one transition isn't discarded by the next.
+  if (tcsetattr(tty->fd_in,TCSADRAIN,&tty->raw_ios) < 0) return false;
   tty->raw_enabled = true;
   return true;
 }
@@ -662,7 +665,15 @@ ic_private void tty_end_raw(tty_t* tty) {
   if (tty == NULL) return;
   if (!tty->raw_enabled) return;
   tty->cpush_count = 0;
-  if (tcsetattr(tty->fd_in,TCSAFLUSH,&tty->orig_ios) < 0) return;
+  // KAAPPI PATCH 4: TCSADRAIN, not TCSAFLUSH. Every ic_readline() call ends
+  // here, and TCSAFLUSH discards any input the kernel has already received
+  // but this call hasn't read(2) yet — exactly the tail of a multi-line
+  // paste whose first line alone was already a complete form (kaappi#2226):
+  // isCompleteCallback submits after that line's CR, edit_line() returns
+  // without draining the rest of the paste, and this flush then throws it
+  // away before the next ic_readline() gets a chance to read it. TCSADRAIN
+  // waits for pending output but leaves unread input alone.
+  if (tcsetattr(tty->fd_in,TCSADRAIN,&tty->orig_ios) < 0) return;
   tty->raw_enabled = false;
 }
 
