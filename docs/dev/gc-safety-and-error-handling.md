@@ -143,6 +143,16 @@ nothing can. `setQuarantineHeir` must be called from the thread doing the
 teardown, once no other thread can still be freeing on either GC — the
 heir's quarantine has no lock of its own.
 
+Naming an heir is a request, not a guarantee. The heir releases inherited
+slots with *its* allocator, so `quarantineHandOff` refuses an heir whose
+allocator identity differs from the dying GC's, and refuses again if the
+transfer cannot be recorded; either way it drains, exactly as if no heir
+had been named. Both are the right trade (weaker detection beats a
+mismatched free), and neither is reported — so **a teardown path across
+two allocators has no cross-heap use-after-free coverage while looking
+like it does**. The SRFI-18 child is safe by construction: `threadEntryFn`
+builds it with the parent's own allocator.
+
 ### Unwinding the root stack on error (#1855)
 
 Rooting around a fallible call has a hole the rules above cannot close:
