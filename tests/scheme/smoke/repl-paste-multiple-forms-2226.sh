@@ -101,6 +101,11 @@ def idle(quiet=0.5, limit=5.0):
             return
 
 if not wait_for(b'kaappi> ', 0, 25):
+    # Two very different things look alike here, and conflating them is how a
+    # test goes quietly green: a REPL that wrote *nothing at all* did not run,
+    # which is a failure; a REPL that wrote something but never prompted has no
+    # usable terminal, which is a skip (the alternative is a flake on every
+    # emulated CI leg).
     if not buf:
         sys.stdout.write('the REPL produced no output at all; it did not start\n')
         sys.exit(1)
@@ -167,6 +172,8 @@ else:
 
 if exit_status is not None and os.WIFEXITED(exit_status) and os.WEXITSTATUS(exit_status) != 0:
     failures.append(('shutdown: REPL exited with status %d' % os.WEXITSTATUS(exit_status), b''))
+elif exit_status is not None and os.WIFSIGNALED(exit_status):
+    failures.append(('shutdown: REPL was killed by signal %d' % os.WTERMSIG(exit_status), b''))
 
 try:
     os.close(fd)
