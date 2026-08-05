@@ -131,7 +131,10 @@ usable from a child thread through a global.
 
 ## The actual matrix
 
-Verified at `e24e594e`, ReleaseSafe, isolated `KAAPPI_HOME`. "capture"
+Verified at `e24e594e`, ReleaseSafe, isolated `KAAPPI_HOME` — except the
+two **copied** rows, which describe behaviour that commit predates and
+which were verified on kaappi#1932 / kaappi#2027's own branch. Their
+regression suites are named under "Keeping it honest" below. "capture"
 means bound in a `let` and closed over by the thunk; "global" means bound
 with a top-level `define` and named by the thunk.
 

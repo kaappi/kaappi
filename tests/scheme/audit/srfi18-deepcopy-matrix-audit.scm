@@ -374,8 +374,13 @@
 ;; disjoint after the copy, which is what a name- or shape-keyed fix would
 ;; have broken while passing everything above.
 (define-record-type mrec2 (fields a b))
+;; `(mrec? r)` is not redundant with the row above: join-thunk answers a
+;; (RAISED ...) list when the boundary refuses, mrec2? says #f to a list, and
+;; the bare `not` would then pass this control on a join that never delivered
+;; a record at all.
 (test-assert "OUT record_instance: a look-alike type stays disjoint (#1932)"
-             (not (mrec2? (join-thunk (lambda () (make-mrec 30 40))))))
+             (let ((r (join-thunk (lambda () (make-mrec 30 40)))))
+               (and (mrec? r) (not (mrec2? r)))))
 
 ;; The control: with a uid, both directions were correct even before #1932.
 (test-assert "IN record_instance: nongenerative type keeps identity into the child"
@@ -578,15 +583,20 @@
   (test-assert "OUT group_info: refused at the join (direct)" (refuses-out? mk-group-info)))
 
 ;; ---------------------------------------------------------------------
-;; Section E — the ALIASED tags, and the hole in the matrix
+;; Section E — the FFI wrapper tags
 ;;
-;; gc_deep_copy.zig:465 is `.ffi_library, .ffi_function => src` — the
-;; source Value is returned unchanged, so the receiving heap gets a pointer
-;; into the sending heap. That is sound only while the sending heap
-;; outlives the receiving one. It does for the globals route and for a
-;; parent-owned handle aliased back to the parent (controls below). It does
-;; NOT for a handle the CHILD allocates and returns: thread-join! frees the
-;; child heap, and the parent is left holding a freed object.
+;; gc_deep_copy.zig copies the ffi_library / ffi_function WRAPPER into the
+;; receiving heap and shares the process-global dlopen handle and symbol
+;; address by value (kaappi#2027). It used to return the source Value
+;; unchanged, which was sound only while the sending heap outlived the
+;; receiving one — true for the globals route and for a parent-owned handle
+;; aliased back to the parent, false for a handle the CHILD allocates and
+;; returns, where the sending heap's own collector reclaimed it and the
+;; receiver was left reading a recycled slot.
+;;
+;; Which heap OWNS the wrapper is still the discriminating axis, so all four
+;; cells stay below: they are what shows the fix did not simply refuse the
+;; tag, which would have broken the two parent-owned controls.
 ;;
 ;; FFI needs a loadable system library, so this whole section is probed.
 ;; ---------------------------------------------------------------------

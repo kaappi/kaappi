@@ -85,24 +85,33 @@
                  (= ((ffi-fn lib "sqrt" '(double) 'double) 64.0) 8.0))))
 
       ;; The channel boundary, where the child is still RUNNING when the parent
-      ;; receives — so this cannot be explained away as "the child heap was
-      ;; freed at join".
+      ;; receives and calls the handle — so this cannot be explained away as
+      ;; "the child heap was freed at join".
       ;;
-      ;; The child's send is unconditional: a `guard` turns any failure into a
-      ;; sentinel it still sends, so a broken cell fails an assertion here
-      ;; instead of leaving the parent blocked in channel-receive forever.
-      (let ((ch (make-channel)))
+      ;; A second channel enforces that rather than a `thread-sleep!`, which
+      ;; guarantees nothing: on a loaded runner the child could exit first and
+      ;; the cell would silently degrade into cell C above.
+      ;;
+      ;; Neither side can deadlock. The child's send is unconditional — a
+      ;; `guard` turns any failure into a sentinel it still sends — and the
+      ;; parent's `go` is sent after a total `guard`, so no assertion can
+      ;; escape before it and leave the child parked on `done`.
+      (let ((ch (make-channel))
+            (done (make-channel)))
         (let ((t (make-thread (lambda ()
                                 (channel-send ch (guard (e (#t 'child-raised))
                                                    (open-sqrt)))
-                                (thread-sleep! 0.05)
+                                (channel-receive done)
                                 'sent))))
           (thread-start! t)
-          (let ((got (channel-receive ch)))
+          (let* ((got (channel-receive ch))
+                 (callable (guard (e (#t #f))
+                             (and (procedure? got) (= (got 81.0) 9.0)))))
+            (channel-send done 'go)
             (check "channel: a child-created handle arrives as a procedure"
                    (procedure? got))
             (check "channel: ...and is callable while the child still runs"
-                   (and (procedure? got) (= (got 81.0) 9.0)))
+                   callable)
             (thread-join! t)
             (if #f #f))))
 

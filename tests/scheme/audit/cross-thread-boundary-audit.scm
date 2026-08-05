@@ -620,10 +620,14 @@
 ;; The same root cause reached from the other side: a record
 ;; predicate/accessor LEXICALLY CAPTURED by a thunk is copied together with
 ;; its record type, so it used to reject a genuine parent-heap instance.
+;; Compared against #t rather than used as a truth value: on-thread answers
+;; (raised . msg) when the child raises, which is itself truthy and would let
+;; this row pass on a boundary failure. The neighbouring row escapes that only
+;; because pt? happens to reject the pair.
 (test-assert "a captured record predicate still recognises a parent instance"
   (let ((b (make-abox 5)))
     (set! probe-container b)
-    (on-thread (let ((p abox?)) (lambda () (p probe-container))))))
+    (eq? #t (on-thread (let ((p abox?)) (lambda () (p probe-container)))))))
 
 ;; FAIL: #1936 (a continuation reached through a global is invoked by a child
 ;; with no check: the parent's continuation is NOT resumed, and

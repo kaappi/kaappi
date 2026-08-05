@@ -503,7 +503,16 @@ test "deepCopy preserves record type identity across heaps (#1932)" {
     var gc2 = memory.GC.init(std.testing.allocator);
     defer gc2.deinit();
 
-    const rt_val = try gc1.allocRecordType("point", 2);
+    // `rt` is dereferenced (for `identity`) after two more gc1 allocations, so
+    // it has to be rooted for the whole test: under -Dgc-stress=true each of
+    // them collects gc1, this bare GC has no root marker, and
+    // allocRecordTypeExtended roots only its `parent` argument. Unrooted, the
+    // last assertions read a freed header — verified: the tag comes back an
+    // invalid enum value, and the test passed only because the garbage
+    // identity happened not to collide.
+    var rt_val = try gc1.allocRecordType("point", 2);
+    gc1.pushRoot(&rt_val);
+    defer gc1.popRoot();
     const rt = types.toObject(rt_val).as(types.RecordType);
     const ri = try gc1.allocRecordInstance(rt, &.{ types.makeFixnum(10), types.makeFixnum(20) });
 
@@ -515,7 +524,13 @@ test "deepCopy preserves record type identity across heaps (#1932)" {
 
     // The SRFI 237 path (parent/uid/sealed/opaque metadata) is a separate arm
     // and carries the identity the same way.
-    const ext_val = try gc1.allocRecordTypeExtended("ext", null, &.{"a"}, &.{true}, null, false, true);
+    // Rooted for the same reason. Nothing allocates in gc1 between here and
+    // its last read today, but the root also keeps that true for the next
+    // assertion someone appends. Strictly nested inside rt_val's: this defer
+    // fires first.
+    var ext_val = try gc1.allocRecordTypeExtended("ext", null, &.{"a"}, &.{true}, null, false, true);
+    gc1.pushRoot(&ext_val);
+    defer gc1.popRoot();
     const ext = types.toObject(ext_val).as(types.RecordType);
     const cext = types.toObject(try gc2.deepCopy(ext_val)).as(types.RecordType);
     try std.testing.expect(@intFromPtr(ext) != @intFromPtr(cext));
