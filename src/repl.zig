@@ -135,6 +135,23 @@ fn completeWordCallback(cenv: ?*ic.CompletionEnv, prefix: [*c]const u8) callconv
     }
 }
 
+/// Word-char rule for comma-command names: only a space ends the "word", so
+/// the leading ',' is included and `ic.completeWord` deletes the whole typed
+/// command (not just the part after it) before splicing in the replacement.
+fn isCommandChar(s: [*c]const u8, len: c_long) callconv(.c) bool {
+    if (len != 1) return true;
+    return s[0] != ' ';
+}
+
+fn completeCommandNameCallback(cenv: ?*ic.CompletionEnv, prefix: [*c]const u8) callconv(.c) void {
+    const word = if (prefix) |p| std.mem.span(@as([*:0]const u8, @ptrCast(p))) else return;
+    for (&repl_commands) |cmd| {
+        if (std.mem.startsWith(u8, std.mem.span(cmd), word)) {
+            if (!ic.addCompletion(cenv, cmd)) return;
+        }
+    }
+}
+
 fn completionCallback(cenv: ?*ic.CompletionEnv, prefix: [*c]const u8) callconv(.c) void {
     const line = if (prefix) |p| std.mem.span(@as([*:0]const u8, @ptrCast(p))) else return;
 
@@ -150,11 +167,11 @@ fn completionCallback(cenv: ?*ic.CompletionEnv, prefix: [*c]const u8) callconv(.
             }
             return;
         }
-        for (&repl_commands) |cmd| {
-            if (std.mem.startsWith(u8, std.mem.span(cmd), line)) {
-                if (!ic.addCompletion(cenv, cmd)) return;
-            }
-        }
+        // Route through completeWord (rather than addCompletion directly) so
+        // isocline computes delete_before from the word boundary and replaces
+        // the typed prefix instead of appending after it (kaappi#2224: TAB
+        // after ",h" produced ",h,help").
+        ic.completeWord(cenv, prefix, &completeCommandNameCallback, &isCommandChar);
         return;
     }
 
