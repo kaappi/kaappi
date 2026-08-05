@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785878354435,
+  "lastUpdate": 1785892997623,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "93fa575717d4339d84e008953104d530adc3b622",
-          "message": "Stop a VM limit from arriving as a catchable condition (#1919)\n\nA recursive procedure that wraps its own recursive call in `guard` is\nordinary code, and past 64 levels it was silently incorrect: it returned\na plausible wrong value and exited 0.\n\nThe exception-handler and dynamic-wind stacks were fixed 64-entry inline\narrays. `with-exception-handler` relabelled the overflow as OutOfMemory\nand then converted it into an ordinary Scheme error object, so the\n*enclosing* guard caught it and its `(#t ...)` clause returned. A case\nthat must return 0 at every depth returned `(0 1 37)` for 63/64/100.\n`with-exception-handler` had it worse -- the overflow was invisible, the\nhandler simply receiving a bare `#<error \"error\">`.\n\nBoth stacks now grow on demand like the frame and register stacks\n(`-Dmax-handlers`/`-Dmax-winds`, hard cap 32768), and `errors.isUncatchable`\nkeeps VM limits and control-flow signals out of a user's `guard`: a limit\nof the implementation is not something the program raised, so it unwinds\nto the top level under its own code. `thread-terminate!` likewise no\nlonger runs the terminated thread's guard clauses on its way out.\n\nTwo error tags turned out to be overloaded, and only the suites said so.\n`OutOfMemory` is real exhaustion but equally the payload-size cap for\n`(make-vector 100000000000000)`, so it stays catchable. `StackOverflow`\ncovered `apply`'s 255-argument ceiling -- which is the bound that ends\nthe walk of a *circular* argument list, and has to stay recoverable --\nso those three sites become KP3007 with a message that names the real\nlimit, instead of sending readers to hunt for runaway recursion.\n\nFixes #1886\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-31T15:30:28Z",
-          "tree_id": "6ad812fa1bd824b3379e7100f27d2705bd03360c",
-          "url": "https://github.com/kaappi/kaappi/commit/93fa575717d4339d84e008953104d530adc3b622"
-        },
-        "date": 1785513593298,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.423656,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.619933,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.462667,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.548192,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005039,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04156,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.254491,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.048371,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.472071,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.039077,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.365679,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.271626,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.499003,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.83458,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.038942,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045794,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b92c85a5346c9274edde8c5ff208b7f8440f1d5e",
+          "message": "Give a joined child's freed slots to the parent's quarantine (#2127) (#2223)\n\n* Give a joined child's freed slots to the parent's quarantine\n\nThe gc-stress use-after-free detector (#1687) could not see the one heap\nteardown that produces cross-heap dangling values in the first place.\nGC.deinit drained its quarantine unconditionally, so a joined SRFI-18\nchild's freed header slots went straight back to the allocator: the\nparent's next allocation recycled one, overwrote the FREED_OWNER\nsentinel, and the parent's next mark found a live-looking object. A\nstress run over a child-heap UAF was byte-identical to a release run and\nexited 0 -- for exactly the bug class the thread model makes most likely.\n\nThe drain itself is right; what was missing is that GC.deinit has two\nkinds of caller. At process exit there is nobody left to hold a dangling\npointer, so the allocator should have the slots back. At thread-join!\nthere is: a live parent with marks still to run. A GC can now name a\nquarantine_heir, and the join path names the parent, so the child's slots\nstay withheld until the parent's own release point -- and the panic that\n#1687 exists to raise actually fires.\n\nThe heir is set at the join site rather than in initForThread because the\nhandoff appends to the heir's quarantine, which has no lock; only the\njoining parent thread, past reapOsThread's thread.join(), knows nothing\nelse is still freeing on either GC.\n\nThis immediately turns #2027 into a deterministic panic in\nsrfi18-deepcopy-matrix-audit.scm, whose section E binds a child-created\nffi_function that the join aliases rather than copies. The file already\ndocuments that cell as `FAIL: #2027` and never dereferences the handle --\nthe collector is what trips, so no assertion can be commented out to\navoid it. It joins KAAPPI_GC_STRESS_SKIP under the existing \"real bugs\nthis gate found\" heading, for #2027's fix to delete.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Say that an heir with a different allocator gets no coverage\n\nThe heir paragraph described the choice as heir-or-drain, but naming an\nheir is only a request: quarantineHandOff refuses a heir whose allocator\nidentity differs, and refuses again if the transfer cannot be recorded,\ndraining in both cases. Neither refusal is reported anywhere, so a future\nteardown path wired across two allocators would read as covered and not\nbe. Say so where the decision is documented.\n\nReview feedback on #2223.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-05T00:51:30Z",
+          "tree_id": "5f7a0b1cba293ac23231838f84181341ce4742d1",
+          "url": "https://github.com/kaappi/kaappi/commit/b92c85a5346c9274edde8c5ff208b7f8440f1d5e"
+        },
+        "date": 1785892995503,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.255621,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.62556,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.583356,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.966901,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00481,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047618,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.315373,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056187,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.817237,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.214982,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.621741,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.292963,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.824601,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.537982,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045839,
             "unit": "seconds"
           }
         ]
