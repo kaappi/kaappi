@@ -16,12 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the native `equal?` hash, so under a comparator whose equality is `=` (or a
   case-insensitive string comparator) `1` and `1.0` stayed distinct keys and
   `Foo` never matched `foo`, while the ordered `(srfi 146)` library handled
-  the same comparators correctly. All nine `make-hash-table` call sites
-  (`hashmap`, `hashmap-unfold`, `hashmap-map`, `hashmap-filter`,
-  `hashmap-partition`, `hashmap-intersection`, `hashmap-difference`,
-  `hashmap-xor`, `alist->hashmap`) now thread the comparator through, and the
-  built-in SRFI-69 table falls into `.custom` mode calling the comparator's
-  own equality and hash functions.
+  the same comparators correctly. All ten `make-hash-table` call sites across
+  the nine constructors (`hashmap`, `hashmap-unfold`, `hashmap-map`,
+  `hashmap-filter`, `hashmap-partition` — two tables, `hashmap-intersection`,
+  `hashmap-difference`, `hashmap-xor`, `alist->hashmap`) now thread the
+  comparator through, and the built-in SRFI-69 table falls into `.custom`
+  mode calling the comparator's own equality and hash functions.
 
 - **SRFI-113 bags can no longer hold negative multiplicities, and the three
   procedures that expanded a multiplicity no longer hang on one** (#2085).
@@ -44,9 +44,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   three early-exit semantics ("stop the loop after the first value"; "as
   soon as the result is known"). Each now allocates its own stop flag and
   sets it from the body, and the existing `%do-ec` flag mechanism unwinds
-  every generator loop. One behavior change: `first-ec` now evaluates its
-  `default` argument eagerly (it previously did so only when the
-  comprehension was empty) — this matches the SRFI 42 reference
+  every generator loop — including before the step, so a stopped
+  comprehension never advances a side-effecting generator (`:port` reads
+  exactly the datums needed, a `:dispatched` generator procedure is not
+  called one extra time); the reference's `:until` fusion folds the same
+  check into the loop's step test. One behavior change: `first-ec` now
+  evaluates its `default` argument eagerly (it previously did so only when
+  the comprehension was empty) — this matches the SRFI 42 reference
   implementation, which likewise seeds its result with `default`.
 
 ## [0.22.2] - 2026-08-05

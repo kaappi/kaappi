@@ -648,6 +648,40 @@
   (test-assert "hash: a case-insensitive comparator matches Foo and foo"
     (hashmap-contains? (hashmap cio "Foo" 1) "foo"))
 
+  ;; Every derived hashmap constructor must key its backing table with the
+  ;; comparator it was given, not equal? — pinning each changed
+  ;; make-hash-table call site in #2044 with keys only a comparator whose
+  ;; equality is = can merge (1 vs 1.0).
+  (test-equal "hashmap-unfold uses the comparator" 1
+    (hashmap-size
+      (hashmap-unfold (lambda (s) (> s 2))
+                      (lambda (s) (values (if (= s 1) 1 1.0) s))
+                      (lambda (s) (+ s 1)) 1 numh)))
+  (define (numh-map m)
+    (hashmap-map (lambda (k v) (values (if (= k 1) 1 1.0) v)) numh m))
+  (test-equal "hashmap-map keys the result with its comparator" 1
+    (hashmap-size (numh-map (hashmap c 1 'a 2 'b))))
+  (test-assert "hashmap-map: a merged key finds either spelling"
+    (not (eq? 'MISSING (hashmap-ref/default (numh-map (hashmap c 1 'a 2 'b))
+                                            1.0 'MISSING))))
+  (call-with-values
+    (lambda () (hashmap-partition (lambda (k v) (even? k))
+                                  (hashmap numh 1 'a 2 'b)))
+    (lambda (yes no)
+      (test-equal "hashmap-partition keeps the comparator in both sides" 'a
+        (hashmap-ref/default no 1.0 'MISSING))))
+  (test-equal "alist->hashmap merges comparator-equal keys" 1
+    (hashmap-size (alist->hashmap numh '((1 . a) (1.0 . b)))))
+  (test-equal "alist->hashmap keeps the earlier comparator-equal association" 'a
+    (hashmap-ref/default (alist->hashmap numh '((1 . a) (1.0 . b))) 1.0 'MISSING))
+  (define h1 (hashmap numh 1 'a))
+  (test-equal "hashmap-intersection matches comparator-equal keys" 1
+    (hashmap-size (hashmap-intersection h1 (hashmap numh 1.0 'x))))
+  (test-equal "hashmap-difference drops comparator-equal keys" 0
+    (hashmap-size (hashmap-difference h1 (hashmap numh 1.0 'x))))
+  (test-equal "hashmap-xor treats comparator-equal keys as shared" 0
+    (hashmap-size (hashmap-xor h1 (hashmap numh 1.0 'x))))
+
   ;; The key comparator is retained and propagated by every derived operation.
   (test-assert "ordered: key-comparator survives filter"
     (eq? numo (mapping-key-comparator (mapping-filter (lambda (k v) #t) (mapping numo 1 'a)))))

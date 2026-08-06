@@ -308,8 +308,17 @@
               (if g2 g2 #f)))))
 
     ;; Internal recursive qualifier processor.
-    ;; s = mutable stop flag for :while/:until early exit.
+    ;; s = mutable stop flag for :while/:until early exit (and, since
+    ;; #2179, for the first-ec/any?-ec/every?-ec collectors).
     ;; Processes one qualifier per expansion, recurses on the rest.
+    ;; Every generator loop checks (not s) before an iteration AND before
+    ;; its step, so a stopped comprehension never advances a
+    ;; side-effecting generator (:port would otherwise read one extra
+    ;; datum, a :dispatched generator-proc would be called one extra
+    ;; time).  The reference's :until fusion folds the same check into
+    ;; the loop's step test; the :do rule's inner
+    ;; (when (and ne2? (not s)) ...) has always been the model, and the
+    ;; typed-generator steps below follow it.
     ;; The engine caps one syntax-rules form at 32 rules, so the
     ;; qualifier rules are split across two macros: %do-ec holds the
     ;; generators and forwards any other qualifier to %do-ec-more, which
@@ -323,13 +332,13 @@
            (let %lp ((var 0))
              (when (and (< var %n) (not s))
                (%do-ec s rest1 rest2 ...)
-               (%lp (+ var 1))))))
+               (unless s (%lp (+ var 1)))))))
         ((_ s (:range var a b) rest1 rest2 ...)
          (let ((%b b))
            (let %lp ((var a))
              (when (and (< var %b) (not s))
                (%do-ec s rest1 rest2 ...)
-               (%lp (+ var 1))))))
+               (unless s (%lp (+ var 1)))))))
         ((_ s (:range var a b c) rest1 rest2 ...)
          (let ((%b b) (%c c))
            (if (zero? %c)
@@ -338,7 +347,7 @@
              (when (and (if (positive? %c) (< var %b) (> var %b))
                         (not s))
                (%do-ec s rest1 rest2 ...)
-               (%lp (+ var %c))))))
+               (unless s (%lp (+ var %c)))))))
         ;; :real-range — i counts 0, 1, ... while i < (to-from)/step and
         ;; var = from + i*step; from turns inexact if to or step is.
         ((_ s (:real-range var b) rest1 rest2 ...)
@@ -360,7 +369,7 @@
                (when (and (< %i %lim) (not s))
                  (let ((var (+ %x (* %c %i))))
                    (%do-ec s rest1 rest2 ...))
-                 (%lp (+ %i 1)))))))
+                 (unless s (%lp (+ %i 1))))))))
         ;; :char-range — both endpoints inclusive.
         ((_ s (:char-range var a b) rest1 rest2 ...)
          (let ((%imax (char->integer b)))
@@ -368,13 +377,13 @@
              (when (and (<= %i %imax) (not s))
                (let ((var (integer->char %i)))
                  (%do-ec s rest1 rest2 ...))
-               (%lp (+ %i 1))))))
+               (unless s (%lp (+ %i 1)))))))
         ((_ s (:list var lst) rest1 rest2 ...)
          (let %lp ((%xs lst))
            (when (and (pair? %xs) (not s))
              (let ((var (car %xs)))
                (%do-ec s rest1 rest2 ...))
-             (%lp (cdr %xs)))))
+             (unless s (%lp (cdr %xs))))))
         ((_ s (:list var lst1 lst2 lst3 ...) rest1 rest2 ...)
          (%do-ec s (:list var (append lst1 lst2 lst3 ...)) rest1 rest2 ...))
         ((_ s (:string var str) rest1 rest2 ...)
@@ -383,7 +392,7 @@
              (when (and (< %k %n) (not s))
                (let ((var (string-ref %str %k)))
                  (%do-ec s rest1 rest2 ...))
-               (%lp (+ %k 1))))))
+               (unless s (%lp (+ %k 1)))))))
         ((_ s (:string var str1 str2 str3 ...) rest1 rest2 ...)
          (%do-ec s (:string var (string-append str1 str2 str3 ...))
                  rest1 rest2 ...))
@@ -393,7 +402,7 @@
              (when (and (< %k %n) (not s))
                (let ((var (vector-ref %v %k)))
                  (%do-ec s rest1 rest2 ...))
-               (%lp (+ %k 1))))))
+               (unless s (%lp (+ %k 1)))))))
         ((_ s (:vector var vec1 vec2 vec3 ...) rest1 rest2 ...)
          (%do-ec s (:list var (append (vector->list vec1)
                                       (vector->list vec2)
@@ -403,7 +412,7 @@
          (let %lp ((var 0))
            (when (not s)
              (%do-ec s rest1 rest2 ...)
-             (%lp (+ var 1)))))
+             (unless s (%lp (+ var 1))))))
         ((_ s (:port var p) rest1 rest2 ...)
          (%do-ec s (:port var p read) rest1 rest2 ...))
         ((_ s (:port var p rd) rest1 rest2 ...)
@@ -411,7 +420,7 @@
            (let %lp ((var (%rd %p)))
              (when (and (not (eof-object? var)) (not s))
                (%do-ec s rest1 rest2 ...)
-               (%lp (%rd %p))))))
+               (unless s (%lp (%rd %p)))))))
         ((_ s (:let var expr) rest1 rest2 ...)
          (let ((var expr))
            (%do-ec s rest1 rest2 ...)))
@@ -425,7 +434,7 @@
            (let %lp ((var (%g %empty)))
              (when (and (not (eq? var %empty)) (not s))
                (%do-ec s rest1 rest2 ...)
-               (%lp (%g %empty))))))
+               (unless s (%lp (%g %empty)))))))
         ;; --- the fundamental generator :do ---
         ((_ s (:do (lb ...) ne1? (ls ...)) rest1 rest2 ...)
          (%do-ec s (:do (let ()) (lb ...) ne1? (let ()) #t (ls ...))
@@ -523,7 +532,7 @@
            (let %lp ((var (g %e)) ...)
              (when (and (not s) (not (eq? var %e)) ...)
                (%do-ec s rest1 rest2 ...)
-               (%lp (g %e) ...)))))))
+               (unless s (%lp (g %e) ...))))))))
 
     ;; (:generator-proc (gen arg ...)) — the generator procedure running
     ;; through (list-ec (gen var arg ...) var), per the spec.  Standard

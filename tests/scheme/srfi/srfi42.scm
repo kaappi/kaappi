@@ -63,6 +63,48 @@
 ;; Early exit composes with guards.
 (test-equal "any?-ec with a guard on an infinite generator" #t
             (any?-ec (:integers i) (if (even? i)) (> i 10)))
+;; A stopped comprehension must not advance a side-effecting generator: the
+;; reference folds the stop check into the generator step, so :port must not
+;; read one extra datum, and :dispatched/:parallel generator procedures must
+;; not be called once more.  (:range-style steps are pure arithmetic and
+;; invisible; these three are not.)
+(test-equal "first-ec over :port reads exactly one datum" '(#\a #\b)
+            (call-with-port (open-input-string "abcd")
+              (lambda (p)
+                (let ((r (first-ec 'none (:port c p read-char) c)))
+                  (list r (read-char p))))))
+(test-equal "any?-ec over :port stops without over-reading" '(#t 3)
+            (call-with-port (open-input-string "1 2 3")
+              (lambda (p)
+                (let ((r (any?-ec (:port v p) (> v 1))))
+                  (list r (read p))))))
+(test-equal "first-ec over :dispatched advances the generator exactly once" 1
+            (let ((calls 0))
+              (first-ec 'none
+                (:dispatched i (lambda (args)
+                                 (lambda (empty)
+                                   (set! calls (+ calls 1))
+                                   (if (< calls 10) 0 empty)))
+                            'x)
+                i)
+              calls))
+(test-equal "first-ec over :parallel advances each generator exactly once"
+            '(1 1)
+            (let ((ca 0) (cb 0))
+              (first-ec 'none
+                (:parallel
+                  (:dispatched i (lambda (args)
+                                   (lambda (empty)
+                                     (set! ca (+ ca 1))
+                                     (if (< ca 10) 0 empty)))
+                              'x)
+                  (:dispatched j (lambda (args)
+                                   (lambda (empty)
+                                     (set! cb (+ cb 1))
+                                     (if (< cb 10) 0 empty)))
+                              'y))
+                (list i j))
+              (list ca cb)))
 
 ;;; --- do-ec for effects ---
 (test-equal "do-ec"
