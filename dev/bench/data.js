@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786001782650,
+  "lastUpdate": 1786005718867,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ab961376f282c00a307028ea6aa09994bee2f311",
-          "message": "Drop the resolved blocker from the 5B entry (#1971)\n\n#1960 merged, so \"open, blocked by #1967\" is no longer true in either the\nstatus line or the unit entry. #1967 was the pipefail/grep -q race in the\nshell suites, fixed by #1966; 5B's FreeBSD leg then passed with nothing\nchanged but its base.\n\nLeft alone deliberately: the entry still records that 5B found no bugs in\nwaitForFd and says what it closed instead. That is the part most likely to\nbe misread as a wasted unit, and it is the reason the entry is worth\nhaving.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T03:29:54+05:30",
-          "tree_id": "833a0f07a416b0052c538d54bc36536d5875124f",
-          "url": "https://github.com/kaappi/kaappi/commit/ab961376f282c00a307028ea6aa09994bee2f311"
-        },
-        "date": 1785539745203,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.261632,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.641274,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.60754,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.949783,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005107,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04676,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.316313,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057629,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.723387,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.205618,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.606921,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.290104,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.793277,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.685328,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044872,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.047369,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "74b8d03b4d3c7cd66dc89d9c4ef99b6ea5039169",
+          "message": "Bounds-check fixnum indices in u64 before narrowing to usize (#1912) (#2239)\n\n* Bounds-check fixnum indices in u64 before narrowing to usize (#1912)\n\nOn wasm32 (usize = u32) every vector-like accessor narrowed its index\nargument to usize INSIDE the bounds comparison, so a fixnum-range index\n(up to 2^47) wrapped to its low 32 bits before the check and could alias\nan in-range element: (vector-ref v 4294967297) silently read element 1,\nand vector-set! silently WROTE it. Native 64-bit builds were unaffected\nbecause usize is 64 bits there.\n\nFix by comparing in u64 before the narrowing, via two shared helpers\n(primitives.fixnumIndexInBounds / ...Inclusive) that carry the wasm32\nrationale in one place, applied at every affected site:\n\n  vector-ref/set!, vector-swap!, vector-copy!/reverse-copy!, substring,\n  string-ref/set!, string-copy!, bytevector-u8-ref/set!, bytevector-copy!,\n  parseOptionalRange (covers vector->list, string->vector, fill!,\n  reverse!, utf8->string, etc.), write-string, string-take/drop/-right,\n  string-replace, %record-ref/set! (+ /inherit and field-mutable?),\n  %numeric-vector-ref/set!, %record-split-args.\n\ntake and split-at walked their list in a narrowed usize counter; they now\nloop in i64 like drop already did, so a huge k walks to the end and raises\ninstead of silently returning a short list.\n\nNative error messages are unchanged on 64-bit: each site keeps its\noriginal error call and check order.\n\nLeft alone deliberately (separate class): large count/size arguments to\nallocation and read procedures (make-vector/string/bytevector,\nvector-unfold, string-pad, read-bytevector/string, iota), where the\nnative behavior is OOM or a huge overcommit rather than a clean catchable\nerror, so there is no native behavior to preserve.\n\ntests/scheme/smoke/large-index-bounds-1912.scm is extended from the\nvector-only probe to every fixed accessor, stays import-free so it runs\non wasm32, and is byte-identical across tiers (verified under wasmtime\n46.0.0); its KNOWN_DIFFS entry in run-wasm-differential.sh is deleted,\nas the harness's STALE check directs once the tiers agree. The\n% primitive half is covered by the internal-primitives audit, whose\n'(fails on wasm32)' annotations are now '(kaappi#1912)'.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Defer index narrowing until after bounds checks in write-string and %record-split-args; probe the right-side string accessors\n\nCodeRabbit review follow-up on #2239.\n\nwrite-string narrowed start_cp/end_cp to usize before the u64 bounds\nchecks, and %record-split-args narrowed suffix_len before its check. On\nthe shipped wasm32 build (.optimize = .ReleaseSmall) @intCast truncates\nsilently, and the raw-value checks still fire — correct there — but on a\nsafety-checked wasm32 build (usize = u32) the same @intCast would panic\nuncatchably, exactly the hazard makeNumericVectorFn's guard comment\nwarns about. Move both narrowings to after their checks pass; error\nmessages and check order are unchanged.\n\nThe probe test also gains string-take-right and string-drop-right, the\ntwo right-side accessors changed by the fix that the cases list omitted.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-06T08:15:42Z",
+          "tree_id": "ca132050ec70e49e536a0330c1752a3cabc82118",
+          "url": "https://github.com/kaappi/kaappi/commit/74b8d03b4d3c7cd66dc89d9c4ef99b6ea5039169"
+        },
+        "date": 1786005712286,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.07921,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.41116,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.425376,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.201529,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004498,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.036027,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.232559,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.040681,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.079896,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.920825,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.198917,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.231835,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.325188,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.737407,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.033435,
             "unit": "seconds"
           }
         ]
