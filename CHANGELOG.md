@@ -44,7 +44,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   three early-exit semantics ("stop the loop after the first value"; "as
   soon as the result is known"). Each now allocates its own stop flag and
   sets it from the body, and the existing `%do-ec` flag mechanism unwinds
-  every generator loop.
+  every generator loop. One behavior change: `first-ec` now evaluates its
+  `default` argument eagerly (it previously did so only when the
+  comprehension was empty) — this matches the SRFI 42 reference
+  implementation, which likewise seeds its result with `default`.
 
 ## [0.22.2] - 2026-08-05
 

@@ -931,8 +931,13 @@
   ;; buckets.  #2023 itself is fixed (c742af68), and since #2044 the hash
   ;; library keys its tables with the comparator, so a make-default-comparator
   ;; hashmap never reaches the native equal? hash at all — its custom-mode
-  ;; default-hash recurses without a depth limit.  The ordered library never
-  ;; hashes.  The disabled assertions below date from before both fixes.
+  ;; default-hash recurses without a depth limit.  That is strictly better
+  ;; for deep acyclic keys, but note the cost: a cyclic key now runs
+  ;; default-hash into the stack cap (KP3008, uncatchable) where the old
+  ;; depth-capped native hash absorbed it — a low-priority SRFI-128
+  ;; follow-up (depth-limit default-hash) is tracked in kaappi#2235.  The
+  ;; ordered library never hashes.  The disabled assertions below date from
+  ;; before both fixes.
   (define (deep depth i)
     (let loop ((k depth) (acc (list i))) (if (= k 0) acc (loop (- k 1) (cons k acc)))))
   (define (hash-misses depth n)

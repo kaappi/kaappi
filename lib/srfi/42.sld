@@ -626,7 +626,10 @@
     ;; on infinite :integers generators.  Each allocates its own stop flag
     ;; (%s) and sets it from the body; every generator loop in %do-ec
     ;; checks (not s) before each iteration, so setting it unwinds the whole
-    ;; comprehension (#2179).
+    ;; comprehension (#2179).  Note first-ec evaluates `default` eagerly
+    ;; (the let binding below), exactly like the reference implementation's
+    ;; (let ((result default) (stop #f)) ...) — the previous list-ec/car
+    ;; shape evaluated it only when the comprehension was empty.
     (define-syntax first-ec
       (syntax-rules ()
         ((_ default qualifier ... expr)
