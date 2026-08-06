@@ -472,6 +472,19 @@ fn readNumberPrefixed(self: *Reader, radix0: u8, exact0: ?bool) ReadError!Token 
     const body_start = self.pos;
     const tok = if (radix == 10) try readNumber(self) else try readIntegerWithRadix(self, radix);
     if (numberTailTruncated(self)) return ReadError.UnexpectedEof;
+    // The token body must end at a delimiter or end of input (R7RS 7.1.1
+    // terminates numbers, like identifiers, at a <delimiter>). The file-local
+    // readNumber/readIntegerWithRadix do not check this -- the delimiter
+    // check lives in the Reader.readNumber wrapper used only by the
+    // un-prefixed path, so every prefixed spelling (`#b`, `#o`, `#d`, `#e`,
+    // `#i`, `#x`, and two-prefix combinations) skipped it: `#x1p4z`, `#e34zz`
+    // and `#b101foo` each read as a number plus a leftover symbol, silently
+    // changing an enclosing list's length (#1929). A single check here closes
+    // all 382 swept cells: tryReadInfNan already guards its own tail, the
+    // radix-10 complex grammar consumes `+...i` as part of the token, and
+    // readHexFloatSuffix/parseHexFloat reject malformed float bodies.
+    if (self.pos < self.source.len and !Reader.isDelimiter(self.source[self.pos]))
+        return invalidNumberOrEof(self);
     const want_exact = exact orelse return tok;
     switch (tok) {
         // Complex tokens keep their token-level parse: readNumber's complex

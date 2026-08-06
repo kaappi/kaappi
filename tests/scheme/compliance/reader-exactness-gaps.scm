@@ -27,8 +27,8 @@
 ;; #1910/#1921) was open, with the failing cells disabled.  Those are all
 ;; fixed -- the reader's `#e`/`#i` path now routes through the same
 ;; digit-exact parseNumberText as string->number -- and every cell is
-;; enabled as a regression guard, except section 9's trailing-junk cases
-;; (#1892, closed NOT_PLANNED), which stay disabled as documentation.
+;; enabled as a regression guard, including section 9's trailing-junk cases
+;; (#1892, closed by #1929).
 ;;
 ;; NOTE: numbers whose reading once crashed the process are exercised only
 ;; through `(read (open-input-string ...))`, never as source literals, so a
@@ -396,14 +396,14 @@
 (test-equal "parity #e1+2i" (rd "#e1+2i") (string->number "#e1+2i"))
 
 ;; ---------------------------------------------------------------------------
-;; 9. NEW: an exactness/radix prefix disables the trailing-delimiter check on
-;;    the DECIMAL path, so one token silently reads as two datums.
+;; 9. An exactness/radix prefix used to disable the trailing-delimiter check
+;;    on the DECIMAL path, so one token silently reads as two datums.
 ;;
-;;    Related to #1892, but that issue is scoped to RADIX prefixes and the
-;;    `readIntegerWithRadix` path; these cases need no radix prefix at all and
-;;    go through `readNumber`.  A fix confined to the radix path would leave
-;;    them live.  The unprefixed spelling correctly raises a read error, which
-;;    is the discriminating control.
+;;    Filed under #1892 (scoped to RADIX prefixes and the `readIntegerWith-
+;;    Radix` path); these cases need no radix prefix at all and go through
+;;    `readNumber`.  #1929's single delimiter check in `readNumberPrefixed`
+;;    guards both paths.  The unprefixed spelling correctly raises a read
+;;    error, which is the discriminating control.
 ;; ---------------------------------------------------------------------------
 
 ;; Controls: without a prefix, trailing junk IS rejected.
@@ -415,20 +415,17 @@
 (test-assert "string->number rejects #e12abc"  (not (string->number "#e12abc")))
 (test-assert "string->number rejects #e1e19/3" (not (string->number "#e1e19/3")))
 
-;; FAIL: #1892 (#e1.5abc reads as 3/2, leaving `abc`; cf. #1892 but decimal path)
-;; (test-assert "#e1.5abc is a read error" (eq? 'read-error (rd/safe "#e1.5abc")))
-;; FAIL: #1892 (#i1.5abc reads as 1.5, leaving `abc`)
-;; (test-assert "#i1.5abc is a read error" (eq? 'read-error (rd/safe "#i1.5abc")))
-;; FAIL: #1892 (#e12abc reads as 12, leaving `abc`)
-;; (test-assert "#e12abc is a read error" (eq? 'read-error (rd/safe "#e12abc")))
-;; FAIL: #1892 (#e12/3xyz reads as 4, leaving `xyz`)
-;; (test-assert "#e12/3xyz is a read error" (eq? 'read-error (rd/safe "#e12/3xyz")))
-;; FAIL: #1892 (#e1e19/3 drops `/3` entirely; '(#e1e19/3) reads as two datums)
-;; (test-assert "#e1e19/3 is a read error" (eq? 'read-error (rd/safe "#e1e19/3")))
-;; FAIL: #1892 (#d1e19/3 -- a pure radix-10 prefix triggers it too)
-;; (test-assert "#d1e19/3 is a read error" (eq? 'read-error (rd/safe "#d1e19/3")))
-;; FAIL: #1892 (one token becomes two datums)
-;; (test-equal "(#e1.5abc) is one datum" 1 (length (rd "(#e1.5abc)")))
+(test-assert "#e1.5abc is a read error" (eq? 'read-error (rd/safe "#e1.5abc")))
+(test-assert "#i1.5abc is a read error" (eq? 'read-error (rd/safe "#i1.5abc")))
+(test-assert "#e12abc is a read error"  (eq? 'read-error (rd/safe "#e12abc")))
+(test-assert "#e12/3xyz is a read error" (eq? 'read-error (rd/safe "#e12/3xyz")))
+(test-assert "#e1e19/3 is a read error" (eq? 'read-error (rd/safe "#e1e19/3")))
+(test-assert "#d1e19/3 is a read error" (eq? 'read-error (rd/safe "#d1e19/3")))
+;; A malformed prefixed token inside a list used to read as two datums,
+;; silently changing the list's length; now the whole list is a read error.
+(test-assert "(#e1.5abc) is one datum or a read error -- never two"
+  (guard (e (#t #t))
+    (= 1 (length (rd "(#e1.5abc)")))))
 
 ;; ---------------------------------------------------------------------------
 ;; 10. Round-trip invariant across the matrix.

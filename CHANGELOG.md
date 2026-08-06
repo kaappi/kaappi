@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Every radix/exactness-prefixed numeric token now ends at a delimiter**
+  (#1929). `readNumberPrefixed` called the file-local `readNumber` /
+  `readIntegerWithRadix` directly, bypassing the delimiter check the
+  un-prefixed path gets from `Reader.readNumber`; the one wrapper that did
+  check, `Reader.readIntegerWithRadix`, had no callers at all — its guard
+  had never executed since it was added. A sweep of 19 prefix spellings × 26
+  trailing characters found 382 of 494 cells silently splitting one token
+  into two datums (`#b1p4` read as `(1 p4)`, changing an enclosing list's
+  length; `kaappi check` reported such a file clean). A single delimiter
+  check after the body read in `readNumberPrefixed` now guards every
+  spelling, and the dead wrapper is deleted: `#x1p4z`, `#e34zz`, `#b101foo`
+  and `#x1/2+3i` are all read errors, matching `string->number` and the
+  Chibi differential oracle, while hex floats (`#x1p4`), prefixed rationals
+  (`#x1/2`), decimal-prefixed complex (`#d1+2i`), SRFI-169 separators
+  (`#x1_f`) and two-prefix combinations (`#e#x1p4`) all still read.
+
 - **`(srfi 146 hash)` keys its tables with the comparator you passed** (#2044).
   Every constructor built a bare `(make-hash-table)` and stashed the
   comparator in the record, where `hashmap-key-comparator` handed it back —
