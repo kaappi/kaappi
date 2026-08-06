@@ -381,12 +381,39 @@ dataset (PR #1580); see the skill file for the full lesson set (droplet
 tier-restriction gotcha, three bash-guard string-match footguns, splitting a
 run around a per-machine workload cap).
 
-### `/parallel-issues`
+### `/pr-groups`
 
-Groups open GitHub issues into sets that can be worked concurrently by
-separate Claude Code sessions without file-level conflicts. Optional
-arguments: a label (or comma-separated labels) restricting which issues
-are considered, and a comma-separated list of issue numbers to skip.
+Groups open GitHub issues into sets that each land as a **single PR**, with a
+merge order and a parallelism verdict. Takes a milestone title, `label:<name>`,
+or a comma-separated list of issue numbers.
+
+It replaced `/parallel-issues`, which optimised the opposite property —
+mutual file *disjointness*, so that N sessions could work N issues
+concurrently. That granularity was wrong: it would split two issues sitting in
+adjacent arms of one `switch` into different sets, buying parallelism at the
+cost of two reviews of the same diff and a conflict between the author's own
+branches. `/pr-groups` runs the same disjointness analysis one level up, across
+groups rather than issues, and keeps the old paste-able launcher output as its
+wave format.
+
+Three steps carry the value, and all three came from grouping the 0.22.2 and
+0.22.3 milestones by hand:
+
+1. **Verify before grouping.** Run each issue's own reproduction against a
+   current build first. kaappi#2043 was scheduled into 0.22.3 and turned out to
+   have been fixed by PR #2174 — the PR closed its four siblings (#1893, #1920,
+   #1940, #1945) and missed it. Scheduling fixed work discredits the whole plan.
+2. **Ground the file claims.** An issue's diagnosis is a hypothesis; `grep` the
+   named sites before pairing on them.
+3. **Check what the group would blow in aggregate.** Four issues grouped into
+   `primitives_srfi18.zig` would have pushed it past the 1500-line cap from
+   1472 — the group has to plan its split, or become two PRs.
+
+Ordering has two land-first categories: **instrument before subject** (a broken
+detector for the bug class the other issues are in — kaappi#2127) and **signal
+before work** (anything making CI produce false reds — kaappi#1870, kaappi#1930,
+kaappi#2097). Design-first groups go last and alone, with an explicit statement
+of what ships without them.
 
 ### `/quiz`
 
