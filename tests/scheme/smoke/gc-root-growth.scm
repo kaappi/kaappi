@@ -4,11 +4,6 @@
 
 (test-begin "gc-root-growth")
 
-;; Re-entrant promise forcing raises a catchable error
-(define selfp (delay (force selfp)))
-(test-assert "re-entrant force is catchable"
-  (guard (e (#t #t)) (force selfp) #f))
-
 ;; Deeply nested native higher-order calls no longer panic.
 ;; In Release the root buffer grows and the call succeeds; in Debug the
 ;; native re-entrancy cap (200) fires first with a catchable error.

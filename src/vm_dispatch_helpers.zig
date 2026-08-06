@@ -45,15 +45,43 @@ pub fn ensureOperands(vm: *VM, frame: *CallFrame, operand_bytes: usize) VMError!
     if (frame.ip + operand_bytes > frame.code.len) return VMError.InvalidBytecode;
 }
 
+/// Resolve `base + reg` to an absolute register index. Past the end of the
+/// register file this is `StackOverflow`, not `InvalidBytecode`: the file is
+/// the stack resource, and `ensureRegisterCapacity` already reports running
+/// off its end as StackOverflow. Reporting it as KP9001 "internal error"
+/// misdirected a reader and — because InvalidBytecode is not in
+/// `errors.isUncatchable` — let a `guard` swallow the limit as a bare
+/// `#<error "error">` (#2035). A tail-position call's locals can exceed the
+/// replaced frame's window, and the tail-call paths re-ensure it via
+/// `ensureTailWindow`; every fresh frame is ensured at creation. What is left
+/// to trip this check is either the genuine MAX_REGISTER_LIMIT (a runaway
+/// program, which must not be catchable) or bytecode so corrupt that no
+/// meaningful diagnostic survives anyway.
 pub fn registerIndex(vm: *VM, base: u32, reg: u16) VMError!usize {
     const idx = @as(usize, base) + @as(usize, reg);
-    if (idx >= vm.registers.len) return VMError.InvalidBytecode;
+    if (idx >= vm.registers.len) return VMError.StackOverflow;
     return idx;
 }
 
 pub fn ensureCallWindow(vm: *VM, base: usize, nargs: u8) VMError!void {
     const hi = base + @as(usize, nargs) + 1;
     if (hi > vm.registers.len) try vm.ensureRegisterCapacity(hi);
+}
+
+/// A tail-position call (tail_call, tail_apply, tail_call_global) and a
+/// call/cc receiver in tail position replace the current frame's code in
+/// place: the frame's base and register window are unchanged, but the new
+/// function's `locals_count` may exceed the replaced frame's window. Without
+/// a fresh ensure, the register file silently stops growing at the replaced
+/// frame's smaller bound, and a register read a few slots past it aborts an
+/// ordinary program at a fraction of the documented MAX_REGISTER_LIMIT with
+/// a catchable KP9001 (#2035). This re-ensures the same bound callClosure
+/// guarantees when it builds a fresh frame — `base + max(arg_count,
+/// locals_count) + 1`, so a variadic callee's rest slot is covered too — and
+/// past the cap `ensureRegisterCapacity` reports StackOverflow like every
+/// other VM stack.
+pub fn ensureTailWindow(vm: *VM, base: usize, arg_count: usize, locals_count: u16) VMError!void {
+    try vm.ensureRegisterCapacity(base + @max(arg_count, @as(usize, locals_count)) + 1);
 }
 
 pub fn toBase(base_wide: usize) VMError!u32 {

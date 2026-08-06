@@ -894,16 +894,19 @@
 ;;; Deeply nested dynamic-wind
 ;;; ------------------------------------------------------------------
 
-;; FAIL: #2035 (819 nested dynamic-wind extents abort the form with KP9001
-;; "internal error" — the register file stops growing at 4096 of a documented
-;; 65536 — and the failure is catchable, unlike every other VM limit)
-;; (test-equal "dynamic-wind: 1000 nested extents unwind cleanly"
-;;             'bottom
-;;             (letrec ((nd (lambda (n) (if (= n 0) 'bottom
-;;                                          (dynamic-wind (lambda () 1)
-;;                                                        (lambda () (nd (- n 1)))
-;;                                                        (lambda () 2))))))
-;;               (nd 1000)))
+;; #2035: the register file used to stop growing at 4096 of a documented
+;; 65536, because a tail-position call replaced the frame in place without
+;; re-ensuring room for the callee's locals — so 819 nested extents aborted
+;; the form with a catchable KP9001 "internal error". Past the real cap the
+;; failure is KP3008 and uncatchable; that half lives in
+;; tests/scheme/errors/error-format.sh.
+(test-equal "dynamic-wind: 1000 nested extents unwind cleanly"
+            'bottom
+            (letrec ((nd (lambda (n) (if (= n 0) 'bottom
+                                         (dynamic-wind (lambda () 1)
+                                                       (lambda () (nd (- n 1)))
+                                                       (lambda () 2))))))
+              (nd 1000)))
 
 ;;; ------------------------------------------------------------------
 ;;; Type errors stay catchable
