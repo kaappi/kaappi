@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786016916011,
+  "lastUpdate": 1786018978286,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c3e05be76342221dc8c933c78d5c00ddd2504a6e",
-          "message": "Phase 6D: LSP end-to-end — 152 assertions for a 942-line server with no prior integration test (#1987)\n\n* Audit 6D: drive the language server end-to-end, 152 assertions\n\nkaappi_lsp.zig was 942 lines with 6 inline unit tests and no integration\ntest of any kind — the largest wholly-untested subsystem in the tree. It\nneeds no editor to test: it is JSON-RPC over stdio with Content-Length\nframing, so a shell driver can write framed requests to the real binary's\nstdin and assert on the framed replies.\n\ntests/scheme/lsp/lsp.sh pins the advertised capability set, exact framing\n(a lone shutdown is exactly 60 bytes on the wire), id correlation, a full\ninitialize -> initialized -> didOpen -> hover/definition/references/\ndocumentSymbol/completion -> shutdown -> exit session, and cross-checks\nevery published diagnostic against `kaappi check --diagnostics=json`,\nwhich shares the serializer in src/lsp_diagnostic.zig.\n\nCross-checking is where the value is. On read and compile errors the two\nsurfaces agree exactly on code, severity and start line. They diverge in\nfour ways, all reproduced with a discriminating control and left as\ndisabled assertions:\n\n  * a `define-syntax` in one open document leaks through the shared\n    vm.macros table into every other document's diagnostics, so\n    byte-identical text is diagnosed clean and then KP2001 purely\n    because an unrelated file was opened; closing it does not retract\n    the macros, and a plain `define` of the same name does not leak.\n  * `hasMore() catch false` discards every reader error raised while\n    skipping intertoken space, so an unterminated `#|` comment hides\n    the whole file — no diagnostic and an empty documentSymbol list —\n    while check reports KP1001.\n  * runDiagnostics breaks at the first bad form, so a two-error file\n    publishes one diagnostic where check reports two; and no KP4xxx\n    lint runs at all, so check's arity error exits 1 on a file the\n    editor shows as clean.\n  * the range is always a whole-line 0..999 sentinel, never the real\n    span check pinpoints.\n\nProtocol edges account for the rest: a malformed *body* is skipped and\nthe session continues, but a malformed *header* silently ends it and\ndrops every later message; a request whose params are missing gets no\nreply at all, so a client blocks on that id forever; shutdown is answered\nbefore initialize and requests are still served after it; exit without a\nprior shutdown returns 0 where LSP requires 1; and a column past\nend-of-line resolves a symbol on a later line.\n\nNo hangs found. Deeply nested input, recursive macros, prose, and\nunopened URIs all degrade cleanly. Runtime 3.4s, deterministic over 5\nruns. Discovery only — no server code changed.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Point LSP FAIL markers at the filed issues\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T04:12:23+05:30",
-          "tree_id": "303ce149ce4fb5fe469b145f4bb3d4ce26d7b6a5",
-          "url": "https://github.com/kaappi/kaappi/commit/c3e05be76342221dc8c933c78d5c00ddd2504a6e"
-        },
-        "date": 1785540837603,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 2.184053,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 5.125663,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.275183,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 1.513863,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.002861,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.02383,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.145922,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.02752,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.243178,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.586527,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 0.810014,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.19347,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 0.883137,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.189009,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.025018,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043803,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ff9fd4c046554762bc456de6e0117b3d912da2a6",
+          "message": "Require a delimiter after prefixed numeric tokens (#2241)\n\nreadNumberPrefixed called the file-local readNumber/readIntegerWithRadix\ndirectly, bypassing the delimiter check the un-prefixed path gets from\nReader.readNumber. The one wrapper that did check, Reader.readIntegerWithRadix,\nhad no callers at all -- its guard had never executed since it was added in\n9e8cf95a. A sweep of 19 prefix spellings x 26 trailing characters found 382 of\n494 cells silently splitting one token into two datums: '#b1p4' read as (1 p4),\nchanging an enclosing list's length, and kaappi check reported such files clean.\n\nA single delimiter check after the body read in readNumberPrefixed closes all\n382 cells: tryReadInfNan already guards its own tail, the radix-10 complex\ngrammar consumes +...i as part of the token, and readHexFloatSuffix rejects\nmalformed float bodies. The dead Reader.readIntegerWithRadix wrapper is\ndeleted. '#x1p4z', '#e34zz', '#b101foo' and '#x1/2+3i' are now read errors,\nmatching string->number and the Chibi differential oracle; hex floats\n('#x1p4'), prefixed rationals ('#x1/2'), decimal-prefixed complex ('#d1+2i'),\nSRFI-169 separators ('#x1_f') and two-prefix combinations ('#e#x1p4') all\nstill read.\n\nEnables the 52 assertions in reader-delimiter-gaps.scm and the 7 in\nreader-exactness-gaps.scm that pinned the gap (the group-3 discriminating\ncontrol is updated: both bignum and fixnum rational tails are guarded now),\nand adds a Zig unit test covering both the rejected and must-keep-working\nspellings.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-06T11:48:26Z",
+          "tree_id": "2e19f06857f5a83d697ac08f0c6d9d64750df735",
+          "url": "https://github.com/kaappi/kaappi/commit/ff9fd4c046554762bc456de6e0117b3d912da2a6"
+        },
+        "date": 1786018976292,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.329314,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.281431,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.576443,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.98353,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004829,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046893,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.313806,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057965,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.739201,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.224271,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.633366,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.284108,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.818796,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.649312,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043514,
             "unit": "seconds"
           }
         ]
