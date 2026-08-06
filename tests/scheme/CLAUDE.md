@@ -83,7 +83,7 @@ to; the fourth is exempt for an unrelated reason:
 
 | File | Why it cannot use `(srfi 64)` |
 |------|-------------------------------|
-| `smoke/large-index-bounds-1912.scm` | Must stay import-free: `(import (srfi 64))` fails at library load on WASM (kaappi#2108), which `run-wasm-differential.sh` classifies as LIBDIFF — silently retiring its `KNOWN_DIFFS` entry for #1912 |
+| `smoke/large-index-bounds-1912.scm` | Must stay import-free: it is the cross-tier large-index regression probe for #1912 (fixed), and `(import (srfi 64))` fails at library load on WASM (kaappi#2108), which `run-wasm-differential.sh` classifies as LIBDIFF — dropping the file from the comparison it exists for |
 | `smoke/deep-nesting-print.scm` | Same, for its own `KNOWN_DIFFS` entry against #2107 |
 | `smoke/deep-nesting-print-tier-margin.scm` | Same, and it is the cross-tier positive control for #2107 |
 | `continuations/coroutine-repl-echo.scm` | Its top-level forms must stay **bare** so the value-echo path runs; consuming them in `test-equal` is what hid the original bug |

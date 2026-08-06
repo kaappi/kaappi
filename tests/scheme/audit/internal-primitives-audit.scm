@@ -393,16 +393,17 @@
 (test-assert "nv: length arg checked" (raises? (%numeric-vector-length 5)))
 (test-assert "nv: kind arg checked"   (raises? (%numeric-vector-kind 5)))
 
-;; A 2^46 index is a perfectly good fixnum here. On a 64-bit host the bounds
-;; check sees it; on wasm32 (usize = u32) the `@intCast(raw_idx)` inside the
-;; check truncates it and the read silently aliases an in-range element.
-;; This assertion PASSES natively and FAILS under wasmtime -- it is the
-;; native half of that cross-tier pair.
-(test-assert "nv: huge index rejected (fails on wasm32)"
+;; A 2^46 index is a perfectly good fixnum here. The bounds check compares in
+;; u64 BEFORE narrowing to usize (see primitives.fixnumIndexInBounds), so the
+;; index is seen on every target -- on wasm32 (usize = u32) the pre-fix
+;; `@intCast(raw_idx)` inside the check truncated it and the read silently
+;; aliased an in-range element (kaappi#1912, fixed). These now pass on BOTH
+;; tiers and are the %-primitive half of the cross-tier probe.
+(test-assert "nv: huge index rejected (kaappi#1912)"
              (raises? (%numeric-vector-ref (%make-numeric-vector 's8 4 7) 70368744177664)))
-(test-assert "nv: 2^32+1 index rejected (fails on wasm32)"
+(test-assert "nv: 2^32+1 index rejected (kaappi#1912)"
              (raises? (%numeric-vector-ref (%make-numeric-vector 's8 4 7) 4294967297)))
-(test-assert "record: 2^32+1 index rejected (fails on wasm32)"
+(test-assert "record: 2^32+1 index rejected (kaappi#1912)"
              (raises? (let ((rt (%make-record-type "R" 3)))
                         (%record-ref (%make-record rt 1 2 3) 4294967297 rt))))
 

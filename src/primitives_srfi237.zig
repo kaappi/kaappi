@@ -336,8 +336,9 @@ fn recordRefInheritFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[1])) return typeError("%record-ref/inherit", "exact integer", args[1]);
     const raw_idx = types.toFixnum(args[1]);
     if (raw_idx < 0) return PrimitiveError.TypeError; // bare-ok: internal record primitive
+    // u64 comparison before narrowing (kaappi#1912): see primitives.fixnumIndexInBounds.
+    if (!primitives.fixnumIndexInBounds(raw_idx, ri.fields.len)) return indexError("%record-ref/inherit", raw_idx, ri.fields.len);
     const idx: usize = @intCast(raw_idx);
-    if (idx >= ri.fields.len) return indexError("%record-ref/inherit", raw_idx, ri.fields.len);
     return ri.fields[idx];
 }
 
@@ -355,8 +356,6 @@ fn recordSplitArgsFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const suffix_len_raw = try expectFixnum("%record-split-args", args[1]);
     if (suffix_len_raw < 0) return PrimitiveError.TypeError; // bare-ok: internal record primitive
-    const suffix_len: usize = @intCast(suffix_len_raw);
-
     var buf: [256]Value = undefined;
     var n: usize = 0;
     var cur = args[0];
@@ -367,7 +366,12 @@ fn recordSplitArgsFn(args: []const Value) PrimitiveError!Value {
         n += 1;
         cur = types.cdr(cur);
     }
-    if (suffix_len > n) return PrimitiveError.TypeError; // bare-ok: internal record primitive
+    // u64 comparison before narrowing (kaappi#1912): on wasm32 a fixnum-range
+    // suffix would truncate and pass the check against a short list, or panic
+    // @intCast on a safety-checked build.  The narrowing runs only after the
+    // check passes.
+    if (!primitives.fixnumIndexInBoundsInclusive(suffix_len_raw, n)) return PrimitiveError.TypeError; // bare-ok: internal record primitive
+    const suffix_len: usize = @intCast(suffix_len_raw);
     const split = n - suffix_len;
 
     var prefix = gc.makeList(buf[0..split]) catch return PrimitiveError.OutOfMemory;
@@ -387,8 +391,9 @@ fn recordSetInheritFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[1])) return typeError("%record-set!/inherit", "exact integer", args[1]);
     const raw_idx = types.toFixnum(args[1]);
     if (raw_idx < 0) return PrimitiveError.TypeError; // bare-ok: internal record primitive
+    // u64 comparison before narrowing (kaappi#1912): see primitives.fixnumIndexInBounds.
+    if (!primitives.fixnumIndexInBounds(raw_idx, ri.fields.len)) return indexError("%record-set!/inherit", raw_idx, ri.fields.len);
     const idx: usize = @intCast(raw_idx);
-    if (idx >= ri.fields.len) return indexError("%record-set!/inherit", raw_idx, ri.fields.len);
     if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[2]);
     ri.fields[idx] = args[2];
     return types.VOID;
@@ -457,8 +462,9 @@ fn recordFieldMutableFn(args: []const Value) PrimitiveError!Value {
     const rt = asRecordType(args[0]);
     const raw_idx = try expectFixnum("%record-field-mutable?", args[1]);
     if (raw_idx < 0) return PrimitiveError.TypeError; // bare-ok: internal record primitive
+    // u64 comparison before narrowing (kaappi#1912): see primitives.fixnumIndexInBounds.
+    if (!primitives.fixnumIndexInBounds(raw_idx, rt.own_field_mutable.len)) return indexError("%record-field-mutable?", raw_idx, rt.own_field_mutable.len);
     const idx: usize = @intCast(raw_idx);
-    if (idx >= rt.own_field_mutable.len) return indexError("%record-field-mutable?", raw_idx, rt.own_field_mutable.len);
     return if (rt.own_field_mutable[idx]) types.TRUE else types.FALSE;
 }
 

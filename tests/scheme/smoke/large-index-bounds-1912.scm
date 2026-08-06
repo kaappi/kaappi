@@ -1,60 +1,97 @@
-;;; Large-index bounds checking, and the cross-tier probe for kaappi#1912.
+;;; Large-index bounds checking across the vector-like accessors, and the
+;;; cross-tier regression probe for kaappi#1912.
 ;;;
 ;;; Natively this is an ordinary regression test: an index far beyond any
-;;; vector's length must raise, whether or not its low 32 bits happen to be in
-;;; range.
+;;; container's length must raise, whether or not its low 32 bits happen to be
+;;; in range.
 ;;;
-;;; On wasm32 it is the probe for kaappi#1912. Index arguments are @intCast to
-;;; usize INSIDE the bounds comparison, and usize is u32 there, so 2^32+1 wraps
-;;; to 1 before the check, passes it, and aliases element 1 — a silent wrong
-;;; read, and for vector-set! a silent wrong WRITE to a valid-but-unintended
-;;; element. Measured (wasmtime 46.0.0, v0.22.1):
+;;; It is also the WASM cross-tier probe. Before #1912 was fixed, index
+;;; arguments were @intCast to usize INSIDE the bounds comparison, and usize
+;;; is u32 on wasm32, so 2^32+1 wrapped to 1 before the check, passed it, and
+;;; aliased element 1 — a silent wrong read, and for vector-set! a silent
+;;; wrong WRITE to a valid-but-unintended element. Measured (wasmtime 46.0.0,
+;;; v0.22.1):
 ;;;
 ;;;     (vector-ref v 4294967297)   native: raised   wasm32: 11
 ;;;     (vector-set! v 4294967297 99) then (vector-ref v 1)
 ;;;                                 native: 11       wasm32: 99
 ;;;
+;;; The fix (primitives.fixnumIndexInBounds) compares in u64 BEFORE narrowing
+;;; to usize, and every case below now raises identically on both tiers — the
+;;; file's KNOWN_DIFFS entry in run-wasm-differential.sh was deleted when the
+;;; tiers agreed again.
+;;;
 ;;; The 2^32+9 line is the discriminating control that makes this attributable
 ;;; to low-32-bit truncation rather than to a missing bounds check: its low 32
-;;; bits are 9, which still exceeds the length 4, so it raises on BOTH tiers.
-;;;
-;;; run-wasm-differential.sh lists this file in KNOWN_DIFFS against #1912, so
-;;; the divergence does not fail the run while the bug is open — and its STALE
-;;; check reports the entry once the tiers agree again, which is the signal to
-;;; delete both the entry and this note.
+;;; bits are 9, which still exceeds the length 4, so it raises on BOTH tiers
+;;; (it raised even before the fix).
 ;;;
 ;;; Deliberately import-free so it runs on every tier — which is why this is
 ;;; the one file in the corpus that signals failure with a bare `(exit 1)`
 ;;; rather than the SRFI-64 epilogue every other file uses (kaappi#2116).
 ;;; `(import (srfi 64))` would make the WASM leg fail at library load
 ;;; (kaappi#2108, no .sld on WASM), and run-wasm-differential.sh classifies
-;;; that as LIBDIFF — which would silently retire this file's KNOWN_DIFFS
-;;; entry as stale and stop it tracking #1912 at all. The printed lines are
-;;; unchanged and remain the cross-tier comparison channel; the exit status is
-;;; the native verdict layered on top.
+;;; that as LIBDIFF — dropping this file from the cross-tier comparison it
+;;; exists for. The printed lines are unchanged and remain the cross-tier
+;;; comparison channel; the exit status is the native verdict layered on top.
 
 (define v (vector 10 11 12 13))
+(define s (make-string 4 #\a))
+(string-set! s 0 #\a) (string-set! s 1 #\b) (string-set! s 2 #\c) (string-set! s 3 #\d)
+(define bv (bytevector 10 11 12 13))
+(define rt (%make-record-type "large-index-probe" 3))
+(define r (%make-record rt 1 2 3))
+(define nv (%make-numeric-vector 's8 4 7))
 
 (define (try thunk) (guard (e (#t 'raised)) (thunk)))
 
-;; 2^32+1 — low 32 bits are 1, which IS in range for a 4-element vector.
-(define ref-big (try (lambda () (vector-ref v 4294967297))))
-(display (list 'ref-2^32+1 ref-big))
-(newline)
+;; Every accessor must raise for 2^32+1 (whose low 32 bits ARE in range for a
+;; 4-element container — the truncation case) and for the 2^32+9 control
+;; (whose low 32 bits are out of range — the missing-bounds-check case).
+(define cases
+  (list
+    (cons "vector-ref"         (lambda (i) (vector-ref v i)))
+    (cons "vector-set!"        (lambda (i) (vector-set! v i 99)))
+    (cons "string-ref"         (lambda (i) (string-ref s i)))
+    (cons "string-set!"        (lambda (i) (string-set! s i #\X)))
+    (cons "bytevector-u8-ref"  (lambda (i) (bytevector-u8-ref bv i)))
+    (cons "bytevector-u8-set!" (lambda (i) (bytevector-u8-set! bv i 99)))
+    (cons "substring"          (lambda (i) (substring s i (+ i 1))))
+    (cons "vector-swap!"       (lambda (i) (vector-swap! v i 0)))
+    (cons "vector-copy!"       (lambda (i) (vector-copy! v i (vector 9 9))))
+    (cons "bytevector-copy!"   (lambda (i) (bytevector-copy! bv i (bytevector 9 9))))
+    (cons "string-copy!"       (lambda (i) (string-copy! s i "xy")))
+    (cons "string-take"        (lambda (i) (string-take s i)))
+    (cons "string-drop"        (lambda (i) (string-drop s i)))
+    (cons "string-take-right"  (lambda (i) (string-take-right s i)))
+    (cons "string-drop-right"  (lambda (i) (string-drop-right s i)))
+    (cons "string-replace"     (lambda (i) (string-replace s "X" i (+ i 1))))
+    (cons "take"               (lambda (i) (take '(1 2 3) i)))
+    (cons "split-at"           (lambda (i) (split-at '(1 2 3) i)))
+    (cons "%record-ref"        (lambda (i) (%record-ref r i rt)))
+    (cons "%record-set!"       (lambda (i) (%record-set! r i 9 rt)))
+    (cons "%numeric-vector-ref"    (lambda (i) (%numeric-vector-ref nv i)))
+    (cons "%numeric-vector-set!"   (lambda (i) (%numeric-vector-set! nv i 1)))))
 
-;; Control: 2^32+9 — low 32 bits are 9, still out of range. Raises everywhere.
-(define ref-ctl (try (lambda () (vector-ref v 4294967305))))
-(display (list 'ref-2^32+9 ref-ctl))
-(newline)
+(for-each
+  (lambda (case)
+    (let ((name (car case)) (thunk (cdr case)))
+      (display (list name "2^32+1" (try (lambda () (thunk 4294967297)))))
+      (newline)
+      (display (list name "2^32+9" (try (lambda () (thunk 4294967305)))))
+      (newline)))
+  cases)
 
-;; The write side, which is the more serious half: element 1 must be untouched.
-(define set-big (try (lambda () (vector-set! v 4294967297 99))))
+;; The write side is the serious half: after a rejected set!, every element
+;; must be untouched.  (The cases above all raised, so the containers below
+;; are pristine.)
 (define elt1 (vector-ref v 1))
-(display (list 'set-2^32+1 set-big 'elt1 elt1))
+(display (list 'set-2^32+1 'elt1 elt1))
 (newline)
 
-;; Native verdict. On wasm32 these fail while #1912 is open, and the harness
-;; suppresses that via KNOWN_DIFFS rather than this file pretending to pass.
+;; Native verdict. On wasm32 this file's lines must match byte-for-byte (the
+;; differential harness compares stdout), and the exit status is the native
+;; verdict layered on top.
 (define failures 0)
 (define (check ok name)
   (if (not ok)
@@ -64,9 +101,24 @@
         (display name)
         (newline))))
 
-(check (eq? ref-big 'raised) "(vector-ref v 2^32+1) must raise")
-(check (eq? ref-ctl 'raised) "(vector-ref v 2^32+9) must raise")
-(check (eq? set-big 'raised) "(vector-set! v 2^32+1 99) must raise")
-(check (= elt1 11) "element 1 must be untouched by the rejected set!")
+(for-each
+  (lambda (case)
+    (let ((name (car case)) (thunk (cdr case)))
+      (check (eq? (try (lambda () (thunk 4294967297))) 'raised)
+             (string-append name " 2^32+1 must raise"))
+      (check (eq? (try (lambda () (thunk 4294967305))) 'raised)
+             (string-append name " 2^32+9 must raise"))))
+  cases)
+
+(check (= elt1 11) "vector element 1 must be untouched by the rejected set!")
+(check (eq? (string-ref s 1) #\b) "string element 1 must be untouched")
+(check (= (bytevector-u8-ref bv 1) 11) "bytevector element 1 must be untouched")
+(check (= (%record-ref r 1 rt) 2) "record field 1 must be untouched")
+(check (= (%numeric-vector-ref nv 1) 7) "numeric-vector element 1 must be untouched")
+
+;; In-range sanity: the same accessors still work at a legal index.
+(check (= (vector-ref v 1) 11) "in-range vector-ref still works")
+(check (string=? (substring s 1 3) "bc") "in-range substring still works")
+(check (equal? (take '(1 2 3) 2) '(1 2)) "in-range take still works")
 
 (if (> failures 0) (exit 1))
