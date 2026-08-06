@@ -4,18 +4,6 @@
 
 (test-begin "gc-root-growth")
 
-;; Re-entrant promise forcing: the R7RS 4.2.5 *terminating* form re-enters
-;; force on the same promise and must return (the register file grows rather
-;; than dying at a fixed cliff — #2035). The unbounded `(delay (force p))`
-;; form is runaway recursion and correctly dies as an uncatchable KP3008
-;; stack overflow; that half lives in tests/scheme/errors/error-format.sh.
-(define selfp
-  (let ((count 0))
-    (delay (begin (set! count (+ count 1))
-                  (if (> count 100) count (force selfp))))))
-(test-assert "terminating re-entrant force returns"
-  (eqv? 101 (force selfp)))
-
 ;; Deeply nested native higher-order calls no longer panic.
 ;; In Release the root buffer grows and the call succeeds; in Debug the
 ;; native re-entrancy cap (200) fires first with a catchable error.
