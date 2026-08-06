@@ -23,6 +23,7 @@ const vm_dispatch_helpers = @import("vm_dispatch_helpers.zig");
 pub const ensureOperands = vm_dispatch_helpers.ensureOperands;
 pub const registerIndex = vm_dispatch_helpers.registerIndex;
 pub const ensureCallWindow = vm_dispatch_helpers.ensureCallWindow;
+pub const ensureTailWindow = vm_dispatch_helpers.ensureTailWindow;
 pub const constantAt = vm_dispatch_helpers.constantAt;
 pub const readU8 = vm_dispatch_helpers.readU8;
 pub const readU16 = vm_dispatch_helpers.readU16;
@@ -458,6 +459,11 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     // arity is a u8 and 255 is legal, so the variadic +1 for
                     // the rest-list slot must widen first (#2185).
                     const arg_count: usize = if (func.is_variadic) @as(usize, func.arity) + 1 else nargs;
+                    // The callee's code replaces this frame's code in place,
+                    // but the frame's register window stays the old one — the
+                    // new function's locals may need more room, so re-ensure
+                    // the bound callClosure would have guaranteed (#2035).
+                    try ensureTailWindow(self, @as(usize, frame.base), arg_count, func.locals_count);
                     for (0..arg_count) |i| {
                         const dst_idx = @as(usize, frame.base) + i;
                         const src_idx = @as(usize, abs_base) + 1 + i;
@@ -672,6 +678,11 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     // Same u8 widening as tail_call above (#2185): a variadic
                     // callee with 255 fixed params needs 256 arg slots.
                     const arg_count: usize = if (func.is_variadic) @as(usize, func.arity) + 1 else total_nargs;
+                    // The callee replaces this frame's code in place; its
+                    // locals may exceed the replaced frame's window, so
+                    // re-ensure the bound callClosure would have guaranteed
+                    // (#2035).
+                    try ensureTailWindow(self, @as(usize, frame.base), arg_count, func.locals_count);
                     for (0..arg_count) |i| {
                         const dst_idx = @as(usize, frame.base) + i;
                         if (dst_idx >= self.registers.len) return VMError.InvalidBytecode;
@@ -1078,6 +1089,11 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     }
                     // Same u8 widening as tail_call above (#2185).
                     const arg_count: usize = if (tfunc.is_variadic) @as(usize, tfunc.arity) + 1 else nargs;
+                    // The callee replaces this frame's code in place; its
+                    // locals may exceed the replaced frame's window, so
+                    // re-ensure the bound callClosure would have guaranteed
+                    // (#2035).
+                    try ensureTailWindow(self, @as(usize, frame.base), arg_count, tfunc.locals_count);
                     for (0..arg_count) |ai| {
                         const dst_idx = @as(usize, frame.base) + ai;
                         const src_idx = @as(usize, abs_base) + 1 + ai;
@@ -1243,14 +1259,19 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         self.setErrorDetail("call/cc receiver: expected at most 1 required argument, got {d}", .{func.arity});
                         return VMError.ArityMismatch;
                     }
+                    const used: usize = if (func.is_variadic) @as(usize, func.arity) + 1 else 1;
+                    // The receiver's code replaces this frame's code in place;
+                    // its locals may exceed the replaced frame's window, so
+                    // re-ensure the bound callClosure would have guaranteed
+                    // before writing the continuation argument (#2035).
+                    try ensureTailWindow(self, @as(usize, frame.base), used, func.locals_count);
                     self.registers[frame.base] = cont_val;
                     if (func.is_variadic and func.arity == 0) {
                         self.registers[frame.base] = try buildRestList(self.gc, self.registers[frame.base .. frame.base + 1]);
                     } else if (func.is_variadic) {
-                        if (@as(usize, frame.base) + 1 >= self.registers.len) try self.ensureRegisterCapacity(@as(usize, frame.base) + 2);
                         self.registers[frame.base + 1] = types.NIL;
                     }
-                    vm_calls.clearFrameLocals(self, frame.base, if (func.is_variadic) @as(usize, func.arity) + 1 else 1, func.locals_count);
+                    vm_calls.clearFrameLocals(self, frame.base, used, func.locals_count);
                     if (self.profile_mode) func.profile_calls += 1;
                     frame.closure = closure;
                     frame.code = func.code.items;
@@ -1347,6 +1368,11 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const closure = types.toObject(closure_val).as(types.Closure);
                 const func = closure.func;
                 if (self.profile_mode) func.profile_calls += 1;
+                // The eval'd expression's code replaces this frame's code in
+                // place; its locals may exceed the replaced frame's window,
+                // so re-ensure the bound callClosure would have guaranteed
+                // (#2035).
+                try ensureTailWindow(self, @as(usize, frame.base), 0, func.locals_count);
                 vm_calls.clearFrameLocals(self, frame.base, 0, func.locals_count);
                 frame.closure = closure;
                 frame.code = func.code.items;

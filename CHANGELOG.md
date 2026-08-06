@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The register file grows to its documented 65536-register cap instead of
+  silently stopping at 4096, and running off its end is an uncatchable KP3008**
+  (#2035). A tail-position call (`tail_call`, `tail_apply`, `tail_call_global`,
+  `tail_call_cc`'s receiver, and tail `eval`) replaced the current frame's code
+  in place without re-ensuring room for the callee's `locals_count`, so the
+  file stopped growing at the replaced frame's smaller window — 819 nested
+  `dynamic-wind` extents aborted an ordinary program at 6% of the documented
+  capacity with a catchable KP9001 "internal error" whose guard-swallowed
+  object carried the bare message `"error"`. Every replacement site now
+  re-ensures the bound `callClosure` guarantees for a fresh frame
+  (`ensureTailWindow`), `registerIndex` reports a register-file overrun as
+  `StackOverflow` rather than `InvalidBytecode`, and past the real cap the
+  failure is the same uncatchable KP3008 stack overflow as every other VM
+  stack. Unbounded re-entrant promise forcing (`(delay (force p))`), which the
+  cliff used to mask as a catchable error, is now correctly reported as
+  runaway recursion; the R7RS-legal terminating form still works.
+
 - **`(srfi 146 hash)` keys its tables with the comparator you passed** (#2044).
   Every constructor built a bare `(make-hash-table)` and stashed the
   comparator in the record, where `hashmap-key-comparator` handed it back —

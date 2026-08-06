@@ -251,6 +251,81 @@ assert_output_lacks "stack overflow is not reported as out-of-memory" \
     '(define (deep n) (if (= n 0) 0 (+ 1 (deep (- n 1))))) (deep 50000)' \
     "KP9002"
 
+# --- Register-file cap (#2035) ---
+# Deeply nested dynamic-wind exhausts the *register file* (65536 registers,
+# roughly 5 per nesting level) before the frame stack (32768), so this shape
+# is a register-cap test, not a frame-cap one. The register file used to stop
+# growing at 4096 — a tail-position call replaced the frame in place without
+# re-ensuring room for the callee's locals — so 819 extents already aborted
+# the form with a catchable KP9001 "internal error", and a guard turned the
+# failure into a bare #<error "error">. Past the real cap it must report the
+# same uncatchable KP3008 as every other VM stack.
+assert_output_contains "register-file cap is reported as stack overflow, not internal error" \
+    '(import (scheme base) (scheme write))
+     (define (nd n) (if (= n 0) (quote bottom)
+                        (dynamic-wind (lambda () 1) (lambda () (nd (- n 1))) (lambda () 2))))
+     (nd 15000)' \
+    "error[KP3008]: stack overflow"
+
+assert_output_lacks "register-file cap is not reported as an internal error" \
+    '(import (scheme base) (scheme write))
+     (define (nd n) (if (= n 0) (quote bottom)
+                        (dynamic-wind (lambda () 1) (lambda () (nd (- n 1))) (lambda () 2))))
+     (nd 15000)' \
+    "KP9001"
+
+assert_output_contains "register-file cap is not catchable by guard" \
+    '(import (scheme base) (scheme write))
+     (define (nd n) (if (= n 0) (quote bottom)
+                        (dynamic-wind (lambda () 1) (lambda () (nd (- n 1))) (lambda () 2))))
+     (guard (e (#t (display "SWALLOWED"))) (nd 15000))' \
+    "error[KP3008]: stack overflow"
+
+assert_output_lacks "guard clause does not run on register-file cap" \
+    '(import (scheme base) (scheme write))
+     (define (nd n) (if (= n 0) (quote bottom)
+                        (dynamic-wind (lambda () 1) (lambda () (nd (- n 1))) (lambda () 2))))
+     (guard (e (#t (display "SWALLOWED"))) (nd 15000))' \
+    "SWALLOWED"
+
+assert_output_lacks "register-file cap is not reported as out-of-memory" \
+    '(import (scheme base) (scheme write))
+     (define (nd n) (if (= n 0) (quote bottom)
+                        (dynamic-wind (lambda () 1) (lambda () (nd (- n 1))) (lambda () 2))))
+     (nd 15000)' \
+    "KP9002"
+
+# --- Unbounded re-entrant promise forcing (#2035) ---
+# `(delay (force p))` re-enters force on the same promise with no termination
+# — genuinely runaway recursion, and the register file is what caps it (the
+# SRFI-45 re-entrancy check only sees cycles whose thunk returns). Pre-fix the
+# file stopped growing at 4096 and the recursion died there with a catchable
+# KP9001 "internal error", which a guard turned into a bare #<error "error">;
+# now it must report the same uncatchable KP3008 as any other runaway.
+assert_output_contains "unbounded re-entrant force is a stack overflow, not an internal error" \
+    '(import (scheme base) (scheme write))
+     (define selfp (delay (force selfp)))
+     (force selfp)' \
+    "error[KP3008]: stack overflow"
+
+assert_output_lacks "unbounded re-entrant force is not an internal error" \
+    '(import (scheme base) (scheme write))
+     (define selfp (delay (force selfp)))
+     (force selfp)' \
+    "KP9001"
+
+assert_output_contains "unbounded re-entrant force is not catchable by guard" \
+    '(import (scheme base) (scheme write))
+     (define selfp (delay (force selfp)))
+     (guard (e (#t (display "SWALLOWED"))) (force selfp))' \
+    "error[KP3008]: stack overflow"
+
+assert_output_lacks "guard clause does not run on unbounded re-entrant force" \
+    '(import (scheme base) (scheme write))
+     (define selfp (delay (force selfp)))
+     (guard (e (#t (display "SWALLOWED"))) (force selfp))' \
+    "SWALLOWED"
+
 # The 255 ceiling on a tail-position `apply` is what the tail_apply opcode's
 # nargs byte encodes — a limit on one argument list, not on the stack. It
 # reported KP3008, which both misdirected the reader and (once limits stopped
