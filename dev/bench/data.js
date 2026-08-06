@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786018978286,
+  "lastUpdate": 1786026505246,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e7c723ddf073ad0865ba358f129607c3c0916c77",
-          "message": "Tick 2.5 and 6D; close 3.2/3.3 as subsumed by 2.4 (#1990)\n\n* Close SRFI 160 sweeps 3.2 and 3.3 as subsumed by 2.4\n\n2.4 audited primitives_srfi160.zig AND the portable surface it carries,\nwhich is what 3.2 and 3.3 were scoped to cover separately. Its 1066\nassertions already sweep all 12 element kinds at every boundary, both\nseams, and the per-type wrappers.\n\nLeft open, they would tell the next session that SRFI 160 coverage is\nmissing when it is not -- the same class of drift Phase 0B existed to\nremove, just pointing the other way: a tracker that overstates remaining\nwork wastes a session as surely as one that understates finished work.\n\nStruck through rather than deleted, with what 2.4 actually covered\nrecorded inline, so the decision is auditable instead of looking like\nunits that quietly vanished.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Tick 2.5 and 6D, and record why 2.12 and 5D are not ticked\n\nOnly two of the fourth batch merged. 2.12 and 5D are complete and green\non macOS but held by real BSD failures -- 2 assertions on FreeBSD and\nOpenBSD, 1 on NetBSD, out of 421 and 273 respectively.\n\nThose stay unticked rather than ticked-with-a-caveat, because the work is\nnot landed and the tests are not running anywhere. The status line names\ntheir PRs so the next reader knows the units exist and where they stopped,\ninstead of finding two silently missing entries.\n\nUnlike the earlier #1967 case, this is not harness flake: the failures are\nin the units' own audit files, on the platforms whose filesystem and\nthread semantics those units probe, and the same files pass everywhere\nelse. Chasing them needs a real BSD box.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T04:50:56+05:30",
-          "tree_id": "126dd8c90836116d52c13be556bf97b05954044d",
-          "url": "https://github.com/kaappi/kaappi/commit/e7c723ddf073ad0865ba358f129607c3c0916c77"
-        },
-        "date": 1785541364331,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.254822,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.863211,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.588007,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.951469,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00471,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046534,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.315574,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057158,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.645479,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.228194,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.581629,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.28531,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.780013,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.648735,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043476,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043514,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "220e31a23b575d7e1dae4b66294c3a768a483995",
+          "message": "Bound fmt's prefix-chain depth and name dangling #; errors (#2242)\n\nkaappi fmt's CST parser capped recursion for lists only: parseList\nchecked max_nesting, but a reader-prefix chain (' ` , ,@ #N=) or a #;\ndatum comment recursed through parsePrefixTarget without touching\nself.depth, so ~158000 prefixes overflowed the native stack and fmt\nexited 134 — and fmt --check, the documented CI gate, died the same\nway. Every prefix kind reached it, verified at 200000.\n\nThe prefix/datum-comment path now draws from the same max_nesting\nbudget as parseList, sharing one counter so mixed prefix+list nesting\nis rejected at the reader's own 1025 level; the printer's emitNode /\ncomputeMeasure recursion over the same chain is bounded by that cap.\nA dangling #; at end of input is reported as 'datum comment with no\ndatum' instead of being mislabelled 'quote/unquote with no datum'\n(ParseError gains DanglingDatumComment).\n\nRe-enables the disabled #2141 adversarial shell tests across all six\nprefix kinds and adds unit tests: every kind rejects cleanly past the\ncap, prefix and list nesting share one depth budget, and the dangling\n\n\n#; error is distinct from a dangling quote.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-06T13:55:25Z",
+          "tree_id": "c866c3ea6705ea1db16f43ffa8c59e9345cbdad6",
+          "url": "https://github.com/kaappi/kaappi/commit/220e31a23b575d7e1dae4b66294c3a768a483995"
+        },
+        "date": 1786026503515,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.26675,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.379281,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.582946,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.97866,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004771,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047292,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.314889,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057835,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.664012,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.22185,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.653961,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.279655,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.815122,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.632844,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043844,
             "unit": "seconds"
           }
         ]
