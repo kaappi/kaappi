@@ -215,11 +215,31 @@ assert_clean_reject() {
 { repeat '(' 300000; repeat ')' 300000; echo; } > "$TMP/deep-list.scm"
 assert_clean_reject "depth: 300000 nested lists rejected cleanly" "$TMP/deep-list.scm"
 
-# FAIL: #2141 (max_nesting is checked in parseList only; parsePrefixTarget
-# recurses unguarded, so a long prefix chain overflows the native stack —
-# ~158000 on an 8 MB stack, and every prefix kind reaches it)
-# { repeat "'" 300000; echo x; } > "$TMP/deep-quote.scm"
-# assert_clean_reject "depth: 300000 quote prefixes rejected cleanly" "$TMP/deep-quote.scm"
+# Every reader-prefix kind recurses through parsePrefixTarget, which once
+# bypassed the parseList-only max_nesting check and overflowed the native
+# stack (~158000 on an 8 MB stack; all six verified at 200000). Each must now
+# be rejected cleanly like a deep list (kaappi#2141). Single-byte prefixes
+# reuse `repeat`; multi-byte ones come from awk (POSIX, unlike brace
+# expansion, and each byte of `,@` / `#;` / `#1=` is emitted once per
+# repetition, so the depth — not the byte count — is what the file exercises).
+for pfx in "'" '`' ','; do
+    { repeat "$pfx" 300000; echo x; } > "$TMP/deep-prefix.scm"
+    assert_clean_reject "depth: 300000 '$pfx' prefixes rejected cleanly" "$TMP/deep-prefix.scm"
+done
+for pfx in ',@' '#;' '#1='; do
+    awk -v p="$pfx" 'BEGIN { for (i = 0; i < 300000; i++) printf "%s", p }' > "$TMP/deep-prefix.scm"
+    echo x >> "$TMP/deep-prefix.scm"
+    assert_clean_reject "depth: 300000 '$pfx' prefixes rejected cleanly" "$TMP/deep-prefix.scm"
+done
+
+# A dangling #; names the datum comment, not quote/unquote (kaappi#2141).
+printf '(a) #;\n' > "$TMP/dangle.scm"
+err="$("$KAAPPI" fmt < "$TMP/dangle.scm" 2>&1)"
+if [[ "$err" == *"datum comment with no datum"* && "$err" != *"quote/unquote"* ]]; then
+    pass "dangling #; names the datum comment"
+else
+    fail "dangling #; names the datum comment" "stderr: [$err]"
+fi
 
 echo ""
 echo "fmt-adversarial: $PASS passed, $FAIL failed"
