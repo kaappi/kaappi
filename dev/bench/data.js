@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786026505246,
+  "lastUpdate": 1786029748493,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c1fb2025bcd90d0cd64991376ba714e91ca822ff",
-          "message": "Phase 5D: SRFI-18 re-audit — 77 → 274 assertions, and thread-terminate! cannot interrupt a native wait (#1986)\n\n* Phase 5D: re-audit SRFI-18 — 274 assertions, six bugs, one of them a hang\n\nThe v1 campaign audited src/primitives_srfi18.zig at 994 lines. It is now\n1435 lines across 34 specs (+793/-352 over 27 commits since the v1 base),\nwhile tests/scheme/audit/primitives_srfi18-audit.scm had not changed since\n2026-07-10. This grows it from 77 assertions to 274 (+197), covering every\nspec — thread-yield! had never been called at all — plus the full mutex\nstate matrix, the condition-variable protocol, the terminate matrix, and\ntime/timeout parsing in both spellings.\n\nSix root causes found, all with a discriminating control, 20 assertions\ndisabled behind `;; FAIL:` markers:\n\n* mutex-unlock! never clears the abandoned flag, so an abandoned mutex a\n  program explicitly resets by unlocking still raises a spurious\n  abandoned-mutex-exception. SRFI 18: \"Unlocks the mutex by making it\n  unlocked/not-abandoned.\"\n* thread-terminate! on an already-terminated thread destroys its\n  end-result (and, for a thread that raised, its end-exception): the\n  `terminated` store sits above its own completed/errored guard, and\n  threadJoinResult tests `terminated` first.\n* thread-terminate! is not observed by a thread parked inside a native\n  SRFI-18 wait. #880 was closed by a 1024-instruction dispatch-loop\n  safepoint, which a thread blocked in threadSleepFn / mutexLockFn /\n  mutexUnlockFn's condvar branch never reaches. thread-join! then blocks\n  for the rest of the wait — or forever, when the wait is untimed.\n* Unguarded float-to-int conversions abort the process (exit 134,\n  uncatchable) in seconds->time, thread-sleep!, and timeoutToDeadlineNs —\n  the last of which also serves mutex-lock!, thread-join!, mutex-unlock!\n  and (kaappi fibers) channel timeouts. Two distinct panics, one cliff.\n* mutex-lock! with a terminated thread as the owner argument records it as\n  the owner instead of making the mutex unlocked/abandoned.\n* A thread that terminates itself joins as an uncaught-exception with a\n  void reason rather than a terminated-thread-exception.\n\nThe suite is deterministic and bounded: no wall-clock assertions, every\nwait either timeout-bounded or resolved by a thread the file joins, and\nevery aborting or hanging shape commented out rather than\ntest-expect-fail'd. Helper threads spin in Scheme rather than sleeping —\nterminating a sleep-polling child costs 3.8s against run-all.sh's 60s\nper-file timeout, because terminate latency tracks wall-clock time per\n1024 bytecode instructions.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Point SRFI-18 FAIL markers at the filed issues\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Stop pinning the value of an undefined float conversion\n\nCI's NetBSD failed \"seconds->time +nan.0 collapses to 0\". That assertion\npinned the result of @intFromFloat on a NaN, which is undefined -- macOS\nand the NetBSD reference VM both happen to yield 0.0, so it passed\neverywhere I could reach and failed where I could not.\n\nSix sequential runs and twelve four-way-concurrent runs on the NetBSD VM\nwere all clean, which is exactly why the CI log had to be read for the\nassertion NAME rather than the failure re-created: an idle box cannot\ndistinguish \"fixed\" from \"did not fire\", and this was never a race to\nbegin with.\n\nThe finding the assertion exists for is that NaN does NOT abort, unlike\n+inf.0 and |x| >= 2^63 which do (#1983). That contrast survives without\nnaming a value, so it now asserts only that a time object comes back.\n\nVerified on the NetBSD VM: 274 pass, 0 fail.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T06:24:25+05:30",
-          "tree_id": "9ba57b12ca70152f2d2bf1e0aa27fc7312f4baac",
-          "url": "https://github.com/kaappi/kaappi/commit/c1fb2025bcd90d0cd64991376ba714e91ca822ff"
-        },
-        "date": 1785548739422,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.269905,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.015683,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.607222,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.987249,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004703,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04667,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.315783,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057145,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.696756,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.204723,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.589758,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.287722,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.785645,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.610294,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043337,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043844,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "da126d91f1c62ced335ee5158011f5582a55c0c7",
+          "message": "Isolate each LSP document's macros so define-syntax cannot leak across documents (#2244)\n\nrunDiagnostics compiled every open document against the server's single\nshared vm.macros table, so a define-syntax in one file changed how every\nother file was diagnosed: byte-identical text flipped from clean to KP2001\ndepending on what else the editor had open, and the leak survived didClose\nof the defining document (only a server restart cleared it). A plain\ndefine never leaked, because globals are never written by the diagnostics\npath — the macro table was the sole carrier.\n\nEach runDiagnostics run now resets the shared table to a baseline snapshot\ntaken at startup, before any document is opened. A document's own macros\nstill accumulate top-to-bottom across its forms (the same visibility kaappi\ncheck gives a standalone file — macro plus misuse in one file is still\nKP2001), but nothing written during a run survives to another document, so\nevery file gets the verdict it would get alone. Baseline values are rooted\nonce via extra_roots, since the VM's GC marking covers vm.macros only.\n\nEnables the two #1979 FAIL-marked assertions in tests/scheme/lsp/lsp.sh,\nretunes the didClose control for the now-clean third frame, and adds two\nregression guards: own-document macro misuse stays KP2001 with another\ndocument open, and a document defining its own macro still cannot see\nanother document's.\n\nSuite: 156 LSP assertions pass, incl. under -Dgc-stress=true; unit tests\npass.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-06T20:20:09+05:30",
+          "tree_id": "9b302134e751ec2163688b5157622f5c1e7e197f",
+          "url": "https://github.com/kaappi/kaappi/commit/da126d91f1c62ced335ee5158011f5582a55c0c7"
+        },
+        "date": 1786029747538,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.977422,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.516255,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.563647,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.822045,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004852,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.045118,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.298372,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054355,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.339171,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.16844,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.519809,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.302098,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.704119,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.750819,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044829,
             "unit": "seconds"
           }
         ]
