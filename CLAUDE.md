@@ -468,7 +468,7 @@ Path-scoped rules in `.claude/rules/` load automatically:
 Skills in `.claude/skills/`: `/add-builtin`, `/audit-primitives`,
 `/bytecode-isa`, `/github-release`, `/create-announcement`, `/r7rs-reader`,
 `/linux-test`, `/do-linux-test`, `/do-stress-test`, `/do-gate-benchmark`,
-`/parallel-issues`, `/quiz`, `/vm-test`. The `infra/` repo additionally hosts the
+`/pr-groups`, `/quiz`, `/vm-test`. The `infra/` repo additionally hosts the
 `kaappi-dev` plugin (ecosystem-wide skills, a bash guard, an
 `ecosystem-reviewer` agent), loaded from the workspace-level settings.
 

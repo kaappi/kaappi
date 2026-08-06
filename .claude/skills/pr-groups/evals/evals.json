@@ -1,0 +1,65 @@
+{
+  "skill_name": "pr-groups",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "Group the issues in the 0.22.2 milestone into sets I can each work on in a single PR.",
+      "expected_output": "Cohesive groups with files named, a merge order, and a parallelism verdict. #1932 and #2027 must be one group (adjacent arms of deepCopyValue's switch in src/gc_deep_copy.zig). #2129, #2194, #1982 and #2125 must be one group (all in src/primitives_srfi18.zig). #2127 must be identified as land-first because it is the detector for the rest.",
+      "files": [],
+      "expectations": [
+        "#1932 and #2027 appear in the same group, justified by both being arms of the same switch in src/gc_deep_copy.zig",
+        "#2129, #2194, #1982 and #2125 appear in the same group, justified by all living in src/primitives_srfi18.zig",
+        "#2127 is ordered before the groups it verifies, on instrument-before-subject grounds",
+        "#1870 is ordered early on signal-before-work grounds (test-only, restores CI trust)",
+        "Every group names the files it touches",
+        "The response flags that src/primitives_srfi18.zig is near the 1500-line file-size cap and names a split seam",
+        "An explicit merge order is given, marking which groups are parallel"
+      ]
+    },
+    {
+      "id": 1,
+      "prompt": "Group the 0.22.3 milestone issues into single-PR sets.",
+      "expected_output": "Groups as above, plus #2043 reported as no longer reproducing (fixed by PR #2174 alongside its siblings #1893/#1920/#1940/#1945) and excluded from the groups rather than scheduled.",
+      "expectations": [
+        "#2043 is reported as no-longer-reproducing and excluded from all groups",
+        "The report cites running the issue's own reproduction, not merely reading the body",
+        "#2043 is NOT closed without the user asking",
+        "#1930 and #2097 appear in the same group (both build-id staleness producing 'invalid embedded bytecode')",
+        "#1924 and #1933 are grouped separately from the local fixes and marked design-first",
+        "The long pole is named, with a statement of whether the rest ships without it"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Batch the open issues in milestone 9.9.9 into PRs.",
+      "expected_output": "A statement that no open issues carry that milestone, and no groups — must not fall back to the whole tracker.",
+      "expectations": [
+        "Response states that the milestone matched no open issues",
+        "Response contains no groups",
+        "Response does not fall back to grouping all open issues"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Which of these can I do in one PR: 2044, 2085, 2179? (skill argument: 2044,2085,2179)",
+      "expected_output": "One group containing all three, justified as the zero-risk class — three independent .sld bugs touching no engine code — with a note that they are trivially splittable per-SRFI.",
+      "expectations": [
+        "All three are placed in a single group",
+        "The justification is that all three are portable .sld fixes touching no Zig / engine code",
+        "The response notes they are trivially splittable if per-SRFI review is preferred",
+        "Each issue's library file is named (lib/srfi/146/hash.sld, lib/srfi/113.sld, lib/srfi/42.sld)"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "I want to launch concurrent sessions on the 0.22.2 milestone rather than review a plan — give me the waves.",
+      "expected_output": "Bare paste-able wave lines containing only issue numbers, with every group in a wave touching files no other group in that wave touches.",
+      "expectations": [
+        "Response contains 'Wave N:' lines with comma-separated issue numbers",
+        "No issue number appears in more than one wave",
+        "Groups sharing a file never appear in the same wave",
+        "The wave lines contain no prose or commands mixed in"
+      ]
+    }
+  ]
+}
