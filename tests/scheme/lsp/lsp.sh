@@ -852,11 +852,8 @@ msg "$EXITN"
 lsp_run
 assert_eq "leak: the same document text is diagnosed twice" \
     "$(count "$OUT" '"uri":"'"$BDOC"'"')" "2"
-# FAIL: #1979 (a define-syntax in one open document leaks into every other
-#            document's diagnostics through the shared vm.macros table, so
-#            byte-identical text flips from clean to KP2001)
-# assert_eq "leak: both diagnoses of identical text agree" \
-#     "$(count "$OUT" '"code":"KP2001"')" "0"
+assert_eq "leak: both diagnoses of identical text agree" \
+    "$(count "$OUT" '"code":"KP2001"')" "0"
 
 # The leak outlives didClose of the defining document.
 stream_reset
@@ -868,9 +865,11 @@ did_open "$BDOC" "$USE"
 msg "$EXITN"
 lsp_run
 # Control: closing A does publish its clearing notification, so didClose ran.
-assert_eq "leak control 3: didClose published its empty array" "$(count "$OUT" '"diagnostics":[]')" "2"
-# FAIL: #1979 (closing the defining document does not retract its macros)
-# assert_eq "leak: closing A restores B's clean verdict" "$(count "$OUT" '"code":"KP2001"')" "0"
+# (With the leak fixed, B's own open is clean too, so all three frames are
+# empty arrays; the count was 2 under the bug because B carried A's macro.)
+assert_eq "leak control 3: didClose published its empty array" "$(count "$OUT" '"diagnostics":[]')" "3"
+assert_eq "leak: closing A restores B's clean verdict" \
+    "$(count "$OUT" '"code":"KP2001"')" "0"
 
 # Control 4: a plain `define` of the same name does NOT leak, which isolates the
 # mechanism to the macro table rather than the globals map.
@@ -882,6 +881,34 @@ did_open "$BDOC" "$USE"
 msg "$EXITN"
 lsp_run
 assert_eq "leak control 4: a plain define of the same name does not leak" \
+    "$(count "$OUT" '"code":"KP2001"')" "0"
+
+# Regression guards for the fix itself, in both directions:
+#  * isolation must not disable macro diagnostics within a document — a file
+#    that defines AND misuses a macro is KP2001 even when another document is
+#    open (the misuse is judged against the macros its own text defines);
+#  * isolation must hold for a document that defines macros of its own: B
+#    defining `other` must not start seeing A's `my-if` mid-file. Under the
+#    leak, the second case is KP2001; with the fix it is a clean call to an
+#    unbound global, exactly B's verdict alone.
+stream_reset
+msg "$INIT"
+msg "$INITED"
+did_open "$ADOC" "$MACRO"
+did_open "$BDOC" "$MACRO$USE"
+msg "$EXITN"
+lsp_run
+assert_has "leak fix: own-document macro misuse stays KP2001" \
+    "$OUT" '"code":"KP2001"'
+
+stream_reset
+msg "$INIT"
+msg "$INITED"
+did_open "$ADOC" "$MACRO"
+did_open "$BDOC" '(define-syntax other (syntax-rules () ((_) 1)))\n(my-if)\n'
+msg "$EXITN"
+lsp_run
+assert_eq "leak fix: another doc's macro stays invisible after own define-syntax" \
     "$(count "$OUT" '"code":"KP2001"')" "0"
 
 # Compiling a document must not publish its globals to the whole server either:

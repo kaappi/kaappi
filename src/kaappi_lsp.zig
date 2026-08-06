@@ -239,6 +239,16 @@ fn sendNotification(allocator: std.mem.Allocator, method: []const u8, params: []
 var documents: std.StringHashMap([]const u8) = undefined;
 var doc_allocator: std.mem.Allocator = undefined;
 
+/// Snapshot of `vm.macros` taken after startup, before any document is opened.
+/// Every `runDiagnostics` run resets the shared `vm.macros` back to this
+/// baseline, so a `define-syntax` in one open document can never change how
+/// any other document is diagnosed (kaappi#1979). Values are rooted via
+/// `gc.extra_roots` at snapshot time: they are referenced only by this table
+/// from the moment a document shadows one of their names until the next run
+/// re-seeds `vm.macros` from it. Keys are interned symbol names, owned by the
+/// GC's symbol table, so the snapshot never owns them.
+var baseline_macros: std.StringHashMap(types.Value) = undefined;
+
 fn storeDocument(uri: []const u8, text: []const u8) void {
     const uri_copy = doc_allocator.dupe(u8, uri) catch return;
     const text_copy = doc_allocator.dupe(u8, text) catch {
@@ -659,6 +669,20 @@ fn runDiagnostics(allocator: std.mem.Allocator, vm: *vm_mod.VM, uri: []const u8,
     diag_buf.append(allocator, '[') catch return;
     var has_diag = false;
 
+    // Reset the shared macro table to the pre-document baseline: each document
+    // is diagnosed as if it were the only one open. The define-syntax forms
+    // compiled below accumulate in `vm.macros` across the document's own
+    // forms — the same top-to-bottom visibility `kaappi check` gives a
+    // standalone file — but nothing survives to another document, so byte-
+    // identical text gets the same verdict regardless of what else is open
+    // (kaappi#1979). Values written here are marked by the VM's GC exactly as
+    // before; they are simply retracted by the next run's reset.
+    vm.macros.clearRetainingCapacity();
+    var mit = baseline_macros.iterator();
+    while (mit.next()) |entry| {
+        vm.macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return;
+    }
+
     // Parse phase
     var r = reader.Reader.initWithName(vm.gc, text, uri);
     defer r.deinit();
@@ -788,6 +812,19 @@ pub fn main(init: std.process.Init.Minimal) !void {
     try primitives.registerAll(&vm);
     try vm_mod.vm_bootstrap.install(&vm);
     try library.registerStandardLibraries(&vm.libraries, vm.globals);
+
+    // Snapshot the macro table before any document is opened; runDiagnostics
+    // resets the shared `vm.macros` to this per run (kaappi#1979). `vm.macros`
+    // is empty here today, but the snapshot keeps the isolation correct if
+    // startup ever seeds it (e.g. a pre-imported library). The baseline values
+    // are rooted once via extra_roots — the GC cannot see this table, and the
+    // VM's own macro marking covers vm.macros only.
+    baseline_macros = std.StringHashMap(types.Value).init(gc.allocator);
+    var mit = vm.macros.iterator();
+    while (mit.next()) |entry| {
+        baseline_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return;
+        gc.extra_roots.append(gc.allocator, entry.value_ptr.*) catch return;
+    }
 
     var initialized = false;
 
