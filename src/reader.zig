@@ -727,13 +727,6 @@ pub const Reader = struct {
         return reader_tokens.readHash(self);
     }
 
-    fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
-        const tok = try reader_tokens.readIntegerWithRadix(self, radix);
-        if (self.pos < self.source.len and !isDelimiter(self.source[self.pos]))
-            return ReadError.UnexpectedChar;
-        return tok;
-    }
-
     fn readCharacter(self: *Reader) ReadError!Token {
         return reader_tokens.readCharacter(self);
     }
@@ -1007,4 +1000,53 @@ test "datum label forward reference in list" {
     const s = try readAndPrint(&gc, "(#0=42 #0#)");
     defer testing.allocator.free(s);
     try testing.expectEqualStrings("(42 42)", s);
+}
+
+test "prefixed numeric tokens require a trailing delimiter" {
+    // #1929: readNumberPrefixed bypassed the delimiter check that the
+    // un-prefixed path gets from the Reader.readNumber wrapper, so every
+    // radix/exactness-prefixed spelling silently split "#b1p4" into the
+    // fixnum 1 plus the symbol p4.  One check in readNumberPrefixed now
+    // guards them all; string->number already rejected every cell below.
+    var gc = memory.GC.init(testing.allocator);
+    defer gc.deinit();
+
+    // A glued tail is a read error in every prefix family.
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#b1p4"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#o1e3"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#d1a"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#e34zz"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#i7q"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x1p4z"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x1/2z"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x1/2+3i"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#e#b12"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#b#e12"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#b101foo"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x1zzz"));
+
+    // A whole list holding one is a read error too, never a longer list.
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "(#b1p4)"));
+
+    // Valid prefixed spellings still read: hex floats, rationals, complex
+    // with a decimal prefix, separators, and two-prefix combinations.
+    const f = try readAndPrint(&gc, "#x1p4");
+    defer testing.allocator.free(f);
+    try testing.expectEqualStrings("16.0", f);
+
+    const r = try readAndPrint(&gc, "#x1/2");
+    defer testing.allocator.free(r);
+    try testing.expectEqualStrings("1/2", r);
+
+    const c = try readAndPrint(&gc, "#d1+2i");
+    defer testing.allocator.free(c);
+    try testing.expectEqualStrings("1+2i", c);
+
+    const u = try readAndPrint(&gc, "#x1_f");
+    defer testing.allocator.free(u);
+    try testing.expectEqualStrings("31", u);
+
+    const exact = try readAndPrint(&gc, "#e#x1p4");
+    defer testing.allocator.free(exact);
+    try testing.expectEqualStrings("16", exact);
 }
