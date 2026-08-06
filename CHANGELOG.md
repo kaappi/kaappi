@@ -90,10 +90,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   length; `kaappi check` reported such a file clean). A single delimiter
   check after the body read in `readNumberPrefixed` now guards every
   spelling, and the dead wrapper is deleted: `#x1p4z`, `#e34zz`, `#b101foo`
-  and `#x1/2+3i` are all read errors, matching `string->number` and the
+  and `#x1zzz` are all read errors, matching `string->number` and the
   Chibi differential oracle, while hex floats (`#x1p4`), prefixed rationals
   (`#x1/2`), decimal-prefixed complex (`#d1+2i`), SRFI-169 separators
-  (`#x1_f`) and two-prefix combinations (`#e#x1p4`) all still read.
+  (`#x1_f`) and two-prefix combinations (`#e#x1p4`) all still read. (The
+  radix-prefixed complex spellings this guard briefly made read errors —
+  `#x1/2+3i` and friends — were reinstated as valid R7RS by #2243 below;
+  the glued-tail `+3z`/`+3iz` forms remain errors.)
 
 - **`(srfi 146 hash)` keys its tables with the comparator you passed** (#2044).
   Every constructor built a bare `(make-hash-table)` and stashed the

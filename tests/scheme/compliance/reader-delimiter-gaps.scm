@@ -433,7 +433,10 @@
   ;; `1/2` + `+3i` before #1929 closed the gap, then read-error until
   ;; #2243 accepted the grammar.  The glued-tail siblings still reject in
   ;; both parsers.
-  (test-assert "s->n accepts #x1/2+3i" (string->number "#x1/2+3i"))
+  (test-assert "s->n #x1/2+3i real part is 1/2"
+    (= 1/2 (real-part (string->number "#x1/2+3i"))))
+  (test-assert "s->n #x1/2+3i imag part is 3"
+    (= 3 (imag-part (string->number "#x1/2+3i"))))
   (test-assert "#x1/2+3i reads whole" (clean? "#x1/2+3i"))
   (test-assert "s->n rejects #x1/2+3z" (not (string->number "#x1/2+3z")))
   (test-assert "#x1/2+3z rejected" (rejects? "#x1/2+3z"))
@@ -488,7 +491,10 @@
   (test-assert "reader accepts 1/2+3i" (clean? "1/2+3i"))
   (test-assert "s->n accepts 1/2+3i" (string->number "1/2+3i"))
   (test-assert "s->n accepts #d1/2+3i" (string->number "#d1/2+3i"))
-  (test-assert "s->n accepts #x1/2+3i" (string->number "#x1/2+3i"))
+  (test-assert "s->n #x1/2+3i real part is 1/2"
+    (= 1/2 (real-part (string->number "#x1/2+3i"))))
+  (test-assert "s->n #x1/2+3i imag part is 3"
+    (= 3 (imag-part (string->number "#x1/2+3i"))))
 
   ;; Same literal, a third divergence: it PRINTS as `1/2+3i` (exact real
   ;; part) but `real-part` hands back the inexact 0.5, so `write` does not
@@ -532,7 +538,22 @@
   (test-assert "+3/4i reads clean (radix 10)" (clean? "+3/4i"))
   ;; the imaginary marker is case-insensitive in both parsers
   (test-assert "#x1+2I reads clean" (clean? "#x1+2I"))
-  (test-assert "s->n #x1+2I agrees" (complex? (string->number "#x1+2I")))
+  (test-assert "s->n #x1+2I imag part is 2"
+    (= 2 (imag-part (string->number "#x1+2I"))))
+  ;; special-float imaginary parts: the reader's 3.0+inf.0i / +inf.0i
+  ;; spellings and string->number agree (Zig's parseFloat alone would
+  ;; reject +inf.0, so the component grammar names them explicitly).
+  (test-assert "3.0+inf.0i reads clean" (clean? "3.0+inf.0i"))
+  (test-assert "s->n 3.0+inf.0i is complex"
+    (complex? (string->number "3.0+inf.0i")))
+  (test-assert "+inf.0i reads clean" (clean? "+inf.0i"))
+  (test-assert "s->n +inf.0i imag part is infinite"
+    (infinite? (imag-part (string->number "+inf.0i"))))
+  ;; a signless pure imaginary beyond i64 that IS exactly representable
+  ;; (1e19 = 5^19*2^19, 45 bits) reads in both parsers.
+  (test-assert "10000000000000000000i reads clean" (clean? "10000000000000000000i"))
+  (test-assert "s->n 10000000000000000000i is 0+1e19i"
+    (= 1e19 (imag-part (string->number "10000000000000000000i"))))
   (test-assert "#x1+2i reads clean" (clean? "#x1+2i"))
   (test-assert "#x1+1/2i reads clean" (clean? "#x1+1/2i"))
   (test-assert "#x1/2+3/4i reads clean" (clean? "#x1/2+3/4i"))
@@ -542,9 +563,14 @@
   (test-assert "#e#x1/2+3i is exact" (exact? (read1 "#e#x1/2+3i")))
   (test-assert "#i#x1/2+3i is inexact" (inexact? (read1 "#i#x1/2+3i")))
   ;; string->number agrees (6.2.7) on the new acceptance.
-  (test-assert "s->n #x1/2+3i" (complex? (string->number "#x1/2+3i")))
-  (test-assert "s->n #x1+2i" (complex? (string->number "#x1+2i")))
-  (test-assert "s->n #b1+1i" (complex? (string->number "#b1+1i")))
+  (test-assert "s->n #x1/2+3i real part is 1/2"
+    (= 1/2 (real-part (string->number "#x1/2+3i"))))
+  (test-assert "s->n #x1/2+3i imag part is 3"
+    (= 3 (imag-part (string->number "#x1/2+3i"))))
+  (test-assert "s->n #x1+2i imag part is 2"
+    (= 2 (imag-part (string->number "#x1+2i"))))
+  (test-assert "s->n #b1+1i imag part is 1"
+    (= 1 (imag-part (string->number "#b1+1i"))))
   ;; Radix-valid digits only.
   (test-assert "#b1+2i rejected (2 not binary)" (rejects? "#b1+2i"))
   (test-assert "s->n #b1+2i" (not (string->number "#b1+2i")))

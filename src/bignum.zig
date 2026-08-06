@@ -864,6 +864,11 @@ pub fn stripUnderscores(s: []const u8, radix: u8, buf: []u8) ?[]const u8 {
 /// rejection over silent rounding).
 pub fn f64ExactI64(n: i64) bool {
     const f: f64 = @floatFromInt(n);
+    // The top 512 i64 values (2^63-512 .. 2^63-1) round UP to 2^63, which
+    // no longer fits the i64 destination of @intFromFloat -- a ReleaseSafe
+    // panic reachable from a one-line program (kaappi#2243 review). They
+    // never round-trip, so reject before the conversion.
+    if (f >= 9223372036854775808.0) return false;
     return @as(i64, @intFromFloat(f)) == n;
 }
 

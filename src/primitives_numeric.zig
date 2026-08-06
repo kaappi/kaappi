@@ -1185,6 +1185,14 @@ fn parseComplexComponent(gc: *@import("memory.zig").GC, part: []const u8, radix:
                 return .{ .val = bignum_mod.toF64(v), .exact = true };
             }
         }
+        // Special floats (+inf.0, -inf.0, +nan.0, -nan.0, case-insensitive)
+        // match the reader's complex-component grammar -- 3.0+inf.0i and
+        // +inf.0i read there -- but Zig's parseFloat does not accept them
+        // (#2243 review).
+        if (std.ascii.eqlIgnoreCase(part, "+inf.0")) return .{ .val = std.math.inf(f64), .exact = false };
+        if (std.ascii.eqlIgnoreCase(part, "-inf.0")) return .{ .val = -std.math.inf(f64), .exact = false };
+        if (std.ascii.eqlIgnoreCase(part, "+nan.0")) return .{ .val = std.math.nan(f64), .exact = false };
+        if (std.ascii.eqlIgnoreCase(part, "-nan.0")) return .{ .val = std.math.nan(f64), .exact = false };
         const f = std.fmt.parseFloat(f64, part) catch return null;
         return .{ .val = f, .exact = false };
     }
@@ -1443,9 +1451,18 @@ pub fn parseNumberText(gc: *@import("memory.zig").GC, text: []const u8, radix_in
                 if (is_integer) {
                     var nb: [256]u8 = undefined;
                     const clean = bignum_mod.stripUnderscores(body, 10, &nb) orelse return types.FALSE;
-                    const n = std.fmt.parseInt(i64, clean, 10) catch return types.FALSE;
-                    if (!bignum_mod.f64ExactI64(n)) return types.FALSE;
-                    imag_c = .{ .val = @as(f64, @floatFromInt(n)), .exact = true };
+                    if (std.fmt.parseInt(i64, clean, 10)) |n| {
+                        if (!bignum_mod.f64ExactI64(n)) return types.FALSE;
+                        imag_c = .{ .val = @as(f64, @floatFromInt(n)), .exact = true };
+                    } else |err| {
+                        if (err != error.Overflow) return types.FALSE;
+                        // Beyond i64: an exactly-representable magnitude
+                        // (1e19 = 5^19*2^19) qualifies, matching the
+                        // reader's signless pure-imaginary path (#2243).
+                        const v = bignum_mod.parseBignumString(gc, clean, 10) catch return types.FALSE;
+                        if (!bignum_mod.bignumExactInF64(v)) return types.FALSE;
+                        imag_c = .{ .val = bignum_mod.toF64(v), .exact = true };
+                    }
                 } else {
                     const f = std.fmt.parseFloat(f64, body) catch {
                         return types.FALSE;
