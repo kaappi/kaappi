@@ -91,9 +91,13 @@
 (define cyc (delay-force cyc))
 (test-equal 'caught (guard (e (#t 'caught)) (force cyc)))
 
-;; Direct re-entrant force — catchable error:
-(define selfp (delay (force selfp)))
-(test-equal 'caught (guard (e (#t 'caught)) (force selfp)))
+;; A `delay` whose thunk re-forces the same promise with no termination is
+;; unbounded recursion — the re-entrancy check above only sees cycles whose
+;; thunk RETURNS. It runs to the register-file cap and dies as an
+;; uncatchable KP3008 stack overflow, like any other runaway recursion; that
+;; half lives in tests/scheme/errors/error-format.sh (it would abort this
+;; file). The R7RS-legal *terminating* re-entrant form is pinned in
+;; tests/scheme/compliance/lazy.scm.
 
 ;;; --- stream-style self-reference after memoization ---
 (letrec ((ones (delay (cons 1 (delay (force ones))))))
