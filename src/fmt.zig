@@ -107,6 +107,7 @@ pub const ParseError = error{
     UnterminatedBlockComment,
     UnexpectedRightParen,
     DanglingPrefix,
+    DanglingDatumComment,
     NestingTooDeep,
     OutOfMemory,
 };
@@ -443,7 +444,16 @@ const Parser = struct {
                 .newlines_before = tok.newlines_before,
             },
             .prefix, .datum_comment => {
-                const target = try self.parsePrefixTarget();
+                // A prefix / datum-comment chain recurses once per token via
+                // parsePrefixTarget, so it must draw from the same depth budget
+                // as parseList — an unguarded chain overflows the native stack
+                // (kaappi#2141). Sharing `self.depth` also keeps mixed
+                // prefix+list nesting within the reader's single 1025 cap.
+                if (self.depth >= max_nesting) return ParseError.NestingTooDeep;
+                self.depth += 1;
+                defer self.depth -= 1;
+                const dangling = if (tok.kind == .prefix) ParseError.DanglingPrefix else ParseError.DanglingDatumComment;
+                const target = try self.parsePrefixTarget(dangling);
                 const child = try self.arena.alloc(Node, 1);
                 child[0] = target;
                 return .{
@@ -460,10 +470,13 @@ const Parser = struct {
     /// The datum a prefix binds to. A prefix immediately followed by a comment
     /// (rather than a datum) is degenerate; binding to it verbatim keeps the CST
     /// simple, and the round-trip check catches any resulting divergence.
-    fn parsePrefixTarget(self: *Parser) ParseError!Node {
+    /// `dangling` is the error to report when the input ends (or a `)` closes
+    /// the list) before a datum appears — the caller picks the wording for the
+    /// kind it parsed, so a `#;` is not misreported as a quote.
+    fn parsePrefixTarget(self: *Parser, dangling: ParseError) ParseError!Node {
         const tok = try self.take();
         return switch (tok.kind) {
-            .eof, .rparen => ParseError.DanglingPrefix,
+            .eof, .rparen => dangling,
             else => self.nodeFromTok(tok),
         };
     }
@@ -652,6 +665,7 @@ fn parseErrorMessage(err: ParseError) []const u8 {
         ParseError.UnterminatedBlockComment => "syntax error: unterminated block comment",
         ParseError.UnexpectedRightParen => "syntax error: unexpected ')'",
         ParseError.DanglingPrefix => "syntax error: quote/unquote with no datum",
+        ParseError.DanglingDatumComment => "syntax error: datum comment with no datum",
         ParseError.NestingTooDeep => "syntax error: nesting too deep",
         ParseError.OutOfMemory => "out of memory",
     };

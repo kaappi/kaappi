@@ -287,6 +287,63 @@ test "unexpected close paren is a format error" {
     try testing.expectError(fmt.ParseError.UnexpectedRightParen, fmt.formatSource(arena.allocator(), "a)"));
 }
 
+// kaappi#2141: every reader-prefix kind recurses through parsePrefixTarget,
+// which once bypassed the parseList-only max_nesting check and overflowed the
+// native stack (exit 134 at ~158000 on an 8 MB stack). The chain must instead
+// hit the same NestingTooDeep the reader enforces at 1025.
+test "deep prefix chain of every kind is a format error, not a crash" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const prefixes = [_][]const u8{ "'", "`", ",", ",@", "#;", "#1=" };
+    for (prefixes) |pfx| {
+        var src: std.ArrayList(u8) = .empty;
+        defer src.deinit(testing.allocator);
+        for (0..2000) |_| try src.appendSlice(testing.allocator, pfx);
+        try src.append(testing.allocator, 'x');
+        try testing.expectError(fmt.ParseError.NestingTooDeep, fmt.formatSource(arena.allocator(), src.items));
+    }
+}
+
+// Prefixes and lists draw from one shared depth budget (the reader counts both
+// toward its single 1025 cap), so a chain that mixes them must be rejected at
+// the same total depth — not once per kind.
+test "prefix and list nesting share one depth budget" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    var too_deep: std.ArrayList(u8) = .empty;
+    defer too_deep.deinit(testing.allocator);
+    try too_deep.appendNTimes(testing.allocator, '\'', 600);
+    try too_deep.appendNTimes(testing.allocator, '(', 600);
+    try too_deep.append(testing.allocator, 'x');
+    try too_deep.appendNTimes(testing.allocator, ')', 600);
+    try testing.expectError(fmt.ParseError.NestingTooDeep, fmt.formatSource(arena.allocator(), too_deep.items));
+
+    // 500 + 500 = 1000 stays under the cap and formats without recursion trouble.
+    var legal: std.ArrayList(u8) = .empty;
+    defer legal.deinit(testing.allocator);
+    try legal.appendNTimes(testing.allocator, '\'', 500);
+    try legal.appendNTimes(testing.allocator, '(', 500);
+    try legal.append(testing.allocator, 'x');
+    try legal.appendNTimes(testing.allocator, ')', 500);
+    const want = try std.mem.concat(testing.allocator, u8, &.{ legal.items, "\n" });
+    defer testing.allocator.free(want);
+    try expectFormat(legal.items, want);
+}
+
+test "a dangling datum comment is a distinct error from a dangling quote" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    // `#;` at EOF, at a close paren, or as a file's only content.
+    try testing.expectError(fmt.ParseError.DanglingDatumComment, fmt.formatSource(arena.allocator(), "#;"));
+    try testing.expectError(fmt.ParseError.DanglingDatumComment, fmt.formatSource(arena.allocator(), "#; \n"));
+    try testing.expectError(fmt.ParseError.DanglingDatumComment, fmt.formatSource(arena.allocator(), "(#;)"));
+    // The prefix wording is untouched for actual prefixes.
+    try testing.expectError(fmt.ParseError.DanglingPrefix, fmt.formatSource(arena.allocator(), "'"));
+    try testing.expectError(fmt.ParseError.DanglingPrefix, fmt.formatSource(arena.allocator(), "(`)"));
+    try testing.expectError(fmt.ParseError.DanglingPrefix, fmt.formatSource(arena.allocator(), ",@"));
+}
+
 test "empty input yields empty output" {
     try expectFormat("", "");
     try expectFormat("   \n\n  ", "");

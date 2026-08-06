@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`kaappi fmt` no longer stack-overflows on a long reader-prefix chain**
+  (#2141). The CST parser's depth cap (`max_nesting`, 1024) was enforced by
+  `parseList` and by nothing else: a chain of `'`, `` ` ``, `,`, `,@`, `#N=`
+  or `#;` recurses once per prefix through `parsePrefixTarget` without
+  touching `self.depth`, so ~158000 prefixes (an 8 MB stack; every prefix
+  kind verified at 200000) ran the native stack out — `fmt` exited 134, and
+  `fmt --check`, the documented CI gate, died the same way. The prefix and
+  datum-comment path now draws from the same `max_nesting` budget as
+  `parseList`, sharing one counter so mixed prefix+list nesting is rejected
+  at the reader's own 1025 level; the printer's `emitNode`/`computeMeasure`
+  recursion over the same chain is bounded by that cap. A dangling `#;` at
+  end of input is also reported as `syntax error: datum comment with no
+  datum` instead of being mislabelled `quote/unquote with no datum`.
+
 - **The register file grows to its documented 65536-register cap instead of
   silently stopping at 4096, and running off its end is an uncatchable KP3008**
   (#2035). A tail-position call (`tail_call`, `tail_apply`, `tail_call_global`,
