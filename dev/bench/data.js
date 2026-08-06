@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785995066191,
+  "lastUpdate": 1785998516995,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "49699333+dependabot[bot]@users.noreply.github.com",
-            "name": "dependabot[bot]",
-            "username": "dependabot[bot]"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "fab1e9e9864d8b9b0caf98df3609801924cefe37",
-          "message": "Bump vmactions/netbsd-vm from 1.4.3 to 1.4.4 in the github-actions group (#1970)\n\nBumps the github-actions group with 1 update: [vmactions/netbsd-vm](https://github.com/vmactions/netbsd-vm).\n\n\nUpdates `vmactions/netbsd-vm` from 1.4.3 to 1.4.4\n- [Release notes](https://github.com/vmactions/netbsd-vm/releases)\n- [Commits](https://github.com/vmactions/netbsd-vm/compare/fac0a63f3e5244c600cb9ca532d27ee774ecdb4b...bf34bcd909bb50856f934a67d09a8fbe2b966a1b)\n\n---\nupdated-dependencies:\n- dependency-name: vmactions/netbsd-vm\n  dependency-version: 1.4.4\n  dependency-type: direct:production\n  update-type: version-update:semver-patch\n  dependency-group: github-actions\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
-          "timestamp": "2026-08-01T02:31:30+05:30",
-          "tree_id": "0e04d110683f4745caedbdc00e29ef9edc2bcc65",
-          "url": "https://github.com/kaappi/kaappi/commit/fab1e9e9864d8b9b0caf98df3609801924cefe37"
-        },
-        "date": 1785537513088,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.927184,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.157308,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.560264,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.816146,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004844,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.045731,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.295585,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054657,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.31871,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.157812,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.577712,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.296566,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.675182,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.765222,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044383,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.048025,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ebc0cb3299e49645097b11fc01c75c498a9a5a87",
+          "message": "Fix three SRFI audit defects: hashmap comparators, bag clamps, eager-comprehension early exit (#2233)\n\n* Fix three SRFI audit defects: hashmap comparators, bag clamps, eager-comprehension early exit\n\nThree wrong-result/hang bugs found by the systematic audit, all in portable\nSRFI libraries. One PR because each is a small, self-contained library fix.\n\n(srfi 146 hash) discarded its comparator (#2044). Every constructor built a\nbare (make-hash-table), so key identity was always equal? regardless of the\ncomparator the caller supplied — 1 and 1.0 stayed distinct keys under a\ncomparator whose equality is =, and a case-insensitive string comparator\nnever matched Foo to foo, while the ordered (srfi 146) sibling got both\nright. All nine make-hash-table call sites now thread the comparator\nthrough; the built-in SRFI-69 table detects the <comparator> record and\nfalls into .custom mode, calling its equality and hash functions.\n\nSRFI-113 bags could hold negative multiplicities (#2085). bag-increment!\nignored the spec's \"but not less than zero\" clamp, and bag-product never\nvalidated n (the reference implementation's valid-n discards its result),\nso bag->list, bag-for-each and bag-fold — each expanding a multiplicity\nwith (= i count) — looped forever on a negative count, consing without\nbound. bag-increment! now drops the element when the result would be\nnon-positive, matching bag-decrement!; bag-product! clamps a negative n at\nzero; and the three loops test (>= i count) so no count value can hang\nthem, whatever route produced it.\n\nfirst-ec/any?-ec/every?-ec materialized the whole comprehension (#2179).\nfirst-ec expanded to list-ec and took car, and the two predicates ran the\nfull do-ec loop, so (first-ec #f (:integers i) i) hung despite SRFI 42\ngiving all three early-exit semantics. Each now allocates its own stop\nflag and sets it from the body; every %do-ec generator loop checks the\nflag before each iteration, so setting it unwinds the comprehension.\n\nRe-enables the disabled assertions for all three issues in\nsrfi146-differential.scm, srfi113-audit.scm and srfi42.scm (new early-exit\ntests with infinite generators and work measurement).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Document first-ec's eager default and the cyclic-key depth-cap follow-up\n\nReview of #2233 flagged two non-blocking observations; this commit records\nboth where they belong.\n\nfirst-ec now evaluates its default argument eagerly — the new stop-flag\nshape seeds %result with default up front, where the old list-ec/car shape\nonly touched it when the comprehension was empty. That matches the SRFI 42\nreference implementation ((let ((result default) (stop #f)) ...) in\nec.scm), so it is more conformant, not a regression; the comment and the\nCHANGELOG entry now say so explicitly so it is not 'fixed' back later.\n\nAnd the #2044 side effect the test comment already noted — a\nmake-default-comparator hashmap keys in .custom mode and runs SRFI-128's\ndefault-hash, which recurses without a depth limit — is now spelled out\nwith its consequence: a cyclic key hits the stack cap (KP3008, uncatchable)\nwhere the old depth-capped native hash absorbed it. Tracked as kaappi#2235.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Stop comprehension generator steps early, and pin every changed call site\n\nCodeRabbit review of #2233 caught a real conformance gap in the early-exit\nmechanism (its other seven points were either word-level nits or requests\nthis repo's audit-file conventions already satisfy, or misread the native\nSRFI-69 comparator path the maintainer had verified).\n\nA stopped comprehension advanced every enclosing generator one extra time:\nthe reference's :until fusion folds the stop check into the loop's step\ntest (do-ec:do runs (loop ls ...) only when ne2? holds), and our own :do\nrule already guarded its step with (not s) — but the typed-generator rules\nstepped first and re-tested at the top of the next iteration. For :range\nthe extra step is pure arithmetic and invisible; for :port it read one\nextra datum, for :dispatched it called the generator procedure once more,\nand %parallel advanced every generator — observable with any stateful\ngenerator, and newly reachable since first-ec/any?-ec/every?-ec started\nstopping early (#2179). Every generator rule now guards its step with\n(unless s ...), matching the :do rule and the reference.\n\nRegression coverage: first-ec over :port reads exactly one datum,\nany?-ec over :port stops without over-reading, and first-ec over\n:dispatched / :parallel advances each generator exactly once.\n\nAlso from the review, two test-strengthening points adopted:\n- srfi113-audit.scm: bag-product with a negative n is now asserted to\n  yield an exactly empty bag (was a >=-on-size check), and the loop guard\n  is pinned with alist->bag negative stored counts — the one producer no\n  clamp covers, so only (>= i count) stands between it and a hang.\n- srfi146-differential.scm: every changed make-hash-table site\n  (hashmap-unfold, hashmap-map, hashmap-partition, alist->hashmap,\n  hashmap-intersection, hashmap-difference, hashmap-xor) now gets a\n  comparator-sensitive assertion using a comparator whose equality is =,\n  where 1 and 1.0 merge only if the comparator actually keys the table.\n\nCHANGELOG: correct \"nine call sites\" to \"ten calls across nine\nconstructors\" (hashmap-partition builds two tables), and note the\nguarded-step behavior in the #2179 entry.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-06T06:04:19Z",
+          "tree_id": "2e8543fcf79e8ccc7eff846bf66ac3146ecd672a",
+          "url": "https://github.com/kaappi/kaappi/commit/ebc0cb3299e49645097b11fc01c75c498a9a5a87"
+        },
+        "date": 1785998514849,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.18664,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.33057,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.436531,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.297057,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004447,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.036181,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.245829,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.042944,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.260805,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.056234,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.228869,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.222968,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.404673,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.840897,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.033237,
             "unit": "seconds"
           }
         ]
