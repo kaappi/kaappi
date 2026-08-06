@@ -1789,14 +1789,12 @@ fn writeStringFn(args: []const Value) PrimitiveError!Value {
         const s = types.toFixnum(args[2]);
         if (s < 0) return primitives.typeError("write-string", "non-negative integer", args[2]);
         start_raw = s;
-        start_cp = @intCast(s);
     }
     if (args.len > 3) {
         if (!types.isFixnum(args[3])) return primitives.typeError("write-string", "integer", args[3]);
         const e = types.toFixnum(args[3]);
         if (e < 0) return primitives.typeError("write-string", "non-negative integer", args[3]);
         end_raw = e;
-        end_cp = @intCast(e);
     }
     // Report the *index* that is out of range, not the string: `args[0]` is
     // the one argument here that is never at fault, and `substring` (the
@@ -1804,15 +1802,19 @@ fn writeStringFn(args: []const Value) PrimitiveError!Value {
     // inverted-but-in-range pair is neither a type nor a range fault, so it
     // is argError rather than indexError.
     //
-    // The range checks compare the raw fixnums in u64 BEFORE the narrowing
-    // casts: on wasm32 (usize = u32) a fixnum-range index would truncate and
-    // slip past `end_cp > cp_count` (kaappi#1912).  Check order and the
-    // reported index are unchanged from the pre-fix code on 64-bit hosts.
+    // The range checks compare the raw fixnums in u64 BEFORE any narrowing:
+    // on wasm32 (usize = u32) a fixnum-range index would otherwise truncate
+    // and slip past `end_cp > cp_count`, or panic @intCast on a safety-checked
+    // build (kaappi#1912).  The narrowing casts run only after the checks
+    // pass.  Check order and the reported index are unchanged from the
+    // pre-fix code on 64-bit hosts.
     if (!primitives.fixnumIndexInBoundsInclusive(end_raw, cp_count)) return primitives.indexError("write-string", end_raw, cp_count);
     if (!primitives.fixnumIndexInBoundsInclusive(start_raw, cp_count)) return primitives.indexError("write-string", start_raw, cp_count);
-    if (start_raw > end_raw) return primitives.argError("write-string", "start {d} is greater than end {d}", .{ start_cp, end_cp });
-    const byte_start = string_mod.utf8IndexToByteOffset(data, start_cp) orelse return primitives.indexError("write-string", @intCast(start_cp), cp_count);
-    const byte_end = string_mod.utf8IndexToByteOffset(data, end_cp) orelse return primitives.indexError("write-string", @intCast(end_cp), cp_count);
+    if (start_raw > end_raw) return primitives.argError("write-string", "start {d} is greater than end {d}", .{ start_raw, end_raw });
+    start_cp = @intCast(start_raw);
+    end_cp = @intCast(end_raw);
+    const byte_start = string_mod.utf8IndexToByteOffset(data, start_cp) orelse return primitives.indexError("write-string", start_raw, cp_count);
+    const byte_end = string_mod.utf8IndexToByteOffset(data, end_cp) orelse return primitives.indexError("write-string", end_raw, cp_count);
     try portWriteBytes(port, data[byte_start..byte_end]);
     return types.VOID;
 }

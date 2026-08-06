@@ -63,6 +63,8 @@
     (cons "string-copy!"       (lambda (i) (string-copy! s i "xy")))
     (cons "string-take"        (lambda (i) (string-take s i)))
     (cons "string-drop"        (lambda (i) (string-drop s i)))
+    (cons "string-take-right"  (lambda (i) (string-take-right s i)))
+    (cons "string-drop-right"  (lambda (i) (string-drop-right s i)))
     (cons "string-replace"     (lambda (i) (string-replace s "X" i (+ i 1))))
     (cons "take"               (lambda (i) (take '(1 2 3) i)))
     (cons "split-at"           (lambda (i) (split-at '(1 2 3) i)))

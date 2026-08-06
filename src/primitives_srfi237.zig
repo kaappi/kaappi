@@ -356,7 +356,6 @@ fn recordSplitArgsFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const suffix_len_raw = try expectFixnum("%record-split-args", args[1]);
     if (suffix_len_raw < 0) return PrimitiveError.TypeError; // bare-ok: internal record primitive
-    const suffix_len: usize = @intCast(suffix_len_raw);
     var buf: [256]Value = undefined;
     var n: usize = 0;
     var cur = args[0];
@@ -368,8 +367,11 @@ fn recordSplitArgsFn(args: []const Value) PrimitiveError!Value {
         cur = types.cdr(cur);
     }
     // u64 comparison before narrowing (kaappi#1912): on wasm32 a fixnum-range
-    // suffix would truncate and pass the check against a short list.
+    // suffix would truncate and pass the check against a short list, or panic
+    // @intCast on a safety-checked build.  The narrowing runs only after the
+    // check passes.
     if (!primitives.fixnumIndexInBoundsInclusive(suffix_len_raw, n)) return PrimitiveError.TypeError; // bare-ok: internal record primitive
+    const suffix_len: usize = @intCast(suffix_len_raw);
     const split = n - suffix_len;
 
     var prefix = gc.makeList(buf[0..split]) catch return PrimitiveError.OutOfMemory;
