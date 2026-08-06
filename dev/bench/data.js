@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786005718867,
+  "lastUpdate": 1786016916011,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5fdc06de60ce50a6e0b7efb163cfa185cf0e5445",
-          "message": "Phase 2.5: SRFI 237 audit — 186 assertions, and a 27-field record aborts the process (#1975)\n\n* Audit primitives_srfi237.zig: 186 assertions, one uncatchable panic\n\nPhase 2.5 of the v2 audit campaign (docs/audit-strategy.md, #1890). The\nfile had no audit test and postdates the v1 campaign entirely.\n\nCovers all 18 specs, the R6RS `define-record-type` desugarer that shares\ntheir enforcement helpers, and the portable layer in lib/srfi/237.sld\nthat is their only other caller. The oracle is R6RS Library chapter 6:\nSRFI 237 defines every one of these as \"equivalent to the procedure with\nthe same name in R6RS\", so R6RS's own sentences are quoted beside the\nassertions they justify.\n\nConfirmed correct, with the assertions to keep it that way:\n\n  * Protocol composition over a 4-level chain, all 16 present/absent\n    combinations, plus the rule that a protocol runs once per\n    record-constructor call and never per instance.\n  * Field shadowing — a child redeclaring an ancestor's field name gets\n    its own slot, its own mutability, and leaves the ancestor's readable.\n  * sealed, enforced identically from both layers via one shared helper.\n  * nongenerative uid reuse, and all four R6RS equivalence axes rejected\n    with the differing axis named. The type NAME is correctly not an axis.\n  * A nongenerative record survives thread-join! with its identity, by\n    uid re-resolution in gc_deep_copy.\n  * All 18 arities match their bodies; all 18 reject bad input catchably.\n\nDisabled, each paired with an enabled control (26 markers):\n\n  * A record type with 27 or more fields PANICS on instantiation —\n    allocRecordInstance sizes itself in u8 arithmetic. Uncatchable, and\n    reachable from plain R7RS define-record-type, not just SRFI 237.\n    Control: 26 fields works.\n  * record-type-field-names returns a list; R6RS requires a vector.\n  * record-accessor/record-mutator take k as an absolute index across\n    inherited fields; R6RS requires an own-field index. Control: the\n    by-name path resolves per level correctly, and record-field-mutable?\n    already uses own-field indexing on the same rtd.\n  * The opaque flag is stored but never enforced: record? answers #t,\n    record-rtd returns the rtd, and opacity is not inherited.\n  * record-mutator does not reject an immutable field.\n  * Three specified names are absent and undocumented: the 7-argument\n    make-record-descriptor, make-record-constructor-descriptor, and\n    record-constructor-descriptor?.\n\nAlso pins the current behaviour of #1914 (own-field 255-limit overflow\nreports a bare TypeError blaming args[0] while the inherited path reports\nit precisely), #1915 (constructor arity unchecked, so an extra argument\nsilently shifts the field layout) and #1932, so their fixes flip a test.\n\nDiscovery only — no source changes.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Point SRFI 237 FAIL markers at the filed issues\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T03:36:47+05:30",
-          "tree_id": "820e20c4c901e51210b7a60b1232818cdf755dc3",
-          "url": "https://github.com/kaappi/kaappi/commit/5fdc06de60ce50a6e0b7efb163cfa185cf0e5445"
-        },
-        "date": 1785540559899,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.270532,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.122883,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.606205,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.950425,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004715,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04682,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.315995,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057198,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.719247,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.205352,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.611071,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.2911,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.784604,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.698868,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044987,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.033435,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cec32b6cab3e04c67041b85061fd35fae7b4aae3",
+          "message": "Make the register file grow to its documented cap and report the limit as KP3008 (#2035) (#2240)\n\n* Make the register file grow to its documented cap and report the limit as KP3008 (#2035)\n\nA tail-position call replaces the current frame's code in place, but the\nframe's register window is unchanged — and until now nothing re-ensured\nroom for the callee's locals_count. The register file therefore silently\nstopped growing at the replaced frame's smaller window: 819 nested\ndynamic-wind extents (or a pure-Scheme stand-in of the same shape)\naborted an ordinary program at 4096 registers, 6% of the documented\n65536, and registerIndex reported the overrun as InvalidBytecode — a\ncatchable KP9001 \"internal error\" whose guard-swallowed error object\ncarried the bare message \"error\".\n\nEvery in-place replacement site now re-ensures the same bound callClosure\nguarantees when it builds a fresh frame — base + max(arg_count,\nlocals_count) + 1, so a variadic callee's rest slot is covered too:\ntail_call, tail_apply, tail_call_global, tail_call_cc's receiver, and\ntail eval. registerIndex returns StackOverflow (KP3008) for a register-\nfile overrun instead of InvalidBytecode, matching ensureRegisterCapacity\nand the frame stack, so the failure is uncatchable like every other VM\nlimit (#1886).\n\nTwo tests had been relying on the bug: \"re-entrant force is catchable\"\nin gc-root-growth.scm and the audit's \"direct re-entrant force\" case\npassed because (delay (force selfp)) died early at the 4096 cliff with a\ncatchable-but-degenerate error. That recursion is genuinely unbounded —\nthe SRFI-45 re-entrancy check only sees cycles whose thunk returns — so\nit now correctly runs to the register-file cap and is reported as an\nuncatchable stack overflow; the unbounded half moved to error-format.sh\nand the terminating R7RS 4.2.5 form is pinned instead. The 1000-deep\ndynamic-wind audit test is re-enabled, and error-format.sh pins that a\nregister-file exhaustion reports KP3008 and no guard swallows it.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Split the #2035 smoke coverage out of the #1191 regression file\n\ngc-root-growth.scm is a regression test for #1191 (native re-entrancy must\nnot panic with \"GC root stack overflow\") and now contains only that test.\nThe re-entrant promise and deep-dynamic-wind checks that pin the #2035\nregister-growth fix move to a dedicated smoke file named for the issue,\nkeeping each file scoped to the regression it guards.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-06T16:43:51+05:30",
+          "tree_id": "c6036c47768dc6356f8b82f7ad8541e126c3f3ab",
+          "url": "https://github.com/kaappi/kaappi/commit/cec32b6cab3e04c67041b85061fd35fae7b4aae3"
+        },
+        "date": 1786016914325,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.241049,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.346542,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.567431,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.953034,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004637,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046424,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.309902,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056168,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.692858,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.223638,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.571575,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.281156,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.798022,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.626779,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043803,
             "unit": "seconds"
           }
         ]
