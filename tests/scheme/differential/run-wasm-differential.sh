@@ -79,9 +79,11 @@
 # imports for exactly this reason and carry a hand-rolled `(exit 1)` instead,
 # because LIBDIFF would have destroyed what they exist to measure --
 # `deep-nesting-print.scm` and
-# `large-index-bounds-1912.scm` (both KNOWN_DIFFS entries below, for #2107 and
-# #1912) and `deep-nesting-print-tier-margin.scm` (the positive control that
-# keeps #2107's margin under watch).  Do not "tidy" those three into SRFI-64.
+# `large-index-bounds-1912.scm` (the latter's KNOWN_DIFFS entry for #1912 was
+# deleted when the fix made the tiers agree again -- it remains the cross-tier
+# large-index probe) and `deep-nesting-print-tier-margin.scm` (the positive
+# control that keeps #2107's margin under watch).  Do not "tidy" those three
+# into SRFI-64.
 # They are three of the FOUR hand-rolled-verdict files; the fourth,
 # `continuations/coroutine-repl-echo.scm`, is exempt for an unrelated reason and
 # is not a tier probe.  tests/scheme/CLAUDE.md holds the single inventory table.
@@ -194,15 +196,15 @@ fi
 #   over a file-backed .sld, the same resolver failure as the LIBDIFF bucket,
 #   but reported through cond-expand rather than a KP2001, so it does not
 #   match that bucket's signature.
-# large-index-bounds-1912.scm kaappi#1912 — index arguments are truncated to
-#   u32 inside the bounds check on wasm32, so 2^32+1 aliases element 1: a
-#   silent wrong read, and a silent wrong WRITE. Written as a probe for this
-#   harness; see its header for the control that pins it to truncation.
+# large-index-bounds-1912.scm kaappi#1912 -- FIXED: index arguments are now
+#   bounds-checked in u64 before any narrowing to usize (usize = u32 on
+#   wasm32), so 2^32+1 raises instead of aliasing element 1.  The KNOWN_DIFFS
+#   entry was deleted when the tiers agreed; the file remains in the corpus as
+#   the cross-tier large-index regression probe.
 KNOWN_DIFFS="
 deep-nesting-print.scm
 command-line-o-flag.scm
 condexpand-include-lib-868-879.scm
-large-index-bounds-1912.scm
 "
 
 is_known_diff() {

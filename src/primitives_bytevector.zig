@@ -80,7 +80,8 @@ fn bytevectorU8Ref(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[1])) return primitives.typeError("bytevector-u8-ref", "exact integer", args[1]);
     const bv = types.toBytevector(args[0]);
     const idx = types.toFixnum(args[1]);
-    if (idx < 0 or @as(usize, @intCast(idx)) >= bv.data.len) return primitives.typeError("bytevector-u8-ref", "valid index", args[1]);
+    // u64 comparison before narrowing (kaappi#1912): see fixnumIndexInBounds.
+    if (!primitives.fixnumIndexInBounds(idx, bv.data.len)) return primitives.typeError("bytevector-u8-ref", "valid index", args[1]);
     return types.makeFixnum(@intCast(bv.data[@intCast(@as(u64, @bitCast(idx)))]));
 }
 
@@ -92,7 +93,8 @@ fn bytevectorU8Set(args: []const Value) PrimitiveError!Value {
     const bv = types.toBytevector(args[0]);
     const idx = types.toFixnum(args[1]);
     const val = types.toFixnum(args[2]);
-    if (idx < 0 or @as(usize, @intCast(idx)) >= bv.data.len) return primitives.typeError("bytevector-u8-set!", "valid index", args[1]);
+    // u64 comparison before narrowing (kaappi#1912): see fixnumIndexInBounds.
+    if (!primitives.fixnumIndexInBounds(idx, bv.data.len)) return primitives.typeError("bytevector-u8-set!", "valid index", args[1]);
     if (val < 0 or val > 255) return primitives.typeError("bytevector-u8-set!", "exact integer 0-255", args[2]);
     // Lever D copy-on-write (kaappi#1472): if this bytevector borrows a shared
     // immutable buffer, privatize it before writing. No-op otherwise.
@@ -123,6 +125,9 @@ fn bytevectorCopyBang(args: []const Value) PrimitiveError!Value {
     const to = types.toBytevector(args[0]);
     const at_val = types.toFixnum(args[1]);
     if (at_val < 0) return primitives.typeError("bytevector-copy!", "non-negative integer", args[1]);
+    // u64 comparison before narrowing (kaappi#1912): on wasm32 a fixnum-range
+    // at would truncate and pass the at+count check against a short bytevector.
+    if (!primitives.fixnumIndexInBoundsInclusive(at_val, to.data.len)) return primitives.typeError("bytevector-copy!", "valid range", args[0]);
     const at: usize = @intCast(@as(u64, @bitCast(at_val)));
     const from = types.toBytevector(args[2]);
 

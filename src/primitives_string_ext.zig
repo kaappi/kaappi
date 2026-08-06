@@ -463,6 +463,9 @@ fn stringTakeFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[1])) return primitives.typeError("string-take", "integer", args[1]);
     const nv = types.toFixnum(args[1]);
     if (nv < 0) return primitives.typeError("string-take", "non-negative integer", args[1]);
+    // u64 comparison before narrowing (kaappi#1912): on wasm32 a fixnum-range
+    // count would truncate and silently take fewer chars.
+    if (!primitives.fixnumIndexInBoundsInclusive(nv, utf8CodepointCount(data))) return PrimitiveError.IndexOutOfBounds;
     const n: usize = @intCast(nv);
     const byte_end = pstr.utf8IndexToByteOffset(data, n) orelse return PrimitiveError.IndexOutOfBounds;
     return gc.allocString(data[0..byte_end]) catch return PrimitiveError.OutOfMemory;
@@ -474,6 +477,9 @@ fn stringDropFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[1])) return primitives.typeError("string-drop", "integer", args[1]);
     const nv = types.toFixnum(args[1]);
     if (nv < 0) return primitives.typeError("string-drop", "non-negative integer", args[1]);
+    // u64 comparison before narrowing (kaappi#1912): on wasm32 a fixnum-range
+    // count would truncate and silently drop fewer chars.
+    if (!primitives.fixnumIndexInBoundsInclusive(nv, utf8CodepointCount(data))) return PrimitiveError.IndexOutOfBounds;
     const n: usize = @intCast(nv);
     const byte_start = pstr.utf8IndexToByteOffset(data, n) orelse return PrimitiveError.IndexOutOfBounds;
     return gc.allocString(data[byte_start..]) catch return PrimitiveError.OutOfMemory;
@@ -485,9 +491,11 @@ fn stringTakeRightFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[1])) return primitives.typeError("string-take-right", "integer", args[1]);
     const nv = types.toFixnum(args[1]);
     if (nv < 0) return primitives.typeError("string-take-right", "non-negative integer", args[1]);
-    const n: usize = @intCast(nv);
     const total_cp = utf8CodepointCount(data);
-    if (n > total_cp) return PrimitiveError.IndexOutOfBounds;
+    // u64 comparison before narrowing (kaappi#1912): on wasm32 a fixnum-range
+    // count would truncate and pass the n > total_cp check below.
+    if (!primitives.fixnumIndexInBoundsInclusive(nv, total_cp)) return PrimitiveError.IndexOutOfBounds;
+    const n: usize = @intCast(nv);
     if (n == total_cp) return gc.allocString(data) catch return PrimitiveError.OutOfMemory;
     const byte_start = pstr.utf8IndexToByteOffset(data, total_cp - n) orelse return PrimitiveError.IndexOutOfBounds;
     return gc.allocString(data[byte_start..]) catch return PrimitiveError.OutOfMemory;
@@ -499,9 +507,11 @@ fn stringDropRightFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[1])) return primitives.typeError("string-drop-right", "integer", args[1]);
     const nv = types.toFixnum(args[1]);
     if (nv < 0) return primitives.typeError("string-drop-right", "non-negative integer", args[1]);
-    const n: usize = @intCast(nv);
     const total_cp = utf8CodepointCount(data);
-    if (n > total_cp) return PrimitiveError.IndexOutOfBounds;
+    // u64 comparison before narrowing (kaappi#1912): on wasm32 a fixnum-range
+    // count would truncate and pass the n > total_cp check below.
+    if (!primitives.fixnumIndexInBoundsInclusive(nv, total_cp)) return PrimitiveError.IndexOutOfBounds;
+    const n: usize = @intCast(nv);
     if (n == total_cp) return gc.allocString("") catch return PrimitiveError.OutOfMemory;
     const byte_end = pstr.utf8IndexToByteOffset(data, total_cp - n) orelse return PrimitiveError.IndexOutOfBounds;
     return gc.allocString(data[0..byte_end]) catch return PrimitiveError.OutOfMemory;
@@ -652,9 +662,15 @@ fn stringReplaceFn(args: []const Value) PrimitiveError!Value {
     const ev = types.toFixnum(args[3]);
     if (sv < 0) return primitives.typeError("string-replace", "non-negative integer", args[2]);
     if (ev < 0) return primitives.typeError("string-replace", "non-negative integer", args[3]);
+    // u64 comparisons before narrowing (kaappi#1912): on wasm32 a fixnum-range
+    // index would truncate and alias an in-range codepoint.  Order preserved
+    // from the pre-fix code so the reported fault is unchanged on 64-bit.
+    const cp_count1 = utf8CodepointCount(data1);
+    if (@as(u64, @intCast(sv)) > @as(u64, @intCast(ev))) return primitives.typeError("string-replace", "valid index range (start <= end)", args[2]);
+    if (!primitives.fixnumIndexInBoundsInclusive(sv, cp_count1)) return PrimitiveError.IndexOutOfBounds;
+    if (!primitives.fixnumIndexInBoundsInclusive(ev, cp_count1)) return PrimitiveError.IndexOutOfBounds;
     const start: usize = @intCast(sv);
     const end: usize = @intCast(ev);
-    if (start > end) return primitives.typeError("string-replace", "valid index range (start <= end)", args[2]);
     const byte_start = pstr.utf8IndexToByteOffset(data1, start) orelse return PrimitiveError.IndexOutOfBounds;
     const byte_end = pstr.utf8IndexToByteOffset(data1, end) orelse return PrimitiveError.IndexOutOfBounds;
     const s2_range = try parseStartEnd(full_data2, args, 4);

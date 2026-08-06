@@ -284,7 +284,9 @@ fn numericVectorRefFn(args: []const Value) PrimitiveError!Value {
     const raw_idx = types.toFixnum(args[1]);
     const width = nv.kind.elementWidth();
     const len = nv.data.len / width;
-    if (raw_idx < 0 or @as(usize, @intCast(raw_idx)) >= len) return indexError("%numeric-vector-ref", raw_idx, len);
+    // u64 comparison before narrowing (kaappi#1912): see fixnumIndexInBounds --
+    // the same hazard makeNumericVectorFn guards for the length argument.
+    if (raw_idx < 0 or !primitives.fixnumIndexInBounds(raw_idx, len)) return indexError("%numeric-vector-ref", raw_idx, len);
     const idx: usize = @intCast(raw_idx);
     return decodeElement(gc, nv.kind, nv.data[idx * width ..][0..width]);
 }
@@ -296,7 +298,8 @@ fn numericVectorSetFn(args: []const Value) PrimitiveError!Value {
     const raw_idx = types.toFixnum(args[1]);
     const width = nv.kind.elementWidth();
     const len = nv.data.len / width;
-    if (raw_idx < 0 or @as(usize, @intCast(raw_idx)) >= len) return indexError("%numeric-vector-set!", raw_idx, len);
+    // u64 comparison before narrowing (kaappi#1912): see fixnumIndexInBounds.
+    if (raw_idx < 0 or !primitives.fixnumIndexInBounds(raw_idx, len)) return indexError("%numeric-vector-set!", raw_idx, len);
     const idx: usize = @intCast(raw_idx);
     try encodeElement("%numeric-vector-set!", nv.kind, args[2], nv.data[idx * width ..][0..width]);
     return types.VOID;

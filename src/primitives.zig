@@ -538,6 +538,22 @@ pub fn argError(proc: []const u8, comptime explanation: []const u8, fmt_args: an
     return PrimitiveError.InvalidArgument;
 }
 
+/// Whether non-negative fixnum `idx` is strictly inside `len` on every
+/// target, by comparing in u64 BEFORE any narrowing to usize.  On wasm32
+/// (usize = u32) a fixnum-range index (up to 2^47) would otherwise truncate
+/// inside a `@as(usize, @intCast(...))` bounds comparison and silently alias
+/// an in-range element -- a wrong read, and for the set! family a wrong
+/// write (kaappi#1912).  `fixnumIndexInBoundsInclusive` is the range-end
+/// variant (start/end pairs), where an index equal to the length is legal.
+pub inline fn fixnumIndexInBounds(idx: i64, len: usize) bool {
+    return idx >= 0 and @as(u64, @intCast(idx)) < @as(u64, len);
+}
+
+/// `fixnumIndexInBounds`, but inclusive: `idx <= len`.
+pub inline fn fixnumIndexInBoundsInclusive(idx: i64, len: usize) bool {
+    return idx >= 0 and @as(u64, @intCast(idx)) <= @as(u64, len);
+}
+
 pub const Range = struct { start: usize, end: usize };
 
 pub fn parseOptionalRange(args: []const Value, arg_offset: usize, max_len: usize, proc_name: []const u8) PrimitiveError!Range {
@@ -546,13 +562,13 @@ pub fn parseOptionalRange(args: []const Value, arg_offset: usize, max_len: usize
     if (args.len > arg_offset) {
         if (!types.isFixnum(args[arg_offset])) return typeError(proc_name, "exact integer", args[arg_offset]);
         const s = types.toFixnum(args[arg_offset]);
-        if (s < 0 or @as(usize, @intCast(s)) > max_len) return typeError(proc_name, "valid index", args[arg_offset]);
+        if (!fixnumIndexInBoundsInclusive(s, max_len)) return typeError(proc_name, "valid index", args[arg_offset]);
         start = @intCast(s);
     }
     if (args.len > arg_offset + 1) {
         if (!types.isFixnum(args[arg_offset + 1])) return typeError(proc_name, "exact integer", args[arg_offset + 1]);
         const e = types.toFixnum(args[arg_offset + 1]);
-        if (e < 0 or @as(usize, @intCast(e)) > max_len) return typeError(proc_name, "valid index", args[arg_offset + 1]);
+        if (!fixnumIndexInBoundsInclusive(e, max_len)) return typeError(proc_name, "valid index", args[arg_offset + 1]);
         end = @intCast(e);
     }
     if (start > end) return typeError(proc_name, "start <= end", args[arg_offset]);
@@ -1064,8 +1080,9 @@ fn recordRefFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[1])) return typeError("%record-ref", "exact integer", args[1]);
     const raw_idx = types.toFixnum(args[1]);
     if (raw_idx < 0) return PrimitiveError.TypeError; // bare-ok: internal record primitive
+    // u64 comparison before narrowing (kaappi#1912): see fixnumIndexInBounds.
+    if (!fixnumIndexInBounds(raw_idx, ri.fields.len)) return indexError("%record-ref", raw_idx, ri.fields.len);
     const idx: usize = @intCast(raw_idx);
-    if (idx >= ri.fields.len) return indexError("%record-ref", raw_idx, ri.fields.len);
     return ri.fields[idx];
 }
 
@@ -1079,8 +1096,9 @@ fn recordSetFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[1])) return typeError("%record-set!", "exact integer", args[1]);
     const raw_idx = types.toFixnum(args[1]);
     if (raw_idx < 0) return PrimitiveError.TypeError; // bare-ok: internal record primitive
+    // u64 comparison before narrowing (kaappi#1912): see fixnumIndexInBounds.
+    if (!fixnumIndexInBounds(raw_idx, ri.fields.len)) return indexError("%record-set!", raw_idx, ri.fields.len);
     const idx: usize = @intCast(raw_idx);
-    if (idx >= ri.fields.len) return indexError("%record-set!", raw_idx, ri.fields.len);
     if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[2]);
     ri.fields[idx] = args[2];
     return types.VOID;

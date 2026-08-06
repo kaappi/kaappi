@@ -590,14 +590,17 @@ fn takeFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[1])) return primitives.typeError("take", "integer", args[1]);
     const k = types.toFixnum(args[1]);
     if (k < 0) return primitives.typeError("take", "non-negative integer", args[1]);
-    const count: usize = @intCast(k);
 
     var elems: std.ArrayList(Value) = .empty;
     defer elems.deinit(gc.allocator);
 
     var current = args[0];
-    var i: usize = 0;
-    while (i < count) : (i += 1) {
+    // Walk in i64, never narrowing the fixnum to usize: on wasm32 (usize =
+    // u32) a fixnum-range k would truncate and silently return a short list
+    // instead of walking to the end and raising (kaappi#1912).  `drop` below
+    // already loops this way.
+    var i: i64 = 0;
+    while (i < k) : (i += 1) {
         if (!types.isPair(current)) return primitives.typeError("take", "pair", current);
         elems.append(gc.allocator, types.car(current)) catch return PrimitiveError.OutOfMemory;
         current = types.cdr(current);
@@ -1187,14 +1190,15 @@ fn splitAtFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[1])) return primitives.typeError("split-at", "integer", args[1]);
     const k = types.toFixnum(args[1]);
     if (k < 0) return primitives.typeError("split-at", "non-negative integer", args[1]);
-    const count: usize = @intCast(k);
 
     var elems: std.ArrayList(Value) = .empty;
     defer elems.deinit(gc.allocator);
 
     var current = args[0];
-    var i: usize = 0;
-    while (i < count) : (i += 1) {
+    // Walk in i64, never narrowing the fixnum to usize (kaappi#1912): see
+    // takeFn's identical loop.
+    var i: i64 = 0;
+    while (i < k) : (i += 1) {
         if (!types.isPair(current)) return primitives.typeError("split-at", "pair", current);
         elems.append(gc.allocator, types.car(current)) catch return PrimitiveError.OutOfMemory;
         current = types.cdr(current);

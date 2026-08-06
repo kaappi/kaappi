@@ -155,7 +155,8 @@ fn stringRefFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[1])) return primitives.typeError("string-ref", "exact integer", args[1]);
     const k = types.toFixnum(args[1]);
     const str_len = utf8CodepointCount(data);
-    if (k < 0 or @as(usize, @intCast(k)) >= str_len) return primitives.indexError("string-ref", k, str_len);
+    // u64 comparison before narrowing (kaappi#1912): see fixnumIndexInBounds.
+    if (!primitives.fixnumIndexInBounds(k, str_len)) return primitives.indexError("string-ref", k, str_len);
     const byte_off = utf8IndexToByteOffset(data, @intCast(k)) orelse return primitives.indexError("string-ref", k, str_len);
     const cp = utf8DecodeAt(data, byte_off) orelse return primitives.typeError("string-ref", "valid UTF-8 string", args[0]);
     return types.makeChar(cp);
@@ -175,7 +176,8 @@ fn stringSetFn(args: []const Value) PrimitiveError!Value {
     const data = str.data[0..str.len];
     const k = types.toFixnum(args[1]);
     const str_len = utf8CodepointCount(data);
-    if (k < 0 or @as(usize, @intCast(k)) >= str_len) return primitives.indexError("string-set!", k, str_len);
+    // u64 comparison before narrowing (kaappi#1912): see fixnumIndexInBounds.
+    if (!primitives.fixnumIndexInBounds(k, str_len)) return primitives.indexError("string-set!", k, str_len);
     const char_idx: usize = @intCast(k);
     const byte_start = utf8IndexToByteOffset(data, char_idx) orelse return primitives.indexError("string-set!", k, str_len);
     const old_cp_len = utf8ByteLenAt(data, byte_start);
@@ -217,9 +219,14 @@ fn substringFn(args: []const Value) PrimitiveError!Value {
     const str_len = utf8CodepointCount(data);
     if (start_i < 0) return primitives.indexError("substring", start_i, str_len);
     if (end_i < 0) return primitives.indexError("substring", end_i, str_len);
+    // u64 comparisons before narrowing (kaappi#1912): on wasm32 a fixnum-range
+    // index would truncate and alias an in-range codepoint.  Order preserved
+    // from the pre-fix code so the reported index is unchanged on 64-bit.
+    if (@as(u64, @intCast(start_i)) > @as(u64, @intCast(end_i))) return primitives.indexError("substring", end_i, str_len);
+    if (!primitives.fixnumIndexInBoundsInclusive(start_i, str_len)) return primitives.indexError("substring", start_i, str_len);
+    if (!primitives.fixnumIndexInBoundsInclusive(end_i, str_len)) return primitives.indexError("substring", end_i, str_len);
     const start_cp: usize = @intCast(start_i);
     const end_cp: usize = @intCast(end_i);
-    if (start_cp > end_cp) return primitives.indexError("substring", end_i, str_len);
     const byte_start = utf8IndexToByteOffset(data, start_cp) orelse return primitives.indexError("substring", start_i, str_len);
     const byte_end = utf8IndexToByteOffset(data, end_cp) orelse return primitives.indexError("substring", end_i, str_len);
     return gc.allocString(data[byte_start..byte_end]) catch return PrimitiveError.OutOfMemory;
@@ -255,6 +262,10 @@ fn stringCopyBangFn(args: []const Value) PrimitiveError!Value {
     const to_cp_count = utf8CodepointCount(to_data);
     const at_val = types.toFixnum(args[1]);
     if (at_val < 0) return primitives.typeError("string-copy!", "non-negative integer", args[1]);
+    // u64 comparison before narrowing (kaappi#1912): on wasm32 a fixnum-range
+    // at would truncate and pass the at_cp+count check, writing to the wrong
+    // codepoint.
+    if (!primitives.fixnumIndexInBoundsInclusive(at_val, to_cp_count)) return primitives.typeError("string-copy!", "valid range", args[1]);
     const at_cp: usize = @intCast(at_val);
     const from_data = try getStringSlice("string-copy!", args[2]);
     const from_cp_count = utf8CodepointCount(from_data);
