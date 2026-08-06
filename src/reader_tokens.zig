@@ -813,6 +813,106 @@ fn appendByteStringByte(self: *Reader, b: u8) ReadError!void {
     self.token_buf.append(self.gc.allocator, b) catch return ReadError.OutOfMemory;
 }
 
+/// Parse a radix-R <ureal> slice (radix digits, optional SRFI-169 `_`
+/// separators, optionally `N/D`) to f64. i64 overflow or any invalid
+/// character yields null: an exact bignum component has no honest f64
+/// value, and a loud error beats a silently rounded one (the kaappi#2182
+/// stance, same as the radix-10 complex grammar's i64 bound).
+fn parseRadixUrealToF64(s: []const u8, radix: u8) ?f64 {
+    if (std.mem.indexOfScalar(u8, s, '/')) |sp| {
+        if (sp == 0 or sp + 1 >= s.len) return null;
+        var nb: [256]u8 = undefined;
+        var db: [256]u8 = undefined;
+        const num = bignum.stripUnderscores(s[0..sp], radix, &nb) orelse return null;
+        const den = bignum.stripUnderscores(s[sp + 1 ..], radix, &db) orelse return null;
+        const n = std.fmt.parseInt(i64, num, radix) catch return null;
+        const d = std.fmt.parseInt(i64, den, radix) catch return null;
+        if (d == 0) return null;
+        return @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
+    }
+    var b: [256]u8 = undefined;
+    const clean = bignum.stripUnderscores(s, radix, &b) orelse return null;
+    const n = std.fmt.parseInt(i64, clean, radix) catch return null;
+    return @as(f64, @floatFromInt(n));
+}
+
+/// If the reader is positioned at a `+`/`-` that begins a valid R7RS
+/// complex tail -- `+<ureal R> i`, `+i`, or the `-` twins, i.e. the
+/// `<real R> (+|-) <ureal R> i` productions of R7RS 7.1.1 -- consume it
+/// and return the imaginary part. Otherwise restore the position and
+/// return null so the caller's delimiter check reports the glued tail as
+/// a read error rather than silently splitting the token (#2243). Radix
+/// digits only: `#b1+2i` (2 is not a binary digit) still errors. Mirrors
+/// the radix-10 `readNumber` complex grammar, minus the decimal/exponent
+/// and inf/nan imaginary spellings that never exist in another radix.
+fn tryComplexTail(self: *Reader, radix: u8) ?struct { imag: f64 } {
+    if (self.pos >= self.source.len) return null;
+    const sign = self.source[self.pos];
+    if (sign != '+' and sign != '-') return null;
+    const save = self.pos;
+    const neg = sign == '-';
+    self.pos += 1;
+
+    // +i / -i: the unit imaginary.
+    if (self.pos < self.source.len and (self.source[self.pos] == 'i' or self.source[self.pos] == 'I') and
+        (self.pos + 1 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 1])))
+    {
+        self.pos += 1;
+        return .{ .imag = if (neg) -1.0 else 1.0 };
+    }
+
+    // <ureal R>: radix digits (with SRFI-169 `_`), optionally /denominator.
+    const mag_start = self.pos;
+    while (self.pos < self.source.len) {
+        const rc = self.source[self.pos];
+        const valid = rc == '_' or switch (radix) {
+            2 => rc == '0' or rc == '1',
+            8 => rc >= '0' and rc <= '7',
+            16 => std.ascii.isHex(rc),
+            else => std.ascii.isDigit(rc),
+        };
+        if (!valid) break;
+        self.pos += 1;
+    }
+    if (self.pos == mag_start) {
+        self.pos = save; // no digits after the sign
+        return null;
+    }
+    const mag_str = self.source[mag_start..self.pos];
+
+    // Rational magnitude N/D.
+    if (self.pos < self.source.len and self.source[self.pos] == '/') {
+        const slash_pos = self.pos;
+        const den_str = scanDenominatorDigits(self, radix);
+        if (den_str.len > 0 and self.pos < self.source.len and
+            (self.source[self.pos] == 'i' or self.source[self.pos] == 'I') and
+            (self.pos + 1 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 1])))
+        {
+            self.pos += 1; // consume the trailing i
+            const mag = parseRadixUrealToF64(self.source[mag_start .. self.pos - 1], radix) orelse {
+                self.pos = save;
+                return null;
+            };
+            return .{ .imag = if (neg) -mag else mag };
+        }
+        self.pos = slash_pos; // not a rational tail -- fall through to integer
+    }
+
+    // Integer magnitude: the 'i' must follow the digits directly.
+    if (self.pos < self.source.len and (self.source[self.pos] == 'i' or self.source[self.pos] == 'I') and
+        (self.pos + 1 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 1])))
+    {
+        self.pos += 1;
+        const mag = parseRadixUrealToF64(mag_str, radix) orelse {
+            self.pos = save;
+            return null;
+        };
+        return .{ .imag = if (neg) -mag else mag };
+    }
+    self.pos = save;
+    return null;
+}
+
 pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
     const start = self.pos;
     // Handle optional sign
@@ -844,7 +944,23 @@ pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
 
     const num_str = self.source[start..self.pos];
     if (num_str.len > Reader.MAX_TOKEN_BYTES) return ReadError.TokenTooLong;
-    if (num_str.len == 0 or (num_str.len == 1 and (num_str[0] == '+' or num_str[0] == '-'))) return invalidNumberOrEof(self);
+    if (num_str.len == 0) return invalidNumberOrEof(self);
+    if (num_str.len == 1 and (num_str[0] == '+' or num_str[0] == '-')) {
+        // A bare sign is only valid as the whole real part of the pure
+        // imaginary `+i` / `-i` (R7RS <complex R> -> `+ i` | `- i`), which
+        // the radix-10 path also accepts; the signless `i` spelling
+        // (`#xi`) is not grammar, and neither is a bare sign followed by
+        // anything else (#2243).  Chez reads `#x+i` as 0+1i too.
+        if (self.pos < self.source.len and
+            (self.source[self.pos] == 'i' or self.source[self.pos] == 'I') and
+            (self.pos + 1 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 1])))
+        {
+            const neg = num_str[0] == '-';
+            self.pos += 1;
+            return .{ .complex = .{ .real = 0.0, .imag = if (neg) -1.0 else 1.0, .exact_real = true, .exact_imag = true } };
+        }
+        return invalidNumberOrEof(self);
+    }
     // SRFI 169: num_str/den_str may carry embedded digit-separator
     // underscores at this point (the scan loops above tolerate but don't
     // validate them); strip+validate right before parseInt, which doesn't
@@ -876,10 +992,22 @@ pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
                 if (err == error.Overflow) return bigRationalToken(self, num_str, den_str, radix);
                 return invalidNumberOrEof(self);
             };
+            // Complex after a rational: #x1/2+3i, #x1/2+i (R7RS 7.1.1
+            // `<real R> (+|-) <ureal R> i`). The real part keeps its exact
+            // rational value through the token-level parse, exactly like the
+            // radix-10 path does for `1/2+3i` (#2243).
+            if (tryComplexTail(self, radix)) |tail| {
+                const real_val: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(den));
+                return .{ .complex = .{ .real = real_val, .imag = tail.imag, .exact_real = true, .exact_imag = true } };
+            }
             return .{ .rational = .{ .num = n, .den = den } };
         }
         // No digits after '/', backtrack
         self.pos = slash_pos;
+    }
+    // Complex after a plain integer: #x1+2i, #x1-i (#2243).
+    if (tryComplexTail(self, radix)) |tail| {
+        return .{ .complex = .{ .real = @floatFromInt(n), .imag = tail.imag, .exact_real = true, .exact_imag = true } };
     }
     return .{ .fixnum = n };
 }

@@ -427,10 +427,18 @@
   (test-assert "s->n rejects #b1/1z" (not (string->number "#b1/1z")))
   (test-assert "#b1/1z rejected" (rejects? "#b1/1z"))
 
-  ;; A radix rational followed by a complex tail: the decimal path accepts
-  ;; `1/2+3i`, the radix path silently splits it instead of rejecting it.
-  (test-assert "s->n rejects #x1/2+3i" (not (string->number "#x1/2+3i")))
-  (test-assert "#x1/2+3i rejected or read whole" (not (splits? "#x1/2+3i")))
+  ;; A radix rational followed by a complex tail: `#x1/2+3i` is a valid
+  ;; R7RS 7.1.1 <complex R> (real 1/2 + imag 3, both in radix 16) and now
+  ;; reads whole in both parsers (#2243).  It used to silently split into
+  ;; `1/2` + `+3i` before #1929 closed the gap, then read-error until
+  ;; #2243 accepted the grammar.  The glued-tail siblings still reject in
+  ;; both parsers.
+  (test-assert "s->n accepts #x1/2+3i" (string->number "#x1/2+3i"))
+  (test-assert "#x1/2+3i reads whole" (clean? "#x1/2+3i"))
+  (test-assert "s->n rejects #x1/2+3z" (not (string->number "#x1/2+3z")))
+  (test-assert "#x1/2+3z rejected" (rejects? "#x1/2+3z"))
+  (test-assert "s->n rejects #x1/2+3iz" (not (string->number "#x1/2+3iz")))
+  (test-assert "#x1/2+3iz rejected" (rejects? "#x1/2+3iz"))
   )
 
 ;;; ---------------------------------------------------------------------
@@ -473,10 +481,14 @@
 
   ;; The same shape again: the READER accepts `1/2+3i`, which R7RS 7.1.1's
   ;; <complex R> --> <real R> + <ureal R> i production allows (and Chibi
-  ;; accepts), but `string->number` rejects it.  The reader is right here.
+  ;; accepts), but `string->number` used to reject it.  The reader was
+  ;; right; #2243 closed the divergence on the acceptance side by teaching
+  ;; string->number the rational-component complex grammar, in every
+  ;; radix.
   (test-assert "reader accepts 1/2+3i" (clean? "1/2+3i"))
-  ;; FAIL: TBD (string->number "1/2+3i" returns #f for a valid R7RS complex)
-  ;; (test-assert "s->n accepts 1/2+3i" (string->number "1/2+3i"))
+  (test-assert "s->n accepts 1/2+3i" (string->number "1/2+3i"))
+  (test-assert "s->n accepts #d1/2+3i" (string->number "#d1/2+3i"))
+  (test-assert "s->n accepts #x1/2+3i" (string->number "#x1/2+3i"))
 
   ;; Same literal, a third divergence: it PRINTS as `1/2+3i` (exact real
   ;; part) but `real-part` hands back the inexact 0.5, so `write` does not
@@ -489,6 +501,62 @@
               (get-output-string p))))
   ;; FAIL: TBD (real-part of the exact complex 1/2+3i is the inexact 0.5)
   ;; (test-assert "1/2+3i real part is exact" (exact? (real-part (read1 "1/2+3i"))))
+  )
+
+;;; ---------------------------------------------------------------------
+;;; 8. Radix-prefixed complex numbers (#2243).  R7RS 7.1.1's
+;;;    <complex R> --> <real R> + <ureal R> i | <real R> - <ureal R> i |
+;;;    <real R> + i | <real R> - i productions are valid in every radix,
+;;;    and `read` and `string->number` now agree on them (R7RS 6.2.7).
+;;;    Radix-valid digits only: a digit that is not valid in the radix
+;;;    (or any glued tail) still fails the #1929 delimiter check.
+;;; ---------------------------------------------------------------------
+
+(test-group "radix-prefixed complex numbers read per R7RS <complex R>"
+  (test-assert "#x1/2+3i reads clean" (clean? "#x1/2+3i"))
+  (test-assert "#x1/2+3i is complex" (not (real? (read1 "#x1/2+3i"))))
+  (test-assert "#x1/2+3i real part is 1/2" (= 1/2 (real-part (read1 "#x1/2+3i"))))
+  (test-assert "#x1/2+3i imag part is 3" (= 3 (imag-part (read1 "#x1/2+3i"))))
+  (test-assert "#x1+2i reads clean" (clean? "#x1+2i"))
+  (test-assert "#x1+i reads clean" (clean? "#x1+i"))
+  (test-assert "#x1-i reads clean" (clean? "#x1-i"))
+  (test-assert "#x+i reads clean" (clean? "#x+i"))
+  (test-assert "#x-i reads clean" (clean? "#x-i"))
+  (test-assert "#b+i reads clean" (clean? "#b+i"))
+  (test-assert "#x1+1/2i reads clean" (clean? "#x1+1/2i"))
+  (test-assert "#x1/2+3/4i reads clean" (clean? "#x1/2+3/4i"))
+  (test-assert "#b1+1i reads clean" (clean? "#b1+1i"))
+  (test-assert "#o1+2i reads clean" (clean? "#o1+2i"))
+  (test-assert "#x-1+2i reads clean" (clean? "#x-1+2i"))
+  (test-assert "#e#x1/2+3i is exact" (exact? (read1 "#e#x1/2+3i")))
+  (test-assert "#i#x1/2+3i is inexact" (inexact? (read1 "#i#x1/2+3i")))
+  ;; string->number agrees (6.2.7) on the new acceptance.
+  (test-assert "s->n #x1/2+3i" (complex? (string->number "#x1/2+3i")))
+  (test-assert "s->n #x1+2i" (complex? (string->number "#x1+2i")))
+  (test-assert "s->n #b1+1i" (complex? (string->number "#b1+1i")))
+  ;; Radix-valid digits only.
+  (test-assert "#b1+2i rejected (2 not binary)" (rejects? "#b1+2i"))
+  (test-assert "s->n #b1+2i" (not (string->number "#b1+2i")))
+  (test-assert "#o1+8i rejected (8 not octal)" (rejects? "#o1+8i"))
+  (test-assert "#x1+2 rejected (no i)" (rejects? "#x1+2"))
+  (test-assert "s->n #x1+2" (not (string->number "#x1+2")))
+  (test-assert "#x1+2iz rejected (glued tail)" (rejects? "#x1+2iz"))
+  (test-assert "#x1/2+3z rejected (glued tail)" (rejects? "#x1/2+3z"))
+  (test-assert "#x3i rejected (signless radix imaginary)"
+    (rejects? "#x3i"))
+  (test-assert "#xi rejected (signless radix imaginary)"
+    (rejects? "#xi"))
+  (test-assert "s->n #xi" (not (string->number "#xi")))
+  ;; Bignum components have no honest f64 token value: loud rejection,
+  ;; matching the radix-10 grammar's i64 bound (kaappi#2182 stance).
+  (test-assert "#x99999999999999999999+2i rejected"
+    (rejects? "#x99999999999999999999+2i"))
+  (test-assert "#x1+99999999999999999999i rejected"
+    (rejects? "#x1+99999999999999999999i"))
+  ;; A radix complex inside a list is one datum, never two.
+  (test-eqv "(#x1+2i) has one element" 1 (length (read1 "(#x1+2i)")))
+  (test-assert "(#x1+2iz) is a read error, not two datums"
+    (rejects? "(#x1+2iz)"))
   )
 
 (define %test-fail-count (test-runner-fail-count (test-runner-current)))

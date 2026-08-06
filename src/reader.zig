@@ -1007,7 +1007,11 @@ test "prefixed numeric tokens require a trailing delimiter" {
     // un-prefixed path gets from the Reader.readNumber wrapper, so every
     // radix/exactness-prefixed spelling silently split "#b1p4" into the
     // fixnum 1 plus the symbol p4.  One check in readNumberPrefixed now
-    // guards them all; string->number already rejected every cell below.
+    // guards them all, and string->number agrees on every cell.  #2243
+    // then accepted the R7RS <complex R> spellings (#x1/2+3i, #x1+2i)
+    // that the guard had turned into errors: they are valid numbers and
+    // now read whole again -- but only with radix-valid digits and a
+    // clean delimiter.
     var gc = memory.GC.init(testing.allocator);
     defer gc.deinit();
 
@@ -1019,11 +1023,20 @@ test "prefixed numeric tokens require a trailing delimiter" {
     try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#i7q"));
     try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x1p4z"));
     try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x1/2z"));
-    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x1/2+3i"));
     try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#e#b12"));
     try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#b#e12"));
     try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#b101foo"));
     try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x1zzz"));
+    // Radix complex tails are R7RS-valid, but only with radix-valid digits
+    // and a clean delimiter: an invalid digit, a missing i, or a glued
+    // tail still errors (#2243).
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#b1+2i"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#o1+8i"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x1+2"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x1+2iz"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x3i"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#xi"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x99999999999999999999+2i"));
 
     // A whole list holding one is a read error too, never a longer list.
     try testing.expectError(ReadError.InvalidNumber, readString(&gc, "(#b1p4)"));
@@ -1041,6 +1054,26 @@ test "prefixed numeric tokens require a trailing delimiter" {
     const c = try readAndPrint(&gc, "#d1+2i");
     defer testing.allocator.free(c);
     try testing.expectEqualStrings("1+2i", c);
+
+    // Radix-prefixed complex reads whole and exact (R7RS <complex R>,
+    // #2243) -- the same spellings that pre-#1929 silently split.
+    const rx = try readAndPrint(&gc, "#x1/2+3i");
+    defer testing.allocator.free(rx);
+    try testing.expectEqualStrings("1/2+3i", rx);
+
+    const rx2 = try readAndPrint(&gc, "#x1+2i");
+    defer testing.allocator.free(rx2);
+    try testing.expectEqualStrings("1+2i", rx2);
+
+    const rb = try readAndPrint(&gc, "#b1+1i");
+    defer testing.allocator.free(rb);
+    try testing.expectEqualStrings("1+1i", rb);
+
+    // The bare-sign pure imaginary is grammar in every radix (`+ i`), and
+    // string->number agrees; the signless `#xi` spelling is not grammar.
+    const rpi = try readAndPrint(&gc, "#x+i");
+    defer testing.allocator.free(rpi);
+    try testing.expectEqualStrings("+i", rpi);
 
     const u = try readAndPrint(&gc, "#x1_f");
     defer testing.allocator.free(u);
