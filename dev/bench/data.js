@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785998516995,
+  "lastUpdate": 1785999679306,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "775890947add3c041dcaa46606f654797330ec9f",
-          "message": "Document what may actually cross a thread boundary (#1964)\n\nThe uncopyable-tag list in gc_deep_copy.zig reads as the authoritative\nanswer to \"what can cross a thread boundary\". It is not: it governs the\n*copy* route only — the thread-start! thunk closure, the thread-join!\nresult, a channel message. A value reached through the shared globals map\n(VM.initForThread shares the parent's map by pointer) is never copied and\nnever reaches that switch.\n\nThirteen of the fourteen tags are freely usable through a top-level\ndefine, and for mutexes and condition variables a global is the *only*\nsupported way to share one — exactly inverted from a channel, which must\nbe captured lexically. Nothing anywhere noted that the two differ, and\nthey appear side by side in every concurrency example.\n\nThe globals route is defended per-type inside individual primitives, and\ntwo types do so: channels and thread handles. Extending that to the rest\nuniformly is not possible — it would remove the sole way to synchronise\nthreads — so the honest model is documented instead, with the two\nknown-unsound rows left to their own issues (#1924, #1936).\n\nCLAUDE.md's \"threads cannot share mutable heap state\" was the false\nguarantee in its most compact form; it now describes both routes.\n\ndocs/dev/thread-value-sharing.md holds the per-type matrix.\nsrfi18-sharing-model.scm pins both routes for the nine types covering\nevery distinct enforcement shape, as a characterisation test, so a change\nto any row fails visibly instead of widening the gap silently.\n\nCloses #1937\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-31T21:10:49Z",
-          "tree_id": "d2444d938a890c0924bc2a6909420c9b4f7d7cae",
-          "url": "https://github.com/kaappi/kaappi/commit/775890947add3c041dcaa46606f654797330ec9f"
-        },
-        "date": 1785539453227,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.272862,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.045469,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.580243,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.954901,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004639,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047974,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.312345,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056273,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.677575,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.230175,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.571281,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.282839,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.767409,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.611099,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044674,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.033237,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e935fd49fd5193ccab48c9f23cba0dc7aed87c63",
+          "message": "Replace /parallel-issues with /pr-groups (#2236)\n\n/parallel-issues optimised for file disjointness at issue granularity, so\nthat N concurrent sessions could work N issues without conflicts. Applied to\nthe 0.22.2 milestone it puts #1932 and #2027 in different sets — they touch\nthe same file — even though they are adjacent arms of one switch in\ndeepCopyValue. That buys parallelism at the price of two reviews of one diff\nand a conflict between the author's own branches.\n\n/pr-groups inverts the objective: group by cohesion so each set lands as a\nsingle PR, then run the same disjointness analysis one level up, across\ngroups. The parallelism verdict survives at the granularity where it is\nactually true, and the old paste-able launcher lines survive as wave output.\n\nThree steps carry the value, all of them learned grouping the 0.22.2 and\n0.22.3 milestones by hand:\n\nVerify before grouping. #2043 was scheduled into 0.22.3 and had in fact been\nfixed by #2174, which closed its four siblings (#1893, #1920, #1940, #1945)\nand missed it. Running the issue's own reproduction is what caught it, and\nscheduling fixed work discredits the rest of the plan.\n\nGround the file claims. An issue's diagnosis is a hypothesis and its line\nnumbers age; grep the named sites before pairing on them.\n\nCheck what a group blows in aggregate. Four issues grouped into\nprimitives_srfi18.zig would have pushed it past the 1500-line policy cap\nfrom 1472, so the group has to plan its split or become two PRs.\n\nOrdering keeps two land-first categories that were load-bearing in both\nmilestones: instrument before subject (a broken detector for the bug class\nthe others are in, #2127) and signal before work (anything making CI produce\nfalse reds, #1870/#1930/#2097).\n\nEvals are grounded in the two real milestones rather than invented, including\none asserting that a no-longer-reproducing issue is reported for closing and\nnot closed unilaterally.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-06T11:35:40+05:30",
+          "tree_id": "de8748d4c70e9eab92e487c0aa9081822ac358bf",
+          "url": "https://github.com/kaappi/kaappi/commit/e935fd49fd5193ccab48c9f23cba0dc7aed87c63"
+        },
+        "date": 1785999677996,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.247484,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.12465,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.451582,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.291704,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00454,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.037899,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.244831,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.04192,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.162115,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.003369,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.238346,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.251785,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.384251,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.775599,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.035216,
             "unit": "seconds"
           }
         ]
