@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A `define-syntax` in one open LSP document no longer leaks into every other
+  document's diagnostics** (#1979). `runDiagnostics` compiled each document
+  against the server's single shared `vm.macros` table, so a macro defined in
+  one open file changed how every other file was diagnosed — byte-identical
+  text flipped from clean to `KP2001` depending on what else the editor had
+  open, and the leak survived `didClose` of the defining document (only a
+  server restart cleared it). Each document's diagnostics now reset the shared
+  table to the pre-document baseline first, so a file is diagnosed exactly as
+  if it were the only one open: macros its own text defines still accumulate
+  top-to-bottom (matching `kaappi check`), but nothing survives to another
+  document.
+
 - **`kaappi fmt` no longer stack-overflows on a long reader-prefix chain**
   (#2141). The CST parser's depth cap (`max_nesting`, 1024) was enforced by
   `parseList` and by nothing else: a chain of `'`, `` ` ``, `,`, `,@`, `#N=`
