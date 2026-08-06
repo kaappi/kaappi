@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1785999679306,
+  "lastUpdate": 1786001782650,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ea2e2e4988014e8fdcd40e9a0e1d957a96366918",
-          "message": "Stop the \"port I/O abandoned\" error naming dynamic-wind as unparkable (#1965)\n\nThe message named \"guard, dynamic-wind, callbacks\" as frames a fiber cannot\nsuspend under. dynamic-wind is bootstrapped Scheme: its body runs in the\nbytecode dispatch loop and a fiber parks inside it like a bare read, so the\nerror sent users to move blocking I/O out of a dynamic-wind for no reason and\nleave it inside the guard that actually caused the drive.\n\nIt now names what genuinely opens a nested native frame: guard, and the native\nhigher-order drivers (SRFI-1 fold/filter/find, hash-table-walk, assoc/member\nwith a custom predicate, string-index, eval).\n\nSix comment copies of the same misclassification are corrected alongside,\nincluding raiseDeadNativeReturn's \"(map, for-each, sort, apply, ...)\", which\nnames sort — portable Scheme in lib/srfi/95.sld. README's list dropped sort\nfor the same reason.\n\nRegression test: readers blocking inside dynamic-wind, a map callback, and a\nsort comparator must all reach .io_waiting when dispatched before any writer\nexists, contrasted with the adjacent #1625 test where guard drives.\n\nCloses #1959",
-          "timestamp": "2026-08-01T03:18:44+05:30",
-          "tree_id": "bfe137901e3db835719f43581031bc920923d102",
-          "url": "https://github.com/kaappi/kaappi/commit/ea2e2e4988014e8fdcd40e9a0e1d957a96366918"
-        },
-        "date": 1785539635941,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.254348,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.736404,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.596318,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.947722,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004738,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04658,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.31624,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057427,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.69308,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.160761,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.587188,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.284167,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.775336,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.640932,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044048,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.035216,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c7b762025b870722df65d18568e91f2c321cf3c6",
+          "message": "Classify a skill's evals.json as an inert docs-only path (#2238)\n\nThe format job's changed-path classifier lets a docs-only PR skip the\n~194 runner-minutes of build/test matrix. Its allowlist covers *.md,\ndocs/* and LICENSE, but not a skill's evals/evals.json, so a PR touching\nonly a SKILL.md and its sibling evals file runs the whole matrix for\ncontent no CI job reads.\n\nNothing in build.zig, tools/, .github/workflows or src/tests_*.zig\nreferences evals.json; the only hit in the tree is a prose comment. The\nglob is deliberately narrow (.claude/skills/*/evals/*.json) so\n.claude/settings.json, hook scripts and any other .json keep falling\nthrough to the full matrix, preserving the allowlist-never-denylist\nproperty.\n\nCloses #2237\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-06T12:33:25+05:30",
+          "tree_id": "db41386510be2146478f2a2a02fbede7477c8df4",
+          "url": "https://github.com/kaappi/kaappi/commit/c7b762025b870722df65d18568e91f2c321cf3c6"
+        },
+        "date": 1786001781619,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.972554,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.873839,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.561373,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.838432,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004838,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.045067,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.294873,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.0544,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.334562,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.16902,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.519562,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.303304,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.713985,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.815574,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.047369,
             "unit": "seconds"
           }
         ]
