@@ -50,7 +50,10 @@ jobs:
       # `.md` under either is, because nothing in CI reads one. Every
       # `docs/`-or-`.md` reference in build.zig, tools/, src/tests_*.zig and
       # tests/scheme/**/*.sh is a comment, so no markdown change can fail the
-      # suites this skips.
+      # suites this skips. A skill's `evals/evals.json` is inert for the same
+      # reason: it is consumed by the skill-eval harness, never by a
+      # workflow, so a PR touching only a SKILL.md and its sibling evals
+      # file still skips the matrix.
       - name: Classify changed paths
         id: classify
         env:
@@ -87,7 +90,7 @@ jobs:
             while IFS= read -r f; do
               [ -n "$f" ] || continue
               case "$f" in
-                *.md|docs/*|LICENSE) ;;
+                *.md|docs/*|LICENSE|.claude/skills/*/evals/*.json) ;;
                 *) docs_only=false; reason="$f is not an inert path"; break ;;
               esac
             done <<< "$files"
