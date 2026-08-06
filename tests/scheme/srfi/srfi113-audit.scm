@@ -220,17 +220,26 @@
 (test-equal "bag-decrement! of an absent element changes nothing"
             '((1 . 1)) (ba (bag-decrement! (B 1) 9 1)))
 
-;; FAIL: #2085 (bag-increment! with a negative count is not clamped at zero, and
-;;              the resulting negative multiplicity makes bag->list, bag-fold and
-;;              bag-for-each loop forever)
-;; (test-equal "bag-increment! with a negative count is clamped at zero"
-;;             0 (bag-element-count (bag-increment! (B 1 1) 1 -5) 1))
-;; FAIL: #2085
-;; (test-equal "a bag built by bag-increment! with a negative count still lists"
-;;             0 (length (bag->list (bag-increment! (B 1 1) 1 -5))))
-;; FAIL: #2085
-;; (test-assert "bag-product with a negative n does not produce a negative count"
-;;              (>= (bag-size (bag-product -1 (B 1 1))) 0))
+(test-equal "bag-increment! with a negative count is clamped at zero"
+            0 (bag-element-count (bag-increment! (B 1 1) 1 -5) 1))
+(test-equal "a bag built by bag-increment! with a negative count still lists"
+            0 (length (bag->list (bag-increment! (B 1 1) 1 -5))))
+(test-equal "bag-product with a negative n yields an empty bag"
+            '() (ba (bag-product -1 (B 1 1))))
+(test-equal "bag-product with a negative n has size zero"
+            0 (bag-size (bag-product -1 (B 1 1))))
+;; The loop guard is the last line of defence: alist->bag inserts its counts
+;; verbatim, so a negative count can still reach the multiplicities without
+;; going through either clamp.  All three expanding loops must terminate on
+;; it (expanding to zero elements), not hang (#2085).
+(test-equal "bag->list terminates on a negative stored count" 0
+  (length (bag->list (alist->bag cmp '((1 . -3))))))
+(test-equal "bag-for-each terminates on a negative stored count" 0
+  (let ((n 0))
+    (bag-for-each (lambda (e) (set! n (+ n 1))) (alist->bag cmp '((1 . -3))))
+    n))
+(test-equal "bag-fold terminates on a negative stored count" 0
+  (bag-fold (lambda (e a) (+ a 1)) 0 (alist->bag cmp '((1 . -3)))))
 
 ;; Discriminating controls: the same loops terminate for zero and positive
 ;; multiplicities, so the non-termination is specific to a negative count.

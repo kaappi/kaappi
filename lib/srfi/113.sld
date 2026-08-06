@@ -179,7 +179,10 @@
       (let ((result '()))
         (hash-table-walk (%bag-ht b)
           (lambda (elem count)
-            (do ((i 0 (+ i 1))) ((= i count))
+            ;; (>= i count) rather than (= i count): a count that somehow
+            ;; reaches a negative value must expand to zero elements, not
+            ;; loop forever (#2085).
+            (do ((i 0 (+ i 1))) ((>= i count))
               (set! result (cons elem result)))))
         result))
 
@@ -416,14 +419,14 @@
     (define (bag-for-each proc b)
       (hash-table-walk (%bag-ht b)
         (lambda (elem count)
-          (do ((i 0 (+ i 1))) ((= i count))
+          (do ((i 0 (+ i 1))) ((>= i count))
             (proc elem)))))
 
     (define (bag-fold proc nil b)
       (let ((acc nil))
         (hash-table-walk (%bag-ht b)
           (lambda (elem count)
-            (do ((i 0 (+ i 1))) ((= i count))
+            (do ((i 0 (+ i 1))) ((>= i count))
               (set! acc (proc elem acc)))))
         acc))
 
@@ -730,13 +733,19 @@
       (apply bag-sum! (bag-copy b1) rest))
 
     (define (bag-product! n b)
-      (for-each
-        (lambda (k)
-          (if (= n 0)
-              (hash-table-delete! (%bag-ht b) k)
-              (hash-table-set! (%bag-ht b) k
-                (* n (hash-table-ref (%bag-ht b) k)))))
-        (hash-table-keys (%bag-ht b)))
+      ;; The spec gives bag-product no "it is an error" escape for a
+      ;; negative n, and multiplicities cannot go below zero, so clamp n at
+      ;; zero (an empty bag) exactly as bag-increment! clamps its count
+      ;; (#2085).  The reference implementation's valid-n check is dead code
+      ;; there, which is how -1 leaked into (* n count) in the first place.
+      (let ((n (if (negative? n) 0 n)))
+        (for-each
+          (lambda (k)
+            (if (= n 0)
+                (hash-table-delete! (%bag-ht b) k)
+                (hash-table-set! (%bag-ht b) k
+                  (* n (hash-table-ref (%bag-ht b) k)))))
+          (hash-table-keys (%bag-ht b))))
       b)
 
     (define (bag-product n b)
@@ -761,8 +770,13 @@
         acc))
 
     (define (bag-increment! b elem count)
-      (hash-table-set! (%bag-ht b) elem
-        (+ count (hash-table-ref (%bag-ht b) elem 0)))
+      ;; "increased ... by the exact integer count (but not less than zero)":
+      ;; a negative count may drive the multiplicity to zero, at which point
+      ;; the element is dropped, exactly as bag-decrement! drops it (#2085).
+      (let ((new (+ count (hash-table-ref (%bag-ht b) elem 0))))
+        (if (<= new 0)
+            (hash-table-delete! (%bag-ht b) elem)
+            (hash-table-set! (%bag-ht b) elem new)))
       b)
 
     (define (bag-decrement! b elem count)

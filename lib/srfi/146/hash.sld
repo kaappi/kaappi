@@ -36,14 +36,17 @@
       (%make-hashmap (%hm-comparator m) (hash-table-copy (%hm-ht m))))
 
     (define (hashmap comparator . args)
-      (let ((ht (make-hash-table)))
+      ;; The table must be keyed by the comparator's equality/hash pair, not
+      ;; the native equal? default, or 1 and 1.0 stay distinct keys under a
+      ;; comparator whose equality is = (#2044).
+      (let ((ht (make-hash-table comparator)))
         (let loop ((args args))
           (if (null? args) (%make-hashmap comparator ht)
               (begin (hash-table-set! ht (car args) (cadr args))
                      (loop (cddr args)))))))
 
     (define (hashmap-unfold stop? mapper successor seed comparator)
-      (let ((ht (make-hash-table)))
+      (let ((ht (make-hash-table comparator)))
         (let loop ((seed seed))
           (if (stop? seed) (%make-hashmap comparator ht)
               (let-values (((key val) (mapper seed)))
@@ -190,7 +193,7 @@
     (define (hashmap-entries m) (values (hash-table-keys (%hm-ht m)) (hash-table-values (%hm-ht m))))
 
     (define (hashmap-map proc comparator m)
-      (let ((new (make-hash-table)))
+      (let ((new (make-hash-table comparator)))
         (hash-table-walk (%hm-ht m)
           (lambda (k v)
             (let-values (((nk nv) (proc k v)))
@@ -213,7 +216,7 @@
         acc))
 
     (define (hashmap-filter pred m)
-      (let ((new (make-hash-table)))
+      (let ((new (make-hash-table (%hm-comparator m))))
         (hash-table-walk (%hm-ht m)
           (lambda (k v) (if (pred k v) (hash-table-set! new k v))))
         (%make-hashmap (%hm-comparator m) new)))
@@ -224,7 +227,8 @@
     (define hashmap-remove! hashmap-remove)
 
     (define (hashmap-partition pred m)
-      (let ((yes (make-hash-table)) (no (make-hash-table)))
+      (let ((yes (make-hash-table (%hm-comparator m)))
+            (no (make-hash-table (%hm-comparator m))))
         (hash-table-walk (%hm-ht m)
           (lambda (k v)
             (if (pred k v) (hash-table-set! yes k v) (hash-table-set! no k v))))
@@ -236,7 +240,7 @@
     (define (hashmap->alist m) (hash-table->alist (%hm-ht m)))
 
     (define (alist->hashmap comparator alist)
-      (let ((ht (make-hash-table)))
+      (let ((ht (make-hash-table comparator)))
         (let loop ((al alist))
           (if (null? al) (%make-hashmap comparator ht)
               (begin
@@ -307,7 +311,7 @@
     (define hashmap-union! hashmap-union)
 
     (define (hashmap-intersection m1 . rest)
-      (let ((new (make-hash-table)))
+      (let ((new (make-hash-table (%hm-comparator m1))))
         (hash-table-walk (%hm-ht m1)
           (lambda (k v)
             (if (let loop ((rs rest))
@@ -319,7 +323,7 @@
     (define hashmap-intersection! hashmap-intersection)
 
     (define (hashmap-difference m1 . rest)
-      (let ((new (make-hash-table)))
+      (let ((new (make-hash-table (%hm-comparator m1))))
         (hash-table-walk (%hm-ht m1)
           (lambda (k v)
             (if (not (let loop ((rs rest))
@@ -331,7 +335,7 @@
     (define hashmap-difference! hashmap-difference)
 
     (define (hashmap-xor m1 m2)
-      (let ((new (make-hash-table)))
+      (let ((new (make-hash-table (%hm-comparator m1))))
         (hash-table-walk (%hm-ht m1)
           (lambda (k v)
             (if (not (hash-table-exists? (%hm-ht m2) k))

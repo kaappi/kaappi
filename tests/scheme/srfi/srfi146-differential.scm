@@ -625,22 +625,19 @@
 ;;; --------------------------------------------------- comparator plumbing
 
 (test-group "comparator plumbing"
-  ;; A comparator whose equality is = makes 1 and 1.0 the same key.  The ordered
-  ;; library honours it; the hash library discards the comparator (#2044).
+  ;; A comparator whose equality is = makes 1 and 1.0 the same key.  Both
+  ;; libraries honour it; the hash library used to discard the comparator
+  ;; and key its tables with equal? regardless (#2044).
   (define numo (make-comparator number? = < (lambda (x) 0)))
   (define numh (make-comparator number? = #f (lambda (x) (exact (floor (abs x))))))
   (test-equal "ordered: a = comparator merges 1 and 1.0" 1
     (mapping-size (mapping numo 1 'a 1.0 'b)))
   (test-equal "ordered: a = comparator finds 1 via 1.0" 'a
     (mapping-ref/default (mapping numo 1 'a) 1.0 'MISSING))
-  ;; FAIL: #2044 ((srfi 146 hash) discards its comparator and always uses equal?)
-  ;; (test-equal "hash: a = comparator merges 1 and 1.0" 1
-  ;;   (hashmap-size (hashmap numh 1 'a 1.0 'b)))
-  ;; FAIL: #2044
-  ;; (test-equal "hash: a = comparator finds 1 via 1.0" 'a
-  ;;   (hashmap-ref/default (hashmap numh 1 'a) 1.0 'MISSING))
-  (test-equal "pins #2044: hash currently splits 1 and 1.0" 2
+  (test-equal "hash: a = comparator merges 1 and 1.0" 1
     (hashmap-size (hashmap numh 1 'a 1.0 'b)))
+  (test-equal "hash: a = comparator finds 1 via 1.0" 'a
+    (hashmap-ref/default (hashmap numh 1 'a) 1.0 'MISSING))
 
   ;; Case-insensitive string keys, the same story.
   (define cio (make-comparator string? string-ci=?
@@ -648,9 +645,42 @@
                                (lambda (s) (string-hash (string-downcase s)))))
   (test-assert "ordered: a case-insensitive comparator matches Foo and foo"
     (mapping-contains? (mapping cio "Foo" 1) "foo"))
-  ;; FAIL: #2044
-  ;; (test-assert "hash: a case-insensitive comparator matches Foo and foo"
-  ;;   (hashmap-contains? (hashmap cio "Foo" 1) "foo"))
+  (test-assert "hash: a case-insensitive comparator matches Foo and foo"
+    (hashmap-contains? (hashmap cio "Foo" 1) "foo"))
+
+  ;; Every derived hashmap constructor must key its backing table with the
+  ;; comparator it was given, not equal? — pinning each changed
+  ;; make-hash-table call site in #2044 with keys only a comparator whose
+  ;; equality is = can merge (1 vs 1.0).
+  (test-equal "hashmap-unfold uses the comparator" 1
+    (hashmap-size
+      (hashmap-unfold (lambda (s) (> s 2))
+                      (lambda (s) (values (if (= s 1) 1 1.0) s))
+                      (lambda (s) (+ s 1)) 1 numh)))
+  (define (numh-map m)
+    (hashmap-map (lambda (k v) (values (if (= k 1) 1 1.0) v)) numh m))
+  (test-equal "hashmap-map keys the result with its comparator" 1
+    (hashmap-size (numh-map (hashmap c 1 'a 2 'b))))
+  (test-assert "hashmap-map: a merged key finds either spelling"
+    (not (eq? 'MISSING (hashmap-ref/default (numh-map (hashmap c 1 'a 2 'b))
+                                            1.0 'MISSING))))
+  (call-with-values
+    (lambda () (hashmap-partition (lambda (k v) (even? k))
+                                  (hashmap numh 1 'a 2 'b)))
+    (lambda (yes no)
+      (test-equal "hashmap-partition keeps the comparator in both sides" 'a
+        (hashmap-ref/default no 1.0 'MISSING))))
+  (test-equal "alist->hashmap merges comparator-equal keys" 1
+    (hashmap-size (alist->hashmap numh '((1 . a) (1.0 . b)))))
+  (test-equal "alist->hashmap keeps the earlier comparator-equal association" 'a
+    (hashmap-ref/default (alist->hashmap numh '((1 . a) (1.0 . b))) 1.0 'MISSING))
+  (define h1 (hashmap numh 1 'a))
+  (test-equal "hashmap-intersection matches comparator-equal keys" 1
+    (hashmap-size (hashmap-intersection h1 (hashmap numh 1.0 'x))))
+  (test-equal "hashmap-difference drops comparator-equal keys" 0
+    (hashmap-size (hashmap-difference h1 (hashmap numh 1.0 'x))))
+  (test-equal "hashmap-xor treats comparator-equal keys as shared" 0
+    (hashmap-size (hashmap-xor h1 (hashmap numh 1.0 'x))))
 
   ;; The key comparator is retained and propagated by every derived operation.
   (test-assert "ordered: key-comparator survives filter"
@@ -930,10 +960,18 @@
 ;;; ---------------------------------------- deeply nested keys, pinning #2023
 
 (test-group "deeply nested keys"
-  ;; #2023: the native equal? hash returns a raw pointer for anything at depth
-  ;; MAX_HASH_DEPTH = 8, so structurally equal keys land in unrelated buckets.
-  ;; (srfi 146 hash) reaches that code and, because it discards its comparator
-  ;; (#2044), has no way around it.  The ordered library never hashes.
+  ;; #2023: the native equal? hash returned a raw pointer for anything at
+  ;; depth MAX_HASH_DEPTH = 8, so structurally equal keys landed in unrelated
+  ;; buckets.  #2023 itself is fixed (c742af68), and since #2044 the hash
+  ;; library keys its tables with the comparator, so a make-default-comparator
+  ;; hashmap never reaches the native equal? hash at all — its custom-mode
+  ;; default-hash recurses without a depth limit.  That is strictly better
+  ;; for deep acyclic keys, but note the cost: a cyclic key now runs
+  ;; default-hash into the stack cap (KP3008, uncatchable) where the old
+  ;; depth-capped native hash absorbed it — a low-priority SRFI-128
+  ;; follow-up (depth-limit default-hash) is tracked in kaappi#2235.  The
+  ;; ordered library never hashes.  The disabled assertions below date from
+  ;; before both fixes.
   (define (deep depth i)
     (let loop ((k depth) (acc (list i))) (if (= k 0) acc (loop (- k 1) (cons k acc)))))
   (define (hash-misses depth n)
