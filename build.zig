@@ -595,7 +595,15 @@ fn gitBuildId(b: *std.Build) []const u8 {
     // match. `git status --porcelain` exits 0 and prints one line per change, so
     // it composes with runAllowFail (which treats a nonzero exit as an error)
     // where `git diff --quiet` (nonzero when dirty) would not.
-    const status = b.runAllowFail(&.{ "git", "-C", cwd, "status", "--porcelain" }, &code, .ignore) catch "";
+    //
+    // `-uno` (--untracked-files=no): an untracked file is not part of the
+    // build's source of truth — it is not in the commit and not staged, so it
+    // cannot change what a tracked-source build produces (kaappi#2097). Counting
+    // it made a brand-new file silently flip every later build id to -dirty,
+    // which invalidated an existing zig-out/bin/kaappi built moments earlier
+    // and made the -Dbundle tests fail with "invalid embedded bytecode".
+    // Modified-but-committed and staged files still mark the tree dirty.
+    const status = b.runAllowFail(&.{ "git", "-C", cwd, "status", "--porcelain", "-uno" }, &code, .ignore) catch "";
     const dirty = std.mem.trim(u8, status, " \t\r\n").len != 0;
     return if (dirty) b.fmt("{s}-dirty", .{hash}) else b.dupe(hash);
 }

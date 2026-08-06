@@ -46,7 +46,7 @@ fi
 # Same program as a bundled binary, where the define-library forms are reached
 # through the preamble replay rather than a plain top-level load.
 BUNDLE_BIN="$DIR/main-standalone"
-bundle_fixture_binary "$REPO_DIR" "$KAAPPI" "$BUNDLE_BIN"
+bundle_fixture_binary "$REPO_DIR" "$BUNDLE_BIN"
 
 OUTPUT=$("$BUNDLE_BIN" 2>/dev/null)
 LINE=$(printf '%s\n' "$OUTPUT" | grep '^703: ' || true)

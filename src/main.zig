@@ -68,6 +68,7 @@ pub const fmt = @import("fmt.zig");
 pub const crash = @import("crash.zig");
 
 pub const version = @import("build_options").version;
+const build_options = @import("build_options");
 
 /// Custom panic handler (kaappi#1514): prints version/target/build-mode, the
 /// pipeline breadcrumb, and a report URL before the standard message + trace.
@@ -185,8 +186,11 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
 
     // `kaappi explain <code>` is a pure query over the static diagnostic
     // registry — no VM, GC, or library setup needed — so handle it before any
-    // of that exists and exit. (Skipped on WASM, whose entry just runs a file.)
-    if (comptime !is_wasm) {
+    // of that exists and exit. (Skipped on WASM, whose entry just runs a file;
+    // and on a bundled standalone, whose argv belongs to the bundled program,
+    // kaappi#2010 — a first argument spelling "explain" or "doctor" must
+    // reach (command-line), not kaappi's own dispatch.)
+    if (comptime !is_wasm and embedded_bytecode.bytecode == null) {
         // Internal, undocumented hook (kaappi#1514): `--panic-test` deliberately
         // panics so CI can verify the crash banner on a real build. Dispatched
         // first, before any setup, and never returns when the flag is present.
@@ -264,7 +268,12 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
         return;
     }
 
-    const is_sandboxed = cli.preScanSandbox(init.args);
+    // Same argument-ownership rule as the parse above: --sandbox is a kaappi
+    // flag, so it cannot be interpreted for a bundled binary either.
+    const is_sandboxed = if (comptime embedded_bytecode.bytecode == null)
+        cli.preScanSandbox(init.args)
+    else
+        false;
 
     if (is_sandboxed) {
         try primitives.registerSandboxed(vm);
@@ -279,7 +288,15 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
         try library.registerStandardLibraries(&vm.libraries, vm.globals);
     }
 
-    var opts = cli.parse(init.args);
+    // Bundled standalone (kaappi#2010): the binary *is* the bundled program,
+    // so no kaappi flag or subcommand is interpreted — parseBundled hands the
+    // whole argv after argv[0] to (command-line) verbatim, whatever it looks
+    // like, including words that cli.parse would otherwise swallow as
+    // subcommands ("check", "fmt", "ast", "compile") or as --flags.
+    var opts = if (comptime embedded_bytecode.bytecode == null)
+        cli.parse(init.args)
+    else
+        cli.parseBundled(init.args);
     if (opts.action == .exit_ok) return;
 
     // Windows argv paths arrive with backslashes, but every internal path
@@ -335,7 +352,24 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
             script_had_error = true;
             return;
         } orelse {
-            writeStderr("fatal: invalid embedded bytecode (wrong version or format)\n");
+            // The loader collapses every header mismatch into null (kaappi#1930).
+            // The most common cause for a bundled binary is a *stale* bundle:
+            // the .sbc's compiler hash folds in the build id, so a tree that
+            // moved (new commit, or clean<->dirty) between producing the .sbc
+            // and building the bundler makes the binary reject its own payload
+            // as foreign. Say that when the header names it, instead of
+            // "wrong version or format".
+            switch (bytecode_file.classifyEmbeddedRejection(bytecode_data)) {
+                .foreign_build => {
+                    const info = bytecode_file.readHeaderInfo(bytecode_data).?;
+                    writeStderr("fatal: embedded bytecode was produced by a different build (build id ");
+                    writeStderr(info.build_id);
+                    writeStderr("); this binary is ");
+                    writeStderr(build_options.git_build_id);
+                    writeStderr(". Rebuild the bundle from current source.\n");
+                },
+                .invalid => writeStderr("fatal: invalid embedded bytecode (wrong version or format)\n"),
+            }
             script_had_error = true;
             return;
         };
