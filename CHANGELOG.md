@@ -30,12 +30,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   and optional rational parts, producing an exact complex token exactly
   like the decimal path does for `1/2+3i`; `#b1+2i` (2 is not a binary
   digit), `#x1+2` (no `i`), `#x1+2iz` (glued tail) and the signless
-  `#x3i`/`#xi` still error, and bignum components stay a loud error
-  (the kaappi#2182 stance — an exact bignum part has no honest f64
+  `#x3i`/`#xi`/`#x3/4i` still error, and bignum components stay a loud
+  error (the kaappi#2182 stance — an exact bignum part has no honest f64
   value). `string->number`'s complex branch is no longer radix-10-only:
   the split forms work in every radix, which also closes the documented
   `FAIL: TBD` where `string->number` returned `#f` for the valid R7RS
-  complex `1/2+3i` (Chibi and guile both accept it).
+  complex `1/2+3i` (Chibi and guile both accept it). The signed pure
+  imaginary `+ <ureal R> i` / `- <ureal R> i` productions (`#x+3i`,
+  `#x+3/4i`) read in every radix too, matching Chez; the imaginary
+  marker is case-insensitive in both parsers; and `string->number`'s
+  radix-argument spelling treats `i` as an ordinary digit (value 18)
+  from radix 19 up, exactly as before. Exact-flagged complex components
+  are now honest: integer parts beyond 2^53 and rational parts beyond
+  the printer's recovery granularity (denominator ~1e6) that would
+  silently round to a different value are rejected loudly in both
+  parsers, and `string->number` derives component exactness from the
+  text so it agrees with the reader's exact-flagged tokens (`1+2i` reads
+  back exact, `1.5+2i` has an inexact real part).
 
 - **`kaappi fmt` no longer stack-overflows on a long reader-prefix chain**
   (#2141). The CST parser's depth cap (`max_nesting`, 1024) was enforced by

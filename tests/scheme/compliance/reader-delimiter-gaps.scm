@@ -523,6 +523,17 @@
   (test-assert "#x+i reads clean" (clean? "#x+i"))
   (test-assert "#x-i reads clean" (clean? "#x-i"))
   (test-assert "#b+i reads clean" (clean? "#b+i"))
+  (test-assert "#x+3i reads clean (signed magnitude)" (clean? "#x+3i"))
+  (test-assert "#x+3i is 0+3i" (= 3 (imag-part (read1 "#x+3i"))))
+  (test-assert "#x+1i reads clean" (clean? "#x+1i"))
+  (test-assert "#x-3i reads clean" (clean? "#x-3i"))
+  (test-assert "#x+3/4i reads clean (rational magnitude)" (clean? "#x+3/4i"))
+  (test-assert "#x-3/4i reads clean" (clean? "#x-3/4i"))
+  (test-assert "+3/4i reads clean (radix 10)" (clean? "+3/4i"))
+  ;; the imaginary marker is case-insensitive in both parsers
+  (test-assert "#x1+2I reads clean" (clean? "#x1+2I"))
+  (test-assert "s->n #x1+2I agrees" (complex? (string->number "#x1+2I")))
+  (test-assert "#x1+2i reads clean" (clean? "#x1+2i"))
   (test-assert "#x1+1/2i reads clean" (clean? "#x1+1/2i"))
   (test-assert "#x1/2+3/4i reads clean" (clean? "#x1/2+3/4i"))
   (test-assert "#b1+1i reads clean" (clean? "#b1+1i"))
@@ -547,16 +558,52 @@
   (test-assert "#xi rejected (signless radix imaginary)"
     (rejects? "#xi"))
   (test-assert "s->n #xi" (not (string->number "#xi")))
+  (test-assert "#x3/4i rejected (signless rational imaginary)"
+    (rejects? "#x3/4i"))
   ;; Bignum components have no honest f64 token value: loud rejection,
   ;; matching the radix-10 grammar's i64 bound (kaappi#2182 stance).
   (test-assert "#x99999999999999999999+2i rejected"
     (rejects? "#x99999999999999999999+2i"))
   (test-assert "#x1+99999999999999999999i rejected"
     (rejects? "#x1+99999999999999999999i"))
+  ;; A component in (2^53, 2^63] that does not round-trip through f64 is
+  ;; rejected loudly too -- an exact-flagged token must never silently
+  ;; carry a rounded value (kaappi#2182/#2243).
+  (test-assert "#x20000000000001+2i rejected (2^53+1)"
+    (rejects? "#x20000000000001+2i"))
+  (test-assert "#x1+20000000000001i rejected"
+    (rejects? "#x1+20000000000001i"))
+  (test-assert "s->n #x20000000000001+2i"
+    (not (string->number "#x20000000000001+2i")))
+  (test-assert "9007199254740993+2i rejected (radix 10, 2^53+1)"
+    (rejects? "9007199254740993+2i"))
+  (test-assert "s->n 9007199254740993+2i"
+    (not (string->number "9007199254740993+2i")))
+  ;; A rational component beyond the printer's recovery granularity is
+  ;; rejected too (its f64 would print as a wrong mantissa/2^k fraction).
+  (test-assert "1/20000000000001+3i rejected (den > 1e6)"
+    (rejects? "1/20000000000001+3i"))
+  (test-assert "s->n 1/20000000000001+3i"
+    (not (string->number "1/20000000000001+3i")))
   ;; A radix complex inside a list is one datum, never two.
   (test-eqv "(#x1+2i) has one element" 1 (length (read1 "(#x1+2i)")))
   (test-assert "(#x1+2iz) is a read error, not two datums"
     (rejects? "(#x1+2iz)"))
+  )
+
+;;; ---------------------------------------------------------------------
+;;; 9. string->number with an explicit radix argument: `i` is an ordinary
+;;;    digit (value 18) from radix 19 up, so the imaginary-marker
+;;;    interpretation only exists at radix <= 18 (#2243 review).
+;;; ---------------------------------------------------------------------
+
+(test-group "radix >= 19 treats i as a digit, not the imaginary marker"
+  ;; i = 18 at radix 19, so the denominator 2i is 2*19+18 = 56.
+  (test-equal "s->n 1/2i radix 19" 1/56 (string->number "1/2i" 19))
+  (test-equal "s->n 1/2i radix 36" 1/90 (string->number "1/2i" 36))
+  (test-assert "s->n 1/2i radix 18 (i not a digit) is not a number"
+    (not (string->number "1/2i" 18)))
+  (test-equal "s->n 1/2 radix 19 unchanged" 1/2 (string->number "1/2" 19))
   )
 
 (define %test-fail-count (test-runner-fail-count (test-runner-current)))

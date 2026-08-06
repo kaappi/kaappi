@@ -857,6 +857,70 @@ pub fn stripUnderscores(s: []const u8, radix: u8, buf: []u8) ?[]const u8 {
     return buf[0..n];
 }
 
+/// True when converting the i64 to f64 is lossless. Complex-number
+/// components claim exactness only inside this range: values in
+/// (2^53, 2^63] round to a different integer, so an exact-flagged token
+/// would silently carry the wrong value (kaappi#2182/#2243 -- loud
+/// rejection over silent rounding).
+pub fn f64ExactI64(n: i64) bool {
+    const f: f64 = @floatFromInt(n);
+    return @as(i64, @intFromFloat(f)) == n;
+}
+
+/// True when a bignum Value's magnitude is exactly representable in f64:
+/// at most 53 significant bits after stripping trailing binary zeros
+/// (10^19 = 5^19*2^19 has 45 bits and qualifies; 2^53+1 does not). The
+/// exact-complex machinery carries components as f64 plus an exactness
+/// flag, so a non-representable integer would silently round (kaappi#2243).
+pub fn bignumExactInF64(v: Value) bool {
+    const bn = types.toBignum(v);
+    if (bn.len == 0) return true;
+    var trailing: u64 = 0;
+    var i: usize = 0;
+    while (i < bn.len and bn.limbs[i] == 0) : (i += 1) trailing += 64;
+    if (i >= bn.len) return true; // zero
+    trailing += @ctz(bn.limbs[i]);
+    const top = bn.limbs[bn.len - 1];
+    const bit_len: u64 = 64 * @as(u64, @intCast(bn.len - 1)) + 64 - @clz(top);
+    return bit_len - trailing <= 53;
+}
+
+/// Largest |numerator|/|denominator| an exact-flagged complex component
+/// may carry. The exact-complex printer recovers rationals via
+/// `floatToRational`'s brute-force search, which tries denominators up to
+/// this limit; a component within it round-trips exactly, while a larger
+/// one would print the rounded f64's mantissa/2^k value -- a silently
+/// wrong number claiming exactness. Values beyond the limit are rejected
+/// loudly, the same policy as i64-overflowing components (kaappi#2182/
+/// #2243).
+pub const complex_rational_limit: i64 = 1_000_000;
+
+/// Parse a radix-R <ureal> slice (radix digits with optional SRFI-169 `_`
+/// separators, optionally `N/D`) to f64. No sign -- callers handle signs.
+/// i64 overflow, an invalid character, a zero denominator, or an i64 part
+/// that does not round-trip through f64 (see `f64ExactI64`) yields null.
+/// This is the single implementation shared by the reader and
+/// `string->number` so the two complex grammars cannot drift (kaappi#2243).
+pub fn parseRadixUrealToF64(s: []const u8, radix: u8) ?f64 {
+    if (std.mem.indexOfScalar(u8, s, '/')) |sp| {
+        if (sp == 0 or sp + 1 >= s.len) return null;
+        var nb: [256]u8 = undefined;
+        var db: [256]u8 = undefined;
+        const num = stripUnderscores(s[0..sp], radix, &nb) orelse return null;
+        const den = stripUnderscores(s[sp + 1 ..], radix, &db) orelse return null;
+        const n = std.fmt.parseInt(i64, num, radix) catch return null;
+        const d = std.fmt.parseInt(i64, den, radix) catch return null;
+        if (d == 0) return null;
+        if (@abs(n) > complex_rational_limit or @abs(d) > complex_rational_limit) return null;
+        return @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
+    }
+    var b: [256]u8 = undefined;
+    const clean = stripUnderscores(s, radix, &b) orelse return null;
+    const n = std.fmt.parseInt(i64, clean, radix) catch return null;
+    if (!f64ExactI64(n)) return null;
+    return @as(f64, @floatFromInt(n));
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

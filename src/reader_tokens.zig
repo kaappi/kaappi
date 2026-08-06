@@ -153,6 +153,7 @@ pub fn readNumber(self: *Reader) ReadError!Token {
             (self.pos + 1 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 1])))
         {
             self.pos += 1;
+            if (real_exact and !exactIntegerRoundTrips(self, num_str, 10)) return invalidNumberOrEof(self);
             const real = parseDecimalReal(num_str) orelse return invalidNumberOrEof(self);
             const imag: f64 = if (self.source[imag_start] == '+') 1.0 else -1.0;
             return .{ .complex = .{ .real = real, .imag = imag, .exact_real = real_exact, .exact_imag = true } };
@@ -173,6 +174,7 @@ pub fn readNumber(self: *Reader) ReadError!Token {
                     (self.pos + 6 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 6])))
                 {
                     self.pos += 6; // skip inf.0i / nan.0i
+                    if (real_exact and !exactIntegerRoundTrips(self, num_str, 10)) return invalidNumberOrEof(self);
                     const real = parseDecimalReal(num_str) orelse return invalidNumberOrEof(self);
                     const imag = if (self.source[imag_start] == '-') -special_val else special_val;
                     return .{ .complex = .{ .real = real, .imag = imag, .exact_real = real_exact, .exact_imag = false } };
@@ -203,10 +205,15 @@ pub fn readNumber(self: *Reader) ReadError!Token {
         // Must end with 'i'
         if (self.pos < self.source.len and (self.source[self.pos] == 'i' or self.source[self.pos] == 'I')) {
             self.pos += 1;
-            const real = parseDecimalReal(num_str) orelse return invalidNumberOrEof(self);
             const imag_str = self.source[imag_start .. self.pos - 1];
-            const imag = parseDecimalReal(imag_str) orelse return invalidNumberOrEof(self);
             const imag_exact = !imag_has_dot and !imag_has_exp;
+            // Exact-flagged components must round-trip through f64
+            // (kaappi#2182/#2243): a lossy integer would silently carry a
+            // rounded value while claiming exactness.
+            if (real_exact and !exactIntegerRoundTrips(self, num_str, 10)) return invalidNumberOrEof(self);
+            if (imag_exact and !exactIntegerRoundTrips(self, imag_str, 10)) return invalidNumberOrEof(self);
+            const real = parseDecimalReal(num_str) orelse return invalidNumberOrEof(self);
+            const imag = parseDecimalReal(imag_str) orelse return invalidNumberOrEof(self);
             return .{ .complex = .{ .real = real, .imag = imag, .exact_real = real_exact, .exact_imag = imag_exact } };
         }
         // Not a complex literal — backtrack
@@ -223,6 +230,11 @@ pub fn readNumber(self: *Reader) ReadError!Token {
         else
             parseDecimalReal(num_str) orelse return invalidNumberOrEof(self);
         const imag_exact2 = !has_dot and !has_exp;
+        // A bare sign (or nothing) means a magnitude of 1, i.e. +i / -i;
+        // longer num_str means an explicit integer magnitude that must
+        // round-trip through f64 when claimed exact (#2182/#2243).
+        if (imag_exact2 and num_str.len > 1 and !exactIntegerRoundTrips(self, num_str, 10))
+            return invalidNumberOrEof(self);
         return .{ .complex = .{ .real = 0.0, .imag = imag, .exact_real = true, .exact_imag = imag_exact2 } };
     }
 
@@ -272,6 +284,7 @@ pub fn readNumber(self: *Reader) ReadError!Token {
                     (self.pos + 1 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 1])))
                 {
                     self.pos += 1;
+                    if (@abs(n) > bignum.complex_rational_limit or @abs(den) > bignum.complex_rational_limit) return invalidNumberOrEof(self);
                     return .{ .complex = .{ .real = real_val, .imag = if (self.source[csave] == '+') 1.0 else -1.0, .exact_real = true, .exact_imag = true } };
                 }
                 // Try parsing imaginary part
@@ -291,9 +304,23 @@ pub fn readNumber(self: *Reader) ReadError!Token {
                         self.pos = csave;
                         return .{ .rational = .{ .num = n, .den = den } };
                     };
+                    if (@abs(n) > bignum.complex_rational_limit or @abs(den) > bignum.complex_rational_limit) return invalidNumberOrEof(self);
                     return .{ .complex = .{ .real = real_val, .imag = imag_val, .exact_real = true, .exact_imag = !imag_has_dot2 } };
                 }
                 self.pos = csave;
+            }
+            // Pure imaginary with an explicit magnitude: +3/4i is 0+3/4i
+            // (R7RS <complex R> -> `+ <ureal R> i` | `- <ureal R> i`; the
+            // sign is the production marker, and the signless 3/4i is not
+            // grammar). Chez and guile read it this way too (#2243).
+            if ((num_str[0] == '+' or num_str[0] == '-') and
+                self.pos < self.source.len and (self.source[self.pos] == 'i' or self.source[self.pos] == 'I') and
+                (self.pos + 1 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 1])))
+            {
+                if (@abs(n) > bignum.complex_rational_limit or @abs(den) > bignum.complex_rational_limit) return invalidNumberOrEof(self);
+                self.pos += 1;
+                const pure_imag_val: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(den));
+                return .{ .complex = .{ .real = 0.0, .imag = pure_imag_val, .exact_real = true, .exact_imag = true } };
             }
             return .{ .rational = .{ .num = n, .den = den } };
         }
@@ -813,27 +840,42 @@ fn appendByteStringByte(self: *Reader, b: u8) ReadError!void {
     self.token_buf.append(self.gc.allocator, b) catch return ReadError.OutOfMemory;
 }
 
-/// Parse a radix-R <ureal> slice (radix digits, optional SRFI-169 `_`
-/// separators, optionally `N/D`) to f64. i64 overflow or any invalid
-/// character yields null: an exact bignum component has no honest f64
-/// value, and a loud error beats a silently rounded one (the kaappi#2182
-/// stance, same as the radix-10 complex grammar's i64 bound).
+/// Parse a radix-R <ureal> slice to f64 (see `bignum.parseRadixUrealToF64`:
+/// i64 overflow, an invalid character, or an i64 part that does not
+/// round-trip through f64 yields null -- an exact bignum component has no
+/// honest f64 value, and a loud error beats a silently rounded one
+/// (kaappi#2182).
 fn parseRadixUrealToF64(s: []const u8, radix: u8) ?f64 {
+    return bignum.parseRadixUrealToF64(s, radix);
+}
+
+/// True when the i64 -> f64 conversion is lossless, so a complex token can
+/// honestly claim the component is exact. Values in (2^53, 2^63] round to
+/// a different integer and must be rejected loudly (kaappi#2182/#2243).
+fn f64ExactI64(n: i64) bool {
+    return bignum.f64ExactI64(n);
+}
+
+/// True when the radix-R number text (optional sign, integer or N/D
+/// rational, no dot/exponent) round-trips through f64: parseable and
+/// lossless in the conversion. Gates exact-flagged complex components so
+/// a rounded value can never masquerade as exact (kaappi#2182/#2243).
+/// Integers beyond i64 go through the bignum significant-bit test so
+/// exactly-representable magnitudes (1e19 = 5^19*2^19) still qualify.
+fn exactIntegerRoundTrips(self: *Reader, s: []const u8, radix: u8) bool {
     if (std.mem.indexOfScalar(u8, s, '/')) |sp| {
-        if (sp == 0 or sp + 1 >= s.len) return null;
-        var nb: [256]u8 = undefined;
-        var db: [256]u8 = undefined;
-        const num = bignum.stripUnderscores(s[0..sp], radix, &nb) orelse return null;
-        const den = bignum.stripUnderscores(s[sp + 1 ..], radix, &db) orelse return null;
-        const n = std.fmt.parseInt(i64, num, radix) catch return null;
-        const d = std.fmt.parseInt(i64, den, radix) catch return null;
-        if (d == 0) return null;
-        return @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
+        if (sp == 0 or sp + 1 >= s.len) return false;
+        return exactIntegerRoundTrips(self, s[0..sp], radix) and exactIntegerRoundTrips(self, s[sp + 1 ..], radix);
     }
-    var b: [256]u8 = undefined;
-    const clean = bignum.stripUnderscores(s, radix, &b) orelse return null;
-    const n = std.fmt.parseInt(i64, clean, radix) catch return null;
-    return @as(f64, @floatFromInt(n));
+    var buf: [256]u8 = undefined;
+    const clean = bignum.stripUnderscores(s, radix, &buf) orelse return false;
+    if (std.fmt.parseInt(i64, clean, radix)) |n| {
+        return f64ExactI64(n);
+    } else |err| {
+        if (err != error.Overflow) return false;
+        const v = bignum.parseBignumString(self.gc, clean, radix) catch return false;
+        return bignum.bignumExactInF64(v);
+    }
 }
 
 /// If the reader is positioned at a `+`/`-` that begins a valid R7RS
@@ -992,12 +1034,25 @@ pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
                 if (err == error.Overflow) return bigRationalToken(self, num_str, den_str, radix);
                 return invalidNumberOrEof(self);
             };
+            const real_val: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(den));
+            // Pure imaginary with an explicit magnitude: #x+3/4i is 0+3/4i
+            // (R7RS <complex R> -> `+ <ureal R> i` | `- <ureal R> i`; the
+            // sign is the production marker, and the signless #x3/4i is
+            // not grammar). Chez and guile read it this way too (#2243).
+            if ((num_str[0] == '+' or num_str[0] == '-') and
+                self.pos < self.source.len and (self.source[self.pos] == 'i' or self.source[self.pos] == 'I') and
+                (self.pos + 1 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 1])))
+            {
+                if (@abs(n) > bignum.complex_rational_limit or @abs(den) > bignum.complex_rational_limit) return invalidNumberOrEof(self);
+                self.pos += 1;
+                return .{ .complex = .{ .real = 0.0, .imag = real_val, .exact_real = true, .exact_imag = true } };
+            }
             // Complex after a rational: #x1/2+3i, #x1/2+i (R7RS 7.1.1
             // `<real R> (+|-) <ureal R> i`). The real part keeps its exact
             // rational value through the token-level parse, exactly like the
             // radix-10 path does for `1/2+3i` (#2243).
             if (tryComplexTail(self, radix)) |tail| {
-                const real_val: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(den));
+                if (@abs(n) > bignum.complex_rational_limit or @abs(den) > bignum.complex_rational_limit) return invalidNumberOrEof(self);
                 return .{ .complex = .{ .real = real_val, .imag = tail.imag, .exact_real = true, .exact_imag = true } };
             }
             return .{ .rational = .{ .num = n, .den = den } };
@@ -1005,8 +1060,19 @@ pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
         // No digits after '/', backtrack
         self.pos = slash_pos;
     }
+    // Pure imaginary with an explicit magnitude: #x+3i is 0+3i (R7RS
+    // <complex R> -> `+ <ureal R> i`, the sign being the marker).
+    if ((num_str[0] == '+' or num_str[0] == '-') and
+        self.pos < self.source.len and (self.source[self.pos] == 'i' or self.source[self.pos] == 'I') and
+        (self.pos + 1 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 1])))
+    {
+        if (!f64ExactI64(n)) return invalidNumberOrEof(self);
+        self.pos += 1;
+        return .{ .complex = .{ .real = 0.0, .imag = @floatFromInt(n), .exact_real = true, .exact_imag = true } };
+    }
     // Complex after a plain integer: #x1+2i, #x1-i (#2243).
     if (tryComplexTail(self, radix)) |tail| {
+        if (!f64ExactI64(n)) return invalidNumberOrEof(self);
         return .{ .complex = .{ .real = @floatFromInt(n), .imag = tail.imag, .exact_real = true, .exact_imag = true } };
     }
     return .{ .fixnum = n };
