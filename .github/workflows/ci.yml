@@ -239,6 +239,14 @@ jobs:
           # fast laptop. The timeout is here to catch hangs, not to race the
           # slowest legitimate suite.
           KAAPPI_TEST_TIMEOUT: ${{ matrix.optimize == 'Debug' && '240' || '' }}
+          # The compile suite's -Dbundle fixture build recompiles the whole
+          # interpreter (~180s on an idle 4-core runner, per kaappi#1926) and
+          # the Debug leg builds it cold (the Build step above only warms this
+          # leg's own optimize), so under runner load it has sat within seconds
+          # of the 300s default and flaked (kaappi#2232). Give the shell suites
+          # the same "catch hangs, don't race the slowest legitimate build"
+          # budget the per-file timeout above gives the .scm suites.
+          KAAPPI_SHELL_TEST_TIMEOUT: '600'
 
       - name: Sandbox escape tests
         run: bash tests/scheme/sandbox/sandbox-escape.sh
