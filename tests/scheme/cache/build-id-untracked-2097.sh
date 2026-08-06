@@ -16,7 +16,15 @@
 # or untracked change already present the three phases are indistinguishable,
 # so the script skips rather than assert garbage.
 #
-# Usage: bash tests/scheme/compile/build-id-untracked-2097.sh [path-to-kaappi]
+# This lives in the cache suite, not compile/, on purpose: phase C stages a
+# file in the shared working tree, which flips the build id for any OTHER
+# concurrent builder — exactly the kaappi#1930 mismatch class. run-all.sh
+# runs the shell suites sequentially, Cache after Compile, so here it runs
+# alone (the two cache-suite siblings never rebuild) with the ReleaseSafe
+# units the compile suite just warmed; in compile/ it raced the -Dbundle
+# scripts and 2156's interp-then-bundler builds (and timed out 700/703).
+#
+# Usage: bash tests/scheme/cache/build-id-untracked-2097.sh [path-to-kaappi]
 
 set -euo pipefail
 
