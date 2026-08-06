@@ -184,6 +184,34 @@ pub fn compilerHash() u64 {
 }
 
 // ---------------------------------------------------------------------------
+// Embedded-.sbc rejection classification
+// ---------------------------------------------------------------------------
+
+/// Why `readFromBuffer` refused an embedded `.sbc` (kaappi#1930). The loader
+/// collapses every header mismatch into `null`, and for a bundled binary the
+/// common cause is a *stale bundle*: the `.sbc`'s compiler hash (version +
+/// build id + target) differs from this binary's because the tree moved — a
+/// new commit, or a clean<->dirty flip — between producing the `.sbc` and
+/// building the bundler. Distinguish that from a genuinely unreadable payload
+/// so the fatal diagnostic can name the real fix instead of "wrong version or
+/// format".
+pub const EmbeddedRejection = enum {
+    /// The header is unreadable, a different format/version, or otherwise not
+    /// a loadable bundle. Keep the generic message.
+    invalid,
+    /// The header parses but names a different compiler build; the bundle
+    /// must be regenerated from the current source.
+    foreign_build,
+};
+
+/// Classify a `.sbc` buffer that `readFromBuffer` just refused. Pure in its
+/// input so the classification is unit-testable without a VM.
+pub fn classifyEmbeddedRejection(data: []const u8) EmbeddedRejection {
+    const info = read.readHeaderInfo(data) orelse return .invalid;
+    return if (info.current_build) .invalid else .foreign_build;
+}
+
+// ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
 
@@ -805,6 +833,60 @@ test "dev rebuild (different build id) rejects cache" {
 
     const result = try deserializeFromBuffer(&gc, w.buf.items, hash);
     try std.testing.expect(result == null);
+}
+
+test "classifyEmbeddedRejection: foreign build id is distinguished from corrupt" {
+    // kaappi#1930: a bundled binary whose embedded .sbc came from a different
+    // build must say so instead of "invalid embedded bytecode". The loader
+    // refuses both cases with null, so the diagnostic classifier has to tell
+    // them apart from the header alone.
+    const allocator = std.testing.allocator;
+    var gc = GC.init(allocator);
+    defer gc.deinit();
+
+    // A well-formed .sbc produced by a foreign build (same shape as the
+    // "dev rebuild rejects cache" fixture above): the header parses, so it
+    // must classify as .foreign_build, not .invalid.
+    var foreign = Writer{ .buf = .empty };
+    defer foreign.buf.deinit(allocator);
+    const foreign_key = compilerHashFor(main.version, "0000000-other-build", compile_target_id);
+    try foreign.writeBytes(allocator, &MAGIC);
+    try foreign.writeU16(allocator, VERSION);
+    try foreign.writeU64(allocator, 0x5EED);
+    try foreign.writeU64(allocator, foreign_key);
+    try foreign.writeStr(allocator, "0000000-other-build");
+    try foreign.writeStr(allocator, "prog.scm");
+    try foreign.writeU32(allocator, 1);
+    try foreign.writeU32(allocator, 1);
+
+    const foreign_rejection = classifyEmbeddedRejection(foreign.buf.items);
+    try std.testing.expect(foreign_rejection == .foreign_build);
+    // And the loader really does refuse it.
+    try std.testing.expect(try deserializeFromBuffer(&gc, foreign.buf.items, 0x5EED) == null);
+
+    // A buffer that is not a .sbc at all must classify as .invalid.
+    try std.testing.expect(classifyEmbeddedRejection("not bytecode") == .invalid);
+
+    // A headerless/truncated buffer must classify as .invalid rather than
+    // crashing the classifier.
+    try std.testing.expect(classifyEmbeddedRejection(foreign.buf.items[0..10]) == .invalid);
+
+    // A valid .sbc written by *this* binary has a matching compiler hash, so
+    // if the loader refused it for any reason it is a payload problem, not a
+    // stale-bundle one — .invalid, never .foreign_build.
+    const func = try gc.allocFunction();
+    func.code.append(allocator, @intFromEnum(types.OpCode.@"return")) catch unreachable;
+    func.code.append(allocator, 0) catch unreachable;
+    func.code.append(allocator, 0) catch unreachable;
+    func.arity = 0;
+    func.locals_count = 1;
+    var funcs_arr = [_]*Function{func};
+    const path = "/tmp/kaappi_test_classify.sbc";
+    defer _ = std.posix.system.unlink(@ptrCast(path.ptr));
+    try writeFileWithTopLevel(allocator, &funcs_arr, 0xBEEF, "/home/u/prog.scm", path);
+    const data = try file_utils.readWholeFile(allocator, path, 1 << 20);
+    defer allocator.free(data);
+    try std.testing.expect(classifyEmbeddedRejection(data) == .invalid);
 }
 
 test "readHeaderInfo round-trips build id and source path" {

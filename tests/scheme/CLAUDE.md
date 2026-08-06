@@ -205,7 +205,9 @@ Conventions:
   (serialise anything that installs into `zig-out/`), and
   `bundle_fixture_binary` (the standalone binary embedding
   `compile/fixtures/bundle-replay/`, shared so one `zig build -Dbundle`
-  serves every test that needs one).
+  serves every test that needs one; it rebuilds the interpreter into an
+  isolated prefix first so the `.sbc` and the bundler always share a build
+  id, kaappi#1930).
 - Don't bake POSIX-only spellings into assertions: kaappi prints native
   paths, the runtime archive name is per-platform, and a Windows abort
   exits 3 rather than dying by signal (see `errors/crash-handler.sh`).

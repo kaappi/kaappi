@@ -158,7 +158,16 @@ fi
 # The interpreted run consumed the victim; restore it for the compiled run.
 echo hi > "$VICTIM"
 
-"$KAAPPI_ABS" --compile -o "$WORK/prog.sbc" "$WORK/prog.scm" > /dev/null
+# The .sbc's compiler hash folds in the producing binary's git build id
+# (docs/dev/cache.md). A .sbc made by whatever zig-out/bin/kaappi is lying
+# around goes stale against a bundler rebuilt from current source the moment
+# the tree moved — a new commit, or a clean<->dirty flip — and the bundled
+# binary then dies with "invalid embedded bytecode" (kaappi#1930). Build the
+# interpreter into an isolated prefix from the same source the bundler comes
+# from, and produce the .sbc with THAT binary. -p keeps zig-out/ and the
+# caller's binary untouched.
+(cd "$REPO_ROOT" && zig build -p "$WORK/interp" > /dev/null 2>&1)
+"$WORK/interp/bin/kaappi" --compile -o "$WORK/prog.sbc" "$WORK/prog.scm" > /dev/null
 
 if [ -f "$VICTIM" ]; then
     ok "producing the .sbc left the victim alone"

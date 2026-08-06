@@ -312,11 +312,15 @@ Three things make that safe and worthwhile (kaappi#1926):
   were 85% of the shell suites' entire wall time. They now share the fixture
   in `tests/scheme/compile/fixtures/bundle-replay/`, so the second build is a
   ~0.2s hit in Zig's own content-addressed cache. `bundle_fixture_binary`
-  regenerates the `.sbc` on every call rather than caching one: identical
-  sources give identical bytes and the hit, while an edit under `src/` changes
-  them and forces exactly the rebuild it must — a cached `.sbc` of our own
-  would go stale against the new binary's build id and fail with
-  `invalid embedded bytecode` (see [cache.md](cache.md)).
+  first builds the interpreter from current source into an isolated prefix
+  and produces the `.sbc` with *that* binary, so the `.sbc` and the bundler
+  always share one build id (kaappi#1930) — a `.sbc` made by whatever
+  `zig-out/bin/kaappi` was lying around would go stale against the rebuilt
+  bundler's build id and fail with `invalid embedded bytecode` whenever the
+  tree moved (see [cache.md](cache.md)). Regenerating the `.sbc` on every
+  call is what keeps it honest: identical sources give identical bytes and
+  the hit, while an edit under `src/` changes them and forces exactly the
+  rebuild it must.
 
 Dispatch inside a suite is longest-first — scripts that shell out to a full
 `zig build -D…` go first, found by grep rather than a hand-kept list of names.
