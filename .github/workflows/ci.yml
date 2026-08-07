@@ -145,7 +145,7 @@ jobs:
       # Globs, ignores, and the rule set all live in .markdownlint-cli2.jsonc,
       # so `npx markdownlint-cli2` locally lints exactly what this step does.
       - name: Markdown lint
-        uses: DavidAnson/markdownlint-cli2-action@6bf21b07787794f89a243495939cd651942aeabe # v24.1.0
+        uses: DavidAnson/markdownlint-cli2-action@21c1be1b93ad9ed58fa840aacc3f279cde2a72ff # v24.2.0
 
   # `[Unreleased]` has been reconstructed from `git log` at release time rather
   # than written as the work lands -- v0.22.0 shipped with 14 of 100 commits
@@ -623,7 +623,7 @@ jobs:
         run: rm -rf .zig-cache
 
       - name: Run test suites (FreeBSD VM)
-        uses: vmactions/freebsd-vm@77ed28d336d03fe19a3f4f7266c1d2c4714dd79d # v1
+        uses: vmactions/freebsd-vm@83b151f58c6047089f4c80eb5ba2039d158ce093 # v1
         with:
           release: "14.3"
           usesh: true
@@ -746,7 +746,7 @@ jobs:
         run: rm -rf .zig-cache
 
       - name: Run test suites (NetBSD VM)
-        uses: vmactions/netbsd-vm@bf34bcd909bb50856f934a67d09a8fbe2b966a1b # v1
+        uses: vmactions/netbsd-vm@00081e82b14bc40114eb97f32b4455306828516b # v1
         with:
           release: "10.1"
           usesh: true
