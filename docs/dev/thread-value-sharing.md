@@ -11,7 +11,7 @@ routes, and they have separate, unrelated enforcement:
 | route | how a value travels | what enforces the rules |
 |---|---|---|
 | **copy** | deep-copied into the other heap | the uncopyable-tag list, one central check |
-| **globals** | reached by pointer, no copy | per-type owner checks in individual primitives — present for exactly four types, plus (since kaappi#1924) a general rejection of a pointer whose owner differs from the shared container's owner |
+| **globals** | reached by pointer, no copy | per-type owner checks in individual primitives — present for exactly four types, plus (since kaappi#1924) a general rejection of any store of a heap pointer into a container the running thread does not own (interned symbols excepted) |
 
 The tag list is not a statement about what can cross a thread boundary.
 It is a statement about what can be *copied*. Eleven of the fourteen tags

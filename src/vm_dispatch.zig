@@ -348,14 +348,19 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const name = types.symbolName(sym);
                 if (rejectImmutableEnv(self, func, name, "define: cannot define")) |e| return e;
                 const val = self.registers[src_idx];
+                // #1924: same rule as set_global — a child defining an
+                // object of its own heap into ANY shared map (the globals
+                // map, a library lib_env, or a SchemeEnvironment reached
+                // through a global) leaves a dangling pointer after its join.
+                // Checked before the env branch, exactly like set_global, so
+                // a child eval-define into a shared environment is covered
+                // too; a child defining into its own private environment is
+                // refused the same way (consistent with the set! rule).
+                if (!self.owns_globals and types.isPointer(val)) {
+                    const root_vm = self.root_vm orelse self;
+                    if (types.toObject(val).owner != root_vm.gc.id) return raiseCrossHeapStoreVM(self, "define");
+                }
                 if (env == self.globals) {
-                    // #1924: same rule as set_global — a child defining an
-                    // object of its own heap into the shared map leaves a
-                    // dangling pointer after its join.
-                    if (!self.owns_globals and types.isPointer(val)) {
-                        const root_vm = self.root_vm orelse self;
-                        if (types.toObject(val).owner != root_vm.gc.id) return raiseCrossHeapStoreVM(self, "define");
-                    }
                     // Structural mutation of the shared globals map: may
                     // rehash, so it must exclude child-thread readers.
                     self.globals_lock.lock();

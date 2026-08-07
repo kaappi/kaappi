@@ -62,8 +62,11 @@
   ;; ...and churn: enough allocations that several full collections run and
   ;; the freed pair's slot is recycled. Without the fix the child's register
   ;; was invisible to these collections and the pair was swept.
+  ;; The churn is sized to run enough full collections to recycle the freed
+  ;; slot (verified against the pre-fix engine: 100k iterations still turn
+  ;; the child's read into garbage) while keeping the gc-stress run fast.
   (let loop ((i 0))
-    (when (< i 400000)
+    (when (< i 100000)
       (let ((tmp (list 1 2 3 (make-vector 8 i))))
         (loop (+ i 1)))))
   (channel-send go-ch 'churned)
@@ -84,7 +87,7 @@
 (fill2!)
 (hash-table-delete! h2 'key)
 (let loop ((i 0))
-  (when (< i 400000)
+  (when (< i 100000)
     (let ((tmp (list 1 2 3 (make-vector 8 i))))
       (loop (+ i 1)))))
 (test-assert "control: the churn really collects an unreferenced value (the test is not vacuous)"

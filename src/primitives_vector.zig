@@ -979,6 +979,9 @@ fn vectorMapBangFn(args: []const Value) PrimitiveError!Value {
             call_args[vi] = types.toVector(args[1 + vi]).data[i];
         }
         const result = try callVM(f, call_args);
+        // #1924: a shared parent-heap destination must not come to hold a
+        // pointer from this child's heap (see vector-copy!).
+        if (memory.crossHeapStoreViolation(types.toObject(args[1]), result)) return primitives.raiseCrossHeapStore("vector-map!");
         gc.writeBarrier(types.toObject(args[1]), result);
         target.data[i] = result;
     }
@@ -1071,6 +1074,11 @@ fn vectorUnfoldBangFn(args: []const Value) PrimitiveError!Value {
         if (types.isMultipleValues(result)) {
             const mv = types.toObject(result).as(types.MultipleValues);
             if (mv.values.len == 0) return primitives.typeError("vector-unfold!", "at least one return value from step procedure", result);
+            // #1924: a shared parent-heap destination must not come to hold a
+            // pointer from this child's heap (see vector-copy!).
+            if (memory.crossHeapStoreViolation(types.toObject(args[1]), mv.values[0])) return primitives.raiseCrossHeapStore("vector-unfold!");
+            // #1924: see vector-unfold!.
+            if (memory.crossHeapStoreViolation(types.toObject(args[1]), mv.values[0])) return primitives.raiseCrossHeapStore("vector-unfold-right!");
             gc.writeBarrier(types.toObject(args[1]), mv.values[0]);
             vec.data[i] = mv.values[0];
             for (0..seeds.items.len) |j| {
@@ -1079,6 +1087,8 @@ fn vectorUnfoldBangFn(args: []const Value) PrimitiveError!Value {
                 }
             }
         } else {
+            if (memory.crossHeapStoreViolation(types.toObject(args[1]), result)) return primitives.raiseCrossHeapStore("vector-unfold!");
+            if (memory.crossHeapStoreViolation(types.toObject(args[1]), result)) return primitives.raiseCrossHeapStore("vector-unfold-right!");
             gc.writeBarrier(types.toObject(args[1]), result);
             vec.data[i] = result;
         }
@@ -1139,12 +1149,15 @@ fn vectorUnfoldRightBangFn(args: []const Value) PrimitiveError!Value {
         if (types.isMultipleValues(result)) {
             const mv = types.toObject(result).as(types.MultipleValues);
             if (mv.values.len == 0) return primitives.typeError("vector-unfold-right!", "at least one return value from step procedure", result);
+            // #1924: see vector-unfold!.
+            if (memory.crossHeapStoreViolation(types.toObject(args[1]), mv.values[0])) return primitives.raiseCrossHeapStore("vector-unfold-right!");
             gc.writeBarrier(types.toObject(args[1]), mv.values[0]);
             vec.data[i] = mv.values[0];
             for (mv.values[1..], 0..) |v, si| {
                 if (si < seeds.items.len) seeds.items[si] = v;
             }
         } else {
+            if (memory.crossHeapStoreViolation(types.toObject(args[1]), result)) return primitives.raiseCrossHeapStore("vector-unfold-right!");
             gc.writeBarrier(types.toObject(args[1]), result);
             vec.data[i] = result;
         }

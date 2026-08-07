@@ -234,14 +234,16 @@ pub fn parkOnReactor(vm: *VM, sched: *FiberScheduler, cap_ns: ?u64) VMError!bool
     // #1933: a child OS thread blocked in the reactor poll is quiescent; a
     // collecting parent may mark its registers/frames without waiting for a
     // safepoint. The main thread (owns_globals) never reports a state — it is
-    // the collector's own thread. The defer must be at FUNCTION scope: a
-    // defer inside the if-block would fire when the block exits — before the
-    // poll — leaving the child reported .running (and unmarkable) for the
-    // whole blocking wait.
+    // the collector's own thread. The window covers the POLL ONLY: the code
+    // after it mutates scheduler state (sweepSharedWaiters, wakeReadyFiber,
+    // markRunnable) that markVmRoots traverses, so reporting quiescence there
+    // would race the parent's mark. setCollectionRunning is the guarded
+    // resume (honours collection_stop).
     const report_park_state = !vm.owns_globals;
     if (report_park_state) vm.setCollectionParked();
-    defer if (report_park_state) vm.setCollectionRunning();
-    reactor.poll(cap_ns, &ready) catch return VMError.OutOfMemory;
+    const poll_result = reactor.poll(cap_ns, &ready);
+    if (report_park_state) vm.setCollectionRunning();
+    poll_result catch return VMError.OutOfMemory;
     // A notify arriving *during* the blocking poll() above is what actually
     // interrupted it; its wake_pending flag needs consuming here even though
     // poll()'s own ReadyEvent list never surfaces the notifier's own event

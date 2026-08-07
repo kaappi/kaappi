@@ -94,6 +94,18 @@
 (test-equal "the shared destination was not corrupted"
   '(x x x) (vector->list g-copy-dst))
 
+;; vector-map!/vector-unfold!/vector-unfold-right! write the step procedure's
+;; results into a caller-supplied destination.
+(define g-dst (make-vector 3 'z))
+(test-assert "vector-map! from a child is rejected"
+  (refused? (on-child (lambda () (vector-map! (lambda (x) (list x)) g-dst) 'no-error))))
+(test-assert "vector-unfold! from a child is rejected"
+  (refused? (on-child (lambda () (vector-unfold! (lambda (i s) (list i)) g-dst 0 3 0) 'no-error))))
+(test-assert "vector-unfold-right! from a child is rejected"
+  (refused? (on-child (lambda () (vector-unfold-right! (lambda (i s) (list i)) g-dst 0 3 0) 'no-error))))
+(test-equal "the shared unfold/map destination was not corrupted"
+  '(z z z) (vector->list g-dst))
+
 (define g-ht (make-hash-table equal?))
 (test-assert "hash-table-set! from a child is rejected (child-allocated value)"
   (refused? (on-child (lambda () (hash-table-set! g-ht 'k (list 1 2 3)) 'no-error))))

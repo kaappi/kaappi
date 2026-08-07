@@ -262,12 +262,12 @@ pub fn markLiveChildRoots(gc: *memory.GC) void {
     defer collection_in_progress.store(false, .release);
 
     var marked: std.ArrayList(?*vm_mod.VM) = .empty;
-    defer marked.deinit(std.heap.page_allocator);
+    defer marked.deinit(gc.allocator);
     // Every VM whose `collection_stop` is armed, exited or not. The release
     // loop below iterates THIS list (never the nulled `marked`), so an
     // exited child's flag is always cleared and never left poisoned.
     var armed: std.ArrayList(*vm_mod.VM) = .empty;
-    defer armed.deinit(std.heap.page_allocator);
+    defer armed.deinit(gc.allocator);
 
     while (true) {
         // Snapshot the registry under its lock and arm the stop flag on any
@@ -293,8 +293,8 @@ pub fn markLiveChildRoots(gc: *memory.GC) void {
                 }
             }
             if (!already) {
-                marked.append(std.heap.page_allocator, cv) catch @panic("GC: child-root marking OOM");
-                armed.append(std.heap.page_allocator, cv) catch @panic("GC: child-root marking OOM");
+                marked.append(gc.allocator, cv) catch @panic("GC: child-root marking OOM");
+                armed.append(gc.allocator, cv) catch @panic("GC: child-root marking OOM");
                 cv.collection_stop.store(true, .release);
                 added = true;
             }
