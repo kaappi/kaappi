@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786072015061,
+  "lastUpdate": 1786108069511,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e6081c3ba6db8aa8b00526fd71c5fb8d00354216",
-          "message": "Tick 5D, and record the portability lesson it cost (#1992)\n\n5D merged with all three BSD legs green. 2.12 remains blocked: the rdev\nfix was real and verified on the FreeBSD VM, but CI then surfaced a\nsecond, distinct divergence that the VM cannot reproduce -- CI runs\nFreeBSD 14.3 and the reference VM runs 15.1, and their assertion totals\ndiffer (423 vs 412), so the two are not comparable runs.\n\nThe 5D entry records the lesson rather than just the issue numbers,\nbecause it generalises: an assertion that pins the VALUE of an undefined\nfloat conversion passes everywhere the conversion happens to agree and\nfails where it does not. Assert the property that is actually specified --\nhere, that NaN does not abort, which is the real contrast with #1983's\naborting cases.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T07:43:03+05:30",
-          "tree_id": "5c4782daabbc524c1ada38770730747e6c944467",
-          "url": "https://github.com/kaappi/kaappi/commit/e6081c3ba6db8aa8b00526fd71c5fb8d00354216"
-        },
-        "date": 1785551790540,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.916267,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.703441,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.554643,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.808193,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004849,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.044966,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.291276,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054778,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.329555,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.147941,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.515761,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.307842,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.674297,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.76172,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044506,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043093,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "31532732e36c75d52d28d017cb289333a940737b",
+          "message": "Clamp the completion subcommand-scan slice against a negative length (#2248)\n\nThe generated bash and zsh completion functions scan the words typed so\nfar — offset 1, up to the word before the cursor — to decide which\nsubcommand's flags to offer. The length is `cursor-index - 1`, which goes\nnegative when the cursor is still on the command word itself.\n\nbash's `${COMP_WORDS[@]:1:COMP_CWORD-1}` then errors outright (\"substring\nexpression < 0\"). zsh is worse: `${words[@]:1:$((CURRENT-2))}` feeds a\nnegative length, which zsh reads as \"count from the end\", so the loop scans\nnearly the whole line and misdetects a later word as the subcommand —\ncompleting that subcommand's arguments instead of the top level. Clamp both\nlengths to 0 in that case.\n\nThe completions suite gains a structural check that both scripts emit the\nclamp (runs on every CI leg, no shell needed) and a functional zsh drive\nthat sources the real `_kaappi` at CURRENT=1 and asserts it offers the top\nlevel rather than a subcommand's arguments. Reverting either guard fails\nthe new checks.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-07T12:32:45Z",
+          "tree_id": "f38896a9636ca852524ad46bc119b02777726689",
+          "url": "https://github.com/kaappi/kaappi/commit/31532732e36c75d52d28d017cb289333a940737b"
+        },
+        "date": 1786108068060,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.023063,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.055392,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.562703,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.913031,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004925,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.044602,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.294827,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053869,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.311318,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.165629,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.513986,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.302772,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.716036,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.781843,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044309,
             "unit": "seconds"
           }
         ]
