@@ -107,7 +107,8 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
             compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &no_macros, vm.globals) catch return VMError.CompileError;
         define_expr = types.makePointer(&func.header);
         compiler_mod.Compiler.unrootFunction(vm.gc, func);
-        _ = vm.execute(func) catch |err| return err;
+        // runTopLevelFunction, not vm.execute (#2012): see compileAndRunDefine.
+        _ = vm.runTopLevelFunction(func) catch |err| return err;
     }
 
     // Generate predicate — close over record type (#1203):
@@ -145,7 +146,8 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
             compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &no_macros, vm.globals) catch return VMError.CompileError;
         define_expr = types.makePointer(&func.header);
         compiler_mod.Compiler.unrootFunction(vm.gc, func);
-        _ = vm.execute(func) catch |err| return err;
+        // runTopLevelFunction, not vm.execute (#2012): see compileAndRunDefine.
+        _ = vm.runTopLevelFunction(func) catch |err| return err;
     }
 
     // Generate accessors and mutators — close over record type (#1203)
@@ -185,7 +187,8 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
                 compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &no_macros, vm.globals) catch return VMError.CompileError;
             define_expr = types.makePointer(&func.header);
             compiler_mod.Compiler.unrootFunction(vm.gc, func);
-            _ = vm.execute(func) catch |err| return err;
+            // runTopLevelFunction, not vm.execute (#2012): see compileAndRunDefine.
+            _ = vm.runTopLevelFunction(func) catch |err| return err;
         }
 
         // Mutator: (define mut! (let (( __rt ...)) (lambda (p v) (%record-set! p idx v  __rt))))
@@ -224,7 +227,8 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
                 compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &no_macros, vm.globals) catch return VMError.CompileError;
             define_expr = types.makePointer(&func.header);
             compiler_mod.Compiler.unrootFunction(vm.gc, func);
-            _ = vm.execute(func) catch |err| return err;
+            // runTopLevelFunction, not vm.execute (#2012): see compileAndRunDefine.
+            _ = vm.runTopLevelFunction(func) catch |err| return err;
         }
     }
 
@@ -349,7 +353,15 @@ fn compileAndRunDefine(vm: *VM, define_expr_in: Value) VMError!void {
         compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &no_macros, vm.globals) catch return VMError.CompileError;
     define_expr = types.makePointer(&func.header);
     compiler_mod.Compiler.unrootFunction(vm.gc, func);
-    _ = vm.execute(func) catch |err| return err;
+    // runTopLevelFunction, not vm.execute (#2012): define-record-type is a
+    // top-level head, so it can be reached while an outer execution is
+    // suspended (a record type defined in a file-backed .sld body loaded
+    // through (environment ...)/(eval ...) from inside a top-level form). A
+    // bare vm.execute would resetExecutionState and abandon that enclosing
+    // form; this runs the generated define re-entrantly above the live
+    // frames, and is identical to vm.execute at true top level. func is
+    // rooted via the define_expr slot above, as it requires.
+    _ = vm.runTopLevelFunction(func) catch |err| return err;
 }
 
 pub const R6RSFieldSpec = struct {

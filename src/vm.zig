@@ -1224,6 +1224,16 @@ pub const VM = struct {
     pub fn runCachedForm(self: *VM, func_val: Value) VMError!Value {
         return vm_eval.runCachedForm(self, func_val);
     }
+
+    /// Run a compiled top-level Function, re-entrant-safely: at true top
+    /// level (frame_count == 0) this is `execute`; while an outer execution
+    /// is suspended (a file-backed library load, define-record-type
+    /// expansion, eval re-entry, ...) it pushes a frame above the live ones
+    /// instead of resetExecutionState-ing them away (#2012). `func` must
+    /// already be GC-rooted by the caller.
+    pub fn runTopLevelFunction(self: *VM, func: *types.Function) VMError!Value {
+        return vm_eval.runTopLevelFunction(self, func);
+    }
 };
 
 test {

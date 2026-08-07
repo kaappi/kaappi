@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The first top-level form whose evaluation loads a file-backed `.sld`
+  through `(environment ...)` is no longer silently abandoned partway
+  through** (#2012). The file-load path in `vm_library` ran the library body
+  by re-entering `vm.execute`, whose `resetExecutionState` destroyed the
+  enclosing top-level form's frame; the nested call then "succeeded", so the
+  outer `runUntil` loop saw `frame_count == 0` and exited cleanly — side
+  effects before the load persisted, everything after it (the form's own
+  `define` or `display`) never happened, with no error and exit code 0. The
+  second, byte-identical form worked, because the library was loaded by then,
+  so a program either behaved correctly or silently lost a whole top-level
+  form depending on whether an earlier form had touched the same library.
+  Every nested-entry top-level thunk — library body forms, top-level
+  `include`, `define-values`, and `define-record-type` expansion — now runs
+  through `runTopLevelFunction` (the re-entrant-safe path `eval`/`begin`
+  already used), which pushes a frame above the live ones instead of
+  resetting them away.
 - **A `define-syntax` in one open LSP document no longer leaks into every other
   document's diagnostics** (#1979). `runDiagnostics` compiled each document
   against the server's single shared `vm.macros` table, so a macro defined in
