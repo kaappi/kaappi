@@ -7,7 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.22.3] - 2026-08-07
+
 ### Fixed
+
+- **Cross-thread heap safety: a child thread's objects can no longer corrupt
+  shared state, and the parent's collector can no longer free an object a
+  live child still holds** (#1924, #1933). Each SRFI-18 OS thread has its own
+  GC heap, but top-level bindings are shared by pointer with no coordination
+  between the two collectors on the mutation path — two distinct
+  use-after-frees resulted. #1924: a child storing one of its own heap's
+  objects into a shared parent-heap container (a record field, vector slot,
+  pair, hash-table entry, a promise's memoised value, or the globals map)
+  left a pointer the parent's collector skips as foreign and the child's
+  collector has no reference to, freed by the child's GC or at its join
+  while the container still held it — deterministic on every run. #1933: a
+  parent-heap object reachable only from a live child's registers was
+  invisible to both markers, so the parent's collection freed it out from
+  under the running child, surfacing as a wrong value or a hard "GC: marking
+  freed object" panic under `-Dgc-stress`. The fix rejects a cross-heap
+  store before it happens (checked at every mutation primitive —
+  `set-car!`/`set-cdr!`, the `vector-*!` family, `%record-set!`,
+  `hash-table-*!`, `list-set!`, both directions of `%promise-merge!`, and
+  the `set_upvalue`/`set_box_local`/`set_global`/`define_global` bytecode
+  ops — unless the value belongs to the container's own heap; the
+  `mutex-lock!` owner pair and interned symbols are the sanctioned
+  exceptions), and has the root's collector stop every live child at its
+  next safepoint (or find it already parked or in an FFI call) and mark its
+  roots with the root's own GC before a parent collection proceeds.
+
+- **Bash and zsh subcommand completion no longer misbehaves with the cursor
+  on the command word itself** (#2248). Both generated completion functions
+  scan the words typed so far over a slice of length `cursor-index - 1` —
+  negative when the cursor is still on the command word. Bash's
+  `${COMP_WORDS[@]:1:COMP_CWORD-1}` errored outright ("substring expression
+  < 0"); zsh's `${words[@]:1:$((CURRENT-2))}` fed a negative length, which
+  zsh reads as "count from the end", scanning nearly the whole line and
+  misdetecting a later word as the subcommand — completing that
+  subcommand's arguments instead of the top level. Both lengths are now
+  clamped to 0.
+
+- **Vector, string, and bytevector accessors no longer alias the wrong
+  element on `wasm32`** (#1912). Every index-taking accessor narrowed its
+  fixnum-range argument (up to 2^47) to `usize` *inside* the bounds
+  comparison; on `wasm32` (`usize` = `u32`) an out-of-range index wrapped to
+  its low 32 bits before the check, so `(vector-ref v 4294967297)` silently
+  read element 1 and the matching `vector-set!` silently wrote it, instead
+  of raising. Native 64-bit builds were unaffected (`usize` is 64 bits
+  there). Fixed by comparing in `u64` before narrowing, applied at every
+  affected site — `vector-ref`/`set!`, `vector-swap!`,
+  `vector-copy!`/`reverse-copy!`, `substring`, `string-ref`/`set!`,
+  `string-copy!`, `bytevector-u8-ref`/`set!`, `bytevector-copy!`, the
+  `vector->list`/`string->vector`/`fill!`/`reverse!`/`utf8->string` family,
+  `write-string`, `string-take`/`drop`/`-right`, `string-replace`, and the
+  internal `%record-ref`/`set!` and `%numeric-vector-ref`/`set!`
+  primitives — plus `take`/`split-at`, which walked their list in a
+  narrowed `usize` counter and now loop in `i64` so a huge `k` walks to the
+  end and raises instead of silently returning a short list.
 
 - **The first top-level form whose evaluation loads a file-backed `.sld`
   through `(environment ...)` is no longer silently abandoned partway
