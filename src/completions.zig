@@ -211,7 +211,7 @@ fn bashScript(
         //    so a half-typed "$cur" is never mistaken for one.
         if (subs.len > 0) {
             s = s ++ "    sub=\"\"\n";
-            s = s ++ "    for word in \"${COMP_WORDS[@]:1:COMP_CWORD-1}\"; do\n";
+            s = s ++ "    for word in \"${COMP_WORDS[@]:1:$(( COMP_CWORD > 1 ? COMP_CWORD-1 : 0 ))}\"; do\n";
             s = s ++ "        case \"$word\" in\n";
             s = s ++ "            " ++ subcommandNames(subs, "|") ++ ") sub=\"$word\"; break ;;\n";
             s = s ++ "        esac\n";
@@ -333,7 +333,7 @@ fn zshScript(
         s = s ++ "_" ++ cmd ++ "() {\n";
         if (subs.len > 0) {
             s = s ++ "    local sub=\"\" word\n";
-            s = s ++ "    for word in \"${words[@]:1:$((CURRENT-2))}\"; do\n";
+            s = s ++ "    for word in \"${words[@]:1:$(( CURRENT > 2 ? CURRENT-2 : 0 ))}\"; do\n";
             s = s ++ "        case \"$word\" in\n";
             s = s ++ "            " ++ subcommandNames(subs, "|") ++ ") sub=\"$word\"; break ;;\n";
             s = s ++ "        esac\n";
