@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786114166109,
+  "lastUpdate": 1786115163377,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1aedd4014ee6a3ddc5b3fc88a20b81db5f0e2228",
-          "message": "Phase 2.3: SRFI 181 audit — 196 assertions, and (read port) has never worked on a custom or transcoded port (#2015)\n\n* Phase 2.3: audit SRFI 181 custom and transcoded ports\n\nprimitives_srfi181.zig had no audit test at all. This adds one — 196\nassertions plus 17 disabled — covering all 10 native specs, the whole\nportable layer in lib/srfi/181.sld, and the SRFI's own obligations on the\nimplementation that nothing else asks about: the read!/write! argument\ncontract, the six callback sites' blocking rejection, positioning under\nlookahead, cross-heap deep copy, and the eol-style x error-mode matrix in\nboth directions.\n\nFive issues filed, none fixed here (the campaign separates discovery from\nfixing):\n\n  #1995  (read port) returns #<eof> on every custom and transcoded port —\n         readDatumFn is the one input primitive that goes around\n         readOneByte, so it never invokes read! at all. read-char,\n         read-line, read-string and read-bytevector on the same port all\n         work; a string port and a file port read the same datum fine.\n  #1996  port-position on a custom port returns get-position verbatim,\n         ignoring the port's own read-ahead. The fd path subtracts it one\n         branch below. Also breaks the spec's explicit \"must return its\n         cached position rather than calling get-position\" after a peek.\n  #1997  Transcoded output ignores #\\return as a line ending, so a crlf\n         transcoder writes CR CR LF for one CRLF and a round trip turns\n         one line break into two. The decode direction gets it right,\n         which is what makes this an internal inconsistency.\n  #1998  close-input-port closes the output side of a bidirectional\n         custom port too, and runs its close callback.\n  #2012  Not SRFI 181's: the first (environment '(srfi N)) on a\n         file-backed .sld silently abandons the rest of the enclosing\n         top-level form. Found because a probe in this suite looked like\n         it passed and had in fact never run.\n\nClean results worth recording: the blocking-callback guard is correct at\nall six callback sites and every rejection stays catchable; the eol-style\ndecode matrix is right in all nine cells, including the lf-on-input case\nnothing tested before; gc_deep_copy refuses custom and transcoded ports\ncleanly at both SRFI-18 boundaries; and every neighbouring re-entrant\ncallback shape completes, which localises #1939 to the single-slot\nread_buf rather than re-entrancy as such.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Point 2.3's tracker entry at the PR that actually exists\n\nThe entry cited #1999, written before the PR was opened. The PR is #2015;\n#1999 is not a pull request at all.\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T09:57:11+05:30",
-          "tree_id": "9355b4384f90d4864a87085c321de02745688913",
-          "url": "https://github.com/kaappi/kaappi/commit/1aedd4014ee6a3ddc5b3fc88a20b81db5f0e2228"
-        },
-        "date": 1785560865965,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.383034,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.277644,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.57284,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.989605,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004672,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046303,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.312584,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.05709,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.568376,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.234059,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.576814,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.27986,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.794835,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.598625,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04322,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044294,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "c6082f8730c93ead7efd3f570b2c11ad310c47cd",
+          "message": "Release v0.22.3\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-07T19:54:33+05:30",
+          "tree_id": "ead42f58d21b287eaf026f8500443984e775065d",
+          "url": "https://github.com/kaappi/kaappi/commit/c6082f8730c93ead7efd3f570b2c11ad310c47cd"
+        },
+        "date": 1786115160675,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.982831,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.215154,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.578042,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.880784,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004928,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.045269,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.300209,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05424,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.55728,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.182648,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.534682,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.307483,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.712279,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.796729,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044809,
             "unit": "seconds"
           }
         ]
