@@ -80,21 +80,21 @@ fn promiseMerge(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const outer = types.toPromise(args[0]);
     const inner = types.toPromise(args[1]);
-    // #1924: reject before the stores, both directions (the merged inner
-    // value, and the inner promise's back-pointer to the outer). The back-
-    // pointer direction (inner.value = outer) is never a cross-heap store in
-    // practice — both promises come from the same force chain, so they share
-    // a heap — but the store is checked anyway by the predicate's own
-    // container-owner rule (a child-owned inner, a parent-owned outer, would
-    // be rejected); the explicit check below covers the outer.value direction
-    // that can genuinely cross (a child forcing/merging into a shared
-    // parent-heap promise).
+    // #1924: reject before EITHER store. The outer store (outer.value =
+    // inner.value) can genuinely cross heaps — a child forcing/merging into a
+    // shared parent-heap promise — and the inner back-pointer
+    // (inner.value = outer) is validated for the same reason, so the two
+    // lines below both go through the predicate and the code matches its own
+    // comment (in practice both promises come from one force chain and share
+    // a heap, so the back-pointer direction rarely fires).
+    const outer_val = types.makePointer(&outer.header);
     if (memory.crossHeapStoreViolation(&outer.header, inner.value)) return primitives.raiseCrossHeapStore("%promise-merge!");
+    if (memory.crossHeapStoreViolation(&inner.header, outer_val)) return primitives.raiseCrossHeapStore("%promise-merge!");
     gc.writeBarrier(&outer.header, inner.value);
     outer.value = inner.value;
     inner.forced = true;
-    gc.writeBarrier(&inner.header, types.makePointer(&outer.header));
-    inner.value = types.makePointer(&outer.header);
+    gc.writeBarrier(&inner.header, outer_val);
+    inner.value = outer_val;
     outer.forcing = false;
     return types.VOID;
 }
