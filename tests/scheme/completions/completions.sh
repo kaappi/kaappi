@@ -109,6 +109,62 @@ else
     echo "SKIP: fish not installed, skipping fish --no-execute"
 fi
 
+# ── 2b. The subcommand-scan slice is clamped against a negative length ───────
+#
+# Both the bash and zsh functions scan the words already typed (offset 1, up to
+# the word before the cursor) to decide which subcommand's flags to offer. The
+# length is `cursor-index - 1`, which goes *negative* when the cursor is still
+# on the command word itself: bash's `${a[@]:1:COMP_CWORD-1}` errors outright
+# ("substring expression < 0"), and zsh's `${words[@]:1:$((CURRENT-2))}` is
+# worse — a negative length is read as "count from the end", so it scans nearly
+# the whole line and misdetects a later word as the subcommand. Both are now
+# clamped to 0. This is a structural check (no shell needed) that the clamp is
+# emitted; the functional zsh drive below exercises it.
+
+for tool in kaappi thottam; do
+    [[ -s "$TMP/$tool.bash" ]] || continue
+    if grep -qF -- 'COMP_CWORD > 1 ? COMP_CWORD-1 : 0' "$TMP/$tool.bash"; then
+        pass "$tool bash clamps the subcommand-scan slice length"
+    else
+        fail "$tool bash clamps the subcommand-scan slice length" \
+            "no COMP_CWORD>1 guard on the \${COMP_WORDS[@]:1:...} scan"
+    fi
+    if grep -qF -- 'CURRENT > 2 ? CURRENT-2 : 0' "$TMP/$tool.zsh"; then
+        pass "$tool zsh clamps the subcommand-scan slice length"
+    else
+        fail "$tool zsh clamps the subcommand-scan slice length" \
+            "no CURRENT>2 guard on the \${words[@]:1:...} scan"
+    fi
+done
+
+# Functional: drive the real zsh function with the cursor still on the command
+# word (CURRENT=1) and a subcommand name later on the line. The scan must find
+# *nothing*, so `_kaappi` offers the top level (`command or file`), not that
+# subcommand's own arguments (`action:(status clear)`). Under the old negative
+# slice it scanned "cache" and completed cache's arguments instead. zsh isn't
+# on every CI leg, so this is gated the same way the `zsh -n` check is.
+if command -v zsh > /dev/null 2>&1; then
+    zsh_out="$(
+        zsh -f -c '
+            _arguments() { print -r -- "$*"; }
+            _describe() { :; }; _values() { :; }; compadd() { :; }
+            words=(kaappi cache status foo)
+            CURRENT=1
+            source "'"$TMP/kaappi.zsh"'" > /dev/null 2>&1
+            _kaappi
+        ' 2> /dev/null
+    )"
+    if grep -qF -- 'command or file' <<< "$zsh_out" &&
+        ! grep -qF -- 'action:(status clear)' <<< "$zsh_out"; then
+        pass "zsh offers the top level when CURRENT=1 (negative-slice guard)"
+    else
+        fail "zsh offers the top level when CURRENT=1 (negative-slice guard)" \
+            "expected 'command or file', got: $(tr '\n' ' ' <<< "$zsh_out")"
+    fi
+else
+    echo "SKIP: zsh not installed, skipping zsh functional drive"
+fi
+
 # ── 3. Drive the bash completion function ───────────────────────────────────
 #
 # Sourced in a subshell per query so a stray `return` or variable cannot leak
