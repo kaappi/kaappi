@@ -1128,6 +1128,88 @@ fn stringToNumber(args: []const Value) PrimitiveError!Value {
     return parseNumberText(gc, str.data[0..str.len], radix, .unspecified);
 }
 
+const ComplexComponent = struct { val: f64, exact: bool };
+
+/// Parse a signed radix-R complex component (integer, N/D rational, or --
+/// radix 10 only -- a decimal) to (value, exact). Mirrors the reader's
+/// complex-component grammar so `string->number` and `read` agree on
+/// `#x1+2i`, `#x1/2+3i` and friends (kaappi#2243). A component is exact
+/// only when it is an integer or rational whose i64 parts round-trip
+/// through f64; anything else (a decimal, an exponent, or an i64 part in
+/// (2^53, 2^63]) is inexact or rejected outright -- a rounded value must
+/// never masquerade as exact (kaappi#2182).
+fn parseComplexComponent(gc: *@import("memory.zig").GC, part: []const u8, radix: u8) ?ComplexComponent {
+    if (std.mem.indexOfScalar(u8, part, '/')) |sp| {
+        // Rational N/D (any radix): R7RS <ureal R>.
+        if (sp == 0 or sp + 1 >= part.len) return null;
+        var nb: [256]u8 = undefined;
+        var db: [256]u8 = undefined;
+        const num = bignum_mod.stripUnderscores(part[0..sp], radix, &nb) orelse return null;
+        const den = bignum_mod.stripUnderscores(part[sp + 1 ..], radix, &db) orelse return null;
+        const n = std.fmt.parseInt(i64, num, radix) catch return null;
+        const d = std.fmt.parseInt(i64, den, radix) catch return null;
+        if (d == 0) return null;
+        // Beyond the printer's rational-recovery granularity the ratio
+        // would print as a silently-wrong mantissa/2^k fraction; reject
+        // loudly, like the reader does (kaappi#2182/#2243).
+        if (@abs(n) > bignum_mod.complex_rational_limit or @abs(d) > bignum_mod.complex_rational_limit) return null;
+        return .{ .val = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d)), .exact = true };
+    }
+    if (radix == 10) {
+        // Decimal parts (1.5+2i, 1e5+2i) and inf/nan spellings: parseFloat
+        // accepts them with the sign included. Integer text that does not
+        // round-trip through f64 is rejected so it cannot claim exactness
+        // with a rounded value (#2182).
+        var i: usize = 0;
+        if (part.len > 0 and (part[0] == '+' or part[0] == '-')) i = 1;
+        var is_integer = true;
+        while (i < part.len) : (i += 1) {
+            if (!std.ascii.isDigit(part[i]) and part[i] != '_') {
+                is_integer = false;
+                break;
+            }
+        }
+        if (is_integer) {
+            var b: [256]u8 = undefined;
+            const clean = bignum_mod.stripUnderscores(part, radix, &b) orelse return null;
+            if (std.fmt.parseInt(i64, clean, radix)) |n| {
+                if (!bignum_mod.f64ExactI64(n)) return null;
+                return .{ .val = @as(f64, @floatFromInt(n)), .exact = true };
+            } else |err| {
+                if (err != error.Overflow) return null;
+                // Beyond i64: exactly representable magnitudes (1e19)
+                // qualify; everything else is rejected loudly, matching
+                // the reader (#2182/#2243).
+                const v = bignum_mod.parseBignumString(gc, clean, radix) catch return null;
+                if (!bignum_mod.bignumExactInF64(v)) return null;
+                return .{ .val = bignum_mod.toF64(v), .exact = true };
+            }
+        }
+        // Special floats (+inf.0, -inf.0, +nan.0, -nan.0, case-insensitive)
+        // match the reader's complex-component grammar -- 3.0+inf.0i and
+        // +inf.0i read there -- but Zig's parseFloat does not accept them
+        // (#2243 review).
+        if (std.ascii.eqlIgnoreCase(part, "+inf.0")) return .{ .val = std.math.inf(f64), .exact = false };
+        if (std.ascii.eqlIgnoreCase(part, "-inf.0")) return .{ .val = -std.math.inf(f64), .exact = false };
+        if (std.ascii.eqlIgnoreCase(part, "+nan.0")) return .{ .val = std.math.nan(f64), .exact = false };
+        if (std.ascii.eqlIgnoreCase(part, "-nan.0")) return .{ .val = std.math.nan(f64), .exact = false };
+        const f = std.fmt.parseFloat(f64, part) catch return null;
+        return .{ .val = f, .exact = false };
+    }
+    // Radix 2/8/16: integer part only -- <decimal R> does not exist there.
+    var b: [256]u8 = undefined;
+    const clean = bignum_mod.stripUnderscores(part, radix, &b) orelse return null;
+    if (std.fmt.parseInt(i64, clean, radix)) |n| {
+        if (!bignum_mod.f64ExactI64(n)) return null;
+        return .{ .val = @as(f64, @floatFromInt(n)), .exact = true };
+    } else |err| {
+        if (err != error.Overflow) return null;
+        const v = bignum_mod.parseBignumString(gc, clean, radix) catch return null;
+        if (!bignum_mod.bignumExactInF64(v)) return null;
+        return .{ .val = bignum_mod.toF64(v), .exact = true };
+    }
+}
+
 /// Parse a complete number text into a Value, or `types.FALSE` when the text
 /// is not a number. This is the single number grammar behind BOTH
 /// `string->number` and the reader's `#e`/`#i` literals: R7RS 6.2.7 requires
@@ -1201,7 +1283,15 @@ pub fn parseNumberText(gc: *@import("memory.zig").GC, text: []const u8, radix_in
 
     // Rational: num/den
     if (std.mem.indexOfScalar(u8, s, '/')) |slash_pos| {
-        if (slash_pos > 0 and slash_pos + 1 < s.len) {
+        // A trailing 'i' (any case) means the '/' is a complex-component
+        // separator (1/2+3i, 1/2+3/4i, #x1/2+3i): the complex branch below
+        // owns those, parsing each component as a <ureal R> (kaappi#2243).
+        // Without this guard, 1/2+3i would try "2+3i" as a denominator,
+        // fail, and return #f for a valid R7RS complex. 'i' is only the
+        // imaginary marker at radix <= 18 -- from radix 19 up it is a plain
+        // digit (value 18), so "1/2i" at radix 19 is the rational 1/56.
+        const complex_shaped = radix <= 18 and s.len >= 2 and (s[s.len - 1] | 0x20) == 'i';
+        if (!complex_shaped and slash_pos > 0 and slash_pos + 1 < s.len) {
             const num_str = s[0..slash_pos];
             const den_str = s[slash_pos + 1 ..];
             const num_val: Value = if (std.fmt.parseInt(i64, num_str, radix)) |num|
@@ -1276,59 +1366,112 @@ pub fn parseNumberText(gc: *@import("memory.zig").GC, text: []const u8, radix_in
         if (std.fmt.parseFloat(f64, s)) |f| {
             return applyExactness(gc, types.makeFlonum(f), exactness);
         } else |_| {}
+    }
 
-        // Try parsing as complex: a+bi, a-bi, +bi, -bi, +i, -i
-        if (s.len >= 2 and s[s.len - 1] == 'i') {
-            const body = s[0 .. s.len - 1]; // strip trailing 'i'
+    // Try parsing as complex: a+bi, a-bi, +bi, -bi, +i, -i (R7RS 7.1.1
+    // <complex R>). Radix-prefixed spellings (#x1+2i, #x1/2+3i) are valid
+    // R7RS and the reader now accepts them too (kaappi#2243), so this
+    // branch is no longer radix-10-only: the split forms and the signed
+    // pure-imaginary `+ <ureal R> i` work in every radix, while the
+    // signless pure-imaginary extension (2i, 2.5i) stays radix-10-only --
+    // exactly mirroring the reader's grammar (which rejects `#x2i` and the
+    // signless rational 2/3i). Radix >= 19 treats `i` as a plain digit
+    // (value 18), so the imaginary marker only exists at radix <= 18.
+    if (radix <= 18 and s.len >= 2 and (s[s.len - 1] | 0x20) == 'i') {
+        const body = s[0 .. s.len - 1]; // strip trailing 'i' (any case)
 
-            // Pure imaginary: +i, -i
-            if (std.mem.eql(u8, body, "+")) {
-                const c = gc.allocComplex(0.0, 1.0) catch return PrimitiveError.OutOfMemory;
-                return applyExactness(gc, c, exactness);
+        // Pure imaginary: +i, -i (R7RS <complex R> -> `+ i` | `- i`), every
+        // radix; the reader reads `#x+i` as 0+1i too (#2243).
+        if (std.mem.eql(u8, body, "+")) {
+            const c = gc.allocComplexEx(0.0, 1.0, true, true) catch return PrimitiveError.OutOfMemory;
+            return applyExactness(gc, c, exactness);
+        }
+        if (std.mem.eql(u8, body, "-")) {
+            const c = gc.allocComplexEx(0.0, -1.0, true, true) catch return PrimitiveError.OutOfMemory;
+            return applyExactness(gc, c, exactness);
+        }
+
+        // Find the split point: last +/- that isn't at position 0. In radix
+        // 10 a +/- right after e/E is an exponent sign (1e+5i reads the
+        // exponent into the real part); in radix 2/8/16 letters are digits,
+        // so no such skip applies (#x1e+2i is real 1e = 30).
+        var split: ?usize = null;
+        var j: usize = body.len;
+        while (j > 1) {
+            j -= 1;
+            if (body[j] == '+' or body[j] == '-') {
+                if (radix == 10 and (body[j - 1] == 'e' or body[j - 1] == 'E')) continue;
+                split = j;
+                break;
             }
-            if (std.mem.eql(u8, body, "-")) {
-                const c = gc.allocComplex(0.0, -1.0) catch return PrimitiveError.OutOfMemory;
-                return applyExactness(gc, c, exactness);
-            }
+        }
 
-            // Find the split point: last +/- that isn't at position 0 and isn't in an exponent
-            var split: ?usize = null;
-            var j: usize = body.len;
-            while (j > 1) {
-                j -= 1;
-                if (body[j] == '+' or body[j] == '-') {
-                    if (j > 0 and (body[j - 1] == 'e' or body[j - 1] == 'E')) continue;
-                    split = j;
-                    break;
+        if (split) |sp| {
+            const real_str = body[0..sp];
+            const imag_str = body[sp..];
+            // Component exactness is derived from the text so
+            // `string->number` agrees with the reader's exact-flagged
+            // complex tokens: integer and rational parts stay exact,
+            // decimals and exponents are inexact. `#e`/`#i` still override
+            // everything via applyExactness below (#2243 review).
+            const real_c = if (real_str.len == 0)
+                ComplexComponent{ .val = 0.0, .exact = true }
+            else
+                parseComplexComponent(gc, real_str, radix) orelse return types.FALSE;
+            const imag_c = if (std.mem.eql(u8, imag_str, "+"))
+                ComplexComponent{ .val = 1.0, .exact = true }
+            else if (std.mem.eql(u8, imag_str, "-"))
+                ComplexComponent{ .val = -1.0, .exact = true }
+            else
+                parseComplexComponent(gc, imag_str, radix) orelse return types.FALSE;
+            const c = gc.allocComplexEx(real_c.val, imag_c.val, real_c.exact, imag_c.exact) catch return PrimitiveError.OutOfMemory;
+            return applyExactness(gc, c, exactness);
+        } else {
+            // No split found -- pure imaginary with a magnitude: +3i,
+            // -2.5i, 2i. A leading sign is the R7RS `+ <ureal R> i`
+            // production, valid in every radix (the reader reads `#x+3i`
+            // as 0+3i, #2243); the signless `2i`/`2.5i` spellings are a
+            // radix-10 extension (the reader rejects `#x2i` and the
+            // signless rational 2/3i), so they stay radix-10-only and
+            // integer/decimal-only.
+            const has_sign = body.len > 0 and (body[0] == '+' or body[0] == '-');
+            var imag_c: ComplexComponent = undefined;
+            if (has_sign) {
+                imag_c = parseComplexComponent(gc, body, radix) orelse return types.FALSE;
+            } else {
+                if (radix != 10) return types.FALSE;
+                var i: usize = 0;
+                var is_integer = true;
+                while (i < body.len) : (i += 1) {
+                    if (!std.ascii.isDigit(body[i])) {
+                        is_integer = false;
+                        break;
+                    }
                 }
-            }
-
-            if (split) |sp| {
-                const real_str = body[0..sp];
-                const imag_str = body[sp..];
-                const real_val = if (real_str.len == 0) @as(f64, 0.0) else std.fmt.parseFloat(f64, real_str) catch {
-                    return types.FALSE;
-                };
-                var imag_val: f64 = undefined;
-                if (std.mem.eql(u8, imag_str, "+")) {
-                    imag_val = 1.0;
-                } else if (std.mem.eql(u8, imag_str, "-")) {
-                    imag_val = -1.0;
+                if (is_integer) {
+                    var nb: [256]u8 = undefined;
+                    const clean = bignum_mod.stripUnderscores(body, 10, &nb) orelse return types.FALSE;
+                    if (std.fmt.parseInt(i64, clean, 10)) |n| {
+                        if (!bignum_mod.f64ExactI64(n)) return types.FALSE;
+                        imag_c = .{ .val = @as(f64, @floatFromInt(n)), .exact = true };
+                    } else |err| {
+                        if (err != error.Overflow) return types.FALSE;
+                        // Beyond i64: an exactly-representable magnitude
+                        // (1e19 = 5^19*2^19) qualifies, matching the
+                        // reader's signless pure-imaginary path (#2243).
+                        const v = bignum_mod.parseBignumString(gc, clean, 10) catch return types.FALSE;
+                        if (!bignum_mod.bignumExactInF64(v)) return types.FALSE;
+                        imag_c = .{ .val = bignum_mod.toF64(v), .exact = true };
+                    }
                 } else {
-                    imag_val = std.fmt.parseFloat(f64, imag_str) catch {
+                    const f = std.fmt.parseFloat(f64, body) catch {
                         return types.FALSE;
                     };
+                    imag_c = .{ .val = f, .exact = false };
                 }
-                const c = gc.allocComplex(real_val, imag_val) catch return PrimitiveError.OutOfMemory;
-                return applyExactness(gc, c, exactness);
-            } else {
-                // No split found — pure imaginary like +3i or -2.5i
-                const imag_val = std.fmt.parseFloat(f64, body) catch {
-                    return types.FALSE;
-                };
-                const c = gc.allocComplex(0.0, imag_val) catch return PrimitiveError.OutOfMemory;
-                return applyExactness(gc, c, exactness);
             }
+            const c = gc.allocComplexEx(0.0, imag_c.val, true, imag_c.exact) catch return PrimitiveError.OutOfMemory;
+            return applyExactness(gc, c, exactness);
         }
     }
 

@@ -20,6 +20,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   if it were the only one open: macros its own text defines still accumulate
   top-to-bottom (matching `kaappi check`), but nothing survives to another
   document.
+- **Radix-prefixed complex numbers read per R7RS 7.1.1's `<complex R>`
+  grammar, and `read` and `string->number` agree on them** (#2243). The
+  #1929 delimiter fix had turned every non-decimal radix complex spelling
+  into a read error, but `#x1/2+3i`, `#x1+2i`, `#x1+i`, `#b1+1i` and
+  friends are valid R7RS (guile, Chez and the project's own radix-10 path
+  all read them). `readIntegerWithRadix` now consumes a complex tail
+  (`+<ureal R> i`, `-<ureal R> i`, `+i`, `-i`) with radix-valid digits
+  and optional rational parts, producing an exact complex token exactly
+  like the decimal path does for `1/2+3i`; `#b1+2i` (2 is not a binary
+  digit), `#x1+2` (no `i`), `#x1+2iz` (glued tail) and the signless
+  `#x3i`/`#xi`/`#x3/4i` still error, and bignum components stay a loud
+  error (the kaappi#2182 stance — an exact bignum part has no honest f64
+  value). `string->number`'s complex branch is no longer radix-10-only:
+  the split forms work in every radix, which also closes the documented
+  `FAIL: TBD` where `string->number` returned `#f` for the valid R7RS
+  complex `1/2+3i` (Chibi and guile both accept it). The signed pure
+  imaginary `+ <ureal R> i` / `- <ureal R> i` productions (`#x+3i`,
+  `#x+3/4i`) read in every radix too, matching Chez; the imaginary
+  marker is case-insensitive in both parsers; and `string->number`'s
+  radix-argument spelling treats `i` as an ordinary digit (value 18)
+  from radix 19 up, exactly as before. Exact-flagged complex components
+  are now honest: integer parts beyond 2^53 and rational parts beyond
+  the printer's recovery granularity (denominator ~1e6) that would
+  silently round to a different value are rejected loudly in both
+  parsers, and `string->number` derives component exactness from the
+  text so it agrees with the reader's exact-flagged tokens (`1+2i` reads
+  back exact, `1.5+2i` has an inexact real part).
 
 - **`kaappi fmt` no longer stack-overflows on a long reader-prefix chain**
   (#2141). The CST parser's depth cap (`max_nesting`, 1024) was enforced by
@@ -63,10 +90,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   length; `kaappi check` reported such a file clean). A single delimiter
   check after the body read in `readNumberPrefixed` now guards every
   spelling, and the dead wrapper is deleted: `#x1p4z`, `#e34zz`, `#b101foo`
-  and `#x1/2+3i` are all read errors, matching `string->number` and the
+  and `#x1zzz` are all read errors, matching `string->number` and the
   Chibi differential oracle, while hex floats (`#x1p4`), prefixed rationals
   (`#x1/2`), decimal-prefixed complex (`#d1+2i`), SRFI-169 separators
-  (`#x1_f`) and two-prefix combinations (`#e#x1p4`) all still read.
+  (`#x1_f`) and two-prefix combinations (`#e#x1p4`) all still read. (The
+  radix-prefixed complex spellings this guard briefly made read errors —
+  `#x1/2+3i` and friends — were reinstated as valid R7RS by #2243 below;
+  the glued-tail `+3z`/`+3iz` forms remain errors.)
 
 - **`(srfi 146 hash)` keys its tables with the comparator you passed** (#2044).
   Every constructor built a bare `(make-hash-table)` and stashed the

@@ -1007,7 +1007,11 @@ test "prefixed numeric tokens require a trailing delimiter" {
     // un-prefixed path gets from the Reader.readNumber wrapper, so every
     // radix/exactness-prefixed spelling silently split "#b1p4" into the
     // fixnum 1 plus the symbol p4.  One check in readNumberPrefixed now
-    // guards them all; string->number already rejected every cell below.
+    // guards them all, and string->number agrees on every cell.  #2243
+    // then accepted the R7RS <complex R> spellings (#x1/2+3i, #x1+2i)
+    // that the guard had turned into errors: they are valid numbers and
+    // now read whole again -- but only with radix-valid digits and a
+    // clean delimiter.
     var gc = memory.GC.init(testing.allocator);
     defer gc.deinit();
 
@@ -1019,11 +1023,29 @@ test "prefixed numeric tokens require a trailing delimiter" {
     try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#i7q"));
     try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x1p4z"));
     try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x1/2z"));
-    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x1/2+3i"));
     try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#e#b12"));
     try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#b#e12"));
     try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#b101foo"));
     try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x1zzz"));
+    // Radix complex tails are R7RS-valid, but only with radix-valid digits
+    // and a clean delimiter: an invalid digit, a missing i, or a glued
+    // tail still errors (#2243).
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#b1+2i"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#o1+8i"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x1+2"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x1+2iz"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x3i"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#xi"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x3/4i"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x99999999999999999999+2i"));
+    // A component that does not round-trip through f64 (2^53+1, and a
+    // 64-bit hex bignum) must be a loud error, never a silently-rounded
+    // value claiming exactness (kaappi#2182/#2243).
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x20000000000001+2i"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x1+20000000000001i"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x9007199254740993+2i"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "9007199254740993+2i"));
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "9007199254740993i"));
 
     // A whole list holding one is a read error too, never a longer list.
     try testing.expectError(ReadError.InvalidNumber, readString(&gc, "(#b1p4)"));
@@ -1041,6 +1063,47 @@ test "prefixed numeric tokens require a trailing delimiter" {
     const c = try readAndPrint(&gc, "#d1+2i");
     defer testing.allocator.free(c);
     try testing.expectEqualStrings("1+2i", c);
+
+    // Radix-prefixed complex reads whole and exact (R7RS <complex R>,
+    // #2243) -- the same spellings that pre-#1929 silently split.
+    const rx = try readAndPrint(&gc, "#x1/2+3i");
+    defer testing.allocator.free(rx);
+    try testing.expectEqualStrings("1/2+3i", rx);
+
+    const rx2 = try readAndPrint(&gc, "#x1+2i");
+    defer testing.allocator.free(rx2);
+    try testing.expectEqualStrings("1+2i", rx2);
+
+    const rb = try readAndPrint(&gc, "#b1+1i");
+    defer testing.allocator.free(rb);
+    try testing.expectEqualStrings("1+1i", rb);
+
+    // The bare-sign pure imaginary is grammar in every radix (`+ i`), and
+    // string->number agrees; the signless `#xi` spelling is not grammar.
+    const rpi = try readAndPrint(&gc, "#x+i");
+    defer testing.allocator.free(rpi);
+    try testing.expectEqualStrings("+i", rpi);
+
+    // `+ <ureal R> i`: a signed pure imaginary with an explicit magnitude
+    // is also grammar in every radix (Chez reads #x+3i as 0+3i).
+    const rpi2 = try readAndPrint(&gc, "#x+3i");
+    defer testing.allocator.free(rpi2);
+    try testing.expectEqualStrings("+3i", rpi2);
+
+    const rpi3 = try readAndPrint(&gc, "#x+3/4i");
+    defer testing.allocator.free(rpi3);
+    try testing.expectEqualStrings("+3/4i", rpi3);
+
+    // The imaginary marker is case-insensitive in both parsers.
+    const rupper = try readAndPrint(&gc, "#x1+2I");
+    defer testing.allocator.free(rupper);
+    try testing.expectEqualStrings("1+2i", rupper);
+
+    // Exact-flagged magnitudes beyond 2^53 that ARE representable (1e19 =
+    // 5^19*2^19, 45 bits) still round-trip.
+    const rbig = try readAndPrint(&gc, "#e1e19+1i");
+    defer testing.allocator.free(rbig);
+    try testing.expectEqualStrings("10000000000000000000+1i", rbig);
 
     const u = try readAndPrint(&gc, "#x1_f");
     defer testing.allocator.free(u);
