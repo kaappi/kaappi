@@ -246,14 +246,23 @@
                  (set-car! probe-container (string->symbol "never-seen-before-xyz"))))
     (eq? (car p) (string->symbol "never-seen-before-xyz"))))
 
-;; A child writing a value it read from the PARENT's heap is sound, and
-;; keeps eq?. This isolates "child-allocated pointer" as the hazard rather
-;; than "cross-thread write" as such.
-(test-assert "a child may store a parent-heap value into a parent-heap object"
+;; A child writing a value it read from the PARENT's heap into a parent-heap
+;; object is now REJECTED too (kaappi#1924): even a parent-owned value needs
+;; the OWNER's generational write barrier when it is young and the container
+;; old, and the owner's remembered set cannot be touched cross-thread — so
+;; the rule is that a child never writes a foreign container at all (the
+;; store is refused before it happens; see srfi18-cross-heap-mutation-1924).
+;; The previous characterisation row asserted the old, unsound behaviour and
+;; is replaced by the rejection.
+(test-assert "a child may not store even a parent-heap value into a parent-heap object"
   (let ((p (cons 'a 'b)))
     (set! probe-container p)
-    (on-thread (lambda () (set-car! probe-container shared-list)))
-    (and (equal? (car p) '(1 2 3)) (eq? (car p) shared-list))))
+    (and (eq? 'rejected
+              (on-thread (lambda ()
+                           (guard (e (#t 'rejected))
+                             (set-car! probe-container shared-list)
+                             'no-error))))
+         (eq? (car p) 'a))))
 
 ;; ---------------------------------------------------------------------
 ;; 3. Write direction -- what CORRUPTS (kaappi#1924)

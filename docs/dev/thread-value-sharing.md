@@ -11,7 +11,7 @@ routes, and they have separate, unrelated enforcement:
 | route | how a value travels | what enforces the rules |
 |---|---|---|
 | **copy** | deep-copied into the other heap | the uncopyable-tag list, one central check |
-| **globals** | reached by pointer, no copy | per-type owner checks in individual primitives — present for exactly four types, plus (since kaappi#1924) a general rejection of any store of a foreign-heap pointer into a shared container |
+| **globals** | reached by pointer, no copy | per-type owner checks in individual primitives — present for exactly four types, plus (since kaappi#1924) a general rejection of a pointer whose owner differs from the shared container's owner |
 
 The tag list is not a statement about what can cross a thread boundary.
 It is a statement about what can be *copied*. Eleven of the fourteen tags
@@ -216,23 +216,29 @@ cases show the shape — but it is a per-type decision about a per-type
 idiom, not one sweep.
 
 That per-site decision is exactly how the general mutation hazard
-(kaappi#1924) was settled. A child writing a value of its own heap into a
-shared parent-heap container — a record field, a vector slot, a pair, a
+(kaappi#1924) was settled. A child writing a value into a shared
+parent-heap container — a record field, a vector slot, a pair, a
 hash-table entry, a promise's memoised value, or the globals map itself —
 leaves a pointer the parent's collector skips as foreign and the child's
 collector cannot see a reference to, so the value is freed by the child's
 GC or at its join while the container still holds it. The store is now
 **rejected before it happens** (`memory.crossHeapStoreViolation`, checked
-at every general mutation site), unless the value belongs to the same
-foreign heap as the container. This is not a per-type check on a value
-(any type may be stored); it is a per-store check on the *heaps* of the
-container and the value. The one sanctioned engine-level exception is the
-mutex owner pair in `mutex-lock!`: locking a shared parent-heap mutex
-from a child must record the child's own fiber as owner so a dying fiber
-can abandon it, and the mutex site deliberately does not call the check.
-The remaining unsound cases have their own issues (kaappi#1936, and the
-mutex-specific/condvar-specific cross-heap store, which shares the
-accepted residual the #2127 quarantine detects).
+at every general mutation site): a thread may store into a heap object it
+owns values from any heap, but never into a container it does not own.
+The rejection is unconditional on the value's owner — even a value owned
+by the container's own foreign heap is refused, because storing a young
+value into an old container requires the OWNER's generational write
+barrier (a remembered-set edge), and the owner's remembered set cannot be
+touched cross-thread. This is not a per-type check on a value (any type
+may be stored into an owned container); it is a per-store check on the
+container's owner. The one sanctioned engine-level exception is the mutex
+owner pair in `mutex-lock!`: locking a shared parent-heap mutex from a
+child must record the child's own fiber as owner so a dying fiber can
+abandon it, and the mutex site deliberately does not call the check.
+The remaining unsound cases have their own issues (kaappi#1936; a
+mutex-specific/condvar-specific store from a child is now rejected like
+any other foreign-container store, closing the residual the #2127
+quarantine used to detect).
 
 Two rows have since been decided that way, one each: the fiber
 (kaappi#2001) and the guardian (kaappi#2008). Both had a route-specific

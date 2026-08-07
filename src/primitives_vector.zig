@@ -245,8 +245,14 @@ fn vectorCopyBangFn(args: []const Value) PrimitiveError!Value {
     const count = end - start;
     if (at + count > to_vec.data.len) return primitives.typeError("vector-copy!", "valid index range", args[1]);
 
+    // #1924: a shared parent-heap destination must not come to hold a
+    // pointer from this child's heap (or need the owner's remembered-set
+    // barrier for a young value) — reject before any element is copied.
+    // Only pointer elements trigger the rejection; an all-immediate copy
+    // installs no pointers and is fine.
     if (memory.gc_instance) |gc| {
         for (from_vec.data[start..end]) |val| {
+            if (memory.crossHeapStoreViolation(types.toObject(args[0]), val)) return primitives.raiseCrossHeapStore("vector-copy!");
             gc.writeBarrier(types.toObject(args[0]), val);
         }
     }
@@ -1003,8 +1009,11 @@ fn vectorReverseCopyBangFn(args: []const Value) PrimitiveError!Value {
     const count = end - start;
     if (at + count > to_vec.data.len) return primitives.typeError("vector-reverse-copy!", "valid index range", args[1]);
 
+    // #1924: see vector-copy! — same per-element rejection for a shared
+    // destination.
     if (memory.gc_instance) |gc| {
         for (from_vec.data[start..end]) |val| {
+            if (memory.crossHeapStoreViolation(types.toObject(args[0]), val)) return primitives.raiseCrossHeapStore("vector-reverse-copy!");
             gc.writeBarrier(types.toObject(args[0]), val);
         }
     }

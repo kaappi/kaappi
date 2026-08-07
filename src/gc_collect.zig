@@ -688,8 +688,9 @@ fn markRoots(gc: *GC) void {
     // Must run OUTSIDE the symbol_mutex section: a child mid-init,
     // deep-copying its thunk (threadEntryFn → child_gc.deepCopy →
     // allocSymbol), can be blocked on that same mutex, and stopping it — the
-    // parent waits for the child to park — would deadlock.
-    if (gc.child_marker) |mark| mark(gc);
+    // parent waits for the child to park — would deadlock. Atomic load:
+    // threadStartImpl registers the marker from any thread.
+    if (@atomicLoad(?*const fn (*GC) void, &gc.child_marker, .acquire)) |mark| mark(gc);
 }
 
 pub fn markValue(gc: *GC, v: Value) void {

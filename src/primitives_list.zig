@@ -77,6 +77,9 @@ fn listSetFn(args: []const Value) PrimitiveError!Value {
         if (!types.isPair(current)) return primitives.typeError("list-set!", "pair", current);
         if (types.toObject(current).flags.immutable) return primitives.typeError("list-set!", "mutable pair", current);
         if (idx == k) {
+            // #1924: a shared parent-heap list must not be mutated from a
+            // child — reject before the store.
+            if (memory.crossHeapStoreViolation(types.toObject(current), args[2])) return primitives.raiseCrossHeapStore("list-set!");
             if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(current), args[2]);
             types.setCar(current, args[2]);
             return types.VOID;

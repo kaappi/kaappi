@@ -81,7 +81,14 @@ fn promiseMerge(args: []const Value) PrimitiveError!Value {
     const outer = types.toPromise(args[0]);
     const inner = types.toPromise(args[1]);
     // #1924: reject before the stores, both directions (the merged inner
-    // value, and the inner promise's back-pointer to the outer).
+    // value, and the inner promise's back-pointer to the outer). The back-
+    // pointer direction (inner.value = outer) is never a cross-heap store in
+    // practice — both promises come from the same force chain, so they share
+    // a heap — but the store is checked anyway by the predicate's own
+    // container-owner rule (a child-owned inner, a parent-owned outer, would
+    // be rejected); the explicit check below covers the outer.value direction
+    // that can genuinely cross (a child forcing/merging into a shared
+    // parent-heap promise).
     if (memory.crossHeapStoreViolation(&outer.header, inner.value)) return primitives.raiseCrossHeapStore("%promise-merge!");
     gc.writeBarrier(&outer.header, inner.value);
     outer.value = inner.value;

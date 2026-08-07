@@ -263,6 +263,11 @@ pub fn markLiveChildRoots(gc: *memory.GC) void {
 
     var marked: std.ArrayList(?*vm_mod.VM) = .empty;
     defer marked.deinit(std.heap.page_allocator);
+    // Every VM whose `collection_stop` is armed, exited or not. The release
+    // loop below iterates THIS list (never the nulled `marked`), so an
+    // exited child's flag is always cleared and never left poisoned.
+    var armed: std.ArrayList(*vm_mod.VM) = .empty;
+    defer armed.deinit(std.heap.page_allocator);
 
     while (true) {
         // Snapshot the registry under its lock and arm the stop flag on any
@@ -289,25 +294,33 @@ pub fn markLiveChildRoots(gc: *memory.GC) void {
             }
             if (!already) {
                 marked.append(std.heap.page_allocator, cv) catch @panic("GC: child-root marking OOM");
+                armed.append(std.heap.page_allocator, cv) catch @panic("GC: child-root marking OOM");
                 cv.collection_stop.store(true, .release);
                 added = true;
             }
         }
         memory.spinUnlock(&child_registry.mutex);
         // Once a full pass adds no child, every live child is armed; wait for
-        // each to leave `.running` (safepoint stop, park, or FFI), then mark.
+        // each to leave `.running` (safepoint stop, park, FFI, or a raw
+        // thread join). A running child reaches its next safepoint within
+        // 1024 instructions, so spin-yield rather than sleep: a fixed 1ms
+        // poll would cost ~1ms per parent collection with a live child —
+        // pathological under -Dgc-stress, where collections run per
+        // allocation.
         if (!added) break;
-        for (marked.items) |cv| {
-            if (cv) |vm| {
-                while (vm.collection_state.load(.acquire) == .running) sleepNs(CROSS_THREAD_POLL_NS);
+        for (armed.items) |vm| {
+            var spins: u32 = 0;
+            while (vm.collection_state.load(.acquire) == .running) {
+                spins +%= 1;
+                if (spins & 0xFF == 0) std.Thread.yield() catch {};
             }
         }
     }
 
     // A child may have exited during the wait (thread-terminate!, or its
     // thunk completing on its own). Its registers are stale now — the parent
-    // must not mark them. Re-check liveness under the registry lock; the
-    // stop flags on exited children are cleared below along with the rest.
+    // must not mark them. Null its entry for the MARK loop only; `armed`
+    // still releases its stop flag below.
     memory.spinLock(&child_registry.mutex);
     var it2 = child_registry.map.valueIterator();
     while (it2.next()) |res| {
@@ -324,13 +337,11 @@ pub fn markLiveChildRoots(gc: *memory.GC) void {
     for (marked.items) |cv| {
         if (cv) |vm| vm_mod.markVmRoots(gc, vm);
     }
-    // Release every child. They resume inside the parent's sweep; any shared
-    // object they read from now on is reachable from the parent's roots at
-    // mark time, so it was marked, and the sweep cannot free it (the
-    // globals-route argument of the sharing model).
-    for (marked.items) |cv| {
-        if (cv) |vm| vm.collection_stop.store(false, .release);
-    }
+    // Release every child — exited or not. They resume inside the parent's
+    // sweep; any shared object they read from now on is reachable from the
+    // parent's roots at mark time, so it was marked, and the sweep cannot
+    // free it (the globals-route argument of the sharing model).
+    for (armed.items) |vm| vm.collection_stop.store(false, .release);
 }
 
 /// Thin per-file convenience wrapper: fetches vm_instance and delegates to
@@ -645,10 +656,11 @@ fn threadStartImpl(args: []const Value) PrimitiveError!Value {
     const root_vm = vm.root_vm orelse vm;
     // #1933: from here on, the root's collector must stop-and-mark live
     // children so a parent-heap object referenced only from a running
-    // child's registers is not freed under it. Registered once, on the root
-    // gc, at the first spawn; a no-op after (and on GCs that never
-    // coordinate).
-    root_vm.gc.child_marker = &markLiveChildRoots;
+    // child's registers is not freed under it. Atomic: threadStartImpl can
+    // run on any thread (a child spawning a grandchild) while the root's
+    // markRoots reads the field; the stored value is always the same
+    // function pointer, but the write must not be a plain store.
+    @atomicStore(?*const fn (*memory.GC) void, &root_vm.gc.child_marker, &markLiveChildRoots, .release);
     fiber.os_thread = std.Thread.spawn(.{}, threadEntryFn, .{
         fiber, spawner, gc.allocator, root_vm, envelope,
     }) catch {
@@ -787,7 +799,11 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, spawner: ?*fiber_mod.Fiber, allocator:
     // at the just-finished mark and therefore alive.
     child_vm.collection_state.store(.parked, .release);
     while (collection_in_progress.load(.acquire)) sleepNs(CROSS_THREAD_POLL_NS);
-    child_vm.collection_state.store(.running, .release);
+    // Guarded resume: if the parent armed collection_stop during the wait
+    // (its snapshot could include this child even though it is mid-init), the
+    // first thing that happens after the handshake is not unread bytecode but
+    // a stop at the safepoint.
+    child_vm.setCollectionRunning();
 
     // Copy the thunk out of the envelope into this thread's own fresh heap.
     // thread-start! already ran the forward copy on the parent thread and
@@ -1182,6 +1198,21 @@ fn threadJoinFn(args: []const Value) PrimitiveError!Value {
 
 fn reapOsThread(target: *fiber_mod.Fiber, fiber_val: Value) PrimitiveError!Value {
     if (target.os_thread) |thread| {
+        // #1933: a CHILD joining its own child blocks in a raw pthread join
+        // that never reaches the dispatch-loop safepoint and never reports a
+        // quiescent state on its own. Without the in-native report, the
+        // parent's collector waits forever for this VM to leave `.running`
+        // while the grandchild being joined waits on `collection_in_progress`
+        // — a livelock (seen as a multi-minute hang in
+        // channel-promoted-owner-1934 under -Dgc-stress). During the join the
+        // VM's frames/registers are stable, so it is safe to mark. Function-
+        // scope defer: a block-scoped one would fire before thread.join().
+        const join_vm: ?*vm_mod.VM = if (vm_mod.vm_instance) |vm|
+            if (!vm.owns_globals) vm else null
+        else
+            null;
+        if (join_vm) |vm| vm.setCollectionInNative();
+        defer if (join_vm) |vm| vm.setCollectionRunning();
         thread.join();
         target.os_thread = null;
     }

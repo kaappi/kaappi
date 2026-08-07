@@ -338,11 +338,16 @@ pub const ProfileTimeEntry = struct {
 ///                `collection_stop` set. Quiescent; the parent marks and then
 ///                clears `collection_stop` to let the child resume.
 ///   .parked    — blocked in a wait (reactor poll, the capped cross-thread
-///                polling loops). Quiescent; no bytecode runs until it wakes.
-///   .in_native — inside an FFI call (callFfi), which may block indefinitely
-///                and never reaches the safepoint. Quiescent while blocked;
-///                the FFI callbacks that re-enter Scheme switch back to
-///                `.running` for their extent (see callWithArgs).
+///                polling loops). Quiescent while reported; the resume path
+///                (setCollectionRunning) re-checks `collection_stop` before
+///                letting bytecode run, so a parent that observed this state
+///                can always mark it frozen.
+///   .in_native — inside an FFI call (callFfi) or a raw thread join
+///                (reapOsThread): may block indefinitely and never reaches
+///                the safepoint. Quiescent while reported; the FFI callbacks
+///                that re-enter Scheme switch back to `.running` for their
+///                extent (see callWithArgs), and the resume path re-checks
+///                `collection_stop` the same way.
 ///
 /// Transitions are plain atomics on the child side and are never observed
 /// by the parent except while the child's own GC is guaranteed not to be
@@ -895,10 +900,28 @@ pub const VM = struct {
         self.collection_state.store(.parked, .release);
     }
 
-    /// Report that execution is (or may) resume. The inverse of
-    /// `setCollectionParked`/`setCollectionInNative`.
+    /// Resume from a quiescent state (park, FFI call, callback re-entry,
+    /// startup handshake). If the collecting parent has armed `collection_stop`
+    /// while we were quiescent, this must NOT publish `.running` and resume
+    /// bytecode: the parent may already have observed us quiescent and be
+    /// about to mark. Mirror the safepoint path instead — publish `.stopped`
+    /// and spin until the parent clears the flag — so the parent's mark always
+    /// finds us frozen. (The check-then-store race with the parent's arming
+    /// is safe: if the parent arms after our check, we resume and the parent
+    /// simply waits for our next safepoint, within 1024 instructions.)
     pub inline fn setCollectionRunning(self: *VM) void {
+        if (self.collection_stop.load(.acquire)) {
+            self.stopForCollection();
+            return;
+        }
         self.collection_state.store(.running, .release);
+    }
+
+    /// Restore a previously saved quiescent state (used by callWithArgs'
+    /// FFI-callback guard). The state being restored is never `.running`, so
+    /// no resume-vs-mark race is possible; the raw store is fine.
+    pub inline fn setCollectionState(self: *VM, s: CollectionState) void {
+        self.collection_state.store(s, .release);
     }
 
     /// Enter an FFI call: the VM is quiescent unless a callback re-enters

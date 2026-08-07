@@ -25,7 +25,8 @@
 ;; keep working in srfi18-sharing-model.scm / srfi18-cross-heap-abandoned-
 ;; mutex.scm and is deliberately exempt.
 
-(import (scheme base) (scheme write) (scheme lazy) (srfi 13) (srfi 18) (srfi 125) (srfi 64))
+(import (scheme base) (scheme write) (scheme lazy) (scheme eval) (scheme repl)
+        (srfi 13) (srfi 18) (srfi 69) (srfi 133) (srfi 64))
 
 (test-begin "srfi18-cross-heap-mutation-1924")
 
@@ -71,14 +72,48 @@
 (define g-pair (cons 1 2))
 (test-assert "set-car! from a child is rejected"
   (refused? (on-child (lambda () (set-car! g-pair (list 9 9 9)) 'no-error))))
+(test-assert "set-cdr! from a child is rejected"
+  (refused? (on-child (lambda () (set-cdr! g-pair (list 9 9 9)) 'no-error))))
 (test-equal "the shared pair was not corrupted"
   '(1 . 2) g-pair)
 
+(define g-list (list 'a 'b 'c))
+(test-assert "list-set! from a child is rejected"
+  (refused? (on-child (lambda () (list-set! g-list 0 (list 9 9)) 'no-error))))
+(test-equal "the shared list was not corrupted"
+  '(a b c) g-list)
+
+;; vector-copy!/vector-reverse-copy! write their source elements into the
+;; destination (`args[0]`); a shared destination must not come to hold a
+;; pointer from the child's heap.
+(define g-copy-dst (make-vector 3 'x))
+(test-assert "vector-copy! from a child is rejected"
+  (refused? (on-child (lambda () (vector-copy! g-copy-dst 0 (vector (list 1) 2 3)) 'no-error))))
+(test-assert "vector-reverse-copy! from a child is rejected"
+  (refused? (on-child (lambda () (vector-reverse-copy! g-copy-dst 0 (vector (list 1) 2 3)) 'no-error))))
+(test-equal "the shared destination was not corrupted"
+  '(x x x) (vector->list g-copy-dst))
+
 (define g-ht (make-hash-table equal?))
-(test-assert "hash-table-set! from a child is rejected"
+(test-assert "hash-table-set! from a child is rejected (child-allocated value)"
   (refused? (on-child (lambda () (hash-table-set! g-ht 'k (list 1 2 3)) 'no-error))))
-(test-assert "the shared hash table was not corrupted"
-  (not (hash-table-contains? g-ht 'k)))
+(test-assert "hash-table-set! from a child is rejected (child-allocated key)"
+  (refused? (on-child (lambda () (hash-table-set! g-ht (list 1 2) 'v) 'no-error))))
+;; A pre-existing key so hash-table-update! reaches its store (SRFI-69's
+;; update! on a missing key raises before any store).
+(hash-table-set! g-ht 'present 'old)
+(test-assert "hash-table-update! from a child is rejected"
+  (refused? (on-child (lambda () (hash-table-update! g-ht 'present (lambda (_) (list 1 2 3))) 'no-error))))
+(test-assert "hash-table-update!/default from a child is rejected"
+  (refused? (on-child (lambda () (hash-table-update!/default g-ht 'missing (lambda (_) (list 1 2 3)) 'd) 'no-error))))
+(define g-ht2 (make-hash-table equal?))
+(hash-table-set! g-ht2 'a (list 1))
+(test-assert "hash-table-merge! from a child is rejected"
+  (refused? (on-child (lambda () (hash-table-merge! g-ht g-ht2) 'no-error))))
+(test-equal "the shared hash table was not corrupted"
+  'old (hash-table-ref g-ht 'present))
+(test-assert "the merged table was not installed"
+  (not (hash-table-exists? g-ht 'a)))
 
 ;; The R7RS memoisation hazard: a top-level (define p (delay ...)) shared by
 ;; pointer, forced by a child, would memoise a child-heap value into the
@@ -92,6 +127,8 @@
 (define g-counter 0)
 (test-assert "set! of a heap object on a shared global from a child is rejected"
   (refused? (on-child (lambda () (set! g-counter (list 1 2 3)) 'no-error))))
+(test-assert "define of a heap object on a shared global from a child is rejected (via eval)"
+  (refused? (on-child (lambda () (eval '(define g-fresh (make-vector 3)) (interaction-environment)) 'no-error))))
 (test-equal "the shared global was not corrupted"
   0 g-counter)
 
@@ -119,6 +156,18 @@
                 (vector-set! v 0 g-shared-box)
                 (vector-set! v 1 'ok)
                 (eq? (vector-ref v 0) g-shared-box)))))
+
+;; The mirror image is also rejected: a child storing a PARENT-OWNED value
+;; into a PARENT-OWNED container. That store installs no child-heap pointer,
+;; but it would need the OWNER's generational write barrier (a parent-young
+;; value in a parent-old container is invisible to the parent's next minor
+;; collection without a remembered-set edge), and the owner's remembered set
+;; cannot be touched cross-thread — so the rule is simply that a child never
+;; writes a foreign container at all.
+(test-assert "a child may not store even a parent-owned value into a shared container"
+  (refused? (on-child (lambda () (set-box-v! g-box g-shared-box) 'no-error))))
+(test-equal "the shared record still holds its original value"
+  #f (box-v g-box))
 
 ;; A child mutating its OWN heap objects (created inside the thunk) is
 ;; entirely local and untouched by the rule.
