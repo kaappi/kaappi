@@ -213,6 +213,15 @@ pub const GC = struct {
     oom_countdown: ?usize = null,
     profile_alloc_target: ?*u64 = null,
     root_marker: ?*const fn (*GC) void = null,
+    /// #1933: called by markRoots after `root_marker` when live SRFI-18
+    /// child threads exist. Set by the first thread-start! (primitives_srfi18
+    /// threadStartImpl) to markLiveChildRoots on the ROOT gc; the root's
+    /// collector stops every live child at a safepoint and marks its
+    /// registers/frames with this gc, keeping parent-heap objects reachable
+    /// only from a live child's registers alive. Null on every child gc (and
+    /// on the root before any thread has ever been started), so a gc that
+    /// never coordinates pays nothing.
+    child_marker: ?*const fn (*GC) void = null,
     source_spans: std.AutoHashMap(Value, types.Span) = undefined,
     stats: GcStats = .{},
     minor_cycle_count: u32 = 0,
@@ -680,6 +689,36 @@ pub const GC = struct {
     }
 };
 
+// -- #1924: cross-heap store rejection --
+//
+// A thread may store into a heap object it owns values from any heap
+// (storing a shared parent-heap object into a child-local structure is the
+// ordinary "copy a global into a local" pattern). But a store into an
+// object the running thread does NOT own -- a shared parent-heap
+// record/vector/pair reached through the globals map -- must not install a
+// pointer to an object from a third heap (typically the running thread's
+// own): the container's collector skips foreign values, the value's own
+// collector cannot see the container, and the value is freed either by its
+// own GC (the only reference is invisible to it) or when its thread's heap
+// is reclaimed at thread-join!. The result is the use-after-free of
+// kaappi#1924, deterministic and not a race.
+//
+// The one deliberate engine-level exception is the mutex owner pair
+// (primitives_srfi18.mutexLockFn): a child locking a shared parent-heap
+// mutex must record its own heap's fiber as owner so a dying fiber can
+// abandon the mutex. The mutex site simply does not call this check (it is
+// a per-site decision, like every other sanctioned cross-thread idiom --
+// see docs/dev/thread-value-sharing.md).
+pub inline fn crossHeapStoreViolation(container: *const Object, value: Value) bool {
+    if (!types.isPointer(value)) return false; // immediates have no lifetime
+    const gc = gc_instance orelse return false;
+    if (container.owner == gc.id) return false; // we own the container
+    // A foreign container: the value must be owned by that same foreign GC
+    // (the shared object's own heap outlives this thread's use of it), not
+    // by this thread or any third heap.
+    return container.owner != types.toObject(value).owner;
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -962,6 +1001,40 @@ test "mark worklist retains capacity across collections" {
 
     gc.popRoot();
     gc.popRoot();
+}
+
+// kaappi#1924: the store-rejection predicate. A store into a container the
+// running thread owns is always allowed (the value may come from any heap —
+// the ordinary "copy a shared global into a child-local structure" pattern);
+// a store into a foreign container is allowed only when the value is owned
+// by that same foreign heap, so the container never comes to hold a pointer
+// neither collector can keep alive. Immediates have no lifetime and always
+// pass.
+test "crossHeapStoreViolation: foreign containers reject foreign-heap values" {
+    var gc = GC.init(std.testing.allocator);
+    defer gc.deinit();
+    gc.enabled = false;
+    setGCInstance(&gc);
+    defer setGCInstance(undefined);
+
+    const container = types.toObject(try gc.allocPair(types.NIL, types.NIL));
+    const same_val = try gc.allocVectorFill(2, types.NIL);
+    try std.testing.expect(!crossHeapStoreViolation(container, types.makeFixnum(1))); // immediate
+    try std.testing.expect(!crossHeapStoreViolation(container, same_val)); // same-heap value
+    try std.testing.expect(!crossHeapStoreViolation(container, types.NIL)); // non-pointer
+
+    // A container owned by ANOTHER gc: a value from the running thread's own
+    // heap would dangle once this heap is freed -- rejected.
+    var other = GC.init(std.testing.allocator);
+    defer other.deinit();
+    other.enabled = false;
+    const foreign = types.toObject(try other.allocPair(types.NIL, types.NIL));
+    try std.testing.expect(container.owner != foreign.owner);
+    try std.testing.expect(crossHeapStoreViolation(foreign, same_val));
+    // A value owned by that same foreign heap is fine (its owner outlives
+    // this thread's use of it).
+    const foreign_val = try other.allocVectorFill(1, types.NIL);
+    try std.testing.expect(!crossHeapStoreViolation(foreign, foreign_val));
 }
 
 test "allocSliceNoFill: write and read back" {

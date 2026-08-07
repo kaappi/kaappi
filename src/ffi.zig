@@ -450,6 +450,15 @@ fn callFfiGeneric(comptime N: u4, ffi_fn: *types.FfiFunction, args: []const Valu
 
 /// Main FFI call dispatcher. Routes to arity-specific handlers.
 pub fn callFfi(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC, vm: *VM) !Value {
+    // #1933: function-scope defer (a block-scoped one would fire before the
+    // call). An FFI call may block indefinitely and never reach the
+    // dispatch-loop safepoint, so report the in-native state to a collecting
+    // parent: while it runs (or blocks), the VM's registers/frames are
+    // quiescent and may be marked. FFI callbacks that re-enter Scheme switch
+    // back to `.running` for their extent (callWithArgs' own guard).
+    const report_native_state = !vm.owns_globals;
+    if (report_native_state) vm.setCollectionInNative();
+    defer if (report_native_state) vm.setCollectionRunning();
     vm.last_error_detail_len = 0;
     if (types.isFfiLibrary(ffi_fn.library)) {
         const lib = types.toObject(ffi_fn.library).as(types.FfiLibrary);

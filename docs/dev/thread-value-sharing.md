@@ -11,7 +11,7 @@ routes, and they have separate, unrelated enforcement:
 | route | how a value travels | what enforces the rules |
 |---|---|---|
 | **copy** | deep-copied into the other heap | the uncopyable-tag list, one central check |
-| **globals** | reached by pointer, no copy | per-type owner checks in individual primitives — present for exactly four types |
+| **globals** | reached by pointer, no copy | per-type owner checks in individual primitives — present for exactly four types, plus (since kaappi#1924) a general rejection of any store of a foreign-heap pointer into a shared container |
 
 The tag list is not a statement about what can cross a thread boundary.
 It is a statement about what can be *copied*. Eleven of the fourteen tags
@@ -213,8 +213,26 @@ Ports through globals would break too, and the issue itself argues that
 case is fine. A per-type check is possible — `Object.owner` is on every
 heap object, so the mechanism is already there and the channel and thread
 cases show the shape — but it is a per-type decision about a per-type
-idiom, not one sweep, and the remaining unsound case has its own issue
-(kaappi#1924, kaappi#1936).
+idiom, not one sweep.
+
+That per-site decision is exactly how the general mutation hazard
+(kaappi#1924) was settled. A child writing a value of its own heap into a
+shared parent-heap container — a record field, a vector slot, a pair, a
+hash-table entry, a promise's memoised value, or the globals map itself —
+leaves a pointer the parent's collector skips as foreign and the child's
+collector cannot see a reference to, so the value is freed by the child's
+GC or at its join while the container still holds it. The store is now
+**rejected before it happens** (`memory.crossHeapStoreViolation`, checked
+at every general mutation site), unless the value belongs to the same
+foreign heap as the container. This is not a per-type check on a value
+(any type may be stored); it is a per-store check on the *heaps* of the
+container and the value. The one sanctioned engine-level exception is the
+mutex owner pair in `mutex-lock!`: locking a shared parent-heap mutex
+from a child must record the child's own fiber as owner so a dying fiber
+can abandon it, and the mutex site deliberately does not call the check.
+The remaining unsound cases have their own issues (kaappi#1936, and the
+mutex-specific/condvar-specific cross-heap store, which shares the
+accepted residual the #2127 quarantine detects).
 
 Two rows have since been decided that way, one each: the fiber
 (kaappi#2001) and the guardian (kaappi#2008). Both had a route-specific
@@ -258,6 +276,8 @@ thread gets its own VM and GC with an independent heap.
 | `VM.owns_globals` | `src/vm.zig` | Stops a child VM freeing the shared maps on deinit |
 | `symbol_mutex` | `src/memory.zig` | Spinlock protecting concurrent symbol interning |
 | `child_resources` | `src/primitives_srfi18.zig` | Global map holding child GC/VM references; entries are freed at `thread-join!` or, when the join retires them because the thread still has live descendants, by the last descendant's `threadEntryFn` defer once the subtree drains (kaappi#2129) |
+| `markLiveChildRoots` | `src/primitives_srfi18.zig` | kaappi#1933: registered on the **root** GC as `gc.child_marker`; the root's collector stops every live child at a dispatch-loop safepoint (or finds it already parked / in an FFI call) and marks its roots with the root's gc, so a parent-heap object referenced only from a live child's registers is never freed under it. Children spawned mid-collection spin on `collection_in_progress` before their first shared-globals read. The child side reports `collection_state` (`.running`/`.parked`/`.stopped`/`.in_native`) from the safepoint (`stopForCollection`), the park (`parkOnReactor`) and FFI (`callFfi`) sites |
+| `crossHeapStoreViolation` | `src/memory.zig` | kaappi#1924: the rejection predicate checked before every general store into a heap object — a store into a container owned by another GC is allowed only when the value is owned by that same GC. The `mutex-lock!` owner pair is the deliberate exception |
 | `Object.owner` vs `GC.id` | `src/gc_collect.zig` | Every heap object records its owning GC; marking skips objects owned by another GC, so a child's collections never write mark bits on parent-heap objects reached through shared globals (kaappi#958) |
 
 The deep copy happens at exactly three boundaries: the thunk closure at

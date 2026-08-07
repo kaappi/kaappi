@@ -123,6 +123,7 @@ fn vectorSetFn(args: []const Value) PrimitiveError!Value {
     const k = types.toFixnum(args[1]);
     // u64 comparison before narrowing (kaappi#1912): see fixnumIndexInBounds.
     if (!primitives.fixnumIndexInBounds(k, vec.data.len)) return primitives.indexError("vector-set!", k, vec.data.len);
+    if (memory.crossHeapStoreViolation(types.toObject(args[0]), args[2])) return primitives.raiseCrossHeapStore("vector-set!");
     if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[2]);
     vec.data[@intCast(k)] = args[2];
     return types.VOID;
@@ -193,6 +194,7 @@ fn vectorFillFn(args: []const Value) PrimitiveError!Value {
     const range = try primitives.parseOptionalRange(args, 2, len, "vector-fill!");
     const start = range.start;
     const end = range.end;
+    if (memory.crossHeapStoreViolation(types.toObject(args[0]), args[1])) return primitives.raiseCrossHeapStore("vector-fill!");
     if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
     @memset(vec.data[start..end], args[1]);
     return types.VOID;

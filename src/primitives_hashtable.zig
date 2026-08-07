@@ -653,6 +653,10 @@ fn hashTableSetFn(args: []const Value) PrimitiveError!Value {
     const ht = try getHashTable("hash-table-set!", args[0]);
     try growIfNeeded(ht);
     const slot = try findSlot("hash-table-set!", ht, args[1]);
+    // #1924: reject before the store — a shared parent-heap table must not
+    // come to hold a child-heap key or value.
+    if (memory.crossHeapStoreViolation(types.toObject(args[0]), args[1])) return primitives.raiseCrossHeapStore("hash-table-set!");
+    if (memory.crossHeapStoreViolation(types.toObject(args[0]), args[2])) return primitives.raiseCrossHeapStore("hash-table-set!");
     if (memory.gc_instance) |gc| {
         gc.writeBarrier(types.toObject(args[0]), args[1]);
         gc.writeBarrier(types.toObject(args[0]), args[2]);

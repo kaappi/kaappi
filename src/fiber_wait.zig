@@ -231,6 +231,16 @@ pub fn parkOnReactor(vm: *VM, sched: *FiberScheduler, cap_ns: ?u64) VMError!bool
 
     var ready: std.ArrayList(*Fiber) = .empty;
     defer ready.deinit(vm.gc.allocator);
+    // #1933: a child OS thread blocked in the reactor poll is quiescent; a
+    // collecting parent may mark its registers/frames without waiting for a
+    // safepoint. The main thread (owns_globals) never reports a state — it is
+    // the collector's own thread. The defer must be at FUNCTION scope: a
+    // defer inside the if-block would fire when the block exits — before the
+    // poll — leaving the child reported .running (and unmarkable) for the
+    // whole blocking wait.
+    const report_park_state = !vm.owns_globals;
+    if (report_park_state) vm.setCollectionParked();
+    defer if (report_park_state) vm.setCollectionRunning();
     reactor.poll(cap_ns, &ready) catch return VMError.OutOfMemory;
     // A notify arriving *during* the blocking poll() above is what actually
     // interrupted it; its wake_pending flag needs consuming here even though

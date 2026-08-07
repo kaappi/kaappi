@@ -673,14 +673,23 @@ fn markRoots(gc: *GC) void {
     // unconditionally by parent and child alike — never calls maybeCollect,
     // so a thread can never enter GC marking (which takes this same lock)
     // while already holding it in allocSymbol.
-    memory_mod.spinLock(&memory_mod.symbol_mutex);
-    defer memory_mod.spinUnlock(&memory_mod.symbol_mutex);
-    var it = gc.symbols.valueIterator();
-    while (it.next()) |v| {
-        markValue(gc, v.*);
+    {
+        memory_mod.spinLock(&memory_mod.symbol_mutex);
+        defer memory_mod.spinUnlock(&memory_mod.symbol_mutex);
+        var it = gc.symbols.valueIterator();
+        while (it.next()) |v| {
+            markValue(gc, v.*);
+        }
+        // Mark VM-owned roots (live registers, call frames, handlers, winds).
+        if (gc.root_marker) |mark| mark(gc);
     }
-    // Mark VM-owned roots (live registers, call frames, handlers, winds).
-    if (gc.root_marker) |mark| mark(gc);
+    // #1933: with live SRFI-18 children, also mark each child's roots (the
+    // children are stopped at safepoints first — see markLiveChildRoots).
+    // Must run OUTSIDE the symbol_mutex section: a child mid-init,
+    // deep-copying its thunk (threadEntryFn → child_gc.deepCopy →
+    // allocSymbol), can be blocked on that same mutex, and stopping it — the
+    // parent waits for the child to park — would deadlock.
+    if (gc.child_marker) |mark| mark(gc);
 }
 
 pub fn markValue(gc: *GC, v: Value) void {

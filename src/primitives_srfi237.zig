@@ -394,6 +394,7 @@ fn recordSetInheritFn(args: []const Value) PrimitiveError!Value {
     // u64 comparison before narrowing (kaappi#1912): see primitives.fixnumIndexInBounds.
     if (!primitives.fixnumIndexInBounds(raw_idx, ri.fields.len)) return indexError("%record-set!/inherit", raw_idx, ri.fields.len);
     const idx: usize = @intCast(raw_idx);
+    if (memory.crossHeapStoreViolation(types.toObject(args[0]), args[2])) return primitives.raiseCrossHeapStore("%record-set!/inherit");
     if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[2]);
     ri.fields[idx] = args[2];
     return types.VOID;
