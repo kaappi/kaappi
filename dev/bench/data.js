@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786064554933,
+  "lastUpdate": 1786072015061,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "793abc6a9999beb324f424307b8e7e83606e5c67",
-          "message": "Make SRFI 237's record procedures obey R6RS 6.3 (#1989)\n\n* Make SRFI 237's record procedures obey R6RS 6.3\n\nSRFI 237 defines most of its procedural and inspection layers as\n\"equivalent to the procedure with the same name in R6RS\", and four of\nthem were not. Each had a control in the same library showing the data\nneeded was already present, so these were reporting bugs rather than\nmissing capability:\n\n  - record-type-field-names returned a list where R6RS requires a\n    vector, while make-record-type-descriptor already demanded a vector\n    for the same field list.\n  - An integer k for record-accessor/record-mutator indexed the whole\n    instance rather than the rtd's own fields (\"k cannot be used to\n    specify a field of any type rtd extends\"), so it silently returned\n    an ancestor's field -- and disagreed with record-field-mutable?,\n    whose own k was already own-relative. The integer path also skipped\n    rtd validation and never range-checked k.\n  - The opaque flag was stored and read back but never enforced, and\n    was not inherited from an opaque parent.\n  - record-mutator returned a working mutator for an immutable field.\n\nKeeping %record-type-field-names list-valued and converting at the\npublic boundary leaves the primitive's contract, its audit test, and\nthe internal index walks in SRFI 57/131/136/150 untouched. Opacity is\nmade effective at construction by a helper both creation paths share,\nfor the same reason the sealed-parent and nongenerative rejections\nalready share theirs: the procedural and syntactic paths must not drift\ninto disagreeing about what R6RS requires.\n\nSRFI 137 relied on the absolute-index reading -- its subtypes declare\nzero own fields, so no k names the payload -- and now asks by name.\n\nAlso add the three specified names that were missing, which made a test\nwritten against the R6RS spelling fail on the binding rather than on the\nbehaviour under test: make-record-constructor-descriptor,\nrecord-constructor-descriptor?, and the 7-argument\nmake-record-descriptor.\n\nThe 7-argument form is specified as passing its `parent` to both\nmake-record-type-descriptor and the parent-descriptor slot, which only\ntype-checks once a record descriptor is accepted wherever an rtd is\nexpected -- the SRFI's \"the type of record descriptors is a subtype of\nthe type of record-type descriptors\". That widening exposed the\nremaining gap: a syntactic define-record-type's <record name> evaluates\nto a simple rtd, and a protocol lives on the descriptor, so deriving a\nprotocol-less descriptor from one would quietly bypass the protocol and\nstore the raw constructor arguments. Rather than give RecordType a\nGC-traced protocol field, %record-type-constructor recovers the\nfinished, protocol-applied constructor the desugarer already bound,\nafter confirming the sibling type alias still names that same rtd (both\naliases are keyed by type name, so a generative redefinition rebinds\nthem). When it cannot be recovered and the new has_protocol bool says\nthere is one, it raises rather than building a wrong record. Together\nthese make the SRFI's own worked Examples section run -- a procedural\ntype inheriting from a syntactic one whose construction a protocol\ngoverns.\n\nFixes #1974\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Note the SRFI 237 conformance fixes in the changelog\n\nrecord-type-field-names changing from a list to a vector is a breaking\nchange for any caller, so it needs the migration note rather than just\na bug-fix line.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Re-pin the SRFI 237 audit to the corrected R6RS semantics\n\n#1975 landed its audit while this fix was in review, so the two disagree\nby construction: 20 of its assertions pinned the defects #1974 reports as\na \"before\" for exactly this PR, and 10 more sat commented out waiting for\nthe fix. Flip both sets.\n\nThree of the re-pinned ones needed a real rewrite rather than an edited\nexpectation, because they read an inherited field by index -- which is\nprecisely what R6RS says k cannot do. The 4-level protocol matrix and the\narity cases now reach each level's single field as k=0 on that level's\nown rtd, walking the parent chain, so they exercise the same instance\nslots without relying on the flat layout.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T06:45:42+05:30",
-          "tree_id": "0ddf8334f627640311beb339dc3338386bb14fa3",
-          "url": "https://github.com/kaappi/kaappi/commit/793abc6a9999beb324f424307b8e7e83606e5c67"
-        },
-        "date": 1785549796008,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.90522,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.830477,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.5563,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.933475,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004794,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.044731,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.291311,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054475,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.338485,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.146848,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.509085,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.309517,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.665579,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.775094,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045192,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.033924,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ef0a9c9d5edb14ad51ceba6965986e7e320fa0a5",
+          "message": "Stop file-backed library loads from abandoning the enclosing top-level form (#2012) (#2246)\n\nThe first top-level form whose evaluation loads a file-backed .sld\nthrough (environment ...) was silently abandoned partway through: side\neffects before the load persisted, everything after it (the form's own\ndefine or display) never happened, with no error and exit 0. The second,\nbyte-identical form worked because the library was loaded by then, so a\nprogram either behaved correctly or silently lost a whole top-level form\ndepending on whether some earlier form had touched the same library.\n\nenvironmentFn (primitives_r7rs.zig) reaches importSetChecked, and for a\nfile-backed library that path compiles + executes the library body by\nre-entering vm.execute (tryLoadLibraryFromFile -> loadLibrarySource).\nvm.execute begins with resetExecutionState, which zeroes frame_count,\nhandler_count and wind_count -- destroying the enclosing top-level\nform's frame. The nested call then returns success, so the outer\nrunUntil loop sees frame_count == 0 and exits cleanly. Registry-backed\nlibraries ((srfi 1), (scheme base)) never take that path, which is why\nthe issue's control table was so clean. Top-level (import ...) was\nspared because the binding merge happens in native code after the load\nreturns; only user forms with work after the load showed it.\n\nFix: route every nested-entry top-level thunk through\nrunTopLevelFunction (vm_eval.zig, the re-entrant-safe path eval and\ntop-level begin/cond-expand splicing already use since #1500), which at\nframe_count == 0 is identical to vm.execute but while an outer\nexecution is suspended pushes a frame above the live ones via\ncallWithArgs instead of resetting them away. The affected sites are the\nlibrary body form executor (loadLibrarySource), top-level include\n(evalIncludedForm), library body definitions (compileLibExpr),\ndefine-values (handleDefineValues), and the five define-record-type\nexpansion sites in vm_records.zig. A new VM method runTopLevelFunction\nexposes it to those modules.\n\nRegression test: tests/scheme/compliance/environment-file-sld-2012.scm.\nOn the buggy build its first-load probes fail loudly (undefined variable\n-- the defining form never bound) with exit 1; with the fix all four\npass. The native tier is unaffected (it runs top-level forms natively,\nso there is no enclosing VM frame to lose), verified by compiling the\nissue's repro with kaappi compile on both builds.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-07T08:05:33+05:30",
+          "tree_id": "b9e25b0eafa872e2eff0b19befc497028b74755f",
+          "url": "https://github.com/kaappi/kaappi/commit/ef0a9c9d5edb14ad51ceba6965986e7e320fa0a5"
+        },
+        "date": 1786072013814,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.348717,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.211829,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.583827,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.008312,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.0047,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04717,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.322208,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.058007,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.747152,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.258154,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.583934,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.281379,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.825356,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.605302,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043093,
             "unit": "seconds"
           }
         ]
