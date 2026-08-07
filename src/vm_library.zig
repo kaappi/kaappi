@@ -255,7 +255,15 @@ fn loadLibrarySource(vm: *VM, source: []const u8) !void {
             vm.gc.pushRoot(&func_val);
             defer vm.gc.popRoot();
             compiler_mod.Compiler.unrootFunction(vm.gc, func);
-            _ = try vm.execute(func);
+            // runTopLevelFunction, not vm.execute: a library body form can be
+            // reached while an outer execution is suspended (a file-backed
+            // .sld loaded through (environment ...)/(eval ...) from inside a
+            // top-level form -- #2012). A bare vm.execute would
+            // resetExecutionState and abandon the enclosing form; this runs
+            // the thunk re-entrantly above the live frames, and is identical
+            // to vm.execute at true top level. func is rooted above, as it
+            // requires.
+            _ = try vm.runTopLevelFunction(func);
         }
     }
 }
@@ -701,7 +709,11 @@ fn evalIncludedForm(vm: *VM, expr: Value, path: []const u8, line: u32) void {
     vm.gc.pushRoot(&func_val);
     defer vm.gc.popRoot();
     compiler_mod.Compiler.unrootFunction(vm.gc, func);
-    _ = vm.execute(func) catch |err| {
+    // runTopLevelFunction, not vm.execute (#2012): the including form can be
+    // reached re-entrantly (a library body loaded from inside an outer
+    // top-level form contains an (include ...)); a bare vm.execute would
+    // resetExecutionState and abandon that outer form.
+    _ = vm.runTopLevelFunction(func) catch |err| {
         reportIncludeError(vm, path, line, vm.getErrorDetail(), err);
         vm.last_error_detail_len = 0;
         return;
@@ -898,7 +910,12 @@ fn compileLibExpr(vm: *VM, lib_env: *std.StringHashMap(Value), expr: Value) VMEr
     vm.gc.pushRoot(&func_val);
     compiler_mod.Compiler.unrootFunction(vm.gc, func);
     defer vm.gc.popRoot();
-    _ = try vm.execute(func);
+    // runTopLevelFunction, not vm.execute (#2012): this library body form
+    // runs during a load that may itself be nested inside an executing
+    // top-level form ((environment ...)/(eval ...) touching a file-backed
+    // .sld for the first time); a bare vm.execute would resetExecutionState
+    // and abandon that enclosing form. func is rooted via func_val above.
+    _ = try vm.runTopLevelFunction(func);
 }
 
 /// Compile and evaluate included files in a library context.

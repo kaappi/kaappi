@@ -22,9 +22,15 @@ const VMError = vm_mod.VMError;
 // re-entrant path native callbacks use (`callWithArgs` pushes a frame above the
 // current ones and returns when it unwinds), leaving the outer execution intact.
 //
-// `func` must already be GC-rooted by the caller (both call sites root it), so
+// `func` must already be GC-rooted by the caller (all call sites root it), so
 // the `allocClosure` here — which may collect — cannot free it.
-fn runTopLevelFunction(vm: *VM, func: *types.Function) VMError!Value {
+//
+// This is the single re-entrant-safe way to run a compiled top-level thunk;
+// every nested-entry caller (library loading, top-level begin/cond-expand
+// splicing, define-values, define-record-type expansion, top-level include)
+// must use it rather than a bare vm.execute — a bare one would
+// resetExecutionState and abandon the enclosing form mid-flight (#2012).
+pub fn runTopLevelFunction(vm: *VM, func: *types.Function) VMError!Value {
     if (vm.frame_count == 0) return vm.execute(func);
     const closure_val = try vm.gc.allocClosure(func);
     return vm.callWithArgs(closure_val, &.{});
@@ -405,7 +411,7 @@ fn handleDefineValues(vm: *VM, args: Value) VMError!Value {
     vm.gc.pushRoot(&func_val);
     defer vm.gc.popRoot();
     compiler_mod.Compiler.unrootFunction(vm.gc, func);
-    const result = vm.execute(func) catch |err| return err;
+    const result = runTopLevelFunction(vm, func) catch |err| return err;
 
     if (types.isMultipleValues(result)) {
         const mv = types.toObject(result).as(types.MultipleValues);
