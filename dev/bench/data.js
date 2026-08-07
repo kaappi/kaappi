@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786029748493,
+  "lastUpdate": 1786064554933,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "321da93a6fd8ab5ef64c637ac0338894e4cae1c1",
-          "message": "Evaluate guard clauses in the guard's own dynamic environment (#1991)\n\nFixes #1988.\n\nR7RS 4.2.7 evaluates a guard's implicit `cond` \"with the continuation and\ndynamic environment of the guard expression\". A handler, though, runs at the\nraise point, with every `parameterize`/`dynamic-wind` extent entered since the\nguard still live — and the desugaring handed the escape continuation the cond's\n*value*, so the clauses ran there. A plain `raise` hid it, because this VM\nunwinds before calling any handler; the `raise-continuable` a declining `guard`\nissues for its implicit re-raise does not, so an extent between a declining\ninner guard and an outer one leaked into the outer guard's clauses.\n\nThe clauses now run after a new internal `%unwind-to-escape` has left those\nextents. Escaping to the continuation first would do the same job in one step —\nthe issue's own suggestion, and what R7RS's sample implementation does — but the\nescape has to come after the clauses, not before: a clause may reinstate a\ncontinuation captured inside the guard body, and this VM cannot resume one whose\nnative frame has returned. `(srfi 255)`'s restarters are exactly that shape, and\nescaping first breaks them. Splitting the unwind from the escape keeps those\nframes standing; the escape then finds the wind stack already at its target.\n\nOne deviation remains, documented under \"Known limitations → Exceptions\" in\nREADME.md: with no matching clause the re-raise happens in the guard's dynamic\nenvironment rather than the original raise's, which is what a plain `raise`\nalready does here.\n\nAlso fixes a pre-existing leak on the same path: `raiseContinuable` re-pushed\nthe handler it had popped even when the handler left via a continuation that had\nalready reset the handler stack. `guard`'s handler always leaves that way, so\nevery declining guard stranded one slot — 32768 hit the KP3008 cap.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
-          "timestamp": "2026-08-01T06:43:36+05:30",
-          "tree_id": "7786e4f016b4ca6ddd2638d2871bc5688c2c3a16",
-          "url": "https://github.com/kaappi/kaappi/commit/321da93a6fd8ab5ef64c637ac0338894e4cae1c1"
-        },
-        "date": 1785549153528,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.446467,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.655736,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.587069,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.013796,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005032,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.048615,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.319843,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.058708,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.766632,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.255872,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.643694,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.301625,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.822337,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.724247,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.048961,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044829,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2d593e3c736ccc1235db3f27a4ab6bad2d439d10",
+          "message": "Read radix-prefixed complex numbers per R7RS <complex R> (#2243) (#2245)\n\n* Read radix-prefixed complex numbers per R7RS <complex R> (#2243)\n\nThe #1929 delimiter fix turned every non-decimal radix complex spelling\ninto a read error, but #x1/2+3i, #x1+2i, #x1+i and #b1+1i are valid\nR7RS 7.1.1: <complex R> -> <real R> + <ureal R> i and its -/+i twins\nhold in every radix, and guile, Chez 10.4.1 and the project's own\nradix-10 path all read them. readIntegerWithRadix now consumes a complex\ntail with radix-valid digits and optional rational parts, producing an\nexact complex token exactly like the decimal path does for 1/2+3i, so\nread and string->number agree (6.2.7). The radix-10 complex branch of\nparseNumberText was the only parser gate on radix 10; it now parses the\nsplit forms in every radix, which also closes the documented TBD where\nstring->number returned #f for the valid R7RS complex 1/2+3i (Chibi and\nguile both accept it).\n\nThe guard rails stay: #b1+2i (2 is not a binary digit), #o1+8i, #x1+2\n(no i), #x1+2iz (glued tail) and the signless #x3i/#xi all still error\nin both parsers, and bignum components stay a loud error (kaappi#2182\nstance: an exact bignum part has no honest f64 value). The bare-sign\npure imaginary #x+i is grammar and reads as 0+1i, matching Chez.\n\nEnables the group-7 TBD assertions in reader-delimiter-gaps.scm, flips\nthe #x1/2+3i pins to accept-whole, and adds a new group-8 matrix\ncovering the accepted and rejected spellings plus string->number\nagreement. Extends the Zig unit test with the radix complex cells.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address #2243 review: full <complex R> production, exactness honesty, radix-19 i-digit\n\nReview of the radix-complex change (kaappi#2243) found five valid issues;\nthis closes them all.\n\n- The signed pure imaginary with an explicit magnitude (+ <ureal R> i /\n  - <ureal R> i, e.g. #x+3i, #x+3/4i) is a genuine R7RS production that\n  readIntegerWithRadix and readNumber both missed -- #x+i read but the\n  identical-valued #x+1i errored, and #x0+3i read but #x+3i did not.\n  Both readers and string->number now accept it in every radix (Chez and\n  guile agree); the signless #x3i/#x3/4i spellings stay rejected.\n- string->number with an explicit radix argument (19-36) treats 'i' as an\n  ordinary digit (value 18), so the trailing-'i' complex detection is\n  gated on radix <= 18 in both the rational-branch guard and the complex\n  branch -- (string->number \"1/2i\" 19) is the rational 1/56 again.\n- The imaginary marker is case-insensitive in both parsers now: the\n  reader always accepted 1+2I, string->number only 'i' (a pre-existing\n  radix-10 divergence the new code extended to every radix).\n- string->number derives complex component exactness from the text\n  (integer/rational parts exact, decimals/exponents inexact) so its\n  tokens match the reader's exact-flagged ones; #e/#i still override.\n- Exact-flagged components can no longer silently carry a rounded value:\n  integer parts in (2^53, 2^63] (and non-representable bignums) and\n  rational parts beyond the exact-complex printer's recovery granularity\n  (floatToRational searches denominators up to 1e6) are rejected loudly\n  in both parsers, the kaappi#2182 stance, applied to the radix-10 paths\n  too. Shared radix-<ureal> parsing and the f64 round-trip tests now\n  live in bignum.zig so the two parsers cannot drift.\n\nPins: group 8 of reader-delimiter-gaps.scm grows the signed-magnitude,\ncase, and round-trip cells plus a new group 9 for the radix-19 digit\nbehavior; the Zig unit test covers #x+3i/#x+3/4i, #x1+2I, the 2^53 band,\nand the #e1e19+1i round-trip.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Fix critical f64ExactI64 panic and close the remaining review divergences\n\nThe second review round found a process abort reachable from a one-line\nprogram: f64ExactI64 did @intFromFloat(@floatFromInt(n)) and the top 512\ni64 values (2^63-512 .. 2^63-1) round UP to 2^63, which overflows the i64\ndestination -- a ReleaseSafe panic in (string->number\n\"9223372036854775807+2i\") and (read \"#x7fffffffffffffff+2i\"). Those\nvalues never round-trip, so they are rejected before the conversion now;\n-i64 range and 2^63 itself (a power of two) still pass.\n\nThe same review round also found four smaller read/string->number\ndivergences, all closed:\n\n- The signless pure-imaginary integer path in string->number lacked the\n  bignum fallback, so (string->number \"10000000000000000000i\") returned\n  #f while the reader read 0+1e19i exactly (45 significant bits). It now\n  falls back to parseBignumString + bignumExactInF64 like every other\n  integer component path.\n- Special-float imaginary parts: 3.0+inf.0i / +inf.0i read in the reader\n  but string->number's components used Zig parseFloat, which rejects\n  +inf.0. parseComplexComponent now names the four special spellings\n  explicitly, matching the reader's grammar.\n- The #1929 CHANGELOG entry still listed #x1/2+3i as a read error while\n  the new #2243 entry reinstated it; the list now names #x1zzz instead and\n  points at #2243.\n- The remaining complex?-wrapped string->number assertions were\n  strengthened to real-part/imag-part equality checks, and new cells pin\n  the inf/nan and bignum-magnitude agreement.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-07T00:29:45Z",
+          "tree_id": "87f11dd3cb81bd0f850f9f161f0def341668c1e0",
+          "url": "https://github.com/kaappi/kaappi/commit/2d593e3c736ccc1235db3f27a4ab6bad2d439d10"
+        },
+        "date": 1786064553141,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.842505,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 5.668575,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.389466,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.013899,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00434,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033748,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.21135,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.038783,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.041654,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.82342,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.131106,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.224874,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.225699,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.823334,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.033924,
             "unit": "seconds"
           }
         ]
