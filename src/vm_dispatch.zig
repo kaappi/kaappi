@@ -4,6 +4,7 @@ const Value = types.Value;
 const OpCode = types.OpCode;
 
 const vm_mod = @import("vm.zig");
+const memory = @import("memory.zig");
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 const CallFrame = vm_mod.CallFrame;
@@ -35,6 +36,7 @@ const rejectImmutableEnv = vm_dispatch_helpers.rejectImmutableEnv;
 const raiseUndefinedVariable = vm_dispatch_helpers.raiseUndefinedVariable;
 const lookupGlobalLocked = vm_dispatch_helpers.lookupGlobalLocked;
 const raiseDeadNativeReturn = vm_dispatch_helpers.raiseDeadNativeReturn;
+const raiseCrossHeapStoreVM = vm_dispatch_helpers.raiseCrossHeapStoreVM;
 
 /// True when a just-restored (or escape-unwound) frame stack should resume in
 /// THIS dispatch loop: the new stack must still contain the loop's scope-root
@@ -103,6 +105,13 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     return VMError.Terminated;
                 }
             }
+            // #1933: a collecting parent stops live children at this
+            // safepoint to mark their roots (markLiveChildRoots). Only child
+            // VMs (owns_globals == false) participate — the root thread
+            // collects and never stops. The spin inside stopForCollection is
+            // between instructions, so the parent's mark of this VM's
+            // registers/frames races nothing.
+            if (!self.owns_globals and self.collection_stop.load(.acquire)) self.stopForCollection();
             if (self.timeout_deadline_ns) |deadline| {
                 if (vm_calls.clockNs() >= deadline) {
                     self.setErrorDetail("execution timed out", .{});
@@ -255,6 +264,20 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const name = types.symbolName(sym);
                 if (rejectImmutableEnv(self, func, name, "set!: cannot modify binding")) |e| return e;
                 const val = self.registers[src_idx];
+                // #1924: the shared globals map (and every library/def-env
+                // map a template set! can reach) is owned by the ROOT VM's
+                // GC. A child thread (`owns_globals == false`) writing its
+                // own heap's object into one leaves a pointer the root
+                // collector cannot trace — the memoisation hazard of
+                // `(define cache #f)` + `(set! cache ...)` from a child,
+                // dangling once the child's heap is freed at join. Writing
+                // an immediate, or an already-root-heap object, is fine.
+                // Checked before any lock is taken so the rejection never
+                // unwinds out of the locked region.
+                if (!self.owns_globals and types.isPointer(val)) {
+                    const root_vm = self.root_vm orelse self;
+                    if (types.toObject(val).owner != root_vm.gc.id) return raiseCrossHeapStoreVM(self, "set!");
+                }
                 // #1812: a template set! to a free reference bound in the
                 // macro's own definition-environment library compiles as
                 // set_global on a def_env_binding_prefix-marked name — write
@@ -325,6 +348,18 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const name = types.symbolName(sym);
                 if (rejectImmutableEnv(self, func, name, "define: cannot define")) |e| return e;
                 const val = self.registers[src_idx];
+                // #1924: same rule as set_global — a child defining an
+                // object of its own heap into ANY shared map (the globals
+                // map, a library lib_env, or a SchemeEnvironment reached
+                // through a global) leaves a dangling pointer after its join.
+                // Checked before the env branch, exactly like set_global, so
+                // a child eval-define into a shared environment is covered
+                // too; a child defining into its own private environment is
+                // refused the same way (consistent with the set! rule).
+                if (!self.owns_globals and types.isPointer(val)) {
+                    const root_vm = self.root_vm orelse self;
+                    if (types.toObject(val).owner != root_vm.gc.id) return raiseCrossHeapStoreVM(self, "define");
+                }
                 if (env == self.globals) {
                     // Structural mutation of the shared globals map: may
                     // rehash, so it must exclude child-thread readers.
@@ -366,9 +401,14 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const src_idx = try registerIndex(self, frame.base, src);
                 const uv = closure.upvalues[idx];
                 if (types.isBox(uv)) {
+                    // #1924: a captured-variable box (a pair) may belong to a
+                    // shared parent-heap closure reached through a global;
+                    // reject storing this thread's own heap objects into it.
+                    if (memory.crossHeapStoreViolation(types.toObject(uv), self.registers[src_idx])) return raiseCrossHeapStoreVM(self, "set!");
                     self.gc.writeBarrier(types.toObject(uv), self.registers[src_idx]);
                     types.boxSet(uv, self.registers[src_idx]);
                 } else {
+                    if (memory.crossHeapStoreViolation(&closure.header, self.registers[src_idx])) return raiseCrossHeapStoreVM(self, "set!");
                     self.gc.writeBarrier(&closure.header, self.registers[src_idx]);
                     closure.upvalues[idx] = self.registers[src_idx];
                 }
@@ -1207,6 +1247,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const src_idx = try registerIndex(self, frame.base, src);
                 const val = self.registers[reg_idx];
                 if (types.isBox(val)) {
+                    if (memory.crossHeapStoreViolation(types.toObject(val), self.registers[src_idx])) return raiseCrossHeapStoreVM(self, "set!");
                     self.gc.writeBarrier(types.toObject(val), self.registers[src_idx]);
                     types.boxSet(val, self.registers[src_idx]);
                 } else {

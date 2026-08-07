@@ -8,7 +8,9 @@
 ;; gc_deep_copy.zig's fourteen-tag uncopyable list governs the copy route
 ;; only, and the globals route is checked by individual primitives for
 ;; exactly four types (channels, thread handles, fibers and guardians —
-;; the last two added by #2001 and #2008).
+;; the last two added by #2001 and #2008), plus — since #1924 — a general
+;; rejection of any store of a child-heap object into a shared parent-heap
+;; container (the rows below, and srfi18-cross-heap-mutation-1924.scm).
 ;;
 ;; This file pins BOTH routes for each type, which is the pairing that makes
 ;; the asymmetry visible -- and it is deliberately a characterisation test,
@@ -22,7 +24,7 @@
 ;; and this suite runs there. The nine types below cover every distinct
 ;; enforcement shape.
 
-(import (scheme base) (scheme write) (scheme eval) (scheme repl)
+(import (scheme base) (scheme write) (scheme eval) (scheme repl) (scheme lazy)
         (scheme process-context)
         (srfi 18) (srfi 254) (kaappi fibers) (srfi 64))
 
@@ -94,6 +96,11 @@
 (define g-channel (make-channel))
 (define g-thread (make-thread (lambda () 'never-started)))
 (define g-fiber (spawn (lambda () (list 1 2 3))))
+(define-record-type <box> (make-box v) box? (v box-v set-box-v!))
+(define g-box (make-box 0))
+(define g-vector (make-vector 2 #f))
+(define g-pair (cons 1 2))
+(define g-promise (delay (list 'slow 1 2)))
 
 ;; Checked on this route -- the only four types that are. A fiber and a
 ;; guardian joined the list with #2001 and #2008: fiber-join was handing the
@@ -107,6 +114,28 @@
   (refused? (on-child (lambda () (fiber-join g-fiber)))))
 (test-assert "global refused: guardian"
   (refused? (on-child (lambda () (g-guardian (list 1 2))))))
+
+;; #1924: a child MUTATING a shared parent-heap object is rejected too --
+;; the general case of which the four per-type checks above are the
+;; specialised instances. A store of a child-heap pointer into a shared
+;; container leaves a value neither collector can keep alive (the parent's
+;; collector skips it as foreign, the child's collector cannot see the
+;; container), so the container comes to hold a dangling pointer the moment
+;; the child's heap is freed or the child's GC sweeps. Rejected before the
+;; store, at every general mutation site (record field, vector, pair,
+;; hash-table, promise, global set!/define) -- see
+;; srfi18-cross-heap-mutation-1924.scm for the full matrix. The mutex
+;; owner/owner_thread store is the deliberate exception (the only supported
+;; way to share a mutex is a global, and locking one from a child must
+;; record the child's own fiber as owner).
+(test-assert "global mutation refused: record field set!"
+  (refused? (on-child (lambda () (set-box-v! g-box (list 1 2 3)) 'no-error))))
+(test-assert "global mutation refused: vector-set!"
+  (refused? (on-child (lambda () (vector-set! g-vector 0 (list 1 2 3)) 'no-error))))
+(test-assert "global mutation refused: set-car!"
+  (refused? (on-child (lambda () (set-car! g-pair (list 9 9 9)) 'no-error))))
+(test-assert "global mutation refused: force on a shared promise"
+  (refused? (on-child (lambda () (force g-promise)))))
 
 ;; Unchecked on this route. Mutexes and condition variables are not merely
 ;; tolerated here: a global is the ONLY way to share one, since the line

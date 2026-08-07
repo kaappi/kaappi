@@ -110,6 +110,14 @@ const ChildThreadResources = struct {
     // running, and its result/exception envelopes must survive for a future
     // join while its GC/VM are still in use.
     retired: bool = false,
+    // #1933: set (under the registry lock) by threadEntryFn's outermost
+    // defer, just before the thread exits. A dead child's VM still sits in
+    // the registry until its join, but its registers/frames hold stale
+    // pointers to objects its own GC freed during its life -- the parent's
+    // collector must never mark those (a mark would read a freed header;
+    // a hard panic under -Dgc-stress). markLiveChildRoots skips any entry
+    // with this flag, and re-checks it after its stop-the-world wait.
+    thread_exited: bool = false,
 };
 
 // Entries are freed when a thread is joined (freeChildResources called from
@@ -176,6 +184,15 @@ const ChildRegistry = struct {
         if (self.map.getPtr(key)) |entry| entry.retired = true;
     }
 
+    // #1933: record that a child's OS thread has exited, so the parent's
+    // collector stops marking its (now stale) VM. Called by threadEntryFn's
+    // outermost defer, before the live_child_threads decrement.
+    fn markExited(self: *ChildRegistry, key: usize) void {
+        memory.spinLock(&self.mutex);
+        defer memory.spinUnlock(&self.mutex);
+        if (self.map.getPtr(key)) |entry| entry.thread_exited = true;
+    }
+
     // #2129 (handle half): removes the entry only if it has been retired.
     // A descendant's threadEntryFn defer calls this with its spawner's key
     // when its decrement brings the spawner's live-descendant count to
@@ -197,6 +214,135 @@ var child_registry: ChildRegistry = .{
     .map = std.AutoHashMap(usize, ChildThreadResources).init(std.heap.page_allocator),
     .mutex = .unlocked,
 };
+
+/// #1933: set by the root thread's first thread-start! (threadStartImpl) as
+/// the root gc's `child_marker`, so every root collection runs
+/// markLiveChildRoots while live children exist. A child spawned mid-
+/// collection spins on this flag before its first shared-globals read
+/// (threadEntryFn), so a collector whose snapshot cannot know it exists is
+/// never racing its registers.
+var collection_in_progress: std.atomic.Value(bool) = .init(false);
+
+/// #1933: the parent's collector keeps alive every parent-heap object a live
+/// child thread still references. A child's registers are invisible to the
+/// parent's own root marker (markVMRoots marks only the VM owning the gc),
+/// and the child's own marker skips foreign-owner objects (#958) — so a
+/// parent-heap object referenced ONLY from a live child's registers is
+/// unreachable to both markers and the parent's collection frees it under
+/// the running child (use-after-free, hard panic under -Dgc-stress).
+///
+/// Registered on the ROOT gc only. Each live child is stopped at a
+/// dispatch-loop safepoint (or found already parked / in an FFI call — all
+/// quiescent states, see vm.CollectionState), its roots are marked with
+/// THIS gc (markVmRoots; the foreign-owner skip keeps the parent's collector
+/// off the child's own heap objects), and it is released. Children spawned
+/// while this runs are caught by re-snapshotting the registry until it stops
+/// gaining entries; a mid-init child holds no parent-heap values yet and
+/// spins on `collection_in_progress` before its first globals read.
+///
+/// The wait is bounded: a child at a safepoint parks within 1024
+/// instructions, a parked child reports `.parked` immediately, and a child
+/// inside a blocking FFI call reports `.in_native` (callFfi) — the only
+/// states that never reach the safepoint. A child inside a bounded native
+/// call (a long primitive, its own GC) makes the wait wait it out, then
+/// parks.
+///
+/// Scope note: this keeps alive parent-heap objects referenced from a live
+/// child's REGISTERS/frames — the issue's shape. A parent-heap object nested
+/// inside a child-OWNED container (the child copied a shared global into a
+/// local vector) is still invisible to the parent's collector, which cannot
+/// traverse the foreign container without pausing the child's own GC; that
+/// remains a documented residual of the same family (the parent must not
+/// drop its last reference to an object a child holds), distinct from the
+/// store rejection of kaappi#1924, which governs the writes that install
+/// such references.
+pub fn markLiveChildRoots(gc: *memory.GC) void {
+    if (@atomicLoad(usize, &live_child_threads, .acquire) == 0) return;
+    collection_in_progress.store(true, .release);
+    defer collection_in_progress.store(false, .release);
+
+    var marked: std.ArrayList(?*vm_mod.VM) = .empty;
+    defer marked.deinit(gc.allocator);
+    // Every VM whose `collection_stop` is armed, exited or not. The release
+    // loop below iterates THIS list (never the nulled `marked`), so an
+    // exited child's flag is always cleared and never left poisoned.
+    var armed: std.ArrayList(*vm_mod.VM) = .empty;
+    defer armed.deinit(gc.allocator);
+
+    while (true) {
+        // Snapshot the registry under its lock and arm the stop flag on any
+        // live child not yet armed. Children whose OS thread has already
+        // exited (thread_exited) are skipped: their VM is still in the
+        // registry until the join, but its registers/frames are stale and
+        // must never be marked. The lock is held only for the snapshot: the
+        // mark below must not run while a descendant-side free holds it, but
+        // no registry entry can be freed during this collection anyway (both
+        // removal paths run on the collecting thread — a join, or a
+        // descendant free gated on a join's retirement).
+        var added = false;
+        memory.spinLock(&child_registry.mutex);
+        var it = child_registry.map.valueIterator();
+        while (it.next()) |res| {
+            if (res.thread_exited) continue;
+            const cv = res.child_vm;
+            var already = false;
+            for (marked.items) |m| {
+                if (m == cv) {
+                    already = true;
+                    break;
+                }
+            }
+            if (!already) {
+                marked.append(gc.allocator, cv) catch @panic("GC: child-root marking OOM");
+                armed.append(gc.allocator, cv) catch @panic("GC: child-root marking OOM");
+                cv.collection_stop.store(true, .release);
+                added = true;
+            }
+        }
+        memory.spinUnlock(&child_registry.mutex);
+        // Once a full pass adds no child, every live child is armed; wait for
+        // each to leave `.running` (safepoint stop, park, FFI, or a raw
+        // thread join). A running child reaches its next safepoint within
+        // 1024 instructions, so spin-yield rather than sleep: a fixed 1ms
+        // poll would cost ~1ms per parent collection with a live child —
+        // pathological under -Dgc-stress, where collections run per
+        // allocation.
+        if (!added) break;
+        for (armed.items) |vm| {
+            var spins: u32 = 0;
+            while (vm.collection_state.load(.acquire) == .running) {
+                spins +%= 1;
+                if (spins & 0xFF == 0) std.Thread.yield() catch {};
+            }
+        }
+    }
+
+    // A child may have exited during the wait (thread-terminate!, or its
+    // thunk completing on its own). Its registers are stale now — the parent
+    // must not mark them. Null its entry for the MARK loop only; `armed`
+    // still releases its stop flag below.
+    memory.spinLock(&child_registry.mutex);
+    var it2 = child_registry.map.valueIterator();
+    while (it2.next()) |res| {
+        if (res.thread_exited) {
+            for (marked.items, 0..) |cv, i| {
+                if (cv == res.child_vm) marked.items[i] = null;
+            }
+        }
+    }
+    memory.spinUnlock(&child_registry.mutex);
+
+    // All remaining children are quiescent. Mark their roots with this (the
+    // parent's) gc; the child's own heap objects are skipped as foreign.
+    for (marked.items) |cv| {
+        if (cv) |vm| vm_mod.markVmRoots(gc, vm);
+    }
+    // Release every child — exited or not. They resume inside the parent's
+    // sweep; any shared object they read from now on is reachable from the
+    // parent's roots at mark time, so it was marked, and the sweep cannot
+    // free it (the globals-route argument of the sharing model).
+    for (armed.items) |vm| vm.collection_stop.store(false, .release);
+}
 
 /// Thin per-file convenience wrapper: fetches vm_instance and delegates to
 /// fiber.ensureScheduler, which now lazily creates the reactor alongside
@@ -508,6 +654,13 @@ fn threadStartImpl(args: []const Value) PrimitiveError!Value {
     // then read freed memory (#2129). The root VM lives for the whole
     // process, so every descendant chains its shared state to it.
     const root_vm = vm.root_vm orelse vm;
+    // #1933: from here on, the root's collector must stop-and-mark live
+    // children so a parent-heap object referenced only from a running
+    // child's registers is not freed under it. Atomic: threadStartImpl can
+    // run on any thread (a child spawning a grandchild) while the root's
+    // markRoots reads the field; the stored value is always the same
+    // function pointer, but the write must not be a plain store.
+    @atomicStore(?*const fn (*memory.GC) void, &root_vm.gc.child_marker, &markLiveChildRoots, .release);
     fiber.os_thread = std.Thread.spawn(.{}, threadEntryFn, .{
         fiber, spawner, gc.allocator, root_vm, envelope,
     }) catch {
@@ -531,6 +684,11 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, spawner: ?*fiber_mod.Fiber, allocator:
     // the early GC/VM-init failures below), so crossThreadWaitPossible's "is
     // another OS thread still alive" check stays accurate.
     defer _ = @atomicRmw(usize, &live_child_threads, .Sub, 1, .release);
+    // #1933: tell the parent's collector this thread is gone, so it stops
+    // marking this child's (now stale) VM. Runs last, after every other
+    // defer -- but the flag is set before the live_child_threads decrement
+    // (this defer body runs before that one, which was declared earlier).
+    defer child_registry.markExited(@intFromPtr(fiber));
     // #2129 (handle half): release the spawning thread's live-descendant
     // count (incremented in threadStartImpl), but only once this thread's
     // OWN descendant subtree has fully drained. The drain matters: this
@@ -624,6 +782,28 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, spawner: ?*fiber_mod.Fiber, allocator:
         allocator.destroy(child_gc);
         return;
     };
+
+    // #1933 (half): the child is in the registry from here on, so a
+    // collecting parent may stop-and-mark it. Report the quiescent state as
+    // soon as callWithArgs returns (or any later path unwinds): the VM is
+    // then stable and the parent never waits on a thread that is finishing.
+    defer child_vm.setCollectionParked();
+    // #1933 (half): a child spawned while the root collector is mid-
+    // collection must not read any shared (parent-heap) global until that
+    // collection finishes — its snapshot cannot know this child exists, so
+    // an object this child reads could be swept. It holds no parent-heap
+    // values yet (nothing has executed), so report .parked and wait; the
+    // collector's re-snapshot may mark it (a no-op over empty frames), and
+    // the wait is what actually closes the race. After it clears, everything
+    // read through the shared globals is reachable from the parent's roots
+    // at the just-finished mark and therefore alive.
+    child_vm.collection_state.store(.parked, .release);
+    while (collection_in_progress.load(.acquire)) sleepNs(CROSS_THREAD_POLL_NS);
+    // Guarded resume: if the parent armed collection_stop during the wait
+    // (its snapshot could include this child even though it is mid-init), the
+    // first thing that happens after the handshake is not unread bytecode but
+    // a stop at the safepoint.
+    child_vm.setCollectionRunning();
 
     // Copy the thunk out of the envelope into this thread's own fresh heap.
     // thread-start! already ran the forward copy on the parent thread and
@@ -1018,6 +1198,21 @@ fn threadJoinFn(args: []const Value) PrimitiveError!Value {
 
 fn reapOsThread(target: *fiber_mod.Fiber, fiber_val: Value) PrimitiveError!Value {
     if (target.os_thread) |thread| {
+        // #1933: a CHILD joining its own child blocks in a raw pthread join
+        // that never reaches the dispatch-loop safepoint and never reports a
+        // quiescent state on its own. Without the in-native report, the
+        // parent's collector waits forever for this VM to leave `.running`
+        // while the grandchild being joined waits on `collection_in_progress`
+        // — a livelock (seen as a multi-minute hang in
+        // channel-promoted-owner-1934 under -Dgc-stress). During the join the
+        // VM's frames/registers are stable, so it is safe to mark. Function-
+        // scope defer: a block-scoped one would fire before thread.join().
+        const join_vm: ?*vm_mod.VM = if (vm_mod.vm_instance) |vm|
+            if (!vm.owns_globals) vm else null
+        else
+            null;
+        if (join_vm) |vm| vm.setCollectionInNative();
+        defer if (join_vm) |vm| vm.setCollectionRunning();
         thread.join();
         target.os_thread = null;
     }

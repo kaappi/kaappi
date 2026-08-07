@@ -1,6 +1,7 @@
 const std = @import("std");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
+
 const diagnostics = @import("diagnostics.zig");
 const compiler_mod = @import("compiler.zig");
 const library_mod = @import("library.zig");
@@ -202,7 +203,20 @@ pub const releaseGlobalsRead = globals_mod.releaseGlobalsRead;
 fn markVMRoots(gc: *memory.GC) void {
     const vm = vm_instance orelse return;
     if (vm.gc != gc) return; // only mark the VM that owns this GC
+    markVmRoots(gc, vm);
+}
 
+/// Mark every Value `vm` keeps live: the register window of every active call
+/// frame, the frame closures, the exception-handler stack, dynamic-wind
+/// thunks, the in-flight exception, the parameter overrides, the thread
+/// handle, and — when this VM owns the shared tables — the global/macro/
+/// library values. Called with the VM's OWN gc by its own markVMRoots, and
+/// with the ROOT gc by markLiveChildRoots for each live child VM: in the
+/// latter case the child is quiescent (stopped at a safepoint or parked, see
+/// CollectionState), so reading its frames/registers races nothing, and
+/// markValue's foreign-owner skip keeps the parent's collector off the
+/// child's own heap objects (kaappi#1933).
+pub fn markVmRoots(gc: *memory.GC, vm: *VM) void {
     for (vm.frames[0..vm.frame_count]) |f| {
         if (f.closure) |cls| gc.markValue(types.makePointer(&cls.header));
         if (f.native) |nf| gc.markValue(types.makePointer(&nf.header));
@@ -309,6 +323,37 @@ pub const ProfileTimeEntry = struct {
     func: ?*types.Function,
     entry_ns: u64,
 };
+
+/// #1933 (stop-the-world): a child VM's reported execution state, read by
+/// the collecting parent (markLiveChildRoots) to decide whether the VM's
+/// registers/frames are quiescent enough to mark:
+///
+///   .running   — bytecode is (or may resume) executing; registers/frames
+///                can change at any moment. The parent must wait for a
+///                safepoint or a park. This is also the state inside a
+///                bounded native call (a primitive, a nested dispatch), which
+///                returns to the dispatch loop promptly and hits the safepoint
+///                within 1024 instructions.
+///   .stopped   — at the dispatch-loop safepoint, between instructions, with
+///                `collection_stop` set. Quiescent; the parent marks and then
+///                clears `collection_stop` to let the child resume.
+///   .parked    — blocked in a wait (reactor poll, the capped cross-thread
+///                polling loops). Quiescent while reported; the resume path
+///                (setCollectionRunning) re-checks `collection_stop` before
+///                letting bytecode run, so a parent that observed this state
+///                can always mark it frozen.
+///   .in_native — inside an FFI call (callFfi) or a raw thread join
+///                (reapOsThread): may block indefinitely and never reaches
+///                the safepoint. Quiescent while reported; the FFI callbacks
+///                that re-enter Scheme switch back to `.running` for their
+///                extent (see callWithArgs), and the resume path re-checks
+///                `collection_stop` the same way.
+///
+/// Transitions are plain atomics on the child side and are never observed
+/// by the parent except while the child's own GC is guaranteed not to be
+/// touching these objects — see the safepoint/park protocol in
+/// markLiveChildRoots.
+pub const CollectionState = enum(u8) { running, parked, stopped, in_native };
 
 pub const VM = struct {
     gc: *memory.GC,
@@ -573,6 +618,18 @@ pub const VM = struct {
     /// join can free underneath it (#2129). Resolved at initForThread by
     /// walking the parent chain; null on the root itself.
     root_vm: ?*VM = null,
+    /// #1933 (stop-the-world): a child VM's participation in the collecting
+    /// parent's stop-the-world dance. `collection_stop` is set by
+    /// markLiveChildRoots (primitives_srfi18.zig) before it waits; the child
+    /// polls it at the dispatch-loop safepoint and parks in `stopForCollection`
+    /// (spinning between instructions, where its registers/frames are
+    /// consistent) until the parent has marked and clears it. `collection_state`
+    /// reports whether the VM is safe to mark: `.running` (bytecode executing,
+    /// registers may change — never mark), `.parked`/`.stopped`/`.in_native`
+    /// (quiescent — mark). Only meaningful on child VMs (owns_globals ==
+    /// false); the root VM collects and is never stopped.
+    collection_stop: std.atomic.Value(bool) = .init(false),
+    collection_state: std.atomic.Value(CollectionState) = .init(.running),
 
     pub fn init(gc: *memory.GC) !VM {
         const frames = try gc.allocator.alloc(CallFrame, INITIAL_FRAME_CAPACITY);
@@ -816,6 +873,61 @@ pub const VM = struct {
         } else {
             self.param_overrides.put(key, val) catch return VMError.OutOfMemory;
         }
+    }
+
+    // -- #1933 (stop-the-world): collection-state protocol --
+    //
+    // The collecting parent (primitives_srfi18.markLiveChildRoots) sets
+    // `collection_stop` on every live child VM and waits for each to leave
+    // `.running`; the child parks at its dispatch-loop safepoint
+    // (vm_dispatch.zig) or reports a park/FFI state from the blocking sites
+    // (fiber_wait.zig, ffi.zig). All transitions below are plain atomics on
+    // the child's own thread; the parent only reads the state once the child
+    // is quiescent, so there is never a torn write to race.
+
+    /// Park at the safepoint until the collecting parent clears
+    /// `collection_stop`, then resume. Runs between instructions, so the VM's
+    /// registers/frames are consistent for the parent's mark pass.
+    pub fn stopForCollection(self: *VM) void {
+        self.collection_state.store(.stopped, .release);
+        while (self.collection_stop.load(.acquire)) std.atomic.spinLoopHint();
+        self.collection_state.store(.running, .release);
+    }
+
+    /// Report a blocked state (reactor poll, cross-thread polling loop): the
+    /// VM is quiescent and may be marked. Paired with `setCollectionRunning`.
+    pub inline fn setCollectionParked(self: *VM) void {
+        self.collection_state.store(.parked, .release);
+    }
+
+    /// Resume from a quiescent state (park, FFI call, callback re-entry,
+    /// startup handshake). If the collecting parent has armed `collection_stop`
+    /// while we were quiescent, this must NOT publish `.running` and resume
+    /// bytecode: the parent may already have observed us quiescent and be
+    /// about to mark. Mirror the safepoint path instead — publish `.stopped`
+    /// and spin until the parent clears the flag — so the parent's mark always
+    /// finds us frozen. (The check-then-store race with the parent's arming
+    /// is safe: if the parent arms after our check, we resume and the parent
+    /// simply waits for our next safepoint, within 1024 instructions.)
+    pub inline fn setCollectionRunning(self: *VM) void {
+        if (self.collection_stop.load(.acquire)) {
+            self.stopForCollection();
+            return;
+        }
+        self.collection_state.store(.running, .release);
+    }
+
+    /// Restore a previously saved quiescent state (used by callWithArgs'
+    /// FFI-callback guard). The state being restored is never `.running`, so
+    /// no resume-vs-mark race is possible; the raw store is fine.
+    pub inline fn setCollectionState(self: *VM, s: CollectionState) void {
+        self.collection_state.store(s, .release);
+    }
+
+    /// Enter an FFI call: the VM is quiescent unless a callback re-enters
+    /// Scheme (which callWithArgs flips back to `.running` for its extent).
+    pub inline fn setCollectionInNative(self: *VM) void {
+        self.collection_state.store(.in_native, .release);
     }
 
     pub fn setErrorDetail(self: *VM, comptime fmt: []const u8, args: anytype) void {

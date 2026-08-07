@@ -538,6 +538,34 @@ pub fn argError(proc: []const u8, comptime explanation: []const u8, fmt_args: an
     return PrimitiveError.InvalidArgument;
 }
 
+/// The catchable error a rejected cross-heap store raises (kaappi#1924).
+/// The mutation primitives and bytecode stores check
+/// `memory.crossHeapStoreViolation` FIRST and call this before the store,
+/// so the shared object is never corrupted — the error is a rejection, not
+/// an undo. The message mirrors the channel/thread/fiber owner-check style:
+/// it names the hazard and points at the supported way to move values
+/// across a thread boundary (docs/dev/thread-value-sharing.md).
+pub fn raiseCrossHeapStore(proc: []const u8) PrimitiveError!Value {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    var buf: [320]u8 = undefined;
+    const msg = std.fmt.bufPrint(
+        &buf,
+        "{s}: cannot store an object created on this thread into a heap object shared with another thread (it would dangle once this thread's heap is freed); pass values through the thread thunk, a channel message, or a join result instead",
+        .{proc},
+    ) catch "cross-heap store rejected";
+    const message = gc.allocString(msg) catch return PrimitiveError.OutOfMemory;
+    var msg_root = message;
+    gc.pushRoot(&msg_root);
+    const err_val = gc.allocErrorObject(msg_root, types.NIL) catch {
+        gc.popRoot();
+        return PrimitiveError.OutOfMemory;
+    };
+    gc.popRoot();
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    vm.current_exception = err_val;
+    return PrimitiveError.ExceptionRaised;
+}
+
 /// Whether non-negative fixnum `idx` is strictly inside `len` on every
 /// target, by comparing in u64 BEFORE any narrowing to usize.  On wasm32
 /// (usize = u32) a fixnum-range index (up to 2^47) would otherwise truncate
@@ -636,6 +664,9 @@ fn cdr(args: []const Value) PrimitiveError!Value {
 fn setCar(args: []const Value) PrimitiveError!Value {
     if (!types.isPair(args[0])) return typeError("set-car!", "pair", args[0]);
     if (types.toObject(args[0]).flags.immutable) return typeError("set-car!", "mutable pair", args[0]);
+    // #1924: reject before the store — a shared parent-heap pair must not
+    // come to hold a child-heap object.
+    if (memory.crossHeapStoreViolation(types.toObject(args[0]), args[1])) return raiseCrossHeapStore("set-car!");
     if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
     types.setCar(args[0], args[1]);
     return types.VOID;
@@ -644,6 +675,7 @@ fn setCar(args: []const Value) PrimitiveError!Value {
 fn setCdr(args: []const Value) PrimitiveError!Value {
     if (!types.isPair(args[0])) return typeError("set-cdr!", "pair", args[0]);
     if (types.toObject(args[0]).flags.immutable) return typeError("set-cdr!", "mutable pair", args[0]);
+    if (memory.crossHeapStoreViolation(types.toObject(args[0]), args[1])) return raiseCrossHeapStore("set-cdr!");
     if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
     types.setCdr(args[0], args[1]);
     return types.VOID;
@@ -1099,6 +1131,7 @@ fn recordSetFn(args: []const Value) PrimitiveError!Value {
     // u64 comparison before narrowing (kaappi#1912): see fixnumIndexInBounds.
     if (!fixnumIndexInBounds(raw_idx, ri.fields.len)) return indexError("%record-set!", raw_idx, ri.fields.len);
     const idx: usize = @intCast(raw_idx);
+    if (memory.crossHeapStoreViolation(types.toObject(args[0]), args[2])) return raiseCrossHeapStore("%record-set!");
     if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[2]);
     ri.fields[idx] = args[2];
     return types.VOID;

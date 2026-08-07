@@ -57,10 +57,14 @@ fn promiseComplete(args: []const Value) PrimitiveError!Value {
     if (!types.isPromise(args[0])) return primitives.typeError("%promise-complete!", "promise", args[0]);
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const promise = types.toPromise(args[0]);
+    // #1924: reject (and barrier) BEFORE the store: `force` on a promise
+    // shared through a top-level binding from a child thread would
+    // otherwise memoise a child-heap value into the parent-heap promise.
+    if (memory.crossHeapStoreViolation(&promise.header, args[1])) return primitives.raiseCrossHeapStore("%promise-complete!");
+    gc.writeBarrier(&promise.header, args[1]);
     promise.forced = true;
     promise.forcing = false;
     promise.value = args[1];
-    gc.writeBarrier(&promise.header, args[1]);
     return types.VOID;
 }
 
@@ -76,11 +80,21 @@ fn promiseMerge(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const outer = types.toPromise(args[0]);
     const inner = types.toPromise(args[1]);
-    outer.value = inner.value;
+    // #1924: reject before EITHER store. The outer store (outer.value =
+    // inner.value) can genuinely cross heaps — a child forcing/merging into a
+    // shared parent-heap promise — and the inner back-pointer
+    // (inner.value = outer) is validated for the same reason, so the two
+    // lines below both go through the predicate and the code matches its own
+    // comment (in practice both promises come from one force chain and share
+    // a heap, so the back-pointer direction rarely fires).
+    const outer_val = types.makePointer(&outer.header);
+    if (memory.crossHeapStoreViolation(&outer.header, inner.value)) return primitives.raiseCrossHeapStore("%promise-merge!");
+    if (memory.crossHeapStoreViolation(&inner.header, outer_val)) return primitives.raiseCrossHeapStore("%promise-merge!");
     gc.writeBarrier(&outer.header, inner.value);
+    outer.value = inner.value;
     inner.forced = true;
-    inner.value = types.makePointer(&outer.header);
-    gc.writeBarrier(&inner.header, types.makePointer(&outer.header));
+    gc.writeBarrier(&inner.header, outer_val);
+    inner.value = outer_val;
     outer.forcing = false;
     return types.VOID;
 }

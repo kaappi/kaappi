@@ -653,6 +653,10 @@ fn hashTableSetFn(args: []const Value) PrimitiveError!Value {
     const ht = try getHashTable("hash-table-set!", args[0]);
     try growIfNeeded(ht);
     const slot = try findSlot("hash-table-set!", ht, args[1]);
+    // #1924: reject before the store — a shared parent-heap table must not
+    // come to hold a child-heap key or value.
+    if (memory.crossHeapStoreViolation(types.toObject(args[0]), args[1])) return primitives.raiseCrossHeapStore("hash-table-set!");
+    if (memory.crossHeapStoreViolation(types.toObject(args[0]), args[2])) return primitives.raiseCrossHeapStore("hash-table-set!");
     if (memory.gc_instance) |gc| {
         gc.writeBarrier(types.toObject(args[0]), args[1]);
         gc.writeBarrier(types.toObject(args[0]), args[2]);
@@ -848,6 +852,10 @@ fn hashTableUpdateFn(args: []const Value) PrimitiveError!Value {
 
     try growIfNeeded(ht);
     const slot = try findSlot("hash-table-update!", ht, key);
+    // #1924: a shared parent-heap table must not come to hold a child-heap
+    // key or value (see hash-table-set!).
+    if (memory.crossHeapStoreViolation(types.toObject(args[0]), key)) return primitives.raiseCrossHeapStore("hash-table-update!");
+    if (memory.crossHeapStoreViolation(types.toObject(args[0]), new_val)) return primitives.raiseCrossHeapStore("hash-table-update!");
     if (memory.gc_instance) |gc| {
         gc.writeBarrier(types.toObject(args[0]), key);
         gc.writeBarrier(types.toObject(args[0]), new_val);
@@ -881,6 +889,9 @@ fn hashTableUpdateDefaultFn(args: []const Value) PrimitiveError!Value {
 
     try growIfNeeded(ht);
     const slot = try findSlot("hash-table-update!/default", ht, key);
+    // #1924: see hash-table-update!.
+    if (memory.crossHeapStoreViolation(types.toObject(args[0]), key)) return primitives.raiseCrossHeapStore("hash-table-update!/default");
+    if (memory.crossHeapStoreViolation(types.toObject(args[0]), new_val)) return primitives.raiseCrossHeapStore("hash-table-update!/default");
     if (memory.gc_instance) |gc| {
         gc.writeBarrier(types.toObject(args[0]), key);
         gc.writeBarrier(types.toObject(args[0]), new_val);
@@ -1044,6 +1055,11 @@ fn hashTableMergeFn(args: []const Value) PrimitiveError!Value {
     }
 
     for (snapshot) |entry| {
+        // #1924: a shared parent-heap destination table must not come to
+        // hold keys/values from another heap (see hash-table-set!); checked
+        // per entry before any store.
+        if (memory.crossHeapStoreViolation(types.toObject(args[0]), entry.key)) return primitives.raiseCrossHeapStore("hash-table-merge!");
+        if (memory.crossHeapStoreViolation(types.toObject(args[0]), entry.value)) return primitives.raiseCrossHeapStore("hash-table-merge!");
         const slot = try findSlot("hash-table-merge!", ht1, entry.key);
         gc.writeBarrier(types.toObject(args[0]), entry.key);
         gc.writeBarrier(types.toObject(args[0]), entry.value);

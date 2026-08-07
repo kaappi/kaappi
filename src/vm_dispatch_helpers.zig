@@ -16,6 +16,29 @@ const CallFrame = vm_mod.CallFrame;
 
 const memory = @import("memory.zig");
 
+/// kaappi#1924: the catchable error a bytecode store (set_upvalue,
+/// set_box_local, set_global, define_global) raises when it would install a
+/// pointer to the running thread's own heap object into an object shared
+/// with another thread. Mirrors the primitive-level raiseCrossHeapStore
+/// (primitives.zig); the store is rejected before it happens.
+pub noinline fn raiseCrossHeapStoreVM(self: *VM, comptime proc: []const u8) VMError {
+    var buf: [320]u8 = undefined;
+    const msg = std.fmt.bufPrint(
+        &buf,
+        "{s}: cannot store an object created on this thread into a heap object shared with another thread (it would dangle once this thread's heap is freed); pass values through the thread thunk, a channel message, or a join result instead",
+        .{proc},
+    ) catch "cross-heap store rejected";
+    var message = self.gc.allocString(msg) catch return VMError.OutOfMemory;
+    self.gc.pushRoot(&message);
+    const err_obj = self.gc.allocErrorObject(message, types.NIL) catch {
+        self.gc.popRoot();
+        return VMError.OutOfMemory;
+    };
+    self.gc.popRoot();
+    self.current_exception = err_obj;
+    return VMError.ExceptionRaised;
+}
+
 /// A frame with returns_to_native set (pushed by vm.callWithArgs) delivers its
 /// result via its own runUntil session's return value; its dst is a
 /// placeholder. When such a frame returns while frame_count is still above

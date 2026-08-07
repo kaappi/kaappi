@@ -879,6 +879,22 @@ pub fn callWithArgs(vm: *VM, proc: Value, args: []const Value) VMError!Value {
         return ffi_mod.callFfi(ffi_fn, args, vm.gc, vm) catch |err|
             return mapFfiError(vm, err, ffi_fn);
     }
+    // #1933: everything below runs bytecode (a closure via callReentrant, a
+    // continuation resume, a converter/callback re-entry), so a collecting
+    // parent must see `.running` and wait for a safepoint instead of marking
+    // mid-execution. The one case that needs the save/restore is entering
+    // from a `.in_native` FFI call (an ffi-callback trampoline); the common
+    // case is already `.running` and costs a single atomic load on child
+    // VMs only (the root VM, owns_globals, never reports a state). Both the
+    // flip to `.running` and the restore go through the guarded helpers, so
+    // a callback cannot start bytecode during a mark (setCollectionRunning
+    // spins on collection_stop first) and the restore cannot race one either.
+    const saved_state: ?vm_mod.CollectionState = if (!vm.owns_globals and vm.collection_state.load(.monotonic) != .running)
+        vm.collection_state.load(.monotonic)
+    else
+        null;
+    if (saved_state != null) vm.setCollectionRunning();
+    defer if (saved_state) |s| vm.setCollectionState(s);
     if (types.isParameter(proc)) {
         const param = types.toObject(proc).as(types.ParameterObject);
         if (args.len == 0) {

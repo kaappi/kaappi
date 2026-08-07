@@ -123,6 +123,7 @@ fn vectorSetFn(args: []const Value) PrimitiveError!Value {
     const k = types.toFixnum(args[1]);
     // u64 comparison before narrowing (kaappi#1912): see fixnumIndexInBounds.
     if (!primitives.fixnumIndexInBounds(k, vec.data.len)) return primitives.indexError("vector-set!", k, vec.data.len);
+    if (memory.crossHeapStoreViolation(types.toObject(args[0]), args[2])) return primitives.raiseCrossHeapStore("vector-set!");
     if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[2]);
     vec.data[@intCast(k)] = args[2];
     return types.VOID;
@@ -193,6 +194,7 @@ fn vectorFillFn(args: []const Value) PrimitiveError!Value {
     const range = try primitives.parseOptionalRange(args, 2, len, "vector-fill!");
     const start = range.start;
     const end = range.end;
+    if (memory.crossHeapStoreViolation(types.toObject(args[0]), args[1])) return primitives.raiseCrossHeapStore("vector-fill!");
     if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
     @memset(vec.data[start..end], args[1]);
     return types.VOID;
@@ -243,8 +245,14 @@ fn vectorCopyBangFn(args: []const Value) PrimitiveError!Value {
     const count = end - start;
     if (at + count > to_vec.data.len) return primitives.typeError("vector-copy!", "valid index range", args[1]);
 
+    // #1924: a shared parent-heap destination must not come to hold a
+    // pointer from this child's heap (or need the owner's remembered-set
+    // barrier for a young value) — reject before any element is copied.
+    // Only pointer elements trigger the rejection; an all-immediate copy
+    // installs no pointers and is fine.
     if (memory.gc_instance) |gc| {
         for (from_vec.data[start..end]) |val| {
+            if (memory.crossHeapStoreViolation(types.toObject(args[0]), val)) return primitives.raiseCrossHeapStore("vector-copy!");
             gc.writeBarrier(types.toObject(args[0]), val);
         }
     }
@@ -971,6 +979,9 @@ fn vectorMapBangFn(args: []const Value) PrimitiveError!Value {
             call_args[vi] = types.toVector(args[1 + vi]).data[i];
         }
         const result = try callVM(f, call_args);
+        // #1924: a shared parent-heap destination must not come to hold a
+        // pointer from this child's heap (see vector-copy!).
+        if (memory.crossHeapStoreViolation(types.toObject(args[1]), result)) return primitives.raiseCrossHeapStore("vector-map!");
         gc.writeBarrier(types.toObject(args[1]), result);
         target.data[i] = result;
     }
@@ -1001,8 +1012,11 @@ fn vectorReverseCopyBangFn(args: []const Value) PrimitiveError!Value {
     const count = end - start;
     if (at + count > to_vec.data.len) return primitives.typeError("vector-reverse-copy!", "valid index range", args[1]);
 
+    // #1924: see vector-copy! — same per-element rejection for a shared
+    // destination.
     if (memory.gc_instance) |gc| {
         for (from_vec.data[start..end]) |val| {
+            if (memory.crossHeapStoreViolation(types.toObject(args[0]), val)) return primitives.raiseCrossHeapStore("vector-reverse-copy!");
             gc.writeBarrier(types.toObject(args[0]), val);
         }
     }
@@ -1060,6 +1074,11 @@ fn vectorUnfoldBangFn(args: []const Value) PrimitiveError!Value {
         if (types.isMultipleValues(result)) {
             const mv = types.toObject(result).as(types.MultipleValues);
             if (mv.values.len == 0) return primitives.typeError("vector-unfold!", "at least one return value from step procedure", result);
+            // #1924: a shared parent-heap destination must not come to hold a
+            // pointer from this child's heap (see vector-copy!).
+            if (memory.crossHeapStoreViolation(types.toObject(args[1]), mv.values[0])) return primitives.raiseCrossHeapStore("vector-unfold!");
+            // #1924: see vector-unfold!.
+            if (memory.crossHeapStoreViolation(types.toObject(args[1]), mv.values[0])) return primitives.raiseCrossHeapStore("vector-unfold-right!");
             gc.writeBarrier(types.toObject(args[1]), mv.values[0]);
             vec.data[i] = mv.values[0];
             for (0..seeds.items.len) |j| {
@@ -1068,6 +1087,8 @@ fn vectorUnfoldBangFn(args: []const Value) PrimitiveError!Value {
                 }
             }
         } else {
+            if (memory.crossHeapStoreViolation(types.toObject(args[1]), result)) return primitives.raiseCrossHeapStore("vector-unfold!");
+            if (memory.crossHeapStoreViolation(types.toObject(args[1]), result)) return primitives.raiseCrossHeapStore("vector-unfold-right!");
             gc.writeBarrier(types.toObject(args[1]), result);
             vec.data[i] = result;
         }
@@ -1128,12 +1149,15 @@ fn vectorUnfoldRightBangFn(args: []const Value) PrimitiveError!Value {
         if (types.isMultipleValues(result)) {
             const mv = types.toObject(result).as(types.MultipleValues);
             if (mv.values.len == 0) return primitives.typeError("vector-unfold-right!", "at least one return value from step procedure", result);
+            // #1924: see vector-unfold!.
+            if (memory.crossHeapStoreViolation(types.toObject(args[1]), mv.values[0])) return primitives.raiseCrossHeapStore("vector-unfold-right!");
             gc.writeBarrier(types.toObject(args[1]), mv.values[0]);
             vec.data[i] = mv.values[0];
             for (mv.values[1..], 0..) |v, si| {
                 if (si < seeds.items.len) seeds.items[si] = v;
             }
         } else {
+            if (memory.crossHeapStoreViolation(types.toObject(args[1]), result)) return primitives.raiseCrossHeapStore("vector-unfold-right!");
             gc.writeBarrier(types.toObject(args[1]), result);
             vec.data[i] = result;
         }
