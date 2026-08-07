@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786115163377,
+  "lastUpdate": 1786137229596,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "b94afc2bd917c568a69b9737e818eb6f6996d437",
-          "message": "Phase 2.6: fibers audit — 32 → 111 assertions, and a channel receive inside a custom-port callback aborts the process (#2004)\n\n* Phase 2.6: audit (kaappi fibers) — 32 → 111 assertions\n\nprimitives_fiber.zig grew +1241/-110 since the v1 campaign against a\n135-line audit test — the largest churn-to-coverage ratio in the\nprimitives table. All 11 specs are covered now, along with KEP-0002 §6\n(capacity, rendezvous, close!, timeouts), the KEP-0001 park-vs-drive\nprotocol, and both halves of the cross-thread sharing model.\n\nFour findings, nine assertions disabled behind their issue numbers:\n\n- #1999 spawn never binds the thunk's parameters, so a non-thunk runs\n  anyway with the fiber's own closure and #<undefined> as arguments\n- #2000 channel/fiber blocking inside a SRFI-181 custom-port callback\n  bypasses in_custom_port_callback and aborts the process (SIGBUS)\n- #2001 fiber-join has no Object.owner check, so a child thread joins a\n  parent-heap fiber and gets the parent's object uncopied\n- #2002 argument diagnostics misidentify the problem\n\nEvery assertion carries a name string, and nothing asserts wall-clock\ntiming — only relative ordering and bounded termination — since this\nsuite runs under emulation on several CI targets.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Tick 2.6 in the audit tracker\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T09:57:48+05:30",
-          "tree_id": "5c841c3136d66ed2cc824666068b359703ada988",
-          "url": "https://github.com/kaappi/kaappi/commit/b94afc2bd917c568a69b9737e818eb6f6996d437"
-        },
-        "date": 1785561313471,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.386274,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.305795,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.585689,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.99437,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004971,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04665,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.312631,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057241,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.590334,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.227978,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.603996,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.284607,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.789558,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.689255,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044194,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044809,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f49f694886113974efe03a4fe2e37fbda1dad378",
+          "message": "Bump the github-actions group with 3 updates (#2250)\n\nBumps the github-actions group with 3 updates: [DavidAnson/markdownlint-cli2-action](https://github.com/davidanson/markdownlint-cli2-action), [vmactions/freebsd-vm](https://github.com/vmactions/freebsd-vm) and [vmactions/netbsd-vm](https://github.com/vmactions/netbsd-vm).\n\n\nUpdates `DavidAnson/markdownlint-cli2-action` from 24.1.0 to 24.2.0\n- [Release notes](https://github.com/davidanson/markdownlint-cli2-action/releases)\n- [Commits](https://github.com/davidanson/markdownlint-cli2-action/compare/6bf21b07787794f89a243495939cd651942aeabe...21c1be1b93ad9ed58fa840aacc3f279cde2a72ff)\n\nUpdates `vmactions/freebsd-vm` from 1.5.2 to 1.5.3\n- [Release notes](https://github.com/vmactions/freebsd-vm/releases)\n- [Commits](https://github.com/vmactions/freebsd-vm/compare/77ed28d336d03fe19a3f4f7266c1d2c4714dd79d...83b151f58c6047089f4c80eb5ba2039d158ce093)\n\nUpdates `vmactions/netbsd-vm` from 1.4.4 to 1.4.6\n- [Release notes](https://github.com/vmactions/netbsd-vm/releases)\n- [Commits](https://github.com/vmactions/netbsd-vm/compare/bf34bcd909bb50856f934a67d09a8fbe2b966a1b...00081e82b14bc40114eb97f32b4455306828516b)\n\n---\nupdated-dependencies:\n- dependency-name: DavidAnson/markdownlint-cli2-action\n  dependency-version: 24.2.0\n  dependency-type: direct:production\n  update-type: version-update:semver-minor\n  dependency-group: github-actions\n- dependency-name: vmactions/freebsd-vm\n  dependency-version: 1.5.3\n  dependency-type: direct:production\n  update-type: version-update:semver-patch\n  dependency-group: github-actions\n- dependency-name: vmactions/netbsd-vm\n  dependency-version: 1.4.6\n  dependency-type: direct:production\n  update-type: version-update:semver-patch\n  dependency-group: github-actions\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-08T02:10:17+05:30",
+          "tree_id": "cbcde3db941a584c142c261a79a9a4d06be003f1",
+          "url": "https://github.com/kaappi/kaappi/commit/f49f694886113974efe03a4fe2e37fbda1dad378"
+        },
+        "date": 1786137227306,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.383656,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.506849,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.572699,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.050675,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004677,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046824,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.315063,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056181,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.757039,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.248747,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.598175,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.286319,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.804306,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.665309,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043934,
             "unit": "seconds"
           }
         ]
