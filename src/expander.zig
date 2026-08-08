@@ -784,7 +784,15 @@ fn matchEllipsis(elem_pattern: Value, rest_pattern: Value, input: Value, literal
             if (count.* >= MAX_BINDINGS) return false;
             bindings[count.*].name = elem_var_names[vi];
             bindings[count.*].value = types.NIL;
-            bindings[count.*].depth = 1;
+            // Seed the binding's depth from the PATTERN structure rather
+            // than the constant 1: the per-repetition `sub.depth + 1` update
+            // below never runs when the ellipsis matches ZERO repetitions,
+            // so a nested variable -- ((b ...) ...) matched against () --
+            // would otherwise stay at depth 1, under-reporting its true
+            // depth and breaking the depth/driver checks in
+            // instantiateEllipsis (kaappi#682). `nesting + 1` agrees with
+            // the per-repetition formula whenever a repetition does run.
+            bindings[count.*].depth = @intCast((patternVarNesting(elem_pattern, elem_var_names[vi], literals) orelse 0) + 1);
             bindings[count.*].is_list = true;
             bindings[count.*].ellipsis_count = 0;
             count.* += 1;
@@ -864,6 +872,76 @@ fn collectPatternVars(pattern: Value, literals: []const Value, names: *[128][]co
             collectPatternVars(elem, literals, names, count, overflowed);
         }
     }
+}
+
+/// Ellipsis nesting depth of pattern variable `name` inside `pattern` — the
+/// number of inner ellipses enclosing it, 0 for a variable directly in the
+/// pattern (so its full pattern depth is `1 + nesting` at the ellipsis site
+/// that created the binding). Mirrors the ellipsis detection in
+/// matchListPattern: an element followed by an ellipsis token is one level
+/// deeper; the ellipsis-escape `(... ...)` contributes no variable. Used to
+/// seed ellipsis bindings whose match was EMPTY (see matchEllipsis) and to
+/// compute the template consumption depth of a binding in
+/// expander_instantiate.zig.
+pub fn patternVarNesting(pattern: Value, name: []const u8, literals: []const Value) ?u32 {
+    return patternVarNestingWalk(pattern, name, literals, 0);
+}
+
+fn patternVarNestingWalk(pattern: Value, name: []const u8, literals: []const Value, nesting: u32) ?u32 {
+    if (types.isSymbol(pattern)) {
+        const nm = types.symbolName(pattern);
+        if (isEllipsis(nm)) return null;
+        for (literals) |lit| {
+            if (types.isSymbol(lit) and std.mem.eql(u8, types.symbolName(lit), nm)) return null;
+        }
+        if (std.mem.eql(u8, nm, "_")) return null;
+        if (std.mem.eql(u8, nm, name)) return nesting;
+        return null;
+    }
+    if (types.isPair(pattern)) {
+        var p = pattern;
+        while (types.isPair(p)) {
+            const elem = types.car(p);
+            const rest = types.cdr(p);
+            // (elem ...): an inner ellipsis — variables in elem sit one
+            // level deeper; the tail after the ellipsis stays at this level.
+            if (types.isPair(rest)) {
+                const maybe_ell = types.car(rest);
+                if (types.isSymbol(maybe_ell) and isEllipsis(types.symbolName(maybe_ell))) {
+                    if (patternVarNestingWalk(elem, name, literals, nesting + 1)) |d| return d;
+                    p = types.cdr(rest);
+                    continue;
+                }
+            }
+            if (patternVarNestingWalk(elem, name, literals, nesting)) |d| return d;
+            p = rest;
+        }
+        // Dotted tail: (a ... . z) — walk the final non-pair at this level.
+        if (p != types.NIL) {
+            if (patternVarNestingWalk(p, name, literals, nesting)) |d| return d;
+        }
+        return null;
+    }
+    if (types.isVector(pattern)) {
+        // Vector patterns match through list semantics (matchPattern
+        // vectorToList's them before matchListPattern), so an element
+        // followed by the ellipsis identifier inside the vector data sits
+        // one level deeper — same shape as the list branch above.
+        const vec = types.toObject(pattern).as(types.Vector);
+        var i: usize = 0;
+        while (i < vec.data.len) : (i += 1) {
+            if (i + 1 < vec.data.len and types.isSymbol(vec.data[i + 1]) and
+                isEllipsis(types.symbolName(vec.data[i + 1])))
+            {
+                if (patternVarNestingWalk(vec.data[i], name, literals, nesting + 1)) |d| return d;
+                i += 1; // skip the ellipsis token
+                continue;
+            }
+            if (patternVarNestingWalk(vec.data[i], name, literals, nesting)) |d| return d;
+        }
+        return null;
+    }
+    return null;
 }
 
 // Provenance marker for pattern-var values substituted into a NESTED

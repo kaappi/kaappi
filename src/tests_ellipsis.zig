@@ -171,3 +171,95 @@ test "syntax-rules: ellipsis-named literals and legal tail shapes survive #2082 
         \\  (equal? (nested (1 2 3) (4 5)) '(((1 2) 3) ((4) 5))))
     );
 }
+
+test "syntax-rules: SRFI 149 excess with empty/unequal drivers zips, not errors (#682)" {
+    // A depth-1 variable used at a depth-2 template position is zipped
+    // against the depth-2 driver (SRFI 149 rule 2, chibi reference impl):
+    // the outer run repeats min(counts) times. Before the count check
+    // became depth-aware, an empty or shorter driver raised
+    // EllipsisCountMismatch on legal input, and a binding that matched
+    // ZERO repetitions kept its placeholder depth 1, so the driver never
+    // qualified and EllipsisNoPatternVariable fired instead.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax ragged (syntax-rules ()
+        \\    ((_ (a ...) ((b ...) ...)) '(((a b) ...) ...))))
+        \\  (and (equal? (ragged (x y) ()) '())
+        \\       (equal? (ragged () ()) '())
+        \\       (equal? (ragged (x y z) ((1 2) (3))) '(((x 1) (x 2)) ((y 3))))
+        \\       (equal? (ragged (x y) ((1 2) (3) (4))) '(((x 1) (x 2)) ((y 3))))
+        \\       (equal? (ragged (x y) ((1 2 3) (4))) '(((x 1) (x 2) (x 3)) ((y 4))))))
+    );
+}
+
+test "syntax-rules: same-depth count mismatch still errors (#78 control)" {
+    // The depth-aware count rule must NOT relax the R7RS 4.3.2
+    // requirement that pattern variables matched at the same depth and
+    // used under the same ellipsis have equal counts. This is the
+    // kaappi#78 shape (previously read uninitialized memory).
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-syntax zip (syntax-rules ()
+        \\  ((_ (a ...) (b ...)) '((a b) ...))))
+    );
+    const result = vm.eval("(zip (1 2 3) (4 5))");
+    try std.testing.expectError(error.CompileError, result);
+}
+
+test "syntax-rules: same-depth mismatch is not masked by a leading shallow variable (#78 review)" {
+    // A depth-1 variable referenced before two same-depth drivers must not
+    // hide a genuine R7RS count mismatch between those drivers: the count
+    // check is per-depth, so b (2 groups) and c (3 groups) error whether or
+    // not a shallower `a` is present (previously order-dependent).
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-syntax m (syntax-rules ()
+        \\  ((_ (a ...) ((b ...) ...) ((c ...) ...)) '((a (b ...) (c ...)) ...))))
+    );
+    const result = vm.eval("(m (p q r s t) ((1)(2)) ((7)(8)(9)))");
+    try std.testing.expectError(error.CompileError, result);
+}
+
+test "syntax-rules: empty-match under-use fires even when no repetition runs (#682 review)" {
+    // The under-use check must be structural, not gated on the consuming
+    // run being instantiated: b is matched at depth 3 but the template
+    // `((b ...) ...)` uses it at depth 2, so the input matching ZERO outer
+    // repetitions must still error instead of silently expanding to () —
+    // both the pure-list and the vector spelling.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax c1 (syntax-rules () ((_ ((b ...) ...)) '((b ...) ...))))
+        \\  (equal? (c1 ()) '()))  ;; correct depth, empty match -> ()
+    );
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-syntax l2 (syntax-rules () ((_ (((b ...) ...) ...)) '((b ...) ...))))
+    );
+    try std.testing.expectError(error.CompileError, vm.eval("(l2 ())"));
+
+    _ = try vm.eval(
+        \\(define-syntax v2 (syntax-rules () ((_ (#((b ...) ...) ...)) '((b ...) ...))))
+    );
+    try std.testing.expectError(error.CompileError, vm.eval("(v2 ())"));
+
+    // A depth-2 variable inside a vector ellipsis used at depth 1: the
+    // vector's own ellipsis level must be counted when seeding the
+    // empty-match binding depth (vector patterns match through list
+    // semantics).
+    _ = try vm.eval(
+        \\(define-syntax v4 (syntax-rules () ((_ (#(b ...) ...)) '(b ...))))
+    );
+    try std.testing.expectError(error.CompileError, vm.eval("(v4 ())"));
+}

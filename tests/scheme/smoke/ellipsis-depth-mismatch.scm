@@ -57,6 +57,26 @@
            (m ((1 2) (3 4))))
         (environment '(scheme base))))
 
+;; Invalid: the under-use check is STRUCTURAL, not gated on the consuming
+;; run being instantiated. A depth-3 variable used at depth 2, with the
+;; input matching ZERO outer repetitions, must still error rather than
+;; silently expand to (); ditto the vector spelling.
+(test-error "depth 3->2 under-use fires even with an empty outer match"
+  (eval '(let-syntax ((m (syntax-rules () ((_ (((b ...) ...) ...)) '((b ...) ...)))))
+           (m ()))
+        (environment '(scheme base))))
+(test-error "depth 3->2 under-use via a vector pattern fires with an empty match"
+  (eval '(let-syntax ((m (syntax-rules () ((_ (#((b ...) ...) ...)) '((b ...) ...)))))
+           (m ()))
+        (environment '(scheme base))))
+
+;; The control: the same shapes at their CORRECT template depth, with an
+;; empty match, expand to the empty list (not an error).
+(define-syntax ok-empty-outer
+  (syntax-rules () ((_ ((b ...) ...)) '((b ...) ...))))
+(test-equal "empty outer match at the correct depth expands to the empty list"
+  '() (ok-empty-outer ()))
+
 (let ((runner (test-runner-current)))
   (test-end "ellipsis-depth-mismatch")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))
