@@ -25,6 +25,12 @@ pub const Port = struct {
     peek_byte: ?u8, // lead byte lookahead for peek-char
     peek_extra: [3]u8 = .{ 0, 0, 0 }, // UTF-8 continuation bytes from peek-char
     peek_extra_len: u2 = 0,
+    /// R7RS 7.1.1 `#!fold-case` reader-directive state, persisted across
+    /// separate `(read port)` calls on the same port: each call's fresh
+    /// Reader is seeded from this and writes its final flag back after a
+    /// successful parse (#2175). A plain bool, so it needs no GC tracing
+    /// (forEachValue skips it) and no write barrier when mutated.
+    fold_case: bool = false,
     // String port fields:
     is_string_port: bool = false,
     string_data: ?[]const u8 = null, // for input string ports (owned copy)
