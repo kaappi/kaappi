@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786155203280,
+  "lastUpdate": 1786158087042,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "abb036b44e4cd61b5447944b5a8852deb69030ae",
-          "message": "Phase 2.10: SRFI 254 audit — 178 assertions, and a guardian shared through a global kills the process with no message at all (#2013)\n\n* Audit SRFI 254: 178 assertions for a GC-integrated file with no test\n\nPhase 2.10 of the v2 audit campaign (#1890). primitives_srfi254.zig is the\nonly primitives file with real garbage-collector integration and had no audit\ntest at all, so the surface covered here spans four files: the 16 specs, the\nweak-reference fixpoint in gc_collect.processWeakRefs, guardian invocation in\nvm_calls.invokeGuardian, and the deep-copy refusal arms in gc_deep_copy.zig.\n\nThe ephemeron half is correct, including the parts a weak pair gets wrong: a\ntwo-link chain resolves consistently in both directions, and an ephemeron\nwhose value references its key -- or whose key *is* its value -- still breaks.\nAll 16 error paths carry the right KP code, every call-dispatch site accepts a\nguardian, and all three weak types fail cleanly across both SRFI-18\nboundaries.\n\nThree defects, all filed rather than fixed, per the campaign protocol:\n\n  #2008  invokeGuardian has no owner check, so a guardian shared through a\n         global -- which the thread sharing model shares by pointer -- is\n         mutated across heaps. Concurrent registration aborts the process\n         with empty stdout and stderr, 5 of 5. Channels and thread handles\n         both defend themselves this way; guardians do not.\n  #2006  Transport cell keys are held strongly, against the spec's \"stored in\n         a weakly holding location\". Cells never break and no registration is\n         ever releasable -- observable because it also stops an unrelated\n         object guardian from resurrecting the same object.\n  #2011  A second guardian watching one object never resurrects it: the first\n         guardian's ready queue is marked strongly, so every other guardian's\n         reachability probe sees a live object. Thirty collections do not\n         help; draining the winner unblocks it immediately.\n\nNothing asserts when a collection happens, only what is observable after one\nis forced. The suite is green in ReleaseSafe (0.09s) and under\n-Dgc-stress=true (16s).\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Hold both operands live in two hash/eq? assertions\n\nAn object freed between the two current-hash calls can be replaced at the\nsame address, which would make equal hashes correct rather than a collision;\nand an ephemeron whose key is dropped immediately breaks, so the eq?-identity\nmiss would pass for the wrong reason. Both now bind their keys.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Correct the disabled-assertion count in the tracker (5, not 4)\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T10:55:22+05:30",
-          "tree_id": "1919aeed2d1ceeb71f353f882442fe8e1dac04a0",
-          "url": "https://github.com/kaappi/kaappi/commit/abb036b44e4cd61b5447944b5a8852deb69030ae"
-        },
-        "date": 1785563852038,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.391479,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.562978,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.588991,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.001321,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00479,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046536,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.313201,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057432,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.605899,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.225157,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.592895,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.284812,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.793924,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.673317,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044553,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.047398,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a072706e19a299eee68bcd13afdb47c34077ab0c",
+          "message": "Expand imported macros when computing LSP diagnostics (#2253)\n\n* Expand imported macros when computing LSP diagnostics\n\nThe language server compiled every top-level form in isolation without\nfirst running the file's `import` / `define-library` / `include` /\n`define-record-type` declarations. So an imported macro was never in\nscope when a later form was diagnosed. For SRFI 42's comprehension\nmacros (`list-ec`, `sum-ec`, `vector-ec`, ...) that turned valid code\ninto a phantom error: their `(if test)` is the comprehension's filter\nqualifier, but with the macro unexpanded the compiler saw a bare\none-armed R7RS `if` and reported KP2001 — a red squiggle under code that\nruns fine and that `kaappi check` (which has always run imports) accepts.\n\n`runDiagnostics` now classifies each top-level form through the same\n`TopLevelHead` machinery `kaappi check` and the runtime share, so the\nthree cannot drift: top-level `begin` and the selected `cond-expand`\nclause splice and are recursed into, the environment-establishing heads\nare run for their effect so later forms see the bindings and macros they\nintroduce, and everything else is compiled but not executed, exactly as\nbefore. The per-document macro reset (#1979), the first-error-only\npublish (#1980), and the whole-line range sentinel are all preserved.\n\nDiagnosing an `(import (srfi 42))` at all also requires the server to\nfind the file-based `.sld`, which it never set up: `vm.lib_paths` is now\nseeded with `~/.kaappi/lib` and the exe-relative `../lib` fallback via\nthe same `kaappi_paths` helpers `main.zig` uses.\n\nAdds LSP-suite coverage: the reported list-ec and Pythagorean-triples\nguards are diagnosed clean (cross-checked against `kaappi check`), while\na genuine top-level one-armed `if` still reports KP2001.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* LSP diagnostics: resolve sibling libraries, sandbox side effects, isolate imported globals\n\nAddresses review of the imported-macro diagnostics change:\n\n- Sibling `.sld` resolution now matches `kaappi check`. `resolveLibraryPath`\n  never consults `current_lib_dir` (only `include` does), so setting it was not\n  enough to find a library beside the document. The document's own directory is\n  now prepended to `vm.lib_paths` for the run — the same thing `main.zig` does\n  for the file argument — so `(import (mylib))` of a neighbouring `.sld` is\n  resolved instead of reported as a phantom KP2001. The overclaiming comment is\n  corrected: `current_lib_dir` is for `include`, `lib_paths` for library imports.\n\n- Executed env-setup code can no longer corrupt the wire. Running an `import`\n  loads and *executes* the library's `begin` body (as `kaappi check` does); a\n  top-level `(display ...)` there would write straight to fd 1 between framed\n  responses. The VM's current-output-port is redirected to a discarding\n  in-memory port for the duration of each run and restored after; its buffer is\n  truncated per run so it never grows across the server's lifetime.\n\n- Imported value bindings no longer leak across documents. `importBinding`\n  writes value exports into `vm.globals`, which — unlike `vm.macros` — was never\n  reset per document, so a name imported while diagnosing one file stayed\n  resolvable (hover/completion) in another. Every global not present at startup\n  is now retracted at the start of each run, under the same write lock\n  `importBinding` takes and with a `global_version` bump — the globals analogue\n  of the existing per-document macro reset (#1979).\n\nNew LSP-suite coverage: a sibling `.sld` import diagnoses clean (cross-checked\nagainst `kaappi check`, and load-bearing for the lib_paths setup since the\nlibrary is not a built-in prefix); a library whose body prints is diagnosed\nclean with its output kept off the wire (control confirms `check` does execute\nthat body); and an imported binding is not hoverable in a document that does not\nimport it, while it stays resolvable in the one that does. 167 LSP checks pass.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* LSP diagnostics: decode file URIs, lock globals prune, strengthen tests\n\nSecond review pass (CodeRabbit + local review):\n\n- File URIs are now converted to native paths before use. A new\n  `fileUriToPath` percent-decodes `%XX` (so a document under a path with spaces\n  resolves its sibling `.sld`/includes), accepts an empty or `localhost`\n  authority, and strips the leading slash before a Windows drive letter\n  (`file:///C:/x` -> `C:/x`). Both `current_lib_dir` and the doc-directory\n  `lib_paths` entry use the decoded path.\n\n- `pruneImportedGlobals` now holds `vm.globals_lock` across the whole\n  operation — iteration, key collection, and removal — instead of only around\n  the removals, so a concurrent child-thread reader can never observe a\n  half-pruned map. Nothing in the loop re-acquires the lock, so it cannot\n  deadlock.\n\n- Test hardening: the globals-isolation control now asserts the positive hover\n  payload (`\"result\":{\"contents\"`) instead of merely lacking a null result, so\n  an error or missing response can't pass it vacuously. A new sibling-`.sld`\n  isolation control opens a document in a *different* directory importing a\n  *fresh* library that lives only under the first document's directory, and\n  asserts it is unresolved (KP2001, cross-checked against `kaappi check`) —\n  proving the per-run `lib_paths` restore holds. A fresh library is required\n  because an already-loaded one would resolve from `vm.libraries` regardless.\n\nDeliberately not changed:\n- Enabling `sandbox_mode` during env-setup (a suggested hardening) would reject\n  every file-backed library load — `tryLoadLibraryFromFile` only allows embedded\n  libraries under sandbox — so `(import (srfi 42))` and every ecosystem import\n  would fail, reinstating the very false positive this PR removes and diverging\n  from `kaappi check`, which never sandboxes.\n- A comment records the residual edge (a C-FFI library writing to fd 1 during\n  load bypasses the Scheme-port redirect) and why closing it (OS-level dup2) is\n  left out.\n\n169 LSP checks pass; `zig build test` green; `zig fmt --check` clean.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-08T02:36:26Z",
+          "tree_id": "d49ccf015b24686dbe08f66d335d4d1c01f5c09c",
+          "url": "https://github.com/kaappi/kaappi/commit/a072706e19a299eee68bcd13afdb47c34077ab0c"
+        },
+        "date": 1786158085444,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.052489,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.211072,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.543659,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.797838,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004881,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046109,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.28345,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.052731,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.847896,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.114358,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.52658,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.26128,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.69135,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.96951,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042117,
             "unit": "seconds"
           }
         ]
