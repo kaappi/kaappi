@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786206054727,
+  "lastUpdate": 1786211447700,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "fad68505ef5ff7553608a2c119340300f3542d93",
-          "message": "Phase 2.9: control-flow audit — 171 assertions, and a wrong-arity exception handler runs anyway with a leftover register as its third argument (#2039)\n\n* Phase 2.9: control-flow audit — 35 → 171 assertions\n\nprimitives_control.zig had 35 unnamed assertions from the v1 campaign and\nnothing at all for the mechanism that postdates it: SRFI 248's sticky\nexception handlers. This restates the old assertions with names and adds\nthe dimensions v1 did not have — the sticky-handler interactions with\ndynamic-wind, nested guard and resume; D1 (internal-primitive\nreachability); D2 (KP codes); D5 (which native callback sites can park a\nfiber).\n\nThe oracles are documents, as the campaign prefers: R7RS §4.2.7's two\nguard examples, §6.11's two worked examples, and all three of §6.10's\ndynamic-wind ordering rules are now pinned verbatim, with the two\nre-entry rules cross-checked against chibi-scheme.\n\nSix issues filed, none fixed here:\n\n  #2034  callHandler/callThunk skip the arity check, so a wrong-arity\n         exception handler, with-exception-handler thunk, call-with-values\n         producer or call/cc/call/ec receiver runs anyway, with surplus\n         parameters bound to leftover register contents\n  #2033  a top-level redefinition of call/cc, apply, eval or\n         call-with-values is ignored in tail position only\n  #2035  819 nested dynamic-wind extents abort with KP9001 \"internal\n         error\", and the failure is catchable\n  #2036  three diverging diagnostic paths in the control primitives\n  #2037  %unwind-to-escape is missing from internal_helpers\n  #2038  doc-truth: README and CONFORMANCE claim SRFI 248 has exactly\n         two caveats\n\n15 assertions are disabled with ;; FAIL: markers naming those issues, each\nsitting next to the enabled control that discriminates it — the\ndynamic-wind arity checks beside #2034, non-tail call/cc beside #2036,\nlocal shadowing beside #2033.\n\nGreen in ReleaseSafe, Debug, and -Dgc-stress=true.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Tick 2.9 in the audit tracker\n\nCites PR #2039 and the six issues it filed. The Status count line is\nleft to the orchestrator.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T14:18:33+05:30",
-          "tree_id": "ecd40955e73b780518d2175ea8855fc0bd670e5f",
-          "url": "https://github.com/kaappi/kaappi/commit/fad68505ef5ff7553608a2c119340300f3542d93"
-        },
-        "date": 1785591666234,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.355716,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.594232,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.606951,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.997794,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004737,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04833,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.315134,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057245,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.702092,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.216488,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.582252,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.287607,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.815795,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.544461,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045507,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.0446,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "161e142d969226ade12c53dc9628273c68d0d531",
+          "message": "Fix c64/c128 zero-imaginary decode and complex hashing; pin #751 string->number exactness (#2261)\n\n* Normalize zero-imaginary c64/c128 elements and hash complex values\n\nTwo SRFI-160 bugs share a seam: decodeElement always materialized a\nComplex for c64/c128 elements, and number-hash could not hash one.\n\n#1951: a zero-imaginary (+0.0) element decoded to a Complex whose\nwrite output read back as a different type. decodeElement now decodes\n+0.0 imaginary to a plain real, matching make-rectangular and the\nstandalone complex printer; -0.0 keeps its sign and stays Complex.\n\n#1950: c64/c128 comparators could not hash any value because number-hash\nis abs-based and abs rejects Complex. number-hash now hashes a genuine\ncomplex by its components, so the comparator contract (equal values,\nequal hashes) holds for complex elements and default-hash handles\nstandalone complex numbers too.\n\nRegression tests: the audit file's #1950/#1951 cells are enabled, and\n#751's string->number complex exactness repros are pinned in the smoke\nsuite (the fix itself landed in #2181; the issue stayed open).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Make number-hash total over SRFI-160's element domain; pin c64 -0.0\n\nCodeRabbit review follow-ups on #2261.\n\nnumber-hash's real branch inherited the pre-existing non-finite gap\n((exact (floor +inf.0)) raises), and the new complex branch routed\nnon-finite components straight into it — so a c64/c128 comparator was\nstill unusable on a vector with an infinite component, which SRFI 160\nlegitimately allows. Non-finite reals now map to fixed buckets (NaN,\n-inf.0, +inf.0) before the floor/exact path; the = contract still holds\n(+inf.0 = +inf.0 share a bucket, +nan.0 = +nan.0 is #f).\n\nTests: non-finite hash cells (real, complex, comparator, equal-hash) and\nthe parallel c64 -0.0-imaginary round-trip test, mirroring the c128 one.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-08T17:13:05Z",
+          "tree_id": "4118253d04a41d762cc1639ac9c8af2e2e7b6bcd",
+          "url": "https://github.com/kaappi/kaappi/commit/161e142d969226ade12c53dc9628273c68d0d531"
+        },
+        "date": 1786211446497,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.990748,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.922454,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.570986,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.853252,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00494,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.045827,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.302043,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05418,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.319378,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.179054,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.555736,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.308133,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.705362,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.780368,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044895,
             "unit": "seconds"
           }
         ]
