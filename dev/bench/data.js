@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786172577325,
+  "lastUpdate": 1786178641182,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a66a85cc689ed2c29e050bd29be9cc5b7af6cc29",
-          "message": "Document the issue-tracker label taxonomy and priority rubric (#2032)\n\nThe four priority labels carry one-line GitHub descriptions that are too\ncoarse to settle real triage, so the working rubric existed only as\nprecedent spread across ~1000 issues. Labeling a new issue meant reading\nits neighbours and inferring the rule, which is fine for a maintainer who\nfiled those neighbours and useless to everyone else.\n\nRecords the rule adopted today — `critical` is reserved for process-level\nunsafety, and a correctness bug tops out at `high` however broad or silent\nit is. This is not invented: 11 of the 12 issues ever labeled critical are\nmemory unsafety or a process abort, and the twelfth (#1250) is called out\nas a pre-rule exception so nobody calibrates against it.\n\nAlso captures the two distinctions the precedent encodes but never states:\nreachability separates critical from high (#1939 aborts from five lines and\nis critical; #2000 is the same abort class but needs ~2500 fibers and is\nhigh), and an audit header's severity is an input to the priority decision\nrather than the answer, since `wrong-result` spans high to medium purely on\nblast radius.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T11:54:29+05:30",
-          "tree_id": "54919109d67526e4135bcb2734600c417ae43580",
-          "url": "https://github.com/kaappi/kaappi/commit/a66a85cc689ed2c29e050bd29be9cc5b7af6cc29"
-        },
-        "date": 1785569450453,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.44251,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.332419,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.489069,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.408022,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004834,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.041235,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.256969,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.047529,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.390818,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.038192,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.368223,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.276819,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.486866,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.913231,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.039169,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044765,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "95daff9964f6a80d03e28dbf48923b1cb874b1b9",
+          "message": "Fix SRFI-178 bitvector-logical-shift shifting the wrong way (#2083) (#2258)\n\nThe spec says count>=0 is a logical left shift (toward lower indices,\nout[i] = bvec[i + count]) and count<0 a right shift (toward upper\nindices, out[i] = bvec[i - |count|]), with vacated elements filled with\nbit. Both sign branches were inverted relative to the reference\nimplementation: the left branch wrote out[i] = bv[i - count] and the\nright branch out[i] = bv[i + |count|], so every non-zero shift moved\nbits in the wrong direction. The loop bounds were coupled to the wrong\nformulas and had to move with the fix (left: i in [0, n-count), right:\ni in [|count|, n)).\n\nEnabled the four audit assertions that were disabled pending this fix\n(the first two are the SRFI's own test/quasi-ints.scm cases verbatim)\nand corrected the two bitvector-logical-shift values in srfi178.scm\nthat had pinned the buggy behavior. The count-0 identity and full-length\nshift controls still pass, and 1024 differential cases now agree with\nthe reference implementation.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-08T08:09:55Z",
+          "tree_id": "3301fbf213433c2bccaf1c32a0717b2abd538a1c",
+          "url": "https://github.com/kaappi/kaappi/commit/95daff9964f6a80d03e28dbf48923b1cb874b1b9"
+        },
+        "date": 1786178638905,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.067996,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.417034,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.412054,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.177457,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004411,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.036573,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.232921,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.041351,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.124157,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.932887,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.183698,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.227809,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.312034,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.861764,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.036636,
             "unit": "seconds"
           }
         ]
