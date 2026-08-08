@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Rational→flonum conversion is correct when a single side alone leaves
+  f64 range** (#2183). `(inexact (/ 1 (expt 2 1074)))` was `0.0` instead of
+  the minimum subnormal, `(inexact (/ (+ (expt 2 1030) 1) (expt 2 1000)))`
+  was `+inf.0` instead of `2^30`, and the `#i`/`#e` parser paths produced
+  `+nan.0` when both sides overflowed — every rational→f64 path computed
+  `toF64(num)/toF64(den)`, saturating each side independently. All five
+  paths now route through a shared scaled conversion: both magnitudes are
+  normalized to their top 64 significant bits, the quotient is computed to
+  64+ bits with a u128 division, rounded with round-half-to-even, and the
+  removed power of two is re-applied so subnormals round correctly
+  (including the exact tie at 2^-1075). Verified bit-for-bit against a
+  correctly-rounded oracle over 3301 rationals.
+
+- **The reader and `string->number` accept bignum rational complex parts,
+  so exact complexes with tiny components round-trip** (#2182). The
+  exact-complex printer emits `m/2^k` spellings (denominator up to 2^1074,
+  a bignum) for components below its rational-recovery granularity, but
+  the reader's complex grammar stopped at i64 rational parts, so
+  `(write #e1e-300+1i)` could not be read back. Both parsers now share a
+  gated bignum-rational component parser: a rational like `10^25/3` whose
+  value would silently round stays a loud read error (and `string->number`
+  `#f`), preserving the never-masquerade policy of #2243, while the honest
+  `m/2^k` forms round-trip exactly. A small adjacent parity gap also
+  closed: an exact-flagged imaginary part past 2^53 after a rational real
+  (`1/2+123456789012345678901234567890i`) is a loud error instead of a
+  silently rounded value.
+
 - **A use-site local binding no longer captures a macro template's free
   reference to a global procedure** (#2003). A template free reference to a
   global procedure (`(define-syntax usecar (syntax-rules () ((_ l) (car
