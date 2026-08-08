@@ -305,6 +305,51 @@ assert_has "crosscheck/clean: lsp publishes an empty array" "$OUT" '"diagnostics
 assert_eq "crosscheck/clean: check exits 0" \
     "$(run_timeout 30 "$KAAPPI" check "$TMP/clean.scm" > /dev/null 2>&1 && echo 0 || echo 1)" "0"
 
+# -- imported-macro expansion: SRFI 42 comprehension `if` guard ------------
+# `list-ec`/`sum-ec`/... come from (srfi 42), and their `(if test)` is the
+# comprehension's *filter qualifier*, not R7RS `if`. Diagnosing a form requires
+# the imported macro to be in scope, so the server must run the file's `(import
+# (srfi 42))` for its effect first — exactly as `kaappi check` does. Without
+# that the compiler never expands the comprehension and judges the bare
+# `(if test)` as a malformed one-armed `if`, painting valid code with a phantom
+# error. This also exercises that the server resolves a file-based `.sld`
+# library at all (it must set up vm.lib_paths like the kaappi binary).
+SRFI42_LIST='(import (scheme base) (scheme write) (srfi 42))\n(display (list-ec (: i 1 11) (if (even? i)) i))\n(newline)\n'
+printf '%b' "$SRFI42_LIST" > "$TMP/srfi42.scm"
+stream_reset
+msg "$INIT"
+msg "$INITED"
+did_open "file://$TMP/srfi42.scm" "$SRFI42_LIST"
+msg "$EXITN"
+lsp_run
+assert_has "srfi-42: list-ec if-guard is diagnosed clean" "$OUT" \
+    '"uri":"[^"]*srfi42\.scm","diagnostics":\[\]'
+# Control: `kaappi check`, which has always run imports, agrees the file is fine.
+assert_eq "srfi-42 control: check agrees the file is clean" \
+    "$(run_timeout 30 "$KAAPPI" check "$TMP/srfi42.scm" > /dev/null 2>&1 && echo 0 || echo 1)" "0"
+
+# The Pythagorean-triples guard from the same SRFI 42 material is equally clean.
+SRFI42_PYTH='(import (scheme base) (scheme write) (srfi 42))\n(list-ec (: a 1 21) (: b a 21) (: c b 21) (if (= (* c c) (+ (* a a) (* b b)))) (list a b c))\n'
+printf '%b' "$SRFI42_PYTH" > "$TMP/srfi42-pyth.scm"
+stream_reset
+msg "$INIT"
+msg "$INITED"
+did_open "file://$TMP/srfi42-pyth.scm" "$SRFI42_PYTH"
+msg "$EXITN"
+lsp_run
+assert_has "srfi-42: pythagorean-triples if-guard is diagnosed clean" "$OUT" \
+    '"uri":"[^"]*srfi42-pyth\.scm","diagnostics":\[\]'
+
+# Control: a genuine one-armed `if` at top level — no comprehension in sight —
+# must still be flagged, so the fix suppresses nothing real.
+stream_reset
+msg "$INIT"
+msg "$INITED"
+did_open "file:///lsp-audit/one-armed.scm" '(import (scheme base))\n(if (even? 2))\n'
+msg "$EXITN"
+lsp_run
+assert_has "srfi-42 control: a real one-armed if is still an error" "$OUT" '"code":"KP2001"'
+
 # -- multi-error divergence ------------------------------------------------
 # `runDiagnostics` breaks out of its loop on the first failing form, so a file
 # with two independent errors publishes one diagnostic where `check` reports two.

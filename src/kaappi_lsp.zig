@@ -21,6 +21,8 @@ pub const primitives_r7rs = @import("primitives_r7rs.zig");
 pub const printer = @import("printer.zig");
 pub const expander = @import("expander.zig");
 pub const library = @import("library.zig");
+pub const vm_library = @import("vm_library.zig");
+pub const kaappi_paths = @import("kaappi_paths.zig");
 pub const ffi = @import("ffi.zig");
 pub const primitives_ffi = @import("primitives_ffi.zig");
 pub const primitives_srfi1 = @import("primitives_srfi1.zig");
@@ -683,12 +685,24 @@ fn runDiagnostics(allocator: std.mem.Allocator, vm: *vm_mod.VM, uri: []const u8,
         vm.macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return;
     }
 
+    // Resolve top-level `(include ...)` and file-relative import paths against
+    // the document's own directory when the URI is a `file://` URI, mirroring
+    // `kaappi check` (check.zig). Restored after the run so one document never
+    // changes how another resolves. Installed libraries like (srfi 42) resolve
+    // via `vm.lib_paths` regardless of this.
+    const saved_lib_dir = vm.current_lib_dir;
+    defer vm.current_lib_dir = saved_lib_dir;
+    if (std.mem.startsWith(u8, uri, "file://")) {
+        const p = uri["file://".len..];
+        if (std.mem.lastIndexOfScalar(u8, p, '/')) |pos| vm.current_lib_dir = p[0 .. pos + 1];
+    }
+
     // Parse phase
     var r = reader.Reader.initWithName(vm.gc, text, uri);
     defer r.deinit();
 
     while (r.hasMore() catch false) {
-        const expr = r.readDatum() catch |err| {
+        var expr = r.readDatum() catch |err| {
             const lc = r.getLineCol();
             if (has_diag) diag_buf.append(allocator, ',') catch {};
             has_diag = true;
@@ -696,14 +710,16 @@ fn runDiagnostics(allocator: std.mem.Allocator, vm: *vm_mod.VM, uri: []const u8,
             break;
         };
 
-        // Compile phase
-        _ = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, 0, uri, false) catch |err| {
-            const lc = r.getLineCol();
-            if (has_diag) diag_buf.append(allocator, ',') catch {};
-            has_diag = true;
-            addDiagnostic(&diag_buf, allocator, lc.line -| 1, diagnostics.compileErrorCode(err));
-            break;
-        };
+        // The reader sits just past the form now; this is the same line the
+        // original compile-only loop reported, so the cross-check against
+        // `kaappi check` (tests/scheme/lsp/lsp.sh §4) still agrees.
+        const line0 = r.getLineCol().line -| 1;
+        vm.gc.pushRoot(&expr);
+        const stop = diagnoseTopLevelForm(&diag_buf, allocator, vm, uri, expr, line0, &has_diag);
+        vm.gc.popRoot();
+        // The server publishes only the first failing form's diagnostic
+        // (kaappi#1980, deliberately covered in the LSP suite).
+        if (stop) break;
     }
 
     diag_buf.append(allocator, ']') catch return;
@@ -718,6 +734,102 @@ fn runDiagnostics(allocator: std.mem.Allocator, vm: *vm_mod.VM, uri: []const u8,
     params_buf.append(allocator, '}') catch return;
 
     sendNotification(allocator, "textDocument/publishDiagnostics", params_buf.items);
+}
+
+// Diagnose one top-level form, returning true when it recorded a diagnostic
+// (the caller then stops — the server publishes only the first, kaappi#1980).
+//
+// The classification mirrors `check.zig`'s `checkForm`, sharing the very
+// `TopLevelHead` machinery `kaappi check` and the runtime use so the three
+// cannot drift (kaappi#2114): a top-level `begin` and the selected `cond-expand`
+// clause splice into the top-level sequence and are recursed into, the
+// environment-establishing heads (`import`/`define-library`/`include`/
+// `define-record-type`) are *run* for their effect so later forms see the
+// bindings and macros they introduce, and everything else is compiled but not
+// executed. Running imports is what makes an imported macro like SRFI 42's
+// `list-ec` expand — without it, the compiler judges the `(if test)` filter
+// qualifier inside the comprehension as a malformed one-armed R7RS `if` and
+// flags valid code.
+fn diagnoseTopLevelForm(
+    diag_buf: *std.ArrayList(u8),
+    allocator: std.mem.Allocator,
+    vm: *vm_mod.VM,
+    uri: []const u8,
+    expr: types.Value,
+    line0: u32,
+    has_diag: *bool,
+) bool {
+    if (types.isPair(expr) and types.isSymbol(types.car(expr))) {
+        if (vm.topLevelHead(expr)) |head| {
+            switch (head) {
+                // R7RS 5.1: top-level `begin` splices its body as top-level
+                // forms — recurse so a nested import runs for its effect.
+                .begin => {
+                    var rest = types.cdr(expr);
+                    while (types.isPair(rest)) : (rest = types.cdr(rest)) {
+                        if (diagnoseTopLevelForm(diag_buf, allocator, vm, uri, types.car(rest), line0, has_diag)) return true;
+                    }
+                    return false;
+                },
+                // R7RS 4.2.1: a top-level `cond-expand` splices its selected
+                // clause's body as top-level forms. Clause selection uses the
+                // same evaluator the runtime does, so both pick the same clause.
+                .cond_expand => {
+                    var clauses = types.cdr(expr);
+                    while (types.isPair(clauses)) : (clauses = types.cdr(clauses)) {
+                        const clause = types.car(clauses);
+                        if (!types.isPair(clause)) break;
+                        const req = types.car(clause);
+                        const is_else = types.isSymbol(req) and std.mem.eql(u8, types.symbolName(req), "else");
+                        if (is_else or vm_library.evalLibFeatureReq(vm, req)) {
+                            var body = types.cdr(clause);
+                            while (types.isPair(body)) : (body = types.cdr(body)) {
+                                if (diagnoseTopLevelForm(diag_buf, allocator, vm, uri, types.car(body), line0, has_diag)) return true;
+                            }
+                            return false;
+                        }
+                    }
+                    // No clause matched: fall through and compile it as an
+                    // expression (the compiler folds a no-match to void), the
+                    // same fallback check.zig and the runtime compiler take.
+                },
+                else => {
+                    if (head.isEnvSetup()) {
+                        _ = vm.runTopLevelHead(head, expr) catch |err| {
+                            const code = if (vm.last_error_code != .uncategorized)
+                                vm.last_error_code
+                            else
+                                diagnostics.runtimeErrorCode(err);
+                            recordDiagnostic(diag_buf, allocator, line0, code, has_diag);
+                            vm.last_error_detail_len = 0;
+                            vm.last_error_code = .uncategorized;
+                            return true;
+                        };
+                        return false;
+                    }
+                    // define-values: only its names matter, never its producer's
+                    // effect — fall through to compile-not-run, like check.zig.
+                },
+            }
+        }
+    }
+
+    // Everything else — define, define-syntax, define-values, expressions — is
+    // compiled (registering any define-syntax macro and surfacing compile
+    // errors) but never executed. The compiled Function is discarded.
+    _ = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, 0, uri, false) catch |err| {
+        recordDiagnostic(diag_buf, allocator, line0, diagnostics.compileErrorCode(err), has_diag);
+        return true;
+    };
+    return false;
+}
+
+// Append one diagnostic to the array under construction, inserting the JSON
+// comma separator before all but the first.
+fn recordDiagnostic(buf: *std.ArrayList(u8), allocator: std.mem.Allocator, line0: u32, code: diagnostics.Code, has_diag: *bool) void {
+    if (has_diag.*) buf.append(allocator, ',') catch {};
+    has_diag.* = true;
+    addDiagnostic(buf, allocator, line0, code);
 }
 
 // Serialize one diagnostic through the shared LSP `Diagnostic` writer
@@ -812,6 +924,38 @@ pub fn main(init: std.process.Init.Minimal) !void {
     try primitives.registerAll(&vm);
     try vm_mod.vm_bootstrap.install(&vm);
     try library.registerStandardLibraries(&vm.libraries, vm.globals);
+
+    // Resolve file-based `.sld` libraries (portable SRFIs, ecosystem packages)
+    // the same way the `kaappi` binary does — otherwise `runDiagnostics`'
+    // `(import (srfi 42))` fails to find the library and every use of an
+    // imported macro is mis-diagnosed. The two auto-discovered
+    // dirs mirror main.zig's setup, computed from the same `kaappi_paths`
+    // helpers so they cannot drift: `~/.kaappi/lib` for an installed tree, and
+    // `<exe_dir>/../lib` so a from-source `zig build` (no installer) still
+    // resolves the bundled SRFI sources (#1523). These strings must outlive
+    // every diagnostics run, so they come from the process-lifetime `allocator`
+    // rather than a scratch buffer; the server owns them until it exits.
+    var lib_paths_buf: [2][]const u8 = undefined;
+    var lib_path_count: usize = 0;
+    {
+        var home_buf: [512]u8 = undefined;
+        if (kaappi_paths.getHome(&home_buf)) |home| {
+            const klp = std.fmt.allocPrint(allocator, "{s}/lib", .{home}) catch null;
+            if (klp) |p| {
+                lib_paths_buf[lib_path_count] = p;
+                lib_path_count += 1;
+            }
+        }
+        var exe_lib_buf: [1024]u8 = undefined;
+        if (kaappi_paths.getExeRelativeLibDir(&exe_lib_buf)) |elp| {
+            const dup = allocator.dupe(u8, elp) catch null;
+            if (dup) |p| {
+                lib_paths_buf[lib_path_count] = p;
+                lib_path_count += 1;
+            }
+        }
+    }
+    vm.lib_paths = try allocator.dupe([]const u8, lib_paths_buf[0..lib_path_count]);
 
     // Snapshot the macro table before any document is opened; runDiagnostics
     // resets the shared `vm.macros` to this per run (kaappi#1979). `vm.macros`
