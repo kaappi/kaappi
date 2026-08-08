@@ -95,6 +95,23 @@ pos_req() {
     msg '{"jsonrpc":"2.0","id":'"$1"',"method":"'"$2"'","params":{"textDocument":{"uri":"'"$3"'"},"position":{"line":'"$4"',"character":'"$5"'}}}'
 }
 
+# file_uri <path>: a `file://` URI a *native* kaappi-lsp can turn back into this
+# on-disk path. On Windows the Git-Bash path (`/c/Users/...`, or a `/tmp/...`
+# mount) is not something the native binary understands, so `native_path`
+# (cygpath -m) first rewrites it to `C:/Users/...`; the drive-lettered form gets
+# a third slash (`file:///C:/...`), the Unix absolute form is already rooted
+# (`file:///tmp/...`). This only matters for cases that make the server resolve a
+# real sibling file (an `(import (lib))` of a neighbouring `.sld`, an `include`);
+# a URI used only as a document key needs no round-trippable path.
+file_uri() {
+    local p
+    p="$(native_path "$1")"
+    case "$p" in
+        /*) printf 'file://%s\n' "$p" ;;
+        *) printf 'file:///%s\n' "$p" ;;
+    esac
+}
+
 OUT=""
 RC=0
 # lsp_run: feed the built stream to the server, capture stdout and exit status.
@@ -369,7 +386,7 @@ printf '%b' "$USER_SRC" > "$TMP/proj/user.scm"
 stream_reset
 msg "$INIT"
 msg "$INITED"
-did_open "file://$TMP/proj/user.scm" "$USER_SRC"
+did_open "$(file_uri "$TMP/proj/user.scm")" "$USER_SRC"
 msg "$EXITN"
 lsp_run
 assert_has "sibling-sld: an import of a .sld beside the document resolves" "$OUT" \
@@ -397,8 +414,8 @@ printf '%b' "$OTHER_SRC" > "$TMP/other/other.scm"
 stream_reset
 msg "$INIT"
 msg "$INITED"
-did_open "file://$TMP/proj/user.scm" "$USER_SRC"
-did_open "file://$TMP/other/other.scm" "$OTHER_SRC"
+did_open "$(file_uri "$TMP/proj/user.scm")" "$USER_SRC"
+did_open "$(file_uri "$TMP/other/other.scm")" "$OTHER_SRC"
 msg "$EXITN"
 lsp_run
 assert_has "sibling-sld isolation: a fresh lib under proj/ is unreachable from other/" "$OUT" \
@@ -424,7 +441,7 @@ printf '%b' "$NOISY_SRC" > "$TMP/proj/noisy-user.scm"
 stream_reset
 msg "$INIT"
 msg "$INITED"
-did_open "file://$TMP/proj/noisy-user.scm" "$NOISY_SRC"
+did_open "$(file_uri "$TMP/proj/noisy-user.scm")" "$NOISY_SRC"
 msg "$EXITN"
 lsp_run
 assert_lacks "stdout-guard: library-body output never reaches the wire" "$OUT" 'SIDE-EFFECT-BOOM'
@@ -446,9 +463,9 @@ printf '%b' "$NOB_SRC" > "$TMP/proj/nob.scm"
 stream_reset
 msg "$INIT"
 msg "$INITED"
-did_open "file://$TMP/proj/user.scm" "$USER_SRC"
-did_open "file://$TMP/proj/nob.scm" "$NOB_SRC"
-pos_req 92 "textDocument/hover" "file://$TMP/proj/nob.scm" 0 9
+did_open "$(file_uri "$TMP/proj/user.scm")" "$USER_SRC"
+did_open "$(file_uri "$TMP/proj/nob.scm")" "$NOB_SRC"
+pos_req 92 "textDocument/hover" "$(file_uri "$TMP/proj/nob.scm")" 0 9
 msg "$EXITN"
 lsp_run
 assert_has "globals-isolation: an imported binding is not hoverable in another doc" "$OUT" \
@@ -458,8 +475,8 @@ assert_has "globals-isolation: an imported binding is not hoverable in another d
 stream_reset
 msg "$INIT"
 msg "$INITED"
-did_open "file://$TMP/proj/user.scm" "$USER_SRC"
-pos_req 93 "textDocument/hover" "file://$TMP/proj/user.scm" 1 10
+did_open "$(file_uri "$TMP/proj/user.scm")" "$USER_SRC"
+pos_req 93 "textDocument/hover" "$(file_uri "$TMP/proj/user.scm")" 1 10
 msg "$EXITN"
 lsp_run
 assert_has "globals-isolation control: the importing doc resolves its own import" "$OUT" \
