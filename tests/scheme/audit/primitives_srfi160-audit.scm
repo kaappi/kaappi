@@ -234,22 +234,21 @@
 (test-assert "c128 accepts an exact complex"
              (= (make-rectangular 1 2) (rt c128row (make-rectangular 1 2))))
 
-;;; A c64/c128 element ALWAYS decodes to a Complex heap object —
-;;; decodeElement (src/primitives_srfi160.zig:199-208) calls allocComplexEx
-;;; unconditionally, with no zero-imaginary normalisation. That is a
-;;; defensible representation choice on its own; what is not defensible is
-;;; that the resulting object writes as an external representation which
-;;; reads back as a DIFFERENT type. These assertions pin the parts that
-;;; hold today.
-(test-assert "a zero-imaginary c128 element is not real? (R7RS: (real? -2.5+0.0i) is #f)"
-             (not (real? (c128vector-ref (c128vector 1.5) 0))))
-(test-assert "a zero-imaginary c128 element is complex?"
+;;; A c64/c128 element decodes to a real when its imaginary part is exactly
+;;; +0.0, matching make-rectangular's normalisation and the standalone
+;;; complex printer's collapse (kaappi#1951). A -0.0 imaginary part keeps
+;;; its sign and stays a Complex, since the printer preserves -0.0 as
+;;; "1.5-0.0i". These assertions pin the decode boundary.
+(test-assert "a zero-imaginary (+0.0) c128 element decodes to a real"
+             (real? (c128vector-ref (c128vector 1.5) 0)))
+(test-assert "a zero-imaginary (+0.0) c64 element decodes to a real"
+             (real? (c64vector-ref (c64vector 1.5) 0)))
+(test-assert "a +0.0-imag c128 element is complex? (reals are complex)"
              (complex? (c128vector-ref (c128vector 1.5) 0)))
 (test-assert "its imaginary part is zero"
              (= 0 (imag-part (c128vector-ref (c128vector 1.5) 0))))
 ;; Control 1: make-rectangular NORMALISES a zero imaginary part to a real,
-;; so no ordinary program can construct the value that breaks below —
-;; only decodeElement can.
+;; so decodeElement now agrees with the ordinary constructor.
 (test-assert "make-rectangular normalises a zero imaginary part"
              (real? (make-rectangular 1.5 0.0)))
 ;; Control 2: a genuinely complex element round-trips through write/read.
@@ -257,34 +256,35 @@
              (let ((e (c128vector-ref (c128vector (make-rectangular 1.5 2.5)) 0)))
                (eq? (real? e)
                     (real? (read (open-input-string (write-to-string e)))))))
-;; Control 3: the vector printer is honest about the zero imaginary part —
-;; it is only the element printer that is not.
+;; Control 3: the vector printer is honest about the zero imaginary part.
 (test-equal "#<c128vector 1.5+0.0i>" (write-to-string (c128vector 1.5)))
 (test-equal "#<c64vector 1.5+0.0i>" (write-to-string (c64vector 1.5)))
 
-;;; FAIL: #1951 (a zero-imaginary c64/c128 element writes as a real)
-;;; (c128vector-ref (c128vector 1.5) 0) is a Complex for which real? is
-;;; #f, yet `write` emits "1.5", which reads back as a flonum whose real?
-;;; is #t — an external representation that does not round-trip. The same
+;;; #1951 (a zero-imaginary c64/c128 element writes as a real): a +0.0
+;;; imaginary part now decodes to a plain real, so `write` emits "1.5" and
+;;; it reads back as the SAME type — real? agrees on both sides. The same
 ;;; holds for c64 and for the DEFAULT FILL, so every freshly-made c64/c128
-;;; vector contains such elements. Reachable only through SRFI 160:
-;;; make-rectangular normalises (control 1 above), so decodeElement's
-;;; unconditional allocComplexEx is the only producer. Note the vector
-;;; printer prints "1.5+0.0i" for the very same bytes (control 3) — the
-;;; two printer paths disagree. Adjacent to #1916 (integral flonums
-;;; printing without ".0") but a different value class.
-;;; (test-assert "a zero-imaginary c128 element round-trips through write/read"
-;;;              (let ((e (c128vector-ref (c128vector 1.5) 0)))
-;;;                (eq? (real? e)
-;;;                     (real? (read (open-input-string (write-to-string e)))))))
-;;; (test-assert "a zero-imaginary c64 element round-trips through write/read"
-;;;              (let ((e (c64vector-ref (c64vector 1.5) 0)))
-;;;                (eq? (real? e)
-;;;                     (real? (read (open-input-string (write-to-string e)))))))
-;;; (test-assert "a default-filled c128 element round-trips through write/read"
-;;;              (let ((e (c128vector-ref (make-c128vector 1) 0)))
-;;;                (eq? (real? e)
-;;;                     (real? (read (open-input-string (write-to-string e)))))))
+;;; vector round-trips. A -0.0 imaginary part stays a Complex and writes
+;;; as "1.5-0.0i", which also round-trips.
+(test-assert "a zero-imaginary c128 element round-trips through write/read"
+             (let ((e (c128vector-ref (c128vector 1.5) 0)))
+               (eq? (real? e)
+                    (real? (read (open-input-string (write-to-string e)))))))
+(test-assert "a zero-imaginary c64 element round-trips through write/read"
+             (let ((e (c64vector-ref (c64vector 1.5) 0)))
+               (eq? (real? e)
+                    (real? (read (open-input-string (write-to-string e)))))))
+(test-assert "a default-filled c128 element round-trips through write/read"
+             (let ((e (c128vector-ref (make-c128vector 1) 0)))
+               (eq? (real? e)
+                    (real? (read (open-input-string (write-to-string e)))))))
+(test-assert "a -0.0-imag c128 element stays complex and round-trips"
+             (let* ((v (make-c128vector 1 0.0))
+                    (e (begin (c128vector-set! v 0 1.5-0.0i)
+                              (c128vector-ref v 0))))
+               (and (not (real? e))
+                    (eq? (real? e)
+                         (real? (read (open-input-string (write-to-string e))))))))
 
 (test-assert "c64 round-trips a genuine complex"
              (= (make-rectangular 1.5 -2.5) (rt c64row (make-rectangular 1.5 -2.5))))
@@ -764,20 +764,27 @@
              (exact-integer? ((comparator-hash-function u8vector-comparator)
                               (bytevector 1 2))))
 
-;;; FAIL: #1950 (c64/c128 comparator hash raises on every value)
-;;; %uvec-hash (lib/srfi/160/base.sld:472) folds with `number-hash`, and
-;;; number-hash (lib/srfi/128.sld:54) is `(abs x)`-based, which raises
-;;; KP3002 "expected number, got #<complex>" for a complex argument.
-;;; c64/c128 elements ALWAYS decode to a Complex heap object — decodeElement
-;;; calls allocComplexEx unconditionally — so this fires even for a vector
-;;; whose imaginary parts are all zero, i.e. for every c64/c128 vector
-;;; there is. Controls: the s8/f64/u8 hash assertions above all pass.
-;;; (test-assert "c64vector-comparator hashes"
-;;;              (exact-integer? ((comparator-hash-function c64vector-comparator)
-;;;                               (c64vector 1.0))))
-;;; (test-assert "c128vector-comparator hashes"
-;;;              (exact-integer? ((comparator-hash-function c128vector-comparator)
-;;;                               (c128vector (make-rectangular 1.5 2.5)))))
+;;; #1950 (c64/c128 comparator hash raises on every value): %uvec-hash
+;;; (lib/srfi/160/base.sld:472) folds with `number-hash`, and number-hash
+;;; (lib/srfi/128.sld:54) was `(abs x)`-based, which raised KP3002
+;;; "expected number, got #<complex>" for a complex argument. It is now
+;;; complex-aware (hashes the real and imaginary components), so the
+;;; comparator can hash any c64/c128 vector — including one with genuinely
+;;; complex elements. The s8/f64/u8 hash assertions above are controls.
+(test-assert "c64vector-comparator hashes"
+             (exact-integer? ((comparator-hash-function c64vector-comparator)
+                              (c64vector 1.0))))
+(test-assert "c128vector-comparator hashes"
+             (exact-integer? ((comparator-hash-function c128vector-comparator)
+                              (c128vector 1.0))))
+(test-assert "c128vector-comparator hashes a genuinely complex element"
+             (exact-integer? ((comparator-hash-function c128vector-comparator)
+                              (c128vector (make-rectangular 1.5 2.5)))))
+(test-assert "equal c128 vectors hash equally"
+             (let ((h (comparator-hash-function c128vector-comparator)))
+               (= (h (c128vector 1.0 2.0)) (h (c128vector 1.0 2.0)))))
+(test-assert "default-hash handles a standalone complex"
+             (exact-integer? (default-hash 1+2i)))
 
 ;;; ------------------------------------------------------------------
 ;;; 12. write-@vector and the external representation

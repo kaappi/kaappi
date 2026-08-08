@@ -222,11 +222,19 @@ fn decodeElement(gc: *memory.GC, kind: NumericElementKind, bytes: []const u8) Pr
         .c64 => blk: {
             const re: f32 = @bitCast(std.mem.readInt(u32, bytes[0..4], native_endian));
             const im: f32 = @bitCast(std.mem.readInt(u32, bytes[4..8], native_endian));
+            // A zero imaginary part (+0.0) decodes to a plain real, matching
+            // make-rectangular's normalisation and the standalone complex
+            // printer's collapse (kaappi#1951): an element like 1.5 must not
+            // write as "1.5" and read back as a different type. -0.0 is
+            // preserved -- its sign is real information the printer keeps.
+            if (im == 0.0 and !std.math.signbit(im)) break :blk types.makeFlonum(re);
             break :blk gc.allocComplexEx(re, im, false, false) catch PrimitiveError.OutOfMemory;
         },
         .c128 => blk: {
             const re: f64 = @bitCast(std.mem.readInt(u64, bytes[0..8], native_endian));
             const im: f64 = @bitCast(std.mem.readInt(u64, bytes[8..16], native_endian));
+            // Same zero-imaginary normalisation as .c64 (kaappi#1951).
+            if (im == 0.0 and !std.math.signbit(im)) break :blk types.makeFlonum(re);
             break :blk gc.allocComplexEx(re, im, false, false) catch PrimitiveError.OutOfMemory;
         },
     };
