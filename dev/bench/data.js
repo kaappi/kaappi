@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786178641182,
+  "lastUpdate": 1786179750682,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "08828884cdbbc3529a373c39f3b5b3405f6bc46a",
-          "message": "Phase 2.13: error taxonomy and diagnostic fidelity — 98 assertions, and the bare-return path CI forbids produces a better message than the one it enforces (#2029)\n\n* Phase 2.13: audit the error taxonomy and diagnostic fidelity\n\nCross-cutting sweep over all 31 primitives_*.zig files plus src/ffi.zig,\nagainst the codebase's own written contract: docs/dev/adding-features.md's\ntypeError/indexError/argError table and the explanation text that\n`kaappi explain` prints for KP3002/KP3006/KP3007.\n\n98 assertions on the code and the message content, never on `raises?` alone\n-- that is the documented lesson from #1944 and the central hazard of this\nunit. 64 further assertions are disabled behind `;; FAIL:` markers; each was\nverified to fail when enabled and to pass nowhere else.\n\nFour issues filed:\n\n  #2020  33 bounds failures report KP3002 instead of KP3006. The largest\n         contributor is parseOptionalRange, shared by 20 procedures.\n         `substring` and `string-copy` are the same operation by R7RS\n         definition and return different codes.\n  #2021  72 sites reject a correctly-typed value as KP3002 rather than\n         KP3007, because the type branch and the range branch of one check\n         share a single message string.\n  #2022  31 procedures misreport which procedure failed: shared helpers\n         hardcode 'string' (a real, working procedure), 'arithmetic', and\n         'string operation'.\n  #2026  CI's bare-TypeError gate misses src/ffi.zig on both axes at once --\n         wrong path glob and wrong spelling -- so 27 bare returns there have\n         never been reported.\n\n#1899 (F10) was extended rather than re-filed. Its stated rationale for the\nopacity does not hold: mapNativeError runs the full allocating printer on the\nsame error path, so `(sqrt 'the-key)` names the symbol while\n`(magnitude 'the-key)` reports `#<symbol>`. The suite pins that pair.\n\n13 of 31 primitives files are clean on both taxonomy axes and are asserted as\nsuch, along with the codes that are already granular -- KP3001/3003/3004/3005\neach stay distinct from KP3002.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Tick 2.13, and record what the taxonomy sweep found\n\nCites PR #2029 and the four issues it filed. Deliberately does not touch the\nStatus count line -- the orchestrator reconciles that.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T13:07:42+05:30",
-          "tree_id": "b684d75f680ac976f646d387f1e7fdeffe92a84a",
-          "url": "https://github.com/kaappi/kaappi/commit/08828884cdbbc3529a373c39f3b5b3405f6bc46a"
-        },
-        "date": 1785576573261,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 2.961075,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.346625,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.424688,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.103577,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004223,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03522,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.226383,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.040699,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.079597,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.916972,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.189519,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.225746,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.287636,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.734572,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.034903,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.036636,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d2a8d2c8fde5963207bad3c2bad8df0bcc10ce54",
+          "message": "Persist #!fold-case across read calls on the same port (#2259)\n\nR7RS 7.1.1: a #!fold-case directive affects reading 'from the same port'\nfrom the point it appears on. readDatumFn built a fresh Reader per call,\nso the flag died with it: the first (read p) folded, the second did not.\n\nStore the mode on the Port (Port.fold_case). Each call's Reader is seeded\nfrom it, and the Reader's final flag is written back after a successful\nparse — the string-port, incremental fd and post-EOF sites in readDatumFn\nall persist; the peek-byte-only path only seeds, since a lone byte cannot\nhold a directive. #!no-fold-case resets the same field.\n\nThe within-call chunk-boundary handling (Reader.saw_directive) is\nuntouched: a split directive is still re-parsed from the kept buffer, and\nthe write-back only fires once a datum parse succeeds.\n\nRe-pin the Port field inventory in tests_gc_tracing.zig (plain bool, no\nGC obligation).\n\nFixes #2175.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-08T14:03:02+05:30",
+          "tree_id": "bdd85902106599d408e02ba35e39890ee2d2436f",
+          "url": "https://github.com/kaappi/kaappi/commit/d2a8d2c8fde5963207bad3c2bad8df0bcc10ce54"
+        },
+        "date": 1786179749294,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.333281,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.937971,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.577313,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.008749,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00471,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047483,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.310925,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05602,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.715746,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.185461,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.627206,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.283412,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.781275,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.634834,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043619,
             "unit": "seconds"
           }
         ]
