@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786137229596,
+  "lastUpdate": 1786155203280,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "940368ca69d1b97be0e12a274e7409351819c359",
-          "message": "Phase 2.11: six unaudited primitives files — 247 assertions, and a use-site (let ((car ...))) hijacks car inside any macro (#2014)\n\n* Phase 2.11: audit the six unaudited small primitives files\n\nparallel, sysinfo, random_port, srfi258, srfi260 and srfi211 — ~570\nlines and 27 specs, all postdating the v1 campaign, none with an audit\ntest. 230 SRFI-64 assertions plus a 17-assertion --sandbox suite for\ndimension D7.\n\nThe six files are clean. All 27 specs behave correctly, every %-name is\nreachable with no import (D1) and none panics, the --sandbox gate matches\nits documented per-name split exactly, and SRFI 258's uninterned-ness\nsurvives both deep-copy directions with object sharing preserved.\n\nEvery finding is in the surrounding engine, reached through these files'\nown documented claims:\n\n  #2003  a use-site local binding captures a macro template's free\n         reference to a global procedure, so (let ((car ...)) ...)\n         hijacks car inside any macro. The local-scope half of closed\n         #1812; syntax-rules and ER alike, wrong against Chibi and Guile.\n  #2005  load of a file containing import fails, blaming the loader's\n         own line 1.\n  #2007  kaappi check calls two valid SRFI 211 transformer-specs\n         invalid syntax.\n  #2009  doc-truth: SRFI 260's rationale still says Kaappi has no\n         uninterned symbols, 51 minutes after SRFI 258 gave it some.\n\nExtended #1913: the all-zero-seed port's own state fails\nrandom-port-state?, so it cannot be rebuilt from itself.\n\nSeven assertions are staged disabled behind #2003 and #1913. The\nhygiene section keeps its parity assertions enabled, so a fix that\nlands on only one of the two macro paths fails here.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Point the 2.11 tracker entry at the real PR number\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T09:57:52+05:30",
-          "tree_id": "054c2f0d6a87030b8b47945ccfde25d0931fbff4",
-          "url": "https://github.com/kaappi/kaappi/commit/940368ca69d1b97be0e12a274e7409351819c359"
-        },
-        "date": 1785561811859,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.079073,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.245033,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.456125,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.200223,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004234,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.035077,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.230393,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.042727,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.860285,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.90167,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.187181,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.24118,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.353094,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.442884,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.036042,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043934,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6ee91e23745eb447b52f2c09ec228ea3768070ec",
+          "message": "Fix macro hygiene: use-site bindings can no longer capture template free references (#2003, #2074) (#2251)\n\n* Fix macro hygiene: use-site bindings can no longer capture template references (#2003, #2074)\n\nR7RS 4.3.2 requires a macro template's free reference to refer to the\nbinding visible where the transformer was specified. Two capture defects\nviolated this, both fired by an ordinary local binding at the use site:\n\n#2003 — a template free reference to a global *procedure* compiled as a\nby-name reference to the bare name, so `(let ((car (lambda (x)\n'HIJACKED))) (usecar (list 1 2)))` called the local instead of the global\ncar. Such references are now hygiene-renamed like any other\ntemplate-introduced identifier, and the run-time global lookup's\nhygienic-prefix fallback resolves the rename to the base global by name —\nimmune to use-site locals while still observing a same-environment\ntop-level redefinition (the semantics chibi and guile implement). Two\ncompanion changes keep the renamed references correct: isContinuationBarrier\nand the four tail-position fast paths (apply / call-with-values / call/cc /\neval) recognize a renamed spelling, which SRFI 248's guard re-raise needs\nfor correct multiple-value passing.\n\nThe one deliberate exception is a template *lambda formal* colliding with a\nglobal procedure, which keeps its bare spelling via an identity rename:\nSRFI 190's coroutine body binds to the template's `yield` formal by name,\nthe anaphoric-binding pattern that pre-#2003 behaviour made possible. This\nis deliberately not extended to let variables — #681 pins that a template\nlet variable named after a built-in must not capture use-site text.\n\n#2074 — template operator keywords (begin, lambda, letrec, cond, and, or,\nset!, do, ...) were inserted bare, so `(let ((begin 5)) (m 7))` compiled the\ntemplate's `(begin e)` as the call `(5 7)`. The operator keywords among the\nwell-known forms are now hygiene-renamed too; the compiler recognizes them\nthrough effective-name stripping. The small set that must keep its spelling\nfor structural matching — the definition/library forms, syntax-rules, the\naux syntax else, the pattern markers .../_ and the quote/quasiquote *value*\nsymbols — stays bare, while quote/quasiquote *form* heads are renamed (with\nstrip-aware quasiquote depth handling and hygiene-stripped rebuilt heads in\nthe compiler). `=>` in cond/case clauses is renamed as well, and the clause\ncompilers now recognize it through the hygiene strip, so a template's arrow\nis immune to a use-site local `=>`. cond-expand feature combinators\n(and/or/not/library) are likewise recognized through the strip.\n\nSRFI 190's tests that pinned the old anaphoric capture through *another*\nmacro's template are updated to the correct behaviour (a free `yield` in a\nhelper macro's template resolves at its own definition site, matching chibi\nand the SRFI reference implementation's syntax-parameter design). The\npreviously disabled audit (e) hygiene tests and the srfi-notest-batch\n#2003/#2074 tests are re-enabled, and the expand snapshot tests now compare\nthrough a gensym-id normalizer (the exact __hyg_N_ id is process-global).\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: align FORMAL_FLAG comments with lambda-only scope (#2252); drop dead __nlet_ branch\n\nCodeRabbit and baijum both flagged that three FORMAL_FLAG comments\nclaimed the bare-spelling anaphoric exception covers \"lambda/case-lambda\"\nformals, but only lambda is handled. Nothing depends on case-lambda\nanaphora (SRFI 190 uses lambda), and renaming case-lambda formals\nhygienically like let-variables is the more consistent behaviour, so the\ncomments now state the lambda-only scope and cite #2252; a hygiene test\npins that a case-lambda formal does not capture a spliced body while a\nlambda formal keeps its anaphoric spelling.\n\nAlso drops the \"__nlet_\" alternative in isContinuationBarrier:\nstripHygienicPrefix does not strip __nlet_, so the branch was dead\n(named-let loop names are always locals and are resolved by the call\npath before the barrier check is reached).\nFix macro hygiene: use-site bindings can no longer capture template references (#2003, #2074)\n\nR7RS 4.3.2 requires a macro template's free reference to refer to the\nbinding visible where the transformer was specified. Two capture defects\nviolated this, both fired by an ordinary local binding at the use site:\n\n#2003 — a template free reference to a global *procedure* compiled as a\nby-name reference to the bare name, so `(let ((car (lambda (x)\n'HIJACKED))) (usecar (list 1 2)))` called the local instead of the global\ncar. Such references are now hygiene-renamed like any other\ntemplate-introduced identifier, and the run-time global lookup's\nhygienic-prefix fallback resolves the rename to the base global by name —\nimmune to use-site locals while still observing a same-environment\ntop-level redefinition (the semantics chibi and guile implement). Two\ncompanion changes keep the renamed references correct: isContinuationBarrier\nand the four tail-position fast paths (apply / call-with-values / call/cc /\neval) recognize a renamed spelling, which SRFI 248's guard re-raise needs\nfor correct multiple-value passing.\n\nThe one deliberate exception is a template *lambda formal* colliding with a\nglobal procedure, which keeps its bare spelling via an identity rename:\nSRFI 190's coroutine body binds to the template's `yield` formal by name,\nthe anaphoric-binding pattern that pre-#2003 behaviour made possible. This\nis deliberately not extended to let variables — #681 pins that a template\nlet variable named after a built-in must not capture use-site text.\n\n#2074 — template operator keywords (begin, lambda, letrec, cond, and, or,\nset!, do, ...) were inserted bare, so `(let ((begin 5)) (m 7))` compiled the\ntemplate's `(begin e)` as the call `(5 7)`. The operator keywords among the\nwell-known forms are now hygiene-renamed too; the compiler recognizes them\nthrough effective-name stripping. The small set that must keep its spelling\nfor structural matching — the definition/library forms, syntax-rules, the\naux syntax else, the pattern markers .../_ and the quote/quasiquote *value*\nsymbols — stays bare, while quote/quasiquote *form* heads are renamed (with\nstrip-aware quasiquote depth handling and hygiene-stripped rebuilt heads in\nthe compiler). `=>` in cond/case clauses is renamed as well, and the clause\ncompilers now recognize it through the hygiene strip, so a template's arrow\nis immune to a use-site local `=>`. cond-expand feature combinators\n(and/or/not/library) are likewise recognized through the strip.\n\nSRFI 190's tests that pinned the old anaphoric capture through *another*\nmacro's template are updated to the correct behaviour (a free `yield` in a\nhelper macro's template resolves at its own definition site, matching chibi\nand the SRFI reference implementation's syntax-parameter design). The\npreviously disabled audit (e) hygiene tests and the srfi-notest-batch\n#2003/#2074 tests are re-enabled, and the expand snapshot tests now compare\nthrough a gensym-id normalizer (the exact __hyg_N_ id is process-global).\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-08T07:04:32+05:30",
+          "tree_id": "b9a78d2f6879b25918b908f5c3e8fc45188fd968",
+          "url": "https://github.com/kaappi/kaappi/commit/6ee91e23745eb447b52f2c09ec228ea3768070ec"
+        },
+        "date": 1786155200906,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.008313,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.727748,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.568166,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.864778,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004942,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.045494,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.303449,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054913,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.379161,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.177247,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.537767,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.299358,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.733734,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.755697,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.047398,
             "unit": "seconds"
           }
         ]
