@@ -19,8 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   normalized to their top 64 significant bits, the quotient is computed to
   64+ bits with a u128 division, rounded with round-half-to-even, and the
   removed power of two is re-applied so subnormals round correctly
-  (including the exact tie at 2^-1075). Verified bit-for-bit against a
-  correctly-rounded oracle over 3301 rationals.
+  (including the exact tie at 2^-1075) and the whole top binade
+  [2^1023, 2^1024) stays finite. Verified bit-for-bit against a
+  correctly-rounded oracle over 5607 rationals spanning powers of two
+  from 2^-1100 to 2^1100, random bignum ratios, lopsided
+  numerator/denominator sizes, the top binade, and adversarial
+  half-ulp tie constructions.
 
 - **The reader and `string->number` accept bignum rational complex parts,
   so exact complexes with tiny components round-trip** (#2182). The

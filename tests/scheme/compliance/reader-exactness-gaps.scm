@@ -464,6 +464,18 @@
    "9223372036854775808.0" "#e1e-300+1i" "#e1e-300+1e-300i" "#e1+1e-300i"
    "#e0+1e-300i" "#e-1e-300+2.5i"))
 
+;; Radix-prefixed bignum-rational complex tails (#2182): the real part is
+;; bignum, so the complex tail goes through tryComplexTailBigRational, and
+;; the imaginary part must be read in the radix too (#x12 == 18, not the
+;; decimal 12). The matrix above treats 'read-error as a pass, so pin the
+;; values directly as well.
+(test-assert "#x bignum-rational complex reads"
+  (number? (rd (string-append "#x" (number->string (expt 2 100) 16) "/2+12i"))))
+(test-assert "#x bignum-rational complex imag is hex 12 = 18"
+  (= 18 (imag-part (rd (string-append "#x" (number->string (expt 2 100) 16) "/2+12i")))))
+(test-assert "s->n #x bignum-rational complex imag is 18"
+  (= 18 (imag-part (string->number (string-append "#x" (number->string (expt 2 100) 16) "/2+12i")))))
+
 (test-assert "round-trip #e1e19+1i" (round-trips? (rd "#e1e19+1i")))
 
 ;; ---------------------------------------------------------------------------

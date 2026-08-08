@@ -363,6 +363,14 @@ test "rational->f64 is correct past f64 range on one side (#2183)" {
     // Correct rounding at the subnormal tie: 1/2^1075 is exactly halfway
     // between 0 and the min subnormal; round-to-nearest-even picks 0.0.
     try th.expectEvalTrue("(= (inexact (/ 1 (expt 2 1075))) 0.0)");
+    // The whole top binade [2^1023, 2^1024) is representable: overflow
+    // starts at 2^1024, not at 2^1023 (an off-by-one that returned +inf.0
+    // for the entire binade).
+    try th.expectEvalTrue("(= (inexact (/ (+ (expt 2 1024) 1) 2)) 8.98846567431158e307)");
+    try th.expectEvalTrue("(= (inexact (/ (- (expt 2 1024) 1) 2)) 8.98846567431158e307)");
+    // ... while values at or above 2^1024 still overflow.
+    try th.expectEvalTrue("(infinite? (inexact (/ (expt 2 1024) 1)))");
+    try th.expectEvalTrue("(infinite? (inexact (/ (+ (expt 2 1025) 1) 2)))");
     // A lopsided ratio must keep full mantissa precision (a short quotient
     // or an f64/f64 ratio used to be off by 1-2 ulp).
     try th.expectEvalTrue("(= (inexact (/ (+ (expt 10 400) 1) (expt 10 399))) 10.0)");
@@ -579,6 +587,35 @@ test "#e/#i reach complex literals on both parsers (#1910, #751)" {
         "(guard (e (#t #t)) (read (open-input-string \"10000000000000000000000000/3+1i\")) #f)",
     );
     try th.expectEvalBool("(string->number \"10000000000000000000000000/3+1i\")", false);
+    // The gate's overflow side: a power-of-two-scaled numerator whose value
+    // exceeds f64 range (2^2001/2) must stay loud too -- an exact-flagged
+    // component that converts to +inf.0 is the same silent masquerade.
+    try th.expectEvalTrue(
+        "(guard (e (#t #t)) (read (open-input-string " ++
+            "(string-append (number->string (expt 2 2001)) \"/2+1i\"))) #f)",
+    );
+    try th.expectEvalTrue(
+        "(guard (e (#t #t)) (read (open-input-string \"1/10000000000000000000000001+1i\")) #f)",
+    );
+    // The dead zone is closed: an i64 power-of-two denominator past the
+    // printer's small-rational recovery limit (1/2^40) is exactly
+    // representable and now reads, matching the bignum path (and the
+    // printer's own m/2^k output).
+    try th.expectEvalTrue("(equal? (read (open-input-string \"1/1099511627776+1i\"))" ++
+        " (read (open-input-string \"1/1099511627776+1i\")))");
+    try th.expectEvalTrue("(number? (string->number \"1/1099511627776+1i\"))");
+    // Radix-prefixed bignum rational complex tails honor the radix for the
+    // imaginary part too (a hex 12 is 18, not decimal 12).
+    try th.expectEvalTrue("(= (imag-part (read (open-input-string " ++
+        "(string-append \"#x\" (number->string (expt 2 100) 16) \"/2+12i\")))) 18.0)");
+    try th.expectEvalTrue("(= (imag-part (string->number " ++
+        "(string-append \"#x\" (number->string (expt 2 100) 16) \"/2+12i\"))) 18.0)");
+    // An exact-flagged imaginary part past 2^53 after a bignum rational real
+    // is a loud error, not a silently rounded value claiming exactness.
+    try th.expectEvalTrue(
+        "(guard (e (#t #t)) (read (open-input-string " ++
+            "(string-append \"1/3+123456789012345678901234567890i\"))) #f)",
+    );
     // string->number shares the grammar: it accepts the m/2^k spelling too.
     try th.expectEvalTrue(
         "(let ((ex (exact 1e-300)))" ++

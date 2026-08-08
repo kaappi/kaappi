@@ -991,121 +991,219 @@ fn bignumBitLen(bn: *const Bignum) usize {
     return (i - 1) * 64 + (64 - @clz(bn.limbs[i - 1]));
 }
 
-/// The top 64 significant bits of a bignum magnitude. Requires `bl > 64`
-/// (bit length as returned by `bignumBitLen`).
-fn bignumTop64(bn: *const Bignum, bl: usize) u64 {
-    const start = bl - 64; // bit index of the lowest kept bit
+/// The top 128 significant bits of a bignum magnitude (value >> (bl - 128),
+/// bit 127 set). Requires `bl > 64`; when `bl <= 128` the window covers the
+/// whole magnitude, so it is exact (no truncation).
+fn bignumTop128(bn: *const Bignum, bl: usize) u128 {
+    if (bl <= 128) {
+        // Exact: the whole magnitude spans at most two limbs.
+        var result: u128 = bn.limbs[0];
+        if (bn.len >= 2) result |= @as(u128, bn.limbs[1]) << 64;
+        return result;
+    }
+    const start = bl - 128; // bit index of the lowest kept bit
     const limb_i = start / 64;
     const bit_i: u6 = @intCast(start % 64);
-    var result: u64 = bn.limbs[limb_i] >> bit_i;
-    if (bit_i != 0) {
-        result |= bn.limbs[limb_i + 1] << @intCast(@as(u7, 64) - bit_i);
+    // bits [start, bl): bit_i == 0 -> limbs limb_i and limb_i + 1;
+    // bit_i != 0 -> the high (64 - bit_i) bits of limb_i, all of limb_i + 1,
+    // and the low bit_i bits of limb_i + 2.
+    var result: u128 = @as(u128, bn.limbs[limb_i]) >> bit_i;
+    if (limb_i + 1 < bn.len) {
+        if (bit_i != 0) {
+            result |= @as(u128, bn.limbs[limb_i + 1]) << @intCast(@as(u7, 64) - bit_i);
+        } else {
+            result |= @as(u128, bn.limbs[limb_i + 1]) << 64;
+        }
+    }
+    if (bit_i != 0 and limb_i + 2 < bn.len) {
+        result |= @as(u128, bn.limbs[limb_i + 2]) << @intCast(@as(u8, 128) - @as(u8, bit_i));
     }
     return result;
+}
+/// True when any bit strictly below position `drop` (counted from bit 0) is
+/// set -- i.e. the bignum was truncated when its top 64 significant bits
+/// were extracted, so the true value is strictly larger than the window.
+fn bignumHasLowBits(bn: *const Bignum, drop: usize) bool {
+    const full = drop / 64;
+    for (bn.limbs[0..full]) |limb| {
+        if (limb != 0) return true;
+    }
+    const rem = drop % 64;
+    if (rem > 0 and full < bn.len) {
+        return (bn.limbs[full] & ((@as(u64, 1) << @intCast(rem)) - 1)) != 0;
+    }
+    return false;
 }
 
 /// Convert the exact rational num/den to an f64. The naive
 /// `toF64(num) / toF64(den)` collapses whenever a *side* alone leaves f64
 /// range while the quotient is representable: a bignum denominator yields
 /// 0.0 for subnormal results, a bignum numerator yields +inf for ordinary
-/// integers, and both overflowing yields nan (kaappi#2183). Instead the
-/// larger operand is scaled down to its top 64 significant bits, the
-/// quotient is computed to 64+ significant bits with a u128 division, and
-/// the removed power of two is re-applied with a frexp + exact-power
-/// multiply that rounds through the subnormal range correctly -- including
-/// the exact tie at 2^-1075, which std.math.ldexp mishandles. The 64-bit
-/// quotient keeps the final rounding correct (a plain f64/f64 ratio of two
-/// truncated operands can be off by 1-2 ulp). Numerator and denominator
-/// may each be a fixnum or bignum; den must be nonzero.
+/// integers, and both overflowing yields nan (kaappi#2183). Instead each
+/// magnitude is reduced to its top 128 significant bits, the quotient is
+/// computed to 64+ significant bits, and the removed power of two is
+/// re-applied with a frexp + exact-power multiply that rounds through the
+/// subnormal range correctly -- including the exact tie at 2^-1075, which
+/// std.math.ldexp mishandles. The 128-bit operands make the result
+/// correctly rounded for all but the measure-zero case of a true value
+/// within ~2^-128 of a rounding tie (a plain f64/f64 ratio of truncated
+/// operands is off by 1-2 ulp, and a short quotient loses mantissa
+/// precision). A 64-bit fast path keeps the common fixnum-rational case on
+/// the hardware u128 division. Numerator and denominator may each be a
+/// fixnum or bignum; den must be nonzero.
 pub fn rationalToF64(num: Value, den: Value) f64 {
-    var num_mag: u64 = 0;
     var num_bl: usize = 0;
     var num_shift: i64 = 0;
+    var num_sticky: bool = false; // any bit below the kept window set
     var neg: bool = false;
+    // num_mag128: the exact magnitude when it fits 128 bits, else its top
+    // 128 significant bits (bit 127 set). The low u64 and the sticky are
+    // used by the 64-bit fast path below.
+    var num_mag128: u128 = 0;
+    var num_mag64: u64 = 0;
     if (isFixnum(num)) {
         const n = toFixnum(num);
         neg = n < 0;
-        num_mag = if (neg) @as(u64, @intCast(-(n + 1))) + 1 else @intCast(n); // minInt-safe
-        num_bl = 64 - @clz(num_mag);
+        num_mag64 = if (neg) @as(u64, @intCast(-(n + 1))) + 1 else @intCast(n); // minInt-safe
+        num_bl = 64 - @clz(num_mag64);
     } else {
         const bn = toBignum(num);
         neg = !bn.positive;
         num_bl = bignumBitLen(bn);
-        if (num_bl > 64) {
-            num_shift = @intCast(num_bl - 64);
-            num_mag = bignumTop64(bn, num_bl);
-        } else {
-            num_mag = if (num_bl == 0) 0 else bn.limbs[0];
+        if (num_bl > 128) {
+            num_shift = @intCast(num_bl - 128);
+            num_mag128 = bignumTop128(bn, num_bl);
+            num_sticky = bignumHasLowBits(bn, @intCast(num_shift));
+        } else if (num_bl > 64) {
+            num_mag128 = bignumTop128(bn, num_bl); // exact: bl <= 128
+        } else if (num_bl > 0) {
+            num_mag64 = bn.limbs[0];
         }
     }
 
-    var den_mag: u64 = 0;
     var den_bl: usize = 0;
     var den_shift: i64 = 0;
+    var den_sticky: bool = false;
     var den_neg: bool = false;
+    var den_mag128: u128 = 0;
+    var den_mag64: u64 = 0;
     if (isFixnum(den)) {
         const d = toFixnum(den);
         den_neg = d < 0;
-        den_mag = if (den_neg) @as(u64, @intCast(-(d + 1))) + 1 else @intCast(d);
-        den_bl = 64 - @clz(den_mag);
+        den_mag64 = if (den_neg) @as(u64, @intCast(-(d + 1))) + 1 else @intCast(d);
+        den_bl = 64 - @clz(den_mag64);
     } else {
         const bn = toBignum(den);
         den_neg = !bn.positive;
         den_bl = bignumBitLen(bn);
-        if (den_bl > 64) {
-            den_shift = @intCast(den_bl - 64);
-            den_mag = bignumTop64(bn, den_bl);
-        } else {
-            den_mag = if (den_bl == 0) 0 else bn.limbs[0];
+        if (den_bl > 128) {
+            den_shift = @intCast(den_bl - 128);
+            den_mag128 = bignumTop128(bn, den_bl);
+            den_sticky = bignumHasLowBits(bn, @intCast(den_shift));
+        } else if (den_bl > 64) {
+            den_mag128 = bignumTop128(bn, den_bl); // exact: bl <= 128
+        } else if (den_bl > 0) {
+            den_mag64 = bn.limbs[0];
         }
     }
 
-    if (num_mag == 0) return if (neg != den_neg) -0.0 else 0.0;
-    // den_mag >= 1 here (a zero denominator is rejected at construction).
-    // Normalize both magnitudes to 64 significant bits (bit 63 set): the
-    // top-64 extraction above already does that when the operand exceeds 64
-    // bits, otherwise shift a shorter operand up. The u128 quotient
-    // q == (num64 << 64)/den64 then always carries 64+ significant bits
-    // regardless of how lopsided the ratio is -- a plain (f64/f64) ratio of
-    // the top-64 truncations can be off by 1-2 ulp, and a quotient of a
-    // small numerator is short, both of which would corrupt the final
-    // rounding (kaappi#2183). num/den == (num64/den64) * 2^(num_shift -
-    // den_shift - norm_n + norm_d), so value ==
-    // q * 2^(num_shift - den_shift - norm_n + norm_d - 64); round q's 53
-    // top bits with round-half-to-even and re-apply the exponent.
-    const norm_n: u6 = if (num_bl > 64) 0 else @intCast(64 - num_bl); // num_bl >= 1
-    const norm_d: u6 = if (den_bl > 64) 0 else @intCast(64 - den_bl); // den_bl >= 1
-    const num64: u64 = num_mag << norm_n;
-    const den64: u64 = den_mag << norm_d;
-    const q: u128 = (@as(u128, num64) << 64) / @as(u128, den64);
-    const q_bl: u7 = @intCast(128 - @clz(q)); // q in [2^63, 2^65)
+    if (num_bl == 0) return if (neg != den_neg) -0.0 else 0.0;
+    // den_bl >= 1 here (a zero denominator is rejected at construction).
+    //
+    // Fast path: both magnitudes fit in 64 bits (fixnum rationals and
+    // small bignum rationals) -- both exact, hardware u128 division. Both
+    // are normalized to 64 significant bits (bit 63 set) so the quotient
+    // always carries 64+ significant bits.
+    if (num_bl <= 64 and den_bl <= 64) {
+        const norm_n: u6 = @intCast(64 - num_bl); // num_bl >= 1
+        const norm_d: u6 = @intCast(64 - den_bl);
+        const numer: u128 = @as(u128, num_mag64) << (@as(u7, 64) + norm_n);
+        const denom: u128 = @as(u128, den_mag64) << norm_d;
+        const q: u128 = numer / denom;
+        const r: u128 = numer % denom; // nonzero remainder breaks half-ties
+        const q_bl: u7 = @intCast(128 - @clz(q));
+        const drop: u7 = q_bl - 53;
+        var m: u64 = @intCast(q >> drop);
+        const rem: u128 = q & ((@as(u128, 1) << drop) - 1);
+        const half: u128 = @as(u128, 1) << (drop - 1);
+        var exp: i64 = -@as(i64, @intCast(64 - num_bl)) + @as(i64, @intCast(64 - den_bl)) + drop - 64;
+        // Round to nearest: a nonzero division remainder is a sticky bit
+        // below the quotient's last bit, so an exact half-tie only stays a
+        // tie when it is truly exact (round half to even).
+        if (rem > half or (rem == half and (m & 1 == 1 or r != 0))) {
+            m += 1;
+            if (m == (@as(u64, 1) << 53)) { // carry out: renormalize
+                m >>= 1;
+                exp += 1;
+            }
+        }
+        return assembleF64(m, exp, neg != den_neg);
+    }
+
+    // Slow path: at least one operand exceeds 64 bits. Normalize both to
+    // 128 significant bits (bit 127 set): the top-128 extraction above does
+    // that when the operand exceeds 128 bits, otherwise shift a shorter one
+    // up. A truncated operand's discarded low bits fold into a sticky bit
+    // (bit 0) so the quotient is biased toward the true value, the same
+    // sticky heuristic bignumToF64 uses. The u192 quotient
+    // q == (num128 << 64)/den128 carries 64+ significant bits regardless of
+    // how lopsided the ratio is; the 128-bit operands keep its error at
+    // ~2^-128 relative, far below the 53-bit rounding granularity.
+    const norm_n: u7 = if (num_bl > 128) 0 else @intCast(128 - num_bl); // num_bl >= 1
+    const norm_d: u7 = if (den_bl > 128) 0 else @intCast(128 - den_bl); // den_bl >= 1
+    // A <= 64-bit operand was captured in the u64 slot; the slow path runs
+    // only when at least one operand exceeds 64 bits, so the other may be
+    // either u64 or u128.
+    const num_base: u128 = if (num_bl > 64) num_mag128 else @as(u128, num_mag64);
+    const den_base: u128 = if (den_bl > 64) den_mag128 else @as(u128, den_mag64);
+    const num128: u128 = num_base << norm_n | @intFromBool(num_sticky);
+    const den128: u128 = den_base << norm_d | @intFromBool(den_sticky);
+    const q: u192 = (@as(u192, num128) << 64) / @as(u192, den128);
+    const r: u192 = (@as(u192, num128) << 64) % @as(u192, den128); // sticky for half-ties
+    const q_bl: u7 = @intCast(192 - @clz(q)); // q in [2^63, 2^65)
     const drop: u7 = q_bl - 53;
     var m: u64 = @intCast(q >> drop); // 53-bit mantissa
-    const rem: u128 = q & ((@as(u128, 1) << drop) - 1);
-    const half: u128 = @as(u128, 1) << (drop - 1);
+    const rem: u192 = q & ((@as(u192, 1) << drop) - 1);
+    const half: u192 = @as(u192, 1) << (drop - 1);
     var exp: i64 = num_shift - den_shift - @as(i64, norm_n) + @as(i64, norm_d) + drop - 64;
-    if (rem > half or (rem == half and (m & 1) == 1)) { // round half to even
+    // A nonzero division remainder is a sticky bit below the quotient's last
+    // bit: an exact half-tie only stays a tie when it is truly exact (round
+    // half to even), otherwise the true value sits above the tie.
+    if (rem > half or (rem == half and (m & 1 == 1 or r != 0))) {
         m += 1;
         if (m == (@as(u64, 1) << 53)) { // carry out: renormalize
             m >>= 1;
             exp += 1;
         }
     }
+    return assembleF64(m, exp, neg != den_neg);
+}
 
-    // value == m * 2^exp with m <= 2^53 (exactly representable).
+/// Build value == m * 2^exp (m <= 2^53, exactly representable) with the
+/// frexp + exact-power multiply that rounds through the subnormal range
+/// correctly, including the exact tie at 2^-1075 (std.math.ldexp rounds it
+/// up to the min subnormal) and the top binade [2^1023, 2^1024).
+fn assembleF64(m: u64, exp: i64, negative: bool) f64 {
     const fr = std.math.frexp(@as(f64, @floatFromInt(m)));
-    const e: i64 = @as(i64, fr.exponent) + exp;
+    const e: i64 = @as(i64, fr.exponent) + exp; // value in [2^(e-1), 2^e)
     var result: f64 = undefined;
-    if (e > 1023) {
+    if (e > 1024) {
+        // value >= 2^1024: overflow. Note the guard is 1024, not 1023 --
+        // frexp's significand is in [0.5, 1), so the whole top binade
+        // [2^1023, 2^1024) lands on e == 1024 and is representable.
         result = std.math.inf(f64);
     } else if (e < -1074) {
         result = 0.0;
+    } else if (e == 1024) {
+        // 2^1024 itself is not representable; scale through 2^1023 (exact)
+        // so the product stays finite and correctly rounded (significand < 1).
+        result = (fr.significand * std.math.ldexp(@as(f64, 1.0), 1023)) * 2.0;
     } else {
         // 2^e is exactly representable; the single multiply rounds to
         // nearest (ties-to-even) through the subnormal range.
         result = fr.significand * std.math.ldexp(@as(f64, 1.0), @intCast(e));
     }
-    return if (neg != den_neg) -result else result;
+    return if (negative) -result else result;
 }
 
 // ---------------------------------------------------------------------------
