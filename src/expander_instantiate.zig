@@ -95,8 +95,15 @@ pub fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_
                     return gc.allocPair(marker, val_root);
                 }
                 if (!b.is_list) return b.value;
-                // Shouldn't use a list binding at depth 0 without ellipsis
-                return b.value;
+                // A list binding (matched under one or more ellipses) used at
+                // depth 0 -- no ellipsis following it in the template -- is an
+                // under-use. R7RS 4.3.2 and SRFI 149 rule 1 both require a
+                // pattern variable to appear under AT LEAST as many template
+                // ellipses as its pattern depth, so a depth-1 binding used
+                // bare is a syntax violation. Before kaappi#682 this returned
+                // the unset `.value` (always NIL), silently discarding the
+                // matched input.
+                return ExpandError.EllipsisDepthMismatch;
             }
         }
 
@@ -627,6 +634,24 @@ fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bind
     var sub_bindings: [MAX_BINDINGS]Binding = undefined;
     {
         @setRuntimeSafety(true);
+        // Consecutive ellipses (R7RS 4.3.2): (x ... ...) flattens depth-2
+        // bindings into a single list. Count the ellipsis tokens that follow
+        // the one that triggered this call (rest_template starts just after
+        // it), so the depth check below knows how many ellipsis levels THIS
+        // template position consumes, and strip them from rest_template so
+        // the tail instantiation sees only the non-ellipsis remainder.
+        var extra_ellipsis: u32 = 0;
+        var true_rest = rest_template;
+        while (types.isPair(true_rest)) {
+            const head = types.car(true_rest);
+            if (types.isSymbol(head) and isEllipsis(types.symbolName(head))) {
+                extra_ellipsis += 1;
+                true_rest = types.cdr(true_rest);
+            } else {
+                break;
+            }
+        }
+
         // Find the repeat count from ellipsis bindings referenced in elem_template.
         // All referenced list bindings must have equal counts (R7RS). Bindings
         // with depth > 1 (nested ellipses) participate too: their ellipsis_count
@@ -638,9 +663,33 @@ fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bind
         var indirect: [MAX_BINDINGS]bool = @splat(false);
 
         for (bindings, 0..) |b, bi| {
-            if (b.is_list and (templateReferencesVarDirectly(elem_template, b.name) or
-                (b.depth > 1 and templateReferencesVar(elem_template, b.name))))
-            {
+            if (!b.is_list) continue;
+            const directly = templateReferencesVarDirectly(elem_template, b.name);
+            if (directly) {
+                // R7RS 4.3.2 / SRFI 149 rule 1: a pattern variable may be
+                // used under AT MOST as many template ellipses as its
+                // pattern depth (SRFI 149 relaxes upward only: "as many or
+                // more"). A binding referenced directly at this level -- not
+                // through a nested inner ellipsis -- is consumed by exactly
+                // this ellipsis run, whose length is `1 + extra_ellipsis`
+                // (the triggering ellipsis plus any consecutive ones). If
+                // the variable matched DEEPER than that, the template
+                // under-uses it; before kaappi#682 the surplus depth was
+                // silently dropped and the variable substituted `()` (its
+                // never-set `.value`) on every iteration. Deeper siblings
+                // are referenced INDIRECTLY (under an inner ellipsis) and
+                // never reach this check, so (x ... ...) flattening a
+                // depth-2 binding stays legal while (x ...) or ((a b) ...)
+                // under-using it errors.
+                if (b.depth > 1 + extra_ellipsis) return ExpandError.EllipsisDepthMismatch;
+                referenced[bi] = true;
+                if (!count_set) {
+                    repeat_count = b.ellipsis_count;
+                    count_set = true;
+                } else if (b.ellipsis_count != repeat_count) {
+                    return ExpandError.EllipsisCountMismatch;
+                }
+            } else if (b.depth > 1 and templateReferencesVar(elem_template, b.name)) {
                 referenced[bi] = true;
                 if (!count_set) {
                     repeat_count = b.ellipsis_count;
@@ -684,22 +733,6 @@ fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bind
         // `ellipsisReferencesOuter` was false, which means the caller could
         // only have reached this call with NESTED_SR_FLAG unset.
         if (!count_set) return ExpandError.EllipsisNoPatternVariable;
-
-        // Consecutive ellipses (R7RS 4.3.2): (x ... ...) flattens depth-2
-        // bindings into a single list.  Count and strip leading ellipsis
-        // tokens from rest_template so the tail instantiation sees only the
-        // non-ellipsis remainder.
-        var extra_ellipsis: u32 = 0;
-        var true_rest = rest_template;
-        while (types.isPair(true_rest)) {
-            const head = types.car(true_rest);
-            if (types.isSymbol(head) and isEllipsis(types.symbolName(head))) {
-                extra_ellipsis += 1;
-                true_rest = types.cdr(true_rest);
-            } else {
-                break;
-            }
-        }
 
         // First instantiate the rest (after all consumed ellipses)
         const result = try instantiateTemplate(gc, true_rest, bindings, intro_scope, literals, macro_keyword, globals, macros);

@@ -154,33 +154,23 @@
 ;;; subtemplates that are followed by as many OR MORE instances of
 ;;; <ellipsis>."  R7RS 4.3.2 is stricter still ("as many").  Using a
 ;;; variable at a LOWER depth than it matched is therefore an error under
-;;; both; this expander substitutes the empty list instead, silently
-;;; discarding the matched input.  chibi and Guile both reject the
-;;; define-syntax itself.
+;;; both; this expander previously substituted the empty list instead,
+;;; silently discarding the matched input.  chibi and Guile reject the
+;;; define-syntax itself.  The error fires at macro-EXPANSION time, so
+;;; each case is probed through `eval` -- a literal call would abort the
+;;; enclosing test form at compile time rather than raise inside it.
 ;;;
-;;; The enabled assertions below pin today's wrong answers so a fix flips
-;;; them; the commented ones are what the spec requires.
+;;; Fixed by kaappi#682: both assertions below now pass; the three
+;;; test-equal pins that asserted the wrong `()` answers were removed.
 
-(define-syntax under-1-at-0
-  (syntax-rules ()
-    ((_ a ...) '(under a))))
-(define-syntax under-2-at-1
-  (syntax-rules ()
-    ((_ ((a ...) ...) (b ...)) '((a b) ...))))
-
-;; FAIL: #682 (a depth-1 pattern variable used at depth 0 is silently ())
-;; (test-error "depth underflow 1->0 is an error"
-;;   (under-1-at-0 1 2 3))
-;; FAIL: #682 (#682's own repro: a depth-2 variable used at depth 1)
-;; (test-error "depth underflow 2->1 is an error (#682's own repro)"
-;;   (under-2-at-1 ((1 2) (3 4)) (10 20)))
-
-(test-equal "depth underflow 1->0 currently yields () (see #682)"
-  '(under ()) (under-1-at-0 1 2 3))
-(test-equal "depth underflow 1->0 discards the input entirely (see #682)"
-  (under-1-at-0 9) (under-1-at-0 1 2 3))
-(test-equal "depth underflow 2->1 currently yields () (#682's own repro)"
-  '((() 10) (() 20)) (under-2-at-1 ((1 2) (3 4)) (10 20)))
+(test-error "depth underflow 1->0 is an error (#682)"
+  (eval '(let-syntax ((m (syntax-rules () ((_ a ...) '(under a)))))
+           (m 1 2 3))
+        (environment '(scheme base))))
+(test-error "depth underflow 2->1 is an error (#682's own repro)"
+  (eval '(let-syntax ((m (syntax-rules () ((_ ((a ...) ...) (b ...)) '((a b) ...)))))
+           (m ((1 2) (3 4)) (10 20)))
+        (environment '(scheme base))))
 
 ;;; the discriminating control: at the CORRECT depth the same shapes
 ;;; expand exactly right, so the defect is the missing depth comparison

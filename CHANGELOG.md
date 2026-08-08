@@ -47,6 +47,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   compiler now recognizes it through the hygiene strip, so a template's
   arrow is immune to a use-site local `=>`.
 
+- **`syntax-rules` now validates ellipsis depth: a pattern variable used
+  under fewer template ellipses than its pattern depth is a syntax error
+  instead of silently expanding to `()`** (#682). R7RS 4.3.2 (and SRFI 149's
+  relaxation of it, which allows only *more* ellipses, never fewer) require
+  a variable matched at depth N to appear under at least N template
+  ellipses. The expander checked nothing: a depth-2 variable used at depth 1
+  — `((_ ((a ...) ...) (b ...)) (list (list a b) ...))` — or a depth-1
+  variable used bare — `((_ a ...) '(under a))` — silently substituted the
+  never-set `()` for the matched input. `instantiateEllipsis` now rejects a
+  directly-referenced binding whose depth exceeds the ellipsis run that
+  consumes it, and `instantiateTemplate` rejects a list binding used with no
+  ellipsis at all. Legitimate uses — nested `((a ...) ...)`, consecutive
+  `(x ... ...)` flattening, SRFI 149's excess-ellipsis replication with a
+  deeper sibling — are untouched.
+
+- **`syntax-rules` now rejects a pattern with more than one ellipsis in one
+  list or vector pattern** (#2082). The R7RS 4.3.2 `<pattern>` grammar
+  admits at most one `<ellipsis>` per list/vector pattern; SRFI 46's tail
+  patterns only widen what may follow it. `((_ a ... b ...) …)` was
+  accepted and split the input arbitrarily — the surplus ellipsis tokens
+  were counted as fixed tail elements, so `b` always took the last two
+  inputs. `parseSyntaxRules` now validates every rule's pattern at
+  definition time (chibi and Guile both reject the define-syntax), covering
+  the list and vector spellings, custom ellipsis identifiers, and the
+  ellipsis-as-literal carve-out (`(syntax-rules ... (...))`).
+
 ## [0.22.3] - 2026-08-07
 
 ### Fixed

@@ -742,7 +742,16 @@ pub fn parseSyntaxRules(self: *Compiler, spec: Value, extra_bound: []const []con
         const r = types.car(rule);
         if (!types.isPair(r)) return CompileError.InvalidSyntax;
         if (rule_count >= 32) return CompileError.InvalidSyntax;
-        patterns_buf[rule_count] = types.car(r);
+        const rule_pattern = types.car(r);
+        // R7RS 4.3.2 (kaappi#2082): the <pattern> grammar admits at
+        // most one <ellipsis> per list or vector pattern. A second one
+        // at the same level is not in the grammar (SRFI 46 only widens
+        // what may FOLLOW the single ellipsis); accepting it previously
+        // split the input arbitrarily because the surplus ellipsis
+        // tokens were counted as fixed tail elements by the matcher.
+        if (!validPatternGrammar(rule_pattern, custom_ellipsis orelse "...", literals_buf[0..lit_count]))
+            return CompileError.InvalidSyntax;
+        patterns_buf[rule_count] = rule_pattern;
         const r_rest = types.cdr(r);
         if (r_rest == types.NIL) return CompileError.InvalidSyntax;
         templates_buf[rule_count] = types.car(r_rest);
@@ -786,6 +795,89 @@ pub fn parseSyntaxRules(self: *Compiler, spec: Value, extra_bound: []const []con
         tx.literal_bound = slots;
     }
     return tx_val;
+}
+
+/// R7RS 4.3.2 (kaappi#2082): the <pattern> grammar admits at most one
+/// <ellipsis> per list or vector pattern; the matcher counts surplus
+/// ellipsis tokens as fixed tail elements, so a pattern like `(a ... b ...)`
+/// used to match with an arbitrary split instead of failing. Nested
+/// list/vector sub-patterns are checked recursively -- an ellipsis inside
+/// them belongs to their own level, so `((a ...) ...)` is legal. `ellipsis_name`
+/// is the (possibly custom) ellipsis identifier; a symbol of that name listed
+/// in `literals` is a literal, not an ellipsis (R7RS: a literal has priority
+/// over the ellipsis).
+fn validPatternGrammar(v: Value, ellipsis_name: []const u8, literals: []const Value) bool {
+    if (types.isPair(v)) {
+        var seen_ellipsis = false;
+        var cur = v;
+        var first = true;
+        while (types.isPair(cur)) {
+            const elem = expander.unwrapUsertext(types.car(cur));
+            if (types.isSymbol(elem)) {
+                const name = types.symbolName(elem);
+                if (std.mem.eql(u8, name, ellipsis_name) and !literalNamed(literals, name)) {
+                    // The ellipsis identifier only functions as the ellipsis
+                    // when it FOLLOWS a pattern element -- the matcher checks
+                    // element i+1, so a first-position ellipsis token is a
+                    // plain pattern variable, never an ellipsis. This is what
+                    // keeps srfi136's `(cname field (... ...))` guard and
+                    // R7RS 4.3.2's own `(... ...)` escape-as-data legal.
+                    if (!first) {
+                        if (seen_ellipsis) return false;
+                        seen_ellipsis = true;
+                    }
+                }
+            } else if (types.isPair(elem) or types.isVector(elem)) {
+                if (!validPatternGrammar(elem, ellipsis_name, literals)) return false;
+            }
+            first = false;
+            cur = types.cdr(cur);
+        }
+        // Dotted tail: a plain pattern, not a list element. An ellipsis
+        // token there (`(a ... . ...)`) is outside the grammar too, and a
+        // vector dotted tail (`(_ . #(a ... b ...))`) is a vector pattern
+        // the matcher recurses into, so it must be validated like any
+        // other vector pattern. (A pair dotted tail is impossible here:
+        // the while loop above only exits once cur is no longer a pair.)
+        if (cur != types.NIL) {
+            if (types.isSymbol(cur)) {
+                const name = types.symbolName(cur);
+                if (std.mem.eql(u8, name, ellipsis_name) and !literalNamed(literals, name)) return false;
+            } else if (types.isVector(cur)) {
+                return validPatternGrammar(cur, ellipsis_name, literals);
+            }
+        }
+        return true;
+    }
+    if (types.isVector(v)) {
+        const vec = types.toObject(v).as(types.Vector);
+        var seen_ellipsis = false;
+        var first = true;
+        for (vec.data) |elem_raw| {
+            const elem = expander.unwrapUsertext(elem_raw);
+            if (types.isSymbol(elem)) {
+                const name = types.symbolName(elem);
+                if (std.mem.eql(u8, name, ellipsis_name) and !literalNamed(literals, name)) {
+                    if (!first) {
+                        if (seen_ellipsis) return false;
+                        seen_ellipsis = true;
+                    }
+                }
+            } else if (types.isPair(elem) or types.isVector(elem)) {
+                if (!validPatternGrammar(elem, ellipsis_name, literals)) return false;
+            }
+            first = false;
+        }
+        return true;
+    }
+    return true;
+}
+
+fn literalNamed(literals: []const Value, name: []const u8) bool {
+    for (literals) |lit| {
+        if (types.isSymbol(lit) and std.mem.eql(u8, types.symbolName(lit), name)) return true;
+    }
+    return false;
 }
 
 // ---------------------------------------------------------------------------
