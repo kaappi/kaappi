@@ -65,10 +65,17 @@
     (thread-join! t2)
     #f))
 
-;; Control: a continuation invoked on ITS OWN thread (through the same
-;; global, from the capturing thread itself) still works.
-(test-equal "control: the same continuation still works on its own thread"
-  'from-child (saved-k 'from-child))
+;; Control: a continuation captured AND invoked on the same thread (so the
+;; invocation returns to its caller) still works. A plain `(saved-k ...)`
+;; here would re-enter the TOP-LEVEL capture point and never return to this
+;; assertion — the control must be self-contained.
+(test-equal "control: same-thread invocation still returns to its caller"
+  'from-child
+  (let ((local-k #f))
+    (let ((value (call/cc (lambda (k) (set! local-k k) 'captured))))
+      (if (eq? value 'captured)
+          (local-k 'from-child)
+          value))))
 
 ;; Control: a continuation captured on a CHILD and returned through the join
 ;; is refused by the copy at the boundary -- the join raises the uncopyable

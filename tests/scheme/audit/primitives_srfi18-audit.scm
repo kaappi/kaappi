@@ -717,18 +717,19 @@
 (test-equal "CONTROL: broadcasting releases a blocked condvar waiter"
   'woke (thread-join! lc-11))
 
-;; -- BUG: thread-terminate! on an ALREADY-TERMINATED thread destroys its
-;;    end-result / end-exception.
+;; -- #1984 FIXED: thread-terminate! on an ALREADY-FINISHED thread now
+;;    preserves its end-result / end-exception.
 ;; SRFI 18 thread-terminate!: "*If the thread is not already terminated*,
 ;; all mutexes owned by the thread become unlocked/abandoned and a
 ;; 'terminated thread exception' object is stored in the thread's
 ;; end-exception field."
 ;; SRFI 18 thread-join!: "If the thread terminated normally, returns
 ;; end-result."
-;; threadTerminateFn (primitives_srfi18.zig:684) stores `terminated = true`
-;; unconditionally, ABOVE its own `status != .completed and status !=
-;; .errored` guard, and threadJoinResult (:944) tests `terminated` before
-;; either the result or the exception.
+;; threadTerminateFn used to store `terminated = true` unconditionally,
+;; ABOVE its own `status != .completed and status != .errored` guard, and
+;; threadJoinResult tested `terminated` before either the result or the
+;; exception. The status guard now runs first, so a finished thread is
+;; skipped (a no-op terminate).
 (define lc-12 (make-thread (lambda () 'result-kept)))
 (thread-start! lc-12)
 (thread-sleep! 0.08)

@@ -147,6 +147,28 @@
   #t (thread? (mutex-state m3)))
 (mutex-unlock! m3)
 
+;; Contended variant: force the WAITED path of mutexLockFn, which carries
+;; its own copy of the terminated-owner transition (the uncontended case
+;; above only reaches the fast path). A live helper holds the mutex; the
+;; timed lock with the terminated owner parks, then resumes through the
+;; wait loop once the helper releases.
+(define m3w (make-mutex 'm3w))
+(define m3w-holder
+  (make-thread (lambda () (mutex-lock! m3w) (thread-sleep! 0.2) (mutex-unlock! m3w))))
+(thread-start! m3w-holder)
+(thread-sleep! 0.05)
+(test-equal "contended lock with a terminated owner returns #t"
+  #t (mutex-lock! m3w 30 t3))
+(test-equal "contended terminated owner => unlocked/abandoned"
+  'abandoned (mutex-state m3w))
+(test-assert "and a later lock of the contended-abandoned mutex raises"
+  (guard (e ((abandoned-mutex-exception? e) #t)
+            (#t #f))
+    (mutex-lock! m3w)
+    #f))
+(mutex-unlock! m3w)
+(thread-join! m3w-holder)
+
 ;; Control: an explicit LIVE owner is still recorded.
 (define t3c (make-thread (lambda () (thread-sleep! 0.3) 'done)))
 (thread-start! t3c)

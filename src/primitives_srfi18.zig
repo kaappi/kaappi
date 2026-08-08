@@ -1576,6 +1576,13 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
                 m.owner = types.VOID;
                 @atomicStore(bool, &m.abandoned, true, .release);
                 @atomicStore(bool, &m.locked, false, .release);
+                // The claim above released the mutex back into
+                // unlocked/abandoned; wake any local waiter enrolled from a
+                // previous foreign unlock so it observes the release (and
+                // raises abandoned on its re-lock) instead of sitting parked
+                // until its poll cap or the deadlock error. Mirrors the
+                // slow path's wake below.
+                ctx.sched.wakeMutexWaiters(args[0]);
                 return types.TRUE;
             }
             m.owner_thread = owner_thread;
