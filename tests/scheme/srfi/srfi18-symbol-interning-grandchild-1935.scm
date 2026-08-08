@@ -59,13 +59,18 @@
 ;; stamping made symbols the one safe cross-heap write; it must hold at depth
 ;; 2 too -- the written symbol is owned by the root, so the parent's own
 ;; intern of the same name is the same object, and nothing dangles past the
-;; joins.
+;; joins. Every level joins its child before returning, so the outer join
+;; guarantees the write has happened before the parent reads the pair.
 (define shared-pair (list 'a 'b))
 (define (grandchild-writes-symbol!)
-  (thread-start! (make-thread (lambda ()
-    (let ((g (make-thread (lambda ()
-              (set-car! shared-pair (string->symbol "written-through"))))))
-      (thread-start! g) (thread-join! g)))))
+  (let ((t (make-thread
+            (lambda ()
+              (let ((g (make-thread (lambda ()
+                          (set-car! shared-pair (string->symbol "written-through"))))))
+                (thread-start! g) (thread-join! g)))
+            )))
+    (thread-start! t)
+    (thread-join! t))
   'done)
 (test-equal "grandchild writes a symbol into a shared parent object"
   'done (thread-join! (thread-start! (make-thread grandchild-writes-symbol!))))
