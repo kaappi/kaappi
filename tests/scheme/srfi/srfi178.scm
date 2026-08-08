@@ -136,8 +136,11 @@
 (test-equal "bitvector-andc2" '(0 1 0 0) (bitvector->list/int (bitvector-andc2 (bitvector 1 1 0 0) (bitvector 1 0 0 1))))
 
 ;;; --- quasi-integer ops ---
-(test-equal "bitvector-logical-shift: left" '(0 1 1 0) (bitvector->list/int (bitvector-logical-shift (bitvector 1 1 0 0) 1 0)))
-(test-equal "bitvector-logical-shift: right" '(1 0 0 0) (bitvector->list/int (bitvector-logical-shift (bitvector 1 1 0 0) -1 0)))
+;; count >= 0 shifts toward lower indices, count < 0 toward upper indices
+;; (the pre-#2083 code had both inverted; these values match the SRFI's own
+;; reference implementation).
+(test-equal "bitvector-logical-shift: left" '(1 0 0 0) (bitvector->list/int (bitvector-logical-shift (bitvector 1 1 0 0) 1 0)))
+(test-equal "bitvector-logical-shift: right" '(0 1 1 0) (bitvector->list/int (bitvector-logical-shift (bitvector 1 1 0 0) -1 0)))
 (test-equal "bitvector-count" 3 (bitvector-count 1 (bitvector 1 1 0 1)))
 (test-equal "bitvector-count-run" 2 (bitvector-count-run 1 (bitvector 1 1 0 1) 0))
 (test-equal "bitvector-if" '(1 0 1) (bitvector->list/int (bitvector-if (bitvector 1 0 1) (bitvector 1 1 1) (bitvector 0 0 0))))

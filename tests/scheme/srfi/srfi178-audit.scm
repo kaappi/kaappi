@@ -168,24 +168,22 @@
 ;;;  left shift (toward lower indices) when count>=0 or the right shift
 ;;;  (toward upper indices) when count<0. Newly vacated elements are filled
 ;;;  with bit."
-;;; The two assertions below are the SRFI's own test suite verbatim
-;;; (test/quasi-ints.scm lines 8-13).
 ;;; ------------------------------------------------------------------
 
-;; FAIL: #2083 (bitvector-logical-shift moves bits the wrong way for both signs)
-;; (test-equal "logical-shift +2 moves toward lower indices"
-;;             '(1 1 0 0) (L (bitvector-logical-shift (bitvector 1 0 1 1) 2 0)))
-;; FAIL: #2083
-;; (test-equal "logical-shift -2 moves toward upper indices, filling with the bit"
-;;             '(1 1 1 0) (L (bitvector-logical-shift (bitvector 1 0 1 1) -2 #t)))
-;; FAIL: #2083
-;; (test-equal "logical-shift +1 of (0 0 0 1)"
-;;             '(0 0 1 0) (L (bitvector-logical-shift (bitvector 0 0 0 1) 1 0)))
-;; FAIL: #2083
-;; (test-equal "logical-shift -1 of (1 0 0 0)"
-;;             '(0 1 0 0) (L (bitvector-logical-shift (bitvector 1 0 0 0) -1 0)))
+;; Regression, #2083: both sign branches were inverted, so a left shift
+;; moved bits toward higher indices and a right shift toward lower ones.
+;; The first two assertions are the SRFI's own test suite verbatim
+;; (test/quasi-ints.scm lines 8-13).
+(test-equal "logical-shift +2 moves toward lower indices"
+            '(1 1 0 0) (L (bitvector-logical-shift (bitvector 1 0 1 1) 2 0)))
+(test-equal "logical-shift -2 moves toward upper indices, filling with the bit"
+            '(1 1 1 0) (L (bitvector-logical-shift (bitvector 1 0 1 1) -2 #t)))
+(test-equal "logical-shift +1 of (0 0 0 1)"
+            '(0 0 1 0) (L (bitvector-logical-shift (bitvector 0 0 0 1) 1 0)))
+(test-equal "logical-shift -1 of (1 0 0 0)"
+            '(0 1 0 0) (L (bitvector-logical-shift (bitvector 1 0 0 0) -1 0)))
 
-;; Discriminating control: count 0 is the identity, and it is correct today.
+;; Discriminating control: count 0 is the identity.
 (test-equal "logical-shift 0 is the identity"
             '(1 0 1 1) (L (bitvector-logical-shift (bitvector 1 0 1 1) 0 0)))
 (test-equal "logical-shift by the full length leaves only the fill bit"

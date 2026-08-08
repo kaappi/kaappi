@@ -497,14 +497,17 @@
 
     ;; --- quasi-integer ops ------------------------------------------------
 
+    ;; A logical left shift moves bits toward lower indices (out[i] = bv[i + count])
+    ;; and a right shift toward upper indices (out[i] = bv[i - shift]); indices
+    ;; read outside the source are filled with bit (#2083).
     (define (bitvector-logical-shift bv count bit)
       (let* ((n (%len bv)) (b (%norm-bit bit)) (out (make-bytevector n b)))
         (if (>= count 0)
-            (do ((i (- n 1) (- i 1))) ((< i count) (%raw-make-bitvector out))
-              (bytevector-u8-set! out i (bitvector-ref/int bv (- i count))))
+            (do ((i 0 (+ i 1))) ((>= i (- n count)) (%raw-make-bitvector out))
+              (bytevector-u8-set! out i (bitvector-ref/int bv (+ i count))))
             (let ((shift (- count)))
-              (do ((i 0 (+ i 1))) ((>= i (- n shift)) (%raw-make-bitvector out))
-                (bytevector-u8-set! out i (bitvector-ref/int bv (+ i shift))))))))
+              (do ((i shift (+ i 1))) ((>= i n) (%raw-make-bitvector out))
+                (bytevector-u8-set! out i (bitvector-ref/int bv (- i shift))))))))
 
     (define (bitvector-count bit bv)
       (let ((b (%norm-bit bit)) (n (%len bv)))
