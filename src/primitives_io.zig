@@ -1854,6 +1854,7 @@ fn readFromPeekByteOnly(gc: *@import("memory.zig").GC, port: *types.Port) Primit
     const source: [1]u8 = .{b};
     var reader = reader_mod.Reader.init(gc, &source);
     reader.mark_immutable = false;
+    reader.fold_case = port.fold_case; // a lone byte can't hold a #! directive, so no write-back
     defer reader.deinit();
     const maybe_datum = parseDatumForRead(&reader) catch |err| {
         if (err == reader_mod.ReadError.OutOfMemory) return PrimitiveError.OutOfMemory;
@@ -1889,12 +1890,17 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
 
         var reader = reader_mod.Reader.init(gc, source);
         reader.mark_immutable = false;
+        reader.fold_case = port.fold_case;
         defer reader.deinit();
         const maybe_datum = parseDatumForRead(&reader) catch |err| {
             if (err == reader_mod.ReadError.OutOfMemory) return PrimitiveError.OutOfMemory;
             return raiseReadError(gc, err);
         };
         const datum = maybe_datum orelse return types.EOF;
+        // The parse saw the whole remaining source, so its final flag is
+        // the port's state from this point on (a directive may have been
+        // consumed before the datum) — persist it for the next call (#2175).
+        port.fold_case = reader.fold_case;
         // Advance string_pos by amount consumed
         port.string_pos += reader.pos;
         if (combined.items.len > 0 and reader.pos > 0) {
@@ -1948,10 +1954,15 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
             var reader = reader_mod.Reader.init(gc, buf.items);
             reader.mark_immutable = false;
             reader.incomplete_input = true;
+            reader.fold_case = port.fold_case;
             defer reader.deinit();
             const result = parseDatumForRead(&reader);
             if (result) |maybe_datum| {
                 if (maybe_datum) |datum| {
+                    // The datum parse succeeded, so any directive was fully
+                    // inside the consumed span: persist the final flag for
+                    // the next call on this port (#2175).
+                    port.fold_case = reader.fold_case;
                     // Save unconsumed bytes back to port buffer.
                     const remaining = buf.items[reader.pos..];
                     if (remaining.len > 0) {
@@ -2027,12 +2038,16 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
 
     var reader = reader_mod.Reader.init(gc, buf.items);
     reader.mark_immutable = false;
+    reader.fold_case = port.fold_case;
     defer reader.deinit();
     const maybe_datum = parseDatumForRead(&reader) catch |err| {
         if (err == reader_mod.ReadError.OutOfMemory) return PrimitiveError.OutOfMemory;
         return raiseReadError(gc, err);
     };
     const datum = maybe_datum orelse return types.EOF;
+    // Whole remaining input parsed: persist the final flag for the next
+    // call on this port (#2175).
+    port.fold_case = reader.fold_case;
 
     const remaining = buf.items[reader.pos..];
     if (remaining.len > 0) {

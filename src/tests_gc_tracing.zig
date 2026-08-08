@@ -1325,14 +1325,14 @@ test "gc tracing: heap-struct field inventory is unchanged" {
     // Value-bearing, so they add no marking or sweeping obligation -- only
     // this re-pin.
     expectFields(types.Port, &.{
-        "header",         "fd",              "is_input",       "is_output",
-        "is_open",        "input_closed",    "output_closed",  "name",
-        "owns_name",      "peek_byte",       "peek_extra",     "peek_extra_len",
-        "is_string_port", "string_data",     "string_pos",     "string_out_buf",
-        "string_out_len", "string_out_cap",  "string_out_pos", "is_binary",
-        "read_buf",       "read_buf_len",    "random_gen",     "nonblocking",
-        "write_buf",      "write_buf_start", "write_buf_len",  "fd_state",
-        "custom_backend", "transcode",
+        "header",         "fd",             "is_input",        "is_output",
+        "is_open",        "input_closed",   "output_closed",   "name",
+        "owns_name",      "peek_byte",      "peek_extra",      "peek_extra_len",
+        "fold_case",      "is_string_port", "string_data",     "string_pos",
+        "string_out_buf", "string_out_len", "string_out_cap",  "string_out_pos",
+        "is_binary",      "read_buf",       "read_buf_len",    "random_gen",
+        "nonblocking",    "write_buf",      "write_buf_start", "write_buf_len",
+        "fd_state",       "custom_backend", "transcode",
     });
     // `has_protocol` (kaappi#1974) is a plain bool and `identity`
     // (kaappi#1932) a plain u64 -- neither is Value-bearing, so they add no
