@@ -8,9 +8,10 @@
 # emitApplyForm now emits the callee and fixed arguments natively and hands the
 # final operand to @kaappi_apply (runtime_exports.zig), which splices it with
 # primitives.applyFn's exact semantics. The dispatch mirrors the interpreter's
-# (compiler.zig): tail + unshadowed = structural built-in apply (tail_apply
-# ignores a top-level rebinding, so the fast path must too); everything else
-# resolvable is an ordinary call through whatever `apply` denotes in scope.
+# (compiler.zig): tail + unshadowed + unrebound = structural built-in apply
+# (tail_apply honours a top-level rebinding since #2033, so the fast path is
+# gated the same way); everything else resolvable is an ordinary call through
+# whatever `apply` denotes in scope.
 #
 # Every functional case asserts the compiled binary agrees with the
 # interpreter; error cases assert both fail and the native diagnostic carries
@@ -195,10 +196,11 @@ cat > "$DIR/shadowed.scm" << 'SCHEME'
 SCHEME
 check_both "shadowed" "30"
 
-# 5. A top-level rebinding of `apply`: the interpreter honors it for a
-#    NON-tail apply (an ordinary call through the current global) but ignores
-#    it in TAIL position (the tail_apply opcode is structural). The native
-#    dispatch mirrors both halves.
+# 5. A top-level rebinding of `apply`: the interpreter honors it in BOTH
+#    positions since #2033 (R7RS 5.3.1: a top-level definition is essentially
+#    an assignment). A non-tail apply is an ordinary call through the current
+#    global; a tail apply must also resolve the user's binding instead of
+#    firing the structural tail_apply opcode. The native dispatch mirrors both.
 cat > "$DIR/rebound.scm" << 'SCHEME'
 (define (myapply f lst) 99)
 (define apply myapply)
@@ -209,7 +211,7 @@ cat > "$DIR/rebound.scm" << 'SCHEME'
 (display (tail (list 1 2 3)))
 (newline)
 SCHEME
-check_both "rebound" "$(printf '99\n6')"
+check_both "rebound" "$(printf '99\n99')"
 
 # 6. `apply` as a VALUE rather than a call head: resolves to the built-in
 #    procedure object and flows through map like any other argument.

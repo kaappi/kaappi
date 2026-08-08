@@ -882,13 +882,27 @@
             'local ((lambda () (let ((apply (lambda a 'local)))
                                  ((lambda () (apply + '(1 2))))))))
 
-;; FAIL: #2033 (a top-level redefinition of these five names is ignored in tail
-;; position; the same call in non-tail position honours it)
-;; (define (audit-user-call/cc f) 'user)
-;; (test-equal "shadowing: a top-level redefinition of call/cc wins in tail position"
-;;             'user (let ()
-;;                     (define (call/cc f) 'user)
-;;                     ((lambda () (call/cc (lambda (k) 1))))))
+;; #2033: a top-level redefinition of these names is honoured in tail position
+;; (R7RS 5.3.1: "At the top level of a program, a definition ... has essentially
+;; the same effect as the assignment expression"). The same call one position
+;; away (non-tail) always honoured it; tail position must too. Each name is
+;; saved, rebound, tested, then restored so the rest of the file keeps the
+;; genuine binding.
+(define saved-audit-call/cc call/cc)
+(define (call/cc f) 'user)
+(test-equal "shadowing: a top-level redefinition of call/cc wins in tail position"
+            'user ((lambda () (call/cc (lambda (k) 1)))))
+(define call/cc saved-audit-call/cc)
+(test-equal "shadowing: the genuine call/cc works in tail position after restore"
+            42 ((lambda () (call/cc (lambda (k) 42)))))
+
+(define saved-audit-call-with-values call-with-values)
+(define (call-with-values p c) 'user)
+(test-equal "shadowing: a top-level redefinition of call-with-values wins in tail position"
+            'user ((lambda () (call-with-values (lambda () 1) list))))
+(define call-with-values saved-audit-call-with-values)
+(test-equal "shadowing: the genuine call-with-values works in tail position after restore"
+            '(1 2) ((lambda () (call-with-values (lambda () (values 1 2)) list))))
 
 ;;; ------------------------------------------------------------------
 ;;; Deeply nested dynamic-wind

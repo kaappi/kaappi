@@ -799,14 +799,14 @@ fn buildDefineValuesAssignForm(gc: *memory.GC, names: []const []const u8, rest_n
     if (is_single) {
         // (define-values x expr) → (set! x (call-with-values (lambda () expr) list))
         const rn_sym = gc.allocSymbol(rest_name.?) catch return CompileError.OutOfMemory;
-        const list_sym = gc.allocSymbol("list") catch return CompileError.OutOfMemory;
+        const list_sym = try compiler_mod.Compiler.trueBuiltinRefOrSymbol(gc, "list");
 
         const producer_body = gc.allocPair(expr, types.NIL) catch return CompileError.OutOfMemory;
         const producer_lambda = gc.allocPair(types.NIL, producer_body) catch return CompileError.OutOfMemory;
         const lambda_sym = gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
         const producer = gc.allocPair(lambda_sym, producer_lambda) catch return CompileError.OutOfMemory;
 
-        const cwv_sym = gc.allocSymbol("call-with-values") catch return CompileError.OutOfMemory;
+        const cwv_sym = try compiler_mod.Compiler.trueBuiltinRefOrSymbol(gc, "call-with-values");
         const cwv_3 = gc.allocPair(list_sym, types.NIL) catch return CompileError.OutOfMemory;
         const cwv_2 = gc.allocPair(producer, cwv_3) catch return CompileError.OutOfMemory;
         const cwv_form = gc.allocPair(cwv_sym, cwv_2) catch return CompileError.OutOfMemory;
@@ -879,7 +879,10 @@ fn buildDefineValuesAssignForm(gc: *memory.GC, names: []const []const u8, rest_n
     const producer = gc.allocPair(lambda_sym, producer_lambda) catch return CompileError.OutOfMemory;
 
     // Build (call-with-values producer consumer)
-    const cwv_sym = gc.allocSymbol("call-with-values") catch return CompileError.OutOfMemory;
+    // A compiler-synthesized reference: must mean the pristine (scheme base)
+    // call-with-values even if the program rebinds the name at top level
+    // (#1715, #2033).
+    const cwv_sym = try compiler_mod.Compiler.trueBuiltinRefOrSymbol(gc, "call-with-values");
     const cwv_3 = gc.allocPair(consumer, types.NIL) catch return CompileError.OutOfMemory;
     const cwv_2 = gc.allocPair(producer, cwv_3) catch return CompileError.OutOfMemory;
     return gc.allocPair(cwv_sym, cwv_2) catch return CompileError.OutOfMemory;

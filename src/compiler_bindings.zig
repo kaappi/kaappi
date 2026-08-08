@@ -636,21 +636,15 @@ pub fn compileLetValues(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
         var j = count;
         while (j > 0) {
             j -= 1;
-            // Every inner apply (j > 0) sits in the tail position of its
-            // enclosing consumer lambda, so it always compiles through
-            // compileApplyTail's structural bytecode fast path (matched on
-            // a literal `apply` symbol, checked only against local/upvalue
-            // shadowing) regardless of this form's own is_tail — that path
-            // never looks `apply` up by name, so a bare symbol is already
-            // safe there. Only the outermost (j == 0) apply's tail-ness
-            // follows this let-values's own is_tail; when that's false, it
-            // falls through to ordinary call compilation, which resolves
-            // `apply` like any other identifier and can be shadowed by a
-            // top-level redefinition (#1715).
-            const apply_sym = if (j == 0 and !is_tail)
-                try compiler_mod.Compiler.trueBuiltinRefOrSymbol(gc, "apply")
-            else
-                gc.allocSymbol("apply") catch return CompileError.OutOfMemory;
+            // Every apply here is a compiler-synthesized reference and must
+            // mean the (scheme base) apply regardless of any top-level
+            // redefinition (#1715, #2033): the tail-position superinstruction
+            // recognizes the base-binding-prefixed spelling and skips its
+            // redefinition gate, and the prefixed name resolves through the
+            // base registry if the fast path is unavailable (non-tail). A
+            // bare symbol would be indistinguishable from user text and get
+            // routed to the user's redefined `apply` under #2033's gate.
+            const apply_sym = try compiler_mod.Compiler.trueBuiltinRefOrSymbol(gc, "apply");
             const inner_body = gc.allocPair(inner, types.NIL) catch return CompileError.OutOfMemory;
             const consumer = gc.allocPair(lambda_sym, gc.allocPair(formals_arr[j], inner_body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
             const temp_sym = temp_syms[j];
@@ -671,7 +665,7 @@ pub fn compileLetStarValues(self: *Compiler, args: Value, dst: u16, is_tail: boo
     const body = types.cdr(args);
     if (body == types.NIL) return CompileError.InvalidSyntax;
 
-    const desugared = buildLetValues(self, bindings, body, is_tail) catch |err| return switch (err) {
+    const desugared = buildLetValues(self, bindings, body) catch |err| return switch (err) {
         error.InvalidSyntax => CompileError.InvalidSyntax,
         else => CompileError.OutOfMemory,
     };
@@ -697,7 +691,7 @@ pub fn compileLetStarValues(self: *Compiler, args: Value, dst: u16, is_tail: boo
 /// identifier resolution can be shadowed by a top-level redefinition of
 /// `call-with-values` (#1715) — so it takes the same true-binding reference
 /// unconditionally rather than relying on which path the compiler picks.
-pub fn buildLetValues(self: *Compiler, bindings: Value, body: Value, is_tail: bool) !Value {
+pub fn buildLetValues(self: *Compiler, bindings: Value, body: Value) !Value {
     const gc = self.gc;
     gc.no_collect += 1;
     defer gc.no_collect -= 1;
@@ -718,7 +712,7 @@ pub fn buildLetValues(self: *Compiler, bindings: Value, body: Value, is_tail: bo
     if (!types.isPair(expr_rest)) return error.InvalidSyntax;
     const expr = types.car(expr_rest);
 
-    const inner = try buildLetValues(self, rest_bindings, body, true);
+    const inner = try buildLetValues(self, rest_bindings, body);
 
     // (lambda () expr)
     const producer_body = try gc.allocPair(expr, types.NIL);
@@ -729,9 +723,9 @@ pub fn buildLetValues(self: *Compiler, bindings: Value, body: Value, is_tail: bo
     const consumer_lambda = try gc.allocPair(lambda_sym, try gc.allocPair(formals, consumer_body));
 
     // (call-with-values producer consumer)
-    const cwv_sym = if (is_tail)
-        try gc.allocSymbol("call-with-values")
-    else
-        try compiler_mod.Compiler.trueBuiltinRefOrSymbol(gc, "call-with-values");
+    // A compiler-synthesized reference: always the pristine (scheme base)
+    // binding, so no top-level redefinition of `call-with-values` can change
+    // the desugaring's meaning (#1715, #2033).
+    const cwv_sym = try compiler_mod.Compiler.trueBuiltinRefOrSymbol(gc, "call-with-values");
     return try gc.allocPair(cwv_sym, try gc.allocPair(producer_lambda, try gc.allocPair(consumer_lambda, types.NIL)));
 }

@@ -390,6 +390,55 @@ pub const Compiler = struct {
         return false;
     }
 
+    /// Answers whether a free global reference spelled `sym_name` (a bare
+    /// name like `apply`, or a hygiene-renamed `__hyg_N_apply`) would still
+    /// resolve to the genuine `(scheme base)` primitive `base_name` at run
+    /// time — the gate the tail-position superinstructions
+    /// (apply/eval/call/cc/call-with-values) need so a top-level
+    /// redefinition of one of those names routes to the user's procedure
+    /// instead of the baked-in builtin (kaappi#2033). Mirrors
+    /// IR.isRedefined's fold gate and the resolution order of
+    /// vm_dispatch_helpers.lookupGlobalLocked so the compile-time decision
+    /// cannot disagree with what get_global would fetch.
+    fn globalBindingStillGenuine(self: *const Compiler, sym_name: []const u8, base_name: []const u8) bool {
+        // A `set!` target in the enclosing top-level form (or a truncated
+        // pre-scan) means the global may hold a different value by the time
+        // the call executes — the same conservative bias as IR.isRedefined.
+        if (self.set_targets_all) return false;
+        if (self.set_targets) |st| {
+            if (st.contains(sym_name) or st.contains(base_name)) return false;
+        }
+
+        // No environment info (standalone/unit-test paths): keep the legacy
+        // optimistic behavior, mirroring IR.isRedefined's `orelse return false`.
+        const g = self.globals orelse return true;
+        const glk = globals_mod.acquireGlobalsRead(g);
+        defer globals_mod.releaseGlobalsRead(glk);
+
+        // Mirror lookupGlobalLocked's resolution: the name as spelled, then
+        // the hygienic-prefix fallback to the bare name.
+        var val: ?Value = g.get(sym_name);
+        if (val == null and !std.mem.eql(u8, sym_name, base_name)) {
+            val = g.get(base_name);
+        }
+        const v = val orelse {
+            // Not bound in the compile-time env. Inside a library (partial
+            // lib_env) or restricted environment the runtime may still find
+            // it elsewhere — the vm.globals fallback for a library body,
+            // nowhere at all for a restricted env — so decline the fast path
+            // rather than silently run the builtin for a name the program
+            // never bound (mirrors IR.isRedefined's restricted_env arm). At
+            // top level the name being absent is the legacy unbound case,
+            // which keeps the fast path exactly as before.
+            return !self.restricted_env;
+        };
+        if (!types.isPointer(v)) return false;
+        const obj = types.toObject(v);
+        if (obj.tag != .native_fn) return false;
+        const nfn = obj.as(types.NativeFn);
+        return std.mem.eql(u8, nfn.name, base_name);
+    }
+
     pub fn isLocalBoxed(self: *Compiler, name: []const u8) bool {
         var i: usize = self.locals.items.len;
         while (i > 0) {
@@ -873,7 +922,14 @@ pub const Compiler = struct {
 
         if (is_tail and types.isSymbol(head)) {
             const sym_name = types.symbolName(head);
-            // The four tail fast paths (apply / call-with-values / call/cc /
+            // A compiler-synthesized reference carries base_binding_prefix
+            // (#1715) — the let-values/let*-values/define-values/case-lambda
+            // desugarings mint __kaappi_base__apply / _call-with-values —
+            // and is immune to redefinition BY CONSTRUCTION: it resolves
+            // through the (scheme base) registry at run time, so the fast
+            // path is always sound for it and the gate below does not apply.
+            const is_synth = globals_mod.stripBaseBindingPrefix(sym_name) != null;
+            // The five tail fast paths (apply / call-with-values / call/cc /
             // eval) recognize their operator by spelling. Since #2003 a
             // macro template's free reference to one of these globals is
             // hygiene-renamed (__hyg_N_<name>), so compare the stripped name
@@ -884,35 +940,37 @@ pub const Compiler = struct {
             // path. The fast paths themselves resolve the true (scheme base)
             // primitive, which is what a renamed free reference to one of
             // these means under the hygienic-prefix fallback.
-            const eff_name = types.stripHygienicPrefix(sym_name);
-            if (std.mem.eql(u8, eff_name, "apply")) {
-                if (self.resolveLocal(sym_name) == null and
-                    (try self.resolveUpvalue(sym_name)) == null)
-                {
-                    return passthrough.compileApplyTail(self, expr, dst);
-                }
-            }
-            if (std.mem.eql(u8, eff_name, "call-with-values")) {
-                if (self.resolveLocal(sym_name) == null and
-                    (try self.resolveUpvalue(sym_name)) == null)
-                {
-                    return passthrough.compileCallWithValuesTail(self, expr, dst);
-                }
-            }
-            if (std.mem.eql(u8, eff_name, "call-with-current-continuation") or
-                std.mem.eql(u8, eff_name, "call/cc"))
+            const eff_name = if (is_synth)
+                globals_mod.stripBaseBindingPrefix(sym_name).?
+            else
+                types.stripHygienicPrefix(sym_name);
+
+            if (std.mem.eql(u8, eff_name, "apply") or
+                std.mem.eql(u8, eff_name, "call-with-values") or
+                std.mem.eql(u8, eff_name, "call-with-current-continuation") or
+                std.mem.eql(u8, eff_name, "call/cc") or
+                std.mem.eql(u8, eff_name, "eval"))
             {
-                if (self.resolveLocal(sym_name) == null and
-                    (try self.resolveUpvalue(sym_name)) == null)
-                {
-                    return passthrough.compileCallCCTail(self, expr, dst);
-                }
-            }
-            if (std.mem.eql(u8, eff_name, "eval")) {
-                if (self.resolveLocal(sym_name) == null and
-                    (try self.resolveUpvalue(sym_name)) == null)
-                {
-                    return passthrough.compileEvalTail(self, expr, dst);
+                // #2033: a *user-text* reference must resolve like any other
+                // global — R7RS 5.3.1 makes a top-level redefinition
+                // essentially an assignment, so the builtin's superinstruction
+                // is only sound while the global binding is still the genuine
+                // primitive. Local/upvalue shadowing and the compile-time
+                // global binding (plus the form's own set! pre-scan) gate the
+                // fast path; synthesized references skip the gate entirely.
+                const fast_ok = is_synth or
+                    (self.resolveLocal(sym_name) == null and
+                        (try self.resolveUpvalue(sym_name)) == null and
+                        self.globalBindingStillGenuine(sym_name, eff_name));
+                if (fast_ok) {
+                    if (std.mem.eql(u8, eff_name, "apply")) return passthrough.compileApplyTail(self, expr, dst);
+                    if (std.mem.eql(u8, eff_name, "call-with-values")) return passthrough.compileCallWithValuesTail(self, expr, dst);
+                    if (std.mem.eql(u8, eff_name, "call-with-current-continuation") or
+                        std.mem.eql(u8, eff_name, "call/cc"))
+                    {
+                        return passthrough.compileCallCCTail(self, expr, dst);
+                    }
+                    if (std.mem.eql(u8, eff_name, "eval")) return passthrough.compileEvalTail(self, expr, dst);
                 }
             }
         }

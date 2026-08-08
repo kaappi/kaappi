@@ -670,7 +670,7 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
             if (spec.protocol_expr) |protocol_expr| {
                 // (protocol (lambda n-args (let ((__parent-inst (apply parent-ctor n-args))) (lambda own-args (apply %make-record __rt (append (list ...parent fields...) own-args))))))
                 const own_args_sym = gc.allocSymbol(" __own-args") catch return VMError.OutOfMemory;
-                const apply_sym = gc.allocSymbol("apply") catch return VMError.OutOfMemory;
+                const apply_sym = globals_mod.baseBindingSymbol(gc, "apply") catch return VMError.OutOfMemory;
                 const append_sym = gc.allocSymbol("append") catch return VMError.OutOfMemory;
                 const mr_sym = globals_mod.baseBindingSymbol(gc, "%make-record") catch return VMError.OutOfMemory;
                 const rt_local = gc.allocSymbol(" __rt") catch return VMError.OutOfMemory;
@@ -706,7 +706,7 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
 
                 const parent_ctor_internal = internCtorName(gc, spec.parent_name.?) catch return VMError.OutOfMemory;
                 const parent_ctor_sym = gc.allocSymbol(parent_ctor_internal) catch return VMError.OutOfMemory;
-                const apply_sym = gc.allocSymbol("apply") catch return VMError.OutOfMemory;
+                const apply_sym = globals_mod.baseBindingSymbol(gc, "apply") catch return VMError.OutOfMemory;
                 const apply_parent = gc.makeList(&[_]Value{ apply_sym, parent_ctor_sym, parent_args_expr }) catch return VMError.OutOfMemory;
 
                 const append_sym = gc.allocSymbol("append") catch return VMError.OutOfMemory;

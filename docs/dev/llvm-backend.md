@@ -635,21 +635,24 @@ expression in the body (~19x on kaappi#1803's arithmetic-loop reproducer). So
 `emitApplyForm` (`llvm_emit.zig`), which mirrors the interpreter's own dispatch
 (`compiler.zig`) case for case:
 
-- **tail + unshadowed + ≥2 operands** — structural apply with built-in
-  semantics: the callee and fixed arguments are emitted like `emitCallNode`'s,
-  and the final operand is passed as a Value to `@kaappi_apply`
+- **tail + unshadowed + unrebound + ≥2 operands** — structural apply with
+  built-in semantics: the callee and fixed arguments are emitted like
+  `emitCallNode`'s, and the final operand is passed as a Value to `@kaappi_apply`
   (`runtime_exports.zig`), which splices it with `primitives.applyFn`'s exact
   semantics — same `isProcedure` validation, same tortoise-and-hare
   proper-list check (a circular list raises rather than hangs), same
-  `typeError` texts. The interpreter's `tail_apply` opcode ignores a top-level
-  rebinding of `apply`, so this path deliberately does too.
+  `typeError` texts. Since #2033 the interpreter's `tail_apply` opcode honours
+  a top-level rebinding of `apply` (R7RS 5.3.1), gated on the compile-time
+  global binding — so this path is gated the same way: a define/set! of
+  `apply` in the module marks it rebound and routes the form through an
+  ordinary indirect call instead.
 - **tail + unshadowed + <2 operands** — the interpreter raises InvalidSyntax
   at compile time; abandoning native compilation of the enclosing scope
   (`error.UnsupportedNodeType`) routes the form to that exact error.
-- **everything else resolvable** — a lexically shadowed `apply`, or a non-tail
-  form that is rebound or has too few operands — is an ordinary indirect call
-  through whatever `apply` resolves to in scope, matching the interpreter's
-  plain `call_global`/local call.
+- **everything else resolvable** — a lexically shadowed `apply`, a rebound
+  `apply` (tail or non-tail), or a non-tail form with too few operands — is an
+  ordinary indirect call through whatever `apply` resolves to in scope,
+  matching the interpreter's plain `call_global`/local call.
 
 Two consequences worth knowing. First, the free-variable analyses
 (`nodeHasFreeVars`/`collectNodeFreeVars` in `llvm_emit_freevars.zig`) walk an

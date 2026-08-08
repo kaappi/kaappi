@@ -1009,17 +1009,19 @@ pub fn emitPassthrough(self: *LLVMEmitter, expr: Value, is_tail: bool) EmitError
 // scope (kaappi#1803), mirroring the interpreter's own dispatch
 // (compiler.zig / compileApplyTail) case for case:
 //
-//   - tail + unshadowed + ≥2 operands → structural apply with built-in
-//     semantics (the interpreter's tail_apply opcode ignores a top-level
-//     rebinding of `apply`, so the fast path must too): @kaappi_apply
-//     splices the final operand at run time.
+//   - tail + unshadowed + unrebound + ≥2 operands → structural apply with
+//     built-in semantics (@kaappi_apply splices the final operand at run
+//     time). The interpreter's tail_apply honours a top-level rebinding of
+//     `apply` since #2033, so the fast path must be gated the same way: a
+//     define/set! of `apply` in this module marks it rebound and routes the
+//     form through an ordinary indirect call instead.
 //   - tail + unshadowed + <2 operands → the interpreter's compileApplyTail
 //     raises InvalidSyntax at compile time; abandoning native compilation
 //     routes the enclosing form to that exact error.
-//   - everything else — lexically shadowed `apply` (any shape), or a
-//     non-tail form that is rebound/natively redefined or has <2 operands
-//     — is an ordinary indirect call through whatever `apply` resolves to
-//     in scope (emitGlobalRef's lexical order), matching the interpreter's
+//   - everything else — lexically shadowed `apply` (any shape), a rebound
+//     `apply` (tail or non-tail), or a non-tail form with <2 operands — is
+//     an ordinary indirect call through whatever `apply` resolves to in
+//     scope (emitGlobalRef's lexical order), matching the interpreter's
 //     plain call: a shadowed binding IS the callee, and the built-in's own
 //     arity check raises the interpreter's exact runtime error for the
 //     too-few-operands shapes.
@@ -1044,7 +1046,7 @@ pub fn emitApplyForm(self: *LLVMEmitter, expr: Value, is_tail: bool) EmitError![
     if (!shadowed and is_tail and operands.items.len < 2)
         return error.UnsupportedNodeType;
 
-    const is_builtin_apply = !shadowed and (is_tail or !rebound);
+    const is_builtin_apply = !shadowed and !rebound;
 
     if (is_builtin_apply and operands.items.len >= 2) {
         const n_fixed = operands.items.len - 2;
