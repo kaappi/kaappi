@@ -95,17 +95,31 @@ pos_req() {
     msg '{"jsonrpc":"2.0","id":'"$1"',"method":"'"$2"'","params":{"textDocument":{"uri":"'"$3"'"},"position":{"line":'"$4"',"character":'"$5"'}}}'
 }
 
+# uri_encode: percent-encode stdin as UTF-8, preserving `/` separators and a
+# drive-letter `:`. The LSP's fileUriToPath decodes `%XX` back, so a directory
+# named "proj with #% space" round-trips; a literal space, `#` (starts a URI
+# fragment), `?` (query), `%` (unescaped %XX is ambiguous), or non-ASCII byte in
+# the textDocument/uri would otherwise break resolution or the editor's own URI
+# parsing.
+uri_encode() {
+    python3 -c 'import sys, urllib.parse
+sys.stdout.buffer.write(urllib.parse.quote(sys.stdin.buffer.read().decode("utf-8"), safe="/:").encode("ascii"))'
+}
+
 # file_uri <path>: a `file://` URI a *native* kaappi-lsp can turn back into this
 # on-disk path. On Windows the Git-Bash path (`/c/Users/...`, or a `/tmp/...`
 # mount) is not something the native binary understands, so `native_path`
 # (cygpath -m) first rewrites it to `C:/Users/...`; the drive-lettered form gets
 # a third slash (`file:///C:/...`), the Unix absolute form is already rooted
-# (`file:///tmp/...`). This only matters for cases that make the server resolve a
+# (`file:///tmp/...`). The converted path is then percent-encoded (uri_encode),
+# so a space or reserved character in the directory or file name survives the
+# URI round-trip. This only matters for cases that make the server resolve a
 # real sibling file (an `(import (lib))` of a neighbouring `.sld`, an `include`);
 # a URI used only as a document key needs no round-trippable path.
 file_uri() {
     local p
     p="$(native_path "$1")"
+    p="$(printf '%s' "$p" | uri_encode)"
     case "$p" in
         /*) printf 'file://%s\n' "$p" ;;
         *) printf 'file:///%s\n' "$p" ;;
@@ -393,6 +407,37 @@ assert_has "sibling-sld: an import of a .sld beside the document resolves" "$OUT
     '"uri":"[^"]*user\.scm","diagnostics":\[\]'
 assert_eq "sibling-sld control: check resolves it too" \
     "$(run_timeout 30 "$KAAPPI" check "$TMP/proj/user.scm" > /dev/null 2>&1 && echo 0 || echo 1)" "0"
+
+# A directory whose name carries a space and reserved characters must still
+# resolve: `native_path` normalizes filesystem syntax only, so the URI would
+# hold a literal `#` (a URI fragment) and `%`/spaces unless file_uri
+# percent-encodes them. fileUriToPath decodes %XX back, so the native server
+# finds the sibling .sld exactly as for a plain path. (A `?` is deliberately
+# not used: Windows filenames cannot contain it.)
+mkdir -p "$TMP/proj with #% space"
+cat > "$TMP/proj with #% space/mylib-sp.sld" << 'SLD'
+(define-library (mylib-sp)
+  (export sp-const)
+  (import (scheme base))
+  (begin (define sp-const 99)))
+SLD
+SPACE_SRC='(import (scheme base) (scheme write) (mylib-sp))\n(display sp-const)\n(newline)\n'
+printf '%b' "$SPACE_SRC" > "$TMP/proj with #% space/user.scm"
+stream_reset
+msg "$INIT"
+msg "$INITED"
+did_open "$(file_uri "$TMP/proj with #% space/user.scm")" "$SPACE_SRC"
+msg "$EXITN"
+lsp_run
+assert_has "sibling-sld: space and reserved chars in the path still resolve" "$OUT" \
+    '"uri":"[^"]*user\.scm","diagnostics":\[\]'
+# The server echoes the URI it was given, so the percent-encoded form proves
+# file_uri encoded the path (space %20, # %23, % %25) — without the encoding
+# this would be a raw space/#/% URI that no real editor would produce or parse.
+assert_has "sibling-sld: the response URI is percent-encoded" "$OUT" \
+    '"uri":"[^"]*proj%20with%20%23%25%20space/user\.scm"'
+assert_eq "sibling-sld space control: check resolves it too" \
+    "$(run_timeout 30 "$KAAPPI" check "$TMP/proj with #% space/user.scm" > /dev/null 2>&1 && echo 0 || echo 1)" "0"
 
 # Negative control: the doc-directory entry must be scoped to its own run, not
 # leaked into the next. `mylibb` lives only in proj/ and is imported *only* from
