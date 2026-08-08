@@ -251,6 +251,32 @@ var doc_allocator: std.mem.Allocator = undefined;
 /// GC's symbol table, so the snapshot never owns them.
 var baseline_macros: std.StringHashMap(types.Value) = undefined;
 
+/// The auto-discovered library search paths set up at startup (`~/.kaappi/lib`
+/// plus the exe-relative fallback). `runDiagnostics` prepends the current
+/// document's own directory to these for the duration of a run — mirroring how
+/// `main.zig` seeds `vm.lib_paths` with the file's directory — so an `(import
+/// (mylib))` resolves a `.sld` sitting next to the document, exactly as
+/// `kaappi check` does. Points into the process-lifetime allocation `main`
+/// makes; never mutated after startup.
+var base_lib_paths: []const []const u8 = &.{};
+
+/// The set of global names present after startup, before any document is
+/// diagnosed. `runDiagnostics` removes any global *not* in this set at the start
+/// of each run, retracting the value bindings a previous document's `import`
+/// wrote into `vm.globals` — the globals-map analogue of the `vm.macros` reset
+/// above, so imported names cannot leak across documents (only `vm.macros` was
+/// isolated before). Keys are interned/static names the map does not own, so the
+/// snapshot never owns them either.
+var baseline_global_keys: std.StringHashMap(void) = undefined;
+
+/// A single in-memory output port that discards everything written to it.
+/// `runDiagnostics` redirects the VM's current-output-port to this while it runs
+/// a document's `import`/`include`/`define-library` forms for their effect, so a
+/// stray top-level `(display ...)` in executed library or included code cannot
+/// write to fd 1 and corrupt the JSON-RPC frame stream. Its buffer is truncated
+/// to empty before each run so it never grows across the server's lifetime.
+var diag_sink_port: types.Value = types.VOID;
+
 fn storeDocument(uri: []const u8, text: []const u8) void {
     const uri_copy = doc_allocator.dupe(u8, uri) catch return;
     const text_copy = doc_allocator.dupe(u8, text) catch {
@@ -685,17 +711,52 @@ fn runDiagnostics(allocator: std.mem.Allocator, vm: *vm_mod.VM, uri: []const u8,
         vm.macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return;
     }
 
-    // Resolve top-level `(include ...)` and file-relative import paths against
-    // the document's own directory when the URI is a `file://` URI, mirroring
-    // `kaappi check` (check.zig). Restored after the run so one document never
-    // changes how another resolves. Installed libraries like (srfi 42) resolve
-    // via `vm.lib_paths` regardless of this.
+    // Retract the value bindings a previous document's `import` left in
+    // `vm.globals` (the globals analogue of the macro reset above): remove every
+    // global not present at startup. Without this, `(import (srfi 1))` in one
+    // document would leave `fold` etc. resolvable while diagnosing another that
+    // imports nothing. Compilation never depends on a global's *value* here so
+    // diagnostics were already correct, but hover/completion leaked across
+    // documents and the asymmetry with the macro reset was surprising. Held
+    // under the same write lock `importBinding` uses, with a `global_version`
+    // bump so any cached global lookups are invalidated.
+    pruneImportedGlobals(vm, allocator);
+
+    // Resolve library and `include` paths against the document's own directory
+    // when the URI is a `file://` URI, matching `kaappi check`. Two distinct
+    // mechanisms, both restored after the run: `include` consults
+    // `current_lib_dir` (with a trailing slash), while an `(import (lib))` of a
+    // sibling `.sld` is resolved through `vm.lib_paths` — which never consults
+    // `current_lib_dir` — so the document's directory must be prepended there
+    // too, exactly as `main.zig` seeds the file's directory for `kaappi check`.
     const saved_lib_dir = vm.current_lib_dir;
-    defer vm.current_lib_dir = saved_lib_dir;
+    const saved_lib_paths = vm.lib_paths;
+    defer {
+        vm.current_lib_dir = saved_lib_dir;
+        vm.lib_paths = saved_lib_paths;
+    }
+    var lib_paths_run: [8][]const u8 = undefined;
     if (std.mem.startsWith(u8, uri, "file://")) {
         const p = uri["file://".len..];
-        if (std.mem.lastIndexOfScalar(u8, p, '/')) |pos| vm.current_lib_dir = p[0 .. pos + 1];
+        if (std.mem.lastIndexOfScalar(u8, p, '/')) |pos| {
+            vm.current_lib_dir = p[0 .. pos + 1];
+            // Prepend the document's directory (no trailing slash, like
+            // main.zig) ahead of the auto-discovered paths, capacity permitting.
+            const dir = if (pos == 0) p[0..1] else p[0..pos];
+            if (base_lib_paths.len + 1 <= lib_paths_run.len) {
+                lib_paths_run[0] = dir;
+                @memcpy(lib_paths_run[1 .. base_lib_paths.len + 1], base_lib_paths);
+                vm.lib_paths = lib_paths_run[0 .. base_lib_paths.len + 1];
+            }
+        }
     }
+
+    // Redirect the current-output-port to a discard sink for the run so a stray
+    // top-level `(display ...)` in executed env-setup code (an imported library
+    // body, an included file) cannot write to fd 1 and corrupt the JSON-RPC
+    // framing. Restored after the run.
+    const out_redirect = beginOutputRedirect(vm);
+    defer endOutputRedirect(vm, out_redirect);
 
     // Parse phase
     var r = reader.Reader.initWithName(vm.gc, text, uri);
@@ -734,6 +795,68 @@ fn runDiagnostics(allocator: std.mem.Allocator, vm: *vm_mod.VM, uri: []const u8,
     params_buf.append(allocator, '}') catch return;
 
     sendNotification(allocator, "textDocument/publishDiagnostics", params_buf.items);
+}
+
+// Remove every global not present at startup — the value bindings a previous
+// document's `import` wrote into `vm.globals` — so imported names do not leak
+// across documents. Keys are collected first (mutating a map mid-iteration is
+// unsound), then removed under the write lock `importBinding` also takes, with a
+// `global_version` bump to invalidate any cached global lookups. The collected
+// key slices point at externally-owned strings, so they stay valid across the
+// removals.
+fn pruneImportedGlobals(vm: *vm_mod.VM, allocator: std.mem.Allocator) void {
+    var to_remove: std.ArrayList([]const u8) = .empty;
+    defer to_remove.deinit(allocator);
+    var it = vm.globals.iterator();
+    while (it.next()) |entry| {
+        if (!baseline_global_keys.contains(entry.key_ptr.*))
+            to_remove.append(allocator, entry.key_ptr.*) catch return;
+    }
+    if (to_remove.items.len == 0) return;
+    vm.globals_lock.lock();
+    defer vm.globals_lock.unlock();
+    for (to_remove.items) |k| _ = vm.globals.remove(k);
+    vm.global_version +%= 1;
+}
+
+// State captured by beginOutputRedirect so endOutputRedirect can restore it.
+const OutputRedirect = struct {
+    active: bool,
+    saved_stdout_port: types.Value,
+    param: types.Value,
+    saved_param_val: types.Value,
+};
+
+// Point the VM's current-output-port at the discard sink for the duration of a
+// diagnostics run. `display`/`write` resolve the port through
+// `current_output_port_param` first, falling back to `vm.stdout_port`, so both
+// are redirected. The sink's write cursor and length are reset first so its
+// buffer is reused, never growing across the server's lifetime.
+fn beginOutputRedirect(vm: *vm_mod.VM) OutputRedirect {
+    if (diag_sink_port == types.VOID)
+        return .{ .active = false, .saved_stdout_port = types.VOID, .param = types.VOID, .saved_param_val = types.VOID };
+    const port = types.toObject(diag_sink_port).as(types.Port);
+    port.string_out_pos = 0;
+    port.string_out_len = 0;
+    var rd: OutputRedirect = .{
+        .active = true,
+        .saved_stdout_port = vm.stdout_port,
+        .param = vm.current_output_port_param,
+        .saved_param_val = types.VOID,
+    };
+    vm.stdout_port = diag_sink_port;
+    if (rd.param != types.VOID) {
+        rd.saved_param_val = vm.getParameterValue(types.toParameter(rd.param));
+        vm.setParameterValue(types.toParameter(rd.param), diag_sink_port) catch {};
+    }
+    return rd;
+}
+
+fn endOutputRedirect(vm: *vm_mod.VM, rd: OutputRedirect) void {
+    if (!rd.active) return;
+    vm.stdout_port = rd.saved_stdout_port;
+    if (rd.param != types.VOID)
+        vm.setParameterValue(types.toParameter(rd.param), rd.saved_param_val) catch {};
 }
 
 // Diagnose one top-level form, returning true when it recorded a diagnostic
@@ -956,6 +1079,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         }
     }
     vm.lib_paths = try allocator.dupe([]const u8, lib_paths_buf[0..lib_path_count]);
+    base_lib_paths = vm.lib_paths;
 
     // Snapshot the macro table before any document is opened; runDiagnostics
     // resets the shared `vm.macros` to this per run (kaappi#1979). `vm.macros`
@@ -969,6 +1093,21 @@ pub fn main(init: std.process.Init.Minimal) !void {
         baseline_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return;
         gc.extra_roots.append(gc.allocator, entry.value_ptr.*) catch return;
     }
+
+    // Snapshot the global names present at startup so runDiagnostics can retract
+    // whatever a document's `import` adds (the globals analogue of the macro
+    // reset above). Keys are interned/static and outlive the map, so the set
+    // only borrows them.
+    baseline_global_keys = std.StringHashMap(void).init(gc.allocator);
+    var git = vm.globals.iterator();
+    while (git.next()) |entry| {
+        baseline_global_keys.put(entry.key_ptr.*, {}) catch return;
+    }
+
+    // A discard port for side effects of executed env-setup forms (see the
+    // field doc). Rooted for the process lifetime like the standard ports.
+    diag_sink_port = gc.allocStringOutputPort() catch types.VOID;
+    if (diag_sink_port != types.VOID) gc.extra_roots.append(gc.allocator, diag_sink_port) catch {};
 
     var initialized = false;
 

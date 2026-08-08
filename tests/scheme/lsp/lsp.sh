@@ -350,6 +350,90 @@ msg "$EXITN"
 lsp_run
 assert_has "srfi-42 control: a real one-armed if is still an error" "$OUT" '"code":"KP2001"'
 
+# -- imported sibling .sld resolves like `kaappi check` --------------------
+# `resolveLibraryPath` never consults `current_lib_dir`; `kaappi check` finds a
+# `.sld` beside the file because `main.zig` puts the file's directory on
+# `vm.lib_paths`. The server must do the same, or `(import (mylib))` of a
+# sibling library is a phantom KP2001 — the very shape this PR removes. This
+# case is also what makes the lib_paths setup load-bearing: `(mylib)` is not a
+# built-in prefix, so only the document-directory entry can resolve it.
+mkdir -p "$TMP/proj"
+cat > "$TMP/proj/mylib.sld" << 'SLD'
+(define-library (mylib)
+  (export my-const)
+  (import (scheme base))
+  (begin (define my-const 42)))
+SLD
+USER_SRC='(import (scheme base) (scheme write) (mylib))\n(display my-const)\n(newline)\n'
+printf '%b' "$USER_SRC" > "$TMP/proj/user.scm"
+stream_reset
+msg "$INIT"
+msg "$INITED"
+did_open "file://$TMP/proj/user.scm" "$USER_SRC"
+msg "$EXITN"
+lsp_run
+assert_has "sibling-sld: an import of a .sld beside the document resolves" "$OUT" \
+    '"uri":"[^"]*user\.scm","diagnostics":\[\]'
+assert_eq "sibling-sld control: check resolves it too" \
+    "$(run_timeout 30 "$KAAPPI" check "$TMP/proj/user.scm" > /dev/null 2>&1 && echo 0 || echo 1)" "0"
+
+# -- executed env-setup output must not corrupt the JSON-RPC stream --------
+# Importing a library runs its `begin` body (verified below: `kaappi check`
+# prints it), so a stray `(display ...)` there would otherwise land on fd 1
+# between framed responses. The server redirects the VM's output port to a sink
+# for the run.
+cat > "$TMP/proj/noisy.sld" << 'SLD'
+(define-library (noisy)
+  (export noisy-const)
+  (import (scheme base) (scheme write))
+  (begin (display "SIDE-EFFECT-BOOM") (newline) (define noisy-const 1)))
+SLD
+NOISY_SRC='(import (scheme base) (noisy))\n(display noisy-const)\n'
+printf '%b' "$NOISY_SRC" > "$TMP/proj/noisy-user.scm"
+stream_reset
+msg "$INIT"
+msg "$INITED"
+did_open "file://$TMP/proj/noisy-user.scm" "$NOISY_SRC"
+msg "$EXITN"
+lsp_run
+assert_lacks "stdout-guard: library-body output never reaches the wire" "$OUT" 'SIDE-EFFECT-BOOM'
+assert_has "stdout-guard: the importing document is still diagnosed clean" "$OUT" \
+    '"uri":"[^"]*noisy-user\.scm","diagnostics":\[\]'
+# Control: `check` really does execute that body (prints it to its own stdout),
+# so the server genuinely had output to contain — the guard is load-bearing.
+assert_has "stdout-guard control: check executes the library body" \
+    "$(run_timeout 30 "$KAAPPI" check "$TMP/proj/noisy-user.scm" 2>&1)" 'SIDE-EFFECT-BOOM'
+
+# -- imported value bindings don't leak across documents (hover) -----------
+# `importBinding` writes value exports into `vm.globals`, which — unlike the
+# macro table — the server never reset per document. It now retracts a
+# document's imports at the next run, so `my-const` from doc A's `(import
+# (mylib))` is not resolvable in doc B, which imports nothing (the globals
+# analogue of the macro-leak isolation).
+NOB_SRC='(display my-const)\n'
+printf '%b' "$NOB_SRC" > "$TMP/proj/nob.scm"
+stream_reset
+msg "$INIT"
+msg "$INITED"
+did_open "file://$TMP/proj/user.scm" "$USER_SRC"
+did_open "file://$TMP/proj/nob.scm" "$NOB_SRC"
+pos_req 92 "textDocument/hover" "file://$TMP/proj/nob.scm" 0 9
+msg "$EXITN"
+lsp_run
+assert_has "globals-isolation: an imported binding is not hoverable in another doc" "$OUT" \
+    '"id":92,"result":null'
+# Control: within the importing document the same binding IS resolved, so the
+# retraction is scoped to cross-document leakage, not the import itself.
+stream_reset
+msg "$INIT"
+msg "$INITED"
+did_open "file://$TMP/proj/user.scm" "$USER_SRC"
+pos_req 93 "textDocument/hover" "file://$TMP/proj/user.scm" 1 10
+msg "$EXITN"
+lsp_run
+assert_lacks "globals-isolation control: the importing doc resolves its own import" "$OUT" \
+    '"id":93,"result":null'
+
 # -- multi-error divergence ------------------------------------------------
 # `runDiagnostics` breaks out of its loop on the first failing form, so a file
 # with two independent errors publishes one diagnostic where `check` reports two.
