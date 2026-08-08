@@ -1090,7 +1090,11 @@ pub fn isContinuationBarrier(name: []const u8) bool {
     // identifier, so a barrier spelled through that rename must be
     // recognized too — otherwise a macro whose template calls call/cc or
     // call-with-values would take the call_global fast path, which is
-    // exactly what this gate exists to prevent.
+    // exactly what this gate exists to prevent. (Only `__hyg_` needs the
+    // strip here: `__nlet_` named-let loop names are always local bindings,
+    // so resolveLocal in the call path resolves them before this barrier
+    // check is ever reached — a `__nlet_` alternative would be dead code,
+    // since stripHygienicPrefix does not strip it.)
     const n = if (std.mem.startsWith(u8, name, base_binding_prefix))
         name[base_binding_prefix.len..]
     else if (std.mem.startsWith(u8, name, def_env_binding_prefix))
@@ -1098,7 +1102,7 @@ pub fn isContinuationBarrier(name: []const u8) bool {
             name[sep + def_env_binding_sep.len ..]
         else
             name)
-    else if (std.mem.startsWith(u8, name, "__hyg_") or std.mem.startsWith(u8, name, "__nlet_"))
+    else if (std.mem.startsWith(u8, name, "__hyg_"))
         stripHygienicPrefix(name)
     else
         name;

@@ -41,7 +41,7 @@ const QUOTE_FLAG: u32 = 0x40000000; // inside (quote ...): substitute, hygiene-r
 const BINDING_FLAG: u32 = 0x20000000; // identifier is in binding position
 const NESTED_SR_FLAG: u32 = 0x10000000; // inside a nested syntax-rules template
 const LET_PAIR_FLAG: u32 = 0x08000000; // template is a single let-binding (var init) pair
-const FORMAL_FLAG: u32 = 0x04000000; // identifier is a lambda/case-lambda formal
+const FORMAL_FLAG: u32 = 0x04000000; // identifier is a lambda formal (anaphoric-binding position)
 // Re-walking a usertext-marker-protected splice (an enclosing expansion's
 // pattern-var value, spliced verbatim into a nested syntax-rules template) in
 // substitute-only mode. Reuses QUOTE_FLAG's "substitute, expand ellipses"
@@ -404,18 +404,22 @@ pub fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_
             }
         }
         // Function formals are binding positions too. Marked with
-        // FORMAL_FLAG so renameForHygiene treats a formal colliding with a
-        // global procedure as an anaphoric binding (kept bare — SRFI 190's
-        // coroutine body binds to the template's `yield` formal) rather than
-        // as a free reference (renamed, #2003). Distinct from BINDING_FLAG
-        // (let variables): #681 pins that a template LET variable named
-        // after a built-in must NOT capture use-site text, so let-vars stay
-        // hygiene-renamed; only function formals keep the pre-#2003
-        // anaphoric spelling. The formals are walked through the ordinary
-        // instantiateTemplate path (not a custom walk) so ellipsis in a
-        // formals list — `(lambda (slot ...) ...)`, SRFI 26's cut — still
-        // expands through the regular ellipsis machinery; the flag rides
-        // along on every formal symbol.
+        // FORMAL_FLAG so renameForHygiene treats a lambda formal colliding
+        // with a global procedure as an anaphoric binding (kept bare — SRFI
+        // 190's coroutine body binds to the template's `yield` formal)
+        // rather than as a free reference (renamed, #2003). Distinct from
+        // BINDING_FLAG (let variables): #681 pins that a template LET
+        // variable named after a built-in must NOT capture use-site text, so
+        // let-vars stay hygiene-renamed; only LAMBDA formals keep the
+        // pre-#2003 anaphoric spelling (#2252 — case-lambda formals are NOT
+        // included: nothing depends on case-lambda anaphora, and renaming
+        // them hygienically like let-variables is the more consistent
+        // behaviour; a case-lambda clause's formals go through the ordinary
+        // pair recursion below without the flag). The formals are walked
+        // through the ordinary instantiateTemplate path (not a custom walk)
+        // so ellipsis in a formals list — `(lambda (slot ...) ...)`, SRFI
+        // 26's cut — still expands through the regular ellipsis machinery;
+        // the flag rides along on every formal symbol.
         if (std.mem.eql(u8, form_name, "lambda")) {
             const new_car = try instantiateTemplate(gc, elem, bindings, intro_scope, literals, macro_keyword, globals, macros);
             var car_root = new_car;
@@ -956,16 +960,14 @@ pub fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.St
                 // falls through and is hygiene-renamed like any other
                 // template-introduced identifier, so a use-site local of the
                 // same name cannot capture it (R7RS 4.3.2). The one
-                // exception: a LAMBDA/CASE-LAMBDA FORMAL (FORMAL_FLAG)
-                // colliding with a global procedure keeps its bare spelling,
-                // recorded as an identity rename — the deliberate
-                // anaphoric-binding pattern (SRFI 190's coroutine body, whose
-                // `yield` must reach the template's formal by name). This
-                // mirrors the pre-#2003 behaviour for function formals
-                // exactly, and is deliberately NOT extended to let variables:
-                // #681 pins that a template let variable named after a
-                // built-in must not capture use-site text, so let-vars stay
-                // hygiene-renamed.
+                // exception: a LAMBDA FORMAL (FORMAL_FLAG) colliding with a
+                // global procedure keeps its bare spelling, recorded as an
+                // identity rename — the deliberate anaphoric-binding pattern
+                // (SRFI 190's coroutine body, whose `yield` must reach the
+                // template's formal by name). This mirrors the pre-#2003
+                // behaviour for lambda formals exactly, and is deliberately
+                // NOT extended to let variables (#681) or to case-lambda
+                // formals (#2252): those stay hygiene-renamed.
                 const is_formal = (scope & FORMAL_FLAG) != 0;
                 if (is_formal and !in_binding and !scopeTableContains(clean_scope, name)) {
                     if (expander.scope_table_count >= MAX_SCOPE_ENTRIES) return ExpandError.ScopeTableFull;
