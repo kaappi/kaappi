@@ -462,9 +462,7 @@ pub fn toF64(v: Value) PrimitiveError!f64 {
     }
     if (types.isRationalObj(v)) {
         const r = types.toRational(v);
-        const n = try toF64(r.numerator);
-        const d = try toF64(r.denominator);
-        return n / d;
+        return types.rationalToF64(r.numerator, r.denominator);
     }
     return PrimitiveError.TypeError; // bare-ok: numeric coercion fallback
 }

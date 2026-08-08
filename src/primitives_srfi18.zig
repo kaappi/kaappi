@@ -999,9 +999,7 @@ fn getSleepSeconds(v: Value) PrimitiveError!f64 {
     if (types.isFlonum(v)) return types.toFlonum(v);
     if (types.isRationalObj(v)) {
         const r = types.toRational(v);
-        const n = primitives.toF64(r.numerator) catch return PrimitiveError.TypeError; // bare-ok: type guard
-        const d = primitives.toF64(r.denominator) catch return PrimitiveError.TypeError; // bare-ok: type guard
-        return n / d;
+        return types.rationalToF64(r.numerator, r.denominator);
     }
     if (types.isPointer(v) and types.toObject(v).tag == .srfi18_time) {
         const t = types.toObject(v).as(types.Srfi18Time);

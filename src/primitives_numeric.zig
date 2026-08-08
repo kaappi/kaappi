@@ -336,17 +336,7 @@ fn inexactFn(args: []const Value) PrimitiveError!Value {
     if (types.isBignum(args[0])) return makeFlonumVal(bignum_mod.toF64(args[0]));
     if (types.isRationalObj(args[0])) {
         const r = types.toRational(args[0]);
-        const n = try toF64Ext(r.numerator);
-        const d = try toF64Ext(r.denominator);
-        const result = n / d;
-        if (!std.math.isNan(result)) return makeFlonumVal(result);
-        // Both overflow to inf — use bignum division for the integer part
-        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-        const q = bignum_mod.quotient(gc, r.numerator, r.denominator) catch return PrimitiveError.OutOfMemory;
-        const q_f = try toF64Ext(q);
-        const rem = bignum_mod.remainder(gc, r.numerator, r.denominator) catch return PrimitiveError.OutOfMemory;
-        const rem_f = try toF64Ext(rem);
-        return makeFlonumVal(q_f + rem_f / d);
+        return makeFlonumVal(types.rationalToF64(r.numerator, r.denominator));
     }
     if (types.isComplex(args[0])) {
         const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
@@ -993,9 +983,7 @@ fn applyExactness(gc: *@import("memory.zig").GC, val: Value, exactness: Exactnes
             }
             if (types.isRationalObj(val)) {
                 const rat = types.toRational(val);
-                const num_f = types.toF64(rat.numerator);
-                const den_f = types.toF64(rat.denominator);
-                return types.makeFlonum(num_f / den_f);
+                return types.makeFlonum(types.rationalToF64(rat.numerator, rat.denominator));
             }
             if (types.isComplex(val)) {
                 const c = types.toComplex(val);
@@ -1140,20 +1128,15 @@ const ComplexComponent = struct { val: f64, exact: bool };
 /// never masquerade as exact (kaappi#2182).
 fn parseComplexComponent(gc: *@import("memory.zig").GC, part: []const u8, radix: u8) ?ComplexComponent {
     if (std.mem.indexOfScalar(u8, part, '/')) |sp| {
-        // Rational N/D (any radix): R7RS <ureal R>.
+        // Rational N/D (any radix): R7RS <ureal R>. i64 parts within
+        // complex_rational_limit divide directly; bignum parts are accepted
+        // only when their value is exactly representable in f64 (the m/2^k
+        // printer shape), so a rounded value never masquerades as exact
+        // (kaappi#2182/#2183). Shared with the reader's bignum-rational
+        // complex tail so the two grammars cannot drift.
         if (sp == 0 or sp + 1 >= part.len) return null;
-        var nb: [256]u8 = undefined;
-        var db: [256]u8 = undefined;
-        const num = bignum_mod.stripUnderscores(part[0..sp], radix, &nb) orelse return null;
-        const den = bignum_mod.stripUnderscores(part[sp + 1 ..], radix, &db) orelse return null;
-        const n = std.fmt.parseInt(i64, num, radix) catch return null;
-        const d = std.fmt.parseInt(i64, den, radix) catch return null;
-        if (d == 0) return null;
-        // Beyond the printer's rational-recovery granularity the ratio
-        // would print as a silently-wrong mantissa/2^k fraction; reject
-        // loudly, like the reader does (kaappi#2182/#2243).
-        if (@abs(n) > bignum_mod.complex_rational_limit or @abs(d) > bignum_mod.complex_rational_limit) return null;
-        return .{ .val = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d)), .exact = true };
+        const val = bignum_mod.parseRationalToF64(gc, part[0..sp], part[sp + 1 ..], radix) orelse return null;
+        return .{ .val = val, .exact = true };
     }
     if (radix == 10) {
         // Decimal parts (1.5+2i, 1e5+2i) and inf/nan spellings: parseFloat

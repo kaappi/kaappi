@@ -900,6 +900,169 @@ pub fn bignumExactInF64(v: Value) bool {
 /// #2243).
 pub const complex_rational_limit: i64 = 1_000_000;
 
+// ---------------------------------------------------------------------------
+// Bignum rational complex parts (kaappi#2182/#2183)
+//
+// The reader's complex grammar stops at i64 rational parts whose magnitude
+// stays within complex_rational_limit. The printer's exact-component
+// fallback emits m/2^k spellings (odd mantissa <= 2^53, k <= 1074) whose
+// denominator is a bignum, and reading those back requires accepting bignum
+// rational parts -- but only when the value is exactly representable in f64,
+// so an exact-flagged component never silently rounds (the same
+// never-masquerade policy as the i64 limit). These helpers are the shared
+// gate + conversion behind both the reader and string->number.
+// ---------------------------------------------------------------------------
+
+/// The exponent k when v == 2^k (v a positive fixnum or bignum), else null.
+/// A rational's f64-exactness requires its denominator to be a power of two.
+pub fn powerOfTwoExponent(v: Value) ?u64 {
+    if (types.isFixnum(v)) {
+        const n = types.toFixnum(v);
+        if (n <= 0) return null;
+        const mag = @as(u64, @intCast(n));
+        if (@popCount(mag) != 1) return null;
+        return 64 - @clz(mag) - 1;
+    }
+    if (!types.isBignum(v)) return null;
+    const bn = types.toBignum(v);
+    if (!bn.positive or bn.len == 0) return null;
+    var k: u64 = 0;
+    var found = false;
+    for (bn.limbs[0..bn.len], 0..) |limb, i| {
+        if (limb == 0) continue;
+        if (found or @popCount(limb) != 1) return null;
+        found = true;
+        k = @as(u64, @intCast(i)) * 64 + (64 - @clz(limb) - 1);
+    }
+    return if (found) k else null;
+}
+
+/// Number of trailing zero bits of a nonzero value's magnitude (v2(v)).
+fn trailingZeroBits(v: Value) u64 {
+    if (types.isFixnum(v)) {
+        const n = types.toFixnum(v);
+        const mag: u64 = if (n < 0) @as(u64, @intCast(-(n + 1))) + 1 else @intCast(n);
+        return @ctz(mag);
+    }
+    const bn = types.toBignum(v);
+    var zeros: u64 = 0;
+    for (bn.limbs[0..bn.len]) |limb| {
+        if (limb == 0) {
+            zeros += 64;
+        } else {
+            return zeros + @ctz(limb);
+        }
+    }
+    return zeros;
+}
+
+/// Significant-bit count of a fixnum or bignum magnitude; 0 for zero.
+pub fn valueBitLen(v: Value) usize {
+    if (types.isFixnum(v)) {
+        const n = types.toFixnum(v);
+        const mag: u64 = if (n < 0) @as(u64, @intCast(-(n + 1))) + 1 else @intCast(n);
+        return if (mag == 0) 0 else 64 - @clz(mag);
+    }
+    const bn = types.toBignum(v);
+    var i = bn.len;
+    while (i > 0 and bn.limbs[i - 1] == 0) i -= 1;
+    if (i == 0) return 0;
+    return (i - 1) * 64 + (64 - @clz(bn.limbs[i - 1]));
+}
+
+/// True when the rational num/den (num signed, den positive) is exactly
+/// representable in f64 -- i.e. its own value round-trips losslessly
+/// through the f64 conversion. This is exactly the shape the printer emits
+/// for exact complex components (m/2^k with the reduced mantissa <= 2^53
+/// and k <= 1074); a value that would silently round must stay a loud
+/// error instead of masquerading as exact (kaappi#2182/#2183).
+pub fn rationalExactInF64(num: Value, den: Value) bool {
+    const bl_raw = valueBitLen(num);
+    if (bl_raw == 0) return true; // 0/den == 0.0, exactly representable
+    const k = powerOfTwoExponent(den) orelse return false;
+    // Reduce: value == num_odd * 2^(v2 - k), num_odd odd with valueBitLen -
+    // v2 significant bits.
+    const v2 = trailingZeroBits(num);
+    const k_eff: i64 = @as(i64, @intCast(k)) - @as(i64, @intCast(v2));
+    const bl = bl_raw - v2; // significant bits of the reduced value
+    if (k_eff > 1074) return false; // value <= 2^-1075: rounds to 0
+    if (k_eff <= 1022) {
+        // value = num_odd * 2^-k_eff >= 2^-1022: normal range. Representable
+        // iff the mantissa fits (bl <= 53) and the value does not overflow
+        // (value < 2^1024, i.e. bl <= k_eff + 1024 -- k_eff can be very
+        // negative after reducing an even numerator, e.g. 2^2001/2).
+        return bl <= 53 and k_eff + 1024 >= 0 and bl <= @as(usize, @intCast(k_eff + 1024));
+    }
+    // Value in (2^-1074, 2^-1022): subnormal iff num_odd < 2^(k_eff - 1022),
+    // i.e. bl <= k_eff - 1022 -- then the mantissa num_odd << (1074 -
+    // k_eff) must fit 52 bits. Otherwise the value is back in normal range.
+    if (bl <= @as(usize, @intCast(k_eff - 1022))) {
+        return bl <= @as(usize, @intCast(52 - (1074 - k_eff)));
+    }
+    return bl <= 53;
+}
+
+/// Parse a radix-R rational pair (num with optional sign, den positive) to
+/// f64. i64 parts within complex_rational_limit divide directly; a part
+/// that overflows i64 goes through the bignum path, gated on exact f64
+/// representability (`rationalExactInF64`) so a non-representable bignum
+/// rational (10^25/3) stays a loud error. A zero denominator, invalid
+/// digits, or a gated-out value yields null. This is the shared
+/// implementation for bignum rational complex parts in both the reader and
+/// string->number (kaappi#2182/#2183).
+pub fn parseRationalToF64(gc: *memory.GC, num_str: []const u8, den_str: []const u8, radix: u8) ?f64 {
+    var nb: [256]u8 = undefined;
+    var db: [256]u8 = undefined;
+    const num = stripUnderscores(num_str, radix, &nb) orelse return null;
+    const den = stripUnderscores(den_str, radix, &db) orelse return null;
+    if (std.fmt.parseInt(i64, num, radix)) |n| {
+        if (std.fmt.parseInt(i64, den, radix)) |d| {
+            if (d == 0) return null;
+            // Beyond the printer's small-rational recovery limit a part is
+            // accepted only when the value is exactly representable in f64
+            // (power-of-two denominator -- the m/2^k printer shape), the
+            // same gate the reader's fixnum-rational path applies, so the
+            // i64/bignum boundary has no dead zone (kaappi#2182).
+            if (@abs(n) > complex_rational_limit or @abs(d) > complex_rational_limit) {
+                if (!i64RationalExactInF64(n, d)) return null;
+            }
+            return @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
+        } else |derr| {
+            if (derr != error.Overflow) return null;
+        }
+    } else |nerr| {
+        if (nerr != error.Overflow) return null;
+    }
+    // At least one part overflows i64: bignum path, gated on exactness.
+    const num_v = parseBignumString(gc, num_str, radix) catch return null;
+    var slot = gc.rootedSlot(num_v) catch return null;
+    defer slot.release();
+    const den_v = parseBignumString(gc, den_str, radix) catch return null;
+    if (isZero(den_v)) return null;
+    if (!rationalExactInF64(slot.get(), den_v)) return null;
+    return types.rationalToF64(slot.get(), den_v);
+}
+
+/// i64-only form of `rationalExactInF64` for the fixnum-rational complex
+/// paths that hold n/den as i64 (kaappi#2182): true when n/den is exactly
+/// representable in f64 (den a power of two with the value in range and at
+/// most 53 significant bits). Same gate as the bignum path, so a power-of-
+/// two denominator just past the printer's small-rational recovery limit
+/// (e.g. 1/2^60) is accepted while 1/20000000000001 stays a loud error.
+pub fn i64RationalExactInF64(n: i64, den: i64) bool {
+    if (den <= 0 or (den & (den - 1)) != 0) return false; // positive power of two
+    const k: i64 = @ctz(@as(u64, @intCast(den))); // den == 2^k
+    const mag: u64 = if (n < 0) @as(u64, @intCast(-(n + 1))) + 1 else @intCast(n);
+    if (mag == 0) return true; // 0/den == 0.0
+    const v2: i64 = @ctz(mag);
+    const k_eff: i64 = k - v2;
+    const bl: i64 = @as(i64, @intCast(64 - @clz(mag))) - v2;
+    if (k_eff > 1074) return false; // value <= 2^-1075: rounds to 0
+    if (k_eff <= 1022) return bl <= 53 and k_eff + 1024 >= 0 and bl <= k_eff + 1024;
+    if (bl <= k_eff - 1022) return bl <= 52 - (1074 - k_eff); // subnormal
+    return bl <= 53; // normal
+}
+
 /// Parse a radix-R <ureal> slice (radix digits with optional SRFI-169 `_`
 /// separators, optionally `N/D`) to f64. No sign -- callers handle signs.
 /// i64 overflow, an invalid character, a zero denominator, or an i64 part
