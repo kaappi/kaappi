@@ -60,8 +60,15 @@
           (modulo (+ (* 31 (number-hash (real-part x)))
                      (number-hash (imag-part x)))
                   (hash-bound))
-          (if (exact? x) (modulo (abs x) (hash-bound))
-              (modulo (exact (floor (abs x))) (hash-bound)))))
+          ;; Non-finite reals have no floor/exact form, so map them to fixed
+          ;; buckets first. = still lands equal values in one bucket
+          ;; (+inf.0 = +inf.0; +nan.0 = +nan.0 is #f, so NaN is unconstrained)
+          ;; and c64/c128 elements may legitimately carry infinities (SRFI 160).
+          (cond
+            ((nan? x) 1)
+            ((infinite? x) (if (negative? x) 2 3))
+            (else (if (exact? x) (modulo (abs x) (hash-bound))
+                      (modulo (exact (floor (abs x))) (hash-bound)))))))
     (define (string-hash s)
       (let loop ((i 0) (h 0))
         (if (= i (string-length s)) (modulo h (hash-bound))

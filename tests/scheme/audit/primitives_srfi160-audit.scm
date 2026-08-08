@@ -285,6 +285,13 @@
                (and (not (real? e))
                     (eq? (real? e)
                          (real? (read (open-input-string (write-to-string e))))))))
+(test-assert "a -0.0-imag c64 element stays complex and round-trips"
+             (let* ((v (make-c64vector 1 0.0))
+                    (e (begin (c64vector-set! v 0 1.5-0.0i)
+                              (c64vector-ref v 0))))
+               (and (not (real? e))
+                    (eq? (real? e)
+                         (real? (read (open-input-string (write-to-string e))))))))
 
 (test-assert "c64 round-trips a genuine complex"
              (= (make-rectangular 1.5 -2.5) (rt c64row (make-rectangular 1.5 -2.5))))
@@ -785,6 +792,24 @@
                (= (h (c128vector 1.0 2.0)) (h (c128vector 1.0 2.0)))))
 (test-assert "default-hash handles a standalone complex"
              (exact-integer? (default-hash 1+2i)))
+;; The comparator must be total over every vector SRFI 160 allows: c64/c128
+;; elements may carry infinite or NaN components (pinned by the round-trip
+;; tests above), so number-hash has to stay defined there too.
+(test-assert "number-hash is total on non-finite reals"
+             (and (exact-integer? (number-hash +inf.0))
+                  (exact-integer? (number-hash -inf.0))
+                  (exact-integer? (number-hash +nan.0))))
+(test-assert "number-hash hashes a complex with non-finite components"
+             (and (exact-integer? (number-hash 1+inf.0i))
+                  (exact-integer? (number-hash +inf.0+1.0i))
+                  (exact-integer? (number-hash 1+nan.0i))))
+(test-assert "c128vector-comparator hashes a vector with infinite components"
+             (let ((v (make-c128vector 1 0.0)))
+               (c128vector-set! v 0 (make-rectangular +inf.0 1.0))
+               (exact-integer? ((comparator-hash-function c128vector-comparator) v))))
+(test-assert "equal non-finite components hash equally"
+             (let ((h (comparator-hash-function c128vector-comparator)))
+               (= (h (c128vector +inf.0)) (h (c128vector +inf.0)))))
 
 ;;; ------------------------------------------------------------------
 ;;; 12. write-@vector and the external representation
