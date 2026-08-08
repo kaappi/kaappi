@@ -113,6 +113,56 @@ test "child thread interning distinct new symbols does not leak" {
     try std.testing.expectEqualStrings("child-done", types.symbolName(result));
 }
 
+// #1935: GC.initForThread used to point a child at its IMMEDIATE parent's
+// symbol table, so a grandchild (child of a child) interned into the middle
+// GC's own `symbols` field -- which stays permanently empty, since the
+// middle's own internings go to its `shared_symbols` -- a table nothing else
+// consults. (eq? 'alpha (string->symbol "alpha")) at thread depth 2 came
+// back #f (an R7RS 6.5 violation), the root's mark phase never saw the
+// grandchild's symbols, and the owner stamping that makes depth-1 interning
+// safe never reached depth 2. Every descendant must chain to the ROOT's
+// table, the ROOT's foreign_symbols, and the ROOT's owner id.
+test "grandchild GC interns into the root symbol table (#1935)" {
+    var root = memory.GC.init(std.testing.allocator);
+    defer root.deinit();
+    root.enabled = false;
+
+    var child = memory.GC.initForThread(std.testing.allocator, &root);
+    defer child.deinit();
+    child.enabled = false;
+
+    var grandchild = memory.GC.initForThread(std.testing.allocator, &child);
+    defer grandchild.deinit();
+    grandchild.enabled = false;
+
+    // The child-of-a-child must reach PAST the middle GC (whose own table
+    // is never populated) to the root's table and ownership chain.
+    try std.testing.expect(grandchild.shared_symbols == &root.symbols);
+    try std.testing.expectEqual(root.id, grandchild.shared_owner_id);
+    try std.testing.expect(grandchild.shared_foreign_symbols == &root.foreign_symbols);
+
+    // Intern via the grandchild: the symbol must land in the ROOT's table,
+    // stamped with the ROOT's id, appended to the ROOT's foreign_symbols
+    // (the root frees it at deinit, so it outlives the grandchild).
+    const gc_sym = try grandchild.allocSymbol("alpha");
+    try std.testing.expectEqual(root.id, types.toObject(gc_sym).owner);
+    try std.testing.expectEqual(@as(usize, 1), root.foreign_symbols.items.len);
+    try std.testing.expectEqual(@as(usize, 0), child.foreign_symbols.items.len);
+    // The middle and grandchild's own tables stay empty.
+    try std.testing.expectEqual(@as(usize, 0), child.symbols.count());
+    try std.testing.expectEqual(@as(usize, 0), grandchild.symbols.count());
+
+    // Identity: a root-side intern of the same name finds the grandchild's
+    // symbol -- (eq? 'alpha (string->symbol "alpha")) at any depth.
+    const root_sym = try root.allocSymbol("alpha");
+    try std.testing.expectEqual(root_sym, gc_sym);
+
+    // And a symbol the ROOT interns first is returned to the grandchild.
+    const root_sym2 = try root.allocSymbol("beta");
+    const gc_sym2 = try grandchild.allocSymbol("beta");
+    try std.testing.expectEqual(root_sym2, gc_sym2);
+}
+
 test "abandonFiberMutexes marks owned mutex abandoned" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();

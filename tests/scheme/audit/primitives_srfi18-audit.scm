@@ -414,15 +414,14 @@
 (thread-join! ab4-t)
 (test-equal "subject starts abandoned" 'abandoned (mutex-state ab4))
 (test-assert "unlock of an abandoned mutex returns #t" (mutex-unlock! ab4))
-;; FAIL: #1984 (mutex-unlock! leaves the mutex unlocked/abandoned instead of
-;;       unlocked/not-abandoned, so the next mutex-lock! raises a spurious
-;;       abandoned-mutex-exception)
-;; (test-equal "unlock makes it unlocked/not-abandoned"
-;;   'not-abandoned (mutex-state ab4))
-;; (test-assert "and the next lock does not raise"
-;;   (not (guard (e (#t (abandoned-mutex-exception? e))) (mutex-lock! ab4) #f)))
-;; Pin the behaviour as it stands today, so a fix has to update this file:
-(test-equal "TODAY: unlock leaves it abandoned" 'abandoned (mutex-state ab4))
+;; #1984 FIXED: mutex-unlock! now clears the abandoned flag per SRFI-18
+;; 6.4.2 ("Unlocks the mutex by making it unlocked/not-abandoned"), so the
+;; next lock of a properly unlocked mutex no longer raises a spurious
+;; abandoned-mutex-exception.
+(test-equal "unlock makes it unlocked/not-abandoned"
+  'not-abandoned (mutex-state ab4))
+(test-assert "and the next lock does not raise"
+  (not (guard (e (#t (abandoned-mutex-exception? e))) (mutex-lock! ab4) #f)))
 
 ;; -- SRFI 18 mutex-lock! with a TERMINATED thread as the owner argument --
 ;; "...otherwise let T be thread ... if T is terminated the mutex becomes
@@ -431,14 +430,31 @@
 (define ab5-dead (make-thread (lambda () 'quick)))
 (thread-start! ab5-dead)
 (thread-join! ab5-dead)
-(test-assert "locking with a dead thread as owner returns" (mutex-lock! ab5 #f ab5-dead))
-;; FAIL: #1982 (mutex-lock! with a terminated thread as the owner argument
-;;       records it as the live owner instead of making the mutex
-;;       unlocked/abandoned)
-;; (test-equal "dead owner => unlocked/abandoned" 'abandoned (mutex-state ab5))
-;; Pin today's behaviour; the live-owner control is `m-other` in section 2.
-(test-eq "TODAY: the dead thread is recorded as owner" ab5-dead (mutex-state ab5))
+(test-assert "locking with a completed thread as owner returns" (mutex-lock! ab5 #f ab5-dead))
+;; A COMPLETED (not terminated) owner is still recorded per SRFI-18 6.4.2's
+;; "otherwise _mutex_ becomes locked/owned with T as the owner" -- only a
+;; TERMINATED owner makes the mutex unlocked/abandoned. The live-owner
+;; control is `m-other` in section 2; the terminated-owner case is pinned
+;; right below.
+(test-eq "a completed (not terminated) owner is still recorded" ab5-dead (mutex-state ab5))
 (mutex-unlock! ab5)
+
+;; -- SRFI 18 mutex-lock! with a TERMINATED thread as the owner argument --
+;; #1984 FIXED: "if T is terminated the _mutex_ becomes unlocked/abandoned"
+;; (SRFI-18 6.4.2). The old code recorded the dead thread as owner, leaving
+;; the mutex locked by a thread that can never unlock it (a permanent
+;; deadlock for every later lock).
+(define ab6 (make-mutex))
+(define ab6-dead (make-thread (lambda () (let loop () (loop)))))
+(thread-start! ab6-dead)
+(thread-terminate! ab6-dead)
+(guard (e (#t #t)) (thread-join! ab6-dead))
+(test-assert "locking with a terminated thread as owner returns #t"
+  (mutex-lock! ab6 #f ab6-dead))
+(test-equal "terminated owner => unlocked/abandoned"
+  'abandoned (mutex-state ab6))
+(test-assert "and a later lock raises abandoned-mutex-exception"
+  (guard (e (#t (abandoned-mutex-exception? e))) (mutex-lock! ab6) #f))
 
 ;; ---------------------------------------------------------------------
 ;; 4. Condition variables
@@ -718,24 +734,22 @@
 (thread-sleep! 0.08)
 (test-equal "CONTROL: joins fine before any terminate" 'result-kept (join-outcome lc-12))
 (thread-terminate! lc-12)
-;; FAIL: #1982 (thread-terminate! on an already-completed thread replaces its
-;;       end-result with a terminated-thread-exception)
-;; (test-equal "terminating a completed thread must not destroy its result"
-;;   'result-kept (join-outcome lc-12))
-(test-equal "TODAY: the result is lost" 'TERMINATED (join-outcome lc-12))
+;; #1984 FIXED: thread-terminate! on a thread that has already finished is a
+;; no-op ("If the _thread_ is not already terminated", SRFI-18 6.2.3), so
+;; the completed thread's end-result survives.
+(test-equal "terminating a completed thread must not destroy its result"
+  'result-kept (join-outcome lc-12))
 
-;; same for a thread that terminated ABNORMALLY: the original reason is lost
+;; same for a thread that terminated ABNORMALLY: the original reason survives
 (define lc-13 (make-thread (lambda () (raise 'original-reason))))
 (thread-start! lc-13)
 (thread-sleep! 0.08)
 (test-equal "CONTROL: the raised reason is available"
   '(UNCAUGHT original-reason) (join-outcome lc-13))
 (thread-terminate! lc-13)
-;; FAIL: #1982 (thread-terminate! on an already-errored thread replaces its
-;;       end-exception, losing the original raised object)
-;; (test-equal "terminating an errored thread must not lose its reason"
-;;   '(UNCAUGHT original-reason) (join-outcome lc-13))
-(test-equal "TODAY: the reason is lost" 'TERMINATED (join-outcome lc-13))
+;; #1984 FIXED: same no-op, so the raising thread's end-exception survives.
+(test-equal "terminating an errored thread must not lose its reason"
+  '(UNCAUGHT original-reason) (join-outcome lc-13))
 
 ;; -- a child's own (current-thread) is a DISTINCT fiber from the handle --
 ;; Documented in CLAUDE.md ("a child's own (current-thread) is a distinct
@@ -752,16 +766,15 @@
 (test-equal "TODAY: the child's own thread object carries neither"
   (list (if #f #f) (if #f #f)) (thread-join! lc-14))
 
-;; -- self-termination reports as an uncaught exception, not a
-;;    terminated-thread exception (same two-fiber cause as lc-14) --
+;; -- self-termination reports as a terminated-thread exception --
 (define lc-15 (make-thread (lambda () (thread-terminate! (current-thread)) 'not-reached)))
 (thread-start! lc-15)
-;; FAIL: #1982 (a thread that terminates itself joins as an uncaught-exception
-;;       with a void reason instead of a terminated-thread-exception)
-;; (test-equal "self-terminated thread joins as TERMINATED"
-;;   'TERMINATED (join-outcome lc-15))
-(test-equal "TODAY: self-termination surfaces as an uncaught exception"
-  (list 'UNCAUGHT (if #f #f)) (join-outcome lc-15))
+;; #1984 FIXED: thread-terminate! on the current thread must not return, and
+;; the join reports terminated-thread-exception -- the old code terminated
+;; the child's own (distinct) fiber and the join saw an uncaught exception
+;; with a void reason.
+(test-equal "self-terminated thread joins as TERMINATED"
+  'TERMINATED (join-outcome lc-15))
 ;; CONTROL: terminated by the parent instead — reports correctly
 (define lc-16 (make-parked-child))
 (thread-start! lc-16)

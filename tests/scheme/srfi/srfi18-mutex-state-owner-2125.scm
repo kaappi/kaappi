@@ -58,12 +58,18 @@
     'not-abandoned (mutex-state ml)))
 
 ;; An explicit owner argument is reported as given (SRFI-18's optional
-;; thread argument), and #f means locked-but-unowned.
+;; thread argument), and #f means locked-but-unowned. The owner must be a
+;; LIVE thread: a terminated owner makes the mutex unlocked/abandoned per
+;; SRFI-18 6.4.2 ("if T is terminated the _mutex_ becomes
+;; unlocked/abandoned", #1984).
+(define t-live (make-thread (lambda () (thread-sleep! 0.4) 'done)))
+(thread-start! t-live)
 (define m2 (make-mutex 'explicit))
-(mutex-lock! m2 #f t)
+(mutex-lock! m2 #f t-live)
 (test-assert "explicit owner arg is what mutex-state reports"
-  (eq? (mutex-state m2) t))
+  (eq? (mutex-state m2) t-live))
 (mutex-unlock! m2)
+(thread-join! t-live)
 (define m3 (make-mutex 'unowned))
 (mutex-lock! m3 #f #f)
 (test-equal "explicit #f owner is the locked/unowned state"
