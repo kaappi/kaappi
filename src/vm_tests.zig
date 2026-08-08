@@ -6,6 +6,7 @@ test {
     _ = @import("tests_numeric.zig");
     _ = @import("tests_macros.zig");
     _ = @import("tests_macros_nested_sr.zig");
+    _ = @import("tests_ellipsis.zig");
     _ = @import("tests_macro_chains.zig");
     _ = @import("tests_prescan.zig");
     _ = @import("tests_libraries.zig");

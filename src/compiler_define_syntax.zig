@@ -834,12 +834,16 @@ fn validPatternGrammar(v: Value, ellipsis_name: []const u8, literals: []const Va
             cur = types.cdr(cur);
         }
         // Dotted tail: a plain pattern, not a list element. An ellipsis
-        // token there (`(a ... . ...)`) is outside the grammar too.
+        // token there (`(a ... . ...)`) is outside the grammar too, and a
+        // vector dotted tail (`(_ . #(a ... b ...))`) is a vector pattern
+        // the matcher recurses into, so it must be validated like any
+        // other vector pattern. (A pair dotted tail is impossible here:
+        // the while loop above only exits once cur is no longer a pair.)
         if (cur != types.NIL) {
             if (types.isSymbol(cur)) {
                 const name = types.symbolName(cur);
                 if (std.mem.eql(u8, name, ellipsis_name) and !literalNamed(literals, name)) return false;
-            } else if (types.isPair(cur)) {
+            } else if (types.isVector(cur)) {
                 return validPatternGrammar(cur, ellipsis_name, literals);
             }
         }
