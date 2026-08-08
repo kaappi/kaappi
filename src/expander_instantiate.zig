@@ -41,6 +41,7 @@ const QUOTE_FLAG: u32 = 0x40000000; // inside (quote ...): substitute, hygiene-r
 const BINDING_FLAG: u32 = 0x20000000; // identifier is in binding position
 const NESTED_SR_FLAG: u32 = 0x10000000; // inside a nested syntax-rules template
 const LET_PAIR_FLAG: u32 = 0x08000000; // template is a single let-binding (var init) pair
+const FORMAL_FLAG: u32 = 0x04000000; // identifier is a lambda/case-lambda formal
 // Re-walking a usertext-marker-protected splice (an enclosing expansion's
 // pattern-var value, spliced verbatim into a nested syntax-rules template) in
 // substitute-only mode. Reuses QUOTE_FLAG's "substitute, expand ellipses"
@@ -106,8 +107,12 @@ pub fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_
             }
         }
 
-        // 3. Well-known form or built-in -- keep as-is
-        if (isWellKnown(name)) {
+        // 3. Well-known form or built-in -- keep as-is. Only the reserved
+        //    subset stays bare (see isTemplateReserved): the operator
+        //    keywords among well_known_forms fall through to the hygienic
+        //    rename below so a use-site local of the same spelling cannot
+        //    capture them (kaappi#2074).
+        if (expander.isTemplateReserved(name)) {
             return template;
         }
 
@@ -208,8 +213,20 @@ pub fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_
                 var nq_root = new_quoted;
                 gc.pushRoot(&nq_root);
                 defer gc.popRoot();
+                // The FORM head is hygiene-renamed too (#2074): a use-site
+                // local named `quote` must not capture the template's quote
+                // special form. The compiler recognizes the renamed head via
+                // effective-name stripping and strips renames from the datum
+                // (stripHygieneFromDatum), so a template `(quote x)` still
+                // yields the symbol x; a BARE `quote` used as a VALUE (e.g.
+                // `(list quote)`) stays unrenamed because the symbol walk
+                // keeps reserved_template_forms bare.
+                const new_head = try renameForHygiene(gc, "quote", intro_scope, globals);
+                var head_root = new_head;
+                gc.pushRoot(&head_root);
+                defer gc.popRoot();
                 const tail = try gc.allocPair(nq_root, types.NIL);
-                return gc.allocPair(tmpl_head, tail);
+                return gc.allocPair(head_root, tail);
             }
             // More than 2 elements: `quote` is not forming a quote special
             // form here, just an ordinary (possibly data) value in head
@@ -239,8 +256,16 @@ pub fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_
                 var ni_root = new_inner;
                 gc.pushRoot(&ni_root);
                 defer gc.popRoot();
+                // Form head renamed like the quote head above (#2074);
+                // compileQuasiquote recognizes it via effective-name
+                // stripping, and inner unquotes are handled by the branch
+                // below keeping their bare heads.
+                const new_head = try renameForHygiene(gc, "quasiquote", intro_scope, globals);
+                var head_root = new_head;
+                gc.pushRoot(&head_root);
+                defer gc.popRoot();
                 const tail = try gc.allocPair(ni_root, types.NIL);
-                return gc.allocPair(tmpl_head, tail);
+                return gc.allocPair(head_root, tail);
             }
         } else if (unary and qq_depth > 0 and
             (std.mem.eql(u8, hname, "unquote") or std.mem.eql(u8, hname, "unquote-splicing")))
@@ -375,6 +400,38 @@ pub fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_
                 gc.pushRoot(&body_root);
                 defer gc.popRoot();
                 const inner = try gc.allocPair(bindings_root, body_root);
+                return gc.allocPair(car_root, inner);
+            }
+        }
+        // Function formals are binding positions too. Marked with
+        // FORMAL_FLAG so renameForHygiene treats a formal colliding with a
+        // global procedure as an anaphoric binding (kept bare — SRFI 190's
+        // coroutine body binds to the template's `yield` formal) rather than
+        // as a free reference (renamed, #2003). Distinct from BINDING_FLAG
+        // (let variables): #681 pins that a template LET variable named
+        // after a built-in must NOT capture use-site text, so let-vars stay
+        // hygiene-renamed; only function formals keep the pre-#2003
+        // anaphoric spelling. The formals are walked through the ordinary
+        // instantiateTemplate path (not a custom walk) so ellipsis in a
+        // formals list — `(lambda (slot ...) ...)`, SRFI 26's cut — still
+        // expands through the regular ellipsis machinery; the flag rides
+        // along on every formal symbol.
+        if (std.mem.eql(u8, form_name, "lambda")) {
+            const new_car = try instantiateTemplate(gc, elem, bindings, intro_scope, literals, macro_keyword, globals, macros);
+            var car_root = new_car;
+            gc.pushRoot(&car_root);
+            defer gc.popRoot();
+            const fn_rest = types.cdr(template);
+            if (fn_rest != types.NIL and types.isPair(fn_rest)) {
+                const new_formals = try instantiateTemplate(gc, types.car(fn_rest), bindings, intro_scope | FORMAL_FLAG, literals, macro_keyword, globals, macros);
+                var formals_root = new_formals;
+                gc.pushRoot(&formals_root);
+                defer gc.popRoot();
+                const new_body = try instantiateTemplate(gc, types.cdr(fn_rest), bindings, intro_scope & ~(BINDING_FLAG | FORMAL_FLAG), literals, macro_keyword, globals, macros);
+                var body_root = new_body;
+                gc.pushRoot(&body_root);
+                defer gc.popRoot();
+                const inner = try gc.allocPair(formals_root, body_root);
                 return gc.allocPair(car_root, inner);
             }
         }
@@ -819,7 +876,7 @@ pub fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.St
         // still behave exactly as before once the code actually runs: two
         // unrelated macro expansions that both quote the same literal tag
         // still produce `eq?` symbols.
-        const clean_scope = scope & ~(BINDING_FLAG | NESTED_SR_FLAG | LET_PAIR_FLAG | QQ_DEPTH_MASK | QUOTE_FLAG);
+        const clean_scope = scope & ~(BINDING_FLAG | NESTED_SR_FLAG | LET_PAIR_FLAG | FORMAL_FLAG | QQ_DEPTH_MASK | QUOTE_FLAG);
         for (expander.scope_table[0..expander.scope_table_count]) |entry| {
             if (entry.scope == clean_scope and std.mem.eql(u8, entry.original_name, name)) {
                 return gc.allocSymbol(entry.renamed_to);
@@ -832,7 +889,7 @@ pub fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.St
     // Strip context flags that don't change renaming, so the same template
     // identifier gets the same gensym inside and outside those contexts
     // (e.g. an outer binding referenced from a nested syntax-rules template).
-    const clean_scope = scope & ~(BINDING_FLAG | NESTED_SR_FLAG | LET_PAIR_FLAG | QQ_DEPTH_MASK);
+    const clean_scope = scope & ~(BINDING_FLAG | NESTED_SR_FLAG | LET_PAIR_FLAG | FORMAL_FLAG | QQ_DEPTH_MASK);
     const gmod = @import("globals.zig");
 
     // #1812: a free reference bound in the macro's OWN definition-
@@ -889,11 +946,44 @@ pub fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.St
         const glk = gmod.acquireGlobalsRead(g);
         defer gmod.releaseGlobalsRead(glk);
         if (g.get(name)) |val| {
-            if (types.isProcedure(val) or types.isTransformer(val)) {
-                // A template binding of the same name in this expansion
-                // shadows the global procedure (e.g. a template let variable
-                // named exp must not resolve to the builtin exp), so the
-                // reference must follow the rename recorded for the binding.
+            // A template binding of the same name in this expansion shadows
+            // the global procedure (e.g. a template let variable named exp
+            // must not resolve to the builtin exp), so the reference must
+            // follow the rename recorded for the binding — handled by falling
+            // through to the scope-table lookup below.
+            if (types.isProcedure(val)) {
+                // #2003: a free template reference to a global procedure
+                // falls through and is hygiene-renamed like any other
+                // template-introduced identifier, so a use-site local of the
+                // same name cannot capture it (R7RS 4.3.2). The one
+                // exception: a LAMBDA/CASE-LAMBDA FORMAL (FORMAL_FLAG)
+                // colliding with a global procedure keeps its bare spelling,
+                // recorded as an identity rename — the deliberate
+                // anaphoric-binding pattern (SRFI 190's coroutine body, whose
+                // `yield` must reach the template's formal by name). This
+                // mirrors the pre-#2003 behaviour for function formals
+                // exactly, and is deliberately NOT extended to let variables:
+                // #681 pins that a template let variable named after a
+                // built-in must not capture use-site text, so let-vars stay
+                // hygiene-renamed.
+                const is_formal = (scope & FORMAL_FLAG) != 0;
+                if (is_formal and !in_binding and !scopeTableContains(clean_scope, name)) {
+                    if (expander.scope_table_count >= MAX_SCOPE_ENTRIES) return ExpandError.ScopeTableFull;
+                    expander.scope_table[expander.scope_table_count] = .{
+                        .original_name = name,
+                        .scope = clean_scope,
+                        .renamed_to = name,
+                    };
+                    expander.scope_table_count += 1;
+                    return gc.allocSymbol(name);
+                }
+            } else if (types.isTransformer(val)) {
+                // A macro keyword the template references (e.g. a
+                // macro-generating macro's helper, SRFI 41's smp/smt) must
+                // stay bare so the compiler's lookupMacro still recognizes
+                // it as a macro; renaming would sever the keyword from the
+                // transformer registered in the macro namespace (#2003 keeps
+                // this exemption explicit).
                 if (!in_binding and !scopeTableContains(clean_scope, name)) {
                     return gc.allocSymbol(name);
                 }

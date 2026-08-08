@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A use-site local binding no longer captures a macro template's free
+  reference to a global procedure** (#2003). A template free reference to a
+  global procedure (`(define-syntax usecar (syntax-rules () ((_ l) (car
+  l))))`) was compiled as a by-name reference to the bare name, so an
+  ordinary local binding of the same name at the use site — `(let ((car
+  (lambda (x) 'HIJACKED))) (usecar (list 1 2)))` — captured it, calling the
+  local instead of the global, violating R7RS 4.3.2 ("the reference refers
+  to the binding that was visible where the transformer was specified").
+  Such references are now hygiene-renamed like any other template-introduced
+  identifier, and the run-time global lookup's hygienic-prefix fallback
+  resolves the rename to the base global by name — immune to use-site
+  locals while still observing a same-environment top-level redefinition
+  (the semantics chibi and guile implement). The one deliberate exception:
+  a template *lambda formal* colliding with a global procedure keeps its
+  bare spelling (the anaphoric-binding pattern SRFI 190's coroutine body
+  relies on), while template let-variables stay hygiene-renamed as before
+  (#681). Two companion fixes keep the renamed references correct: the
+  continuation-barrier gate (`isContinuationBarrier`) and the four
+  tail-position fast paths (`apply`, `call-with-values`, `call/cc`, `eval`)
+  now recognize a renamed spelling, which SRFI 248's guard re-raise needs
+  for correct multiple-value passing.
+
+- **A use-site local named after a syntactic keyword no longer captures it
+  inside any macro template** (#2074). Template operator keywords (`begin`,
+  `lambda`, `letrec`, `cond`, `and`, `or`, `set!`, `do`, …) were inserted
+  with their bare spelling, so `(let ((begin 5)) (m 7))` compiled the
+  template's `(begin e)` as the procedure call `(5 7)`. The operator
+  keywords among the well-known forms are now hygiene-renamed like every
+  other template identifier; the compiler recognizes them through
+  effective-name stripping. The small set that must keep its spelling for
+  structural matching — the definition/library forms, `syntax-rules`, the
+  aux syntax `else`, the pattern markers `...`/`_`, and the
+  quote/quasiquote *value* symbols — stays bare, while `quote`/`quasiquote`
+  *form* heads are renamed (with strip-aware quasiquote depth handling in
+  the compiler). `=>` in cond/case clauses is renamed too, and the clause
+  compiler now recognizes it through the hygiene strip, so a template's
+  arrow is immune to a use-site local `=>`.
+
 ## [0.22.3] - 2026-08-07
 
 ### Fixed

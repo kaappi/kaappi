@@ -70,6 +70,45 @@ fn expectExpands(setup: ?[]const u8, src: []const u8, expected: []const u8) !voi
     };
 }
 
+/// Like expectExpands, but collapses `__hyg_<id>_` to `__hyg_N_` in the
+/// actual output before comparing — for templates whose free references to a
+/// global procedure are hygiene-renamed (issue #2003). The gensym id comes
+/// from a process-global counter, so pinning the exact spelling in a snapshot
+/// would be brittle across test additions; the rename itself (the `__hyg_`
+/// prefix on the referenced name) is the behaviour these tests document.
+fn expectExpandsNorm(setup: ?[]const u8, src: []const u8, expected: []const u8) !void {
+    var h: Harness = .{};
+    try h.init();
+    defer h.deinit();
+    if (setup) |s| try h.setup(s);
+    const raw = try h.expand(src);
+    defer testing.allocator.free(raw);
+    const got = testing.allocator.alloc(u8, raw.len) catch return error.OutOfMemory;
+    defer testing.allocator.free(got);
+    var out_len: usize = 0;
+    var i: usize = 0;
+    while (i < raw.len) {
+        if (std.mem.startsWith(u8, raw[i..], "__hyg_")) {
+            var j = i + "__hyg_".len;
+            while (j < raw.len and raw[j] >= '0' and raw[j] <= '9') j += 1;
+            if (j < raw.len and raw[j] == '_') {
+                const piece = "__hyg_N_";
+                @memcpy(got[out_len..][0..piece.len], piece);
+                out_len += piece.len;
+                i = j + 1;
+                continue;
+            }
+        }
+        got[out_len] = raw[i];
+        out_len += 1;
+        i += 1;
+    }
+    testing.expectEqualStrings(expected, got[0..out_len]) catch |e| {
+        std.debug.print("expand mismatch for: {s}\n  got: {s}\n", .{ src, got[0..out_len] });
+        return e;
+    };
+}
+
 fn contains(haystack: []const u8, needle: []const u8) bool {
     return std.mem.indexOf(u8, haystack, needle) != null;
 }
@@ -77,13 +116,15 @@ fn contains(haystack: []const u8, needle: []const u8) bool {
 // ── expand: basic macro use ─────────────────────────────────────────────────
 
 test "expand: simple alias macro" {
-    // Template keyword `begin` is well-known, so hygiene leaves it un-renamed —
-    // keeping this an exact, stable match. (`if`/`let` are deliberately renamed
-    // by the expander, which the recursive-macro test below exercises instead.)
-    try expectExpands(
+    // Template keyword `begin` is hygiene-renamed like every other operator
+    // keyword since kaappi#2074 (so a use-site local named `begin` cannot
+    // capture it), so the expansion is compared through the gensym-id
+    // normalizer. (`if`/`let` are renamed too, which the recursive-macro
+    // test below exercises with substring checks.)
+    try expectExpandsNorm(
         "(define-syntax seq (syntax-rules () ((_ a b) (begin a b))))",
         "(seq x y)",
-        "(begin x y)",
+        "(__hyg_N_begin x y)",
     );
 }
 
@@ -92,61 +133,61 @@ test "expand: no macros — form unchanged" {
 }
 
 test "expand: macro use nested in a call argument" {
-    try expectExpands(
+    try expectExpandsNorm(
         "(define-syntax dbl (syntax-rules () ((_ x) (* 2 x))))",
         "(f (dbl n) 3)",
-        "(f (* 2 n) 3)",
+        "(f (__hyg_N_* 2 n) 3)",
     );
 }
 
 // ── expand: recursion into binding/body positions ───────────────────────────
 
 test "expand: macro use inside a let body" {
-    try expectExpands(
+    try expectExpandsNorm(
         "(define-syntax dbl (syntax-rules () ((_ x) (* 2 x))))",
         "(let ((n 1)) (dbl n))",
-        "(let ((n 1)) (* 2 n))",
+        "(let ((n 1)) (__hyg_N_* 2 n))",
     );
 }
 
 test "expand: macro use inside a let init expression" {
-    try expectExpands(
+    try expectExpandsNorm(
         "(define-syntax dbl (syntax-rules () ((_ x) (* 2 x))))",
         "(let ((y (dbl 5))) y)",
-        "(let ((y (* 2 5))) y)",
+        "(let ((y (__hyg_N_* 2 5))) y)",
     );
 }
 
 test "expand: macro use inside a lambda body" {
-    try expectExpands(
+    try expectExpandsNorm(
         "(define-syntax dbl (syntax-rules () ((_ x) (* 2 x))))",
         "(lambda (x) (dbl x))",
-        "(lambda (x) (* 2 x))",
+        "(lambda (x) (__hyg_N_* 2 x))",
     );
 }
 
 test "expand: macro use inside a cond clause body" {
-    try expectExpands(
+    try expectExpandsNorm(
         "(define-syntax dbl (syntax-rules () ((_ x) (* 2 x))))",
         "(cond (a (dbl b)) (else (dbl c)))",
-        "(cond (a (* 2 b)) (else (* 2 c)))",
+        "(cond (a (__hyg_N_* 2 b)) (else (__hyg_N_* 2 c)))",
     );
 }
 
 test "expand: macro use inside a case clause body, datum list untouched" {
     // The `(dbl)` in datum position is *data* and must stay; the body expands.
-    try expectExpands(
+    try expectExpandsNorm(
         "(define-syntax dbl (syntax-rules () ((_ x) (* 2 x))))",
         "(case k ((dbl) (dbl 1)) (else (dbl 2)))",
-        "(case k ((dbl) (* 2 1)) (else (* 2 2)))",
+        "(case k ((dbl) (__hyg_N_* 2 1)) (else (__hyg_N_* 2 2)))",
     );
 }
 
 test "expand: macro use inside a do body and step" {
-    try expectExpands(
+    try expectExpandsNorm(
         "(define-syntax dbl (syntax-rules () ((_ x) (* 2 x))))",
         "(do ((i 0 (dbl i))) ((= i 8) i) (dbl i))",
-        "(do ((i 0 (* 2 i))) ((= i 8) i) (* 2 i))",
+        "(do ((i 0 (__hyg_N_* 2 i))) ((= i 8) i) (__hyg_N_* 2 i))",
     );
 }
 

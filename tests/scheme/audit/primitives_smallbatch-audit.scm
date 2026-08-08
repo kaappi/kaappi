@@ -836,17 +836,18 @@
 (define-syntax er-gp (er-macro-transformer (lambda (f r c) (list (r 'gp2p11)))))
 (define-syntax sr-car (syntax-rules () ((_ l) (car l))))
 (define-syntax sr-add (syntax-rules () ((_ a b) (+ a b))))
-;; FAIL: #2003 (a use-site local binding captures a template's free reference to a global procedure)
-;; (test-equal "hygiene (e) syntax-rules: a global procedure resists a local shadow"
-;;             'global-proc (let ((gp2p11 (lambda () 'shadowed))) (sr-gp)))
-;; (test-equal "hygiene (e) ER: a global procedure resists a local shadow"
-;;             'global-proc (let ((gp2p11 (lambda () 'shadowed))) (er-gp)))
-;; (test-equal "hygiene (e) syntax-rules: the builtin car resists a local shadow"
-;;             1 (let ((car (lambda (z) 'shadowed))) (sr-car (list 1 2))))
-;; (test-equal "hygiene (e) syntax-rules: the builtin + resists a lambda-parameter shadow"
-;;             7 ((lambda (+) (sr-add 3 4)) (lambda (a b) (* a b))))
-;; (test-equal "hygiene (e) syntax-rules: a global procedure resists an internal-define shadow"
-;;             'global-proc (let () (define (gp2p11) 'shadowed) (sr-gp)))
+;; #2003 fixed: a use-site local binding no longer captures a template's
+;; free reference to a global procedure.
+(test-equal "hygiene (e) syntax-rules: a global procedure resists a local shadow"
+            'global-proc (let ((gp2p11 (lambda () 'shadowed))) (sr-gp)))
+(test-equal "hygiene (e) ER: a global procedure resists a local shadow"
+            'global-proc (let ((gp2p11 (lambda () 'shadowed))) (er-gp)))
+(test-equal "hygiene (e) syntax-rules: the builtin car resists a local shadow"
+            1 (let ((car (lambda (z) 'shadowed))) (sr-car (list 1 2))))
+(test-equal "hygiene (e) syntax-rules: the builtin + resists a lambda-parameter shadow"
+            7 ((lambda (+) (sr-add 3 4)) (lambda (a b) (* a b))))
+(test-equal "hygiene (e) syntax-rules: a global procedure resists an internal-define shadow"
+            'global-proc (let () (define (gp2p11) 'shadowed) (sr-gp)))
 
 ;; (f) Both paths agree on whatever they do — the parity claim itself. This
 ;;     stays ENABLED even while (e) is broken, because it asserts equality

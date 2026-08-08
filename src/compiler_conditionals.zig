@@ -160,28 +160,37 @@ pub fn compileCond(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compil
         // Compile test
         try self.compileExprViaIR(test_expr, dst, false);
 
-        // Check for => form (only if => is not rebound as a local variable)
+        // Check for => form (only if => is not rebound as a local variable).
+        // A template-introduced `=>` is hygiene-renamed (__hyg_N_=>) since
+        // kaappi#2074, so it is recognized by its stripped name and is
+        // always an arrow — immune to a use-site local named `=>`. A bare
+        // `=>` (use-site text) keeps the shadow check: a lexical `=>` there
+        // wins (R7RS has no reserved words, #788).
         if (clause_body != types.NIL and types.isPair(clause_body)) {
             const maybe_arrow = types.car(clause_body);
-            if (types.isSymbol(maybe_arrow) and std.mem.eql(u8, types.symbolName(maybe_arrow), "=>") and
-                self.resolveLocal("=>") == null and
-                (try self.resolveUpvalue("=>")) == null)
-            {
-                try self.emitOp(.jump_false);
-                try self.emitU16(dst);
-                const next_clause = self.currentOffset();
-                try self.emitI16(0);
+            if (types.isSymbol(maybe_arrow)) {
+                const arrow_raw = types.symbolName(maybe_arrow);
+                const arrow_eff = types.stripHygienicPrefix(arrow_raw);
+                if (std.mem.eql(u8, arrow_eff, "=>") and
+                    (arrow_eff.len != arrow_raw.len or
+                        (self.resolveLocal(arrow_raw) == null and (try self.resolveUpvalue(arrow_raw)) == null)))
+                {
+                    try self.emitOp(.jump_false);
+                    try self.emitU16(dst);
+                    const next_clause = self.currentOffset();
+                    try self.emitI16(0);
 
-                const arrow_rest = types.cdr(clause_body);
-                if (!types.isPair(arrow_rest)) return CompileError.InvalidSyntax;
-                try emitArrowCall(self, dst, types.car(arrow_rest), dst, is_tail);
+                    const arrow_rest = types.cdr(clause_body);
+                    if (!types.isPair(arrow_rest)) return CompileError.InvalidSyntax;
+                    try emitArrowCall(self, dst, types.car(arrow_rest), dst, is_tail);
 
-                try self.emitOp(.jump);
-                end_jumps.append(self.gc.allocator, self.currentOffset()) catch return CompileError.TooManyLocals;
-                try self.emitI16(0);
+                    try self.emitOp(.jump);
+                    end_jumps.append(self.gc.allocator, self.currentOffset()) catch return CompileError.TooManyLocals;
+                    try self.emitI16(0);
 
-                try self.patchJump(next_clause);
-                continue;
+                    try self.patchJump(next_clause);
+                    continue;
+                }
             }
         }
 
@@ -276,7 +285,10 @@ pub fn evalFeatureReq(self: *Compiler, req: Value) bool {
     if (types.isPair(req)) {
         const head = types.car(req);
         if (!types.isSymbol(head)) return false;
-        const op = types.symbolName(head);
+        // A feature-combinator keyword introduced by a macro template is
+        // hygiene-renamed since kaappi#2074 (__hyg_N_and etc.), so compare
+        // the stripped name.
+        const op = types.stripHygienicPrefix(types.symbolName(head));
 
         if (std.mem.eql(u8, op, "and")) {
             var rest = types.cdr(req);

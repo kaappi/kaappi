@@ -873,22 +873,34 @@ pub const Compiler = struct {
 
         if (is_tail and types.isSymbol(head)) {
             const sym_name = types.symbolName(head);
-            if (std.mem.eql(u8, sym_name, "apply")) {
+            // The four tail fast paths (apply / call-with-values / call/cc /
+            // eval) recognize their operator by spelling. Since #2003 a
+            // macro template's free reference to one of these globals is
+            // hygiene-renamed (__hyg_N_<name>), so compare the stripped name
+            // and dispatch on it; the resolveLocal/resolveUpvalue probes stay
+            // on the RAW name so a template-introduced binding of the same
+            // spelling (a lambda parameter named apply, say) still routes
+            // through the general call path instead of the builtin's fast
+            // path. The fast paths themselves resolve the true (scheme base)
+            // primitive, which is what a renamed free reference to one of
+            // these means under the hygienic-prefix fallback.
+            const eff_name = types.stripHygienicPrefix(sym_name);
+            if (std.mem.eql(u8, eff_name, "apply")) {
                 if (self.resolveLocal(sym_name) == null and
                     (try self.resolveUpvalue(sym_name)) == null)
                 {
                     return passthrough.compileApplyTail(self, expr, dst);
                 }
             }
-            if (std.mem.eql(u8, sym_name, "call-with-values")) {
+            if (std.mem.eql(u8, eff_name, "call-with-values")) {
                 if (self.resolveLocal(sym_name) == null and
                     (try self.resolveUpvalue(sym_name)) == null)
                 {
                     return passthrough.compileCallWithValuesTail(self, expr, dst);
                 }
             }
-            if (std.mem.eql(u8, sym_name, "call-with-current-continuation") or
-                std.mem.eql(u8, sym_name, "call/cc"))
+            if (std.mem.eql(u8, eff_name, "call-with-current-continuation") or
+                std.mem.eql(u8, eff_name, "call/cc"))
             {
                 if (self.resolveLocal(sym_name) == null and
                     (try self.resolveUpvalue(sym_name)) == null)
@@ -896,7 +908,7 @@ pub const Compiler = struct {
                     return passthrough.compileCallCCTail(self, expr, dst);
                 }
             }
-            if (std.mem.eql(u8, sym_name, "eval")) {
+            if (std.mem.eql(u8, eff_name, "eval")) {
                 if (self.resolveLocal(sym_name) == null and
                     (try self.resolveUpvalue(sym_name)) == null)
                 {

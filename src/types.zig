@@ -1084,7 +1084,13 @@ pub fn isContinuationBarrier(name: []const u8) bool {
     // introduced this exclusion, fa6ecf47), and that requirement doesn't
     // change just because the reference is spelled differently. Same
     // reasoning applies to a def_env_binding_prefix-marked name (#1812): the
-    // original name is whatever follows the def_env_binding_sep.
+    // original name is whatever follows the def_env_binding_sep. And since
+    // #2003 a template's free reference to a global procedure is
+    // hygiene-renamed (__hyg_N_<name>) like any other template-introduced
+    // identifier, so a barrier spelled through that rename must be
+    // recognized too — otherwise a macro whose template calls call/cc or
+    // call-with-values would take the call_global fast path, which is
+    // exactly what this gate exists to prevent.
     const n = if (std.mem.startsWith(u8, name, base_binding_prefix))
         name[base_binding_prefix.len..]
     else if (std.mem.startsWith(u8, name, def_env_binding_prefix))
@@ -1092,6 +1098,8 @@ pub fn isContinuationBarrier(name: []const u8) bool {
             name[sep + def_env_binding_sep.len ..]
         else
             name)
+    else if (std.mem.startsWith(u8, name, "__hyg_") or std.mem.startsWith(u8, name, "__nlet_"))
+        stripHygienicPrefix(name)
     else
         name;
     return std.mem.eql(u8, n, "call-with-current-continuation") or

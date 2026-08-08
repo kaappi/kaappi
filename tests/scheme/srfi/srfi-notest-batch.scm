@@ -518,26 +518,27 @@
 ;; FAIL: #2003 (a use-site local binding captures a macro template's free
 ;; reference to a global procedure). receive's template refers to
 ;; call-with-values; assume's refers to error.
-;; (test-equal "hygiene: a use-site local named `call-with-values' is inert" '(1 2)
-;;             (let ((call-with-values (lambda (a b) 'HIJACKED)))
-;;               (receive (a b) (values 1 2) (list a b))))
-;; (test-equal "hygiene: a use-site local named `error' is inert" #t
-;;             (let ((error (lambda args 'HIJACKED)))
-;;               (guard (e (#t #t)) (assume #f "boom") #f)))
+;; #2003 fixed: a use-site local binding no longer captures a macro template's
+;; free reference to a global procedure.
+(test-equal "hygiene: a use-site local named `call-with-values' is inert" '(1 2)
+            (let ((call-with-values (lambda (a b) 'HIJACKED)))
+              (receive (a b) (values 1 2) (list a b))))
+(test-equal "hygiene: a use-site local named `error' is inert" #t
+            (let ((error (lambda args 'HIJACKED)))
+              (guard (e (#t #t)) (assume #f "boom") #f)))
 
-;; FAIL: #2074 (a use-site local named after a syntactic keyword captures it
-;; inside any macro template). rec's template uses letrec; receive's uses
-;; lambda; assume's uses or.
-;; (test-equal "hygiene: a use-site local named `letrec' does not disturb rec" 120
-;;             (let ((letrec 5))
-;;               ((rec (fact n) (if (= n 0) 1 (* n (fact (- n 1))))) 5)))
-;; (test-equal "hygiene: a use-site local named `lambda' does not disturb receive" '(1 2)
-;;             (let ((lambda 5)) (receive (a b) (values 1 2) (list a b))))
-;; (test-equal "hygiene: a use-site local named `or' does not disturb assume" 42
-;;             (let ((or 5)) (assume 42)))
-;; (test-equal "hygiene: a use-site local named `case-lambda' is inert" 'T
-;;             (let ((case-lambda 5))
-;;               (procedure-tag (case-lambda/tag 'T ((a) 'one)))))
+;; #2074 fixed: a use-site local named after a syntactic keyword no longer
+;; captures it inside a macro template.
+(test-equal "hygiene: a use-site local named `letrec' does not disturb rec" 120
+            (let ((letrec 5))
+              ((rec (fact n) (if (= n 0) 1 (* n (fact (- n 1))))) 5)))
+(test-equal "hygiene: a use-site local named `lambda' does not disturb receive" '(1 2)
+            (let ((lambda 5)) (receive (a b) (values 1 2) (list a b))))
+(test-equal "hygiene: a use-site local named `or' does not disturb assume" 42
+            (let ((or 5)) (assume 42)))
+(test-equal "hygiene: a use-site local named `case-lambda' is inert" 'T
+            (let ((case-lambda 5))
+              (procedure-tag (case-lambda/tag 'T ((a) 'one)))))
 
 (let ((runner (test-runner-current)))
   (test-end "srfi-notest-batch")
