@@ -167,18 +167,25 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compil
 
         // Check for else clause
         if (types.isSymbol(datums) and std.mem.eql(u8, types.symbolName(datums), "else")) {
-            // (else => proc): apply proc to the key value.
+            // (else => proc): apply proc to the key value. `=>` is
+            // recognized by its stripped name (a template-introduced arrow
+            // is hygiene-renamed, kaappi#2074) and a renamed arrow is
+            // always an arrow; a bare `=>` keeps the lexical-shadow check.
             if (types.isPair(clause_body)) {
                 const maybe_arrow = types.car(clause_body);
-                if (types.isSymbol(maybe_arrow) and std.mem.eql(u8, types.symbolName(maybe_arrow), "=>") and
-                    self.resolveLocal("=>") == null and
-                    (try self.resolveUpvalue("=>")) == null)
-                {
-                    const arrow_rest = types.cdr(clause_body);
-                    if (!types.isPair(arrow_rest)) return CompileError.InvalidSyntax;
-                    try conditionals.emitArrowCall(self, key_reg, types.car(arrow_rest), dst, is_tail);
-                    had_else = true;
-                    break;
+                if (types.isSymbol(maybe_arrow)) {
+                    const arrow_raw = types.symbolName(maybe_arrow);
+                    const arrow_eff = types.stripHygienicPrefix(arrow_raw);
+                    if (std.mem.eql(u8, arrow_eff, "=>") and
+                        (arrow_eff.len != arrow_raw.len or
+                            (self.resolveLocal(arrow_raw) == null and (try self.resolveUpvalue(arrow_raw)) == null)))
+                    {
+                        const arrow_rest = types.cdr(clause_body);
+                        if (!types.isPair(arrow_rest)) return CompileError.InvalidSyntax;
+                        try conditionals.emitArrowCall(self, key_reg, types.car(arrow_rest), dst, is_tail);
+                        had_else = true;
+                        break;
+                    }
                 }
             }
             try conditionals.compileCondBody(self, clause_body, dst, is_tail);
@@ -248,20 +255,24 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compil
         // Check for => form: ((datum ...) => proc)
         if (clause_body != types.NIL and types.isPair(clause_body)) {
             const maybe_arrow = types.car(clause_body);
-            if (types.isSymbol(maybe_arrow) and std.mem.eql(u8, types.symbolName(maybe_arrow), "=>") and
-                self.resolveLocal("=>") == null and
-                (try self.resolveUpvalue("=>")) == null)
-            {
-                const arrow_rest = types.cdr(clause_body);
-                if (arrow_rest == types.NIL or !types.isPair(arrow_rest)) return CompileError.InvalidSyntax;
-                try conditionals.emitArrowCall(self, key_reg, types.car(arrow_rest), dst, is_tail);
+            if (types.isSymbol(maybe_arrow)) {
+                const arrow_raw = types.symbolName(maybe_arrow);
+                const arrow_eff = types.stripHygienicPrefix(arrow_raw);
+                if (std.mem.eql(u8, arrow_eff, "=>") and
+                    (arrow_eff.len != arrow_raw.len or
+                        (self.resolveLocal(arrow_raw) == null and (try self.resolveUpvalue(arrow_raw)) == null)))
+                {
+                    const arrow_rest = types.cdr(clause_body);
+                    if (arrow_rest == types.NIL or !types.isPair(arrow_rest)) return CompileError.InvalidSyntax;
+                    try conditionals.emitArrowCall(self, key_reg, types.car(arrow_rest), dst, is_tail);
 
-                try self.emitOp(.jump);
-                end_jumps.append(self.gc.allocator, self.currentOffset()) catch return CompileError.TooManyLocals;
-                try self.emitI16(0);
+                    try self.emitOp(.jump);
+                    end_jumps.append(self.gc.allocator, self.currentOffset()) catch return CompileError.TooManyLocals;
+                    try self.emitI16(0);
 
-                try self.patchJump(next_clause_jump);
-                continue;
+                    try self.patchJump(next_clause_jump);
+                    continue;
+                }
             }
         }
 
@@ -303,6 +314,15 @@ pub fn compileQuasiquote(self: *Compiler, args: Value, dst: u16) CompileError!vo
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const template = types.car(args);
     try compileQQ(self, template, dst, 0);
+}
+
+/// True when `head` is the quasiquote keyword `kw` — recognized through the
+/// hygiene strip so a template-introduced head (hygiene-renamed since
+/// kaappi#2074, e.g. `__hyg_N_quasiquote`) still drives the depth machinery
+/// that decides whether an unquote is data or code.
+fn isQQKeyword(head: Value, comptime kw: []const u8) bool {
+    if (!types.isSymbol(head)) return false;
+    return std.mem.eql(u8, types.stripHygienicPrefix(types.symbolName(head)), kw);
 }
 
 fn compileQQ(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileError!void {
@@ -364,7 +384,7 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileError!voi
     const head = types.car(tmpl);
 
     // Check for (unquote expr)
-    if (types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "unquote")) {
+    if (isQQKeyword(head, "unquote")) {
         if (depth == 0) {
             // Evaluate the expression
             const rest = types.cdr(tmpl);
@@ -375,8 +395,11 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileError!voi
             // Nested unquote: decrement depth, rebuild the form
             const rest = types.cdr(tmpl);
             if (rest == types.NIL) return CompileError.InvalidSyntax;
-            // Build (unquote <compiled-inner>) with decremented depth
-            const unquote_sym_idx = try self.addConstant(head);
+            // Build (unquote <compiled-inner>) with decremented depth.
+            // A template-introduced head may be hygiene-renamed (#2074);
+            // the rebuilt form is data, so strip the rename back off.
+            const unquote_sym_stripped = try expander.stripHygieneFromDatum(self.gc, head);
+            const unquote_sym_idx = try self.addConstant(unquote_sym_stripped);
             const sym_reg = try self.allocReg();
             try self.emitOp(.load_const);
             try self.emitU16(sym_reg);
@@ -414,11 +437,12 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileError!voi
     // as a list element. At depth > 0, we rebuild the form literally but
     // compile the subexpression at depth-1 so that inner unquotes at the
     // outermost level are correctly evaluated.
-    if (types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "unquote-splicing") and depth > 0) {
+    if (isQQKeyword(head, "unquote-splicing") and depth > 0) {
         const rest = types.cdr(tmpl);
         if (rest == types.NIL) return CompileError.InvalidSyntax;
         // Build (unquote-splicing <compiled-inner>) with decremented depth
-        const us_sym_idx = try self.addConstant(head);
+        const us_sym_stripped = try expander.stripHygieneFromDatum(self.gc, head);
+        const us_sym_idx = try self.addConstant(us_sym_stripped);
         const sym_reg = try self.allocReg();
         try self.emitOp(.load_const);
         try self.emitU16(sym_reg);
@@ -451,12 +475,15 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileError!voi
     }
 
     // Check for (quasiquote expr) -- nested quasiquote
-    if (types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "quasiquote")) {
+    if (isQQKeyword(head, "quasiquote")) {
         const rest = types.cdr(tmpl);
         if (rest == types.NIL) return CompileError.InvalidSyntax;
         if (depth == std.math.maxInt(u8)) return CompileError.InvalidSyntax;
-        // Rebuild (quasiquote <compiled-inner>) with incremented depth
-        const qq_sym_idx = try self.addConstant(head);
+        // Rebuild (quasiquote <compiled-inner>) with incremented depth.
+        // The head may be a template-introduced hygienic rename (#2074);
+        // the rebuilt form is data, so strip the rename back off.
+        const qq_sym_stripped = try expander.stripHygieneFromDatum(self.gc, head);
+        const qq_sym_idx = try self.addConstant(qq_sym_stripped);
         const sym_reg = try self.allocReg();
         try self.emitOp(.load_const);
         try self.emitU16(sym_reg);
@@ -516,7 +543,7 @@ fn hasUnquoteSplicing(tmpl: Value, depth: u8) bool {
         if (types.isPair(elem)) {
             const elem_head = types.car(elem);
             if (types.isSymbol(elem_head) and
-                std.mem.eql(u8, types.symbolName(elem_head), "unquote-splicing") and
+                isQQKeyword(elem_head, "unquote-splicing") and
                 depth == 0)
             {
                 return true;
@@ -564,7 +591,7 @@ fn compileQQSplicing(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileE
         // segment so that `append` uses it as the tail.
         if (depth == 0 and types.isSymbol(types.car(current))) {
             const maybe_uq_name = types.symbolName(types.car(current));
-            if (std.mem.eql(u8, maybe_uq_name, "unquote")) {
+            if (std.mem.eql(u8, types.stripHygienicPrefix(maybe_uq_name), "unquote")) {
                 const uq_args = types.cdr(current);
                 if (types.isPair(uq_args) and types.cdr(uq_args) == types.NIL) {
                     // Flush pending group
@@ -590,7 +617,7 @@ fn compileQQSplicing(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileE
         if (types.isPair(elem) and depth == 0) {
             const elem_head = types.car(elem);
             if (types.isSymbol(elem_head) and
-                std.mem.eql(u8, types.symbolName(elem_head), "unquote-splicing"))
+                isQQKeyword(elem_head, "unquote-splicing"))
             {
                 // Flush group: build (list (quote e1) (quote e2) ...)
                 if (group_count > 0) {
@@ -616,7 +643,7 @@ fn compileQQSplicing(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileE
         // expand them. Check if element is (unquote expr) at depth 0
         if (types.isPair(elem) and depth == 0) {
             const elem_head = types.car(elem);
-            if (types.isSymbol(elem_head) and std.mem.eql(u8, types.symbolName(elem_head), "unquote")) {
+            if (isQQKeyword(elem_head, "unquote")) {
                 const uq_rest = types.cdr(elem);
                 if (uq_rest == types.NIL) return CompileError.InvalidSyntax;
                 // This element should be evaluated, not quoted
@@ -689,7 +716,7 @@ fn buildQQListExpr(gc: *@import("memory.zig").GC, quote_sym: Value, list_sym: Va
         const elem = elems[i];
         if (types.isPair(elem)) {
             const elem_head = types.car(elem);
-            if (types.isSymbol(elem_head) and std.mem.eql(u8, types.symbolName(elem_head), "unquote")) {
+            if (isQQKeyword(elem_head, "unquote")) {
                 const uq_rest = types.cdr(elem);
                 if (uq_rest != types.NIL) {
                     args = gc.allocPair(types.car(uq_rest), args) catch return CompileError.OutOfMemory;

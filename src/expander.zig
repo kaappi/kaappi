@@ -65,6 +65,46 @@ pub fn isWellKnown(name: []const u8) bool {
     return false;
 }
 
+/// Template-introduced keywords that keep their exact spelling even though
+/// the compiler recognizes them — the complement of the operator keywords
+/// that are hygiene-renamed (see instantiateTemplate step 3, kaappi#2074).
+/// These must stay bare because something matches them structurally by
+/// spelling, not by effective-name dispatch:
+///
+///  * the definition/library forms (`define`, `define-syntax`,
+///    `define-values`, `define-record-type`, `let-syntax`, `letrec-syntax`,
+///    `import`, `export`, `define-library`, `include`, `include-ci`) —
+///    matched by the body scanner, the transformer-spec resolver, and the
+///    library loader on raw forms;
+///  * `syntax-rules` — the head of a nested transformer spec, matched bare
+///    by resolveTransformerSpecRec;
+///  * the aux syntax `else` and the pattern markers `...` and `_`, matched
+///    bare by cond/case/guard clause processing and the pattern matcher;
+///  * `quote`/`quasiquote`/`unquote`/`unquote-splicing` — a bare one of
+///    these used as a VALUE (e.g. `(list quote)`) must still evaluate to the
+///    symbol itself, so the symbol walk leaves them alone; the `(quote ...)`
+///    / `(quasiquote ...)` FORM heads are renamed separately by the form
+///    branches in instantiateTemplate.
+const reserved_template_forms = [_][]const u8{
+    "define",         "define-syntax", "define-values",    "define-record-type",
+    "let-syntax",     "letrec-syntax", "syntax-rules",     "quote",
+    "quasiquote",     "unquote",       "unquote-splicing", "else",
+    "...",            "_",             "import",           "export",
+    "define-library", "include",       "include-ci",
+};
+
+/// True when a template-introduced identifier must keep its exact spelling
+/// (see `reserved_template_forms`). Every other well-known form is a
+/// compiler keyword the expander can hygiene-rename: the compiler
+/// recognizes it through effective-name stripping, and renaming makes a
+/// use-site local of the same spelling unable to capture it (kaappi#2074).
+pub fn isTemplateReserved(name: []const u8) bool {
+    for (&reserved_template_forms) |rt| {
+        if (std.mem.eql(u8, rt, name)) return true;
+    }
+    return false;
+}
+
 /// Monotonically increasing counter for generating unique hygienic names.
 /// Shared across threads (renames must be process-unique), so bumped
 /// atomically; see freshGensymId.
@@ -470,12 +510,14 @@ fn erRenameDatum(gc: *GC, v: Value) anyerror!Value {
 
 /// Mirror of instantiateTemplate's template-introduced-symbol path (minus
 /// pattern variables and literals, which procedural macros don't have):
-/// well-known forms and in-scope macro keywords keep their names,
+/// the reserved forms and in-scope macro keywords keep their names,
 /// everything else goes through renameForHygiene under this invocation's
 /// scope — globals-bound names stay unrenamed (definition-environment
-/// resolution), fresh names gensym consistently.
+/// resolution), fresh names gensym consistently. The operator keywords
+/// among well_known_forms are renamed like any other template identifier
+/// (kaappi#2074), matching syntax-rules.
 fn erRenameSymbol(gc: *GC, name: []const u8) anyerror!Value {
-    if (isWellKnown(name)) return gc.allocSymbol(name);
+    if (isTemplateReserved(name)) return gc.allocSymbol(name);
     if (er_macros) |m| {
         if (m.contains(name)) return gc.allocSymbol(name);
     }

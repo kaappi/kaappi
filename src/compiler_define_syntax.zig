@@ -589,7 +589,7 @@ fn resolveTransformerSpecRec(self: *Compiler, spec_in: Value, merged_macros: *st
             self.gc.popRoot();
             return tx_val;
         }
-        if (std.mem.eql(u8, head_name, "begin")) {
+        if (std.mem.eql(u8, head_name, "begin") or std.mem.eql(u8, types.stripHygienicPrefix(head_name), "begin")) {
             // spec = (begin def1 def2 ... final-spec). Each def must be a
             // literal (define-syntax NAME SPEC); SPEC may itself need
             // further resolution (another macro-use, alias, or nested

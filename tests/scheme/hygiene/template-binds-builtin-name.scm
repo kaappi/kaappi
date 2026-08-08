@@ -44,4 +44,23 @@
     ((_ v) (let ((list v)) list))))
 (check "template binding shadows builtin list" 5 (capture-list 5))
 
+;; 5. case-lambda formal colliding with a builtin: hygiene-renamed like a
+;;    let variable, so a spliced body resolves to the builtin, not the
+;;    formal (#2252 — the anaphoric FORMAL_FLAG exception covers lambda
+;;    formals only). The body `(car '(1 2))` must call the global car.
+(define-syntax capture-car-cl
+  (syntax-rules ()
+    ((_ b) (case-lambda ((car) b) (() 'none)))))
+(check "case-lambda formal does not capture spliced body" 1
+       ((capture-car-cl (car '(1 2))) (lambda (x) 'formal-was-called)))
+
+;; 6. Contrast: a lambda formal colliding with a builtin keeps its bare
+;;    anaphoric spelling (SRFI 190's pattern), so the same spliced body
+;;    binds to the formal — here, the argument passed to the closure.
+(define-syntax capture-car-lambda
+  (syntax-rules ()
+    ((_ b) (lambda (car) b))))
+(check "lambda formal keeps its anaphoric spelling" 'formal-was-called
+       ((capture-car-lambda (car 1)) (lambda (x) 'formal-was-called)))
+
 (when (> fails 0) (exit 1))

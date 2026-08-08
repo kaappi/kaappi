@@ -94,8 +94,20 @@
 
 (define-syntax srfi190-gen-of
   (syntax-rules () ((_ v) (coroutine-generator (yield v) (yield v)))))
-(test-equal "a yield written in another macro's template still binds"
-  '(5 5)
+;; The template's `yield` here is a FREE reference at srfi190-gen-of's own
+;; definition site (the test file, where `yield` is not an imported name —
+;; (srfi 190) exports coroutine-generator, not yield). Under the pre-#2003
+;; hygiene that kept a template identifier colliding with a global procedure
+;; unrenamed, that free `yield` happened to resolve to the coroutine's own
+;; formal once the expansion landed inside coroutine-generator, so a yield
+;; written in ANOTHER macro's template still bound. That capture is the
+;; hygiene violation #2003 fixes: a template's free reference now resolves at
+;; its own definition site, where `yield` denotes the (kaappi fibers)
+;; zero-argument primitive, so (yield v) is an arity error. Reaching the
+;; coroutine's yield from a helper macro's template requires the helper to
+;; reference the exported syntax parameter instead; (srfi 190) deliberately
+;; does not export one (matching the SRFI reference implementation).
+(test-error "a yield written in another macro's template no longer binds (#2003)"
   (generator->list (srfi190-gen-of 5)))
 
 (define-syntax srfi190-gen-body
