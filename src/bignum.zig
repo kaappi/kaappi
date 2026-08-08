@@ -977,13 +977,14 @@ pub fn valueBitLen(v: Value) usize {
 /// and k <= 1074); a value that would silently round must stay a loud
 /// error instead of masquerading as exact (kaappi#2182/#2183).
 pub fn rationalExactInF64(num: Value, den: Value) bool {
-    if (types.isFixnum(num) and types.toFixnum(num) == 0) return true; // 0/den == 0.0
+    const bl_raw = valueBitLen(num);
+    if (bl_raw == 0) return true; // 0/den == 0.0, exactly representable
     const k = powerOfTwoExponent(den) orelse return false;
     // Reduce: value == num_odd * 2^(v2 - k), num_odd odd with valueBitLen -
     // v2 significant bits.
     const v2 = trailingZeroBits(num);
     const k_eff: i64 = @as(i64, @intCast(k)) - @as(i64, @intCast(v2));
-    const bl = valueBitLen(num) - v2; // significant bits of the reduced value
+    const bl = bl_raw - v2; // significant bits of the reduced value
     if (k_eff > 1074) return false; // value < 2^-1075: rounds to 0
     if (k_eff <= 1022) return bl <= 53; // value >= 2^-1022: normal range
     // Value in (2^-1074, 2^-1022): subnormal iff num_odd < 2^(k_eff - 1022),
