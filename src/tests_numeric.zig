@@ -340,6 +340,39 @@ test "types.toF64 handles bignums (#792)" {
     try std.testing.expect(f2 < 1e-19);
 }
 
+test "rational->f64 is correct past f64 range on one side (#2183)" {
+    // The naive toF64(num)/toF64(den) collapsed whenever a side alone left
+    // f64 range while the quotient was representable: a bignum denominator
+    // gave 0.0 for subnormal results, a bignum numerator gave +inf for
+    // ordinary integers, and both overflowing gave nan (the parsers had no
+    // band-aid). The shared scaled conversion must round correctly.
+    //
+    // Denominator alone overflows: true value is the min subnormal.
+    try th.expectEvalTrue("(= (inexact (/ 1 (expt 2 1074))) 5e-324)");
+    try th.expectEvalTrue("(= (inexact (/ 1 (expt 2 1049))) 1.6578092e-316)");
+    // exact->inexact round-trip destroyed by the collapse.
+    try th.expectEvalTrue("(= (inexact (exact 1e-320)) 1e-320)");
+    // Numerator alone overflows: true value is an ordinary integer.
+    try th.expectEvalTrue("(= (inexact (/ (+ (expt 2 1030) 1) (expt 2 1000))) 1073741824.0)");
+    // Both overflow: the parsers used to give nan, inexact got it right.
+    try th.expectEvalTrue(
+        "(let ((s (string-append \"#i\" (number->string (+ (expt 2 1100) 1)) \"/\" (number->string (expt 2 1050)))))" ++
+            " (and (= (string->number s) 1125899906842624.0)" ++
+            "      (= (read (open-input-string s)) 1125899906842624.0)))",
+    );
+    // Correct rounding at the subnormal tie: 1/2^1075 is exactly halfway
+    // between 0 and the min subnormal; round-to-nearest-even picks 0.0.
+    try th.expectEvalTrue("(= (inexact (/ 1 (expt 2 1075))) 0.0)");
+    // A lopsided ratio must keep full mantissa precision (a short quotient
+    // or an f64/f64 ratio used to be off by 1-2 ulp).
+    try th.expectEvalTrue("(= (inexact (/ (+ (expt 10 400) 1) (expt 10 399))) 10.0)");
+    // Controls: in-range and reducible cases unchanged.
+    try th.expectEvalTrue("(= (inexact (/ 1 (expt 2 1000))) 9.332636185032189e-302)");
+    try th.expectEvalTrue("(= (inexact (/ (expt 2 1100) (expt 2 1050))) 1125899906842624.0)");
+    // Signs survive.
+    try th.expectEvalTrue("(= (inexact (/ -1 (expt 2 1074))) -5e-324)");
+}
+
 test "reader accepts rational literals with bignum parts" {
     // Regression: the tokenizer parsed rational parts as i64 with no bignum
     // fallback, so 2^65/2^64 failed with a read error at the slash.

@@ -31,9 +31,7 @@ pub fn toF64Ext(v: Value) PrimitiveError!f64 {
     if (types.isBignum(v)) return bignum_mod.toF64(v);
     if (types.isRationalObj(v)) {
         const r = types.toRational(v);
-        const n = try toF64Ext(r.numerator);
-        const d = try toF64Ext(r.denominator);
-        return n / d;
+        return types.rationalToF64(r.numerator, r.denominator);
     }
     return numberTypeError(v);
 }

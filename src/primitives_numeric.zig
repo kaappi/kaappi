@@ -336,17 +336,7 @@ fn inexactFn(args: []const Value) PrimitiveError!Value {
     if (types.isBignum(args[0])) return makeFlonumVal(bignum_mod.toF64(args[0]));
     if (types.isRationalObj(args[0])) {
         const r = types.toRational(args[0]);
-        const n = try toF64Ext(r.numerator);
-        const d = try toF64Ext(r.denominator);
-        const result = n / d;
-        if (!std.math.isNan(result)) return makeFlonumVal(result);
-        // Both overflow to inf — use bignum division for the integer part
-        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-        const q = bignum_mod.quotient(gc, r.numerator, r.denominator) catch return PrimitiveError.OutOfMemory;
-        const q_f = try toF64Ext(q);
-        const rem = bignum_mod.remainder(gc, r.numerator, r.denominator) catch return PrimitiveError.OutOfMemory;
-        const rem_f = try toF64Ext(rem);
-        return makeFlonumVal(q_f + rem_f / d);
+        return makeFlonumVal(types.rationalToF64(r.numerator, r.denominator));
     }
     if (types.isComplex(args[0])) {
         const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
@@ -993,9 +983,7 @@ fn applyExactness(gc: *@import("memory.zig").GC, val: Value, exactness: Exactnes
             }
             if (types.isRationalObj(val)) {
                 const rat = types.toRational(val);
-                const num_f = types.toF64(rat.numerator);
-                const den_f = types.toF64(rat.denominator);
-                return types.makeFlonum(num_f / den_f);
+                return types.makeFlonum(types.rationalToF64(rat.numerator, rat.denominator));
             }
             if (types.isComplex(val)) {
                 const c = types.toComplex(val);
