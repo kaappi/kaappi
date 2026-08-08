@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786164004259,
+  "lastUpdate": 1786172577325,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "50fa0f2da37df7e58297fa03cbe34b809af87b1e",
-          "message": "Tick 2.12, reconcile the batch count, and record three footguns (#2017)\n\nFive units landed together (#1985, #2004, #2013, #2014, #2015), taking the\ncampaign to 22 of 53. Each unit ticked its own box; this reconciles the\nstatus line, which four of them raced on, and ticks 2.12, whose PR carried\nonly the test file.\n\nThe three footguns are what 2.12 paid for. It needed three CI rounds and\nnot one of them was a defect in the code under test:\n\n- Name every assertion. SRFI-64 prints a failed assertion's value, not its\n  source, so an unnamed failure on a remote BSD leg is `#f` / `FAIL` with\n  nothing to identify it among 400. The round after names went in, the log\n  read `FAIL (memv (file-info:rdev fi) '(0 -1))` and named the defect.\n- Never assert a value the spec leaves unspecified. POSIX defines st_rdev\n  only for character- and block-special files; two guesses were both wrong,\n  and FreeBSD 14.3 failed for a regular file while passing for a fifo in\n  the same run.\n- A test's side effects must not be platform-scaled either, and\n  `( ulimit -n 256; ... )` is the cheapest BSD-leg simulator available.\n\nThat last one also corrects a finding. 2.12 reported \"3000 unclosed\ndirectory streams do not exhaust the fd table\" as confirmed-correct; it is\na false clean, true only at macOS and Linux CI's ulimit of 1048576. At 256,\n`--gc-stats` reports Collections: 0 and exactly 253 opens succeed. That is\nnow #1993, alongside #1994, and the entry says so rather than repeating the\nclaim.",
-          "timestamp": "2026-08-01T11:25:08+05:30",
-          "tree_id": "c92205b39fd178636c86390bd008e75d53f8d827",
-          "url": "https://github.com/kaappi/kaappi/commit/50fa0f2da37df7e58297fa03cbe34b809af87b1e"
-        },
-        "date": 1785565417114,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.34943,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.783095,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.57195,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.990335,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004603,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047032,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.314862,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057081,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.697569,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.214074,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.573769,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.276672,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.790047,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.607832,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044301,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044636,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ed37a085ee2080715b26b41f04216a34d5d07400",
+          "message": "Validate syntax-rules ellipsis usage: template depth (#682) and pattern grammar (#2082) (#2256)\n\n* Validate syntax-rules ellipsis usage: template depth (#682) and pattern grammar (#2082)\n\nsyntax-rules accepted two kinds of ill-formed rules and answered\nsomething instead of erroring, both silent wrong-output defects in the\nR7RS 4.3.2 pattern language:\n\n- #682 (template side): a pattern variable used under FEWER template\n  ellipses than its pattern depth substituted the never-set `()` for the\n  matched input. instantiateEllipsis now rejects a directly-referenced\n  list binding whose depth exceeds the consuming ellipsis run\n  (1 + extra_ellipsis, so (x ... ...) flattening stays legal), and\n  instantiateTemplate rejects a list binding used with no ellipsis at\n  all. Legitimate nested, consecutive-ellipsis, and SRFI 149\n  excess-ellipsis shapes are untouched.\n\n- #2082 (pattern side): a list or vector pattern with more than one\n  ellipsis at its own level was accepted, and the surplus ellipsis\n  tokens were counted as fixed tail elements, so the trailing pattern\n  always took the last two inputs. parseSyntaxRules now validates every\n  rule's pattern at definition time (matching chibi and Guile, which\n  reject the define-syntax), honouring custom ellipsis identifiers and\n  the ellipsis-as-literal carve-out, and keeping first-position `...`\n  (a plain pattern variable per the matcher, e.g. srfi136's\n  `(cname field (... ...))` guard) legal.\n\nThe regression-test half of #682 was a test that never exercised the\ndefect: tests/scheme/smoke/ellipsis-depth-mismatch.scm only pinned the\nvalid case, and srfi149/srfi46 carried disabled FAIL assertions plus\nenabled pins of the wrong answers. Those are now flipped to assertions\nthat the mismatch RAISES (shown to fail against a build with the fix\nreverted), and Zig unit tests cover both issues plus the control shapes.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: validate vector dotted tails, split ellipsis tests, SRFI-64 smoke harness\n\nThree review findings from PR #2256 review:\n\n- validPatternGrammar's dotted-tail branch recursed into pairs, but that\n  branch was unreachable (the while loop only exits once cur is not a\n  pair), and a vector dotted tail -- (_ . #(a ... b ...)) -- bypassed\n  validation entirely, accepting two ellipses in one vector pattern. The\n  branch now recurses into vectors; regression test added (verified to\n  fail against the pre-fix code).\n\n- Move the #682/#2082 ellipsis-validation tests out of tests_macros.zig\n  (1963 lines) into a dedicated src/tests_ellipsis.zig, wired via\n  vm_tests.zig like tests_macros_nested_sr.zig, per the 1500-line file\n  policy.\n\n- Convert tests/scheme/smoke/ellipsis-depth-mismatch.scm from the\n  verdictless display/exit style to the documented SRFI-64 harness\n  (imports (scheme process-context) and (srfi 64), test-begin/test-end,\n  exit 1 on fail-count), per docs/dev/testing.md. Verified to exit 1\n  against the unfixed build (212d2428) and pass with the fix.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-08T06:29:37Z",
+          "tree_id": "ac0c72a75e5d03061be3a0a3e3e3e54e7e9b7eb8",
+          "url": "https://github.com/kaappi/kaappi/commit/ed37a085ee2080715b26b41f04216a34d5d07400"
+        },
+        "date": 1786172576164,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.977846,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.561951,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.567238,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.878414,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004846,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.045549,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.299653,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054941,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.398322,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.185045,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.55351,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.298586,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.704826,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.768751,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044765,
             "unit": "seconds"
           }
         ]
