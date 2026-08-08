@@ -21,6 +21,8 @@ pub const primitives_r7rs = @import("primitives_r7rs.zig");
 pub const printer = @import("printer.zig");
 pub const expander = @import("expander.zig");
 pub const library = @import("library.zig");
+pub const vm_library = @import("vm_library.zig");
+pub const kaappi_paths = @import("kaappi_paths.zig");
 pub const ffi = @import("ffi.zig");
 pub const primitives_ffi = @import("primitives_ffi.zig");
 pub const primitives_srfi1 = @import("primitives_srfi1.zig");
@@ -248,6 +250,32 @@ var doc_allocator: std.mem.Allocator = undefined;
 /// re-seeds `vm.macros` from it. Keys are interned symbol names, owned by the
 /// GC's symbol table, so the snapshot never owns them.
 var baseline_macros: std.StringHashMap(types.Value) = undefined;
+
+/// The auto-discovered library search paths set up at startup (`~/.kaappi/lib`
+/// plus the exe-relative fallback). `runDiagnostics` prepends the current
+/// document's own directory to these for the duration of a run — mirroring how
+/// `main.zig` seeds `vm.lib_paths` with the file's directory — so an `(import
+/// (mylib))` resolves a `.sld` sitting next to the document, exactly as
+/// `kaappi check` does. Points into the process-lifetime allocation `main`
+/// makes; never mutated after startup.
+var base_lib_paths: []const []const u8 = &.{};
+
+/// The set of global names present after startup, before any document is
+/// diagnosed. `runDiagnostics` removes any global *not* in this set at the start
+/// of each run, retracting the value bindings a previous document's `import`
+/// wrote into `vm.globals` — the globals-map analogue of the `vm.macros` reset
+/// above, so imported names cannot leak across documents (only `vm.macros` was
+/// isolated before). Keys are interned/static names the map does not own, so the
+/// snapshot never owns them either.
+var baseline_global_keys: std.StringHashMap(void) = undefined;
+
+/// A single in-memory output port that discards everything written to it.
+/// `runDiagnostics` redirects the VM's current-output-port to this while it runs
+/// a document's `import`/`include`/`define-library` forms for their effect, so a
+/// stray top-level `(display ...)` in executed library or included code cannot
+/// write to fd 1 and corrupt the JSON-RPC frame stream. Its buffer is truncated
+/// to empty before each run so it never grows across the server's lifetime.
+var diag_sink_port: types.Value = types.VOID;
 
 fn storeDocument(uri: []const u8, text: []const u8) void {
     const uri_copy = doc_allocator.dupe(u8, uri) catch return;
@@ -683,12 +711,67 @@ fn runDiagnostics(allocator: std.mem.Allocator, vm: *vm_mod.VM, uri: []const u8,
         vm.macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return;
     }
 
+    // Retract the value bindings a previous document's `import` left in
+    // `vm.globals` (the globals analogue of the macro reset above): remove every
+    // global not present at startup. Without this, `(import (mylib))` in one
+    // document would leave its exports resolvable while diagnosing another that
+    // imports nothing. Compilation never depends on a global's *value* here so
+    // diagnostics were already correct, but hover/completion leaked across
+    // documents and the asymmetry with the macro reset was surprising.
+    //
+    // Because this runs at the *start* of every diagnostics run, one shared
+    // `vm.globals` means a document's imported names resolve for hover/completion
+    // only until another document is opened or edited, self-healing on that
+    // document's next run. That is the intended, bounded behaviour (matching the
+    // per-document macro reset) — strictly better than the pre-change state where
+    // imported names resolved nowhere — not a bug to chase into per-document
+    // environments.
+    pruneImportedGlobals(vm, allocator);
+
+    // Resolve library and `include` paths against the document's own directory
+    // when the URI is a `file://` URI, matching `kaappi check`. Two distinct
+    // mechanisms, both restored after the run: `include` consults
+    // `current_lib_dir` (with a trailing slash), while an `(import (lib))` of a
+    // sibling `.sld` is resolved through `vm.lib_paths` — which never consults
+    // `current_lib_dir` — so the document's directory must be prepended there
+    // too, exactly as `main.zig` seeds the file's directory for `kaappi check`.
+    // `path_buf` backs the decoded path for the whole run; the slices below
+    // point into it, so it must outlive them (it does — it is this frame's).
+    const saved_lib_dir = vm.current_lib_dir;
+    const saved_lib_paths = vm.lib_paths;
+    defer {
+        vm.current_lib_dir = saved_lib_dir;
+        vm.lib_paths = saved_lib_paths;
+    }
+    var path_buf: [2048]u8 = undefined;
+    var lib_paths_run: [8][]const u8 = undefined;
+    if (fileUriToPath(uri, &path_buf)) |doc_path| {
+        if (std.mem.lastIndexOfScalar(u8, doc_path, '/')) |pos| {
+            vm.current_lib_dir = doc_path[0 .. pos + 1];
+            // Prepend the document's directory (no trailing slash, like
+            // main.zig) ahead of the auto-discovered paths, capacity permitting.
+            const dir = if (pos == 0) doc_path[0..1] else doc_path[0..pos];
+            if (base_lib_paths.len + 1 <= lib_paths_run.len) {
+                lib_paths_run[0] = dir;
+                @memcpy(lib_paths_run[1 .. base_lib_paths.len + 1], base_lib_paths);
+                vm.lib_paths = lib_paths_run[0 .. base_lib_paths.len + 1];
+            }
+        }
+    }
+
+    // Redirect the current-output-port to a discard sink for the run so a stray
+    // top-level `(display ...)` in executed env-setup code (an imported library
+    // body, an included file) cannot write to fd 1 and corrupt the JSON-RPC
+    // framing. Restored after the run.
+    const out_redirect = beginOutputRedirect(vm);
+    defer endOutputRedirect(vm, out_redirect);
+
     // Parse phase
     var r = reader.Reader.initWithName(vm.gc, text, uri);
     defer r.deinit();
 
     while (r.hasMore() catch false) {
-        const expr = r.readDatum() catch |err| {
+        var expr = r.readDatum() catch |err| {
             const lc = r.getLineCol();
             if (has_diag) diag_buf.append(allocator, ',') catch {};
             has_diag = true;
@@ -696,14 +779,16 @@ fn runDiagnostics(allocator: std.mem.Allocator, vm: *vm_mod.VM, uri: []const u8,
             break;
         };
 
-        // Compile phase
-        _ = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, 0, uri, false) catch |err| {
-            const lc = r.getLineCol();
-            if (has_diag) diag_buf.append(allocator, ',') catch {};
-            has_diag = true;
-            addDiagnostic(&diag_buf, allocator, lc.line -| 1, diagnostics.compileErrorCode(err));
-            break;
-        };
+        // The reader sits just past the form now; this is the same line the
+        // original compile-only loop reported, so the cross-check against
+        // `kaappi check` (tests/scheme/lsp/lsp.sh §4) still agrees.
+        const line0 = r.getLineCol().line -| 1;
+        vm.gc.pushRoot(&expr);
+        const stop = diagnoseTopLevelForm(&diag_buf, allocator, vm, uri, expr, line0, &has_diag);
+        vm.gc.popRoot();
+        // The server publishes only the first failing form's diagnostic
+        // (kaappi#1980, deliberately covered in the LSP suite).
+        if (stop) break;
     }
 
     diag_buf.append(allocator, ']') catch return;
@@ -718,6 +803,211 @@ fn runDiagnostics(allocator: std.mem.Allocator, vm: *vm_mod.VM, uri: []const u8,
     params_buf.append(allocator, '}') catch return;
 
     sendNotification(allocator, "textDocument/publishDiagnostics", params_buf.items);
+}
+
+// Remove every global not present at startup — the value bindings a previous
+// document's `import` wrote into `vm.globals` — so imported names do not leak
+// across documents. The write lock `importBinding` also takes is held across the
+// whole operation — iteration, key collection, and removal — so a concurrent
+// child-thread reader (#958) never observes a half-pruned map; `global_version`
+// is bumped to invalidate any cached global lookups. Keys are collected before
+// removing (mutating a map mid-iteration is unsound) into a list; the collected
+// slices point at externally-owned strings, so they stay valid across removal.
+// Nothing in the loop re-acquires `globals_lock`, so holding it cannot deadlock.
+fn pruneImportedGlobals(vm: *vm_mod.VM, allocator: std.mem.Allocator) void {
+    vm.globals_lock.lock();
+    defer vm.globals_lock.unlock();
+    var to_remove: std.ArrayList([]const u8) = .empty;
+    defer to_remove.deinit(allocator);
+    var it = vm.globals.iterator();
+    while (it.next()) |entry| {
+        if (!baseline_global_keys.contains(entry.key_ptr.*))
+            to_remove.append(allocator, entry.key_ptr.*) catch return;
+    }
+    if (to_remove.items.len == 0) return;
+    for (to_remove.items) |k| _ = vm.globals.remove(k);
+    vm.global_version +%= 1;
+}
+
+// Convert a `file://` URI to a native filesystem path in `buf`, percent-decoding
+// `%XX` escapes and handling an empty or `localhost` authority and a Windows
+// drive-letter path (`file:///C:/x` -> `C:/x`). Returns null for a non-`file:`
+// URI (an editor may send `untitled:`/`vscode-vfs:` — no on-disk directory to
+// resolve against) or when the decoded path does not fit `buf`. Not exhaustive
+// URL parsing: only what document paths need so `include`/import resolution
+// matches the real paths `kaappi check` sees (baijum review, coderabbit review).
+fn fileUriToPath(uri: []const u8, buf: []u8) ?[]const u8 {
+    if (!std.mem.startsWith(u8, uri, "file://")) return null;
+    var rest = uri["file://".len..];
+    // Authority runs up to the next '/'. Accept only empty (`file:///…`) or
+    // `localhost`; a real remote host has no local path to offer.
+    if (rest.len > 0 and rest[0] != '/') {
+        const slash = std.mem.indexOfScalar(u8, rest, '/') orelse return null;
+        if (!std.mem.eql(u8, rest[0..slash], "localhost")) return null;
+        rest = rest[slash..];
+    }
+    var n: usize = 0;
+    var i: usize = 0;
+    while (i < rest.len) {
+        var c = rest[i];
+        if (c == '%' and i + 2 < rest.len) {
+            const hi = std.fmt.charToDigit(rest[i + 1], 16) catch 0xff;
+            const lo = std.fmt.charToDigit(rest[i + 2], 16) catch 0xff;
+            if (hi != 0xff and lo != 0xff) {
+                c = @intCast(hi * 16 + lo);
+                i += 3;
+            } else i += 1; // malformed escape: keep the '%' literally
+        } else i += 1;
+        if (n >= buf.len) return null;
+        buf[n] = c;
+        n += 1;
+    }
+    var path = buf[0..n];
+    // `file:///C:/x` decodes to `/C:/x`; drop the slash before the drive letter.
+    if (path.len >= 3 and path[0] == '/' and path[2] == ':' and
+        ((path[1] >= 'A' and path[1] <= 'Z') or (path[1] >= 'a' and path[1] <= 'z')))
+        path = path[1..];
+    return path;
+}
+
+// State captured by beginOutputRedirect so endOutputRedirect can restore it.
+const OutputRedirect = struct {
+    active: bool,
+    saved_stdout_port: types.Value,
+    param: types.Value,
+    saved_param_val: types.Value,
+};
+
+// Point the VM's current-output-port at the discard sink for the duration of a
+// diagnostics run. `display`/`write` resolve the port through
+// `current_output_port_param` first, falling back to `vm.stdout_port`, so both
+// are redirected. The sink's write cursor and length are reset first so its
+// buffer is reused, never growing across the server's lifetime. This covers
+// Scheme-level output only; a C-FFI library that writes to fd 1 directly during
+// its load still bypasses it — a residual edge, not closed here because guarding
+// it means redirecting fd 1 at the OS level (dup2), which is platform-specific
+// and risks the framing if a restore is ever missed.
+fn beginOutputRedirect(vm: *vm_mod.VM) OutputRedirect {
+    if (diag_sink_port == types.VOID)
+        return .{ .active = false, .saved_stdout_port = types.VOID, .param = types.VOID, .saved_param_val = types.VOID };
+    const port = types.toObject(diag_sink_port).as(types.Port);
+    port.string_out_pos = 0;
+    port.string_out_len = 0;
+    var rd: OutputRedirect = .{
+        .active = true,
+        .saved_stdout_port = vm.stdout_port,
+        .param = vm.current_output_port_param,
+        .saved_param_val = types.VOID,
+    };
+    vm.stdout_port = diag_sink_port;
+    if (rd.param != types.VOID) {
+        rd.saved_param_val = vm.getParameterValue(types.toParameter(rd.param));
+        vm.setParameterValue(types.toParameter(rd.param), diag_sink_port) catch {};
+    }
+    return rd;
+}
+
+fn endOutputRedirect(vm: *vm_mod.VM, rd: OutputRedirect) void {
+    if (!rd.active) return;
+    vm.stdout_port = rd.saved_stdout_port;
+    if (rd.param != types.VOID)
+        vm.setParameterValue(types.toParameter(rd.param), rd.saved_param_val) catch {};
+}
+
+// Diagnose one top-level form, returning true when it recorded a diagnostic
+// (the caller then stops — the server publishes only the first, kaappi#1980).
+//
+// The classification mirrors `check.zig`'s `checkForm`, sharing the very
+// `TopLevelHead` machinery `kaappi check` and the runtime use so the three
+// cannot drift (kaappi#2114): a top-level `begin` and the selected `cond-expand`
+// clause splice into the top-level sequence and are recursed into, the
+// environment-establishing heads (`import`/`define-library`/`include`/
+// `define-record-type`) are *run* for their effect so later forms see the
+// bindings and macros they introduce, and everything else is compiled but not
+// executed. Running imports is what makes an imported macro like SRFI 42's
+// `list-ec` expand — without it, the compiler judges the `(if test)` filter
+// qualifier inside the comprehension as a malformed one-armed R7RS `if` and
+// flags valid code.
+fn diagnoseTopLevelForm(
+    diag_buf: *std.ArrayList(u8),
+    allocator: std.mem.Allocator,
+    vm: *vm_mod.VM,
+    uri: []const u8,
+    expr: types.Value,
+    line0: u32,
+    has_diag: *bool,
+) bool {
+    if (types.isPair(expr) and types.isSymbol(types.car(expr))) {
+        if (vm.topLevelHead(expr)) |head| {
+            switch (head) {
+                // R7RS 5.1: top-level `begin` splices its body as top-level
+                // forms — recurse so a nested import runs for its effect.
+                .begin => {
+                    var rest = types.cdr(expr);
+                    while (types.isPair(rest)) : (rest = types.cdr(rest)) {
+                        if (diagnoseTopLevelForm(diag_buf, allocator, vm, uri, types.car(rest), line0, has_diag)) return true;
+                    }
+                    return false;
+                },
+                // R7RS 4.2.1: a top-level `cond-expand` splices its selected
+                // clause's body as top-level forms. Clause selection uses the
+                // same evaluator the runtime does, so both pick the same clause.
+                .cond_expand => {
+                    var clauses = types.cdr(expr);
+                    while (types.isPair(clauses)) : (clauses = types.cdr(clauses)) {
+                        const clause = types.car(clauses);
+                        if (!types.isPair(clause)) break;
+                        const req = types.car(clause);
+                        const is_else = types.isSymbol(req) and std.mem.eql(u8, types.symbolName(req), "else");
+                        if (is_else or vm_library.evalLibFeatureReq(vm, req)) {
+                            var body = types.cdr(clause);
+                            while (types.isPair(body)) : (body = types.cdr(body)) {
+                                if (diagnoseTopLevelForm(diag_buf, allocator, vm, uri, types.car(body), line0, has_diag)) return true;
+                            }
+                            return false;
+                        }
+                    }
+                    // No clause matched: fall through and compile it as an
+                    // expression (the compiler folds a no-match to void), the
+                    // same fallback check.zig and the runtime compiler take.
+                },
+                else => {
+                    if (head.isEnvSetup()) {
+                        _ = vm.runTopLevelHead(head, expr) catch |err| {
+                            const code = if (vm.last_error_code != .uncategorized)
+                                vm.last_error_code
+                            else
+                                diagnostics.runtimeErrorCode(err);
+                            recordDiagnostic(diag_buf, allocator, line0, code, has_diag);
+                            vm.last_error_detail_len = 0;
+                            vm.last_error_code = .uncategorized;
+                            return true;
+                        };
+                        return false;
+                    }
+                    // define-values: only its names matter, never its producer's
+                    // effect — fall through to compile-not-run, like check.zig.
+                },
+            }
+        }
+    }
+
+    // Everything else — define, define-syntax, define-values, expressions — is
+    // compiled (registering any define-syntax macro and surfacing compile
+    // errors) but never executed. The compiled Function is discarded.
+    _ = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, 0, uri, false) catch |err| {
+        recordDiagnostic(diag_buf, allocator, line0, diagnostics.compileErrorCode(err), has_diag);
+        return true;
+    };
+    return false;
+}
+
+// Append one diagnostic to the array under construction, inserting the JSON
+// comma separator before all but the first.
+fn recordDiagnostic(buf: *std.ArrayList(u8), allocator: std.mem.Allocator, line0: u32, code: diagnostics.Code, has_diag: *bool) void {
+    if (has_diag.*) buf.append(allocator, ',') catch {};
+    has_diag.* = true;
+    addDiagnostic(buf, allocator, line0, code);
 }
 
 // Serialize one diagnostic through the shared LSP `Diagnostic` writer
@@ -813,6 +1103,39 @@ pub fn main(init: std.process.Init.Minimal) !void {
     try vm_mod.vm_bootstrap.install(&vm);
     try library.registerStandardLibraries(&vm.libraries, vm.globals);
 
+    // Resolve file-based `.sld` libraries (portable SRFIs, ecosystem packages)
+    // the same way the `kaappi` binary does — otherwise `runDiagnostics`'
+    // `(import (srfi 42))` fails to find the library and every use of an
+    // imported macro is mis-diagnosed. The two auto-discovered
+    // dirs mirror main.zig's setup, computed from the same `kaappi_paths`
+    // helpers so they cannot drift: `~/.kaappi/lib` for an installed tree, and
+    // `<exe_dir>/../lib` so a from-source `zig build` (no installer) still
+    // resolves the bundled SRFI sources (#1523). These strings must outlive
+    // every diagnostics run, so they come from the process-lifetime `allocator`
+    // rather than a scratch buffer; the server owns them until it exits.
+    var lib_paths_buf: [2][]const u8 = undefined;
+    var lib_path_count: usize = 0;
+    {
+        var home_buf: [512]u8 = undefined;
+        if (kaappi_paths.getHome(&home_buf)) |home| {
+            const klp = std.fmt.allocPrint(allocator, "{s}/lib", .{home}) catch null;
+            if (klp) |p| {
+                lib_paths_buf[lib_path_count] = p;
+                lib_path_count += 1;
+            }
+        }
+        var exe_lib_buf: [1024]u8 = undefined;
+        if (kaappi_paths.getExeRelativeLibDir(&exe_lib_buf)) |elp| {
+            const dup = allocator.dupe(u8, elp) catch null;
+            if (dup) |p| {
+                lib_paths_buf[lib_path_count] = p;
+                lib_path_count += 1;
+            }
+        }
+    }
+    vm.lib_paths = try allocator.dupe([]const u8, lib_paths_buf[0..lib_path_count]);
+    base_lib_paths = vm.lib_paths;
+
     // Snapshot the macro table before any document is opened; runDiagnostics
     // resets the shared `vm.macros` to this per run (kaappi#1979). `vm.macros`
     // is empty here today, but the snapshot keeps the isolation correct if
@@ -825,6 +1148,21 @@ pub fn main(init: std.process.Init.Minimal) !void {
         baseline_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return;
         gc.extra_roots.append(gc.allocator, entry.value_ptr.*) catch return;
     }
+
+    // Snapshot the global names present at startup so runDiagnostics can retract
+    // whatever a document's `import` adds (the globals analogue of the macro
+    // reset above). Keys are interned/static and outlive the map, so the set
+    // only borrows them.
+    baseline_global_keys = std.StringHashMap(void).init(gc.allocator);
+    var git = vm.globals.iterator();
+    while (git.next()) |entry| {
+        baseline_global_keys.put(entry.key_ptr.*, {}) catch return;
+    }
+
+    // A discard port for side effects of executed env-setup forms (see the
+    // field doc). Rooted for the process lifetime like the standard ports.
+    diag_sink_port = gc.allocStringOutputPort() catch types.VOID;
+    if (diag_sink_port != types.VOID) gc.extra_roots.append(gc.allocator, diag_sink_port) catch {};
 
     var initialized = false;
 
