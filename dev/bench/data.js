@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786184651877,
+  "lastUpdate": 1786206054727,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1718a2e148b9fc9c9f1eafdf4d0e1ad7392d88fc",
-          "message": "Put the reason a fuzz job died into the issue it files (#2042)\n\nThe \"infrastructure or build failure\" issue could say no more than \"see the\nrun log\", so every instance costs a manual `gh api .../logs` to explain. That\nis worst for the failures it is most often filed for: a GitHub-hosted runner\nreclaimed mid-job *cancels* the job, which skips even the `if: failure()`\nupload step, so no artifact reaches the report job and the run log is the only\nsurviving evidence.\n\nThe report job already holds `actions: read`. Have it fetch each failed job's\nlog over the API and lead the issue with a per-job verdict — duration plus the\nlast few `##[error]` lines — recognizing the runner-shutdown line specifically.\nThat is the distinction the old text could not draw: a shutdown (exit 143) is\ninfrastructure and wants a re-run, whereas a job cancelled at its own\n`timeout-minutes` is worth chasing as a hang, since every generated program is\nindividually time-bounded.\n\n#2040 was the first kind wearing the second's clothes — an arm64 leg killed 46\nmin into a 55-min budget, on a commit whose x86_64 leg was entirely normal.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T08:06:10Z",
-          "tree_id": "f8189011b69be162fedf37b3df55db8c9fa5825a",
-          "url": "https://github.com/kaappi/kaappi/commit/1718a2e148b9fc9c9f1eafdf4d0e1ad7392d88fc"
-        },
-        "date": 1785589571359,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.033689,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.357974,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.569017,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.947608,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004975,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.045086,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.295084,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.05506,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.306315,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.178694,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.533594,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.308367,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.685778,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.864144,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04535,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.039608,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "681af651ba741c55acc4c28c81c751361fc7788b",
+          "message": "Make syntax-rules count-consistency depth-aware; seed empty-match depths (Fixes #682, #2082) (#2260)\n\n* Make syntax-rules count-consistency depth-aware; seed empty-match depths (#682)\n\nThe #682 fix (#2256) rejected every depth mismatch but one class of\nlegitimate SRFI 149 excess input: a depth-1 variable zipped against a\ndepth-2 driver whose group count differs. instantiateEllipsis compared\nellipsis counts across DEPTHS and raised EllipsisCountMismatch, so a\nlegal macro like\n\n    ((_ (a ...) ((b ...) ...)) '(((a b) ...) ...))\n\nerrored on (ragged (x y) ()) where chibi (the SRFI's reference\nimplementation) and guile both expand to (). Two root causes:\n\n1. The count check was not depth-aware. R7RS 4.3.2 requires equal\n   counts only among variables matched at the same depth; SRFI 149\n   rule 2 zips a shallower variable against the driver (min counts).\n   joinRepeatCount now enforces equality only within a depth and\n   otherwise takes the min, keeping the kaappi#78 same-depth error.\n\n2. matchEllipsis seeded every ellipsis binding with depth 1 and only\n   corrected it per repetition, so a nested variable matching ZERO\n   repetitions ((b ...) ... against ()) kept depth 1, never qualified\n   as a driver, and the run died with EllipsisNoPatternVariable.\n   Bindings are now seeded from the pattern structure (patternVarNesting\n   + 1), which agrees with the per-repetition formula when it runs.\n\nCloses #682 and #2082 (fixed by #2256 but never closed): the under-use\nand two-ellipses-per-pattern checks are verified on main, and this\ncompletes the remaining edge of the depth validation.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: per-depth count validation, structural under-use check (#682)\n\nReview of #2260 found two correctness gaps in the first cut:\n\n1. The same-depth count check was order-dependent. joinRepeatCount latched\n   the \"driver depth\" to the FIRST referenced binding, so a leading shallow\n   variable made a genuine R7RS 4.3.2 / kaappi#78 mismatch between two\n   deeper same-depth drivers silently zip instead of erroring (m2 errors\n   but m does not). The check now validates one count per depth, then takes\n   the minimum across depths — order-independent.\n\n2. The under-use check only fired when the consuming ellipsis run was\n   instantiated, so an outer run matching ZERO repetitions let a deeper\n   under-use silently expand to (). The check is now structural: the\n   outermost run that references a binding computes its full consumption\n   depth (this run + consecutive ellipses + the inner ellipses it sits\n   under in elem_template) and raises EllipsisDepthMismatch up front. This\n   also covers vector patterns, whose ellipsis runs must be detected inside\n   the vector data (patternVarNestingWalk now mirrors the list semantics\n   matchPattern uses).\n\nAll new tests fail against the pre-review build and pass here: the m-shape\nin error-format.sh and tests_ellipsis.zig, the vector/nested empty-match\nunder-use cases in tests_ellipsis.zig and the smoke suite, plus the\ncorrect-depth empty-match control.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-08T15:45:39Z",
+          "tree_id": "e89687ba0d81013007203e2733e5b3cefaad7529",
+          "url": "https://github.com/kaappi/kaappi/commit/681af651ba741c55acc4c28c81c751361fc7788b"
+        },
+        "date": 1786206053174,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.322447,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.258385,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.576459,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.006174,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004687,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047372,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.317166,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05626,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.82478,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.240613,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.634216,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.284988,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.799747,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.647014,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.0446,
             "unit": "seconds"
           }
         ]
