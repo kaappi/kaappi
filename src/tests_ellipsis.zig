@@ -171,3 +171,41 @@ test "syntax-rules: ellipsis-named literals and legal tail shapes survive #2082 
         \\  (equal? (nested (1 2 3) (4 5)) '(((1 2) 3) ((4) 5))))
     );
 }
+
+test "syntax-rules: SRFI 149 excess with empty/unequal drivers zips, not errors (#682)" {
+    // A depth-1 variable used at a depth-2 template position is zipped
+    // against the depth-2 driver (SRFI 149 rule 2, chibi reference impl):
+    // the outer run repeats min(counts) times. Before the count check
+    // became depth-aware, an empty or shorter driver raised
+    // EllipsisCountMismatch on legal input, and a binding that matched
+    // ZERO repetitions kept its placeholder depth 1, so the driver never
+    // qualified and EllipsisNoPatternVariable fired instead.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax ragged (syntax-rules ()
+        \\    ((_ (a ...) ((b ...) ...)) '(((a b) ...) ...))))
+        \\  (and (equal? (ragged (x y) ()) '())
+        \\       (equal? (ragged () ()) '())
+        \\       (equal? (ragged (x y z) ((1 2) (3))) '(((x 1) (x 2)) ((y 3))))
+        \\       (equal? (ragged (x y) ((1 2) (3) (4))) '(((x 1) (x 2)) ((y 3))))
+        \\       (equal? (ragged (x y) ((1 2 3) (4))) '(((x 1) (x 2) (x 3)) ((y 4))))))
+    );
+}
+
+test "syntax-rules: same-depth count mismatch still errors (#78 control)" {
+    // The depth-aware count rule must NOT relax the R7RS 4.3.2
+    // requirement that pattern variables matched at the same depth and
+    // used under the same ellipsis have equal counts. This is the
+    // kaappi#78 shape (previously read uninitialized memory).
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-syntax zip (syntax-rules ()
+        \\  ((_ (a ...) (b ...)) '((a b) ...))))
+    );
+    const result = vm.eval("(zip (1 2 3) (4 5))");
+    try std.testing.expectError(error.CompileError, result);
+}

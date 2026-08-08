@@ -91,7 +91,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   consumes it, and `instantiateTemplate` rejects a list binding used with no
   ellipsis at all. Legitimate uses — nested `((a ...) ...)`, consecutive
   `(x ... ...)` flattening, SRFI 149's excess-ellipsis replication with a
-  deeper sibling — are untouched.
+  deeper sibling — are untouched. The repeat-count check is depth-aware:
+  R7RS requires equal counts only among variables matched at the same
+  depth, so SRFI 149's excess case with an empty or shorter driver now zips
+  (min counts) like the SRFI's reference implementation instead of
+  erroring, and a nested variable that matched zero repetitions —
+  `((b ...) ...)` against `()` — reports its true depth rather than the
+  placeholder 1.
 
 - **`syntax-rules` now rejects a pattern with more than one ellipsis in one
   list or vector pattern** (#2082). The R7RS 4.3.2 `<pattern>` grammar

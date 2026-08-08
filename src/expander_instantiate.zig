@@ -622,6 +622,40 @@ fn sharesInnerEllipsisWithDriver(template: Value, candidate_name: []const u8, bi
         sharesInnerEllipsisWithDriver(tail, candidate_name, bindings, referenced);
 }
 
+/// Join a referenced binding into the repeat-count computation for this
+/// ellipsis run, enforcing R7RS count consistency only between bindings
+/// matched at the SAME ellipsis depth.
+///
+/// R7RS 4.3.2 (kaappi#78): pattern variables matched at the same depth and
+/// used under the same template ellipsis must have equal counts; a mismatch
+/// is a syntax error (and previously read uninitialized memory).
+///
+/// SRFI 149 rule 2 (excess ellipsis): a variable matched SHALLOWER than the
+/// driver -- e.g. a depth-1 variable used at a depth-2 template position --
+/// is zipped against the driver's groups, so the run repeats min(counts)
+/// times and any surplus is dropped, exactly as the SRFI's reference
+/// implementation (chibi-scheme) maps the two. Before this check was
+/// depth-aware, an empty or shorter driver was rejected with
+/// EllipsisCountMismatch even though R7RS's count rule does not apply
+/// across depths (kaappi#682).
+fn joinRepeatCount(
+    repeat_count: *usize,
+    count_set: *bool,
+    driver_depth: *u32,
+    b_depth: u8,
+    b_count: usize,
+) ExpandError!void {
+    if (!count_set.*) {
+        repeat_count.* = b_count;
+        count_set.* = true;
+        driver_depth.* = b_depth;
+    } else if (b_depth == driver_depth.*) {
+        if (b_count != repeat_count.*) return error.EllipsisCountMismatch;
+    } else if (b_count < repeat_count.*) {
+        repeat_count.* = b_count;
+    }
+}
+
 fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bindings: []Binding, intro_scope: u32, literals: []const Value, macro_keyword: ?[]const u8, globals: ?*std.StringHashMap(Value), macros: ?*const std.StringHashMap(Value)) (std.mem.Allocator.Error || ExpandError)!Value {
     // Per-iteration sub-binding scratch, hoisted out of the loop and written
     // field-by-field there: whole-struct assignment re-initializes or copies
@@ -653,12 +687,16 @@ fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bind
         }
 
         // Find the repeat count from ellipsis bindings referenced in elem_template.
-        // All referenced list bindings must have equal counts (R7RS). Bindings
-        // with depth > 1 (nested ellipses) participate too: their ellipsis_count
-        // at this level is the outer repetition count, and each iteration below
-        // unpacks them one level for the inner ellipsis to consume.
+        // R7RS 4.3.2 requires pattern variables matched at the same ellipsis
+        // depth and used under the same template ellipsis to have equal counts
+        // (kaappi#78); SRFI 149's excess-ellipsis extension relaxes that across
+        // depths (see joinRepeatCount below). Bindings with depth > 1 (nested
+        // ellipses) participate too: their ellipsis_count at this level is the
+        // outer repetition count, and each iteration below unpacks them one
+        // level for the inner ellipsis to consume.
         var repeat_count: usize = 0;
         var count_set = false;
+        var driver_depth: u32 = 0;
         var referenced: [MAX_BINDINGS]bool = @splat(false);
         var indirect: [MAX_BINDINGS]bool = @splat(false);
 
@@ -683,20 +721,10 @@ fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bind
                 // under-using it errors.
                 if (b.depth > 1 + extra_ellipsis) return ExpandError.EllipsisDepthMismatch;
                 referenced[bi] = true;
-                if (!count_set) {
-                    repeat_count = b.ellipsis_count;
-                    count_set = true;
-                } else if (b.ellipsis_count != repeat_count) {
-                    return ExpandError.EllipsisCountMismatch;
-                }
+                try joinRepeatCount(&repeat_count, &count_set, &driver_depth, b.depth, b.ellipsis_count);
             } else if (b.depth > 1 and templateReferencesVar(elem_template, b.name)) {
                 referenced[bi] = true;
-                if (!count_set) {
-                    repeat_count = b.ellipsis_count;
-                    count_set = true;
-                } else if (b.ellipsis_count != repeat_count) {
-                    return ExpandError.EllipsisCountMismatch;
-                }
+                try joinRepeatCount(&repeat_count, &count_set, &driver_depth, b.depth, b.ellipsis_count);
             }
         }
 
@@ -704,12 +732,7 @@ fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bind
             if (b.is_list and !referenced[bi] and templateReferencesVar(elem_template, b.name)) {
                 if (sharesInnerEllipsisWithDriver(elem_template, b.name, bindings, &referenced)) {
                     referenced[bi] = true;
-                    if (!count_set) {
-                        repeat_count = b.ellipsis_count;
-                        count_set = true;
-                    } else if (b.ellipsis_count != repeat_count) {
-                        return ExpandError.EllipsisCountMismatch;
-                    }
+                    try joinRepeatCount(&repeat_count, &count_set, &driver_depth, b.depth, b.ellipsis_count);
                 } else {
                     indirect[bi] = true;
                 }

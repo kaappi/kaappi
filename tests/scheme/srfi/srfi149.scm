@@ -61,6 +61,32 @@
   '(((x 1) (x 2) (x 3)) ((y 4)))
   (ragged (x y) ((1 2 3) (4))))
 
+;;; the depth-1 sibling zipped against a SHORTER driver: SRFI 149 rule 2
+;;; repeats the depth-1 variable's elements for the innermost excess
+;;; ellipsis, so the outer run iterates min(counts) times and the surplus
+;;; element is dropped.  chibi-scheme (the SRFI's reference implementation)
+;;; agrees; guile 3.0 rejects unequal outer counts, which this expander
+;;; deliberately does not (kaappi#682).
+(test-equal "excess replication zips a longer depth-1 variable"
+  '(((x 1) (x 2)) ((y 3)))
+  (ragged (x y z) ((1 2) (3))))
+
+;;; and the reverse: a SHORTER depth-1 variable truncates the driver.
+(test-equal "excess replication zips a shorter depth-1 variable"
+  '(((x 1) (x 2)) ((y 3)))
+  (ragged (x y) ((1 2) (3) (4))))
+
+;;; an EMPTY driver: the outer run repeats zero times, so the depth-1
+;;; variable's elements are never consumed.  Both chibi and guile return
+;;; the empty list; kaappi rejected the shape with EllipsisCountMismatch
+;;; until the count check became depth-aware (kaappi#682).
+(test-equal "excess replication with an empty driver yields the empty list"
+  '()
+  (ragged (x y) ()))
+(test-equal "excess replication with an empty variable and empty driver"
+  '()
+  (ragged () ()))
+
 ;;; a depth-0 variable carried through two excess ellipsis levels
 (define-syntax broadcast2
   (syntax-rules ()
