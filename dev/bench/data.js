@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786179750682,
+  "lastUpdate": 1786184651877,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "400aef3c3f3279786347d4c438d4d7f6e2a8ea20",
-          "message": "Correct #1250's label and drop the critical-corpus exception (#2041)\n\n#2032 merged five minutes before this content reached the remote, so it\nshipped the first commit only. Everything below was written against that\nbranch and is landing now; main currently says #1250 is the critical\ncorpus's standing exception while the tracker has it labeled high, which is\nthe kind of contradiction this document exists to prevent.\n\n#1250 was the one issue labeled `priority: critical` that the rule did not\ndescribe: a macro-introduced `set!` escaping assignment conversion, which is\na pure correctness bug with no memory unsafety. Both of its reproductions\nhang, and a hang is `high` here — #1954, where four output procedures hang\nforever on a cycle, is the direct precedent. Relabeled, so all 13 issues\never marked critical are now memory unsafety or a process abort and the rule\nis fully descriptive. The doc keeps the correction rather than quietly\ndropping the issue: a lone counter-example in the corpus is exactly what a\nfuture maintainer would calibrate against.\n\nThree other fixes the same pass turned up. The critical table was already\nstale — #2027 and #2024 were labeled after it was written — so it now lists\nall 13. The claim that doc-truth is \"reliably low, because by construction\nthe behaviour is correct\" has a live counter-example in #2038, where the\nundocumented caveat hides a loop running 2^n-1 times that past n≈20 prints\nnothing and exits 0; the premise is now something the reader is told to\ncheck rather than assume. And the invariant gains its one real exemption:\nauto-filed `fuzz-finding` CI reports are triage-and-close, and all six ever\nfiled were handled with no priority label, so the triage query skips them\nrather than reporting a gap that nobody intends to close.\n\nAlso replaces the total-issue count with a claim that does not rot, since\nthe audit campaign files in bursts and the number moved twice while the\noriginal branch was open.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T13:12:12+05:30",
-          "tree_id": "af1ea9de7f4b5fcd5f4fd58d53a07d2205d89747",
-          "url": "https://github.com/kaappi/kaappi/commit/400aef3c3f3279786347d4c438d4d7f6e2a8ea20"
-        },
-        "date": 1785581006832,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.384146,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.819936,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.570632,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.992623,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004642,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046578,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.315147,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056952,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.702792,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.213817,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.612615,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.277039,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.786578,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.605108,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044318,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043619,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "395e9d6eaaf6b4af00fb0c882f4a5eb83f9a8a63",
+          "message": "Fix rational→flonum conversion past f64 range; close the m/2^k complex read-back gap (#2183, #2182) (#2257)\n\n* Fix rational->flonum conversion when a side alone leaves f64 range (#2183)\n\n(inexact (/ 1 (expt 2 1074))) was 0.0 instead of the min subnormal, and\n(inexact (/ (+ (expt 2 1030) 1) (expt 2 1000))) was +inf.0 instead of\n2^30, because every rational->f64 path computed toF64(num)/toF64(den):\neach side saturates to inf independently, so the quotient was wrong\nwhenever one side alone overflowed while the true quotient was\nrepresentable. inf/inf gave nan on the parser paths (string->number,\nread), which had no band-aid, and inexact only survived via a special\nquotient/remainder retry that caught inf/inf alone.\n\nAdd types.rationalToF64: both magnitudes are normalized to their top 64\nsignificant bits, the quotient is computed to 64+ significant bits with\na u128 division (a plain f64/f64 ratio of truncated operands is off by\n1-2 ulp, and a short quotient loses mantissa precision), rounded to 53\nbits with round-half-to-even, and the removed power of two is re-applied\nwith a frexp + exact-power multiply that rounds through the subnormal\nrange correctly -- including the exact tie at 2^-1075, which\nstd.math.ldexp mishandles (rounds it up to the min subnormal).\n\nAll five call sites now route through it: types.toF64, primitives.toF64\n(which also fixes SRFI-18 getSleepSeconds), toF64Ext, inexactFn (band-aid\ndeleted), and applyExactness's .inexact arm. Verified bit-for-bit against\na correctly-rounded Python oracle over 3301 cases spanning powers of two\nfrom 2^-1100 to 2^1100, random bignum ratios, lopsided numerator/\ndenominator sizes, and the m/2^k round-trip shape.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Accept bignum rational complex parts; close the m/2^k read-back gap (#2182)\n\nPR #2181's exact-complex printer emits m/2^k spellings (odd mantissa up\nto 2^53, denominator 2^k up to 2^1074) for tiny exact-flagged\ncomponents, but the reader's complex grammar stopped at i64 rational\nparts, so (write #e1e-300+1i) could not be read back: a loud read error,\npinned in both directions by tests. #2183's scaled conversion makes the\nread-back safe (m/2^k converts back to exactly the f64 that produced\nit), so the grammar can open up.\n\nBoth parsers now accept bignum rational complex parts -- real, imaginary,\nand signed pure-imaginary -- gated on exact f64 representability via a\nshared helper (bignum.parseRationalToF64 + rationalExactInF64): a\nrational like 10^25/3 whose value would silently round stays a loud\nread error (and string->number #f), preserving the never-masquerade\npolicy of #2243. The reader's four bignum-rational paths (readNumber and\nreadIntegerWithRadix, numerator- and denominator-overflow) gain a complex\ntail mirroring the i64-rational path, converting the real part through\ntypes.rationalToF64; string->number's parseComplexComponent routes\nthrough the same helper, so the two grammars cannot drift.\n\nAlso closes a small adjacent parity gap: the i64-rational-real path's\nimaginary part now runs the same round-trip exactness check as the main\ncomplex path, so 1/2+123456789012345678901234567890i is a loud read\nerror instead of silently rounding an exact-flagged component (the\nreader previously accepted it; string->number always returned #f).\n\nPins flipped: reader-exactness-gaps section 7 and the paired tests_numeric\ncell now assert the round-trip; the m/2^k shapes join the round-trip\nmatrix; gate rejections pinned; new scheme + unit tests cover #2183's\ninexact conversions end to end.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Document the rational->f64 and bignum-rational complex fixes in the changelog\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Route SRFI-18 sleep's rational arm through the shared scaled conversion\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Guard rationalExactInF64 against a zero numerator\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: top-binade overflow, gate upper bound, radix imag, sticky-remainder rounding\n\nCodeRabbit and baijum's review found five real issues in the first pass:\n\n- Off-by-one overflow guard: frexp's significand is in [0.5, 1), so the\n  whole top binade [2^1023, 2^1024) lands on e == 1024 and is\n  representable -- (inexact (/ (+ (expt 2 1024) 1) 2)) was +inf.0\n  instead of 8.98846567431158e307. Guard is now e > 1024 with an exact\n  two-step scale through 2^1023 for e == 1024.\n\n- rationalExactInF64 had no upper bound: 2^2001/2 (power-of-two-reduced\n  to a huge value) passed the gate and converted to an exact-flagged\n  +inf.0. The normal-range branches now require bl <= k_eff + 1024.\n\n- tryComplexTailBigRational's imaginary magnitude ignored radix: a hex\n  literal read the imag as decimal (12 instead of 18). The scan now uses\n  the radix digit predicate and parses non-decimal magnitudes with\n  parseRadixUrealToF64.\n\n- The bignum-rational tail's imaginary part was not gated by\n  exactIntegerRoundTrips, so a bignum integer imag silently rounded\n  while claiming exactness. Now gated like the sibling paths.\n\n- The dead zone between the i64 limit and the bignum path: power-of-two\n  denominators in (10^6, i64max] (1/2^40+1i, the printer's own m/2^k\n  output) were rejected. The i64 path now shares the same exactness gate\n  (i64RationalExactInF64) in both the reader and parseRationalToF64.\n\n- Rounding precision: with operands truncated to 64 bits, a quotient\n  within ~2^-63 of a rounding tie could round the wrong way. Operands\n  are now reduced to 128 significant bits (u192 division) and the\n  division remainder is used as a sticky bit for half-ties, making the\n  conversion correctly rounded for all but the measure-zero case of a\n  true value within ~2^-128 of a tie. Verified bit-for-bit against a\n  correctly-rounded oracle over 5607 rationals including adversarial\n  half-ulp tie constructions, the top binade, and the subnormal tail.\n\nNew regression tests cover all of the above (unit + scheme), and the\nradix-prefixed bignum-rational complex cells CodeRabbit asked for are in\nthe round-trip matrix.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-08T15:29:31+05:30",
+          "tree_id": "0c0aeca608c79f1a10832dded40726fc7efae5c0",
+          "url": "https://github.com/kaappi/kaappi/commit/395e9d6eaaf6b4af00fb0c882f4a5eb83f9a8a63"
+        },
+        "date": 1786184649358,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.981891,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.7239,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.400864,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.119955,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004147,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.035137,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.223621,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.043271,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.172669,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.88608,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.162897,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.2351,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.279807,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.766569,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.039608,
             "unit": "seconds"
           }
         ]
