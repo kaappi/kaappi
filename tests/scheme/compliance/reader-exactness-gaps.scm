@@ -317,16 +317,26 @@
 
 ;; The tiny-component gap, pinned in both directions: the written form is
 ;; the true exact value (cross-checked against the independent bignum
-;; printer behind `exact`), and reading it back is currently a read error.
-;; When #2182+#2183 land, the second assertion fails loudly -- replace it
-;; with (round-trips? (rd "#e1e-300+1i")).
+;; printer behind `exact`), and reading it back used to be a read error.
+;; #2182+#2183 closed it: the reader's complex grammar now accepts the
+;; m/2^k spelling (bignum rational real part) via the scaled rational->f64
+;; conversion, so the form round-trips.
 (test-equal "#e1e-300+1i writes its exact value"
             (let ((ex (exact 1e-300)))
               (string-append (number->string (numerator ex))
                              "/" (number->string (denominator ex)) "+1i"))
             (wr (rd "#e1e-300+1i")))
-(test-assert "#e1e-300+1i read-back is a (loud) read error until #2182/#2183"
-             (eq? 'read-error (rd/safe (wr (rd "#e1e-300+1i")))))
+(test-assert "#e1e-300+1i round-trips" (round-trips? (rd "#e1e-300+1i")))
+(test-assert "#e1e-300+1e-300i round-trips (bignum parts both sides)"
+             (round-trips? (rd "#e1e-300+1e-300i")))
+(test-assert "#e1+1e-300i round-trips (integer real, bignum imag)"
+             (round-trips? (rd "#e1+1e-300i")))
+;; The gate: a bignum rational whose value is NOT exactly representable in
+;; f64 (10^25/3) still reads loudly rather than silently rounding an
+;; exact-flagged component (#2182).
+(test-assert "10^25/3+1i is still a loud read error"
+             (eq? 'read-error (rd/safe "10000000000000000000000000/3+1i")))
+(test-assert "s->n 10^25/3+1i" (not (string->number "10000000000000000000000000/3+1i")))
 
 ;; ---------------------------------------------------------------------------
 ;; 8. R7RS 6.2.7 parity: `read` and `string->number` used to be two
@@ -433,10 +443,10 @@
 ;;     The campaign's systematic reader check:
 ;;       (equal? x (read (open-input-string (write-to-string x))))
 ;;     Holds on every cell below (`#e1e19+1i`, once the sole failure,
-;;     included).  The one known shape it does NOT hold for -- an exact
-;;     complex with a sub-i64-rational component like `#e1e-300+1i`, whose
-;;     honest spelling the reader cannot parse yet -- is deliberately not a
-;;     cell here; section 7 pins it in both directions (#2182, #2183).
+;;     included). The exact complex with a sub-i64-rational component like
+;;     `#e1e-300+1i` -- whose honest m/2^k spelling the reader could not
+;;     parse until #2182/#2183 -- is in the matrix too now, plus a couple
+;;     of its relatives; section 7 pins the round-trip shape directly.
 ;; ---------------------------------------------------------------------------
 
 (for-each
@@ -451,7 +461,8 @@
    "#e9223372036854775807" "#x1e5" "#e1/3" "#i22/7"
    "#e9223372036854775808.0" "#e9223372036854775296.0" "#e1e-15"
    "#e1e-30" "#i3+4i" "#i#xFFFFFFFFFFFFFFFFFF" "#i#x1000000000000000000/3"
-   "9223372036854775808.0"))
+   "9223372036854775808.0" "#e1e-300+1i" "#e1e-300+1e-300i" "#e1+1e-300i"
+   "#e0+1e-300i" "#e-1e-300+2.5i"))
 
 (test-assert "round-trip #e1e19+1i" (round-trips? (rd "#e1e19+1i")))
 

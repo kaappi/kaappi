@@ -85,6 +85,84 @@ fn bigRationalToken(self: *Reader, num_str: []const u8, den_str: []const u8, rad
     return .{ .big_rational = .{ .num_str = num_str, .den_str = den_str, .radix = radix } };
 }
 
+/// Complex tail after a bignum rational real part: `num/den+imag i`,
+/// `num/den+i`, and the `-` twins (R7RS <complex R>), mirroring the
+/// i64-rational path in `readNumber` but converting the real part with the
+/// scaled rational->f64 conversion. Bignum parts are accepted only when
+/// their value is exactly representable in f64 (the m/2^k shape the
+/// printer emits for exact complex components); anything else returns null
+/// so the caller's bigRationalToken reports the glued tail as a read error
+/// rather than silently rounding an exact-flagged component
+/// (kaappi#2182/#2183). The position is restored on every failure path.
+fn tryComplexTailBigRational(self: *Reader, num_str: []const u8, den_str: []const u8, radix: u8) ?Token {
+    if (self.pos >= self.source.len) return null;
+    const next = self.source[self.pos];
+    if (next != '+' and next != '-' and next != 'i' and next != 'I') return null;
+    const save = self.pos;
+    const real = bignum.parseRationalToF64(self.gc, num_str, den_str, radix) orelse return null;
+
+    // Pure imaginary with an explicit magnitude: `+ <ureal R> i` /
+    // `- <ureal R> i` (R7RS <complex R>; the sign inside num_str is the
+    // production marker and the signless m/2^k i is not grammar). Mirrors
+    // the i64 rational path; the sign is absorbed into `real` by the parse.
+    if ((next == 'i' or next == 'I') and
+        (self.pos + 1 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 1])) and
+        num_str.len > 0 and (num_str[0] == '+' or num_str[0] == '-'))
+    {
+        self.pos += 1;
+        return .{ .complex = .{ .real = 0.0, .imag = real, .exact_real = true, .exact_imag = true } };
+    }
+    if (next != '+' and next != '-') return null;
+    const neg = next == '-'; // sign applies to the imaginary part below
+
+    self.pos += 1; // skip +/-
+    // +i / -i: the unit imaginary.
+    if (self.pos < self.source.len and (self.source[self.pos] == 'i' or self.source[self.pos] == 'I') and
+        (self.pos + 1 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 1])))
+    {
+        self.pos += 1;
+        return .{ .complex = .{ .real = real, .imag = if (neg) -1.0 else 1.0, .exact_real = true, .exact_imag = true } };
+    }
+    // Imaginary magnitude: digits/.//_ then 'i' (mirrors the i64 path).
+    const mag_start = self.pos;
+    var imag_has_dot = false;
+    while (self.pos < self.source.len) {
+        const ic = self.source[self.pos];
+        if (std.ascii.isDigit(ic) or ic == '_') {
+            self.pos += 1;
+        } else if (ic == '.' and !imag_has_dot) {
+            imag_has_dot = true;
+            self.pos += 1;
+        } else if (ic == '/') {
+            self.pos += 1;
+        } else break;
+    }
+    if (self.pos == mag_start) {
+        self.pos = save;
+        return null;
+    }
+    if (self.pos < self.source.len and (self.source[self.pos] == 'i' or self.source[self.pos] == 'I') and
+        (self.pos + 1 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 1])))
+    {
+        self.pos += 1;
+        const imag_str = self.source[mag_start .. self.pos - 1];
+        const imag = parseDecimalReal(imag_str) orelse blk: {
+            // Bignum rational imaginary part: split at '/' and gate.
+            if (std.mem.indexOfScalar(u8, imag_str, '/')) |sp2| {
+                break :blk bignum.parseRationalToF64(self.gc, imag_str[0..sp2], imag_str[sp2 + 1 ..], radix) orelse {
+                    self.pos = save;
+                    return null;
+                };
+            }
+            self.pos = save;
+            return null;
+        };
+        return .{ .complex = .{ .real = real, .imag = if (neg) -imag else imag, .exact_real = true, .exact_imag = !imag_has_dot } };
+    }
+    self.pos = save;
+    return null;
+}
+
 /// A malformed numeric token with no delimiter between the failure point and
 /// end-of-slice may be a truncated prefix of a valid literal (`3.` of `3.5`,
 /// `1_` of `1_2`, `#e+in` of `#e+inf.0` — the scan can stop with unconsumed
@@ -213,7 +291,15 @@ pub fn readNumber(self: *Reader) ReadError!Token {
             if (real_exact and !exactIntegerRoundTrips(self, num_str, 10)) return invalidNumberOrEof(self);
             if (imag_exact and !exactIntegerRoundTrips(self, imag_str, 10)) return invalidNumberOrEof(self);
             const real = parseDecimalReal(num_str) orelse return invalidNumberOrEof(self);
-            const imag = parseDecimalReal(imag_str) orelse return invalidNumberOrEof(self);
+            const imag = parseDecimalReal(imag_str) orelse blk: {
+                // Bignum rational imaginary part (the m/2^k printer form
+                // after an integer real): split at '/' and gate on exact
+                // f64 representability (#2182/#2183).
+                if (std.mem.indexOfScalar(u8, imag_str, '/')) |sp2| {
+                    break :blk bignum.parseRationalToF64(self.gc, imag_str[0..sp2], imag_str[sp2 + 1 ..], 10) orelse return invalidNumberOrEof(self);
+                }
+                return invalidNumberOrEof(self);
+            };
             return .{ .complex = .{ .real = real, .imag = imag, .exact_real = real_exact, .exact_imag = imag_exact } };
         }
         // Not a complex literal — backtrack
@@ -259,6 +345,7 @@ pub fn readNumber(self: *Reader) ReadError!Token {
                 self.pos + 1 < self.source.len and std.ascii.isDigit(self.source[self.pos + 1]))
             {
                 const den_str = scanDenominatorDigits(self, 10);
+                if (tryComplexTailBigRational(self, num_str, den_str, 10)) |tok| return tok;
                 return bigRationalToken(self, num_str, den_str, 10);
             }
             return .{ .bignum_str = .{ .str = num_str, .radix = 10 } };
@@ -271,7 +358,10 @@ pub fn readNumber(self: *Reader) ReadError!Token {
             var den_strip_buf: [256]u8 = undefined;
             const clean_den_str = bignum.stripUnderscores(den_str, 10, &den_strip_buf) orelse return invalidNumberOrEof(self);
             const den = std.fmt.parseInt(i64, clean_den_str, 10) catch |err| {
-                if (err == error.Overflow) return bigRationalToken(self, num_str, den_str, 10);
+                if (err == error.Overflow) {
+                    if (tryComplexTailBigRational(self, num_str, den_str, 10)) |tok| return tok;
+                    return bigRationalToken(self, num_str, den_str, 10);
+                }
                 return invalidNumberOrEof(self);
             };
             // Check for complex after rational: 1/2+3/4i
@@ -300,7 +390,22 @@ pub fn readNumber(self: *Reader) ReadError!Token {
                 {
                     self.pos = imag_end + 1;
                     const imag_str = self.source[imag_start2..imag_end];
-                    const imag_val = parseDecimalReal(imag_str) orelse {
+                    // An exact-flagged imaginary part must round-trip through
+                    // f64: a bignum integer would silently carry a rounded
+                    // value while claiming exactness, the same rule the main
+                    // complex path applies to both components (#2182).
+                    if (!imag_has_dot2 and !exactIntegerRoundTrips(self, imag_str, 10)) return invalidNumberOrEof(self);
+                    const imag_val = parseDecimalReal(imag_str) orelse blk: {
+                        // Bignum rational imaginary part (e.g. the m/2^k
+                        // printer form): split at '/' and gate on exact f64
+                        // representability (#2182/#2183). imag_str carries
+                        // the sign, which parseBignumString accepts.
+                        if (std.mem.indexOfScalar(u8, imag_str, '/')) |sp2| {
+                            break :blk bignum.parseRationalToF64(self.gc, imag_str[0..sp2], imag_str[sp2 + 1 ..], 10) orelse {
+                                self.pos = csave;
+                                return .{ .rational = .{ .num = n, .den = den } };
+                            };
+                        }
                         self.pos = csave;
                         return .{ .rational = .{ .num = n, .den = den } };
                     };
@@ -1018,7 +1123,10 @@ pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
         if (self.pos < self.source.len and self.source[self.pos] == '/') {
             const slash_pos = self.pos;
             const den_str = scanDenominatorDigits(self, radix);
-            if (den_str.len > 0) return bigRationalToken(self, num_str, den_str, radix);
+            if (den_str.len > 0) {
+                if (tryComplexTailBigRational(self, num_str, den_str, radix)) |tok| return tok;
+                return bigRationalToken(self, num_str, den_str, radix);
+            }
             self.pos = slash_pos; // no digits after '/', backtrack
         }
         return .{ .bignum_str = .{ .str = num_str, .radix = radix } };
@@ -1031,7 +1139,10 @@ pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
             var den_strip_buf: [256]u8 = undefined;
             const clean_den_str = bignum.stripUnderscores(den_str, radix, &den_strip_buf) orelse return invalidNumberOrEof(self);
             const den = std.fmt.parseInt(i64, clean_den_str, radix) catch |err| {
-                if (err == error.Overflow) return bigRationalToken(self, num_str, den_str, radix);
+                if (err == error.Overflow) {
+                    if (tryComplexTailBigRational(self, num_str, den_str, radix)) |tok| return tok;
+                    return bigRationalToken(self, num_str, den_str, radix);
+                }
                 return invalidNumberOrEof(self);
             };
             const real_val: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(den));

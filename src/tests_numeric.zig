@@ -564,16 +564,26 @@ test "#e/#i reach complex literals on both parsers (#1910, #751)" {
             " (equal? (get-output-string p) (string-append (number->string (numerator ex))" ++
             " \"/\" (number->string (denominator ex)) \"+1i\")))",
     );
-    // KNOWN GAP, pinned: that spelling does not read back yet. The reader's
-    // complex grammar stops at i64 rational parts (kaappi#2182), and closing
-    // it needs the scaled rational->f64 conversion first or this would read
-    // back as a silent 0.0+1i (kaappi#2183). A loud error still beats the
-    // old silently-wrong 0. When those land, the read succeeds, this
-    // deliberately returns #f, and the failure tells you to replace it with
-    // a round-trip equal? assertion.
+    // That spelling now reads back: the reader's complex grammar accepts
+    // the m/2^k form (bignum rational real part) via the scaled
+    // rational->f64 conversion (kaappi#2182/#2183), so the write/read
+    // round-trip is exact -- this used to be a deliberately-failing pin.
     try th.expectEvalTrue(
         "(let ((p (open-output-string))) (write #e1e-300+1i p)" ++
-            " (guard (e (#t #t)) (read (open-input-string (get-output-string p))) #f))",
+            " (equal? (read (open-input-string (get-output-string p))) #e1e-300+1i))",
+    );
+    // The gate: a bignum rational that is NOT exactly representable in f64
+    // still reads loudly instead of silently rounding an exact-flagged
+    // component, and string->number agrees (R7RS 6.2.7).
+    try th.expectEvalTrue(
+        "(guard (e (#t #t)) (read (open-input-string \"10000000000000000000000000/3+1i\")) #f)",
+    );
+    try th.expectEvalBool("(string->number \"10000000000000000000000000/3+1i\")", false);
+    // string->number shares the grammar: it accepts the m/2^k spelling too.
+    try th.expectEvalTrue(
+        "(let ((ex (exact 1e-300)))" ++
+            " (let ((s (string-append (number->string (numerator ex)) \"/\" (number->string (denominator ex)) \"+1i\")))" ++
+            "  (and (string->number s) (= (real-part (string->number s)) (exact->inexact 1e-300)))))",
     );
     // #e refuses non-finite components, like the flonum rule (#419).
     try th.expectEvalTrue("(guard (e (#t #t)) (read (open-input-string \"#e1e999+2i\")) #f)");

@@ -1128,20 +1128,15 @@ const ComplexComponent = struct { val: f64, exact: bool };
 /// never masquerade as exact (kaappi#2182).
 fn parseComplexComponent(gc: *@import("memory.zig").GC, part: []const u8, radix: u8) ?ComplexComponent {
     if (std.mem.indexOfScalar(u8, part, '/')) |sp| {
-        // Rational N/D (any radix): R7RS <ureal R>.
+        // Rational N/D (any radix): R7RS <ureal R>. i64 parts within
+        // complex_rational_limit divide directly; bignum parts are accepted
+        // only when their value is exactly representable in f64 (the m/2^k
+        // printer shape), so a rounded value never masquerades as exact
+        // (kaappi#2182/#2183). Shared with the reader's bignum-rational
+        // complex tail so the two grammars cannot drift.
         if (sp == 0 or sp + 1 >= part.len) return null;
-        var nb: [256]u8 = undefined;
-        var db: [256]u8 = undefined;
-        const num = bignum_mod.stripUnderscores(part[0..sp], radix, &nb) orelse return null;
-        const den = bignum_mod.stripUnderscores(part[sp + 1 ..], radix, &db) orelse return null;
-        const n = std.fmt.parseInt(i64, num, radix) catch return null;
-        const d = std.fmt.parseInt(i64, den, radix) catch return null;
-        if (d == 0) return null;
-        // Beyond the printer's rational-recovery granularity the ratio
-        // would print as a silently-wrong mantissa/2^k fraction; reject
-        // loudly, like the reader does (kaappi#2182/#2243).
-        if (@abs(n) > bignum_mod.complex_rational_limit or @abs(d) > bignum_mod.complex_rational_limit) return null;
-        return .{ .val = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d)), .exact = true };
+        const val = bignum_mod.parseRationalToF64(gc, part[0..sp], part[sp + 1 ..], radix) orelse return null;
+        return .{ .val = val, .exact = true };
     }
     if (radix == 10) {
         // Decimal parts (1.5+2i, 1e5+2i) and inf/nan spellings: parseFloat
