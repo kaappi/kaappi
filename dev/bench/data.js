@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786211447700,
+  "lastUpdate": 1786221897213,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "dfd8dff73d8749689a4918d4ab29549a20afbfeb",
-          "message": "Phase 3.8: ten smoke-only SRFIs — 261 assertions, and two closed issues whose regression tests pinned the valid case (#2078)\n\n* Phase 3.8: ten smoke-only SRFIs — 67 → 261 assertions\n\nAudit v2 unit 3.8. Ten SRFIs whose test files existed but held ≤12\nassertions each: 23, 46, 98, 112, 139, 149, 188, 190, 236, 244. A smoke\ntest proves the library loads; it does not test the library.\n\nFour of the ten are genuinely thin by nature — 23 is one procedure whose\nspec explicitly declines to prescribe behaviour, 46/149 are bare\n(export syntax-rules) conformance statements, 244 re-exports a core\nspecial form — so the work went into the mechanism each one *claims*\nrather than the wrapper.\n\nTwo closed issues reproduce verbatim and were reopened:\n\n  #682  A pattern variable used at a LOWER ellipsis depth than it was\n        matched silently expands to (). The fix (PR #730) added a\n        `b.depth != 1` check to instantiateEllipsis; #931 removed it —\n        correctly, since it blocked legitimate nested reduction — and\n        nothing replaced it. The regression test the issue shipped only\n        ever exercised the VALID case, so it printed PASS throughout.\n        The depth-0 half, which #730 never touched, still carries the\n        comment admitting it.\n\n  #550  Top-level define-values ignores an arity mismatch. The fix\n        (153cefd8) added its checks inside the MultipleValues arm only;\n        the single-value arm has none, so three of the issue's four\n        reproductions still exit 0 with a prefix of the formals bound.\n\nOne new issue:\n\n  #2075 A begin-wrapped internal define in a let body escapes to the\n        global environment when no enclosing procedure exists. R7RS\n        4.2.3 requires the begin to be transparent; the unwrapped form\n        is correct everywhere, and the same text inside any lambda is\n        correct — so `(define g 'global)` followed by\n        `(let ((g 'outer)) (begin (define g 'inner)) g)` answers `outer`\n        and leaves the global reading `inner`. Found while checking the\n        claim lib/srfi/188.sld's header rests on, which turns out to be\n        true only at top level.\n\nSRFI 190 inherits #2060 exactly (make-coroutine-generator is call/cc\nbased, so a resume cannot cross a returned SRFI 1 native frame); cited\nrather than re-filed, with the (scheme base) map/for-each controls\npinned enabled beside it.\n\n11 assertions are disabled behind ;; FAIL: markers and every one was\nmutation-tested — each fails today, so a fix flips it. The\nbegin-splicing probes in srfi188.scm are evaluated at true top level and\nstashed in variables, because SRFI-64's own test-equal wrapper supplies\nthe enclosing procedure scope whose absence is the defect and answers\n`inner` from inside the assertion.\n\nClean on the rest: SRFI 139's adjustment reaches a macro defined before\nthe parameterize and is restored across a macro boundary; SRFI 149's\nsemantics rule 4 over a compound template element matches Guile (chibi\n0.12 does not); SRFI 46's custom ellipsis, tail patterns and their\ncombination are correct in all 24 probed shapes; SRFI 98's alist is\nfreshly allocated per call so a caller cannot corrupt the environment;\nSRFI 112 answers string-or-#f for all six with correct arity; SRFI 236\nevaluates every expression exactly once with no template capture.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Note in srfi244.scm that fixing #550 aborts the file at load\n\nThe three top-level probes pinning #550's silent cases are definitions,\nnot assertions, so a fix makes them raise while the file is loading. Say\nso where the fixer will read it.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Pin the two-ellipses-in-one-pattern split (#2082)\n\nR7RS 4.3.2's pattern grammar admits at most one ellipsis per list or\nvector pattern; SRFI 46's tail patterns widen what may follow it, not\nhow many there may be. This expander accepts two and gives the trailing\npattern the last two elements regardless of input length, while a short\ncall fails outright. chibi 0.12 and Guile 3.0 both reject the\ndefine-syntax.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T14:34:24+05:30",
-          "tree_id": "d4d8c6c053f982707aff31235b7b05102f78b63c",
-          "url": "https://github.com/kaappi/kaappi/commit/dfd8dff73d8749689a4918d4ab29549a20afbfeb"
-        },
-        "date": 1785593450497,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.349359,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.000877,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.608617,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.987852,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004748,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046844,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.315527,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057966,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.740627,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.215363,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.612104,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.291752,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.80216,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.736928,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045488,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044895,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6b1795651cc1710f0b3056890b49acbf14eee4a0",
+          "message": "Fix SRFI-18 cross-thread state: symbol interning depth (#1935), mutex/terminate state machine (#1984), cross-thread continuation invoke (#1936) (#2262)\n\n* Fix SRFI-18 cross-thread state: symbol interning depth, mutex/terminate state machine, cross-thread continuation invoke\n\nThree Phase 5 audit findings (wrong-result, R7RS/SRFI-18 violations) in the\nSRFI-18 cross-thread machinery:\n\n#1935 - symbol interning was one thread level deep. GC.initForThread\npointed a child at its IMMEDIATE parent's symbol table, and a child GC's\nown 'symbols' field is never populated (its internings go to\nshared_symbols) -- so a grandchild interned into a table nothing else\nconsults: (eq? 'alpha (string->symbol \"alpha\")) at thread depth 2 was #f,\nan R7RS 6.5 violation, and the depth-1 ownership stamping that makes\nsymbols the one safe cross-heap write did not reach depth 2. Chain every\ndescendant to the ROOT's symbol table, foreign_symbols and owner id. The\nproduction path was already masked at depth 2 by #2230 passing the root\nVM to threadEntryFn; the latent trap in initForThread itself is now gone.\n\n#1984 - four SRFI-18 state-machine defects:\n  * mutex-unlock! never cleared 'abandoned' (spec: \"makes it\n    unlocked/not-abandoned\") -- a plain unlock of a mutex whose previous\n    owner died raised a spurious abandoned-mutex-exception on the next\n    lock.\n  * thread-terminate! destroyed an already-finished thread's result --\n    the terminated flag was stored before the status guard, and\n    thread-join! tests it first, so terminating a joined thread\n    retroactively erased what it returned. Terminating a finished thread\n    is now a no-op (\"If the _thread_ is not already terminated\").\n  * mutex-lock! accepted a terminated thread as owner -- per spec \"if T\n    is terminated the _mutex_ becomes unlocked/abandoned\"; the old code\n    recorded the dead thread as owner, permanently deadlocking every\n    later lock.\n  * self-termination joined as uncaught-exception with a void reason\n    instead of terminated-thread-exception -- the join reads the HANDLE\n    fiber, a different object from the thread's own current fiber, so the\n    handle's terminated flag is now set too.\n\n#1936 - invoking a continuation captured on another OS thread (reached\nonly through the shared-globals path, bypassing the deep-copy refusal)\noverwrote the invoking VM with the capturing thread's saved frames and\nproduced a value on which every R7RS type predicate answers #f -- a value\noutside the type lattice. Every continuation-invoke site now checks the\ncontinuation's owning GC and raises a catchable error instead.\nSame-thread invocation is unaffected.\n\nEach fix carries a regression test that fails without it (Scheme tests\nunder tests/scheme/srfi/, a GC unit test, and the audit file's pinned\n'TODAY' behaviours updated to the spec-correct ones). Two existing tests\nare updated: srfi18-mutex-state-owner-2125 (explicit owner must now be a\nlive thread) and srfi18-terminate-native-wait-1982 (the timed-lock case\nnow actually parks the child instead of passing only via the erase-a\nfinished-result bug).\n\nFull suite: 2093 Scheme/R7RS tests pass, 1716+ unit tests pass, and the\nunit suite stays green under -Dgc-stress=true.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: wake fast-path waiters, self-contained same-thread control, contended slow-path test, stale audit header\n\nReview findings on #2262, all verified against the code:\n\n* mutexLockFn's fast-path terminated-owner release now wakes local waiters\n  (ctx.sched.wakeMutexWaiters) like the slow path already did, so a waiter\n  enrolled from a previous foreign unlock observes the release instead of\n  sitting parked until its poll cap or the deadlock error.\n* The #1936 test's 'same continuation still works on its own thread'\n  control invoked a top-level continuation, which re-enters the capture\n  point and never returns to the assertion -- the verdict was silently\n  skipped (5 passes, not 6). The control now captures and invokes a\n  continuation inside the assertion.\n* Added a contended variant of the terminated-owner mutex test that parks\n  through the waited path of mutexLockFn, exercising its separate copy of\n  the transition (previously only the uncontended fast path was pinned).\n* Rewrote the audit file's stale '-- BUG:' header above the lc-12/lc-13\n  assertions (now '#1984 FIXED', obsolete line numbers removed).\n\nThe 'critical' review claim that the slow-path branch skips the reactor\ntimer / deadline_ns cleanup is not applicable: that cleanup runs above the\nbranch (primitives_srfi18.zig:1686-1687, before the owner resolution), and\nrunSchedulerStep's epilogue already restores me.status to .running -- no\ncode change needed there.\n\nVerified: full suite 2093 pass / 0 fail; unit tests 1716 pass; new and\nupdated tests pass under -Dgc-stress=true.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-08T20:09:46Z",
+          "tree_id": "996e499aeddb0a51c916842575a39fe078eb5003",
+          "url": "https://github.com/kaappi/kaappi/commit/6b1795651cc1710f0b3056890b49acbf14eee4a0"
+        },
+        "date": 1786221894320,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.01632,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.650348,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.593333,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.894013,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005295,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04656,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.302079,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055025,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.445659,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.185997,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.579217,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.307104,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.744192,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.842122,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045558,
             "unit": "seconds"
           }
         ]
