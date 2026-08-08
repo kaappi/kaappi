@@ -51,8 +51,24 @@
     (define (boolean-hash x) (if x 1 0))
     (define (char-hash c) (modulo (char->integer c) (hash-bound)))
     (define (char-ci-hash c) (char-hash (char-downcase c)))
-    (define (number-hash x) (if (exact? x) (modulo (abs x) (hash-bound))
-                                (modulo (exact (floor (abs x))) (hash-bound))))
+    (define (number-hash x)
+      (if (and (complex? x) (not (real? x)))
+          ;; A genuine complex has no < or abs, so hash its components
+          ;; (kaappi#1950): SRFI 160 c64/c128 elements and any complex value
+          ;; reachable through default-hash land here. Equal complexes give
+          ;; equal component hashes, preserving the comparator contract.
+          (modulo (+ (* 31 (number-hash (real-part x)))
+                     (number-hash (imag-part x)))
+                  (hash-bound))
+          ;; Non-finite reals have no floor/exact form, so map them to fixed
+          ;; buckets first. = still lands equal values in one bucket
+          ;; (+inf.0 = +inf.0; +nan.0 = +nan.0 is #f, so NaN is unconstrained)
+          ;; and c64/c128 elements may legitimately carry infinities (SRFI 160).
+          (cond
+            ((nan? x) 1)
+            ((infinite? x) (if (negative? x) 2 3))
+            (else (if (exact? x) (modulo (abs x) (hash-bound))
+                      (modulo (exact (floor (abs x))) (hash-bound)))))))
     (define (string-hash s)
       (let loop ((i 0) (h 0))
         (if (= i (string-length s)) (modulo h (hash-bound))

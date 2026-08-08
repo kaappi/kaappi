@@ -36,6 +36,38 @@
 (test-equal "#e1e19" 10000000000000000000 (string->number "#e1e19"))
 (test-assert "#e1e20 = (exact 1e20)" (= (string->number "#e1e20") (exact 1e20)))
 
+;; #751: #e/#i exactness prefixes apply to complex numbers (R7RS 7.1.1)
+;; All four complex paths in parseNumberText must route through
+;; applyExactness, whose Complex arm rebuilds with both exactness flags.
+(test-equal "#e1+2i" 1+2i (string->number "#e1+2i"))
+(test-assert "#e1+2i is exact" (exact? (string->number "#e1+2i")))
+(test-equal "#i1+2i" 1.0+2.0i (string->number "#i1+2i"))
+(test-assert "#i1+2i is inexact" (inexact? (string->number "#i1+2i")))
+;; General a+bi with a decimal real part: #e rebuilds digit-exactly.
+(test-equal "#e1.5+2i" 3/2+2i (string->number "#e1.5+2i"))
+(test-assert "#e1.5+2i is exact" (exact? (string->number "#e1.5+2i")))
+;; Pure imaginary +i/-i (R7RS <complex R> -> `+ i` | `- i`).
+(test-equal "#e+i" +i (string->number "#e+i"))
+(test-assert "#e+i is exact" (exact? (string->number "#e+i")))
+(test-assert "#e-i is exact" (exact? (string->number "#e-i")))
+(test-equal "#i+i" 0.0+1.0i (string->number "#i+i"))
+;; Pure imaginary with a magnitude: +3i, -2i.
+(test-equal "#e+3i" +3i (string->number "#e+3i"))
+(test-assert "#e+3i is exact" (exact? (string->number "#e+3i")))
+(test-assert "#e-2i is exact" (exact? (string->number "#e-2i")))
+(test-assert "#i+3i is inexact" (inexact? (string->number "#i+3i")))
+;; #e past i64 keeps exact digits in the real part (#1910's write half).
+(test-equal "#e1e19+1i" 10000000000000000000+1i (string->number "#e1e19+1i"))
+(test-assert "#e1e19+1i is exact" (exact? (string->number "#e1e19+1i")))
+;; A non-finite part has no exact representation -- #f, same rule as the
+;; flonum arm (#419).
+(test-assert "#e+inf.0+1i is #f" (not (string->number "#e+inf.0+1i")))
+(test-assert "#e+nan.0+1i is #f" (not (string->number "#e+nan.0+1i")))
+;; Radix prefix combined with exactness and a complex tail.
+(test-equal "#e#x1+2i" 1+2i (string->number "#e#x1+2i"))
+(test-equal "#x#e1+2i" 1+2i (string->number "#x#e1+2i"))
+(test-equal "#i#x1+2i" 1.0+2.0i (string->number "#i#x1+2i"))
+
 ;; Existing functionality preserved
 (test-equal "42" 42 (string->number "42"))
 (test-equal "3.14" 3.14 (string->number "3.14"))
