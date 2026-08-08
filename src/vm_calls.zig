@@ -497,6 +497,7 @@ pub fn callValue(vm: *VM, callee: Value, base: u32, nargs: u8) VMError!void {
     }
     if (types.isContinuation(callee)) {
         const cont = types.toObject(callee).as(types.Continuation);
+        try vm_continuations.checkContinuationOwner(vm, cont);
         const value = try continuationArgValue(vm.gc, vm.registers[base + 1 .. base + 1 + @as(usize, nargs)]);
 
         if (cont.is_escape) {
@@ -816,6 +817,7 @@ fn callReentrant(vm: *VM, closure: *types.Closure, base: u32, args: []const Valu
 pub fn callHandler(vm: *VM, handler_val: Value, arg: Value, return_dst: u8) VMError!Value {
     if (types.isContinuation(handler_val)) {
         const cont = types.toObject(handler_val).as(types.Continuation);
+        try vm_continuations.checkContinuationOwner(vm, cont);
         if (cont.is_escape) {
             try vm_continuations.invokeEscape(vm, cont, arg);
             return VMError.ContinuationInvoked;
@@ -913,6 +915,7 @@ pub fn callWithArgs(vm: *VM, proc: Value, args: []const Value) VMError!Value {
     }
     if (types.isContinuation(proc)) {
         const cont = types.toObject(proc).as(types.Continuation);
+        try vm_continuations.checkContinuationOwner(vm, cont);
         const value = try continuationArgValue(vm.gc, args);
         if (cont.is_escape) {
             try vm_continuations.invokeEscape(vm, cont, value);

@@ -597,6 +597,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     self.registers[ret_idx] = result;
                 } else if (types.isContinuation(callee)) {
                     const cont = types.toObject(callee).as(types.Continuation);
+                    try vm_continuations.checkContinuationOwner(self, cont);
                     const value = try vm_calls.continuationArgValue(self.gc, self.registers[abs_base + 1 .. abs_base + 1 + @as(usize, nargs)]);
                     if (cont.is_escape) {
                         try self.invokeEscape(cont, value);
@@ -783,6 +784,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     self.registers[ret_idx] = result;
                 } else if (types.isContinuation(proc)) {
                     const cont = types.toObject(proc).as(types.Continuation);
+                    try vm_continuations.checkContinuationOwner(self, cont);
                     const value = try vm_calls.continuationArgValue(self.gc, flat_args[0..count]);
                     if (cont.is_escape) {
                         try self.invokeEscape(cont, value);
@@ -1351,6 +1353,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     self.registers[ret_idx] = result;
                 } else if (types.isContinuation(receiver)) {
                     const cont = types.toObject(receiver).as(types.Continuation);
+                    try vm_continuations.checkContinuationOwner(self, cont);
                     if (cont.is_escape) {
                         try self.invokeEscape(cont, cont_val);
                     } else {

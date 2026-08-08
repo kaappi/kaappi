@@ -1019,6 +1019,20 @@ fn threadTerminateFn(args: []const Value) PrimitiveError!Value {
     const ctx = try ensureScheduler();
     const fiber = types.toObject(args[0]).as(fiber_mod.Fiber);
 
+    // #1984: "If the _thread_ is not already terminated" (SRFI-18 6.2.3).
+    // Terminating a thread that has already finished must be a no-op. The
+    // old code stored `terminated` BEFORE this status check, and
+    // threadJoinResult tests `terminated` first — so terminating a thread
+    // that had already completed retroactively erased the result it returned
+    // (and a raising thread's end-exception), and a later thread-join!
+    // reported terminated-thread-exception instead of the result. The status
+    // load here is acquire and threadEntryFn's completion store is release:
+    // a thread whose completion is already visible is skipped; a terminate
+    // that lands before that release store is, per the spec, a termination
+    // that occurred before the thread finished.
+    const status = @atomicLoad(fiber_mod.FiberStatus, &fiber.status, .acquire);
+    if (status == .completed or status == .errored) return types.VOID;
+
     // Atomic: for OS threads the child VM polls this flag concurrently.
     @atomicStore(bool, &fiber.terminated, true, .monotonic);
 
@@ -1039,30 +1053,42 @@ fn threadTerminateFn(args: []const Value) PrimitiveError!Value {
         fiber_mod.releaseFiberRendezvousToken(fiber);
     }
 
-    const status = @atomicLoad(fiber_mod.FiberStatus, &fiber.status, .acquire);
-    if (status != .completed and status != .errored) {
-        // A terminated fiber may have been mid-timed-wait (mutex-lock!,
-        // thread-join!, condvar wait, thread-sleep!) with a pending entry
-        // on the reactor's timer heap. Cancel it now — otherwise it fires
-        // later against whatever fiber ends up reusing this slot. Likewise
-        // an io_waiting fiber (a parked port read/write, KEP-0001 Phase 3)
-        // still sits in the reactor's fd waiter lists; pull it out so the
-        // dead fiber can't linger there as a stale registration.
-        ctx.reactor.removeTimer(fiber);
-        if (fiber.io_fd) |io_fd| {
-            ctx.reactor.removeWaiter(io_fd, fiber);
-            fiber.io_fd = null;
-        }
-        // Same reasoning, KEP-0002 Phase 3 (#1468): a fiber parked on a
-        // promoted channel sits in the scheduler's shared-waiter registry
-        // (fiber.zig), not just .waiting -- pull it out so a later sweep
-        // never touches a slot addFiber has since reused for another fiber.
-        ctx.sched.removeSharedWaiter(fiber);
-        @atomicStore(fiber_mod.FiberStatus, &fiber.status, .errored, .release);
-        ctx.sched.wakeWaiters(fiber);
+    // A terminated fiber may have been mid-timed-wait (mutex-lock!,
+    // thread-join!, condvar wait, thread-sleep!) with a pending entry
+    // on the reactor's timer heap. Cancel it now — otherwise it fires
+    // later against whatever fiber ends up reusing this slot. Likewise
+    // an io_waiting fiber (a parked port read/write, KEP-0001 Phase 3)
+    // still sits in the reactor's fd waiter lists; pull it out so the
+    // dead fiber can't linger there as a stale registration.
+    ctx.reactor.removeTimer(fiber);
+    if (fiber.io_fd) |io_fd| {
+        ctx.reactor.removeWaiter(io_fd, fiber);
+        fiber.io_fd = null;
     }
+    // Same reasoning, KEP-0002 Phase 3 (#1468): a fiber parked on a
+    // promoted channel sits in the scheduler's shared-waiter registry
+    // (fiber.zig), not just .waiting -- pull it out so a later sweep
+    // never touches a slot addFiber has since reused for another fiber.
+    ctx.sched.removeSharedWaiter(fiber);
+    @atomicStore(fiber_mod.FiberStatus, &fiber.status, .errored, .release);
+    ctx.sched.wakeWaiters(fiber);
 
     if (fiber == ctx.vm.current_fiber) {
+        // #1984: self-termination must end the thread the way the join sees
+        // it. The join operates on the HANDLE fiber — a different object
+        // from this thread's current fiber (the handle lives in the parent
+        // heap, the current fiber in the child's) — and threadJoinResult
+        // gates on the handle's `terminated` flag. Mark the handle too, or a
+        // thread terminating itself would join as uncaught-exception with a
+        // void reason instead of terminated-thread-exception. The store is
+        // on the parent-heap handle, exactly like an external terminate's
+        // store: the parent's join (thread.join() in reapOsThread)
+        // synchronizes with this thread's exit, so threadJoinResult's plain
+        // read is safe. Null on the main thread and on local fibers.
+        if (ctx.vm.thread_handle) |h| {
+            const handle = types.toObject(h).as(fiber_mod.Fiber);
+            @atomicStore(bool, &handle.terminated, true, .monotonic);
+        }
         ctx.vm.yielded = true;
     }
     return types.VOID;
@@ -1451,6 +1477,17 @@ fn reportableOwnerHandle(vm: *const vm_mod.VM, fallback: Value) Value {
     return fallback;
 }
 
+// #1984: SRFI-18 6.4.2's "if T is terminated" test for mutex-lock!'s
+// owner argument: the owner fiber's terminate flag is set by
+// thread-terminate!. Read atomically — the owner may be a fiber on another
+// OS thread whose thread-terminate! is concurrent (the same cross-thread
+// read the child VM's safepoint does on its own handle).
+fn isTerminatedOwner(v: Value) bool {
+    if (!types.isFiber(v)) return false;
+    const fiber = types.toObject(v).as(fiber_mod.Fiber);
+    return @atomicLoad(bool, &fiber.terminated, .acquire);
+}
+
 // Atomically claims the mutex (false -> true). This is the single point of
 // arbitration between racing threads -- a plain load-then-store lets two
 // threads both observe "unlocked" and both believe they've acquired it,
@@ -1525,6 +1562,29 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
             // reader can never observe a partially initialized owner pair.
             const owner = resolveMutexOwner(args, cf_val);
             const owner_thread = resolveMutexOwner(args, reportableOwnerHandle(ctx.vm, cf_val));
+            // #1984: SRFI-18 6.4.2 -- "if T is terminated the _mutex_
+            // becomes unlocked/abandoned". An explicit owner argument naming
+            // a terminated thread must not be recorded as owner: the mutex
+            // would be locked/owned by a thread that can never unlock it.
+            // It becomes unlocked/abandoned instead. Not an
+            // abandoned-mutex raise: the mutex was NOT unlocked/abandoned
+            // before this state change, so mutex-lock! returns #t per the
+            // spec's algorithm (only a mutex abandoned BEFORE the change
+            // raises). The claim made above is released back.
+            if (owner != types.VOID and isTerminatedOwner(owner)) {
+                m.owner_thread = types.VOID;
+                m.owner = types.VOID;
+                @atomicStore(bool, &m.abandoned, true, .release);
+                @atomicStore(bool, &m.locked, false, .release);
+                // The claim above released the mutex back into
+                // unlocked/abandoned; wake any local waiter enrolled from a
+                // previous foreign unlock so it observes the release (and
+                // raises abandoned on its re-lock) instead of sitting parked
+                // until its poll cap or the deadlock error. Mirrors the
+                // slow path's wake below.
+                ctx.sched.wakeMutexWaiters(args[0]);
+                return types.TRUE;
+            }
             m.owner_thread = owner_thread;
             m.owner = owner;
             if (memory.gc_instance) |gc| {
@@ -1644,6 +1704,22 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
         (if (types.isFiber(oa)) oa else if (oa == types.FALSE) types.VOID else owner_handle)
     else
         owner_handle;
+    // #1984: SRFI-18 6.4.2 -- "if T is terminated the _mutex_ becomes
+    // unlocked/abandoned" (see the fast path for the full reasoning). `me`
+    // claimed the mutex above (the tryClaimMutex after the wait); the
+    // terminated-owner case releases it back into unlocked/abandoned instead
+    // of recording a dead owner. Not an abandoned-mutex raise: the mutex
+    // was locked, not unlocked/abandoned, before this state change. Wake
+    // waiters so they observe the release and retry (and hit the abandoned
+    // raise the spec prescribes for a subsequent lock).
+    if (owner != types.VOID and isTerminatedOwner(owner)) {
+        m.owner_thread = types.VOID;
+        m.owner = types.VOID;
+        @atomicStore(bool, &m.abandoned, true, .release);
+        @atomicStore(bool, &m.locked, false, .release);
+        ctx.sched.wakeMutexWaiters(mutex_val);
+        return types.TRUE;
+    }
     m.owner_thread = owner_thread;
     m.owner = owner;
     if (memory.gc_instance) |gc| {
@@ -1695,6 +1771,14 @@ fn mutexUnlockFn(args: []const Value) PrimitiveError!Value {
     // write its own owner, and this line would then stomp it back to VOID.
     m.owner = types.VOID;
     m.owner_thread = types.VOID;
+    // #1984: "Unlocks the mutex by making it unlocked/**not-abandoned**"
+    // (SRFI-18 6.4.2). The only other writer of `abandoned` is
+    // tryClaimAbandoned inside mutex-lock!; a plain unlock of a mutex whose
+    // previous owner died left the flag set, so the next mutex-lock! raised
+    // a spurious abandoned-mutex-exception on a properly unlocked mutex.
+    // Cleared before the release-store, like owner: an acquirer that wins
+    // the locked CAS after it is guaranteed to see not-abandoned.
+    @atomicStore(bool, &m.abandoned, false, .release);
     @atomicStore(bool, &m.locked, false, .release);
 
     const ctx = try ensureScheduler();

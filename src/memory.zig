@@ -175,8 +175,10 @@ pub const GC = struct {
     /// alive. This is what stops an SRFI-18 child thread's collections from
     /// racing the parent's mark/sweep on shared parent-heap objects (#958).
     id: u32 = 0,
-    /// For a child gc: the parent gc's id, stamped on symbols the child
-    /// interns into the shared table (the parent owns and frees those).
+    /// For a child gc: the id of the gc that OWNS the shared symbol table
+    /// (the root), stamped on symbols the child interns into it (the owner
+    /// owns and frees those). With root chaining (see initForThread) this is
+    /// the root's id for every descendant, whatever the immediate parent.
     shared_owner_id: u32 = 0,
     root_buffer: []*Value,
     root_count: u32 = 0,
@@ -283,8 +285,19 @@ pub const GC = struct {
         return .{
             .allocator = allocator,
             .symbols = std.StringHashMap(Value).init(allocator),
-            .shared_symbols = &parent.symbols,
-            .shared_foreign_symbols = &parent.foreign_symbols,
+            // #1935: chain to the ROOT's symbol table, not the immediate
+            // parent's. A child GC's own `symbols` field is never populated
+            // -- its own internings go to `shared_symbols` -- so a grandchild
+            // pointed at `parent.symbols` would intern into a table nothing
+            // else consults: identity diverges ((string->symbol "x") not eq?
+            // to the root's 'x, an R7RS 6.5 violation) and the root's mark
+            // phase never sees the symbol. Same for `shared_owner_id`: the
+            // table's owner is the root, so every descendant must stamp its
+            // interned symbols with the ROOT's id, and append them to the
+            // ROOT's foreign_symbols -- the root owns and frees them all at
+            // deinit, however deep the thread chain.
+            .shared_symbols = parent.shared_symbols orelse &parent.symbols,
+            .shared_foreign_symbols = parent.shared_foreign_symbols orelse &parent.foreign_symbols,
             .root_buffer = allocator.alloc(*Value, INITIAL_ROOT_CAPACITY) catch
                 @panic("GC: cannot allocate root buffer"),
             .extra_roots = .empty,
@@ -292,7 +305,7 @@ pub const GC = struct {
             .source_spans = std.AutoHashMap(Value, types.Span).init(allocator),
             .gc_threshold = GC_THRESHOLD,
             .id = nextGcId(),
-            .shared_owner_id = parent.id,
+            .shared_owner_id = if (parent.shared_symbols != null) parent.shared_owner_id else parent.id,
         };
     }
 
