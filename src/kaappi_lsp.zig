@@ -713,13 +713,19 @@ fn runDiagnostics(allocator: std.mem.Allocator, vm: *vm_mod.VM, uri: []const u8,
 
     // Retract the value bindings a previous document's `import` left in
     // `vm.globals` (the globals analogue of the macro reset above): remove every
-    // global not present at startup. Without this, `(import (srfi 1))` in one
-    // document would leave `fold` etc. resolvable while diagnosing another that
+    // global not present at startup. Without this, `(import (mylib))` in one
+    // document would leave its exports resolvable while diagnosing another that
     // imports nothing. Compilation never depends on a global's *value* here so
     // diagnostics were already correct, but hover/completion leaked across
-    // documents and the asymmetry with the macro reset was surprising. Held
-    // under the same write lock `importBinding` uses, with a `global_version`
-    // bump so any cached global lookups are invalidated.
+    // documents and the asymmetry with the macro reset was surprising.
+    //
+    // Because this runs at the *start* of every diagnostics run, one shared
+    // `vm.globals` means a document's imported names resolve for hover/completion
+    // only until another document is opened or edited, self-healing on that
+    // document's next run. That is the intended, bounded behaviour (matching the
+    // per-document macro reset) — strictly better than the pre-change state where
+    // imported names resolved nowhere — not a bug to chase into per-document
+    // environments.
     pruneImportedGlobals(vm, allocator);
 
     // Resolve library and `include` paths against the document's own directory
@@ -729,20 +735,22 @@ fn runDiagnostics(allocator: std.mem.Allocator, vm: *vm_mod.VM, uri: []const u8,
     // sibling `.sld` is resolved through `vm.lib_paths` — which never consults
     // `current_lib_dir` — so the document's directory must be prepended there
     // too, exactly as `main.zig` seeds the file's directory for `kaappi check`.
+    // `path_buf` backs the decoded path for the whole run; the slices below
+    // point into it, so it must outlive them (it does — it is this frame's).
     const saved_lib_dir = vm.current_lib_dir;
     const saved_lib_paths = vm.lib_paths;
     defer {
         vm.current_lib_dir = saved_lib_dir;
         vm.lib_paths = saved_lib_paths;
     }
+    var path_buf: [2048]u8 = undefined;
     var lib_paths_run: [8][]const u8 = undefined;
-    if (std.mem.startsWith(u8, uri, "file://")) {
-        const p = uri["file://".len..];
-        if (std.mem.lastIndexOfScalar(u8, p, '/')) |pos| {
-            vm.current_lib_dir = p[0 .. pos + 1];
+    if (fileUriToPath(uri, &path_buf)) |doc_path| {
+        if (std.mem.lastIndexOfScalar(u8, doc_path, '/')) |pos| {
+            vm.current_lib_dir = doc_path[0 .. pos + 1];
             // Prepend the document's directory (no trailing slash, like
             // main.zig) ahead of the auto-discovered paths, capacity permitting.
-            const dir = if (pos == 0) p[0..1] else p[0..pos];
+            const dir = if (pos == 0) doc_path[0..1] else doc_path[0..pos];
             if (base_lib_paths.len + 1 <= lib_paths_run.len) {
                 lib_paths_run[0] = dir;
                 @memcpy(lib_paths_run[1 .. base_lib_paths.len + 1], base_lib_paths);
@@ -799,12 +807,16 @@ fn runDiagnostics(allocator: std.mem.Allocator, vm: *vm_mod.VM, uri: []const u8,
 
 // Remove every global not present at startup — the value bindings a previous
 // document's `import` wrote into `vm.globals` — so imported names do not leak
-// across documents. Keys are collected first (mutating a map mid-iteration is
-// unsound), then removed under the write lock `importBinding` also takes, with a
-// `global_version` bump to invalidate any cached global lookups. The collected
-// key slices point at externally-owned strings, so they stay valid across the
-// removals.
+// across documents. The write lock `importBinding` also takes is held across the
+// whole operation — iteration, key collection, and removal — so a concurrent
+// child-thread reader (#958) never observes a half-pruned map; `global_version`
+// is bumped to invalidate any cached global lookups. Keys are collected before
+// removing (mutating a map mid-iteration is unsound) into a list; the collected
+// slices point at externally-owned strings, so they stay valid across removal.
+// Nothing in the loop re-acquires `globals_lock`, so holding it cannot deadlock.
 fn pruneImportedGlobals(vm: *vm_mod.VM, allocator: std.mem.Allocator) void {
+    vm.globals_lock.lock();
+    defer vm.globals_lock.unlock();
     var to_remove: std.ArrayList([]const u8) = .empty;
     defer to_remove.deinit(allocator);
     var it = vm.globals.iterator();
@@ -813,10 +825,49 @@ fn pruneImportedGlobals(vm: *vm_mod.VM, allocator: std.mem.Allocator) void {
             to_remove.append(allocator, entry.key_ptr.*) catch return;
     }
     if (to_remove.items.len == 0) return;
-    vm.globals_lock.lock();
-    defer vm.globals_lock.unlock();
     for (to_remove.items) |k| _ = vm.globals.remove(k);
     vm.global_version +%= 1;
+}
+
+// Convert a `file://` URI to a native filesystem path in `buf`, percent-decoding
+// `%XX` escapes and handling an empty or `localhost` authority and a Windows
+// drive-letter path (`file:///C:/x` -> `C:/x`). Returns null for a non-`file:`
+// URI (an editor may send `untitled:`/`vscode-vfs:` — no on-disk directory to
+// resolve against) or when the decoded path does not fit `buf`. Not exhaustive
+// URL parsing: only what document paths need so `include`/import resolution
+// matches the real paths `kaappi check` sees (baijum review, coderabbit review).
+fn fileUriToPath(uri: []const u8, buf: []u8) ?[]const u8 {
+    if (!std.mem.startsWith(u8, uri, "file://")) return null;
+    var rest = uri["file://".len..];
+    // Authority runs up to the next '/'. Accept only empty (`file:///…`) or
+    // `localhost`; a real remote host has no local path to offer.
+    if (rest.len > 0 and rest[0] != '/') {
+        const slash = std.mem.indexOfScalar(u8, rest, '/') orelse return null;
+        if (!std.mem.eql(u8, rest[0..slash], "localhost")) return null;
+        rest = rest[slash..];
+    }
+    var n: usize = 0;
+    var i: usize = 0;
+    while (i < rest.len) {
+        var c = rest[i];
+        if (c == '%' and i + 2 < rest.len) {
+            const hi = std.fmt.charToDigit(rest[i + 1], 16) catch 0xff;
+            const lo = std.fmt.charToDigit(rest[i + 2], 16) catch 0xff;
+            if (hi != 0xff and lo != 0xff) {
+                c = @intCast(hi * 16 + lo);
+                i += 3;
+            } else i += 1; // malformed escape: keep the '%' literally
+        } else i += 1;
+        if (n >= buf.len) return null;
+        buf[n] = c;
+        n += 1;
+    }
+    var path = buf[0..n];
+    // `file:///C:/x` decodes to `/C:/x`; drop the slash before the drive letter.
+    if (path.len >= 3 and path[0] == '/' and path[2] == ':' and
+        ((path[1] >= 'A' and path[1] <= 'Z') or (path[1] >= 'a' and path[1] <= 'z')))
+        path = path[1..];
+    return path;
 }
 
 // State captured by beginOutputRedirect so endOutputRedirect can restore it.
@@ -831,7 +882,11 @@ const OutputRedirect = struct {
 // diagnostics run. `display`/`write` resolve the port through
 // `current_output_port_param` first, falling back to `vm.stdout_port`, so both
 // are redirected. The sink's write cursor and length are reset first so its
-// buffer is reused, never growing across the server's lifetime.
+// buffer is reused, never growing across the server's lifetime. This covers
+// Scheme-level output only; a C-FFI library that writes to fd 1 directly during
+// its load still bypasses it — a residual edge, not closed here because guarding
+// it means redirecting fd 1 at the OS level (dup2), which is platform-specific
+// and risks the framing if a restore is ever missed.
 fn beginOutputRedirect(vm: *vm_mod.VM) OutputRedirect {
     if (diag_sink_port == types.VOID)
         return .{ .active = false, .saved_stdout_port = types.VOID, .param = types.VOID, .saved_param_val = types.VOID };

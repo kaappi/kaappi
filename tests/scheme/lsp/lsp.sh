@@ -377,6 +377,37 @@ assert_has "sibling-sld: an import of a .sld beside the document resolves" "$OUT
 assert_eq "sibling-sld control: check resolves it too" \
     "$(run_timeout 30 "$KAAPPI" check "$TMP/proj/user.scm" > /dev/null 2>&1 && echo 0 || echo 1)" "0"
 
+# Negative control: the doc-directory entry must be scoped to its own run, not
+# leaked into the next. `mylibb` lives only in proj/ and is imported *only* from
+# other/, so the library cache cannot mask a leak (it was never loaded before).
+# Its directory (other/) has no mylibb.sld and the base search paths never held
+# one, so it must be unresolved — a KP2001. Were proj/ leaked onto vm.lib_paths
+# from user.scm's run, it would spuriously resolve; the error is what proves the
+# per-run restore. (An already-cached library like `mylib` would resolve here via
+# vm.libraries regardless, which is why this control uses a fresh one.)
+mkdir -p "$TMP/other"
+cat > "$TMP/proj/mylibb.sld" << 'SLD'
+(define-library (mylibb)
+  (export bb)
+  (import (scheme base))
+  (begin (define bb 7)))
+SLD
+OTHER_SRC='(import (scheme base) (mylibb))\n(display bb)\n'
+printf '%b' "$OTHER_SRC" > "$TMP/other/other.scm"
+stream_reset
+msg "$INIT"
+msg "$INITED"
+did_open "file://$TMP/proj/user.scm" "$USER_SRC"
+did_open "file://$TMP/other/other.scm" "$OTHER_SRC"
+msg "$EXITN"
+lsp_run
+assert_has "sibling-sld isolation: a fresh lib under proj/ is unreachable from other/" "$OUT" \
+    '"uri":"[^"]*other\.scm","diagnostics":\[\{'
+# Control: `kaappi check` from that directory also fails to find it, so the LSP's
+# verdict matches — the two agree that (mylibb) is unreachable from there.
+assert_eq "sibling-sld isolation control: check also fails to resolve it" \
+    "$(run_timeout 30 "$KAAPPI" check "$TMP/other/other.scm" > /dev/null 2>&1 && echo 0 || echo 1)" "1"
+
 # -- executed env-setup output must not corrupt the JSON-RPC stream --------
 # Importing a library runs its `begin` body (verified below: `kaappi check`
 # prints it), so a stray `(display ...)` there would otherwise land on fd 1
@@ -431,8 +462,8 @@ did_open "file://$TMP/proj/user.scm" "$USER_SRC"
 pos_req 93 "textDocument/hover" "file://$TMP/proj/user.scm" 1 10
 msg "$EXITN"
 lsp_run
-assert_lacks "globals-isolation control: the importing doc resolves its own import" "$OUT" \
-    '"id":93,"result":null'
+assert_has "globals-isolation control: the importing doc resolves its own import" "$OUT" \
+    '"id":93,"result":\{"contents"'
 
 # -- multi-error divergence ------------------------------------------------
 # `runDiagnostics` breaks out of its loop on the first failing form, so a file
