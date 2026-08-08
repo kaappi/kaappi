@@ -178,34 +178,41 @@
 ;;; --- the boundary SRFI 46 does NOT move: R7RS 4.3.2's pattern grammar
 ;;; still admits at most ONE ellipsis per list or vector pattern. The tail
 ;;; patterns above widen what may FOLLOW that ellipsis; they do not add a
-;;; second one. This expander accepts two and splits the input arbitrarily
-;;; -- the trailing pattern always takes the last two elements, because the
-;;; surplus ellipsis tokens are counted as fixed tail elements (#2082).
-;;; chibi 0.12 and Guile 3.0 both reject the define-syntax outright.
+;;; second one. This expander previously accepted two and split the input
+;;; arbitrarily -- the trailing pattern always took the last two elements,
+;;; because the surplus ellipsis tokens were counted as fixed tail
+;;; elements (#2082). chibi 0.12 and Guile 3.0 reject the define-syntax
+;;; outright.
 ;;;
-;;; Enabled assertions pin today's split so a fix flips them.
+;;; Fixed by kaappi#2082: the define-syntax itself is now a syntax error,
+;;; so each case is probed through `eval` (a literal call would abort the
+;;; enclosing test form at compile time rather than raise inside it). The
+;;; two test-equal pins that asserted the arbitrary split were removed.
 
-(define-syntax two-ellipses
-  (syntax-rules ()
-    ((_ a ... b ...) (list (list a ...) (list b ...)))))
+(test-error "two ellipses in one list pattern is a syntax error (#2082)"
+  (eval '(let-syntax ((m (syntax-rules () ((_ a ... b ...) (list (list a ...) (list b ...))))))
+           (m 1 2 3))
+        (environment '(scheme base))))
 
-;; FAIL: #2082 (two ellipses in one list pattern are accepted)
-;; (test-error "two ellipses in one list pattern is a syntax error"
-;;   (eval '(let-syntax ((m (syntax-rules () ((_ a ... b ...) (list a ... b ...)))))
-;;            (m 1 2 3))
-;;         (environment '(scheme base) '(srfi 46))))
+(test-error "three ellipses in one list pattern is a syntax error (#2082)"
+  (eval '(let-syntax ((m (syntax-rules () ((_ a ... b ... c ...) (list (list a ...) (list b ...) (list c ...))))))
+           (m 1 2 3 4 5))
+        (environment '(scheme base))))
 
-(test-equal "two ellipses in one pattern: the tail takes the last two (see #2082)"
-  '((1) (2 3)) (two-ellipses 1 2 3))
-(test-equal "two ellipses in one pattern: still the last two at length 5 (see #2082)"
-  '((1 2 3) (4 5)) (two-ellipses 1 2 3 4 5))
-;; A one-element call fails instead of matching -- through `eval`, because
-;; it fails at COMPILE time and a literal call would abort this form rather
-;; than raise inside the assertion.
-(test-error "two ellipses in one pattern: a short call fails instead (see #2082)"
-  (eval '(let-syntax ((m (syntax-rules () ((_ a ... b ...) (list a ... b ...)))))
-           (m 1))
-        (environment '(scheme base) '(srfi 46))))
+(test-error "two ellipses in one vector pattern is a syntax error (#2082)"
+  (eval '(let-syntax ((m (syntax-rules () ((_ #(a ... b ...)) (list (list a ...) (list b ...))))))
+           (m #(1 2 3)))
+        (environment '(scheme base))))
+
+;;; the ellipsis-as-literal carve-out: when the ellipsis identifier is
+;;; listed in <literals>, it is an ordinary pattern element, so two of
+;;; them are just two fixed elements -- still legal (#2082).
+(test-equal "two ellipsis-named literals in one pattern stay legal (#2082)"
+  '(1 2)
+  (eval '(let-syntax ((m (syntax-rules ... (...)
+                           ((_ a ... b) (list a b)))))
+           (m 1 ... 2))
+        (environment '(scheme base))))
 
 ;;; --- the derived cond-expand feature id (#1649) ---
 (test-equal "cond-expand srfi-46" 'yes (cond-expand (srfi-46 'yes) (else 'no)))
