@@ -209,3 +209,57 @@ test "syntax-rules: same-depth count mismatch still errors (#78 control)" {
     const result = vm.eval("(zip (1 2 3) (4 5))");
     try std.testing.expectError(error.CompileError, result);
 }
+
+test "syntax-rules: same-depth mismatch is not masked by a leading shallow variable (#78 review)" {
+    // A depth-1 variable referenced before two same-depth drivers must not
+    // hide a genuine R7RS count mismatch between those drivers: the count
+    // check is per-depth, so b (2 groups) and c (3 groups) error whether or
+    // not a shallower `a` is present (previously order-dependent).
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-syntax m (syntax-rules ()
+        \\  ((_ (a ...) ((b ...) ...) ((c ...) ...)) '((a (b ...) (c ...)) ...))))
+    );
+    const result = vm.eval("(m (p q r s t) ((1)(2)) ((7)(8)(9)))");
+    try std.testing.expectError(error.CompileError, result);
+}
+
+test "syntax-rules: empty-match under-use fires even when no repetition runs (#682 review)" {
+    // The under-use check must be structural, not gated on the consuming
+    // run being instantiated: b is matched at depth 3 but the template
+    // `((b ...) ...)` uses it at depth 2, so the input matching ZERO outer
+    // repetitions must still error instead of silently expanding to () —
+    // both the pure-list and the vector spelling.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax c1 (syntax-rules () ((_ ((b ...) ...)) '((b ...) ...))))
+        \\  (equal? (c1 ()) '()))  ;; correct depth, empty match -> ()
+    );
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-syntax l2 (syntax-rules () ((_ (((b ...) ...) ...)) '((b ...) ...))))
+    );
+    try std.testing.expectError(error.CompileError, vm.eval("(l2 ())"));
+
+    _ = try vm.eval(
+        \\(define-syntax v2 (syntax-rules () ((_ (#((b ...) ...) ...)) '((b ...) ...))))
+    );
+    try std.testing.expectError(error.CompileError, vm.eval("(v2 ())"));
+
+    // A depth-2 variable inside a vector ellipsis used at depth 1: the
+    // vector's own ellipsis level must be counted when seeding the
+    // empty-match binding depth (vector patterns match through list
+    // semantics).
+    _ = try vm.eval(
+        \\(define-syntax v4 (syntax-rules () ((_ (#(b ...) ...)) '(b ...))))
+    );
+    try std.testing.expectError(error.CompileError, vm.eval("(v4 ())"));
+}

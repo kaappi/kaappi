@@ -880,8 +880,10 @@ fn collectPatternVars(pattern: Value, literals: []const Value, names: *[128][]co
 /// that created the binding). Mirrors the ellipsis detection in
 /// matchListPattern: an element followed by an ellipsis token is one level
 /// deeper; the ellipsis-escape `(... ...)` contributes no variable. Used to
-/// seed ellipsis bindings whose match was EMPTY (see matchEllipsis).
-fn patternVarNesting(pattern: Value, name: []const u8, literals: []const Value) ?u32 {
+/// seed ellipsis bindings whose match was EMPTY (see matchEllipsis) and to
+/// compute the template consumption depth of a binding in
+/// expander_instantiate.zig.
+pub fn patternVarNesting(pattern: Value, name: []const u8, literals: []const Value) ?u32 {
     return patternVarNestingWalk(pattern, name, literals, 0);
 }
 
@@ -921,9 +923,21 @@ fn patternVarNestingWalk(pattern: Value, name: []const u8, literals: []const Val
         return null;
     }
     if (types.isVector(pattern)) {
+        // Vector patterns match through list semantics (matchPattern
+        // vectorToList's them before matchListPattern), so an element
+        // followed by the ellipsis identifier inside the vector data sits
+        // one level deeper — same shape as the list branch above.
         const vec = types.toObject(pattern).as(types.Vector);
-        for (vec.data) |elem| {
-            if (patternVarNestingWalk(elem, name, literals, nesting)) |d| return d;
+        var i: usize = 0;
+        while (i < vec.data.len) : (i += 1) {
+            if (i + 1 < vec.data.len and types.isSymbol(vec.data[i + 1]) and
+                isEllipsis(types.symbolName(vec.data[i + 1])))
+            {
+                if (patternVarNestingWalk(vec.data[i], name, literals, nesting + 1)) |d| return d;
+                i += 1; // skip the ellipsis token
+                continue;
+            }
+            if (patternVarNestingWalk(vec.data[i], name, literals, nesting)) |d| return d;
         }
         return null;
     }

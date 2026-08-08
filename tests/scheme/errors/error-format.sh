@@ -421,6 +421,13 @@ assert_output_contains "mismatched ellipsis lengths rejected cleanly" \
     '(define-syntax zip (syntax-rules () ((zip (a ...) (b ...)) (quote ((a b) ...))))) (zip (1 2 3) (4 5))' \
     "compile error"
 
+# The same-depth mismatch must be detected regardless of binding iteration
+# order: a depth-1 variable referenced before two mismatched depth-2 drivers
+# must not mask the error (previously order-dependent).
+assert_output_contains "same-depth mismatch not masked by a leading shallow variable" \
+    '(define-syntax m (syntax-rules () ((_ (a ...) ((b ...) ...) ((c ...) ...)) (quote ((a (b ...) (c ...)) ...))))) (m (p q r s t) ((1)(2)) ((7)(8)(9)))' \
+    "compile error"
+
 # --- Issue #1046: apply-position type errors must include procedure name ---
 echo
 echo "-- Apply-position error detail (issue #1046) --"
