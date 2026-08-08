@@ -45,7 +45,14 @@
 (test-equal "terminate a thread parked in a timed mutex-lock!"
   'terminated
   (let ((t (make-thread (lambda () (mutex-lock! m-term-timed 60) (mutex-unlock! m-term-timed) 'locked))))
+    ;; Hold the mutex on the parent side so the child genuinely PARKS in the
+    ;; timed lock (an unlocked mutex would be acquired instantly and the
+    ;; thread would complete before the terminate -- which is how this test
+    ;; used to pass only because thread-terminate! retroactively erased a
+    ;; finished thread's result, #1984 defect 2).
+    (mutex-lock! m-term-timed)
     (thread-start! t) (thread-sleep! 0.2) (thread-terminate! t)
+    (mutex-unlock! m-term-timed)
     (join-catch t)))
 
 (define m-term-cv (make-mutex 'm-term-cv))

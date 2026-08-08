@@ -8,6 +8,33 @@ const VMError = vm_mod.VMError;
 const MAX_HANDLER_LIMIT = vm_mod.MAX_HANDLER_LIMIT;
 const MAX_WIND_LIMIT = vm_mod.MAX_WIND_LIMIT;
 
+/// #1936: refuse invoking a continuation captured on a different OS thread.
+/// A continuation lives in the heap of the thread that captured it (its
+/// Object.owner is that thread's GC id); invoking it from another thread
+/// overwrites the invoking VM's state with the capturing thread's saved
+/// frames/registers and resumes the capturing thread's bytecode on the
+/// wrong VM — the resulting value belongs to no type (every R7RS predicate
+/// answers #f on it) or, worse, dereferences freed state. This is not a
+/// legal cross-thread operation: SRFI-18 values are deep-copied at the
+/// thread boundary and a continuation is on the uncopyable list, so a
+/// foreign continuation can only be reached by abusing the shared-globals
+/// path. Raise a catchable error instead of producing an untyped value.
+/// Same-OS-thread invocation (any fiber on the capturing thread) keeps the
+/// same GC id and is unaffected.
+pub fn checkContinuationOwner(vm: *VM, cont: *const types.Continuation) VMError!void {
+    if (cont.header.owner == vm.gc.id) return;
+    var msg = vm.gc.allocString("continuation belongs to another OS thread; a continuation captured on one thread cannot be invoked from another") catch
+        return VMError.OutOfMemory;
+    vm.gc.pushRoot(&msg);
+    const err = vm.gc.allocErrorObject(msg, types.NIL) catch {
+        vm.gc.popRoot();
+        return VMError.OutOfMemory;
+    };
+    vm.gc.popRoot();
+    vm.current_exception = err;
+    return VMError.ExceptionRaised;
+}
+
 /// Capture the current continuation state.
 /// dst_reg is the register offset within the caller's frame where the result of call/cc will go.
 /// dst_base is the base register of the caller's frame.
