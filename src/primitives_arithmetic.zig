@@ -13,14 +13,65 @@ const anyFlonum = primitives.anyFlonum;
 const makeFlonumVal = primitives.makeFlonumVal;
 const numeric = @import("primitives_numeric.zig");
 const isAnyComplex = numeric.isAnyComplex;
-const toComplexParts = numeric.toComplexParts;
-const makeComplexOrReal = numeric.makeComplexOrReal;
-const makeComplexOrRealEx = numeric.makeComplexOrRealEx;
+const makeComplexOrRealV = numeric.makeComplexOrRealV;
+const isZeroValue = numeric.isZeroValue;
+
+/// Split a number into (real, imag) component Values. A non-complex number
+/// is (v, fixnum 0). Components are never complex themselves (kaappi#2166).
+fn complexPartsOf(v: Value) PrimitiveError!struct { real: Value, imag: Value } {
+    if (types.isComplex(v)) {
+        const c = types.toComplex(v);
+        return .{ .real = c.real, .imag = c.imag };
+    }
+    if (types.isFixnum(v) or types.isBignum(v) or types.isRationalObj(v) or types.isFlonum(v)) {
+        return .{ .real = v, .imag = types.makeFixnum(0) };
+    }
+    return numberTypeError(v);
+}
+
+/// Componentwise scalar arithmetic over the real tower. Each operand is a
+/// real component Value (never complex), so the callee takes its scalar
+/// path; the result must be rooted by the caller before the next
+/// allocation.
+fn add2(a: Value, b: Value) PrimitiveError!Value {
+    return add(&.{ a, b });
+}
+
+fn sub2(a: Value, b: Value) PrimitiveError!Value {
+    return sub(&.{ a, b });
+}
+
+fn mul2(a: Value, b: Value) PrimitiveError!Value {
+    return mul(&.{ a, b });
+}
+
+fn div2(a: Value, b: Value) PrimitiveError!Value {
+    return divFn(&.{ a, b });
+}
+
+/// Componentwise negation. IEEE negation of a flonum flips the sign bit
+/// exactly (0.0 -> -0.0, -0.0 -> +0.0), which 0 - x cannot reproduce; exact
+/// values go through the scalar sub path. Used by unary (- z) and the
+/// conjugation step of (/ z), both of which must preserve signed zero.
+fn negate2(v: Value) PrimitiveError!Value {
+    if (types.isFlonum(v)) return types.makeFlonum(-types.toFlonum(v));
+    return sub(&.{ types.makeFixnum(0), v });
+}
 
 pub fn makeFixnumChecked(n: i64) PrimitiveError!Value {
+    // The i48 range check runs first so an in-range value never needs the
+    // GC (gc_instance may be unset in reader-only contexts, kaappi#2166).
     if (n >= std.math.minInt(i48) and n <= std.math.maxInt(i48))
         return types.makeFixnum(n);
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    return makeFixnumCheckedGc(gc, n);
+}
+
+/// makeFixnumChecked with an explicit GC (gc_instance may be unset in
+/// reader-only contexts, kaappi#2166).
+pub fn makeFixnumCheckedGc(gc: *@import("memory.zig").GC, n: i64) PrimitiveError!Value {
+    if (n >= std.math.minInt(i48) and n <= std.math.maxInt(i48))
+        return types.makeFixnum(n);
     return gc.allocBignumFromI64(n) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -77,10 +128,10 @@ fn ratPartsVal(v: Value) PrimitiveError!RatPartsVal {
 }
 
 fn allocRationalRooted(gc: *@import("memory.zig").GC, n: i64, d: i64) PrimitiveError!Value {
-    const num = try makeFixnumChecked(n);
+    const num = try makeFixnumCheckedGc(gc, n);
     var slot_num = gc.rootedSlot(num) catch return PrimitiveError.OutOfMemory;
     defer slot_num.release();
-    const den = try makeFixnumChecked(d);
+    const den = try makeFixnumCheckedGc(gc, d);
     var slot_den = gc.rootedSlot(den) catch return PrimitiveError.OutOfMemory;
     defer slot_den.release();
     return gc.allocRational(slot_num.get(), slot_den.get()) catch return PrimitiveError.OutOfMemory;
@@ -299,14 +350,21 @@ fn bignumMulAll(args: []const Value) PrimitiveError!Value {
 
 fn add(args: []const Value) PrimitiveError!Value {
     if (isAnyComplex(args)) {
-        var real: f64 = 0;
-        var imag: f64 = 0;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const acc_real: Value = types.makeFixnum(0);
+        const acc_imag: Value = types.makeFixnum(0);
+        var slot_r = gc.rootedSlot(acc_real) catch return PrimitiveError.OutOfMemory;
+        defer slot_r.release();
+        var slot_i = gc.rootedSlot(acc_imag) catch return PrimitiveError.OutOfMemory;
+        defer slot_i.release();
         for (args) |a| {
-            const c = try toComplexParts(a);
-            real += c.real;
-            imag += c.imag;
+            const parts = try complexPartsOf(a);
+            const nr = try add2(slot_r.get(), parts.real);
+            slot_r.set(nr);
+            const ni = try add2(slot_i.get(), parts.imag);
+            slot_i.set(ni);
         }
-        return makeComplexOrReal(real, imag);
+        return makeComplexOrRealV(gc, slot_r.get(), slot_i.get());
     }
     if (anyFlonum(args)) {
         var sum: f64 = 0;
@@ -356,36 +414,36 @@ fn add(args: []const Value) PrimitiveError!Value {
     return makeFixnumChecked(sum);
 }
 
-/// Negate a complex number, preserving its exactness flags. Negation is the
-/// one complex operation where keeping the flags is honest — f64 negation
-/// never rounds — while the rest of complex arithmetic still collapses to
-/// inexact through toComplexParts/makeComplexOrReal (#2166). An exact zero
-/// component normalizes to +0.0: the exact tower has no -0, and leaving the
-/// sign bit would make the result un-eqv? to (make-rectangular 0 ...).
-fn negateComplex(v: Value) PrimitiveError!Value {
-    const c = types.toComplex(v);
-    const nr: f64 = if (c.exact_real and c.real == 0.0) 0.0 else -c.real;
-    const ni: f64 = if (c.exact_imag and c.imag == 0.0) 0.0 else -c.imag;
-    return makeComplexOrRealEx(nr, ni, c.exact_real, c.exact_imag);
-}
-
 fn sub(args: []const Value) PrimitiveError!Value {
     std.debug.assert(args.len > 0);
     if (isAnyComplex(args)) {
-        // (- z) and (- 0 z) are exactly negation; both are rounding-free, so
-        // exactness survives. Everything else stays on the inexact path (#2166).
-        if (args.len == 1) return negateComplex(args[0]);
-        if (args.len == 2 and types.isFixnum(args[0]) and types.toFixnum(args[0]) == 0)
-            return negateComplex(args[1]);
-        const first = try toComplexParts(args[0]);
-        var real = first.real;
-        var imag = first.imag;
-        for (args[1..]) |a| {
-            const c = try toComplexParts(a);
-            real -= c.real;
-            imag -= c.imag;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const first = try complexPartsOf(args[0]);
+        const acc_real = first.real;
+        const acc_imag = first.imag;
+        var slot_r = gc.rootedSlot(acc_real) catch return PrimitiveError.OutOfMemory;
+        defer slot_r.release();
+        var slot_i = gc.rootedSlot(acc_imag) catch return PrimitiveError.OutOfMemory;
+        defer slot_i.release();
+        if (args.len == 1) {
+            // (- z): componentwise negation, exact stays exact (negation is
+            // rounding-free; the old interim special case dissolves here,
+            // kaappi#2166). IEEE negation, so an inexact zero component
+            // flips its sign bit (0.0 -> -0.0).
+            const nr = try negate2(slot_r.get());
+            slot_r.set(nr);
+            const ni = try negate2(slot_i.get());
+            slot_i.set(ni);
+        } else {
+            for (args[1..]) |a| {
+                const parts = try complexPartsOf(a);
+                const nr = try sub2(slot_r.get(), parts.real);
+                slot_r.set(nr);
+                const ni = try sub2(slot_i.get(), parts.imag);
+                slot_i.set(ni);
+            }
         }
-        return makeComplexOrReal(real, imag);
+        return makeComplexOrRealV(gc, slot_r.get(), slot_i.get());
     }
     if (anyFlonum(args)) {
         if (args.len == 1) return makeFlonumVal(-(try toF64Ext(args[0])));
@@ -449,19 +507,39 @@ fn sub(args: []const Value) PrimitiveError!Value {
     return makeFixnumChecked(result);
 }
 
-fn mul(args: []const Value) PrimitiveError!Value {
+pub fn mul(args: []const Value) PrimitiveError!Value {
     if (isAnyComplex(args)) {
-        var real: f64 = 1;
-        var imag: f64 = 0;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const acc_real: Value = types.makeFixnum(1);
+        const acc_imag: Value = types.makeFixnum(0);
+        var slot_r = gc.rootedSlot(acc_real) catch return PrimitiveError.OutOfMemory;
+        defer slot_r.release();
+        var slot_i = gc.rootedSlot(acc_imag) catch return PrimitiveError.OutOfMemory;
+        defer slot_i.release();
         for (args) |a| {
-            const c = try toComplexParts(a);
-            // (real + imag*i) * (c.real + c.imag*i)
-            const new_real = real * c.real - imag * c.imag;
-            const new_imag = real * c.imag + imag * c.real;
-            real = new_real;
-            imag = new_imag;
+            const parts = try complexPartsOf(a);
+            const old_r = slot_r.get();
+            const old_i = slot_i.get();
+            // (a+bi) * (c+di) = (ac - bd) + (ad + bc)i — both new
+            // components use the OLD accumulator parts.
+            const t1 = try mul2(old_r, parts.real);
+            var slot_t1 = gc.rootedSlot(t1) catch return PrimitiveError.OutOfMemory;
+            defer slot_t1.release();
+            const t2 = try mul2(old_i, parts.imag);
+            var slot_t2 = gc.rootedSlot(t2) catch return PrimitiveError.OutOfMemory;
+            defer slot_t2.release();
+            const new_r = try sub2(slot_t1.get(), slot_t2.get());
+            slot_r.set(new_r);
+            const t3 = try mul2(old_r, parts.imag);
+            var slot_t3 = gc.rootedSlot(t3) catch return PrimitiveError.OutOfMemory;
+            defer slot_t3.release();
+            const t4 = try mul2(old_i, parts.real);
+            var slot_t4 = gc.rootedSlot(t4) catch return PrimitiveError.OutOfMemory;
+            defer slot_t4.release();
+            const new_i = try add2(slot_t3.get(), slot_t4.get());
+            slot_i.set(new_i);
         }
-        return makeComplexOrReal(real, imag);
+        return makeComplexOrRealV(gc, slot_r.get(), slot_i.get());
     }
     if (anyFlonum(args)) {
         var product: f64 = 1;
@@ -502,28 +580,83 @@ fn mul(args: []const Value) PrimitiveError!Value {
     return makeFixnumChecked(product);
 }
 
-fn divFn(args: []const Value) PrimitiveError!Value {
+pub fn divFn(args: []const Value) PrimitiveError!Value {
     std.debug.assert(args.len > 0);
     if (isAnyComplex(args)) {
-        const first = try toComplexParts(args[0]);
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const first = try complexPartsOf(args[0]);
+        const acc_real = first.real;
+        const acc_imag = first.imag;
+        var slot_r = gc.rootedSlot(acc_real) catch return PrimitiveError.OutOfMemory;
+        defer slot_r.release();
+        var slot_i = gc.rootedSlot(acc_imag) catch return PrimitiveError.OutOfMemory;
+        defer slot_i.release();
         if (args.len == 1) {
-            // 1/(a+bi) = (a-bi)/(a^2+b^2)
-            const denom = first.real * first.real + first.imag * first.imag;
-            if (denom == 0.0 and isExactZero(args[0])) return raiseDivByZero();
-            return makeComplexOrReal(first.real / denom, -first.imag / denom);
+            // 1/(a+bi) = (a-bi)/(a^2+b^2).
+            const t1 = try mul2(slot_r.get(), slot_r.get());
+            var slot_t1 = gc.rootedSlot(t1) catch return PrimitiveError.OutOfMemory;
+            defer slot_t1.release();
+            const t2 = try mul2(slot_i.get(), slot_i.get());
+            var slot_t2 = gc.rootedSlot(t2) catch return PrimitiveError.OutOfMemory;
+            defer slot_t2.release();
+            const denom = try add2(slot_t1.get(), slot_t2.get());
+            var slot_den = gc.rootedSlot(denom) catch return PrimitiveError.OutOfMemory;
+            defer slot_den.release();
+            if (types.isExactNumber(slot_den.get()) and isZeroValue(slot_den.get())) {
+                // Exact zero divisor: an error. An inexact zero divisor
+                // flows through the arithmetic to inf/nan, as IEEE and the
+                // scalar paths do.
+                return raiseDivByZero();
+            }
+            const nr = try div2(slot_r.get(), slot_den.get());
+            slot_r.set(nr);
+            const ni = try div2(slot_i.get(), slot_den.get());
+            slot_i.set(ni);
+            const neg_i = try negate2(slot_i.get());
+            slot_i.set(neg_i);
+        } else {
+            for (args[1..]) |a| {
+                const parts = try complexPartsOf(a);
+                // (a+bi)/(c+di) = ((ac+bd) + (bc-ad)i)/(c^2+d^2).
+                const c = parts.real;
+                const d = parts.imag;
+                const t1 = try mul2(c, c);
+                var slot_t1 = gc.rootedSlot(t1) catch return PrimitiveError.OutOfMemory;
+                defer slot_t1.release();
+                const t2 = try mul2(d, d);
+                var slot_t2 = gc.rootedSlot(t2) catch return PrimitiveError.OutOfMemory;
+                defer slot_t2.release();
+                const denom = try add2(slot_t1.get(), slot_t2.get());
+                var slot_den = gc.rootedSlot(denom) catch return PrimitiveError.OutOfMemory;
+                defer slot_den.release();
+                if (types.isExactNumber(slot_den.get()) and isZeroValue(slot_den.get())) return raiseDivByZero();
+                const old_r = slot_r.get();
+                const old_i = slot_i.get();
+                const t3 = try mul2(old_r, c);
+                var slot_t3 = gc.rootedSlot(t3) catch return PrimitiveError.OutOfMemory;
+                defer slot_t3.release();
+                const t4 = try mul2(old_i, d);
+                var slot_t4 = gc.rootedSlot(t4) catch return PrimitiveError.OutOfMemory;
+                defer slot_t4.release();
+                const num_r = try add2(slot_t3.get(), slot_t4.get());
+                var slot_nr = gc.rootedSlot(num_r) catch return PrimitiveError.OutOfMemory;
+                defer slot_nr.release();
+                const t5 = try mul2(old_i, c);
+                var slot_t5 = gc.rootedSlot(t5) catch return PrimitiveError.OutOfMemory;
+                defer slot_t5.release();
+                const t6 = try mul2(old_r, d);
+                var slot_t6 = gc.rootedSlot(t6) catch return PrimitiveError.OutOfMemory;
+                defer slot_t6.release();
+                const num_i = try sub2(slot_t5.get(), slot_t6.get());
+                var slot_ni = gc.rootedSlot(num_i) catch return PrimitiveError.OutOfMemory;
+                defer slot_ni.release();
+                const nr = try div2(slot_nr.get(), slot_den.get());
+                slot_r.set(nr);
+                const ni = try div2(slot_ni.get(), slot_den.get());
+                slot_i.set(ni);
+            }
         }
-        var real = first.real;
-        var imag = first.imag;
-        for (args[1..]) |a| {
-            const c = try toComplexParts(a);
-            const denom = c.real * c.real + c.imag * c.imag;
-            if (denom == 0.0 and isExactZero(a)) return raiseDivByZero();
-            const new_real = (real * c.real + imag * c.imag) / denom;
-            const new_imag = (imag * c.real - real * c.imag) / denom;
-            real = new_real;
-            imag = new_imag;
-        }
-        return makeComplexOrReal(real, imag);
+        return makeComplexOrRealV(gc, slot_r.get(), slot_i.get());
     }
     if (args.len == 1) {
         // (/ z) = 1/z
@@ -896,9 +1029,13 @@ fn numEq(args: []const Value) PrimitiveError!Value {
         const a = args[i];
         const b = args[i + 1];
         if (types.isComplex(a) or types.isComplex(b)) {
-            const ca = try toComplexParts(a);
-            const cb = try toComplexParts(b);
-            if (ca.real != cb.real or ca.imag != cb.imag) return types.FALSE;
+            // Componentwise numeric equality over the exact tower: `=`
+            // ignores exactness, so an exact 3/2 component equals the
+            // flonum 1.5 (kaappi#2166).
+            const pa = try complexPartsOf(a);
+            const pb = try complexPartsOf(b);
+            if ((try cmpPair(pa.real, pb.real)) != 0) return types.FALSE;
+            if ((try cmpPair(pa.imag, pb.imag)) != 0) return types.FALSE;
         } else {
             if ((try cmpPair(a, b)) != 0) return types.FALSE;
         }
@@ -910,7 +1047,8 @@ fn hasNaN(v: Value) bool {
     if (types.isFlonum(v)) return std.math.isNan(types.toFlonum(v));
     if (types.isComplex(v)) {
         const c = types.toComplex(v);
-        return std.math.isNan(c.real) or std.math.isNan(c.imag);
+        return (types.isFlonum(c.real) and std.math.isNan(types.toFlonum(c.real))) or
+            (types.isFlonum(c.imag) and std.math.isNan(types.toFlonum(c.imag)));
     }
     return false;
 }
@@ -952,7 +1090,7 @@ fn zeroP(args: []const Value) PrimitiveError!Value {
     if (types.isRationalObj(args[0])) return types.FALSE;
     if (types.isComplex(args[0])) {
         const c = types.toComplex(args[0]);
-        return if (c.real == 0 and c.imag == 0) types.TRUE else types.FALSE;
+        return if (isZeroValue(c.real) and isZeroValue(c.imag)) types.TRUE else types.FALSE;
     }
     const v = try toF64(args[0]);
     return if (v == 0) types.TRUE else types.FALSE;

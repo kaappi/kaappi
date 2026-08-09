@@ -22,16 +22,25 @@ const toF64Ext = arith.toF64Ext;
 const gcdTwo = arith.gcdTwo;
 
 fn safeFloatToExactInt(f: f64) PrimitiveError!Value {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    return safeFloatToExactIntGc(gc, f);
+}
+
+fn safeFloatToExactIntGc(gc: *memory.GC, f: f64) PrimitiveError!Value {
     const min_i64: f64 = @floatFromInt(std.math.minInt(i64));
     const max_i64_f: f64 = @floatFromInt(std.math.maxInt(i64));
     if (f >= min_i64 and f < max_i64_f) {
-        return try arith.makeFixnumChecked(@intFromFloat(f));
+        return try arith.makeFixnumCheckedGc(gc, @intFromFloat(f));
     }
-    return floatToBignum(f);
+    return floatToBignumGc(gc, f);
 }
 
 fn floatToBignum(f: f64) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    return floatToBignumGc(gc, f);
+}
+
+fn floatToBignumGc(gc: *memory.GC, f: f64) PrimitiveError!Value {
     const positive = f >= 0;
     const abs_f = @abs(f);
     const bits: u64 = @bitCast(abs_f);
@@ -238,7 +247,9 @@ fn exactP(args: []const Value) PrimitiveError!Value {
     if (types.isFixnum(args[0]) or types.isBignum(args[0]) or types.isRationalObj(args[0])) return types.TRUE;
     if (types.isComplex(args[0])) {
         const c = types.toComplex(args[0]);
-        return if (c.exact_real and c.exact_imag) types.TRUE else types.FALSE;
+        // A complex is exact iff both components are exact (their own
+        // types carry the exactness — kaappi#2166).
+        return if (types.isExactNumber(c.real) and types.isExactNumber(c.imag)) types.TRUE else types.FALSE;
     }
     return types.FALSE;
 }
@@ -247,7 +258,7 @@ fn inexactP(args: []const Value) PrimitiveError!Value {
     if (types.isFlonum(args[0])) return types.TRUE;
     if (types.isComplex(args[0])) {
         const c = types.toComplex(args[0]);
-        return if (!c.exact_real or !c.exact_imag) types.TRUE else types.FALSE;
+        return if (!types.isExactNumber(c.real) or !types.isExactNumber(c.imag)) types.TRUE else types.FALSE;
     }
     return types.FALSE;
 }
@@ -256,81 +267,94 @@ fn exactIntegerP(args: []const Value) PrimitiveError!Value {
     return if (types.isFixnum(args[0]) or types.isBignum(args[0])) types.TRUE else types.FALSE;
 }
 
+/// Digit-exact conversion of a flonum to its exact value, using an explicit
+/// GC (gc_instance may be unset in reader-only contexts, kaappi#2166).
+fn exactFlonumGc(gc: *memory.GC, f: f64) PrimitiveError!Value {
+    if (std.math.isNan(f) or std.math.isInf(f)) return primitives.typeError("exact", "finite number", types.makeFlonum(f));
+    if (f == 0.0) return types.makeFixnum(0);
+    if (f == @trunc(f)) return try safeFloatToExactIntGc(gc, f);
+    const positive = f >= 0;
+    const bits: u64 = @bitCast(@abs(f));
+    const raw_exp = @as(u11, @intCast((bits >> 52) & 0x7FF));
+    const mantissa: u64 = if (raw_exp == 0)
+        bits & 0x000FFFFFFFFFFFFF
+    else
+        (bits & 0x000FFFFFFFFFFFFF) | 0x0010000000000000;
+    const exp: i16 = if (raw_exp == 0)
+        1 - 1023 - 52
+    else
+        @as(i16, @intCast(raw_exp)) - 1023 - 52;
+    if (exp >= 0) return try safeFloatToExactIntGc(gc, f);
+    // Rational mantissa / 2^(-exp). Reduce by trailing zeros in mantissa.
+    var m = mantissa;
+    var neg_exp: u16 = @intCast(-exp);
+    while (m != 0 and m & 1 == 0 and neg_exp > 0) {
+        m >>= 1;
+        neg_exp -= 1;
+    }
+    const num_val = blk: {
+        if (m <= @as(u64, @intCast(std.math.maxInt(i48)))) {
+            const signed: i64 = if (positive) @intCast(m) else -@as(i64, @intCast(m));
+            break :blk types.makeFixnum(signed);
+        }
+        break :blk gc.allocBignumFromLimbs(&[1]u64{m}, 1, positive) catch return PrimitiveError.OutOfMemory;
+    };
+    if (neg_exp == 0) return num_val;
+    var slot_num = gc.rootedSlot(num_val) catch return PrimitiveError.OutOfMemory;
+    defer slot_num.release();
+    // Build denominator 2^neg_exp
+    const den_val = blk: {
+        if (neg_exp < 47) {
+            break :blk types.makeFixnum(@as(i64, 1) << @intCast(neg_exp));
+        }
+        const word_shift = neg_exp / 64;
+        const bit_shift: u6 = @intCast(neg_exp % 64);
+        const total: usize = @as(usize, word_shift) + 1;
+        var limbs = gc.allocator.alloc(u64, total) catch return PrimitiveError.OutOfMemory;
+        defer gc.allocator.free(limbs);
+        @memset(limbs, 0);
+        limbs[word_shift] = @as(u64, 1) << bit_shift;
+        break :blk gc.allocBignumFromLimbs(limbs, total, true) catch return PrimitiveError.OutOfMemory;
+    };
+    var slot_den = gc.rootedSlot(den_val) catch return PrimitiveError.OutOfMemory;
+    defer slot_den.release();
+    return gc.allocRational(slot_num.get(), slot_den.get()) catch return PrimitiveError.OutOfMemory;
+}
+
+/// Digit-exact conversion of a component Value to exact, using an explicit
+/// GC — exactFn relies on the global gc_instance, which is unset in
+/// reader-only contexts (kaappi#2166).
+pub fn exactComponentGc(gc: *memory.GC, v: Value) PrimitiveError!Value {
+    if (types.isFixnum(v) or types.isBignum(v) or types.isRationalObj(v)) return v;
+    if (types.isFlonum(v)) return exactFlonumGc(gc, types.toFlonum(v));
+    return primitives.typeError("exact", "number", v);
+}
+
 pub fn exactFn(args: []const Value) PrimitiveError!Value {
     if (types.isFixnum(args[0])) return args[0];
     if (types.isBignum(args[0])) return args[0];
     if (types.isRationalObj(args[0])) return args[0]; // already exact
     if (types.isFlonum(args[0])) {
-        const f = types.toFlonum(args[0]);
-        if (std.math.isNan(f) or std.math.isInf(f)) return primitives.typeError("exact", "finite number", args[0]);
-        if (f == 0.0) return types.makeFixnum(0);
-        if (f == @trunc(f)) return try safeFloatToExactInt(f);
         const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-        const positive = f >= 0;
-        const bits: u64 = @bitCast(@abs(f));
-        const raw_exp = @as(u11, @intCast((bits >> 52) & 0x7FF));
-        const mantissa: u64 = if (raw_exp == 0)
-            bits & 0x000FFFFFFFFFFFFF
-        else
-            (bits & 0x000FFFFFFFFFFFFF) | 0x0010000000000000;
-        const exp: i16 = if (raw_exp == 0)
-            1 - 1023 - 52
-        else
-            @as(i16, @intCast(raw_exp)) - 1023 - 52;
-        if (exp >= 0) return try safeFloatToExactInt(f);
-        // Rational mantissa / 2^(-exp). Reduce by trailing zeros in mantissa.
-        var m = mantissa;
-        var neg_exp: u16 = @intCast(-exp);
-        while (m != 0 and m & 1 == 0 and neg_exp > 0) {
-            m >>= 1;
-            neg_exp -= 1;
-        }
-        const num_val = blk: {
-            if (m <= @as(u64, @intCast(std.math.maxInt(i48)))) {
-                const signed: i64 = if (positive) @intCast(m) else -@as(i64, @intCast(m));
-                break :blk types.makeFixnum(signed);
-            }
-            break :blk gc.allocBignumFromLimbs(&[1]u64{m}, 1, positive) catch return PrimitiveError.OutOfMemory;
-        };
-        if (neg_exp == 0) return num_val;
-        var slot_num = gc.rootedSlot(num_val) catch return PrimitiveError.OutOfMemory;
-        defer slot_num.release();
-        // Build denominator 2^neg_exp
-        const den_val = blk: {
-            if (neg_exp < 47) {
-                break :blk types.makeFixnum(@as(i64, 1) << @intCast(neg_exp));
-            }
-            const word_shift = neg_exp / 64;
-            const bit_shift: u6 = @intCast(neg_exp % 64);
-            const total: usize = @as(usize, word_shift) + 1;
-            var limbs = gc.allocator.alloc(u64, total) catch return PrimitiveError.OutOfMemory;
-            defer gc.allocator.free(limbs);
-            @memset(limbs, 0);
-            limbs[word_shift] = @as(u64, 1) << bit_shift;
-            break :blk gc.allocBignumFromLimbs(limbs, total, true) catch return PrimitiveError.OutOfMemory;
-        };
-        var slot_den = gc.rootedSlot(den_val) catch return PrimitiveError.OutOfMemory;
-        defer slot_den.release();
-        return gc.allocRational(slot_num.get(), slot_den.get()) catch return PrimitiveError.OutOfMemory;
+        return exactFlonumGc(gc, types.toFlonum(args[0]));
     }
     if (types.isComplex(args[0])) {
         const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const c = types.toComplex(args[0]);
-        const real_flo = types.makeFlonum(c.real);
-        const real_exact = try exactFn(&[1]Value{real_flo});
+        // Convert each component digit-exactly (exactFlonumGc on a flonum
+        // yields the exact rational it actually holds); both components are
+        // finite, so the conversion cannot refuse them (kaappi#2166).
+        if (types.isExactNumber(c.real) and types.isExactNumber(c.imag)) return args[0];
+        const real_exact = try exactComponentGc(gc, c.real);
         var slot = gc.rootedSlot(real_exact) catch return PrimitiveError.OutOfMemory;
         defer slot.release();
-        const imag_flo = types.makeFlonum(c.imag);
-        const imag_exact = try exactFn(&[1]Value{imag_flo});
-        if (types.isFixnum(imag_exact) and types.toFixnum(imag_exact) == 0) return real_exact;
-        const real_f = try toF64Ext(real_exact);
-        const imag_f = try toF64Ext(imag_exact);
-        return gc.allocComplexEx(real_f, imag_f, true, true) catch return PrimitiveError.OutOfMemory;
+        const imag_exact = try exactComponentGc(gc, c.imag);
+        return makeComplexOrRealV(gc, slot.get(), imag_exact) catch return PrimitiveError.OutOfMemory;
     }
     return primitives.typeError("exact", "number", args[0]);
 }
 
-fn inexactFn(args: []const Value) PrimitiveError!Value {
+pub fn inexactFn(args: []const Value) PrimitiveError!Value {
     if (types.isFlonum(args[0])) return args[0];
     if (types.isFixnum(args[0])) return makeFlonumVal(@floatFromInt(types.toFixnum(args[0])));
     if (types.isBignum(args[0])) return makeFlonumVal(bignum_mod.toF64(args[0]));
@@ -339,9 +363,18 @@ fn inexactFn(args: []const Value) PrimitiveError!Value {
         return makeFlonumVal(types.rationalToF64(r.numerator, r.denominator));
     }
     if (types.isComplex(args[0])) {
-        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const c = types.toComplex(args[0]);
-        return gc.allocComplex(c.real, c.imag) catch return PrimitiveError.OutOfMemory;
+        // Already all-inexact: return unchanged. Rebuilding through
+        // makeComplexOrRealV would demote a stored inexact zero imag
+        // (-2.5+0.0i) to the real -2.5, losing the complexness the reader
+        // deliberately keeps ((real? -2.5+0.0i) => #f, kaappi#2166).
+        if (!types.isExactNumber(c.real)) return args[0];
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const real_i = try inexactFn(&[1]Value{c.real});
+        var slot = gc.rootedSlot(real_i) catch return PrimitiveError.OutOfMemory;
+        defer slot.release();
+        const imag_i = try inexactFn(&[1]Value{c.imag});
+        return makeComplexOrRealV(gc, slot.get(), imag_i) catch return PrimitiveError.OutOfMemory;
     }
     return primitives.typeError("inexact", "number", args[0]);
 }
@@ -379,22 +412,32 @@ fn exptFn(args: []const Value) PrimitiveError!Value {
     // Complex exponentiation: z^w = e^(w * ln(z))
     if (types.isComplex(args[0]) or types.isComplex(args[1])) {
         const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+        // Exact base with an exact integer exponent: repeated complex
+        // multiplication over the exact tower, which is exact-closed
+        // (kaappi#2166). Everything else falls to the f64 paths below.
+        if (types.isComplex(args[0]) and types.isFixnum(args[1])) {
+            const n = types.toFixnum(args[1]);
+            const c = types.toComplex(args[0]);
+            if (types.isExactNumber(c.real) and types.isExactNumber(c.imag)) {
+                return complexExptExact(gc, args[0], n);
+            }
+        }
         var zr: f64 = undefined;
         var zi: f64 = undefined;
         var wr: f64 = undefined;
         var wi: f64 = undefined;
         if (types.isComplex(args[0])) {
             const c = types.toComplex(args[0]);
-            zr = c.real;
-            zi = c.imag;
+            zr = try toF64Ext(c.real);
+            zi = try toF64Ext(c.imag);
         } else {
             zr = toF64Ext(args[0]) catch return primitives.typeError("expt", "number", args[0]);
             zi = 0.0;
         }
         if (types.isComplex(args[1])) {
             const c = types.toComplex(args[1]);
-            wr = c.real;
-            wi = c.imag;
+            wr = try toF64Ext(c.real);
+            wi = try toF64Ext(c.imag);
         } else {
             wr = toF64Ext(args[1]) catch return primitives.typeError("expt", "number", args[1]);
             wi = 0.0;
@@ -402,7 +445,7 @@ fn exptFn(args: []const Value) PrimitiveError!Value {
         // Special case: integer exponent with complex base — use repeated multiplication
         if (wi == 0.0 and wr == @trunc(wr) and @abs(wr) < 100) {
             const n: i64 = @intFromFloat(wr);
-            if (n == 0) return gc.allocComplex(1.0, 0.0) catch return PrimitiveError.OutOfMemory;
+            if (n == 0) return makeComplexOrReal(1.0, 0.0);
             var rr: f64 = 1.0;
             var ri: f64 = 0.0;
             var count = if (n < 0) -n else n;
@@ -419,11 +462,10 @@ fn exptFn(args: []const Value) PrimitiveError!Value {
             }
             if (@abs(ri) < 1e-15) ri = 0.0;
             if (@abs(rr) < 1e-15) rr = 0.0;
-            if (ri == 0.0) return types.makeFlonum(rr);
-            return gc.allocComplex(rr, ri) catch return PrimitiveError.OutOfMemory;
+            return makeComplexOrReal(rr, ri);
         }
         // General: z^w = e^(w * ln(z))
-        return complexPowGeneral(gc, zr, zi, wr, wi);
+        return complexPowGeneral(zr, zi, wr, wi);
     }
     const base_f = try toF64Ext(args[0]);
     const exp_f = try toF64Ext(args[1]);
@@ -434,14 +476,13 @@ fn exptFn(args: []const Value) PrimitiveError!Value {
     if (std.math.isFinite(base_f) and base_f < 0.0 and
         std.math.isFinite(exp_f) and exp_f != @trunc(exp_f))
     {
-        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-        return complexPowGeneral(gc, base_f, 0.0, exp_f, 0.0);
+        return complexPowGeneral(base_f, 0.0, exp_f, 0.0);
     }
     return makeFlonumVal(std.math.pow(f64, base_f, exp_f));
 }
 
 // z^w = e^(w * ln(z)), where ln(z) = ln|z| + i*arg(z).
-fn complexPowGeneral(gc: *memory.GC, zr: f64, zi: f64, wr: f64, wi: f64) PrimitiveError!Value {
+fn complexPowGeneral(zr: f64, zi: f64, wr: f64, wi: f64) PrimitiveError!Value {
     const mag = @sqrt(zr * zr + zi * zi);
     const arg = std.math.atan2(zi, zr);
     const ln_r = @log(mag);
@@ -453,7 +494,38 @@ fn complexPowGeneral(gc: *memory.GC, zr: f64, zi: f64, wr: f64, wi: f64) Primiti
     const exp_r = @exp(prod_r);
     const result_r = exp_r * @cos(prod_i);
     const result_i = exp_r * @sin(prod_i);
-    return gc.allocComplex(result_r, result_i) catch return PrimitiveError.OutOfMemory;
+    return makeComplexOrReal(result_r, result_i);
+}
+
+/// Exact complex exponentiation: (a+bi)^n for an exact complex base and an
+/// exact integer exponent, by square-and-multiply over the exact tower
+/// (which is exact-closed, R7RS 6.2.2 / kaappi#2166). A negative exponent
+/// reciprocates the base-first power; a zero exponent yields exact 1. O(log
+/// n), so a large exponent like (expt +i 1000000000) => 1 cannot hang
+/// (review).
+fn complexExptExact(gc: *memory.GC, base_in: Value, n: i64) PrimitiveError!Value {
+    var result: Value = types.makeFixnum(1);
+    var slot_r = gc.rootedSlot(result) catch return PrimitiveError.OutOfMemory;
+    defer slot_r.release();
+    var slot_b = gc.rootedSlot(base_in) catch return PrimitiveError.OutOfMemory;
+    defer slot_b.release();
+    var m: u64 = @intCast(if (n < 0) -n else n);
+    while (m > 0) {
+        if (m & 1 == 1) {
+            result = try arith.mul(&.{ slot_r.get(), slot_b.get() });
+            slot_r.set(result);
+        }
+        m >>= 1;
+        if (m > 0) {
+            const sq = try arith.mul(&.{ slot_b.get(), slot_b.get() });
+            slot_b.set(sq);
+        }
+    }
+    if (n < 0) {
+        result = try arith.divFn(&[1]Value{slot_r.get()});
+        slot_r.set(result);
+    }
+    return slot_r.get();
 }
 
 fn squareFn(args: []const Value) PrimitiveError!Value {
@@ -488,13 +560,14 @@ fn squareFn(args: []const Value) PrimitiveError!Value {
 
 fn sqrtFn(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
-        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const c = types.toComplex(args[0]);
-        const mag = @sqrt(c.real * c.real + c.imag * c.imag);
-        const r = @sqrt((mag + c.real) / 2.0);
-        const i_sign: f64 = if (c.imag < 0.0) -1.0 else 1.0;
-        const i = i_sign * @sqrt((mag - c.real) / 2.0);
-        return gc.allocComplex(r, i) catch return PrimitiveError.OutOfMemory;
+        const re = try toF64Ext(c.real);
+        const im = try toF64Ext(c.imag);
+        const mag = @sqrt(re * re + im * im);
+        const r = @sqrt((mag + re) / 2.0);
+        const i_sign: f64 = if (im < 0.0) -1.0 else 1.0;
+        const i = i_sign * @sqrt((mag - re) / 2.0);
+        return makeComplexOrReal(r, i);
     }
     if (types.isBignum(args[0]) and !bignum_mod.isNegative(args[0])) {
         const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
@@ -518,9 +591,8 @@ fn sqrtFn(args: []const Value) PrimitiveError!Value {
     }
     const f = try toF64(args[0]);
     if (f < 0.0) {
-        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const imag = @sqrt(-f);
-        return gc.allocComplex(0.0, imag) catch return PrimitiveError.OutOfMemory;
+        return makeComplexOrReal(0.0, imag);
     }
     const result = @sqrt(f);
     if (types.isFixnum(args[0])) {
@@ -645,11 +717,12 @@ fn exactIntegerSqrt(args: []const Value) PrimitiveError!Value {
 
 fn sinFn(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
-        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const c = types.toComplex(args[0]);
-        const re = @sin(c.real) * std.math.cosh(c.imag);
-        const im = @cos(c.real) * std.math.sinh(c.imag);
-        return gc.allocComplex(re, im) catch return PrimitiveError.OutOfMemory;
+        const re_c = try toF64Ext(c.real);
+        const im_c = try toF64Ext(c.imag);
+        const re = @sin(re_c) * std.math.cosh(im_c);
+        const im = @cos(re_c) * std.math.sinh(im_c);
+        return makeComplexOrReal(re, im);
     }
     const f = try toF64(args[0]);
     return makeFlonumVal(@sin(f));
@@ -657,11 +730,12 @@ fn sinFn(args: []const Value) PrimitiveError!Value {
 
 fn cosFn(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
-        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const c = types.toComplex(args[0]);
-        const re = @cos(c.real) * std.math.cosh(c.imag);
-        const im = -@sin(c.real) * std.math.sinh(c.imag);
-        return gc.allocComplex(re, im) catch return PrimitiveError.OutOfMemory;
+        const re_c = try toF64Ext(c.real);
+        const im_c = try toF64Ext(c.imag);
+        const re = @cos(re_c) * std.math.cosh(im_c);
+        const im = -@sin(re_c) * std.math.sinh(im_c);
+        return makeComplexOrReal(re, im);
     }
     const f = try toF64(args[0]);
     return makeFlonumVal(@cos(f));
@@ -669,22 +743,23 @@ fn cosFn(args: []const Value) PrimitiveError!Value {
 
 fn tanFn(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
-        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const c = types.toComplex(args[0]);
-        const sin_re = @sin(c.real) * std.math.cosh(c.imag);
-        const sin_im = @cos(c.real) * std.math.sinh(c.imag);
-        const cos_re = @cos(c.real) * std.math.cosh(c.imag);
-        const cos_im = -@sin(c.real) * std.math.sinh(c.imag);
+        const re_c = try toF64Ext(c.real);
+        const im_c = try toF64Ext(c.imag);
+        const sin_re = @sin(re_c) * std.math.cosh(im_c);
+        const sin_im = @cos(re_c) * std.math.sinh(im_c);
+        const cos_re = @cos(re_c) * std.math.cosh(im_c);
+        const cos_im = -@sin(re_c) * std.math.sinh(im_c);
         const denom = cos_re * cos_re + cos_im * cos_im;
         const re = (sin_re * cos_re + sin_im * cos_im) / denom;
         const im = (sin_im * cos_re - sin_re * cos_im) / denom;
-        return gc.allocComplex(re, im) catch return PrimitiveError.OutOfMemory;
+        return makeComplexOrReal(re, im);
     }
     const f = try toF64(args[0]);
     return makeFlonumVal(@tan(f));
 }
 
-fn complexAsin(gc: anytype, re: f64, im: f64) PrimitiveError!Value {
+fn complexAsin(re: f64, im: f64) PrimitiveError!Value {
     // asin(z) = -i * log(iz + sqrt(1 - z^2))
     const one_minus_z2_re = 1.0 - (re * re - im * im);
     const one_minus_z2_im = -(2.0 * re * im);
@@ -699,47 +774,43 @@ fn complexAsin(gc: anytype, re: f64, im: f64) PrimitiveError!Value {
     const result_re = log_im;
     const result_im = -log_re;
     if (@abs(result_im) < 1e-15) return makeFlonumVal(result_re);
-    return gc.allocComplex(result_re, result_im) catch return PrimitiveError.OutOfMemory;
+    return makeComplexOrReal(result_re, result_im);
 }
 
 fn asinFn(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
-        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const c = types.toComplex(args[0]);
-        return complexAsin(gc, c.real, c.imag);
+        return complexAsin(try toF64Ext(c.real), try toF64Ext(c.imag));
     }
     const f = try toF64(args[0]);
     if (f < -1.0 or f > 1.0) {
-        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-        return complexAsin(gc, f, 0.0);
+        return complexAsin(f, 0.0);
     }
     return makeFlonumVal(std.math.asin(f));
 }
 
 fn acosFn(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
-        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const c = types.toComplex(args[0]);
-        const asin_val = try complexAsin(gc, c.real, c.imag);
+        const asin_val = try complexAsin(try toF64Ext(c.real), try toF64Ext(c.imag));
         const pi_half = std.math.pi / 2.0;
         if (types.isFlonum(asin_val)) return makeFlonumVal(pi_half - types.toFlonum(asin_val));
         const ac = types.toComplex(asin_val);
-        const re = pi_half - ac.real;
-        const im = -ac.imag;
+        const re = pi_half - (try toF64Ext(ac.real));
+        const im = -(try toF64Ext(ac.imag));
         if (@abs(im) < 1e-15) return makeFlonumVal(re);
-        return gc.allocComplex(re, im) catch return PrimitiveError.OutOfMemory;
+        return makeComplexOrReal(re, im);
     }
     const f = try toF64(args[0]);
     if (f < -1.0 or f > 1.0) {
-        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-        const asin_val = try complexAsin(gc, f, 0.0);
+        const asin_val = try complexAsin(f, 0.0);
         const pi_half = std.math.pi / 2.0;
         if (types.isFlonum(asin_val)) return makeFlonumVal(pi_half - types.toFlonum(asin_val));
         const ac = types.toComplex(asin_val);
-        const re = pi_half - ac.real;
-        const im = -ac.imag;
+        const re = pi_half - (try toF64Ext(ac.real));
+        const im = -(try toF64Ext(ac.imag));
         if (@abs(im) < 1e-15) return makeFlonumVal(re);
-        return gc.allocComplex(re, im) catch return PrimitiveError.OutOfMemory;
+        return makeComplexOrReal(re, im);
     }
     return makeFlonumVal(std.math.acos(f));
 }
@@ -761,37 +832,34 @@ fn atanFn(args: []const Value) PrimitiveError!Value {
 
 fn expFn(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
-        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const c = types.toComplex(args[0]);
-        const exp_r = @exp(c.real);
-        const re = exp_r * @cos(c.imag);
-        const im = exp_r * @sin(c.imag);
+        const exp_r = @exp(try toF64Ext(c.real));
+        const re = exp_r * @cos(try toF64Ext(c.imag));
+        const im = exp_r * @sin(try toF64Ext(c.imag));
         if (@abs(im) < 1e-15) return makeFlonumVal(re);
-        return gc.allocComplex(re, im) catch return PrimitiveError.OutOfMemory;
+        return makeComplexOrReal(re, im);
     }
     const f = try toF64(args[0]);
     return makeFlonumVal(@exp(f));
 }
 
-fn complexLog(gc: anytype, re: f64, im: f64) PrimitiveError!Value {
+fn complexLog(re: f64, im: f64) PrimitiveError!Value {
     const mag = @sqrt(re * re + im * im);
     const result_re = @log(mag);
     const result_im = std.math.atan2(im, re);
     if (@abs(result_im) < 1e-15) return makeFlonumVal(result_re);
-    return gc.allocComplex(result_re, result_im) catch return PrimitiveError.OutOfMemory;
+    return makeComplexOrReal(result_re, result_im);
 }
 
 fn logFn(args: []const Value) PrimitiveError!Value {
     if (args.len == 1) {
         if (types.isComplex(args[0])) {
-            const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
             const c = types.toComplex(args[0]);
-            return complexLog(gc, c.real, c.imag);
+            return complexLog(try toF64Ext(c.real), try toF64Ext(c.imag));
         }
         const f = try toF64(args[0]);
         if (f < 0.0) {
-            const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-            return complexLog(gc, f, 0.0);
+            return complexLog(f, 0.0);
         }
         return makeFlonumVal(@log(f));
     }
@@ -799,12 +867,11 @@ fn logFn(args: []const Value) PrimitiveError!Value {
     const z = try toF64(args[0]);
     const base = try toF64(args[1]);
     if (z < 0.0) {
-        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const mag = @sqrt(z * z);
         const log_re = @log(mag) / @log(base);
         const log_im = std.math.pi / @log(base);
         if (@abs(log_im) < 1e-15) return makeFlonumVal(log_re);
-        return gc.allocComplex(log_re, log_im) catch return PrimitiveError.OutOfMemory;
+        return makeComplexOrReal(log_re, log_im);
     }
     return makeFlonumVal(@log(z) / @log(base));
 }
@@ -820,7 +887,11 @@ fn finiteP(args: []const Value) PrimitiveError!Value {
     }
     if (types.isComplex(args[0])) {
         const c = types.toComplex(args[0]);
-        return if (std.math.isFinite(c.real) and std.math.isFinite(c.imag)) types.TRUE else types.FALSE;
+        // Only flonum components can be non-finite; exact components are
+        // finite by construction.
+        const re_ok = if (types.isFlonum(c.real)) std.math.isFinite(types.toFlonum(c.real)) else true;
+        const im_ok = if (types.isFlonum(c.imag)) std.math.isFinite(types.toFlonum(c.imag)) else true;
+        return if (re_ok and im_ok) types.TRUE else types.FALSE;
     }
     return primitives.typeError("finite?", "number", args[0]);
 }
@@ -832,7 +903,9 @@ fn infiniteP(args: []const Value) PrimitiveError!Value {
     }
     if (types.isComplex(args[0])) {
         const c = types.toComplex(args[0]);
-        return if (std.math.isInf(c.real) or std.math.isInf(c.imag)) types.TRUE else types.FALSE;
+        const re_inf = types.isFlonum(c.real) and std.math.isInf(types.toFlonum(c.real));
+        const im_inf = types.isFlonum(c.imag) and std.math.isInf(types.toFlonum(c.imag));
+        return if (re_inf or im_inf) types.TRUE else types.FALSE;
     }
     return primitives.typeError("infinite?", "number", args[0]);
 }
@@ -844,7 +917,9 @@ fn nanP(args: []const Value) PrimitiveError!Value {
     }
     if (types.isComplex(args[0])) {
         const c = types.toComplex(args[0]);
-        return if (std.math.isNan(c.real) or std.math.isNan(c.imag)) types.TRUE else types.FALSE;
+        const re_nan = types.isFlonum(c.real) and std.math.isNan(types.toFlonum(c.real));
+        const im_nan = types.isFlonum(c.imag) and std.math.isNan(types.toFlonum(c.imag));
+        return if (re_nan or im_nan) types.TRUE else types.FALSE;
     }
     return primitives.typeError("nan?", "number", args[0]);
 }
@@ -937,31 +1012,65 @@ pub fn isAnyComplex(args: []const Value) bool {
     return false;
 }
 
-pub fn toComplexParts(v: Value) PrimitiveError!struct { real: f64, imag: f64 } {
-    if (types.isComplex(v)) {
-        const c = types.toComplex(v);
-        return .{ .real = c.real, .imag = c.imag };
-    }
-    if (types.isFixnum(v)) return .{ .real = @floatFromInt(types.toFixnum(v)), .imag = 0.0 };
-    if (types.isFlonum(v)) return .{ .real = types.toFlonum(v), .imag = 0.0 };
-    if (types.isBignum(v)) return .{ .real = bignum_mod.toF64(v), .imag = 0.0 };
-    if (types.isRationalObj(v)) return .{ .real = try toF64Ext(v), .imag = 0.0 };
-    return primitives.typeError("arithmetic", "number", v);
+/// True when `v` is a real number that may be a complex component (never a
+/// complex itself).
+fn isComponentValue(v: Value) bool {
+    return types.isFixnum(v) or types.isBignum(v) or types.isRationalObj(v) or types.isFlonum(v);
 }
 
+/// Numeric zero test for a component value: fixnum 0, bignum zero, rational
+/// with zero numerator, or flonum ±0.0.
+pub fn isZeroValue(v: Value) bool {
+    if (types.isFixnum(v)) return types.toFixnum(v) == 0;
+    if (types.isBignum(v)) return bignum_mod.isZero(v);
+    if (types.isRationalObj(v)) return isZeroValue(types.toRational(v).numerator);
+    if (types.isFlonum(v)) return types.toFlonum(v) == 0.0;
+    return false;
+}
+
+/// Build a complex number from two real component Values, applying the
+/// R7RS 6.2.2 inexactness rule — if either component is inexact both become
+/// inexact, so a stored complex is never mixed-exactness (kaappi#2166) — and
+/// demoting to the real component when the imaginary part is zero, so every
+/// complex constructed here has a nonzero imaginary part. The construction
+/// site behind make-rectangular and exact/inexact conversions.
+pub fn makeComplexOrRealV(gc: *memory.GC, real_in: Value, imag_in: Value) PrimitiveError!Value {
+    var real = real_in;
+    var imag = imag_in;
+    if (!types.isExactNumber(real) or !types.isExactNumber(imag)) {
+        real = try inexactFn(&[1]Value{real});
+        imag = try inexactFn(&[1]Value{imag});
+    }
+    if (isZeroValue(imag)) return real;
+    return gc.allocComplex(real, imag) catch return PrimitiveError.OutOfMemory;
+}
+
+/// Reader/string->number complex construction: like makeComplexOrRealV, but
+/// only an EXACT zero imaginary part demotes to the real component. The R7RS
+/// conformance suite pins both sides: (real? -2.5+0.0i) => #f (an inexact
+/// zero imag written in a literal stays a complex) and (integer? 3+0i) => #t
+/// (an exact zero imag demotes). Inexactness still propagates whole-number
+/// (R7RS 6.2.2), so the two parsers agree (R7RS 6.2.7, kaappi#2166).
+pub fn makeComplexOrRealLiteral(gc: *memory.GC, real_in: Value, imag_in: Value) PrimitiveError!Value {
+    var real = real_in;
+    var imag = imag_in;
+    const imag_exact_zero = types.isExactNumber(imag) and isZeroValue(imag);
+    if (!types.isExactNumber(real) or !types.isExactNumber(imag)) {
+        real = try inexactFn(&[1]Value{real});
+        imag = try inexactFn(&[1]Value{imag});
+    }
+    if (imag_exact_zero) return real;
+    return gc.allocComplex(real, imag) catch return PrimitiveError.OutOfMemory;
+}
+
+/// Inexact complex constructor for the f64-based transcendental paths, which
+/// legitimately stay inexact-producing (kaappi#2166 out of scope). Demotes a
+/// zero imaginary part, honoring the invariant that a complex constructed
+/// through the numeric tower has a nonzero imaginary part.
 pub fn makeComplexOrReal(real: f64, imag: f64) PrimitiveError!Value {
-    return makeComplexOrRealEx(real, imag, false, false);
-}
-
-pub fn makeComplexOrRealEx(real: f64, imag: f64, exact_real: bool, exact_imag: bool) PrimitiveError!Value {
+    if (imag == 0.0) return types.makeFlonum(real);
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    if (imag == 0.0) {
-        if (exact_real and real == @trunc(real) and @abs(real) < 4.5e18) {
-            return try safeFloatToExactInt(real);
-        }
-        return types.makeFlonum(real);
-    }
-    return gc.allocComplexEx(real, imag, exact_real, exact_imag) catch return PrimitiveError.OutOfMemory;
+    return gc.allocComplex(types.makeFlonum(real), types.makeFlonum(imag)) catch return PrimitiveError.OutOfMemory;
 }
 
 pub const Exactness = enum { unspecified, exact, inexact };
@@ -987,8 +1096,14 @@ fn applyExactness(gc: *@import("memory.zig").GC, val: Value, exactness: Exactnes
             }
             if (types.isComplex(val)) {
                 const c = types.toComplex(val);
-                if (!c.exact_real and !c.exact_imag) return val;
-                return gc.allocComplexEx(c.real, c.imag, false, false) catch return PrimitiveError.OutOfMemory;
+                // With component values the complex is all-exact or
+                // all-inexact; only an all-exact complex needs converting.
+                if (!types.isExactNumber(c.real)) return val;
+                const real_i = try inexactFn(&[1]Value{c.real});
+                var slot = gc.rootedSlot(real_i) catch return PrimitiveError.OutOfMemory;
+                defer slot.release();
+                const imag_i = try inexactFn(&[1]Value{c.imag});
+                return makeComplexOrRealV(gc, slot.get(), imag_i) catch return PrimitiveError.OutOfMemory;
             }
             return val;
         },
@@ -996,16 +1111,22 @@ fn applyExactness(gc: *@import("memory.zig").GC, val: Value, exactness: Exactnes
             if (types.isFlonum(val)) {
                 const f = types.toFlonum(val);
                 if (std.math.isNan(f) or std.math.isInf(f)) return types.FALSE;
-                return exactFn(&.{val});
+                return exactComponentGc(gc, val);
             }
             if (types.isComplex(val)) {
-                // A complex stays f64+flag pairs; #e sets both flags. A
-                // non-finite part has no exact representation (same rule as
-                // the flonum arm above -- #f, per #419).
+                // Convert each component digit-exactly. A non-finite flonum
+                // part has no exact representation (same rule as the flonum
+                // arm above -- #f, per #419).
                 const c = types.toComplex(val);
-                if (!std.math.isFinite(c.real) or !std.math.isFinite(c.imag)) return types.FALSE;
-                if (c.exact_real and c.exact_imag) return val;
-                return gc.allocComplexEx(c.real, c.imag, true, true) catch return PrimitiveError.OutOfMemory;
+                const re_nan = types.isFlonum(c.real) and !std.math.isFinite(types.toFlonum(c.real));
+                const im_nan = types.isFlonum(c.imag) and !std.math.isFinite(types.toFlonum(c.imag));
+                if (re_nan or im_nan) return types.FALSE;
+                if (types.isExactNumber(c.real)) return val;
+                const real_e = try exactComponentGc(gc, c.real);
+                var slot = gc.rootedSlot(real_e) catch return PrimitiveError.OutOfMemory;
+                defer slot.release();
+                const imag_e = try exactComponentGc(gc, c.imag);
+                return makeComplexOrRealV(gc, slot.get(), imag_e) catch return PrimitiveError.OutOfMemory;
             }
             return val;
         },
@@ -1116,33 +1237,31 @@ fn stringToNumber(args: []const Value) PrimitiveError!Value {
     return parseNumberText(gc, str.data[0..str.len], radix, .unspecified);
 }
 
-const ComplexComponent = struct { val: f64, exact: bool };
-
 /// Parse a signed radix-R complex component (integer, N/D rational, or --
-/// radix 10 only -- a decimal) to (value, exact). Mirrors the reader's
-/// complex-component grammar so `string->number` and `read` agree on
-/// `#x1+2i`, `#x1/2+3i` and friends (kaappi#2243). A component is exact
-/// only when it is an integer or rational whose i64 parts round-trip
-/// through f64; anything else (a decimal, an exponent, or an i64 part in
-/// (2^53, 2^63]) is inexact or rejected outright -- a rounded value must
-/// never masquerade as exact (kaappi#2182).
-fn parseComplexComponent(gc: *@import("memory.zig").GC, part: []const u8, radix: u8) ?ComplexComponent {
+/// radix 10 only -- a decimal) into a component Value: fixnum/bignum/
+/// rational for exact components, flonum for decimals, exponents, and
+/// inf/nan spellings. Mirrors the reader's complex-component grammar so
+/// `string->number` and `read` agree on `#x1+2i`, `#x1/2+3i` and friends
+/// (kaappi#2243). With components stored as Values there is no round-trip
+/// gate: an exact component is built digit-exactly at any size
+/// (kaappi#2166, dissolving the #2182/#2183 f64 gates).
+fn parseComplexComponent(gc: *@import("memory.zig").GC, part: []const u8, radix: u8) ?Value {
     if (std.mem.indexOfScalar(u8, part, '/')) |sp| {
-        // Rational N/D (any radix): R7RS <ureal R>. i64 parts within
-        // complex_rational_limit divide directly; bignum parts are accepted
-        // only when their value is exactly representable in f64 (the m/2^k
-        // printer shape), so a rounded value never masquerades as exact
-        // (kaappi#2182/#2183). Shared with the reader's bignum-rational
-        // complex tail so the two grammars cannot drift.
+        // Rational N/D (any radix): R7RS <ureal R>. The numerator carries
+        // any sign; a zero denominator is invalid.
         if (sp == 0 or sp + 1 >= part.len) return null;
-        const val = bignum_mod.parseRationalToF64(gc, part[0..sp], part[sp + 1 ..], radix) orelse return null;
-        return .{ .val = val, .exact = true };
+        const num = bignum_mod.parseBignumString(gc, part[0..sp], radix) catch return null;
+        var slot = gc.rootedSlot(num) catch return null;
+        defer slot.release();
+        const den = bignum_mod.parseBignumString(gc, part[sp + 1 ..], radix) catch return null;
+        if (types.isFixnum(den) and types.toFixnum(den) == 0) return null;
+        if (types.isBignum(den) and bignum_mod.isZero(den)) return null;
+        return arith.makeRationalReduced(gc, slot.get(), den) catch return null;
     }
     if (radix == 10) {
         // Decimal parts (1.5+2i, 1e5+2i) and inf/nan spellings: parseFloat
-        // accepts them with the sign included. Integer text that does not
-        // round-trip through f64 is rejected so it cannot claim exactness
-        // with a rounded value (#2182).
+        // accepts them with the sign included. Integer text builds an exact
+        // fixnum, or a digit-exact bignum past i64 (#2166).
         var i: usize = 0;
         if (part.len > 0 and (part[0] == '+' or part[0] == '-')) i = 1;
         var is_integer = true;
@@ -1156,40 +1275,38 @@ fn parseComplexComponent(gc: *@import("memory.zig").GC, part: []const u8, radix:
             var b: [256]u8 = undefined;
             const clean = bignum_mod.stripUnderscores(part, radix, &b) orelse return null;
             if (std.fmt.parseInt(i64, clean, radix)) |n| {
-                if (!bignum_mod.f64ExactI64(n)) return null;
-                return .{ .val = @as(f64, @floatFromInt(n)), .exact = true };
+                // Fixnum is i48; larger i64 values must become bignums, not
+                // silently truncate (kaappi#2166). Build through `gc`, since
+                // gc_instance may be unset in reader-only contexts.
+                if (n >= std.math.minInt(i48) and n <= std.math.maxInt(i48))
+                    return types.makeFixnum(n);
+                return gc.allocBignumFromI64(n) catch return null;
             } else |err| {
                 if (err != error.Overflow) return null;
-                // Beyond i64: exactly representable magnitudes (1e19)
-                // qualify; everything else is rejected loudly, matching
-                // the reader (#2182/#2243).
-                const v = bignum_mod.parseBignumString(gc, clean, radix) catch return null;
-                if (!bignum_mod.bignumExactInF64(v)) return null;
-                return .{ .val = bignum_mod.toF64(v), .exact = true };
+                return bignum_mod.parseBignumString(gc, clean, radix) catch return null;
             }
         }
         // Special floats (+inf.0, -inf.0, +nan.0, -nan.0, case-insensitive)
         // match the reader's complex-component grammar -- 3.0+inf.0i and
         // +inf.0i read there -- but Zig's parseFloat does not accept them
         // (#2243 review).
-        if (std.ascii.eqlIgnoreCase(part, "+inf.0")) return .{ .val = std.math.inf(f64), .exact = false };
-        if (std.ascii.eqlIgnoreCase(part, "-inf.0")) return .{ .val = -std.math.inf(f64), .exact = false };
-        if (std.ascii.eqlIgnoreCase(part, "+nan.0")) return .{ .val = std.math.nan(f64), .exact = false };
-        if (std.ascii.eqlIgnoreCase(part, "-nan.0")) return .{ .val = std.math.nan(f64), .exact = false };
+        if (std.ascii.eqlIgnoreCase(part, "+inf.0")) return types.makeFlonum(std.math.inf(f64));
+        if (std.ascii.eqlIgnoreCase(part, "-inf.0")) return types.makeFlonum(-std.math.inf(f64));
+        if (std.ascii.eqlIgnoreCase(part, "+nan.0")) return types.makeFlonum(std.math.nan(f64));
+        if (std.ascii.eqlIgnoreCase(part, "-nan.0")) return types.makeFlonum(std.math.nan(f64));
         const f = std.fmt.parseFloat(f64, part) catch return null;
-        return .{ .val = f, .exact = false };
+        return types.makeFlonum(f);
     }
     // Radix 2/8/16: integer part only -- <decimal R> does not exist there.
     var b: [256]u8 = undefined;
     const clean = bignum_mod.stripUnderscores(part, radix, &b) orelse return null;
     if (std.fmt.parseInt(i64, clean, radix)) |n| {
-        if (!bignum_mod.f64ExactI64(n)) return null;
-        return .{ .val = @as(f64, @floatFromInt(n)), .exact = true };
+        if (n >= std.math.minInt(i48) and n <= std.math.maxInt(i48))
+            return types.makeFixnum(n);
+        return gc.allocBignumFromI64(n) catch return null;
     } else |err| {
         if (err != error.Overflow) return null;
-        const v = bignum_mod.parseBignumString(gc, clean, radix) catch return null;
-        if (!bignum_mod.bignumExactInF64(v)) return null;
-        return .{ .val = bignum_mod.toF64(v), .exact = true };
+        return bignum_mod.parseBignumString(gc, clean, radix) catch return null;
     }
 }
 
@@ -1278,7 +1395,7 @@ pub fn parseNumberText(gc: *@import("memory.zig").GC, text: []const u8, radix_in
             const num_str = s[0..slash_pos];
             const den_str = s[slash_pos + 1 ..];
             const num_val: Value = if (std.fmt.parseInt(i64, num_str, radix)) |num|
-                try arith.makeFixnumChecked(num)
+                try arith.makeFixnumCheckedGc(gc, num)
             else |err| blk: {
                 if (err != error.Overflow) break :blk types.FALSE;
                 break :blk bignum_mod.parseBignumString(gc, num_str, radix) catch |e| switch (e) {
@@ -1291,7 +1408,7 @@ pub fn parseNumberText(gc: *@import("memory.zig").GC, text: []const u8, radix_in
             defer slot_num.release();
             const den_val: Value = if (std.fmt.parseInt(i64, den_str, radix)) |den| blk: {
                 if (den == 0) return types.FALSE;
-                break :blk try arith.makeFixnumChecked(den);
+                break :blk try arith.makeFixnumCheckedGc(gc, den);
             } else |err| blk: {
                 if (err != error.Overflow) break :blk types.FALSE;
                 break :blk bignum_mod.parseBignumString(gc, den_str, radix) catch |e| switch (e) {
@@ -1323,7 +1440,7 @@ pub fn parseNumberText(gc: *@import("memory.zig").GC, text: []const u8, radix_in
     }
 
     if (std.fmt.parseInt(i64, s, radix)) |n| {
-        const result = try arith.makeFixnumChecked(n);
+        const result = try arith.makeFixnumCheckedGc(gc, n);
         return applyExactness(gc, result, exactness);
     } else |err| {
         if (err == error.Overflow) {
@@ -1366,11 +1483,11 @@ pub fn parseNumberText(gc: *@import("memory.zig").GC, text: []const u8, radix_in
         // Pure imaginary: +i, -i (R7RS <complex R> -> `+ i` | `- i`), every
         // radix; the reader reads `#x+i` as 0+1i too (#2243).
         if (std.mem.eql(u8, body, "+")) {
-            const c = gc.allocComplexEx(0.0, 1.0, true, true) catch return PrimitiveError.OutOfMemory;
+            const c = gc.allocComplex(types.makeFixnum(0), types.makeFixnum(1)) catch return PrimitiveError.OutOfMemory;
             return applyExactness(gc, c, exactness);
         }
         if (std.mem.eql(u8, body, "-")) {
-            const c = gc.allocComplexEx(0.0, -1.0, true, true) catch return PrimitiveError.OutOfMemory;
+            const c = gc.allocComplex(types.makeFixnum(0), types.makeFixnum(-1)) catch return PrimitiveError.OutOfMemory;
             return applyExactness(gc, c, exactness);
         }
 
@@ -1392,22 +1509,24 @@ pub fn parseNumberText(gc: *@import("memory.zig").GC, text: []const u8, radix_in
         if (split) |sp| {
             const real_str = body[0..sp];
             const imag_str = body[sp..];
-            // Component exactness is derived from the text so
-            // `string->number` agrees with the reader's exact-flagged
-            // complex tokens: integer and rational parts stay exact,
-            // decimals and exponents are inexact. `#e`/`#i` still override
-            // everything via applyExactness below (#2243 review).
-            const real_c = if (real_str.len == 0)
-                ComplexComponent{ .val = 0.0, .exact = true }
+            // Components are built digit-exactly; exactness is carried by
+            // each component's own type (integer/rational parts are exact,
+            // decimals and exponents inexact), and makeComplexOrRealLiteral
+            // normalizes the pair to a single exactness. `#e`/`#i` still
+            // override everything via applyExactness below (#2243 review).
+            const real_v = if (real_str.len == 0)
+                types.makeFixnum(0)
             else
                 parseComplexComponent(gc, real_str, radix) orelse return types.FALSE;
-            const imag_c = if (std.mem.eql(u8, imag_str, "+"))
-                ComplexComponent{ .val = 1.0, .exact = true }
+            var slot = gc.rootedSlot(real_v) catch return PrimitiveError.OutOfMemory;
+            defer slot.release();
+            const imag_v = if (std.mem.eql(u8, imag_str, "+"))
+                types.makeFixnum(1)
             else if (std.mem.eql(u8, imag_str, "-"))
-                ComplexComponent{ .val = -1.0, .exact = true }
+                types.makeFixnum(-1)
             else
                 parseComplexComponent(gc, imag_str, radix) orelse return types.FALSE;
-            const c = gc.allocComplexEx(real_c.val, imag_c.val, real_c.exact, imag_c.exact) catch return PrimitiveError.OutOfMemory;
+            const c = makeComplexOrRealLiteral(gc, slot.get(), imag_v) catch return PrimitiveError.OutOfMemory;
             return applyExactness(gc, c, exactness);
         } else {
             // No split found -- pure imaginary with a magnitude: +3i,
@@ -1418,9 +1537,9 @@ pub fn parseNumberText(gc: *@import("memory.zig").GC, text: []const u8, radix_in
             // signless rational 2/3i), so they stay radix-10-only and
             // integer/decimal-only.
             const has_sign = body.len > 0 and (body[0] == '+' or body[0] == '-');
-            var imag_c: ComplexComponent = undefined;
+            var imag_v: Value = undefined;
             if (has_sign) {
-                imag_c = parseComplexComponent(gc, body, radix) orelse return types.FALSE;
+                imag_v = parseComplexComponent(gc, body, radix) orelse return types.FALSE;
             } else {
                 if (radix != 10) return types.FALSE;
                 var i: usize = 0;
@@ -1435,25 +1554,28 @@ pub fn parseNumberText(gc: *@import("memory.zig").GC, text: []const u8, radix_in
                     var nb: [256]u8 = undefined;
                     const clean = bignum_mod.stripUnderscores(body, 10, &nb) orelse return types.FALSE;
                     if (std.fmt.parseInt(i64, clean, 10)) |n| {
-                        if (!bignum_mod.f64ExactI64(n)) return types.FALSE;
-                        imag_c = .{ .val = @as(f64, @floatFromInt(n)), .exact = true };
+                        if (n >= std.math.minInt(i48) and n <= std.math.maxInt(i48)) {
+                            imag_v = types.makeFixnum(n);
+                        } else {
+                            imag_v = gc.allocBignumFromI64(n) catch return PrimitiveError.OutOfMemory;
+                        }
                     } else |err| {
                         if (err != error.Overflow) return types.FALSE;
-                        // Beyond i64: an exactly-representable magnitude
-                        // (1e19 = 5^19*2^19) qualifies, matching the
-                        // reader's signless pure-imaginary path (#2243).
-                        const v = bignum_mod.parseBignumString(gc, clean, 10) catch return types.FALSE;
-                        if (!bignum_mod.bignumExactInF64(v)) return types.FALSE;
-                        imag_c = .{ .val = bignum_mod.toF64(v), .exact = true };
+                        // Beyond i64: a digit-exact bignum magnitude, no
+                        // longer gated on f64 round-tripping (#2166).
+                        imag_v = bignum_mod.parseBignumString(gc, clean, 10) catch |e| switch (e) {
+                            error.InvalidCharacter => types.FALSE,
+                            else => return PrimitiveError.OutOfMemory,
+                        };
                     }
                 } else {
                     const f = std.fmt.parseFloat(f64, body) catch {
                         return types.FALSE;
                     };
-                    imag_c = .{ .val = f, .exact = false };
+                    imag_v = types.makeFlonum(f);
                 }
             }
-            const c = gc.allocComplexEx(0.0, imag_c.val, true, imag_c.exact) catch return PrimitiveError.OutOfMemory;
+            const c = makeComplexOrRealLiteral(gc, types.makeFixnum(0), imag_v) catch return PrimitiveError.OutOfMemory;
             return applyExactness(gc, c, exactness);
         }
     }
@@ -1466,11 +1588,14 @@ pub fn parseNumberText(gc: *@import("memory.zig").GC, text: []const u8, radix_in
 // ---------------------------------------------------------------------------
 
 fn makeRectangular(args: []const Value) PrimitiveError!Value {
-    const real = try toF64(args[0]);
-    const imag = try toF64(args[1]);
-    const er = types.isFixnum(args[0]) or types.isBignum(args[0]) or types.isRationalObj(args[0]);
-    const ei = types.isFixnum(args[1]) or types.isBignum(args[1]) or types.isRationalObj(args[1]);
-    return makeComplexOrRealEx(real, imag, er, ei);
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    for (args) |a| {
+        if (!isComponentValue(a)) return primitives.typeError("make-rectangular", "real number", a);
+    }
+    // The exactness rule (R7RS 6.2.2) and the zero-imag demotion live in
+    // makeComplexOrRealV, so make-rectangular never touches an f64:
+    // 2^53+1 and 10^25 survive digit-exactly (kaappi#2166).
+    return makeComplexOrRealV(gc, args[0], args[1]);
 }
 
 fn makePolar(args: []const Value) PrimitiveError!Value {
@@ -1483,11 +1608,9 @@ fn makePolar(args: []const Value) PrimitiveError!Value {
 
 fn realPart(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
-        const c = types.toComplex(args[0]);
-        if (c.exact_real and c.real == @trunc(c.real) and @abs(c.real) < 4.5e18) {
-            return try safeFloatToExactInt(c.real);
-        }
-        return makeFlonumVal(c.real);
+        // The component is stored as a Value, so real-part returns it
+        // exactly -- 3/2, not 1.5 (kaappi#2166).
+        return types.toComplex(args[0]).real;
     }
     if (types.isFixnum(args[0]) or types.isFlonum(args[0]) or types.isBignum(args[0]) or types.isRationalObj(args[0])) return args[0];
     return primitives.typeError("real-part", "number", args[0]);
@@ -1495,11 +1618,7 @@ fn realPart(args: []const Value) PrimitiveError!Value {
 
 fn imagPart(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
-        const c = types.toComplex(args[0]);
-        if (c.exact_imag and c.imag == @trunc(c.imag) and @abs(c.imag) < 4.5e18) {
-            return try safeFloatToExactInt(c.imag);
-        }
-        return makeFlonumVal(c.imag);
+        return types.toComplex(args[0]).imag;
     }
     if (types.isFixnum(args[0]) or types.isBignum(args[0]) or types.isRationalObj(args[0])) return types.makeFixnum(0);
     if (types.isFlonum(args[0])) return makeFlonumVal(0.0);
@@ -1509,7 +1628,9 @@ fn imagPart(args: []const Value) PrimitiveError!Value {
 fn magnitudeFn(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
         const c = types.toComplex(args[0]);
-        return makeFlonumVal(@sqrt(c.real * c.real + c.imag * c.imag));
+        const re = try toF64Ext(c.real);
+        const im = try toF64Ext(c.imag);
+        return makeFlonumVal(@sqrt(re * re + im * im));
     }
     if (types.isFixnum(args[0])) {
         const n = types.toFixnum(args[0]);
@@ -1535,7 +1656,7 @@ fn magnitudeFn(args: []const Value) PrimitiveError!Value {
 fn angleFn(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
         const c = types.toComplex(args[0]);
-        return makeFlonumVal(std.math.atan2(c.imag, c.real));
+        return makeFlonumVal(std.math.atan2(try toF64Ext(c.imag), try toF64Ext(c.real)));
     }
     if (types.isFixnum(args[0])) {
         const n = types.toFixnum(args[0]);

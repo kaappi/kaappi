@@ -783,10 +783,11 @@ fn integerP(args: []const Value) PrimitiveError!Value {
         return if (f == @trunc(f)) types.TRUE else types.FALSE;
     }
     if (types.isComplex(args[0])) {
-        const c = types.toComplex(args[0]);
-        if (c.imag != 0 or !c.exact_imag) return types.FALSE;
-        if (std.math.isNan(c.real) or std.math.isInf(c.real)) return types.FALSE;
-        return if (c.real == @trunc(c.real)) types.TRUE else types.FALSE;
+        // A stored complex with an exact zero imaginary part is demoted to
+        // its real component at construction, so the only complexes that
+        // reach this arm have a nonzero or inexact-zero imag (3.0+0.0i, the
+        // -0.0i srfi160 decode) — none of which is an integer (kaappi#2166).
+        return types.FALSE;
     }
     return types.FALSE;
 }
@@ -799,7 +800,12 @@ fn realP(args: []const Value) PrimitiveError!Value {
     if (types.isFixnum(args[0]) or types.isFlonum(args[0]) or types.isBignum(args[0]) or types.isRationalObj(args[0])) return types.TRUE;
     if (types.isComplex(args[0])) {
         const c = types.toComplex(args[0]);
-        return if (c.imag == 0 and c.exact_imag) types.TRUE else types.FALSE;
+        // Only an exact zero imaginary part would make a complex real, and
+        // such values are demoted to their real component at construction
+        // (kaappi#2166); the -0.0i srfi160 decode keeps its sign and stays
+        // non-real (kaappi#1951).
+        const numeric = @import("primitives_numeric.zig");
+        return if (types.isExactNumber(c.imag) and numeric.isZeroValue(c.imag)) types.TRUE else types.FALSE;
     }
     return types.FALSE;
 }

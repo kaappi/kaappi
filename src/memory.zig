@@ -442,7 +442,6 @@ pub const GC = struct {
     pub const allocContinuation = gc_alloc.allocContinuation;
     pub const allocEscapeContinuation = gc_alloc.allocEscapeContinuation;
     pub const allocComplex = gc_alloc.allocComplex;
-    pub const allocComplexEx = gc_alloc.allocComplexEx;
     pub const allocParameter = gc_alloc.allocParameter;
     pub const allocFfiLibrary = gc_alloc.allocFfiLibrary;
     pub const allocFfiFunction = gc_alloc.allocFfiFunction;

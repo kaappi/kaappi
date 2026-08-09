@@ -430,6 +430,15 @@ test "gc tracing: multiple_values traces every value" {
     try expectTraced(&gc, mv, &.{ ref(a, 1), ref(b, 2) });
 }
 
+test "gc tracing: complex traces real and imaginary components" {
+    var gc = newGc();
+    defer gc.deinit();
+    const r = try young(&gc, 1);
+    const i = try young(&gc, 2);
+    const cx = try gc.allocComplex(r, i);
+    try expectTraced(&gc, cx, &.{ ref(r, 1), ref(i, 2) });
+}
+
 test "gc tracing: rational traces numerator and denominator" {
     var gc = newGc();
     defer gc.deinit();
@@ -702,7 +711,7 @@ test "gc tracing: leaf tags survive while rooted and are reclaimed when not" {
         try gc.allocNativeFn("probe", &dummyNative, .{ .exact = 0 }),
         try gc.allocBytevector(&.{ 1, 2, 3 }),
         try gc.allocNumericVector(.f64, &.{ 0, 0, 0, 0, 0, 0, 0, 0 }),
-        try gc.allocComplex(1.0, 2.0),
+        try gc.allocComplex(types.makeFixnum(1), types.makeFixnum(2)),
         try gc.allocBignumFromI64(1 << 62),
         try gc.allocFfiLibrary(null, "probe"),
         try gc.allocUserInfo("u", 0, 0, "/", "/bin/sh", "U"),
@@ -1024,6 +1033,21 @@ test "gc tracing (remembered set): multiple_values" {
     m.values[1] = a;
     gc.writeBarrier(&m.header, a);
     try expectRememberedTrace(&gc, mv, &.{ref(a, 1)});
+}
+
+test "gc tracing (remembered set): complex" {
+    var gc = newGc();
+    defer gc.deinit();
+    const cx = try gc.allocComplex(types.makeFixnum(1), types.makeFixnum(2));
+    try promoteToOld(&gc, cx);
+    const r = try young(&gc, 1);
+    const i = try young(&gc, 2);
+    const c = types.toObject(cx).as(types.Complex);
+    c.real = r;
+    c.imag = i;
+    gc.writeBarrier(&c.header, r);
+    gc.writeBarrier(&c.header, i);
+    try expectRememberedTrace(&gc, cx, &.{ ref(r, 1), ref(i, 2) });
 }
 
 test "gc tracing (remembered set): rational" {
@@ -1369,7 +1393,7 @@ test "gc tracing: heap-struct field inventory is unchanged" {
         "valid",    "target_frame_count", "target_wind_count", "target_handler_count",
     });
     expectFields(types.MultipleValues, &.{ "header", "values" });
-    expectFields(types.Complex, &.{ "header", "real", "imag", "exact_real", "exact_imag" });
+    expectFields(types.Complex, &.{ "header", "real", "imag" });
     expectFields(types.Promise, &.{ "header", "forced", "forcing", "value" });
     expectFields(types.ParameterObject, &.{ "header", "value", "converter" });
     expectFields(types.FfiLibrary, &.{ "header", "handle", "name" });

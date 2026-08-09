@@ -908,19 +908,15 @@ pub fn allocEscapeContinuation(
     return types.makePointer(&cont.header);
 }
 
-pub fn allocComplex(self: *GC, real: f64, imag: f64) !Value {
-    return self.allocComplexEx(real, imag, false, false);
-}
-
-pub fn allocComplexEx(self: *GC, real: f64, imag: f64, exact_real: bool, exact_imag: bool) !Value {
+pub fn allocComplex(self: *GC, real: Value, imag: Value) !Value {
+    self.rootArgs2(real, imag);
     try self.maybeCollect();
+    self.clearArgRoots();
     const c = try self.allocator.create(types.Complex);
     c.* = .{
         .header = .{ .tag = .complex },
         .real = real,
         .imag = imag,
-        .exact_real = exact_real,
-        .exact_imag = exact_imag,
     };
     self.finishAlloc(&c.header, @sizeOf(types.Complex));
     return types.makePointer(&c.header);

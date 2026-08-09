@@ -42,7 +42,10 @@ pub const MAGIC = [4]u8{ 'K', 'P', 'B', 'C' };
 // runtime errors can report `file:line:col`. A version mismatch makes
 // `readFileWithTopLevel` return null, so older `.sbc` caches are ignored and
 // silently recompiled — no stale-cache hazard.
-pub const VERSION: u16 = 11;
+/// Format version. v12 (kaappi#2166): TAG_COMPLEX payload changed from two
+/// f64s + two exactness bytes to two nested component constants, so the
+/// wire format is incompatible with v11 files.
+pub const VERSION: u16 = 12;
 pub const MAX_FUNCTIONS: u32 = 16_384;
 pub const MAX_TOP_LEVEL_FUNCTIONS: u32 = 4_096;
 pub const MAX_CODE_BYTES: u32 = 4_194_304;
@@ -989,8 +992,18 @@ test "bytecode round-trip: vector pair bignum rational complex constants" {
     const rat = try gc.allocRational(rat_num, rat_den);
     func.constants.append(allocator, rat) catch unreachable;
 
-    const cx = try gc.allocComplexEx(3.0, 4.0, false, false);
+    const cx = try gc.allocComplex(types.makeFlonum(3.0), types.makeFlonum(4.0));
     func.constants.append(allocator, cx) catch unreachable;
+
+    // Exact components (bignum real, rational imag) must survive the .sbc
+    // round trip digit-exactly (kaappi#2166). The bignum must stay rooted
+    // across the allocRational in the second argument (gc-stress).
+    const cx_bn = try gc.allocBignumFromI64(9007199254740993);
+    var cx_bn_root = cx_bn;
+    gc.pushRoot(&cx_bn_root);
+    defer gc.popRoot();
+    const cx_exact = try gc.allocComplex(cx_bn_root, try gc.allocRational(types.makeFixnum(3), types.makeFixnum(4)));
+    func.constants.append(allocator, cx_exact) catch unreachable;
 
     func.arity = 0;
     func.locals_count = 1;
@@ -1011,7 +1024,7 @@ test "bytecode round-trip: vector pair bignum rational complex constants" {
     defer allocator.free(loaded.funcs);
 
     const consts = loaded.funcs[0].constants.items;
-    try std.testing.expectEqual(@as(usize, 5), consts.len);
+    try std.testing.expectEqual(@as(usize, 6), consts.len);
 
     try std.testing.expect(types.isVector(consts[0]));
     const loaded_vec = types.toObject(consts[0]).as(types.Vector);
@@ -1024,12 +1037,22 @@ test "bytecode round-trip: vector pair bignum rational complex constants" {
 
     try std.testing.expect(types.isBignum(consts[2]));
 
+    // Constant 5: the exact complex with a bignum real and rational imag
+    // survives the round trip digit-exactly (kaappi#2166).
+    const loaded_cx2 = types.toObject(consts[5]).as(types.Complex);
+    const cx2_bn = types.toBignum(loaded_cx2.real);
+    try std.testing.expectEqual(@as(usize, 1), cx2_bn.len);
+    try std.testing.expectEqual(@as(u64, 9007199254740993), cx2_bn.limbs[0]);
+    const cx2_rat = types.toRational(loaded_cx2.imag);
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(cx2_rat.numerator));
+    try std.testing.expectEqual(@as(i64, 4), types.toFixnum(cx2_rat.denominator));
+
     try std.testing.expect(types.isRational(consts[3]));
 
     try std.testing.expect(types.isComplex(consts[4]));
     const loaded_cx = types.toObject(consts[4]).as(types.Complex);
-    try std.testing.expectEqual(@as(f64, 3.0), loaded_cx.real);
-    try std.testing.expectEqual(@as(f64, 4.0), loaded_cx.imag);
+    try std.testing.expectEqual(@as(f64, 3.0), types.toFlonum(loaded_cx.real));
+    try std.testing.expectEqual(@as(f64, 4.0), types.toFlonum(loaded_cx.imag));
 }
 
 test "bytecode round-trip: line table and source_line preserved" {

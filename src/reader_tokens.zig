@@ -6,6 +6,7 @@ const bignum = @import("bignum.zig");
 const Reader = reader_mod.Reader;
 const ReadError = reader_mod.ReadError;
 const Token = reader_mod.Token;
+const Value = types.Value;
 
 /// Exponent markers accepted in decimal reals. R7RS only requires `e`; the
 /// short/single/double/long markers (s/f/d/l) are a common extension and are
@@ -85,32 +86,111 @@ fn bigRationalToken(self: *Reader, num_str: []const u8, den_str: []const u8, rad
     return .{ .big_rational = .{ .num_str = num_str, .den_str = den_str, .radix = radix } };
 }
 
-/// Gate for a fixnum-rational complex component: accepted when both parts
-/// are within the printer's small-rational recovery limit, or when the
-/// value is exactly representable in f64 (a power-of-two denominator -- the
-/// m/2^k shape the printer emits); anything else is a loud error
-/// (kaappi#2182). Mirrors the bignum path's rationalExactInF64 gate so the
-/// boundary between the i64 and bignum paths has no dead zone.
-fn complexRationalOk(n: i64, den: i64) bool {
-    if (@abs(n) <= bignum.complex_rational_limit and @abs(den) <= bignum.complex_rational_limit) return true;
-    return bignum.i64RationalExactInF64(n, den);
+/// Root a complex token's component Values before any further allocation.
+/// The two root slots are registered once — lazily, after `init`'s caller
+/// copied the Reader into its final location — and popped by
+/// `Reader.deinit`, so the components stay reachable from the token dispatch
+/// through the datum constructor (kaappi#2166). Both setters perform the
+/// registration, because the radix-prefixed paths store the imaginary part
+/// first (tryComplexTail runs before the real part is built); an unrooted
+/// heap imaginary across the caller's real-part allocation is a
+/// use-after-free under gc-stress.
+fn rootComplexReal(self: *Reader, real: Value) void {
+    self.complex_root[0] = real;
+    if (!self.complex_roots_pushed) {
+        self.complex_roots_pushed = true;
+        self.gc.pushRoot(&self.complex_root[0]);
+        self.gc.pushRoot(&self.complex_root[1]);
+    }
+}
+
+fn rootComplexImag(self: *Reader, imag: Value) void {
+    self.complex_root[1] = imag;
+    if (!self.complex_roots_pushed) {
+        self.complex_roots_pushed = true;
+        self.gc.pushRoot(&self.complex_root[0]);
+        self.gc.pushRoot(&self.complex_root[1]);
+    }
+}
+
+/// Parse a signed radix-R integer or rational component text into an exact
+/// Value (fixnum, bignum, or reduced rational), digit-exactly at any size.
+/// The round-trip gates that an f64 component forced are gone: components
+/// are Values, so nothing ever rounds (kaappi#2166, dissolving #2182/#2183).
+/// Returns null on invalid digits or a zero denominator.
+fn parseExactComponent(self: *Reader, text: []const u8, radix: u8) ?Value {
+    if (std.mem.indexOfScalar(u8, text, '/')) |sp| {
+        if (sp == 0 or sp + 1 >= text.len) return null;
+        const num = bignum.parseBignumString(self.gc, text[0..sp], radix) catch return null;
+        var slot = self.gc.rootedSlot(num) catch return null;
+        defer slot.release();
+        const den = bignum.parseBignumString(self.gc, text[sp + 1 ..], radix) catch return null;
+        if (types.isFixnum(den) and types.toFixnum(den) == 0) return null;
+        if (types.isBignum(den) and bignum.isZero(den)) return null;
+        const arith = @import("primitives_arithmetic.zig");
+        return arith.makeRationalReduced(self.gc, slot.get(), den) catch return null;
+    }
+    return bignum.parseBignumString(self.gc, text, radix) catch return null;
+}
+
+/// Build the reduced rational n/den as an exact Value (fixnum when den
+/// divides num) and root it as the complex real component (kaappi#2166).
+fn tryRationalComponent(self: *Reader, n: i64, den: i64) ?Value {
+    const arith = @import("primitives_arithmetic.zig");
+    const r = arith.makeRationalReduced(self.gc, types.makeFixnum(n), types.makeFixnum(den)) catch return null;
+    rootComplexReal(self, r);
+    return r;
+}
+
+/// Build an exact integer component from an i64 (fixnum, or bignum past
+/// i48) through the reader's own GC — gc_instance may be unset in
+/// contexts that only read (kaappi#2166).
+fn exactIntComponent(self: *Reader, n: i64) ?Value {
+    if (n >= std.math.minInt(i48) and n <= std.math.maxInt(i48))
+        return types.makeFixnum(n);
+    return self.gc.allocBignumFromI64(n) catch return null;
 }
 
 /// Complex tail after a bignum rational real part: `num/den+imag i`,
 /// `num/den+i`, and the `-` twins (R7RS <complex R>), mirroring the
-/// i64-rational path in `readNumber` but converting the real part with the
-/// scaled rational->f64 conversion. Bignum parts are accepted only when
-/// their value is exactly representable in f64 (the m/2^k shape the
-/// printer emits for exact complex components); anything else returns null
-/// so the caller's bigRationalToken reports the glued tail as a read error
-/// rather than silently rounding an exact-flagged component
-/// (kaappi#2182/#2183). The position is restored on every failure path.
+/// i64-rational path in `readNumber` but building the real part digit-exactly
+/// as a bignum rational Value. With Value components there is no f64
+/// round-trip gate, so any bignum parts are accepted (kaappi#2166). The
+/// position is restored on every failure path.
 fn tryComplexTailBigRational(self: *Reader, num_str: []const u8, den_str: []const u8, radix: u8) ?Token {
     if (self.pos >= self.source.len) return null;
     const next = self.source[self.pos];
     if (next != '+' and next != '-' and next != 'i' and next != 'I') return null;
     const save = self.pos;
-    const real = bignum.parseRationalToF64(self.gc, num_str, den_str, radix) orelse return null;
+    // The real part is the bignum rational num_str/den_str, built
+    // digit-exactly (kaappi#2166).
+    const num = bignum.parseBignumString(self.gc, num_str, radix) catch {
+        self.pos = save;
+        return null;
+    };
+    var slot = self.gc.rootedSlot(num) catch {
+        self.pos = save;
+        return null;
+    };
+    defer slot.release();
+    const den = bignum.parseBignumString(self.gc, den_str, radix) catch {
+        self.pos = save;
+        return null;
+    };
+    if (types.isFixnum(den) and types.toFixnum(den) == 0) {
+        self.pos = save;
+        return null;
+    }
+    if (types.isBignum(den) and bignum.isZero(den)) {
+        self.pos = save;
+        return null;
+    }
+    const arith = @import("primitives_arithmetic.zig");
+    const real = arith.makeRationalReduced(self.gc, slot.get(), den) catch {
+        self.pos = save;
+        return null;
+    };
+    rootComplexReal(self, real);
 
     // Pure imaginary with an explicit magnitude: `+ <ureal R> i` /
     // `- <ureal R> i` (R7RS <complex R>; the sign inside num_str is the
@@ -121,7 +201,8 @@ fn tryComplexTailBigRational(self: *Reader, num_str: []const u8, den_str: []cons
         num_str.len > 0 and (num_str[0] == '+' or num_str[0] == '-'))
     {
         self.pos += 1;
-        return .{ .complex = .{ .real = 0.0, .imag = real, .exact_real = true, .exact_imag = true } };
+        rootComplexImag(self, real);
+        return .{ .complex = .{ .real = types.makeFixnum(0), .imag = real } };
     }
     if (next != '+' and next != '-') return null;
     const neg = next == '-'; // sign applies to the imaginary part below
@@ -132,7 +213,9 @@ fn tryComplexTailBigRational(self: *Reader, num_str: []const u8, den_str: []cons
         (self.pos + 1 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 1])))
     {
         self.pos += 1;
-        return .{ .complex = .{ .real = real, .imag = if (neg) -1.0 else 1.0, .exact_real = true, .exact_imag = true } };
+        const unit: Value = if (neg) types.makeFixnum(-1) else types.makeFixnum(1);
+        rootComplexImag(self, unit);
+        return .{ .complex = .{ .real = real, .imag = unit } };
     }
     // Imaginary magnitude: radix digits (plus '/' for N/D; '.' only in
     // radix 10) then 'i', mirroring the i64 paths. `radix` matters here:
@@ -166,34 +249,49 @@ fn tryComplexTailBigRational(self: *Reader, num_str: []const u8, den_str: []cons
     {
         self.pos += 1;
         const imag_str = self.source[mag_start .. self.pos - 1];
-        // An exact-flagged imaginary part must round-trip through f64: a
-        // bignum integer would silently carry a rounded value while
-        // claiming exactness, the rule the other complex paths apply
-        // (#2182).
-        if (!imag_has_dot and !exactIntegerRoundTrips(self, imag_str, radix)) {
-            self.pos = save;
-            return null;
-        }
-        const imag = blk: {
-            if (radix == 10) {
-                break :blk parseDecimalReal(imag_str);
+        // An exact-flagged imaginary part is parsed digit-exactly (radix
+        // 10 integers/rationals via parseDecimalReal's text, but as a
+        // Value); a decimal part is a flonum (kaappi#2166).
+        const imag = if (imag_has_dot) blk: {
+            if (radix != 10) {
+                self.pos = save;
+                return null;
             }
-            break :blk bignum.parseRadixUrealToF64(imag_str, radix);
-        } orelse blk: {
-            // Bignum rational imaginary part: split at '/' and gate on exact
-            // f64 representability (#2182/#2183).
-            if (std.mem.indexOfScalar(u8, imag_str, '/')) |sp2| {
-                break :blk bignum.parseRationalToF64(self.gc, imag_str[0..sp2], imag_str[sp2 + 1 ..], radix) orelse {
-                    self.pos = save;
-                    return null;
-                };
-            }
+            break :blk types.makeFlonum(parseDecimalReal(imag_str) orelse {
+                self.pos = save;
+                return null;
+            });
+        } else parseExactComponent(self, imag_str, radix) orelse {
             self.pos = save;
             return null;
         };
-        return .{ .complex = .{ .real = real, .imag = if (neg) -imag else imag, .exact_real = true, .exact_imag = !imag_has_dot } };
+        rootComplexImag(self, imag);
+        const signed_imag = if (neg) (negateComponent(self, imag) orelse {
+            self.pos = save;
+            return null;
+        }) else imag;
+        rootComplexImag(self, signed_imag);
+        return .{ .complex = .{ .real = real, .imag = signed_imag } };
     }
     self.pos = save;
+    return null;
+}
+
+/// Negate a component Value (fixnum/bignum/rational/flonum). The caller
+/// must have rooted `v` and must root the result before the next
+/// allocation (heap results are returned unrooted).
+fn negateComponent(self: *Reader, v: Value) ?Value {
+    if (types.isFixnum(v)) return types.makeFixnum(-types.toFixnum(v));
+    if (types.isFlonum(v)) return types.makeFlonum(-types.toFlonum(v));
+    if (types.isBignum(v)) return bignum.negate(self.gc, v) catch return null;
+    if (types.isRationalObj(v)) {
+        const r = types.toRational(v);
+        const neg_num = bignum.negate(self.gc, r.numerator) catch return null;
+        var slot = self.gc.rootedSlot(neg_num) catch return null;
+        defer slot.release();
+        const arith = @import("primitives_arithmetic.zig");
+        return arith.makeRationalReduced(self.gc, slot.get(), r.denominator) catch return null;
+    }
     return null;
 }
 
@@ -265,10 +363,11 @@ pub fn readNumber(self: *Reader) ReadError!Token {
             (self.pos + 1 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 1])))
         {
             self.pos += 1;
-            if (real_exact and !exactIntegerRoundTrips(self, num_str, 10)) return invalidNumberOrEof(self);
-            const real = parseDecimalReal(num_str) orelse return invalidNumberOrEof(self);
-            const imag: f64 = if (self.source[imag_start] == '+') 1.0 else -1.0;
-            return .{ .complex = .{ .real = real, .imag = imag, .exact_real = real_exact, .exact_imag = true } };
+            const real = if (real_exact) (parseExactComponent(self, num_str, 10) orelse return invalidNumberOrEof(self)) else types.makeFlonum(parseDecimalReal(num_str) orelse return invalidNumberOrEof(self));
+            rootComplexReal(self, real);
+            const imag: Value = if (self.source[imag_start] == '+') types.makeFixnum(1) else types.makeFixnum(-1);
+            rootComplexImag(self, imag);
+            return .{ .complex = .{ .real = real, .imag = imag } };
         }
         // Check for inf.0/nan.0 as imaginary part (e.g., 3.0+inf.0i)
         const rest_after_sign = self.source[self.pos..];
@@ -286,10 +385,12 @@ pub fn readNumber(self: *Reader) ReadError!Token {
                     (self.pos + 6 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 6])))
                 {
                     self.pos += 6; // skip inf.0i / nan.0i
-                    if (real_exact and !exactIntegerRoundTrips(self, num_str, 10)) return invalidNumberOrEof(self);
-                    const real = parseDecimalReal(num_str) orelse return invalidNumberOrEof(self);
-                    const imag = if (self.source[imag_start] == '-') -special_val else special_val;
-                    return .{ .complex = .{ .real = real, .imag = imag, .exact_real = real_exact, .exact_imag = false } };
+                    const real = if (real_exact) (parseExactComponent(self, num_str, 10) orelse return invalidNumberOrEof(self)) else types.makeFlonum(parseDecimalReal(num_str) orelse return invalidNumberOrEof(self));
+                    rootComplexReal(self, real);
+                    const imag_v: f64 = if (self.source[imag_start] == '-') -special_val else special_val;
+                    const imag = types.makeFlonum(imag_v);
+                    rootComplexImag(self, imag);
+                    return .{ .complex = .{ .real = real, .imag = imag } };
                 }
             }
         }
@@ -319,22 +420,11 @@ pub fn readNumber(self: *Reader) ReadError!Token {
             self.pos += 1;
             const imag_str = self.source[imag_start .. self.pos - 1];
             const imag_exact = !imag_has_dot and !imag_has_exp;
-            // Exact-flagged components must round-trip through f64
-            // (kaappi#2182/#2243): a lossy integer would silently carry a
-            // rounded value while claiming exactness.
-            if (real_exact and !exactIntegerRoundTrips(self, num_str, 10)) return invalidNumberOrEof(self);
-            if (imag_exact and !exactIntegerRoundTrips(self, imag_str, 10)) return invalidNumberOrEof(self);
-            const real = parseDecimalReal(num_str) orelse return invalidNumberOrEof(self);
-            const imag = parseDecimalReal(imag_str) orelse blk: {
-                // Bignum rational imaginary part (the m/2^k printer form
-                // after an integer real): split at '/' and gate on exact
-                // f64 representability (#2182/#2183).
-                if (std.mem.indexOfScalar(u8, imag_str, '/')) |sp2| {
-                    break :blk bignum.parseRationalToF64(self.gc, imag_str[0..sp2], imag_str[sp2 + 1 ..], 10) orelse return invalidNumberOrEof(self);
-                }
-                return invalidNumberOrEof(self);
-            };
-            return .{ .complex = .{ .real = real, .imag = imag, .exact_real = real_exact, .exact_imag = imag_exact } };
+            const real = if (real_exact) (parseExactComponent(self, num_str, 10) orelse return invalidNumberOrEof(self)) else types.makeFlonum(parseDecimalReal(num_str) orelse return invalidNumberOrEof(self));
+            rootComplexReal(self, real);
+            const imag = if (imag_exact) (parseExactComponent(self, imag_str, 10) orelse return invalidNumberOrEof(self)) else types.makeFlonum(parseDecimalReal(imag_str) orelse return invalidNumberOrEof(self));
+            rootComplexImag(self, imag);
+            return .{ .complex = .{ .real = real, .imag = imag } };
         }
         // Not a complex literal — backtrack
         self.pos = imag_start;
@@ -345,17 +435,16 @@ pub fn readNumber(self: *Reader) ReadError!Token {
     {
         self.pos += 1;
         // A bare sign (or nothing) means a magnitude of 1, i.e. +i / -i.
-        const imag = if (num_str.len == 0 or (num_str.len == 1 and (num_str[0] == '+' or num_str[0] == '-')))
-            (if (num_str.len == 1 and num_str[0] == '-') @as(f64, -1.0) else @as(f64, 1.0))
+        const imag: Value = if (num_str.len == 0 or (num_str.len == 1 and (num_str[0] == '+' or num_str[0] == '-')))
+            (if (num_str.len == 1 and num_str[0] == '-') types.makeFixnum(-1) else types.makeFixnum(1))
+        else if (!has_dot and !has_exp)
+            (parseExactComponent(self, num_str, 10) orelse return invalidNumberOrEof(self))
         else
-            parseDecimalReal(num_str) orelse return invalidNumberOrEof(self);
-        const imag_exact2 = !has_dot and !has_exp;
-        // A bare sign (or nothing) means a magnitude of 1, i.e. +i / -i;
-        // longer num_str means an explicit integer magnitude that must
-        // round-trip through f64 when claimed exact (#2182/#2243).
-        if (imag_exact2 and num_str.len > 1 and !exactIntegerRoundTrips(self, num_str, 10))
-            return invalidNumberOrEof(self);
-        return .{ .complex = .{ .real = 0.0, .imag = imag, .exact_real = true, .exact_imag = imag_exact2 } };
+            types.makeFlonum(parseDecimalReal(num_str) orelse return invalidNumberOrEof(self));
+        const zero: Value = types.makeFixnum(0);
+        rootComplexReal(self, zero);
+        rootComplexImag(self, imag);
+        return .{ .complex = .{ .real = zero, .imag = imag } };
     }
 
     if (has_dot or has_exp) {
@@ -401,15 +490,16 @@ pub fn readNumber(self: *Reader) ReadError!Token {
             // Check for complex after rational: 1/2+3/4i
             if (self.pos < self.source.len and (self.source[self.pos] == '+' or self.source[self.pos] == '-')) {
                 const csave = self.pos;
-                const real_val: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(den));
                 self.pos += 1;
                 // +i or -i
                 if (self.pos < self.source.len and (self.source[self.pos] == 'i' or self.source[self.pos] == 'I') and
                     (self.pos + 1 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 1])))
                 {
                     self.pos += 1;
-                    if (!complexRationalOk(n, den)) return invalidNumberOrEof(self);
-                    return .{ .complex = .{ .real = real_val, .imag = if (self.source[csave] == '+') 1.0 else -1.0, .exact_real = true, .exact_imag = true } };
+                    const real = tryRationalComponent(self, n, den) orelse return invalidNumberOrEof(self);
+                    const imag: Value = if (self.source[csave] == '+') types.makeFixnum(1) else types.makeFixnum(-1);
+                    rootComplexImag(self, imag);
+                    return .{ .complex = .{ .real = real, .imag = imag } };
                 }
                 // Try parsing imaginary part
                 const imag_start2 = csave;
@@ -424,27 +514,22 @@ pub fn readNumber(self: *Reader) ReadError!Token {
                 {
                     self.pos = imag_end + 1;
                     const imag_str = self.source[imag_start2..imag_end];
-                    // An exact-flagged imaginary part must round-trip through
-                    // f64: a bignum integer would silently carry a rounded
-                    // value while claiming exactness, the same rule the main
-                    // complex path applies to both components (#2182).
-                    if (!imag_has_dot2 and !exactIntegerRoundTrips(self, imag_str, 10)) return invalidNumberOrEof(self);
-                    const imag_val = parseDecimalReal(imag_str) orelse blk: {
-                        // Bignum rational imaginary part (e.g. the m/2^k
-                        // printer form): split at '/' and gate on exact f64
-                        // representability (#2182/#2183). imag_str carries
-                        // the sign, which parseBignumString accepts.
-                        if (std.mem.indexOfScalar(u8, imag_str, '/')) |sp2| {
-                            break :blk bignum.parseRationalToF64(self.gc, imag_str[0..sp2], imag_str[sp2 + 1 ..], 10) orelse {
-                                self.pos = csave;
-                                return .{ .rational = .{ .num = n, .den = den } };
-                            };
-                        }
-                        self.pos = csave;
-                        return .{ .rational = .{ .num = n, .den = den } };
-                    };
-                    if (!complexRationalOk(n, den)) return invalidNumberOrEof(self);
-                    return .{ .complex = .{ .real = real_val, .imag = imag_val, .exact_real = true, .exact_imag = !imag_has_dot2 } };
+                    const real = tryRationalComponent(self, n, den) orelse return invalidNumberOrEof(self);
+                    // imag_str carries the sign and may be an integer,
+                    // rational, or (with a dot) a decimal; exact parts are
+                    // built digit-exactly (kaappi#2166).
+                    const imag = if (imag_has_dot2)
+                        types.makeFlonum(parseDecimalReal(imag_str) orelse {
+                            self.pos = csave;
+                            return .{ .rational = .{ .num = n, .den = den } };
+                        })
+                    else
+                        (parseExactComponent(self, imag_str, 10) orelse {
+                            self.pos = csave;
+                            return .{ .rational = .{ .num = n, .den = den } };
+                        });
+                    rootComplexImag(self, imag);
+                    return .{ .complex = .{ .real = real, .imag = imag } };
                 }
                 self.pos = csave;
             }
@@ -456,10 +541,13 @@ pub fn readNumber(self: *Reader) ReadError!Token {
                 self.pos < self.source.len and (self.source[self.pos] == 'i' or self.source[self.pos] == 'I') and
                 (self.pos + 1 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 1])))
             {
-                if (!complexRationalOk(n, den)) return invalidNumberOrEof(self);
                 self.pos += 1;
-                const pure_imag_val: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(den));
-                return .{ .complex = .{ .real = 0.0, .imag = pure_imag_val, .exact_real = true, .exact_imag = true } };
+                const zero: Value = types.makeFixnum(0);
+                rootComplexReal(self, zero);
+                const arith = @import("primitives_arithmetic.zig");
+                const imag = arith.makeRationalReduced(self.gc, types.makeFixnum(n), types.makeFixnum(den)) catch return invalidNumberOrEof(self);
+                rootComplexImag(self, imag);
+                return .{ .complex = .{ .real = zero, .imag = imag } };
             }
             return .{ .rational = .{ .num = n, .den = den } };
         }
@@ -521,10 +609,10 @@ pub fn foldAndReturnSymbol(self: *Reader, sym_text: []const u8) ReadError!Token 
     if (std.ascii.eqlIgnoreCase(text, "+nan.0")) return .{ .flonum = std.math.nan(f64) };
     if (std.ascii.eqlIgnoreCase(text, "-nan.0")) return .{ .flonum = std.math.nan(f64) };
     // Pure imaginary special floats: +inf.0i, -inf.0i, +nan.0i, -nan.0i
-    if (std.ascii.eqlIgnoreCase(text, "+inf.0i")) return .{ .complex = .{ .real = 0.0, .imag = std.math.inf(f64) } };
-    if (std.ascii.eqlIgnoreCase(text, "-inf.0i")) return .{ .complex = .{ .real = 0.0, .imag = -std.math.inf(f64) } };
-    if (std.ascii.eqlIgnoreCase(text, "+nan.0i")) return .{ .complex = .{ .real = 0.0, .imag = std.math.nan(f64) } };
-    if (std.ascii.eqlIgnoreCase(text, "-nan.0i")) return .{ .complex = .{ .real = 0.0, .imag = std.math.nan(f64) } };
+    if (std.ascii.eqlIgnoreCase(text, "+inf.0i")) return .{ .complex = .{ .real = types.makeFixnum(0), .imag = types.makeFlonum(std.math.inf(f64)) } };
+    if (std.ascii.eqlIgnoreCase(text, "-inf.0i")) return .{ .complex = .{ .real = types.makeFixnum(0), .imag = types.makeFlonum(-std.math.inf(f64)) } };
+    if (std.ascii.eqlIgnoreCase(text, "+nan.0i")) return .{ .complex = .{ .real = types.makeFixnum(0), .imag = types.makeFlonum(std.math.nan(f64)) } };
+    if (std.ascii.eqlIgnoreCase(text, "-nan.0i")) return .{ .complex = .{ .real = types.makeFixnum(0), .imag = types.makeFlonum(std.math.nan(f64)) } };
     // Check for complex literals with special floats: +inf.0+inf.0i etc.
     if (text.len > 2 and (text[text.len - 1] == 'i' or text[text.len - 1] == 'I')) {
         if (tryParseComplexSymbol(text)) |cpx| return .{ .complex = cpx };
@@ -562,7 +650,7 @@ fn tryParseComplexSymbol(text: []const u8) ?@TypeOf(@as(Token, undefined).comple
     } else {
         imag = tryParseSpecialFloat(imag_part) orelse parseDecimalReal(imag_part) orelse return null;
     }
-    return .{ .real = real, .imag = imag };
+    return .{ .real = types.makeFlonum(real), .imag = types.makeFlonum(imag) };
 }
 
 /// Try to read an inf/nan literal (case-insensitive) at the current position,
@@ -655,16 +743,27 @@ fn readNumberPrefixed(self: *Reader, radix0: u8, exact0: ?bool) ReadError!Token 
     switch (tok) {
         // Complex tokens keep their token-level parse: readNumber's complex
         // grammar is wider than parseNumberText's (rational and inf/nan
-        // parts), so re-parsing the span would reject valid literals.
-        // Exactness on a complex is exactly its two flags, with #e refusing
-        // non-finite parts the same way the parseNumberText path does.
+        // parts), so re-parsing the span would reject valid literals. The
+        // #e/#i prefix converts both components (a stored complex is never
+        // mixed-exactness), with #e refusing non-finite parts the same way
+        // the parseNumberText path does (kaappi#2166).
         .complex => |c| {
+            const numeric = @import("primitives_numeric.zig");
             if (want_exact) {
-                if (!std.math.isFinite(c.real) or !std.math.isFinite(c.imag))
-                    return ReadError.InvalidNumber;
-                return .{ .complex = .{ .real = c.real, .imag = c.imag, .exact_real = true, .exact_imag = true } };
+                const re_nan = types.isFlonum(c.real) and !std.math.isFinite(types.toFlonum(c.real));
+                const im_nan = types.isFlonum(c.imag) and !std.math.isFinite(types.toFlonum(c.imag));
+                if (re_nan or im_nan) return ReadError.InvalidNumber;
+                const real = numeric.exactComponentGc(self.gc, c.real) catch return ReadError.OutOfMemory;
+                rootComplexReal(self, real);
+                const imag = numeric.exactComponentGc(self.gc, c.imag) catch return ReadError.OutOfMemory;
+                rootComplexImag(self, imag);
+                return .{ .complex = .{ .real = real, .imag = imag } };
             }
-            return .{ .complex = .{ .real = c.real, .imag = c.imag, .exact_real = false, .exact_imag = false } };
+            const real = numeric.inexactFn(&[1]Value{c.real}) catch return ReadError.OutOfMemory;
+            rootComplexReal(self, real);
+            const imag = numeric.inexactFn(&[1]Value{c.imag}) catch return ReadError.OutOfMemory;
+            rootComplexImag(self, imag);
+            return .{ .complex = .{ .real = real, .imag = imag } };
         },
         else => return .{ .prefixed_real = .{
             .str = self.source[body_start..self.pos],
@@ -979,44 +1078,6 @@ fn appendByteStringByte(self: *Reader, b: u8) ReadError!void {
     self.token_buf.append(self.gc.allocator, b) catch return ReadError.OutOfMemory;
 }
 
-/// Parse a radix-R <ureal> slice to f64 (see `bignum.parseRadixUrealToF64`:
-/// i64 overflow, an invalid character, or an i64 part that does not
-/// round-trip through f64 yields null -- an exact bignum component has no
-/// honest f64 value, and a loud error beats a silently rounded one
-/// (kaappi#2182).
-fn parseRadixUrealToF64(s: []const u8, radix: u8) ?f64 {
-    return bignum.parseRadixUrealToF64(s, radix);
-}
-
-/// True when the i64 -> f64 conversion is lossless, so a complex token can
-/// honestly claim the component is exact. Values in (2^53, 2^63] round to
-/// a different integer and must be rejected loudly (kaappi#2182/#2243).
-fn f64ExactI64(n: i64) bool {
-    return bignum.f64ExactI64(n);
-}
-
-/// True when the radix-R number text (optional sign, integer or N/D
-/// rational, no dot/exponent) round-trips through f64: parseable and
-/// lossless in the conversion. Gates exact-flagged complex components so
-/// a rounded value can never masquerade as exact (kaappi#2182/#2243).
-/// Integers beyond i64 go through the bignum significant-bit test so
-/// exactly-representable magnitudes (1e19 = 5^19*2^19) still qualify.
-fn exactIntegerRoundTrips(self: *Reader, s: []const u8, radix: u8) bool {
-    if (std.mem.indexOfScalar(u8, s, '/')) |sp| {
-        if (sp == 0 or sp + 1 >= s.len) return false;
-        return exactIntegerRoundTrips(self, s[0..sp], radix) and exactIntegerRoundTrips(self, s[sp + 1 ..], radix);
-    }
-    var buf: [256]u8 = undefined;
-    const clean = bignum.stripUnderscores(s, radix, &buf) orelse return false;
-    if (std.fmt.parseInt(i64, clean, radix)) |n| {
-        return f64ExactI64(n);
-    } else |err| {
-        if (err != error.Overflow) return false;
-        const v = bignum.parseBignumString(self.gc, clean, radix) catch return false;
-        return bignum.bignumExactInF64(v);
-    }
-}
-
 /// If the reader is positioned at a `+`/`-` that begins a valid R7RS
 /// complex tail -- `+<ureal R> i`, `+i`, or the `-` twins, i.e. the
 /// `<real R> (+|-) <ureal R> i` productions of R7RS 7.1.1 -- consume it
@@ -1026,7 +1087,7 @@ fn exactIntegerRoundTrips(self: *Reader, s: []const u8, radix: u8) bool {
 /// digits only: `#b1+2i` (2 is not a binary digit) still errors. Mirrors
 /// the radix-10 `readNumber` complex grammar, minus the decimal/exponent
 /// and inf/nan imaginary spellings that never exist in another radix.
-fn tryComplexTail(self: *Reader, radix: u8) ?struct { imag: f64 } {
+fn tryComplexTail(self: *Reader, radix: u8) ?struct { imag: Value } {
     if (self.pos >= self.source.len) return null;
     const sign = self.source[self.pos];
     if (sign != '+' and sign != '-') return null;
@@ -1039,7 +1100,9 @@ fn tryComplexTail(self: *Reader, radix: u8) ?struct { imag: f64 } {
         (self.pos + 1 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 1])))
     {
         self.pos += 1;
-        return .{ .imag = if (neg) -1.0 else 1.0 };
+        const unit: Value = if (neg) types.makeFixnum(-1) else types.makeFixnum(1);
+        rootComplexImag(self, unit);
+        return .{ .imag = unit };
     }
 
     // <ureal R>: radix digits (with SRFI-169 `_`), optionally /denominator.
@@ -1070,11 +1133,17 @@ fn tryComplexTail(self: *Reader, radix: u8) ?struct { imag: f64 } {
             (self.pos + 1 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 1])))
         {
             self.pos += 1; // consume the trailing i
-            const mag = parseRadixUrealToF64(self.source[mag_start .. self.pos - 1], radix) orelse {
+            const mag = parseExactComponent(self, self.source[mag_start .. self.pos - 1], radix) orelse {
                 self.pos = save;
                 return null;
             };
-            return .{ .imag = if (neg) -mag else mag };
+            rootComplexImag(self, mag);
+            const signed = if (neg) (negateComponent(self, mag) orelse {
+                self.pos = save;
+                return null;
+            }) else mag;
+            rootComplexImag(self, signed);
+            return .{ .imag = signed };
         }
         self.pos = slash_pos; // not a rational tail -- fall through to integer
     }
@@ -1084,11 +1153,17 @@ fn tryComplexTail(self: *Reader, radix: u8) ?struct { imag: f64 } {
         (self.pos + 1 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 1])))
     {
         self.pos += 1;
-        const mag = parseRadixUrealToF64(mag_str, radix) orelse {
+        const mag = parseExactComponent(self, mag_str, radix) orelse {
             self.pos = save;
             return null;
         };
-        return .{ .imag = if (neg) -mag else mag };
+        rootComplexImag(self, mag);
+        const signed = if (neg) (negateComponent(self, mag) orelse {
+            self.pos = save;
+            return null;
+        }) else mag;
+        rootComplexImag(self, signed);
+        return .{ .imag = signed };
     }
     self.pos = save;
     return null;
@@ -1138,7 +1213,11 @@ pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
         {
             const neg = num_str[0] == '-';
             self.pos += 1;
-            return .{ .complex = .{ .real = 0.0, .imag = if (neg) -1.0 else 1.0, .exact_real = true, .exact_imag = true } };
+            const zero: Value = types.makeFixnum(0);
+            const unit: Value = if (neg) types.makeFixnum(-1) else types.makeFixnum(1);
+            rootComplexReal(self, zero);
+            rootComplexImag(self, unit);
+            return .{ .complex = .{ .real = zero, .imag = unit } };
         }
         return invalidNumberOrEof(self);
     }
@@ -1163,6 +1242,13 @@ pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
             }
             self.pos = slash_pos; // no digits after '/', backtrack
         }
+        // A complex tail after a bignum integer real part reads digit-exactly
+        // (kaappi#2166) — the same shape the i64 path takes below.
+        if (tryComplexTail(self, radix)) |tail| {
+            const real = bignum.parseBignumString(self.gc, num_str, radix) catch return invalidNumberOrEof(self);
+            rootComplexReal(self, real);
+            return .{ .complex = .{ .real = real, .imag = tail.imag } };
+        }
         return .{ .bignum_str = .{ .str = num_str, .radix = radix } };
     };
     // Check for rational literal: N/D (within same radix)
@@ -1179,7 +1265,6 @@ pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
                 }
                 return invalidNumberOrEof(self);
             };
-            const real_val: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(den));
             // Pure imaginary with an explicit magnitude: #x+3/4i is 0+3/4i
             // (R7RS <complex R> -> `+ <ureal R> i` | `- <ureal R> i`; the
             // sign is the production marker, and the signless #x3/4i is
@@ -1188,17 +1273,21 @@ pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
                 self.pos < self.source.len and (self.source[self.pos] == 'i' or self.source[self.pos] == 'I') and
                 (self.pos + 1 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 1])))
             {
-                if (!complexRationalOk(n, den)) return invalidNumberOrEof(self);
                 self.pos += 1;
-                return .{ .complex = .{ .real = 0.0, .imag = real_val, .exact_real = true, .exact_imag = true } };
+                const zero: Value = types.makeFixnum(0);
+                rootComplexReal(self, zero);
+                const arith = @import("primitives_arithmetic.zig");
+                const imag = arith.makeRationalReduced(self.gc, types.makeFixnum(n), types.makeFixnum(den)) catch return invalidNumberOrEof(self);
+                rootComplexImag(self, imag);
+                return .{ .complex = .{ .real = zero, .imag = imag } };
             }
             // Complex after a rational: #x1/2+3i, #x1/2+i (R7RS 7.1.1
             // `<real R> (+|-) <ureal R> i`). The real part keeps its exact
             // rational value through the token-level parse, exactly like the
             // radix-10 path does for `1/2+3i` (#2243).
             if (tryComplexTail(self, radix)) |tail| {
-                if (!complexRationalOk(n, den)) return invalidNumberOrEof(self);
-                return .{ .complex = .{ .real = real_val, .imag = tail.imag, .exact_real = true, .exact_imag = true } };
+                const real = tryRationalComponent(self, n, den) orelse return invalidNumberOrEof(self);
+                return .{ .complex = .{ .real = real, .imag = tail.imag } };
             }
             return .{ .rational = .{ .num = n, .den = den } };
         }
@@ -1211,14 +1300,18 @@ pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
         self.pos < self.source.len and (self.source[self.pos] == 'i' or self.source[self.pos] == 'I') and
         (self.pos + 1 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 1])))
     {
-        if (!f64ExactI64(n)) return invalidNumberOrEof(self);
         self.pos += 1;
-        return .{ .complex = .{ .real = 0.0, .imag = @floatFromInt(n), .exact_real = true, .exact_imag = true } };
+        const zero: Value = types.makeFixnum(0);
+        rootComplexReal(self, zero);
+        const imag = exactIntComponent(self, n) orelse return invalidNumberOrEof(self);
+        rootComplexImag(self, imag);
+        return .{ .complex = .{ .real = zero, .imag = imag } };
     }
     // Complex after a plain integer: #x1+2i, #x1-i (#2243).
     if (tryComplexTail(self, radix)) |tail| {
-        if (!f64ExactI64(n)) return invalidNumberOrEof(self);
-        return .{ .complex = .{ .real = @floatFromInt(n), .imag = tail.imag, .exact_real = true, .exact_imag = true } };
+        const real = exactIntComponent(self, n) orelse return invalidNumberOrEof(self);
+        rootComplexReal(self, real);
+        return .{ .complex = .{ .real = real, .imag = tail.imag } };
     }
     return .{ .fixnum = n };
 }

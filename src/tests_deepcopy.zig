@@ -303,14 +303,24 @@ test "deepCopy complex" {
     var gc2 = memory.GC.init(std.testing.allocator);
     defer gc2.deinit();
 
-    const cplx = try gc1.allocComplexEx(1.5, 2.5, false, true);
+    const cplx = try gc1.allocComplex(types.makeFlonum(1.5), types.makeFixnum(2));
     const copied = try gc2.deepCopy(cplx);
     try std.testing.expect(cplx != copied);
     const cc = types.toObject(copied).as(types.Complex);
-    try std.testing.expectEqual(@as(f64, 1.5), cc.real);
-    try std.testing.expectEqual(@as(f64, 2.5), cc.imag);
-    try std.testing.expectEqual(false, cc.exact_real);
-    try std.testing.expectEqual(true, cc.exact_imag);
+    try std.testing.expectEqual(@as(f64, 1.5), types.toFlonum(cc.real));
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(cc.imag));
+
+    // A heap-allocated bignum component is recursively deep-copied into gc2.
+    const bn = try gc1.allocBignumFromI64(9007199254740993);
+    const cplx2 = try gc1.allocComplex(bn, types.makeFixnum(1));
+    const copied2 = try gc2.deepCopy(cplx2);
+    try std.testing.expect(cplx2 != copied2);
+    const cc2 = types.toObject(copied2).as(types.Complex);
+    try std.testing.expect(types.isBignum(cc2.real));
+    const cc2_bn = types.toBignum(cc2.real);
+    try std.testing.expectEqual(@as(usize, 1), cc2_bn.len);
+    try std.testing.expectEqual(@as(u64, 9007199254740993), cc2_bn.limbs[0]);
+    try std.testing.expect(cc2_bn.positive);
 }
 
 test "deepCopy bignum" {

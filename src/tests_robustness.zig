@@ -222,8 +222,8 @@ test "reader: valid numbers and a piped digit-led symbol are unaffected" {
         const result = try reader.readDatum();
         try std.testing.expect(types.isComplex(result));
         const c = types.toComplex(result);
-        try std.testing.expectEqual(@as(f64, 3.0), c.real);
-        try std.testing.expectEqual(@as(f64, -4.0), c.imag);
+        try std.testing.expectEqual(@as(i64, 3), types.toFixnum(c.real));
+        try std.testing.expectEqual(@as(i64, -4), types.toFixnum(c.imag));
     }
     {
         var gc = memory.GC.init(std.testing.allocator);

@@ -191,6 +191,10 @@ fn referencesYoung(gc: *GC, obj: *Object) bool {
             const rat = obj.as(Rational);
             if (isYoungPointer(gc, rat.numerator) or isYoungPointer(gc, rat.denominator)) return true;
         },
+        .complex => {
+            const cx = obj.as(types.Complex);
+            if (isYoungPointer(gc, cx.real) or isYoungPointer(gc, cx.imag)) return true;
+        },
         .ffi_function => {
             if (isYoungPointer(gc, obj.as(FfiFunction).library)) return true;
         },
@@ -303,7 +307,7 @@ fn referencesYoung(gc: *GC, obj: *Object) bool {
             const tc = obj.as(TransportCell);
             if (isYoungPointer(gc, tc.key) or isYoungPointer(gc, tc.value)) return true;
         },
-        .symbol, .string, .native_fn, .flonum, .complex, .bytevector, .bignum, .ffi_library, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time, .numeric_vector => {},
+        .symbol, .string, .native_fn, .flonum, .bytevector, .bignum, .ffi_library, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time, .numeric_vector => {},
     }
     return false;
 }
@@ -531,6 +535,11 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
             markValue(gc, rat.numerator);
             markValue(gc, rat.denominator);
         },
+        .complex => {
+            const cx = obj.as(types.Complex);
+            markValue(gc, cx.real);
+            markValue(gc, cx.imag);
+        },
         .ffi_function => {
             const ffi_fn = obj.as(FfiFunction);
             markValue(gc, ffi_fn.library);
@@ -585,7 +594,7 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
             markValue(gc, tc.key);
             markValue(gc, tc.value);
         },
-        .symbol, .string, .native_fn, .flonum, .complex, .bytevector, .bignum, .ffi_library, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time, .numeric_vector => {},
+        .symbol, .string, .native_fn, .flonum, .bytevector, .bignum, .ffi_library, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time, .numeric_vector => {},
     }
 }
 
@@ -896,6 +905,11 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
             worklist.append(gc.allocator, rat.numerator) catch @panic("GC mark: worklist OOM");
             worklist.append(gc.allocator, rat.denominator) catch @panic("GC mark: worklist OOM");
         },
+        .complex => {
+            const cx = obj.as(types.Complex);
+            worklist.append(gc.allocator, cx.real) catch @panic("GC mark: worklist OOM");
+            worklist.append(gc.allocator, cx.imag) catch @panic("GC mark: worklist OOM");
+        },
         .ffi_library => {},
         .ffi_function => {
             const ffi_fn = obj.as(FfiFunction);
@@ -965,6 +979,6 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
             worklist.append(gc.allocator, tc.key) catch @panic("GC mark: worklist OOM");
             worklist.append(gc.allocator, tc.value) catch @panic("GC mark: worklist OOM");
         },
-        .symbol, .string, .native_fn, .flonum, .complex, .bytevector, .bignum, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time, .numeric_vector => {},
+        .symbol, .string, .native_fn, .flonum, .bytevector, .bignum, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time, .numeric_vector => {},
     }
 }
