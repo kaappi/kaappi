@@ -430,7 +430,16 @@
     (define mapping<?
       (case-lambda
         ((vcmp m1) #t)
-        ((vcmp m1 m2) (and (%mapping<=? vcmp m1 m2) (not (%mapping=? vcmp m1 m2))))
+        ((vcmp m1 m2)
+         ;; The strict predicates must not inherit #2047's identity guard
+         ;; through =? only: %mapping<=? is structural, so with different
+         ;; (but structurally identical) comparator objects both m1<m2 and
+         ;; m2<m1 would hold.  Guard the strict comparison on identity too,
+         ;; keeping the mixed-comparator path antisymmetric like the
+         ;; reference (whose <? is defined without consulting =?).
+         (and (eq? (%mapping-comparator m1) (%mapping-comparator m2))
+              (%mapping<=? vcmp m1 m2)
+              (not (%mapping=? vcmp m1 m2))))
         ((vcmp m1 m2 . rest) (and (mapping<? vcmp m1 m2) (apply mapping<? vcmp m2 rest)))))
 
     (define mapping>?

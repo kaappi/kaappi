@@ -302,7 +302,13 @@
     (define hashmap<?
       (case-lambda
         ((vcmp m1) #t)
-        ((vcmp m1 m2) (and (%hm<=? vcmp m1 m2) (not (%hm=? vcmp m1 m2))))
+        ((vcmp m1 m2)
+         ;; Mirror of the ordered side: %hm<=? is structural, so without this
+         ;; guard two same-content hashmaps with different comparator objects
+         ;; would compare < in both directions (see mapping<?).
+         (and (eq? (%hm-comparator m1) (%hm-comparator m2))
+              (%hm<=? vcmp m1 m2)
+              (not (%hm=? vcmp m1 m2))))
         ((vcmp m1 m2 . rest) (and (hashmap<? vcmp m1 m2) (apply hashmap<? vcmp m2 rest)))))
     (define hashmap>?
       (case-lambda

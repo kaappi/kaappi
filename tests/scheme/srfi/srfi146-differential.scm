@@ -557,12 +557,41 @@
                         ((op 'make) c 1 'a 2 'b 3 'c 4 'd 5 'e))
              n)))
 
+  ;; The agree() checks above use the sibling library as the oracle; these
+  ;; direct assertions pin the spec value on the side that carried each
+  ;; defect, so they fail even if both libraries were to regress together.
+  (test-assert "mapping-any? returns exactly #t for a truthy predicate value"
+    (eq? #t (mapping-any? (lambda (k v) v) (mapping c 1 'a 2 'b))))
+  (test-assert "mapping-every? returns exactly #t for a truthy predicate value"
+    (eq? #t (mapping-every? (lambda (k v) v) (mapping c 1 'a 2 'b))))
+  (test-assert "hashmap-ref/default returns a procedural default unchanged"
+    (procedure? (hashmap-ref/default (hashmap c 1 'a) 99 (lambda () 'called))))
+  (test-equal "mapping-map applies proc exactly once per association" 5
+    (let ((n 0))
+      (mapping-map (lambda (k v) (set! n (+ n 1)) (values k v)) c
+                   (mapping c 1 'a 2 'b 3 'c 4 'd 5 'e))
+      n))
+
   (test-assert "mapping=? accepts a single mapping"
     (guard (e (#t #f)) (mapping=? c (mapping c 1 'a))))
+  (test-assert "mapping<? accepts a single mapping"
+    (guard (e (#t #f)) (mapping<? c (mapping c 1 'a))))
+  (test-assert "mapping>? accepts a single mapping"
+    (guard (e (#t #f)) (mapping>? c (mapping c 1 'a))))
   (test-assert "mapping<=? accepts a single mapping"
     (guard (e (#t #f)) (mapping<=? c (mapping c 1 'a))))
+  (test-assert "mapping>=? accepts a single mapping"
+    (guard (e (#t #f)) (mapping>=? c (mapping c 1 'a))))
   (test-assert "hashmap=? accepts a single hashmap"
-    (guard (e (#t #f)) (hashmap=? c (hashmap c 1 'a)))))
+    (guard (e (#t #f)) (hashmap=? c (hashmap c 1 'a))))
+  (test-assert "hashmap<? accepts a single hashmap"
+    (guard (e (#t #f)) (hashmap<? c (hashmap c 1 'a))))
+  (test-assert "hashmap>? accepts a single hashmap"
+    (guard (e (#t #f)) (hashmap>? c (hashmap c 1 'a))))
+  (test-assert "hashmap<=? accepts a single hashmap"
+    (guard (e (#t #f)) (hashmap<=? c (hashmap c 1 'a))))
+  (test-assert "hashmap>=? accepts a single hashmap"
+    (guard (e (#t #f)) (hashmap>=? c (hashmap c 1 'a)))))
 
 ;;; ------------------------------------------------- duplicate-key precedence
 
@@ -707,6 +736,21 @@
   (test-assert "hashmap=? separates hashmaps with different comparators"
     (not (hashmap=? c (hashmap (make-default-comparator) 1 'a)
                       (hashmap (make-default-comparator) 1 'a))))
+  ;; #2047's identity guard must not leak into the strict predicates through
+  ;; =? only: with different (but structurally identical) comparator objects,
+  ;; %mapping<=? is structural while %mapping=? is #f, which would make both
+  ;; m1<m2 and m2<m1 hold.  The strict predicates carry their own guard.
+  (test-assert "mapping<? is antisymmetric across different comparators"
+    (let ((m1 (mapping (make-default-comparator) 1 'a))
+          (m2 (mapping (make-default-comparator) 1 'a)))
+      (and (not (mapping<? c m1 m2)) (not (mapping<? c m2 m1)))))
+  (test-assert "hashmap<? is antisymmetric across different comparators"
+    (let ((h1 (hashmap (make-default-comparator) 1 'a))
+          (h2 (hashmap (make-default-comparator) 1 'a)))
+      (and (not (hashmap<? c h1 h2)) (not (hashmap<? c h2 h1)))))
+  (test-assert "control: mapping<? stays a proper subset on a shared comparator"
+    (and (mapping<? c (mapping c 1 'a) (mapping c 1 'a 2 'b))
+         (not (mapping<? c (mapping c 1 'a 2 'b) (mapping c 1 'a)))))
   (test-assert "control: mapping=? on a shared comparator is #t"
     (mapping=? c (mapping c 1 'a) (mapping c 1 'a)))
   (test-assert "control: hashmap=? on a shared comparator is #t"
