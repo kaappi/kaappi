@@ -719,29 +719,40 @@ pub fn parseSyntaxRules(self: *Compiler, spec: Value, extra_bound: []const []con
     const literals_list = types.car(after_ellipsis);
     const rules = types.cdr(after_ellipsis);
 
-    var literals_buf: [32]Value = undefined;
-    var lit_count: usize = 0;
+    // R7RS places no bound on a syntax-rules' literal or rule count, so
+    // these grow past the old fixed 32-slot stack buffers (kaappi#2184): a
+    // 33-rule dispatcher macro is legal and must compile, not fail with a
+    // bare KP2001 that reads as "malformed macro". GC safety: the backing
+    // stores use the raw allocator (never GC-triggering), nothing between
+    // here and allocTransformer triggers a collection (unwrapUsertext /
+    // validPatternGrammar / append allocate nothing on the GC heap), and
+    // allocTransformer dupes all three slices with the raw allocator
+    // before it can collect — so the element Values only need to survive
+    // as subparts of the form being parsed. resolveTransformerSpecRec
+    // additionally roots `spec`, but the body-scan caller in
+    // compiler_lambda.zig does not, so do not add a GC-triggering call to
+    // these loops without rooting the spec first.
+    var literals: std.ArrayList(Value) = .empty;
+    defer literals.deinit(self.gc.allocator);
     var lit = literals_list;
     while (lit != types.NIL) {
         if (!types.isPair(lit)) return CompileError.InvalidSyntax;
-        if (lit_count >= 32) return CompileError.InvalidSyntax;
         // A generating macro may splice a user identifier into this spec's
         // literal list (SRFI 257's if-new-var) — unwrap the provenance
         // marker so the literal is the bare identifier.
-        literals_buf[lit_count] = expander.unwrapUsertext(types.car(lit));
-        lit_count += 1;
+        literals.append(self.gc.allocator, expander.unwrapUsertext(types.car(lit))) catch return CompileError.OutOfMemory;
         lit = types.cdr(lit);
     }
 
-    var patterns_buf: [32]Value = undefined;
-    var templates_buf: [32]Value = undefined;
-    var rule_count: usize = 0;
+    var patterns: std.ArrayList(Value) = .empty;
+    defer patterns.deinit(self.gc.allocator);
+    var templates: std.ArrayList(Value) = .empty;
+    defer templates.deinit(self.gc.allocator);
     var rule = rules;
     while (rule != types.NIL) {
         if (!types.isPair(rule)) return CompileError.InvalidSyntax;
         const r = types.car(rule);
         if (!types.isPair(r)) return CompileError.InvalidSyntax;
-        if (rule_count >= 32) return CompileError.InvalidSyntax;
         const rule_pattern = types.car(r);
         // R7RS 4.3.2 (kaappi#2082): the <pattern> grammar admits at
         // most one <ellipsis> per list or vector pattern. A second one
@@ -749,22 +760,28 @@ pub fn parseSyntaxRules(self: *Compiler, spec: Value, extra_bound: []const []con
         // what may FOLLOW the single ellipsis); accepting it previously
         // split the input arbitrarily because the surplus ellipsis
         // tokens were counted as fixed tail elements by the matcher.
-        if (!validPatternGrammar(rule_pattern, custom_ellipsis orelse "...", literals_buf[0..lit_count]))
+        if (!validPatternGrammar(rule_pattern, custom_ellipsis orelse "...", literals.items))
             return CompileError.InvalidSyntax;
-        patterns_buf[rule_count] = rule_pattern;
+        patterns.append(self.gc.allocator, rule_pattern) catch return CompileError.OutOfMemory;
         const r_rest = types.cdr(r);
         if (r_rest == types.NIL) return CompileError.InvalidSyntax;
-        templates_buf[rule_count] = types.car(r_rest);
-        rule_count += 1;
+        templates.append(self.gc.allocator, types.car(r_rest)) catch return CompileError.OutOfMemory;
         rule = types.cdr(rule);
     }
 
-    if (rule_count == 0) return CompileError.InvalidSyntax;
+    if (patterns.items.len == 0) return CompileError.InvalidSyntax;
+
+    // Transformer.num_rules is a u16; the old 32-slot cap made an overflow
+    // unreachable, so guard the new unbounded path explicitly rather than
+    // let allocTransformer's @intCast trap (ReleaseSafe panic) on a
+    // 65k+-rule macro. No real program reaches this; it exists only to
+    // keep the now-unbounded rule count from becoming a crash.
+    if (patterns.items.len > std.math.maxInt(u16)) return CompileError.InvalidSyntax;
 
     const tx_val = self.gc.allocTransformer(
-        literals_buf[0..lit_count],
-        patterns_buf[0..rule_count],
-        templates_buf[0..rule_count],
+        literals.items,
+        patterns.items,
+        templates.items,
     ) catch return CompileError.OutOfMemory;
     const tx = types.toObject(tx_val).as(types.Transformer);
     if (custom_ellipsis) |ce| {
@@ -773,9 +790,9 @@ pub fn parseSyntaxRules(self: *Compiler, spec: Value, extra_bound: []const []con
     // R7RS 4.3.2: record each literal's def-site binding slot (0xFFFF = unbound).
     // Binding identity — not just bound/unbound — is needed so that two
     // different bindings with the same name don't falsely match.
-    if (lit_count > 0) {
-        const slots = self.gc.allocator.alloc(u32, lit_count) catch return CompileError.OutOfMemory;
-        for (literals_buf[0..lit_count], 0..) |lv, li| {
+    if (literals.items.len > 0) {
+        const slots = self.gc.allocator.alloc(u32, literals.items.len) catch return CompileError.OutOfMemory;
+        for (literals.items, 0..) |lv, li| {
             slots[li] = if (types.isSymbol(lv)) blk: {
                 const lname = types.symbolName(lv);
                 // Resolve through the full lexical chain with the SAME rules

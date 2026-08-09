@@ -319,13 +319,16 @@
     ;; the loop's step test; the :do rule's inner
     ;; (when (and ne2? (not s)) ...) has always been the model, and the
     ;; typed-generator steps below follow it.
-    ;; The engine caps one syntax-rules form at 32 rules, so the
-    ;; qualifier rules are split across two macros: %do-ec holds the
-    ;; generators and forwards any other qualifier to %do-ec-more, which
-    ;; holds the grouping, command, control, and guard qualifiers.
+    ;; All qualifier rules live in one syntax-rules: the engine used to
+    ;; cap one form at 32 rules, so %do-ec held only the generators and
+    ;; forwarded grouping/command/control/guard qualifiers to a second
+    ;; macro %do-ec-more (kaappi#2184). That cap is gone — the merged
+    ;; form below is 34 rules — so the split workaround was removed.
     (define-syntax %do-ec
       (syntax-rules (:range :real-range :char-range :list :string :vector
-                     :integers :port :let :do :parallel : :dispatched let)
+                     :integers :port :let :do :parallel : :dispatched let
+                     nested begin :while :until %while-xlate %until-xlate
+                     if not and or)
         ;; --- generators ---
         ((_ s (:range var n) rest1 rest2 ...)
          (let ((%n n))
@@ -454,19 +457,6 @@
         ;; --- parallel (lockstep) iteration ---
         ((_ s (:parallel gen1 gen2 ...) rest1 rest2 ...)
          (%parallel s () (gen1 gen2 ...) rest1 rest2 ...))
-        ;; --- anything else: grouping/command/control/guard qualifiers ---
-        ((_ s q rest1 rest2 ...)
-         (%do-ec-more s q rest1 rest2 ...))
-        ;; --- base case ---
-        ((_ s body)
-         body)))
-
-    ;; Second half of the qualifier processor (see the %do-ec comment):
-    ;; grouping, command, control, and guard qualifiers.  Every recursion
-    ;; goes back through %do-ec, the single entry point.
-    (define-syntax %do-ec-more
-      (syntax-rules (nested begin :while :until %while-xlate %until-xlate
-                     if not and or)
         ;; --- qualifier grouping and command qualifiers ---
         ((_ s (nested q ...) rest1 rest2 ...)
          (%do-ec s q ... rest1 rest2 ...))
@@ -516,7 +506,10 @@
         ((_ s (and test ...) rest1 rest2 ...)
          (when (and test ...) (%do-ec s rest1 rest2 ...)))
         ((_ s (or test ...) rest1 rest2 ...)
-         (when (or test ...) (%do-ec s rest1 rest2 ...)))))
+         (when (or test ...) (%do-ec s rest1 rest2 ...)))
+        ;; --- base case ---
+        ((_ s body)
+         body)))
 
     ;; :parallel expansion helper: peel one (gen var arg ...) sub-form
     ;; per recursion step, converting it to a generator procedure (one
