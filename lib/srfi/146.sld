@@ -322,10 +322,17 @@
       (%rbt-fold (lambda (k v acc) (if (pred k v) (+ acc 1) acc)) 0 (%mapping-tree m)))
 
     (define (mapping-any? pred m)
-      (%rbt-fold (lambda (k v acc) (or acc (pred k v))) #f (%mapping-tree m)))
+      ;; The spec returns #t/#f, not the predicate's own value; a predicate
+      ;; that returns a truthy non-#t leaks it out of the accumulating fold
+      ;; (#2050).  The hashmap twins accumulate into a boolean flag.
+      (let ((result (%rbt-fold (lambda (k v acc) (or acc (pred k v))) #f
+                               (%mapping-tree m))))
+        (if result #t #f)))
 
     (define (mapping-every? pred m)
-      (%rbt-fold (lambda (k v acc) (and acc (pred k v))) #t (%mapping-tree m)))
+      (let ((result (%rbt-fold (lambda (k v acc) (and acc (pred k v))) #t
+                               (%mapping-tree m))))
+        (if result #t #f)))
 
     (define (mapping-keys m) (%rbt-fold-right (lambda (k v acc) (cons k acc)) '() (%mapping-tree m)))
     (define (mapping-values m) (%rbt-fold-right (lambda (k v acc) (cons v acc)) '() (%mapping-tree m)))

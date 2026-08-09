@@ -541,13 +541,10 @@
   ;; The two libraries currently disagree here.  Each disagreement is a filed
   ;; defect; the fix PR re-enables the assertion.
 
-  ;; FAIL: #2050 (mapping-any?/mapping-every? return the predicate's value
-  ;;              rather than #t/#f; the hashmap twins return a boolean)
-  ;; (agree "any? returns a boolean"
-  ;;        (lambda (op) ((op 'any?) (lambda (k v) v) ((op 'make) c 1 'a 2 'b))))
-  ;; FAIL: #2050
-  ;; (agree "every? returns a boolean"
-  ;;        (lambda (op) ((op 'every?) (lambda (k v) v) ((op 'make) c 1 'a 2 'b))))
+  (agree "any? returns a boolean"
+         (lambda (op) ((op 'any?) (lambda (k v) v) ((op 'make) c 1 'a 2 'b))))
+  (agree "every? returns a boolean"
+         (lambda (op) ((op 'every?) (lambda (k v) v) ((op 'make) c 1 'a 2 'b))))
 
   (agree "ref/default returns a procedural default unchanged"
          (lambda (op) (procedure? ((op 'ref/default) ((op 'make) c 1 'a) 99
