@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786261931477,
+  "lastUpdate": 1786277191239,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "80553427120c666d034fcfa11af4268ae09f7552",
-          "message": "Phase 3.4: SRFI 146 audit — 668 assertions over all 161 exports, and (srfi 146 hash) never uses the comparator it is given (#2070)\n\n* Phase 3.4: SRFI 146 audit — 668 assertions over all 161 exports\n\nSRFI 146's two libraries exported 161 names and its one manual-counter test\nfile touched 53 of them. Two new SRFI-64 files close that gap completely.\n\ntests/scheme/srfi/srfi146-reference.scm ports the SRFI's own reference suite\n(srfi/146/test.sld and srfi/146/hash/test.sld, MIT, Marc Nieper-Wisskirchen)\nverbatim apart from the library wrapper — 167 assertions, 7 disabled.\n\ntests/scheme/srfi/srfi146-differential.scm runs one parameterised body over\nboth libraries through an operation table, so the 66 names they share are\nchecked for agreement rather than against a hand-written expectation — 501\nassertions, 26 disabled. Nothing asserts hashmap iteration order.\n\nThe differential is what found most of it. (srfi 146 hash) discards its\ncomparator argument outright and keys every hashmap by equal?, so a\ncomparator whose equality is `=` merges 1 and 1.0 in the ordered library and\nsplits them in the hash one. Both constructors also give the LAST duplicate\nkey precedence where the spec says the first — the one distinction the spec\ngoes out of its way to contrast with mapping-set, and mapping-adjoin and\nalist->mapping are both correct, which is what makes it a defect rather than\na convention.\n\nFiled #2044 (comparator discarded), #2045 (duplicate-key precedence), #2046\n(mapping-key-predecessor/-successor invoke failure unconditionally), #2047\n(=? omits the key-comparator identity check), #2048 (make-mapping-comparator\nsupplies no ordering and make-hashmap-comparator no hash), #2049\n(hashmap-ref/default calls a procedural default), #2050 (any?/every? return\nthe predicate's value), #2052 (the single-mapping comparison form), #2053\n(mapping-map and mapping-find run their fold twice). Commented on #2023 with\nthe wider blast radius through this SRFI's own API.\n\nClean and now pinned rather than assumed: all four mapping-search\ncontinuations on both libraries, escaping continuations out of every\nhigher-order entry point, the purity of all eight pure/linear pairs, the\nwhole ordered surface (min/max, predecessor/successor, the five ranges,\nsplit, catenate, map/monotone, fold/reverse), set algebra on disjoint,\nidentical and overlapping inputs, mixed-type default-comparator keys, and\n1000 inserts plus 1500 interleaved insert/delete rounds against a red-black\ndelete that never rebalances.\n\nFound by: Systematic audit v2, Phase 3.4 (tracking #1890)\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Pin the #2023 cliff, not a miss count — the Debug leg found the keys\n\n`(> (hash-misses 12 40) 0)` asserted that the bug is still present. It\npassed on macOS ReleaseSafe and failed on CI's `ubuntu-latest, Debug` leg,\nreproduced locally in a Debug build.\n\nPast the depth limit the hash degenerates to the key's pointer, so whether\ntwo structurally-equal keys collide is an accident of allocation. Measured\non one ReleaseSafe binary: 31 and 32 misses of 40 at `deep 8` across two\nruns, then 3 vs 40 of 40 at `deep 9`. Debug finds far more. No miss count\nis assertable past the limit, in either direction.\n\nWhat is stable in every run and both builds is the cliff itself, so that is\nwhat this pins now: 0/40 misses at every depth from 1 to 7.\n\nNote `deep` builds a FLAT list of length depth+1, not a nested structure,\nand the hash walks the spine — so the limit is reached at `deep 8`\n(length 9), and `deep 7` (length 8) is the last fully findable case. The\nfirst attempt at this fix used `deep 8` and failed for that reason.\n\nVerified: Debug 501/501, and 0 misses at depths 1-7 across runs in both\nbuild modes.\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T15:09:16+05:30",
-          "tree_id": "a9dbc360b8ceac0347872608c15025ebb4e5a8c8",
-          "url": "https://github.com/kaappi/kaappi/commit/80553427120c666d034fcfa11af4268ae09f7552"
-        },
-        "date": 1785595426327,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.910995,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.799274,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.568073,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.804383,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004907,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.044907,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.291523,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.05549,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.295892,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.15296,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.512446,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.306443,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.677539,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.802883,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045463,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04422,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8e4b801479054785c5801b1f6a3d55ad8ea05233",
+          "message": "Splice definition-context begins in body scans (Fixes #2075) (#2267)\n\nA begin-wrapped internal define in a let-family body escaped to the\nglobal environment unless an enclosing procedure existed. R7RS 4.2.3\nrequires a definition-context begin to behave exactly as if the wrapper\nwere absent, so\n\n  (let ((g 'outer)) (begin (define g 'inner)) g)\n\nmust answer 'inner at top level — the same answer it already gave\ninside a lambda — and must not overwrite a top-level g. It answered\n'outer, and the define_global that escaped the let silently replaced\nthe unrelated global with 'inner.\n\nTwo halves of the same defect:\n\n1. scanBodyDefs only recognized literal define-family heads as body\n   elements and never descended into a begin, so a begin-wrapped define\n   was neither pre-declared into the body's letrec* region nor compiled\n   as a body definition. The scan now unwraps spliceable begins\n   (recursively, mirroring the IR lowerer's shadow test for a begin\n   head) before its three passes run, so definitions inside them join\n   the letrec* region like unwrapped ones — mutual recursion, define-\n   record-type, define-values and define-syntax included.\n\n2. compileDefine chooses local vs define_global on in_body_scope, which\n   only the procedure-body paths set. The let-family bodies\n   (compileBodyForms' other callers) were missing it, so a definition\n   reached at compile time — a macro expansion producing one, or a\n   begin the scan could not splice — became a global at top level while\n   the identical text inside a lambda bound a local. compileBodyForms\n   now sets in_body_scope like compileBody and compileSyntaxBody do.\n\nThe native tier inherits both halves via its existing interpreter\nfallback for begin-spliced defines (pinned in\nnative-let-internal-define-root-1854.sh), which the new cases verify\nstill agrees with the interpreter's now-correct answers.\n\nAlso flips the srfi188.scm assertions that pinned the wrong answers,\nenables the four disabled R7RS-required ones, and rewrites the SRFI 188\n.sld header, whose flagship claim that the begin-wrapped form evaluates\nto 'outer at top level was the doc-truth half of this bug.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-09T16:58:08+05:30",
+          "tree_id": "5d2abea7563f759442a4c0c4e01e398af33dbc0b",
+          "url": "https://github.com/kaappi/kaappi/commit/8e4b801479054785c5801b1f6a3d55ad8ea05233"
+        },
+        "date": 1786277189435,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.452564,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.334852,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.594058,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.035733,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004747,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046891,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.313853,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057674,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.804002,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.234943,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.669461,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.281094,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.79181,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.69477,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046483,
             "unit": "seconds"
           }
         ]
