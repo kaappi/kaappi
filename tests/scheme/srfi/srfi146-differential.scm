@@ -710,14 +710,8 @@
   ;; make-mapping-comparator / make-hashmap-comparator.
   (test-assert "mapping-comparator is a comparator" (comparator? mapping-comparator))
   (test-assert "hashmap-comparator is a comparator" (comparator? hashmap-comparator))
-  ;; FAIL: #2048 (make-mapping-comparator supplies no ordering predicate)
-  ;; (test-assert "mapping-comparator is ordered" (comparator-ordered? mapping-comparator))
-  ;; FAIL: #2048 (make-hashmap-comparator supplies no hash function)
-  ;; (test-assert "hashmap-comparator is hashable" (comparator-hashable? hashmap-comparator))
-  (test-assert "pins #2048: mapping-comparator has no ordering yet"
-    (not (comparator-ordered? mapping-comparator)))
-  (test-assert "pins #2048: hashmap-comparator has no hash yet"
-    (not (comparator-hashable? hashmap-comparator)))
+  (test-assert "mapping-comparator is ordered" (comparator-ordered? mapping-comparator))
+  (test-assert "hashmap-comparator is hashable" (comparator-hashable? hashmap-comparator))
 
   (test-assert "mapping=? separates mappings with different comparators"
     (not (mapping=? c (mapping (make-default-comparator) 1 'a)

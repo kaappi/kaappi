@@ -594,8 +594,30 @@
 
     ;;; Comparator
 
+    ;; The spec's ordering for mapping-comparator: "the lexicographic ordering
+    ;; with respect to the keys (and, in case a tiebreak is necessary, with
+    ;; respect to the ordering of the values)", for pairs of mappings sharing
+    ;; the same key comparator.  The reference implements it by walking two
+    ;; tree generators in parallel; the sorted alists are the same walk (#2048).
+    (define (mapping-ordering vcmp)
+      (let ((veq (comparator-equality-predicate vcmp))
+            (vlt (comparator-ordering-predicate vcmp)))
+        (lambda (m1 m2)
+          (let ((eq (%cmp= m1))
+                (lt (%cmp< m1)))
+            (let loop ((a1 (mapping->alist m1)) (a2 (mapping->alist m2)))
+              (cond
+                ((null? a1) (not (null? a2)))
+                ((null? a2) #f)
+                ((eq (caar a1) (caar a2))
+                 (if (veq (cdar a1) (cdar a2))
+                     (loop (cdr a1) (cdr a2))
+                     (vlt (cdar a1) (cdar a2))))
+                (else (lt (caar a1) (caar a2)))))))))
+
     (define (make-mapping-comparator vcmp)
-      (make-comparator mapping? (lambda (m1 m2) (%mapping=? vcmp m1 m2)) #f #f))
+      (make-comparator mapping? (lambda (m1 m2) (%mapping=? vcmp m1 m2))
+                       (mapping-ordering vcmp) #f))
 
     (define mapping-comparator (make-mapping-comparator (make-default-comparator)))
 

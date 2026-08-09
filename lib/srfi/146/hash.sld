@@ -359,7 +359,13 @@
     (define hashmap-xor! hashmap-xor)
 
     (define (make-hashmap-comparator vcmp)
-      (make-comparator hashmap? (lambda (m1 m2) (%hm=? vcmp m1 m2)) #f #f))
+      ;; The hash function is what the reference implementation ships: a
+      ;; constant.  The spec only requires an implementation-dependent hash
+      ;; consistent with the equality, and the reference leaves a real hash
+      ;; as a TODO (srfi/146/hash.scm:689).  A constant keeps every
+      ;; hashmap-keyed table a linear scan but is always consistent (#2048).
+      (make-comparator hashmap? (lambda (m1 m2) (%hm=? vcmp m1 m2)) #f
+                       (lambda (hashmap) 0)))
 
     (define hashmap-comparator
       (make-hashmap-comparator (make-default-comparator)))
