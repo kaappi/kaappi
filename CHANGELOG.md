@@ -173,6 +173,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the list and vector spellings, custom ellipsis identifiers, and the
   ellipsis-as-literal carve-out (`(syntax-rules ... (...))`).
 
+- **`syntax-rules` accepts any number of rules and literals** (#2184).
+  `parseSyntaxRules` parsed into fixed 32-slot stack buffers and rejected
+  the 33rd rule or literal with a bare KP2001 InvalidSyntax — a legal,
+  well-formed macro failed as if it were malformed, with no mention of the
+  cap (a qualifier- or opcode-style dispatcher reaches 33+ rules
+  naturally; `(srfi 42)`'s qualifier processor had been split into two
+  chained macros as a workaround). The buffers are now growable, so the
+  limit is gone and `(srfi 42)` is back to a single 34-rule `%do-ec`.
+
+- **A `syntax-rules` template may emit `define-property`** (#2089). The
+  keyword was missing from the expander's reserved template forms, so a
+  template-introduced `define-property` was hygiene-renamed to
+  `__hyg_N_define-property` — and even left bare, the legacy compileForm
+  path (which compiles macro expansions) had no dispatch for it — so any
+  macro wrapping SRFI 213's definition form failed with "undefined
+  variable 'define-property'". It now stays bare like `define-values` and
+  compiles through both the IR and legacy paths.
+
 ## [0.22.3] - 2026-08-07
 
 ### Fixed
