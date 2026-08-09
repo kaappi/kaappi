@@ -304,6 +304,17 @@ ic_public bool ic_enable_brace_insertion(bool enable) {
   return !prev;
 }
 
+// KAAPPI PATCH 5: see vendor/isocline/PATCHES.md. Enables SGR mouse tracking
+// for click-to-position inside the editor. Default off: while tracking is on
+// the terminal stops reporting drag-to-select to the application, and copy
+// still works modifier-gated (Option/Shift-drag), so users opt in.
+ic_public bool ic_enable_mouse(bool enable) {
+  ic_env_t* env = ic_get_env(); if (env==NULL) return false;
+  bool prev = env->mouse;
+  env->mouse = enable;
+  return prev;
+}
+
 ic_public void ic_set_insertion_braces(const char* brace_pairs) {
   ic_env_t* env = ic_get_env(); if (env==NULL) return;
   mem_free(env->mem, env->auto_braces);

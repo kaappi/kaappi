@@ -48,6 +48,10 @@ struct tty_s {
   ssize_t   cpush_count;
   long      esc_initial_timeout;    // initial ms wait to see if ESC starts an escape sequence
   long      esc_timeout;            // follow up delay for characters in an escape sequence
+  // KAAPPI PATCH 5: the last decoded SGR mouse event (see PATCHES.md)
+  uint32_t  mouse_button;           // SGR button code (see tty.h `tty_mouse_t`)
+  ssize_t   mouse_row;              // 1-based absolute row
+  ssize_t   mouse_col;              // 1-based absolute column
   #if defined(_WIN32)
   HANDLE    hcon;                   // console input handle
   DWORD     hcon_orig_mode;         // original console mode
@@ -225,6 +229,23 @@ ic_private code_t tty_read(tty_t* tty)
   code_t code;
   if (!tty_read_timeout(tty, -1, &code)) return KEY_NONE;
   return code;
+}
+
+// KAAPPI PATCH 5: see PATCHES.md — set/read the last decoded SGR mouse event.
+// The decoder in tty_esc.c writes through the setter; the edit loop in
+// editline.c reads through the getter, so the tty struct can stay opaque.
+ic_private void tty_set_mouse_event(tty_t* tty, uint32_t button, ssize_t row, ssize_t col) {
+  tty->mouse_button = button;
+  tty->mouse_row = row;
+  tty->mouse_col = col;
+}
+
+ic_private bool tty_last_mouse(const tty_t* tty, tty_mouse_t* mouse) {
+  if (tty == NULL || mouse == NULL) return false;
+  mouse->button = tty->mouse_button;
+  mouse->row = tty->mouse_row;
+  mouse->col = tty->mouse_col;
+  return true;
 }
 
 //-------------------------------------------------------------

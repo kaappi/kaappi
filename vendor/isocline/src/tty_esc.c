@@ -257,6 +257,35 @@ static code_t tty_read_csi(tty_t* tty, uint8_t c1, uint8_t peek, code_t mods0, l
     }
   }
 
+  // KAAPPI PATCH 5: SGR mouse events, ESC [ < button ; x ; y M|m (see
+  // PATCHES.md). `<` lands in the "special" catch above, and the generic
+  // parameter parsing below only handles two parameters, so a three-parameter
+  // mouse event must be decoded here, before the rest. The event is stashed on
+  // the tty (the keycode space cannot carry two coordinates) and surfaced as
+  // KEY_EVENT_MOUSE for the edit loop.
+  if (special == '<') {
+    uint32_t btn = 1;
+    uint32_t x = 1;
+    uint32_t y = 1;
+    tty_read_csi_num(tty,&peek,&btn,esc_timeout);
+    if (peek == ';') {
+      if (!tty_readc_noblock(tty,&peek,esc_timeout)) return KEY_NONE;
+      tty_read_csi_num(tty,&peek,&x,esc_timeout);
+    }
+    if (peek == ';') {
+      if (!tty_readc_noblock(tty,&peek,esc_timeout)) return KEY_NONE;
+      tty_read_csi_num(tty,&peek,&y,esc_timeout);
+    }
+    uint8_t final = peek;   // 'M' = press, 'm' = release
+    if (final == 'M' || final == 'm') {
+      tty_set_mouse_event(tty, btn, (ssize_t)y, (ssize_t)x);
+      debug_msg("tty: mouse: button %u at %u,%u (%c)\n", btn, x, y, final);
+      return KEY_EVENT_MOUSE;
+    }
+    debug_msg("tty: ignore malformed mouse sequence: ESC [ < ... %c\n", final);
+    return KEY_NONE;
+  }
+
   // up to 2 parameters that default to 1
   uint32_t num1 = 1;
   uint32_t num2 = 1;

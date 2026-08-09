@@ -615,6 +615,10 @@ pub fn repl(vm: *vm_mod.VM) !void {
         ic.enableBraceInsertion(false);
         ic.enableHighlight(highlight_enabled);
         ic.enableHint(false); // no hint callback is wired up
+        // Opt-in SGR mouse tracking: click inside the input to move the edit
+        // cursor (kaappi#2264). Off by default — while tracking is on, the
+        // terminal stops reporting drag-to-select to the application.
+        ic.enableMouse(cfg.mouse);
         applyTheme(cfg.theme);
 
         ic.setIsComplete(&isCompleteCallback, null);

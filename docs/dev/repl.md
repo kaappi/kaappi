@@ -25,6 +25,7 @@ which `main.zig` never reaches.
 | `ic_set_default_highlighter` | `highlightCallback` → `scanHighlight` | Emits styled spans; `scanHighlight` is separated so the token rules are testable without a terminal. |
 | `ic_style_def` | `applyTheme` | `repl.color.*` names become isocline styles via `ansiToIcStyle`. `ic-prompt` and `ic-bracematch` are isocline's own names, redefined. |
 | `ic_enable_brace_matching` | — | Limited to `"()"`: the reader gives `[`/`]` no meaning (`0]` is KP1002). |
+| `ic_enable_mouse` | — | Opt-in SGR mouse tracking: click inside the input to move the edit cursor. Off by default (`repl.mouse` in `~/.kaappi/config`); see `vendor/isocline/PATCHES.md`, patch 5. |
 
 Two settings are deliberate rather than default:
 
@@ -76,6 +77,27 @@ Three things are worth knowing before changing them:
 Rotate keeps the head in place and cycles the arguments. Rotating the head too
 would turn every call form into something unevaluatable (`(+ 1 2)` → `(1 2 +)`);
 as it stands, repeating it n-1 times on n arguments restores the original.
+
+## Click to position the cursor
+
+`repl.mouse: true` in `~/.kaappi/config` turns on SGR mouse tracking for the
+edit session, so a left click inside the current input moves the edit cursor
+(kaappi#2264). Default is **off**: while tracking is on, the terminal stops
+reporting drag-to-select to the application — copy still works
+modifier-gated (Option-drag in Terminal.app / iTerm2, Shift-drag in most
+Linux terminals). Clicks outside the editing area — into scrollback above,
+blank rows below — are no-ops; a click on the prompt clamps to the start of
+that line's content.
+
+The mouse reports absolute screen coordinates, so the editor anchors the
+input's on-screen start with a one-time `ESC[6n` query at the start of each
+read. A terminal that does not answer (some emulators, SSH without mouse
+support) makes clicks no-ops. The Windows console needs its own mouse-input
+path, not SGR, and is not supported (`vendor/isocline/PATCHES.md`, patch 5).
+
+`tests/scheme/smoke/repl-mouse-click-2264.sh` drives the whole path over a
+real pty: it answers the DSR query the way a terminal emulator would and
+then feeds SGR mouse sequences, asserting on what the evaluator prints.
 
 ## Comma commands
 

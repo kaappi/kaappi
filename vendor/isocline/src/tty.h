@@ -40,6 +40,18 @@ ic_private bool   tty_term_resize_event(tty_t* tty); // did the terminal resize?
 ic_private bool   tty_async_stop(const tty_t* tty);  // unblock the read asynchronously
 ic_private void   tty_set_esc_delay(tty_t* tty, long initial_delay_ms, long followup_delay_ms);
 
+// KAAPPI PATCH 5: see PATCHES.md — the last decoded SGR mouse event. The mouse
+// reports absolute screen coordinates (1-based); converting them to editor
+// coordinates is the edit loop's job, see editline.c.
+typedef struct tty_mouse_s {
+  uint32_t button;   // SGR button code: 0 left, 1 middle, 2 right, 64/65 wheel up/down; +4 shift, +8 alt, +16 ctrl
+  ssize_t  row;      // 1-based absolute row
+  ssize_t  col;      // 1-based absolute column
+} tty_mouse_t;
+
+ic_private void tty_set_mouse_event(tty_t* tty, uint32_t button, ssize_t row, ssize_t col);
+ic_private bool tty_last_mouse(const tty_t* tty, tty_mouse_t* mouse);
+
 // shared between tty.c and tty_esc.c: low level character push
 ic_private void   tty_cpush_char(tty_t* tty, uint8_t c);
 ic_private bool   tty_cpop(tty_t* tty, uint8_t* c);
@@ -143,6 +155,7 @@ static inline code_t key_unicode( unicode_t u ) {
 #define KEY_EVENT_RESIZE  (KEY_EVENT_BASE+1)
 #define KEY_EVENT_AUTOTAB (KEY_EVENT_BASE+2)
 #define KEY_EVENT_STOP    (KEY_EVENT_BASE+3)
+#define KEY_EVENT_MOUSE   (KEY_EVENT_BASE+4)  // KAAPPI PATCH 5: see PATCHES.md
 
 // Convenience
 #define KEY_CTRL_UP       (WITH_CTRL(KEY_UP))

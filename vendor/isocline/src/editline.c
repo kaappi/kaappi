@@ -40,6 +40,13 @@ typedef struct editor_s {
   editstate_t*  redo;         // redo buffer
   const char*   prompt_text;  // text of the prompt before the prompt marker    
   alloc_t*      mem;          // allocator
+  // KAAPPI PATCH 5: absolute anchor of the input's on-screen start, queried
+  // once per edit session via ESC[6n. The mouse reports absolute screen
+  // coordinates; everything else in isocline is relative to the prompt, so
+  // this anchor is the only mapping piece. See PATCHES.md.
+  ssize_t       anchor_row;   // absolute 1-based row where the prompt starts
+  ssize_t       anchor_col;   // absolute 1-based col where row 0's content starts
+  bool          has_anchor;   // true once the DSR query has answered
   // caches
   attrbuf_t*    attrs;        // reuse attribute buffers 
   attrbuf_t*    attrs_extra; 
@@ -58,7 +65,24 @@ static void edit_refresh(ic_env_t* env, editor_t* eb);
 ic_private char* ic_editline(ic_env_t* env, const char* prompt_text) {
   tty_start_raw(env->tty);
   term_start_raw(env->term);
+  // KAAPPI PATCH 5: opt-in mouse tracking for click-to-position (see
+  // PATCHES.md). ?1000h = button presses (deliberately not ?1002h/?1003h
+  // motion), ?1006h = SGR extended coordinates. The Windows console needs its
+  // own mouse-input path, not SGR — out of scope, so tracking stays off there.
+  #if !defined(_WIN32)
+  const bool mouse_tracking = env->mouse;
+  if (mouse_tracking) {
+    term_writef(env->term, "\x1B[?1000h\x1B[?1006h");
+    term_flush(env->term);
+  }
+  #endif
   char* line = edit_line(env,prompt_text);
+  #if !defined(_WIN32)
+  if (mouse_tracking) {
+    term_writef(env->term, "\x1B[?1000l\x1B[?1006l");
+    term_flush(env->term);
+  }
+  #endif
   term_end_raw(env->term,false);
   tty_end_raw(env->tty);
   term_writeln(env->term,"");
@@ -155,6 +179,31 @@ static void edit_set_pos_at_rowcol( ic_env_t* env, editor_t* eb, ssize_t row, ss
   if (pos < 0) return;
   eb->pos = pos;
   edit_refresh(env, eb);
+}
+
+// KAAPPI PATCH 5: click to reposition the cursor (see PATCHES.md). The mouse
+// reports absolute screen coordinates; the anchor (queried once at edit
+// session start) converts them to prompt-relative row/col, which
+// `sbuf_get_pos_at_rc` maps to a buffer position with prompt width,
+// continuation prompt, and line wrapping all taken into account. Clicks
+// outside the editing area are safe no-ops: rows above the input are negative
+// (scrollback), rows below are out of range, both of which `sbuf_get_pos_at_rc`
+// answers with -1.
+static void edit_mouse_click(ic_env_t* env, editor_t* eb) {
+  if (!env->mouse) return;
+  tty_mouse_t m;
+  if (!tty_last_mouse(env->tty, &m)) return;
+  if (!eb->has_anchor) return;
+  if (m.button != 0) return;                    // only a plain left press moves the cursor
+  if (m.row < 1 || m.col < 1) return;
+  const ssize_t row = m.row - eb->anchor_row;   // 0-based, relative to the prompt
+  if (row < 0) return;                          // click above the input: scrollback, no-op
+  ssize_t promptw, cpromptw;
+  edit_get_prompt_width(env, eb, false, &promptw, &cpromptw);
+  ssize_t col = m.col - eb->anchor_col;
+  if (row > 0) col += (promptw - cpromptw);     // continuation rows start at the cpromptw column
+  if (col < 0) col = 0;                         // click on the prompt glyphs: clamp to content start
+  edit_set_pos_at_rowcol(env, eb, row, col);
 }
 
 static bool edit_pos_is_at_row_end( ic_env_t* env, editor_t* eb ) {
@@ -891,6 +940,30 @@ static char* edit_line( ic_env_t* env, const char* prompt_text )
   // show prompt
   edit_write_prompt(env, &eb, 0, false);   
 
+  // KAAPPI PATCH 5: anchor the input's on-screen start with a one-time DSR
+  // query (ESC[6n). The mouse reports absolute screen coordinates; isocline
+  // works relative to the prompt, so this anchor is the only mapping piece —
+  // everything downstream (prompt width, continuation prompt, line wrapping)
+  // is already handled by `sbuf_get_pos_at_rc`. A terminal that does not
+  // answer (some emulators, SSH without mouse support) just leaves the anchor
+  // unset and clicks become no-ops. See PATCHES.md.
+  #if !defined(_WIN32)
+  if (env->mouse) {
+    term_writef(env->term, "\x1B[6n");
+    term_flush(env->term);
+    char dsrbuf[128];
+    if (tty_read_esc_response(env->tty, '[', false, dsrbuf, sizeof(dsrbuf))) {
+      ssize_t crow = 0;
+      ssize_t ccol = 0;
+      if (ic_atoz2(dsrbuf, &crow, &ccol)) {
+        eb.anchor_row = crow;
+        eb.anchor_col = ccol;
+        eb.has_anchor = true;
+      }
+    }
+  }
+  #endif
+
   // always a history entry for the current input
   history_push(env->history, "");
 
@@ -982,6 +1055,10 @@ static char* edit_line( ic_env_t* env, const char* prompt_text )
         break;
       case KEY_EVENT_AUTOTAB:
         edit_generate_completions(env, &eb, true);
+        break;
+      // KAAPPI PATCH 5: click to reposition the cursor (see PATCHES.md)
+      case KEY_EVENT_MOUSE:
+        edit_mouse_click(env,&eb);
         break;
 
       // completion, history, help, undo
@@ -1123,7 +1200,12 @@ static char* edit_line( ic_env_t* env, const char* prompt_text )
       default: {
         char chr;
         unicode_t uchr;
-        if (code_is_ascii_char(c,&chr)) {
+        if (c == KEY_NONE) {
+          // KAAPPI PATCH 5: a DSR or other query response that arrived after
+          // its query timed out decodes to KEY_NONE; without this guard it
+          // would fall through to `code_is_unicode(0)` and insert a NUL.
+        }
+        else if (code_is_ascii_char(c,&chr)) {
           edit_insert_char(env,&eb,chr);
         }
         else if (code_is_unicode(c, &uchr)) {
