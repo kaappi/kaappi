@@ -309,6 +309,18 @@ test "deepCopy complex" {
     const cc = types.toObject(copied).as(types.Complex);
     try std.testing.expectEqual(@as(f64, 1.5), types.toFlonum(cc.real));
     try std.testing.expectEqual(@as(i64, 2), types.toFixnum(cc.imag));
+
+    // A heap-allocated bignum component is recursively deep-copied into gc2.
+    const bn = try gc1.allocBignumFromI64(9007199254740993);
+    const cplx2 = try gc1.allocComplex(bn, types.makeFixnum(1));
+    const copied2 = try gc2.deepCopy(cplx2);
+    try std.testing.expect(cplx2 != copied2);
+    const cc2 = types.toObject(copied2).as(types.Complex);
+    try std.testing.expect(types.isBignum(cc2.real));
+    const cc2_bn = types.toBignum(cc2.real);
+    try std.testing.expectEqual(@as(usize, 1), cc2_bn.len);
+    try std.testing.expectEqual(@as(u64, 9007199254740993), cc2_bn.limbs[0]);
+    try std.testing.expect(cc2_bn.positive);
 }
 
 test "deepCopy bignum" {

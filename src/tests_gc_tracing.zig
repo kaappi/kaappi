@@ -430,6 +430,15 @@ test "gc tracing: multiple_values traces every value" {
     try expectTraced(&gc, mv, &.{ ref(a, 1), ref(b, 2) });
 }
 
+test "gc tracing: complex traces real and imaginary components" {
+    var gc = newGc();
+    defer gc.deinit();
+    const r = try young(&gc, 1);
+    const i = try young(&gc, 2);
+    const cx = try gc.allocComplex(r, i);
+    try expectTraced(&gc, cx, &.{ ref(r, 1), ref(i, 2) });
+}
+
 test "gc tracing: rational traces numerator and denominator" {
     var gc = newGc();
     defer gc.deinit();
@@ -1024,6 +1033,21 @@ test "gc tracing (remembered set): multiple_values" {
     m.values[1] = a;
     gc.writeBarrier(&m.header, a);
     try expectRememberedTrace(&gc, mv, &.{ref(a, 1)});
+}
+
+test "gc tracing (remembered set): complex" {
+    var gc = newGc();
+    defer gc.deinit();
+    const cx = try gc.allocComplex(types.makeFixnum(1), types.makeFixnum(2));
+    try promoteToOld(&gc, cx);
+    const r = try young(&gc, 1);
+    const i = try young(&gc, 2);
+    const c = types.toObject(cx).as(types.Complex);
+    c.real = r;
+    c.imag = i;
+    gc.writeBarrier(&c.header, r);
+    gc.writeBarrier(&c.header, i);
+    try expectRememberedTrace(&gc, cx, &.{ ref(r, 1), ref(i, 2) });
 }
 
 test "gc tracing (remembered set): rational" {

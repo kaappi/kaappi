@@ -317,7 +317,10 @@ fn writeConstant(w: *Writer, allocator: std.mem.Allocator, val: Value, all_funcs
                 // Components are written as nested constants (fixnum /
                 // bignum / rational / flonum), digit-exact like every other
                 // value — the old f64+flags encoding could not carry an
-                // exact component (kaappi#2166).
+                // exact component (kaappi#2166). A non-real component is
+                // unrepresentable, so the writer refuses it loudly (review).
+                if (!isRealComponent(cx.real) or !isRealComponent(cx.imag))
+                    return BytecodeError.UnsupportedConstant;
                 try w.writeU8(allocator, bf.TAG_COMPLEX);
                 try writeConstant(w, allocator, cx.real, all_funcs, seen, depth + 1);
                 try writeConstant(w, allocator, cx.imag, all_funcs, seen, depth + 1);
@@ -328,6 +331,12 @@ fn writeConstant(w: *Writer, allocator: std.mem.Allocator, val: Value, all_funcs
     }
 
     return BytecodeError.UnsupportedConstant;
+}
+
+/// A component Value a serialized Complex may hold: any real number
+/// (fixnum/bignum/rational/flonum), never a complex.
+fn isRealComponent(v: Value) bool {
+    return types.isFixnum(v) or types.isFlonum(v) or types.isBignum(v) or types.isRationalObj(v);
 }
 
 // ---------------------------------------------------------------------------

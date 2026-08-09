@@ -783,10 +783,10 @@ fn integerP(args: []const Value) PrimitiveError!Value {
         return if (f == @trunc(f)) types.TRUE else types.FALSE;
     }
     if (types.isComplex(args[0])) {
-        // A stored complex never has an exact zero imaginary part (those are
-        // demoted to their real component at construction), so this arm is
-        // reachable only for the -0.0i srfi160 decode, which is not an
-        // integer (kaappi#2166).
+        // A stored complex with an exact zero imaginary part is demoted to
+        // its real component at construction, so the only complexes that
+        // reach this arm have a nonzero or inexact-zero imag (3.0+0.0i, the
+        // -0.0i srfi160 decode) — none of which is an integer (kaappi#2166).
         return types.FALSE;
     }
     return types.FALSE;

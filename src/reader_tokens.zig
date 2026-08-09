@@ -86,11 +86,15 @@ fn bigRationalToken(self: *Reader, num_str: []const u8, den_str: []const u8, rad
     return .{ .big_rational = .{ .num_str = num_str, .den_str = den_str, .radix = radix } };
 }
 
-/// Root a complex token's real component before any further allocation. The
-/// two root slots are registered once — lazily, after `init`'s caller copied
-/// the Reader into its final location — and popped by `Reader.deinit`, so
-/// the components stay reachable from the token dispatch through the datum
-/// constructor (kaappi#2166).
+/// Root a complex token's component Values before any further allocation.
+/// The two root slots are registered once — lazily, after `init`'s caller
+/// copied the Reader into its final location — and popped by
+/// `Reader.deinit`, so the components stay reachable from the token dispatch
+/// through the datum constructor (kaappi#2166). Both setters perform the
+/// registration, because the radix-prefixed paths store the imaginary part
+/// first (tryComplexTail runs before the real part is built); an unrooted
+/// heap imaginary across the caller's real-part allocation is a
+/// use-after-free under gc-stress.
 fn rootComplexReal(self: *Reader, real: Value) void {
     self.complex_root[0] = real;
     if (!self.complex_roots_pushed) {
@@ -102,6 +106,11 @@ fn rootComplexReal(self: *Reader, real: Value) void {
 
 fn rootComplexImag(self: *Reader, imag: Value) void {
     self.complex_root[1] = imag;
+    if (!self.complex_roots_pushed) {
+        self.complex_roots_pushed = true;
+        self.gc.pushRoot(&self.complex_root[0]);
+        self.gc.pushRoot(&self.complex_root[1]);
+    }
 }
 
 /// Parse a signed radix-R integer or rational component text into an exact
@@ -1267,7 +1276,9 @@ pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
                 self.pos += 1;
                 const zero: Value = types.makeFixnum(0);
                 rootComplexReal(self, zero);
-                const imag = tryRationalComponent(self, n, den) orelse return invalidNumberOrEof(self);
+                const arith = @import("primitives_arithmetic.zig");
+                const imag = arith.makeRationalReduced(self.gc, types.makeFixnum(n), types.makeFixnum(den)) catch return invalidNumberOrEof(self);
+                rootComplexImag(self, imag);
                 return .{ .complex = .{ .real = zero, .imag = imag } };
             }
             // Complex after a rational: #x1/2+3i, #x1/2+i (R7RS 7.1.1

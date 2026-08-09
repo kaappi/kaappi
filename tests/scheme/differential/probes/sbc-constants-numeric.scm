@@ -62,3 +62,13 @@
 (chk "complex-value" '1+2i (make-rectangular 1 2))
 (chk "complex-parts" (list (real-part '-3.5-4.25i) (imag-part '-3.5-4.25i)) (list -3.5 -4.25))
 (chk "complex-exactness" (list (exact? '1+2i) (exact? '1.5+2.5i)) (list #t #f))
+;; Exact components (bignum real, rational imag) round-trip digit-exactly
+;; through the .sbc constant pool (kaappi#2166).
+(write (list 9007199254740993+3/4i 10000000000000000000000000/3+123456789012345678901234567890i))
+(newline)
+(chk "complex-exact-bignum" '9007199254740993+3/4i
+     (make-rectangular 9007199254740993 3/4))
+(chk "complex-exact-big-rational"
+     (list (real-part '10000000000000000000000000/3+123456789012345678901234567890i)
+           (imag-part '10000000000000000000000000/3+123456789012345678901234567890i))
+     (list (/ (expt 10 25) 3) 123456789012345678901234567890))

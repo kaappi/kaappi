@@ -496,17 +496,15 @@
   (test-assert "s->n #x1/2+3i imag part is 3"
     (= 3 (imag-part (string->number "#x1/2+3i"))))
 
-  ;; Same literal, a third divergence: it PRINTS as `1/2+3i` (exact real
-  ;; part) but `real-part` hands back the inexact 0.5, so `write` does not
-  ;; round-trip its exactness.  Not a delimiter defect; noted here because
-  ;; the same reader-vs-oracle sweep surfaced it.
+  ;; Same literal: it PRINTS as `1/2+3i` and `real-part` now hands back the
+  ;; exact 1/2 (components are Values, kaappi#2166), so `write` round-trips
+  ;; its exactness.
   (test-assert "1/2+3i writes with an exact-looking real part"
     (equal? "1/2+3i"
             (let ((p (open-output-string)))
               (write (read1 "1/2+3i") p)
               (get-output-string p))))
-  ;; FAIL: TBD (real-part of the exact complex 1/2+3i is the inexact 0.5)
-  ;; (test-assert "1/2+3i real part is exact" (exact? (real-part (read1 "1/2+3i"))))
+  (test-assert "1/2+3i real part is exact" (exact? (real-part (read1 "1/2+3i"))))
   )
 
 ;;; ---------------------------------------------------------------------

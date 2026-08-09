@@ -535,9 +535,11 @@ pub const MultipleValues = types_continuation.MultipleValues;
 /// rational (all exact), or flonum (inexact). Exactness is carried
 /// per-component by the component's own type — there are no exactness flags,
 /// because a flag over an already-rounded f64 could not faithfully claim the
-/// exact value it was supposed to hold (kaappi#2166). A Complex whose imag
-/// component is zero is never stored: construction demotes to the real
-/// component, so every live Complex has a nonzero imaginary part.
+/// exact value it was supposed to hold (kaappi#2166). Only an EXACT zero
+/// imaginary component demotes to the real at construction; an inexact zero
+/// imag stays stored, so (real? -2.5+0.0i) => #f while (integer? 3+0i) =>
+/// #t. The only stored zero-imag complexes are the reader's inexact-zero
+/// literals and the srfi160 -0.0i decode, both deliberate.
 pub const Complex = struct {
     header: Object,
     real: Value,

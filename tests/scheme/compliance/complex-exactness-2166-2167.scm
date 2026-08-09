@@ -31,8 +31,8 @@
 
 (test-assert "make-rectangular of exact args is exact" (exact? z))
 (test-assert "(- z) stays exact" (exact? (- z)))
-;; real-part of a non-integral exact component is still inexact (#2166), so
-;; pin the components through eqv? against a constructed value instead.
+;; Pin the components through eqv? against a constructed value; the
+;; real-part exactness is pinned directly further down (kaappi#2166).
 (test-assert "(- z) equals constructed exact negation"
   (eqv? (- z) (make-rectangular -3/2 -1)))
 (test-equal "(- z) imag component negated" -1 (imag-part (- z)))
@@ -198,6 +198,21 @@
 (test-eqv "zero? on demoted complex zero" #t (zero? (- z z)))
 (test-assert "finite?/infinite?/nan? use components" (and (finite? z) (infinite? +inf.0+1i) (nan? +nan.0+1i)))
 
+
+;; --- #2166: radix-prefixed exact complexes (reader use-after-free guard) ---
+;; tryComplexTail parses the imaginary part before the real part is built;
+;; with an unrooted heap imag that is a use-after-free under gc-stress
+;; (review). These read digit-exactly and must not abort.
+
+(test-assert "radix complex with bignum-rational real and imag reads exactly"
+  (eqv? (read (open-input-string "#x1/2+3/4i"))
+        (make-rectangular 1/2 3/4)))
+(test-assert "radix complex with a huge hex imag reads exactly"
+  (eqv? (read (open-input-string "#x800000000000+99999999999999999999i"))
+        (make-rectangular 140737488355328 725355491768777504823705)))
+(test-assert "radix complex with bignum real and rational imag reads exactly"
+  (eqv? (read (open-input-string "#x20000000000001+3/4i"))
+        (make-rectangular 9007199254740993 3/4)))
 
 ;; --- #2166: eqv?-keyed tables hash Value components by value ---------------
 

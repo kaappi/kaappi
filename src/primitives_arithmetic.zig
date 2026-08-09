@@ -49,7 +49,20 @@ fn div2(a: Value, b: Value) PrimitiveError!Value {
     return divFn(&.{ a, b });
 }
 
+/// Componentwise negation. IEEE negation of a flonum flips the sign bit
+/// exactly (0.0 -> -0.0, -0.0 -> +0.0), which 0 - x cannot reproduce; exact
+/// values go through the scalar sub path. Used by unary (- z) and the
+/// conjugation step of (/ z), both of which must preserve signed zero.
+fn negate2(v: Value) PrimitiveError!Value {
+    if (types.isFlonum(v)) return types.makeFlonum(-types.toFlonum(v));
+    return sub(&.{ types.makeFixnum(0), v });
+}
+
 pub fn makeFixnumChecked(n: i64) PrimitiveError!Value {
+    // The i48 range check runs first so an in-range value never needs the
+    // GC (gc_instance may be unset in reader-only contexts, kaappi#2166).
+    if (n >= std.math.minInt(i48) and n <= std.math.maxInt(i48))
+        return types.makeFixnum(n);
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return makeFixnumCheckedGc(gc, n);
 }
@@ -415,10 +428,11 @@ fn sub(args: []const Value) PrimitiveError!Value {
         if (args.len == 1) {
             // (- z): componentwise negation, exact stays exact (negation is
             // rounding-free; the old interim special case dissolves here,
-            // kaappi#2166).
-            const nr = try sub2(types.makeFixnum(0), slot_r.get());
+            // kaappi#2166). IEEE negation, so an inexact zero component
+            // flips its sign bit (0.0 -> -0.0).
+            const nr = try negate2(slot_r.get());
             slot_r.set(nr);
-            const ni = try sub2(types.makeFixnum(0), slot_i.get());
+            const ni = try negate2(slot_i.get());
             slot_i.set(ni);
         } else {
             for (args[1..]) |a| {
@@ -598,7 +612,7 @@ pub fn divFn(args: []const Value) PrimitiveError!Value {
             slot_r.set(nr);
             const ni = try div2(slot_i.get(), slot_den.get());
             slot_i.set(ni);
-            const neg_i = try sub2(types.makeFixnum(0), slot_i.get());
+            const neg_i = try negate2(slot_i.get());
             slot_i.set(neg_i);
         } else {
             for (args[1..]) |a| {

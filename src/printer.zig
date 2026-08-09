@@ -941,13 +941,15 @@ fn componentNegative(v: Value) bool {
     return false;
 }
 
-/// |v| == 1: the imaginary-unit spelling (`+i` / `-i`).
+/// |v| == 1 exactly: the imaginary-unit spelling (`+i` / `-i`). Only an
+/// exact unit may use it — an inexact ±1.0 must print its magnitude so
+/// `write` preserves exactness (`0.0+1.0i` writes `+1.0i`, not `+i`, which
+/// would read back as the exact unit; kaappi#2166).
 fn componentUnit(v: Value) bool {
     if (types.isFixnum(v)) {
         const n = types.toFixnum(v);
         return n == 1 or n == -1;
     }
-    if (types.isFlonum(v)) return @abs(types.toFlonum(v)) == 1.0;
     return false;
 }
 

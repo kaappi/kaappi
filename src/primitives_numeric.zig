@@ -363,8 +363,13 @@ pub fn inexactFn(args: []const Value) PrimitiveError!Value {
         return makeFlonumVal(types.rationalToF64(r.numerator, r.denominator));
     }
     if (types.isComplex(args[0])) {
-        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const c = types.toComplex(args[0]);
+        // Already all-inexact: return unchanged. Rebuilding through
+        // makeComplexOrRealV would demote a stored inexact zero imag
+        // (-2.5+0.0i) to the real -2.5, losing the complexness the reader
+        // deliberately keeps ((real? -2.5+0.0i) => #f, kaappi#2166).
+        if (!types.isExactNumber(c.real)) return args[0];
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const real_i = try inexactFn(&[1]Value{c.real});
         var slot = gc.rootedSlot(real_i) catch return PrimitiveError.OutOfMemory;
         defer slot.release();
@@ -460,7 +465,7 @@ fn exptFn(args: []const Value) PrimitiveError!Value {
             return makeComplexOrReal(rr, ri);
         }
         // General: z^w = e^(w * ln(z))
-        return complexPowGeneral(gc, zr, zi, wr, wi);
+        return complexPowGeneral(zr, zi, wr, wi);
     }
     const base_f = try toF64Ext(args[0]);
     const exp_f = try toF64Ext(args[1]);
@@ -471,14 +476,13 @@ fn exptFn(args: []const Value) PrimitiveError!Value {
     if (std.math.isFinite(base_f) and base_f < 0.0 and
         std.math.isFinite(exp_f) and exp_f != @trunc(exp_f))
     {
-        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-        return complexPowGeneral(gc, base_f, 0.0, exp_f, 0.0);
+        return complexPowGeneral(base_f, 0.0, exp_f, 0.0);
     }
     return makeFlonumVal(std.math.pow(f64, base_f, exp_f));
 }
 
 // z^w = e^(w * ln(z)), where ln(z) = ln|z| + i*arg(z).
-fn complexPowGeneral(_: *memory.GC, zr: f64, zi: f64, wr: f64, wi: f64) PrimitiveError!Value {
+fn complexPowGeneral(zr: f64, zi: f64, wr: f64, wi: f64) PrimitiveError!Value {
     const mag = @sqrt(zr * zr + zi * zi);
     const arg = std.math.atan2(zi, zr);
     const ln_r = @log(mag);
@@ -494,23 +498,34 @@ fn complexPowGeneral(_: *memory.GC, zr: f64, zi: f64, wr: f64, wi: f64) Primitiv
 }
 
 /// Exact complex exponentiation: (a+bi)^n for an exact complex base and an
-/// exact integer exponent, by repeated multiplication over the exact tower
+/// exact integer exponent, by square-and-multiply over the exact tower
 /// (which is exact-closed, R7RS 6.2.2 / kaappi#2166). A negative exponent
-/// reciprocates the base-first power; a zero exponent yields exact 1.
-fn complexExptExact(gc: *memory.GC, base: Value, n: i64) PrimitiveError!Value {
-    var count = if (n < 0) -n else n;
+/// reciprocates the base-first power; a zero exponent yields exact 1. O(log
+/// n), so a large exponent like (expt +i 1000000000) => 1 cannot hang
+/// (review).
+fn complexExptExact(gc: *memory.GC, base_in: Value, n: i64) PrimitiveError!Value {
     var result: Value = types.makeFixnum(1);
-    var slot = gc.rootedSlot(result) catch return PrimitiveError.OutOfMemory;
-    defer slot.release();
-    while (count > 0) : (count -= 1) {
-        result = try arith.mul(&.{ slot.get(), base });
-        slot.set(result);
+    var slot_r = gc.rootedSlot(result) catch return PrimitiveError.OutOfMemory;
+    defer slot_r.release();
+    var slot_b = gc.rootedSlot(base_in) catch return PrimitiveError.OutOfMemory;
+    defer slot_b.release();
+    var m: u64 = @intCast(if (n < 0) -n else n);
+    while (m > 0) {
+        if (m & 1 == 1) {
+            result = try arith.mul(&.{ slot_r.get(), slot_b.get() });
+            slot_r.set(result);
+        }
+        m >>= 1;
+        if (m > 0) {
+            const sq = try arith.mul(&.{ slot_b.get(), slot_b.get() });
+            slot_b.set(sq);
+        }
     }
     if (n < 0) {
-        result = try arith.divFn(&[1]Value{slot.get()});
-        slot.set(result);
+        result = try arith.divFn(&[1]Value{slot_r.get()});
+        slot_r.set(result);
     }
-    return slot.get();
+    return slot_r.get();
 }
 
 fn squareFn(args: []const Value) PrimitiveError!Value {
@@ -995,18 +1010,6 @@ pub fn isAnyComplex(args: []const Value) bool {
         if (types.isComplex(a)) return true;
     }
     return false;
-}
-
-pub fn toComplexParts(v: Value) PrimitiveError!struct { real: f64, imag: f64 } {
-    if (types.isComplex(v)) {
-        const c = types.toComplex(v);
-        return .{ .real = try toF64Ext(c.real), .imag = try toF64Ext(c.imag) };
-    }
-    if (types.isFixnum(v)) return .{ .real = @floatFromInt(types.toFixnum(v)), .imag = 0.0 };
-    if (types.isFlonum(v)) return .{ .real = types.toFlonum(v), .imag = 0.0 };
-    if (types.isBignum(v)) return .{ .real = bignum_mod.toF64(v), .imag = 0.0 };
-    if (types.isRationalObj(v)) return .{ .real = try toF64Ext(v), .imag = 0.0 };
-    return primitives.typeError("arithmetic", "number", v);
 }
 
 /// True when `v` is a real number that may be a complex component (never a
@@ -1554,13 +1557,16 @@ pub fn parseNumberText(gc: *@import("memory.zig").GC, text: []const u8, radix_in
                         if (n >= std.math.minInt(i48) and n <= std.math.maxInt(i48)) {
                             imag_v = types.makeFixnum(n);
                         } else {
-                            imag_v = gc.allocBignumFromI64(n) catch return types.FALSE;
+                            imag_v = gc.allocBignumFromI64(n) catch return PrimitiveError.OutOfMemory;
                         }
                     } else |err| {
                         if (err != error.Overflow) return types.FALSE;
                         // Beyond i64: a digit-exact bignum magnitude, no
                         // longer gated on f64 round-tripping (#2166).
-                        imag_v = bignum_mod.parseBignumString(gc, clean, 10) catch return types.FALSE;
+                        imag_v = bignum_mod.parseBignumString(gc, clean, 10) catch |e| switch (e) {
+                            error.InvalidCharacter => types.FALSE,
+                            else => return PrimitiveError.OutOfMemory,
+                        };
                     }
                 } else {
                     const f = std.fmt.parseFloat(f64, body) catch {
