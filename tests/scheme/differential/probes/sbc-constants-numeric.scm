@@ -20,7 +20,9 @@
 (define (chk name a b)
   (display name)
   (display " ")
-  (display (if (equal? a b) "ok" (list "MISMATCH" a b)))
+  (if (equal? a b)
+      (display "ok")
+      (error "sbc probe mismatch" name a b))
   (newline))
 
 ;; --- fixnum, including both ends of the 48-bit payload --------------------
