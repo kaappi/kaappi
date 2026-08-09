@@ -944,7 +944,7 @@ pub fn compileCaseLambda(self: *Compiler, args: Value, dst: u16) CompileError!vo
         const eq_sym = try gc.allocSymbol("=");
         const ge_sym = try gc.allocSymbol(">=");
         const length_sym = try Compiler.trueBuiltinRefOrSymbol(gc, "length");
-        const apply_sym = try gc.allocSymbol("apply");
+        const apply_sym = try Compiler.trueBuiltinRefOrSymbol(gc, "apply");
         const else_sym = try gc.allocSymbol("else");
         const error_sym = try gc.allocSymbol("error");
         const args_sym = try gc.allocSymbol("%cl-args");

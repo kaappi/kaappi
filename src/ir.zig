@@ -702,6 +702,18 @@ fn lowerFormWithMacros(ir: *IR, expr: Value, macros: ?*std.StringHashMap(Value))
             if (sexpr_form_map.get(effective_name)) |form|
                 return ir.makeSexprNode(form, types.cdr(expr));
 
+            // A compiler-synthesized reference to a special form — the
+            // let-values/let*-values/define-values/case-lambda desugarings
+            // mint __kaappi_base__apply / _call-with-values (#1715) — must
+            // be dispatched exactly like its bare spelling: the tail-position
+            // superinstructions in compileForm recognize it there, and the
+            // base-binding prefix marks it immune to redefinition so the
+            // #2033 gate skips it. Lowered as a plain call node it would
+            // bypass compileForm entirely and lose the fast path.
+            if (globals_mod.stripBaseBindingPrefix(effective_name)) |base_name| {
+                if (isSpecialForm(base_name)) return ir.makePassthrough(expr);
+            }
+
             if (isSpecialForm(effective_name)) return ir.makePassthrough(expr);
         }
 

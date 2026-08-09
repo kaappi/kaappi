@@ -467,7 +467,38 @@ test "eval tail position runs in constant frame depth (#1253)" {
 // Regression for #1253: null-environment must not leak VM globals in tail position.
 // guard desugars its body into a lambda, putting eval in tail position and
 // routing through get_global (not call_global). Without restricted_globals,
-// get_global falls back to vm.globals, letting car resolve.
+
+// #2033: R7RS 5.3.1 makes a top-level redefinition essentially an assignment,
+// so the tail-position superinstructions for apply / call-with-values /
+// call/cc / call-with-current-continuation / eval must not fire when the
+// global binding is no longer the genuine primitive — the user's procedure
+// wins in tail position exactly as it always did in non-tail position.
+test "top-level redefinition honoured in tail position (#2033)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    _ = try ctx.vm.eval("(define (call/cc f) 'user-callcc)");
+    _ = try ctx.vm.eval("(define (tail-use) (call/cc 42))");
+    try std.testing.expectEqualStrings("user-callcc", types.symbolName(try ctx.vm.eval("(tail-use)")));
+
+    _ = try ctx.vm.eval("(define (apply . r) 'user-apply)");
+    _ = try ctx.vm.eval("(define (apply-tail) (apply + (list 1 2)))");
+    try std.testing.expectEqualStrings("user-apply", types.symbolName(try ctx.vm.eval("(apply-tail)")));
+
+    _ = try ctx.vm.eval("(define (call-with-values p c) 'user-cwv)");
+    _ = try ctx.vm.eval("(define (cwv-tail) (call-with-values (lambda () 1) list))");
+    try std.testing.expectEqualStrings("user-cwv", types.symbolName(try ctx.vm.eval("(cwv-tail)")));
+
+    _ = try ctx.vm.eval("(define (eval x . env) 'user-eval)");
+    _ = try ctx.vm.eval("(define (eval-tail) (eval '(+ 1 2)))");
+    try std.testing.expectEqualStrings("user-eval", types.symbolName(try ctx.vm.eval("(eval-tail)")));
+
+    _ = try ctx.vm.eval("(define (call-with-current-continuation f) 'user-ccc)");
+    _ = try ctx.vm.eval("(define (ccc-tail) (call-with-current-continuation (lambda (k) 1)))");
+    try std.testing.expectEqualStrings("user-ccc", types.symbolName(try ctx.vm.eval("(ccc-tail)")));
+}
+
 test "environment accepts import-set modifiers (#1189)" {
     var ctx: th.TestContext = undefined;
     try ctx.init();

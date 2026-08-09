@@ -659,7 +659,7 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
             const parent_internal = internRecordTypeName(gc, spec.parent_name.?) catch return VMError.OutOfMemory;
             const parent_rt_ref = gc.allocSymbol(parent_internal) catch return VMError.OutOfMemory;
             var extract_elems: [257]Value = undefined;
-            extract_elems[0] = gc.allocSymbol("list") catch return VMError.OutOfMemory;
+            extract_elems[0] = globals_mod.baseBindingSymbol(gc, "list") catch return VMError.OutOfMemory;
             const parent_inst_sym = gc.allocSymbol(" __parent-inst") catch return VMError.OutOfMemory;
             for (0..parent_total_fields) |fi| {
                 const rr_sym = globals_mod.baseBindingSymbol(gc, "%record-ref") catch return VMError.OutOfMemory;
@@ -670,8 +670,8 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
             if (spec.protocol_expr) |protocol_expr| {
                 // (protocol (lambda n-args (let ((__parent-inst (apply parent-ctor n-args))) (lambda own-args (apply %make-record __rt (append (list ...parent fields...) own-args))))))
                 const own_args_sym = gc.allocSymbol(" __own-args") catch return VMError.OutOfMemory;
-                const apply_sym = gc.allocSymbol("apply") catch return VMError.OutOfMemory;
-                const append_sym = gc.allocSymbol("append") catch return VMError.OutOfMemory;
+                const apply_sym = globals_mod.baseBindingSymbol(gc, "apply") catch return VMError.OutOfMemory;
+                const append_sym = globals_mod.baseBindingSymbol(gc, "append") catch return VMError.OutOfMemory;
                 const mr_sym = globals_mod.baseBindingSymbol(gc, "%make-record") catch return VMError.OutOfMemory;
                 const rt_local = gc.allocSymbol(" __rt") catch return VMError.OutOfMemory;
                 const appended = gc.makeList(&[_]Value{ append_sym, parent_fields_list, own_args_sym }) catch return VMError.OutOfMemory;
@@ -699,17 +699,17 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
                 const own_count_val = types.makeFixnum(@intCast(spec.field_count));
                 const split_call = gc.makeList(&[_]Value{ rss_sym, call_args_sym, own_count_val }) catch return VMError.OutOfMemory;
 
-                const car_sym = gc.allocSymbol("car") catch return VMError.OutOfMemory;
-                const cdr_sym = gc.allocSymbol("cdr") catch return VMError.OutOfMemory;
+                const car_sym = globals_mod.baseBindingSymbol(gc, "car") catch return VMError.OutOfMemory;
+                const cdr_sym = globals_mod.baseBindingSymbol(gc, "cdr") catch return VMError.OutOfMemory;
                 const parent_args_expr = gc.makeList(&[_]Value{ car_sym, split_sym }) catch return VMError.OutOfMemory;
                 const own_args_expr = gc.makeList(&[_]Value{ cdr_sym, split_sym }) catch return VMError.OutOfMemory;
 
                 const parent_ctor_internal = internCtorName(gc, spec.parent_name.?) catch return VMError.OutOfMemory;
                 const parent_ctor_sym = gc.allocSymbol(parent_ctor_internal) catch return VMError.OutOfMemory;
-                const apply_sym = gc.allocSymbol("apply") catch return VMError.OutOfMemory;
+                const apply_sym = globals_mod.baseBindingSymbol(gc, "apply") catch return VMError.OutOfMemory;
                 const apply_parent = gc.makeList(&[_]Value{ apply_sym, parent_ctor_sym, parent_args_expr }) catch return VMError.OutOfMemory;
 
-                const append_sym = gc.allocSymbol("append") catch return VMError.OutOfMemory;
+                const append_sym = globals_mod.baseBindingSymbol(gc, "append") catch return VMError.OutOfMemory;
                 const appended = gc.makeList(&[_]Value{ append_sym, parent_fields_list, own_args_expr }) catch return VMError.OutOfMemory;
                 const mr_sym = globals_mod.baseBindingSymbol(gc, "%make-record") catch return VMError.OutOfMemory;
                 const rt_local = gc.allocSymbol(" __rt") catch return VMError.OutOfMemory;
