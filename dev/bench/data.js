@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786221897213,
+  "lastUpdate": 1786261931477,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ae45e7871208e8399ebdf40600c290e7bec19a06",
-          "message": "Require a priority label on every issue (#2090)\n\n* Require a priority label on every issue\n\nThe rubric landed in docs/dev/github-issues.md (#2032, #2041), but nothing\ntold a filer to apply it. The evidence that a document alone is not enough:\n41 issues were filed unlabeled while those two PRs were open, in bursts of\n6-27 as each audit phase completed. Triage after the fact means re-reading\nevery issue body to recover a judgement the filer had already made.\n\nPuts the decision table where it is needed at filing time, plus the four\nrules that settle the hard cases — critical is process-level unsafety only,\nreachability separates critical from high, an audit header's Severity is an\ninput rather than the answer, and silence moves an issue up within its level\nrather than between levels. The full rubric, worked boundary cases, and the\nlabel taxonomy stay in docs/dev/github-issues.md; this is the filing-time\nsubset.\n\nAdvisory only, like the neighbouring test and file-size rules: a CI gate\nwould have to run against the tracker rather than the diff, and the failure\nmode here is a missing label rather than broken code.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Make the priority-label audit catch double labels too\n\nReview of #2090: the prose requires exactly one `priority:` label, but the\ncommand only reported issues with zero. An issue carrying two was invisible\nto the very check meant to enforce the rule. Counts the labels and reports\nanything that is not 1, keeping the fuzz-finding exemption.\n\nFixed in docs/dev/github-issues.md as well as CLAUDE.md — the snippet was\ncopied from there, so the same blind spot shipped in #2032.\n\nNo issue in the tracker has ever carried two, so this finds nothing today;\nthat is the point. A check that cannot observe half of what it asserts would\nhave gone on reporting a clean tracker either way.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T15:03:55+05:30",
-          "tree_id": "7e3074d63cf4ab1467be4765740eec1cddabb01f",
-          "url": "https://github.com/kaappi/kaappi/commit/ae45e7871208e8399ebdf40600c290e7bec19a06"
-        },
-        "date": 1785594471481,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 2.548942,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.903786,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.362164,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 1.935329,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.003779,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.030209,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.192009,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.03609,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.768757,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.772884,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.016314,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.219299,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.132917,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.897927,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.030387,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045558,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "042421e258a320442a69b471cd9a8ae4603668bc",
+          "message": "Honor top-level redefinitions of the five tail fast-path names (Fixes #2033) (#2263)\n\n* Honor top-level redefinitions of the five tail fast-path names (#2033)\n\ncompiler.zig's tail-position dispatch sent (apply ...), (eval ...),\n(call/cc ...), (call-with-current-continuation ...) and (call-with-values ...)\nto hand-written superinstructions guarded only by resolveLocal/resolveUpvalue.\nA *global* rebinding of the name was never consulted, so a program that\nredefined one of them at top level got its own definition everywhere except in\ntail position, where the builtin ran instead and the user's procedure was\nsilently discarded. R7RS 5.3.1 makes a top-level definition essentially an\nassignment, so both positions must resolve the user's binding.\n\nThe fix gates each fast path on the compile-time global binding, mirroring\nIR.isRedefined and lookupGlobalLocked's resolution order (raw name, then the\nhygienic-prefix fallback to the bare name). set! targets in the enclosing form\nand the restricted-env not-found case decline the fast path the same way the\nfold gate does; a truncated pre-scan (set_targets_all) conservatively blocks\ntoo. The gate costs nothing at run time — it only decides which bytecode the\ncompiler emits.\n\nAdjacent fixes the gate forced:\n\n- Compiler-synthesized references in the let-values / let*-values /\n  define-values / case-lambda / define-record-type desugarings minted bare\n  apply/call-with-values symbols that were indistinguishable from user text\n  and would have been routed to a user redefinition. They now carry the\n  base-binding prefix (#1715) so they stay bound to the pristine (scheme base)\n  procedures, and the dispatch recognizes the prefixed spelling as immune.\n  ir.zig lowers a base-prefixed special-form head as a passthrough so it\n  still reaches compileForm's dispatch instead of bypassing it as a plain call.\n- The LLVM native backend's emitApplyForm mirrored the interpreter's old\n  tail-applies-ignore-rebinding behavior; it now gates on the module's\n  rebound/native redefinitions the same way (#1803 parity).\n- define-values' single-name desugaring also synthesized a bare\n  consumer; it is base-prefixed too.\n\nTests: a new compliance suite (all five names, non-procedure redefinitions,\nhygiene-renamed macro-template references, set!-in-form, desugaring immunity),\nthe previously disabled audit assertions re-enabled with real top-level\nredefinitions, a Zig unit test, and the native apply-lowering test's rebound\ncase updated to the corrected expectation. Full suite: 700 Scheme files and\n1395 R7RS assertions green.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: R6RS record coverage, native <2-operand gating, doc cleanup\n\nReview findings on PR #2263:\n\n- CodeRabbit: the define-record-type test used R7RS constructor-first\n  syntax, where (parent ...) parses as a field spec — it never reached the\n  R6RS inherited-constructor paths in vm_records whose synthesized apply\n  references this fix touches. Replace it with top-level R6RS clause-syntax\n  records that exercise BOTH inherited-ctor variants: the protocol-less\n  split-args path and the protocol path. Both fail on main (the bare apply\n  resolved to the user's redefinition) and pass here. While in those paths,\n  the remaining bare synthesized references (list/append/car/cdr) get the\n  same base-binding-prefix treatment as apply, so a redefinition of any of\n  them cannot corrupt inherited record construction either.\n\n- baijum: emitApplyForm's '<2 operands' early return fired before the\n  rebound check, so a REBOUND apply in tail position with one operand\n  abandoned native compilation of the whole scope (correct result via the\n  eval fallback, but a needless de-opt and a doc/behavior mismatch). Gate\n  the early return on !rebound so that shape takes the generic indirect\n  call, matching the interpreter's #2033-gated ordinary call path; update\n  the llvm_emit_forms and llvm-backend.md bullets to say 'unrebound'.\n\n- baijum: buildLetValues' doc comment still described the removed\n  is_tail-dependent outermost-vs-nested reasoning; trim it to the\n  base-prefixed unconditional-reference behavior that is now the whole\n  truth.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-09T12:48:27+05:30",
+          "tree_id": "cf19394bd8a7397d6495f8312dc5ebd119a026d1",
+          "url": "https://github.com/kaappi/kaappi/commit/042421e258a320442a69b471cd9a8ae4603668bc"
+        },
+        "date": 1786261930365,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.343413,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.925938,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.57718,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.018789,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004776,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04715,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.316494,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056074,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.80206,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.240429,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.587061,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.281492,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.822763,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.626756,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04422,
             "unit": "seconds"
           }
         ]
