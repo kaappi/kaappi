@@ -722,11 +722,16 @@ pub fn parseSyntaxRules(self: *Compiler, spec: Value, extra_bound: []const []con
     // R7RS places no bound on a syntax-rules' literal or rule count, so
     // these grow past the old fixed 32-slot stack buffers (kaappi#2184): a
     // 33-rule dispatcher macro is legal and must compile, not fail with a
-    // bare KP2001 that reads as "malformed macro". The ArrayList backing
-    // stores use the raw allocator (never GC-triggering), and every Value
-    // they hold is a subpart of `spec`, which resolveTransformerSpecRec
-    // roots for the duration of this call — safe against collection at
-    // any point.
+    // bare KP2001 that reads as "malformed macro". GC safety: the backing
+    // stores use the raw allocator (never GC-triggering), nothing between
+    // here and allocTransformer triggers a collection (unwrapUsertext /
+    // validPatternGrammar / append allocate nothing on the GC heap), and
+    // allocTransformer dupes all three slices with the raw allocator
+    // before it can collect — so the element Values only need to survive
+    // as subparts of the form being parsed. resolveTransformerSpecRec
+    // additionally roots `spec`, but the body-scan caller in
+    // compiler_lambda.zig does not, so do not add a GC-triggering call to
+    // these loops without rooting the spec first.
     var literals: std.ArrayList(Value) = .empty;
     defer literals.deinit(self.gc.allocator);
     var lit = literals_list;
