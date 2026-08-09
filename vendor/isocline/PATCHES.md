@@ -4,7 +4,7 @@ Vendored from <https://github.com/daanx/isocline> at commit
 `8d6dc1ef95b1b46711e66eb23d39d4467a0fcdac` (2026-04-23, v1.1.0), MIT licensed —
 see `LICENSE`.
 
-**This is a patched copy.** Four changes diverge from upstream. Each is marked
+**This is a patched copy.** Five changes diverge from upstream. Each is marked
 in the source with a `KAAPPI PATCH <n>` comment pointing here. When updating
 isocline, re-apply them; `grep -rn 'KAAPPI PATCH' vendor/isocline/` finds every
 site.
@@ -123,6 +123,120 @@ The `TCSAFLUSH` in the termination-signal handler (`sig_handler`, for
 SIGINT/SIGTSTP/etc.) is untouched: the process is dying or suspending there,
 not reading the next form, so discarding stray input is the right call and
 out of scope for this bug.
+
+## Patch 5 — click to reposition the edit cursor (mouse support)
+
+**Files:** `include/isocline.h`, `src/env.h`, `src/isocline.c`,
+`src/tty.h`, `src/tty.c`, `src/tty_esc.c`, `src/editline.c`
+
+Upstream isocline moves the cursor with arrow keys and structural editing
+only. The patch adds an opt-in `ic_enable_mouse(bool)` that turns on SGR mouse
+tracking for the edit session, decodes the clicks, and translates a left press
+into a cursor move (kaappi#2264).
+
+### The three pieces
+
+1. **Tracking on/off** (`ic_editline` in `editline.c`): on raw-mode entry,
+emit `\x1b[?1000h` (button-press tracking; deliberately *not* `?1002h`/
+`?1003h` motion) and `\x1b[?1006h` (SGR extended coordinates); emit the
+matching `l` sequences before leaving raw mode. `?1000h` captures clicks, so
+drag-to-select-and-copy in the REPL stops working while it is on — the
+usual reason REPLs don't do this. Mainstream terminals bypass app mouse mode
+with a modifier for one-off native selection (Option-drag in Terminal.app /
+iTerm2, Shift-drag in most Linux terminals), so copy still works,
+modifier-gated; preserving un-gated selection would require shift-click
+passthrough, out of scope. **Windows is a second, parallel implementation,
+not a reuse of this path** (kaappi#2264 comment): isocline reads `INPUT_RECORD`
+structs via `ReadConsoleInputW` on Windows — not a byte stream — and currently
+discards non-key events (`if (inp.EventType != KEY_EVENT) continue;` in
+`tty_waitc_console`). Mouse is first-class there: `MOUSE_EVENT_RECORD` carries
+`dwMousePosition` (already in console cells), `dwButtonState`, `dwEventFlags`.
+The follow-up needs (1) `ENABLE_MOUSE_INPUT` and clearing
+`ENABLE_QUICK_EDIT_MODE` in the Windows `tty_start_raw` — Quick Edit *is*
+Windows' drag-to-select, the exact mirror of `?1000h` breaking selection on
+Unix; (2) a `MOUSE_EVENT` arm instead of the drop; (3) the anchor is *easier*
+there: `GetConsoleScreenBufferInfo().dwCursorPosition` is synchronous, no
+`ESC[6n` round-trip. One Console-API path covers classic conhost and Windows
+Terminal alike (ConPTY translates the terminal's mouse back into
+`MOUSE_EVENT_RECORD`s for a console app that has not requested VT input), so
+there is one shell-agnostic Windows implementation, not one per shell. Until
+then, tracking stays off on Windows (`#if !defined(_WIN32)`) and the flag is
+honored by nothing.
+
+2. **Decoding** (`tty_esc.c`): SGR mouse arrives as `\x1b[<b;x;yM` (press)
+or `m` (release). `<` lands in the CSI decoder's "special byte" catch, and
+the generic parameter parsing only handles two parameters, so the three-part
+mouse event is intercepted right after the special-byte check. The
+coordinates cannot fit in the `code_t` keycode space, so the event is stashed
+on the `tty` (via `tty_set_mouse_event`, new in `tty.h`) and surfaced as a
+single `KEY_EVENT_MOUSE` code; the edit loop reads it back with
+`tty_last_mouse`.
+
+3. **Cursor move** (`editline.c`): on a plain left **press** (button 0, no
+modifiers — the release event `m` is decoded but ignored, so a click moves
+the cursor exactly once), convert the absolute screen coordinates to
+prompt-relative (row, col) and call the existing `edit_set_pos_at_rowcol`
+— the hard part, mapping (row, col) to a buffer byte position with prompt
+width, continuation prompt, and line wrapping, is already implemented
+(`sbuf_get_pos_at_rc`).
+
+### The one hard part: absolute → relative anchor
+
+The mouse reports **absolute** screen coordinates; isocline works entirely in
+coordinates **relative to the prompt** (`eb->cur_row` is 0-based relative to
+the prompt) and never queries the absolute cursor position — `term.c` has no
+DSR reader wired into the edit loop. So the patch anchors the input's
+on-screen start with a **one-time `\x1b[6n` query at edit-session start**
+(`edit_line`, right after the prompt is written), storing the answer on the
+editor as `anchor_row`/`anchor_col`. The response is read by a new
+dedicated reader (`tty_read_dsr_response` in `tty.c`, deliberately not the
+existing `tty_read_esc_response`): a REPL user types ahead between forms —
+press Enter and start typing the next form while the previous one evaluates
+— so the first bytes the reader sees are often **not** the response. The
+reader accepts only a well-formed `ESC [ digits ; digits R`; anything else
+it read is pushed back in order, so a queued keystroke (or an arrow key
+sent as `ESC [ A`) still reaches the edit loop as a key. The only
+consequence of a response that cannot be read is an unset anchor, i.e.
+clicks no-op for that line — never lost input. A response that arrives
+after the reader gave up decodes to `KEY_NONE` later and is ignored. This
+anchor is the only piece that must be correct; everything downstream is
+already safe. A terminal that does not answer (some emulators, SSH without
+mouse support) leaves the anchor unset and clicks become no-ops — the
+query costs at most the escape-sequence timeout.
+
+The push-back is bounded so it can never overflow the 32-byte `cpushbuf`:
+the digit buffer is capped at `TTY_PUSH_MAX - 2` (a real cursor report is
+a handful of digits), and the restore is skipped entirely if it would not
+fit. The `tty_cpush` overflow guard itself was also fixed: it tested
+`push_count` (the high-level code pushback buffer) while writing
+`cpushbuf` via `cpush_count`, so an overflow would silently corrupt the
+struct instead of tripping the assert — a pre-existing upstream mismatch
+this reader is the first caller able to exercise.
+
+Clicks outside the editing area are safe no-ops (`edit_set_pos_at_rowcol`
+already guards `if (pos < 0) return;`, and the mapper returns `-1` for
+out-of-range rows):
+
+| Click location | Result |
+|---|---|
+| Below the input (blank rows) | row out of range → `-1` → cursor doesn't move |
+| Above the input (prior output / scrollback) | negative relative row → `-1` → no-op *(iff the anchor is right)* |
+| On the prompt glyphs | clamps to start of that logical line's content |
+| Past end of a line's text | `i < end` guard clamps to line end |
+| Inside text (incl. wrapped lines) | maps exactly (mapper is wrap-aware) |
+
+Clicking into scrollback can never reposition there: that region is terminal
+history, not an edit buffer, and isocline has no model of it. The whole risk
+concentrates in the anchor — a stale/off-by-one anchor could map an
+above-input click to a valid in-range row and jump the cursor unexpectedly,
+instead of no-op'ing. The anchor is queried per `ic_readline` call (the
+cursor row moves with evaluation output between calls), and it goes stale if
+the input itself scrolls the terminal — the input taller than the window is a
+known limitation of the first cut.
+
+A delayed DSR response arriving *after* its query timed out decodes to
+`KEY_NONE`; the edit loop now ignores `KEY_NONE` in its default case, where
+previously it fell through to `code_is_unicode(0)` and inserted a NUL.
 
 ## Deliberately not patched
 

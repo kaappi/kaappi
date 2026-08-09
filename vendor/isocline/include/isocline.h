@@ -463,6 +463,24 @@ void ic_set_insertion_braces(const char* brace_pairs);
 
 
 //--------------------------------------------------------------
+// Mouse click-to-position (KAAPPI PATCH 5)
+//--------------------------------------------------------------
+
+/// \defgroup mouse Mouse click-to-position
+/// Click inside the current input to move the edit cursor.
+/// \{
+
+/// Enable SGR mouse tracking for click-to-position (disabled by default).
+/// While tracking is on, the terminal reports button presses instead of
+/// letting the application receive drag-to-select events, so this is opt-in.
+/// The Windows console needs its own mouse-input path and is not supported.
+/// Returns the previous setting.
+bool ic_enable_mouse(bool enable);
+
+/// \}
+
+
+//--------------------------------------------------------------
 // Advanced Completion
 //--------------------------------------------------------------
 

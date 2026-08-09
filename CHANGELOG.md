@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Click inside the REPL input to move the edit cursor** (#2264). SGR mouse
+  tracking behind a `repl.mouse: true` setting in `~/.kaappi/config` (default
+  off, so drag-to-select behavior never changes unasked): a left click maps
+  to a buffer position with prompt width, continuation prompt, and line
+  wrapping all taken into account, including on wrapped and multi-line
+  forms. Clicks outside the editing area are no-ops. This is the fifth
+  Kaappi patch to vendored isocline (`vendor/isocline/PATCHES.md`); the
+  Windows console needs its own mouse-input path and is not yet supported.
+
 ### Fixed
 
 - **Rational→flonum conversion is correct when a single side alone leaves

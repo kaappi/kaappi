@@ -7,10 +7,11 @@
 //! `readline` returns a finished expression — newlines and all — and every line
 //! of it stays editable until the user submits.
 //!
-//! Kaappi's copy carries three patches, all documented in
+//! Kaappi's copy carries five patches, all documented in
 //! `vendor/isocline/PATCHES.md`: an input-completeness callback (upstream's
 //! Enter always submits), a configurable history size (upstream caps at 200),
-//! and structural s-expression editing (upstream has none).
+//! structural s-expression editing (upstream has none), a TCSADRAIN fix so a
+//! multi-line paste tail is not discarded, and opt-in mouse click-to-position.
 //!
 //! Isocline is not thread-safe: `readline` and `print` must be called from one
 //! thread. That holds here — only the REPL loop touches it.
@@ -168,6 +169,13 @@ pub fn enableBraceMatching(enable: bool) void {
 
 pub fn enableBraceInsertion(enable: bool) void {
     _ = c.ic_enable_brace_insertion(enable);
+}
+
+/// Opt in to SGR mouse tracking so a click inside the input moves the edit
+/// cursor (KAAPPI PATCH 5, kaappi#2264). Off by default: while tracking is on
+/// the terminal reports button presses instead of drag-to-select.
+pub fn enableMouse(enable: bool) void {
+    _ = c.ic_enable_mouse(enable);
 }
 
 /// Which brace pairs to match. Kaappi's reader gives `[` and `]` no meaning,

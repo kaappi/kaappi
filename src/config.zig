@@ -52,6 +52,10 @@ pub const Config = struct {
     prompt_len: u8 = default_prompt.len,
     history_length: c_int = 1000,
     highlight: bool = true,
+    /// Click in the input to move the edit cursor (isocline SGR mouse
+    /// tracking; kaappi#2264). Off by default: while tracking is on, the
+    /// terminal stops reporting drag-to-select to the application.
+    mouse: bool = false,
 
     pub fn prompt(self: *const Config) [*:0]const u8 {
         return @ptrCast(&self.prompt_buf);
@@ -179,6 +183,14 @@ fn parseLine(cfg: *Config, line: []const u8, line_num: usize, no_color: bool) vo
             cfg.highlight = false;
         } else {
             warnLine(line_num, "repl.highlight must be 'true' or 'false'");
+        }
+    } else if (std.mem.eql(u8, key, "repl.mouse")) {
+        if (std.mem.eql(u8, value, "true")) {
+            cfg.mouse = true;
+        } else if (std.mem.eql(u8, value, "false")) {
+            cfg.mouse = false;
+        } else {
+            warnLine(line_num, "repl.mouse must be 'true' or 'false'");
         }
     } else {
         warnKey(line_num, key);
@@ -322,6 +334,7 @@ test "Config defaults match dark preset" {
     try std.testing.expectEqualStrings("\x1b[0m", cfg.theme.reset);
     try std.testing.expectEqual(true, cfg.highlight);
     try std.testing.expectEqual(@as(c_int, 1000), cfg.history_length);
+    try std.testing.expectEqual(false, cfg.mouse);
 }
 
 test "light preset uses standard colors" {
@@ -392,6 +405,17 @@ test "parseLine highlight" {
     var cfg: Config = .{};
     parseLine(&cfg, "repl.highlight: false", 1, false);
     try std.testing.expectEqual(false, cfg.highlight);
+}
+
+test "parseLine mouse" {
+    var cfg: Config = .{};
+    try std.testing.expectEqual(false, cfg.mouse); // default off: selection behavior must not change unasked
+    parseLine(&cfg, "repl.mouse: true", 1, false);
+    try std.testing.expectEqual(true, cfg.mouse);
+    parseLine(&cfg, "repl.mouse: false", 2, false);
+    try std.testing.expectEqual(false, cfg.mouse);
+    parseLine(&cfg, "repl.mouse: maybe", 3, false); // invalid value leaves it unchanged
+    try std.testing.expectEqual(false, cfg.mouse);
 }
 
 test "parseLine skips comments and blanks" {

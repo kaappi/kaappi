@@ -54,6 +54,8 @@ struct ic_env_s {
   bool            no_bracematch;    // enable brace matching?
   bool            no_autobrace;     // enable automatic brace insertion?
   bool            no_lscolors;      // use LSCOLORS/LS_COLORS to colorize file name completions?
+  // KAAPPI PATCH 5: see vendor/isocline/PATCHES.md
+  bool            mouse;            // enable mouse click-to-position in the editor?
   long            hint_delay;       // delay before displaying a hint in milliseconds
 };
 

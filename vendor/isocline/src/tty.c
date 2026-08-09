@@ -11,6 +11,7 @@
 #include <locale.h>
 
 #include "tty.h"
+#include "stringbuf.h"  // ic_atoz2 (KAAPPI PATCH 5)
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -48,6 +49,11 @@ struct tty_s {
   ssize_t   cpush_count;
   long      esc_initial_timeout;    // initial ms wait to see if ESC starts an escape sequence
   long      esc_timeout;            // follow up delay for characters in an escape sequence
+  // KAAPPI PATCH 5: the last decoded SGR mouse event (see PATCHES.md)
+  uint32_t  mouse_button;           // SGR button code (see tty.h `tty_mouse_t`)
+  ssize_t   mouse_row;              // 1-based absolute row
+  ssize_t   mouse_col;              // 1-based absolute column
+  bool      mouse_press;            // press ('M') or release ('m')
   #if defined(_WIN32)
   HANDLE    hcon;                   // console input handle
   DWORD     hcon_orig_mode;         // original console mode
@@ -227,6 +233,86 @@ ic_private code_t tty_read(tty_t* tty)
   return code;
 }
 
+// KAAPPI PATCH 5: see PATCHES.md — set/read the last decoded SGR mouse event.
+// The decoder in tty_esc.c writes through the setter; the edit loop in
+// editline.c reads through the getter, so the tty struct can stay opaque.
+ic_private void tty_set_mouse_event(tty_t* tty, uint32_t button, ssize_t row, ssize_t col, bool press) {
+  tty->mouse_button = button;
+  tty->mouse_row = row;
+  tty->mouse_col = col;
+  tty->mouse_press = press;
+}
+
+ic_private bool tty_last_mouse(const tty_t* tty, tty_mouse_t* mouse) {
+  if (tty == NULL || mouse == NULL) return false;
+  mouse->button = tty->mouse_button;
+  mouse->row = tty->mouse_row;
+  mouse->col = tty->mouse_col;
+  mouse->press = tty->mouse_press;
+  return true;
+}
+
+// KAAPPI PATCH 5: see PATCHES.md — read a DSR response (ESC [ row ; col R)
+// without ever losing input. In a REPL the user types ahead between forms,
+// and those bytes sit in the tty buffer when the anchor query runs; a naive
+// "read the response" would consume the first one and discard it. Every
+// failure path here pushes back exactly the bytes it read (in order), so the
+// edit loop still sees a queued keystroke as a key. The response is only
+// accepted when it is a well-formed ESC [ digits ; digits R.
+ic_private bool tty_read_dsr_response(tty_t* tty, ssize_t* row, ssize_t* col) {
+  if (tty == NULL || row == NULL || col == NULL) return false;
+  uint8_t c = 0;
+  if (!tty_readc_noblock(tty, &c, 2*tty->esc_initial_timeout)) {
+    return false;                          // nothing arrived: nothing consumed
+  }
+  if (c != '\x1B') {
+    tty_cpush_char(tty, c);                // a queued keystroke: hand it back
+    return false;
+  }
+  if (!tty_readc_noblock(tty, &c, tty->esc_timeout)) {
+    tty_cpush_char(tty, '\x1B');
+    return false;
+  }
+  if (c != '[') {
+    tty_cpush_char(tty, c);                // Alt+<char> etc.: hand it back
+    tty_cpush_char(tty, '\x1B');
+    return false;
+  }
+
+  // ESC [ <digits;digits> R. Anything else (an arrow key is ESC [ A, ...) is
+  // a key sequence, not a response, and must be handed back whole. The digit
+  // cap keeps a restore within TTY_PUSH_MAX bytes: 1 (c) + n + 2 ('[' + ESC);
+  // a real cursor report is only a handful of digits, so a tight cap costs
+  // nothing. A longer run of digits (a garbled or hostile terminal report)
+  // simply fails the read and is restored as far as the cap allows.
+  char buf[TTY_PUSH_MAX - 2];   // n <= sizeof(buf)-1 leaves room for the NUL
+  ssize_t n = 0;
+  for (;;) {
+    if (!tty_readc_noblock(tty, &c, tty->esc_timeout)) break;
+    if (c == 'R') {
+      buf[n] = 0;
+      if (ic_atoz2(buf, row, col)) {
+        debug_msg("tty: dsr response: cursor at %zd,%zd\n", *row, *col);
+        return true;
+      }
+      break;                               // malformed payload: restore below
+    }
+    if ((c < '0' || c > '9') && c != ';') break;  // not a DSR: restore below
+    if (n >= (ssize_t)sizeof(buf) - 1) break;     // restore cap: stop reading
+    buf[n++] = (char)c;
+  }
+  // push back everything we read, in order (the low-level buffer pops LIFO).
+  // Guard the restore against overflowing cpushbuf even if it holds leftover
+  // bytes from elsewhere (it is normally empty here, but the guard is cheap).
+  if (tty->cpush_count + n + 3 <= TTY_PUSH_MAX) {
+    tty_cpush_char(tty, c);
+    while (n > 0) { n--; tty_cpush_char(tty, buf[n]); }
+    tty_cpush_char(tty, '[');
+    tty_cpush_char(tty, '\x1B');
+  }
+  return false;
+}
+
 //-------------------------------------------------------------
 // Read back an ANSI query response
 //-------------------------------------------------------------
@@ -307,7 +393,12 @@ ic_private bool tty_cpop(tty_t* tty, uint8_t* c) {
 
 static void tty_cpush(tty_t* tty, const char* s) {
   ssize_t len = ic_strlen(s);
-  if (tty->push_count + len > TTY_PUSH_MAX) {
+  // KAAPPI PATCH 5: the guard used to test `push_count` — the *high-level*
+  // code pushback buffer — while the writes below land in `cpushbuf` via
+  // `cpush_count`. The two counts are unrelated, so a push could silently
+  // write past the 32-byte cpushbuf (the assert never fired). Guard the
+  // counter the writes actually use. See PATCHES.md, patch 5.
+  if (tty->cpush_count + len > TTY_PUSH_MAX) {
     debug_msg("tty: cpush buffer full! (pushing %s)\n", s);
     assert(false);
     return;
