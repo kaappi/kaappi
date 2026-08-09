@@ -173,6 +173,154 @@ pub const BodyScan = struct {
     }
 };
 
+/// Is `form` a definition-context `begin` — a literal `(begin ...)` whose
+/// contents splice into the surrounding body per R7RS 4.2.3, "evaluated
+/// exactly as if the enclosing begin construct were not present"?
+///
+/// The shadow test mirrors the IR lowerer (ir.zig, lowerFormWithMacros): a
+/// lexical binding or macro shadowing `begin` makes the form an ordinary
+/// procedure call, not a splice, while a hygienically renamed `begin` from a
+/// macro template keeps its special-form meaning and is never shadowed.
+fn isSpliceableBegin(compiler: *const Compiler, form: Value) bool {
+    if (!types.isPair(form)) return false;
+    const head = types.car(form);
+    if (!types.isSymbol(head)) return false;
+    const name = types.symbolName(head);
+    const effective = types.stripHygienicPrefix(name);
+    if (!std.mem.eql(u8, effective, "begin")) return false;
+    if (std.mem.eql(u8, effective, name)) {
+        if (compiler.isLexicallyBound(name)) return false;
+        if (compiler.lookupMacro(name) != null) return false;
+    }
+    return true;
+}
+
+/// Recursively append the effective body elements of `form` to `elems`: a
+/// spliceable `begin` contributes its (recursively spliced) children, any
+/// other form contributes itself. Called under no_collect (see
+/// spliceLeadingBegins).
+fn appendSplicedBodyElement(compiler: *Compiler, elems: *std.ArrayList(Value), form: Value) CompileError!void {
+    if (isSpliceableBegin(compiler, form)) {
+        var child = types.cdr(form);
+        while (types.isPair(child)) {
+            try appendSplicedBodyElement(compiler, elems, types.car(child));
+            child = types.cdr(child);
+        }
+        // An improper begin `(begin e1 . tail)` is invalid syntax — reject
+        // it rather than silently dropping the tail from the spliced body.
+        if (child != types.NIL) return CompileError.InvalidSyntax;
+    } else {
+        elems.append(compiler.gc.allocator, form) catch return CompileError.OutOfMemory;
+    }
+}
+
+/// Does the body's leading definition region bind the name `begin` with a
+/// `define-syntax`? The scanner installs body-local macro bindings only in
+/// its second pass — after this splice would have run — and the IR lowerer
+/// gives a macro shadowing `begin` precedence over the special form, so a
+/// body that binds its own `begin` must not have its `(begin ...)` forms
+/// spliced as if the wrapper were absent: they are macro uses. Walks the
+/// already-flattened leading forms (the scan's own recognition rules: a
+/// literal define-family head continues the region, anything else ends it);
+/// the list is already spliced, so no descent is needed. The keyword is
+/// compared after stripping a hygiene prefix, so a template-introduced
+/// `define-syntax begin` shadows the (identically renamed) uses too.
+fn bodyBindsBeginMacro(flattened: Value) bool {
+    var cur = flattened;
+    while (types.isPair(cur)) {
+        const form = types.car(cur);
+        if (!types.isPair(form)) break;
+        const head = types.car(form);
+        if (!types.isSymbol(head)) break;
+        const hn = types.symbolName(head);
+        if (std.mem.eql(u8, hn, "define-syntax")) {
+            const rest = types.cdr(form);
+            if (types.isPair(rest) and types.isSymbol(types.car(rest)) and
+                std.mem.eql(u8, types.stripHygienicPrefix(types.symbolName(types.car(rest))), "begin"))
+            {
+                return true;
+            }
+            cur = types.cdr(cur);
+            continue;
+        }
+        if (std.mem.eql(u8, hn, "define") or std.mem.eql(u8, hn, "define-record-type") or
+            std.mem.eql(u8, hn, "define-values"))
+        {
+            cur = types.cdr(cur);
+            continue;
+        }
+        break;
+    }
+    return false;
+}
+
+/// R7RS 4.2.3 definition-context `begin` splicing (#2075): a literal
+/// `(begin ...)` among a body's leading forms — or directly nested in
+/// another such begin — behaves exactly as if the wrapper were absent, so a
+/// definition inside it joins the body's letrec* region: it must shadow an
+/// enclosing binding and must not escape into the global environment. The
+/// body scanners only recognize literal `define`-family heads as body
+/// elements, so this helper unwraps every spliceable `begin` anywhere in
+/// `body` before scanning.
+///
+/// Returns a freshly allocated list equivalent to `body` with every
+/// spliceable begin removed (the caller must root it), or null when there
+/// is nothing to splice — the common case allocates nothing. The result
+/// shares all element and tail structure with `body`; only the cons cells
+/// connecting spliced elements are new. Built under no_collect so the
+/// fresh cells cannot be swept before the caller roots the result; the
+/// recursion mirrors the IR's own unbounded lowering of nested begins.
+fn spliceLeadingBegins(compiler: *Compiler, body: Value) CompileError!?Value {
+    const gc = compiler.gc;
+
+    // Fast path: a body with no spliceable begin element allocates nothing.
+    var any_begin = false;
+    {
+        var cur = body;
+        while (types.isPair(cur)) {
+            if (isSpliceableBegin(compiler, types.car(cur))) {
+                any_begin = true;
+                break;
+            }
+            cur = types.cdr(cur);
+        }
+    }
+    if (!any_begin) return null;
+
+    gc.no_collect += 1;
+    errdefer gc.no_collect -= 1;
+
+    var elems: std.ArrayList(Value) = .empty;
+    defer elems.deinit(gc.allocator);
+    var cur = body;
+    while (types.isPair(cur)) {
+        try appendSplicedBodyElement(compiler, &elems, types.car(cur));
+        cur = types.cdr(cur);
+    }
+    // An improper body tail must not be silently dropped either.
+    if (cur != types.NIL) return CompileError.InvalidSyntax;
+
+    var result = types.NIL;
+    var i = elems.items.len;
+    while (i > 0) {
+        i -= 1;
+        result = gc.allocPair(elems.items[i], result) catch return CompileError.OutOfMemory;
+    }
+
+    // A body-local `(define-syntax begin ...)` shadows the special form for
+    // the whole body (IR precedence: macro over special form), and the scan
+    // installs that binding only after this splice would have run — so
+    // decline to splice and let the scan + IR handle every `(begin ...)` as
+    // a macro use, exactly as they would in non-leading position.
+    if (bodyBindsBeginMacro(result)) {
+        gc.no_collect -= 1;
+        return null;
+    }
+
+    gc.no_collect -= 1;
+    return result;
+}
+
 pub fn scanBodyDefs(compiler: *Compiler, body: Value, handle_define_syntax: bool) CompileError!BodyScan {
     var scan_result = BodyScan{};
     scan_result.compiler = compiler;
@@ -181,11 +329,25 @@ pub fn scanBodyDefs(compiler: *Compiler, body: Value, handle_define_syntax: bool
     scan_result.macro_mark = if (handle_define_syntax) compiler.beginBodyMacroScope() else 0;
     errdefer scan_result.deinit();
 
+    // R7RS 4.2.3: a definition-context `begin` is "evaluated exactly as if
+    // the enclosing begin construct were not present", so a definition
+    // written inside a literal `begin` body element must join this body's
+    // letrec* region like an unwrapped one — shadowing an enclosing `let`
+    // binding rather than escaping into the global environment (#2075).
+    // The three passes below then scan the spliced body; its head is rooted
+    // via extra_roots (truncated by deinit) so it outlives the scan and the
+    // caller's compilation of scan.remaining (issue #1010 pattern).
+    var effective_body = body;
+    if (try spliceLeadingBegins(compiler, body)) |spliced| {
+        effective_body = spliced;
+        compiler.gc.extra_roots.append(compiler.gc.allocator, effective_body) catch return CompileError.OutOfMemory;
+    }
+
     // --- Globals prescan sentinel dance (#958) ---
     if (compiler.globals) |globals| {
         const glk = globals_mod.acquireGlobalsWrite(globals);
         defer globals_mod.releaseGlobalsWrite(glk);
-        var scan = body;
+        var scan = effective_body;
         while (scan != types.NIL and types.isPair(scan)) {
             const form = types.car(scan);
             if (types.isPair(form)) {
@@ -245,7 +407,7 @@ pub fn scanBodyDefs(compiler: *Compiler, body: Value, handle_define_syntax: bool
     var all_def_names: [BodyScan.MAX_DEFS][]const u8 = undefined;
     var all_def_count: usize = 0;
     {
-        var scan = body;
+        var scan = effective_body;
         while (scan != types.NIL and types.isPair(scan)) {
             const expr = types.car(scan);
             if (!types.isPair(expr)) break;
@@ -307,7 +469,7 @@ pub fn scanBodyDefs(compiler: *Compiler, body: Value, handle_define_syntax: bool
     // the rest of this scan and the caller's compilation phase allocate, so a
     // collection would sweep the not-yet-compiled inits (issue #1010). Mirror
     // them into extra_roots (by value, realloc-safe) for the duration.
-    var current = body;
+    var current = effective_body;
     while (current != types.NIL and types.isPair(current)) {
         const expr = types.car(current);
         if (!types.isPair(expr)) break;
@@ -448,6 +610,19 @@ pub fn scanBodyDefs(compiler: *Compiler, body: Value, handle_define_syntax: bool
 
 pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileError!u16 {
     const allocates_regs = opts.dst == null;
+
+    // A ⟨body⟩ is a definition context even without an enclosing procedure:
+    // a `define` reached here at compile time — a literal `begin` the body
+    // scan could not splice, a macro expansion producing a definition, or a
+    // degenerate non-head `define` — must bind a local in this body's scope,
+    // never escape into the global environment. `compileBody`/`compileSyntaxBody`
+    // already set this for procedure and let-syntax bodies; the let-family
+    // bodies (the other callers of compileBodyForms) were missing it, so the
+    // identical text at top level and inside a lambda compiled differently
+    // (#2075).
+    const saved_body_scope = self.in_body_scope;
+    self.in_body_scope = true;
+    defer self.in_body_scope = saved_body_scope;
 
     var scan = try scanBodyDefs(self, body, opts.handle_define_syntax);
     defer scan.deinit();

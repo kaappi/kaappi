@@ -57,15 +57,21 @@ fail=0
 # the let must still compile natively ("native") or is expected to route to the
 # interpreter ("fallback"); either way the answer must match, and asserting which
 # one happened keeps a silent fallback from making a "native" case pass
-# vacuously.
+# vacuously. An optional 4th argument pins the exact expected output, so a case
+# cannot pass because interpreter and native are wrong in the same way.
 check() {
-    local name="$1" src="$2" native_expected="$3"
+    local name="$1" src="$2" native_expected="$3" expected_out="${4:-}"
 
     printf '%s' "$src" > "$DIR/$name.scm"
 
     local want
     if ! want=$(cd "$REPO_DIR" && "$KAAPPI_ABS" "$DIR/$name.scm" 2>&1); then
         echo "FAIL: $name — interpreter run failed: $want" >&2
+        fail=1
+        return
+    fi
+    if [[ -n "$expected_out" && "$want" != "$expected_out" ]]; then
+        echo "FAIL: $name — interpreter printed '$want', expected '$expected_out'" >&2
         fail=1
         return
     fi
@@ -243,12 +249,58 @@ native
 #     does not model that shape, so such a let goes to the interpreter — correct,
 #     just not native. Pinned so a future change that starts compiling it
 #     natively has to root those slots deliberately rather than by accident.
+#     The interpreter's own body scan has modelled the shape since kaappi#2075,
+#     so the fallback answers per R7RS (case 14 checks that agreement).
 check begin-spliced-define-falls-back \
 '(let ((a 1))
   (begin (define x (list 1 2)))
   (do ((i 0 (+ i 1))) ((= i 200000)) (list i i i))
   (display x) (newline))' \
 fallback
+
+# 14. kaappi#2075: a begin-wrapped internal define must shadow an enclosing
+#     let binding and leave the global untouched — at top level exactly as
+#     inside a procedure. The native tier inherits this via the interpreter
+#     fallback above; this pins the answers the whole pipeline now gives.
+#     (Values are numbers: a single-quoted symbol would break the shell
+#     string; shadowing semantics are value-independent.) Expected output:
+#     g shadows 1 → 2 inside the let; the global stays 100.
+check begin-spliced-define-shadows-global \
+'(define g 100)
+(let ((g 1))
+  (begin (define g 2))
+  (do ((i 0 (+ i 1))) ((= i 200000)) (list i i i))
+  (display g) (newline))
+(display g) (newline)' \
+fallback \
+'2
+100'
+
+# 15. Same shape with a fresh (non-shadowing) name, and a doubly-nested
+#     begin: both must agree with the interpreter. Expected output:
+#     fresh-2075 is the body-local list, q stays 1, r shadows 1 → 2, and
+#     both globals stay 100.
+check begin-spliced-fresh-name \
+'(define q 100)
+(let ((q 1))
+  (begin (define fresh-2075 (list 1 2)))
+  (do ((i 0 (+ i 1))) ((= i 200000)) (list i i i))
+  (display (list q fresh-2075)) (newline))
+(display q) (newline)' \
+fallback \
+'(1 (1 2))
+100'
+
+check begin-spliced-double-nested \
+'(define r 100)
+(let ((r 1))
+  (begin (begin (define r 2)))
+  (do ((i 0 (+ i 1))) ((= i 200000)) (list i i i))
+  (display r) (newline))
+(display r) (newline)' \
+fallback \
+'2
+100'
 
 # 13. Shadow-stack balance, asserted on the emitted IR rather than on output.
 #     A define slot now contributes a push that the scope's single trailing
