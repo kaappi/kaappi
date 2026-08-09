@@ -12,9 +12,9 @@
 ;;; transformer-environment half the delegate is supposed to get exactly
 ;;; right (splicing-let-syntax's transformers see the surrounding scope,
 ;;; splicing-letrec-syntax's see each other), and pin the underlying
-;;; `begin`-splicing mechanism the .sld header's rationale rests on -- which
-;;; turns out to be position-dependent and, at top level, to leak the
-;;; definition into the global environment (#2075).
+;;; `begin`-splicing mechanism the .sld header's rationale rests on -- the
+;;; definition-context `begin` splices per R7RS 4.2.3, at top level as well
+;;; as inside a procedure, since #2075.
 
 (import (scheme base) (scheme process-context) (srfi 188) (srfi 64))
 
@@ -130,19 +130,15 @@
 ;;; rationale is built on.  R7RS 4.2.3: a definition-context `begin`
 ;;; "causes the contained expressions and definitions to be evaluated
 ;;; exactly as if the enclosing begin construct were not present" -- so
-;;; every pair below must agree.  They do not: the begin-wrapped form is
-;;; correct inside a procedure and wrong at top level, where the definition
-;;; escapes into the global environment (#2075).  The header states the
-;;; top-level answer as if it were universal.
-;;;
-;;; Enabled assertions pin today's answers plus the three controls that
-;;; isolate the defect; the commented ones are what R7RS requires.
+;;; every pair below must agree, and since #2075 they do: the begin-wrapped
+;;; form shadows an enclosing binding and leaves the global untouched, at
+;;; top level exactly as inside a procedure.
 ;;;
 ;;; These four probes must be evaluated at TRUE top level and their results
 ;;; stashed, because SRFI-64's own `test-equal` evaluates its expression
 ;;; inside a lambda -- which supplies the very enclosing procedure scope
-;;; whose absence is the defect, and so answers `inner` from inside the
-;;; assertion while the same text answers `outer` outside it. ---
+;;; whose absence used to be the defect, so the probes' true-top-level
+;;; answers could not be observed from inside an assertion. ---
 
 (define srfi188-g 'global)
 (define srfi188-probe-let
@@ -175,27 +171,14 @@
   'inner
   ((lambda () (let ((srfi188-n 'outer)) (begin (begin (define srfi188-n 'inner))) srfi188-n))))
 
-;; FAIL: #2075 (begin-wrapped internal define does not shadow at top level)
-;; (test-equal "R7RS 4.2.3: a begin-wrapped internal define shadows at top level"
-;;   'inner srfi188-probe-let)
-;; FAIL: #2075 (the escaped definition clobbers the enclosing global)
-;; (test-equal "R7RS 4.2.3: the definition does not escape the let"
-;;   'global srfi188-probe-global)
-;; FAIL: #2075 (same, one let deeper -- still no enclosing procedure)
-;; (test-equal "R7RS 4.2.3: same, nested one let deeper"
-;;   'inner srfi188-probe-nested)
-;; FAIL: #2075 (let* leaks the same way)
-;; (test-equal "R7RS 4.2.3: let* body behaves the same as let"
-;;   'inner srfi188-probe-letstar)
-
-(test-equal "begin-wrapped define at top level does not shadow (see #2075)"
-  'outer srfi188-probe-let)
-(test-equal "the escaped definition overwrote the global instead (see #2075)"
-  'inner srfi188-probe-global)
-(test-equal "same leak one let deeper -- still no enclosing procedure (see #2075)"
-  'outer srfi188-probe-nested)
-(test-equal "let* body leaks identically (see #2075)"
-  'outer srfi188-probe-letstar)
+(test-equal "R7RS 4.2.3: a begin-wrapped internal define shadows at top level"
+  'inner srfi188-probe-let)
+(test-equal "R7RS 4.2.3: the definition does not escape the let"
+  'global srfi188-probe-global)
+(test-equal "R7RS 4.2.3: same, nested one let deeper"
+  'inner srfi188-probe-nested)
+(test-equal "R7RS 4.2.3: let* body behaves the same as let"
+  'inner srfi188-probe-letstar)
 
 (let ((runner (test-runner-current)))
   (test-end "srfi-188")

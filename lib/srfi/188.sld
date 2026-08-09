@@ -9,31 +9,25 @@
 ;;; possible" — every existing implementation (Chibi, Chez, Racket) provides
 ;;; it as a primitive expander feature, not a library.
 ;;;
-;;; This port confirms that verdict for Kaappi specifically (rather than
-;;; taking the SRFI's word for it) and documents exactly what is missing.
-;;; Kaappi's internal-definition scanner (`scanBodyDefs` in
-;;; src/compiler_lambda.zig) recognizes a definition only when a *literal*
-;;; `define`, `define-record-type`, or `define-syntax` token appears
-;;; directly as a body element; it does not macro-expand an unrecognized
-;;; head symbol to see whether it produces one, and it has no splicing rule
-;;; for a `begin` reached that way (`begin`'s own splicing is handled
-;;; earlier, by the reader/expander, only when `begin` is the literal head
-;;; symbol actually written by the user). A macro that expands to
-;;; `(begin (define k v) ...)` therefore cannot make `k` escape into the
-;;; surrounding body — confirmed empirically (not just by reading the code):
-;;; even a hand-written, non-macro
-;;;   (let ((x 'outer)) (begin (define x 'inner) #f) x)
-;;; evaluates to `outer`, not `inner`, in Kaappi. Splicing a *fresh* (i.e.
-;;; non-shadowing) name out of a `begin` reached this way does work — the
-;;; failure is specifically that redefining a name already bound in the
-;;; enclosing scope, via a `define` that isn't itself the literal leading
-;;; body form, does not shadow it — but that narrower case is not what SRFI
-;;; 188's own defining example exercises (it is a shadowing example — see
-;;; below), so special-casing it here would not make the flagship behavior
-;;; correct and was left out for a simpler, uniform implementation.
-;;;
-;;; Given that, this library implements both forms as plain, direct
-;;; delegates to their non-splicing R7RS counterparts:
+;;; This port documents exactly what is missing rather than taking the
+;;; SRFI's word for it. The *underlying* splicing mechanism is correct:
+;;; since kaappi#2075, a definition-context `begin` splices per R7RS 4.2.3 —
+;;; a literal `(begin (define x 'inner) #f)` as a body element shadows an
+;;; enclosing `x` and never touches the global, at top level exactly as
+;;; inside a procedure (scanBodyDefs in src/compiler_lambda.zig unwraps
+;;; spliceable begins before scanning). What still cannot be done is to
+;;; reach that mechanism *from a macro*: the body scanner does not
+;;; macro-expand an unrecognized head symbol to see whether its expansion
+;;; contains definitions, so a macro use in a definition position is not
+;;; itself a definition. A splicing-let-syntax implemented by expanding its
+;;; body into a `begin` would make the SRFI's defining example work (the
+;;; expansion's define then compiles inside the surrounding body scope and
+;;; shadows the enclosing binding, exactly as a hand-written spliced
+;;; `begin`'s does) — but a syntax-rules implementation cannot know whether
+;;; its use site is a definition context, and the SRFI's own text warns the
+;;; feature is not portable R7RS. This library therefore implements both
+;;; forms as plain, direct delegates to their non-splicing R7RS
+;;; counterparts:
 ;;;
 ;;;   splicing-let-syntax    == let-syntax
 ;;;   splicing-letrec-syntax == letrec-syntax

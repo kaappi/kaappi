@@ -636,6 +636,72 @@ test "define-values clause where one bound name calls another (#1719)" {
     , 42);
 }
 
+test "begin-wrapped internal define stays local at top level (#2075)" {
+    // R7RS 4.2.3: a definition-context `begin` behaves exactly as if the
+    // wrapper were absent, so a define inside it must shadow an enclosing
+    // let binding and never escape into the global environment — at top
+    // level exactly as inside a procedure. Before the fix the begin-wrapped
+    // form at top level compiled the define to define_global: the let
+    // answered `outer` and the global was silently overwritten.
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    const result = try ctx.vm.eval(
+        \\(define g 'global)
+        \\(let ((g 'outer)) (begin (define g 'inner)) g)
+    );
+    try std.testing.expect(types.isSymbol(result));
+    try std.testing.expectEqualStrings("inner", types.symbolName(result));
+
+    // The global must be untouched...
+    const global_after = try ctx.vm.eval("g");
+    try std.testing.expect(types.isSymbol(global_after));
+    try std.testing.expectEqualStrings("global", types.symbolName(global_after));
+
+    // ...and the identical probe inside a lambda (always correct) must agree.
+    const lambda_answer = try ctx.vm.eval(
+        \\((lambda () (let ((g2 'outer)) (begin (define g2 'inner)) g2)))
+    );
+    try std.testing.expect(types.isSymbol(lambda_answer));
+    try std.testing.expectEqualStrings("inner", types.symbolName(lambda_answer));
+}
+
+test "letrec* region: mutually recursive defines through a begin (#2075)" {
+    // The body scanner splices literal begins before pre-declaring the
+    // body's definition names, so definitions inside a begin are part of
+    // the same letrec* region as unwrapped ones — each init can call a
+    // name bound by a LATER spliced define.
+    try th.expectEvalBool(
+        \\(let ()
+        \\  (begin
+        \\    (define (ev? n) (if (= n 0) #t (od? (- n 1))))
+        \\    (define (od? n) (if (= n 0) #f (ev? (- n 1)))))
+        \\  (ev? 10))
+    , true);
+}
+
+test "macro-produced define in a let body stays local (#2075)" {
+    // The compile-time half of #2075: a definition a macro expansion
+    // produces inside a let-family body must bind a local in that body,
+    // not the global — the same text inside a lambda already did, because
+    // only the procedure-body paths set the body-scope flag.
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    const result = try ctx.vm.eval(
+        \\(define-syntax def-inner (syntax-rules () ((_ v) (define v 42))))
+        \\(define z 'global)
+        \\(let ((z 'outer)) (def-inner z) z)
+    );
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+
+    const global_after = try ctx.vm.eval("z");
+    try std.testing.expect(types.isSymbol(global_after));
+    try std.testing.expectEqualStrings("global", types.symbolName(global_after));
+}
+
 test "bootstrap stubs fail loudly without vm_bootstrap.install (#1375)" {
     // A VM that registers primitives but never runs vm_bootstrap.install()
     // must raise a clear error from the bootstrapped procedures instead of
