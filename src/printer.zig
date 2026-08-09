@@ -587,17 +587,22 @@ fn printValueOnce(
                 // printer: exact components print digit-exactly (fixnum /
                 // bignum / num-den rational), inexact components as
                 // flonums — so `write` and `real-part` can no longer
-                // disagree about the same object (kaappi#2166). Zero
-                // imaginary parts are demoted at construction; only the
-                // srfi160 -0.0i decode reaches the sign branch.
+                // disagree about the same object (kaappi#2166). Exact zero
+                // imaginary parts demote at construction, so a stored
+                // complex's zero imag is an inexact ±0.0 (reader literal,
+                // make-rectangular, or srfi160 decode).
                 const real = c.real;
                 const imag = c.imag;
-                // A +0.0 imaginary part prints as just the real component
-                // (kaappi#637/#1951): the reader keeps an inexact zero-imag
-                // complex ((real? -2.5+0.0i) => #f), but its printed form is
-                // the bare real, matching make-rectangular's demotion. A
-                // -0.0 imag keeps its sign and prints the full form.
-                if (isZeroComponent(imag) and !componentNegative(imag)) {
+                // Only an EXACT zero imaginary part collapses to the bare
+                // real component — and exact zeros demote at construction,
+                // so in practice a stored complex's zero imag is always an
+                // inexact ±0.0, which must print in full ("1.5+0.0i" /
+                // "1.5-0.0i") so write and number->string round-trip through
+                // read. R7RS 6.2.7: an inexact-zero-imag complex is NOT real
+                // ((real? -2.5+0.0i) => #f, kaappi#2269), so collapsing it to
+                // the bare real is a conformance bug. A -0.0 imag keeps its
+                // sign and prints the full form either way.
+                if (isZeroComponent(imag) and types.isExactNumber(imag)) {
                     try writeComplexComponent(allocator, writer, real);
                 } else {
                     const has_real = !isZeroComponent(real) or componentNegative(real);

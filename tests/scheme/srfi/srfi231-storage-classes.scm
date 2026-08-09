@@ -16,13 +16,13 @@
 ;;; --- a generic helper exercising the full 9-field contract on a
 ;;; storage class, used across every one of the 14 real classes below.
 ;;; Complex values read back from a c64/c128 body are always genuinely
-;;; complex-tagged even with a zero imaginary part (unlike a bare
-;;; make-rectangular call at the Scheme level, which collapses eagerly),
-;;; so numeric equality (=) is used for the value-carrying checks when
-;;; both sides are numbers, since equal? would otherwise spuriously fail
-;;; despite both sides being the same number. bad-value has no meaningful
-;;; "checker rejects this" case for generic-storage-class (its checker
-;;; always returns #t), so that assertion is a separate, optional check. ---
+;;; complex-tagged, including a zero imaginary part (an inexact zero imag
+;;; stays complex, kaappi#2269), so numeric equality (=) is used for the
+;;; value-carrying checks when both sides are numbers, since equal? would
+;;; otherwise spuriously fail despite both sides being the same number.
+;;; bad-value has no meaningful "checker rejects this" case for
+;;; generic-storage-class (its checker always returns #t), so that
+;;; assertion is a separate, optional check. ---
 (define (%same? a b) (if (and (number? a) (number? b)) (= a b) (equal? a b)))
 
 (define (check-storage-class sc value bad-value expected-default . rejects-bad?)

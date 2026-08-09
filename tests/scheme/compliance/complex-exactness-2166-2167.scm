@@ -12,9 +12,10 @@
 ;; flonum) instead of f64+exactness-flags, so exact complexes are computed,
 ;; stored, printed, and read back digit-exactly. A stored complex is never
 ;; mixed-exactness: if either component is inexact both are (R7RS 6.2.2's
-;; inexactness rule), and a zero imaginary part demotes to the real
-;; component. These tests pin the full behavior, including the exact
-;; arithmetic the interim slice deliberately left inexact.
+;; inexactness rule), and an EXACT zero imaginary part demotes to the real
+;; component while an INEXACT zero keeps the value complex (kaappi#2269).
+;; These tests pin the full behavior, including the exact arithmetic the
+;; interim slice deliberately left inexact.
 
 (import (scheme base) (scheme complex) (scheme write) (scheme process-context) (srfi 64) (srfi 69))
 
@@ -133,13 +134,94 @@
   (finite? (make-rectangular (expt 10 400) 1)))
 (test-equal "make-rectangular 3/2 0 demotes to exact rational" 3/2
   (make-rectangular 3/2 0))
-(test-equal "make-rectangular 3/2 0.0 demotes to inexact" 1.5
+(test-equal "make-rectangular 3/2 0.0 keeps an inexact zero imag complex" 1.5+0.0i
   (make-rectangular 3/2 0.0))
 (test-assert "make-rectangular 3/2 0.0 result is inexact"
   (inexact? (make-rectangular 3/2 0.0)))
-(test-equal "make-rectangular 1 0.0 demotes to inexact 1.0" 1.0
+(test-equal "make-rectangular 1 0.0 keeps an inexact zero imag complex" 1.0+0.0i
   (make-rectangular 1 0.0))
-(test-assert "make-rectangular 1.5 0.0 is real" (real? (make-rectangular 1.5 0.0)))
+(test-assert "make-rectangular 1.5 0.0 is not real (inexact zero imag)"
+  (not (real? (make-rectangular 1.5 0.0))))
+
+;; --- #2269: an inexact zero imag stays complex and round-trips -----------
+;; make-rectangular now constructs through the same exact-zero-only demotion
+;; the reader uses, so the constructor and the literal 1.5+0.0i agree: the
+;; value is NOT real (R7RS 6.2.6's worked examples pin (real? -2.5+0.0i)
+;; => #f), and write/number->string emit the full form so it round-trips
+;; through read/string->number (R7RS 6.2.7). The decomposition probe starts
+;; from the READER value (not make-rectangular), because that is the only
+;; starting point that fails under the old demotion — the discriminating
+;; case per the cross-implementation check on the issue.
+(define z2269 (read (open-input-string "1.5+0.0i")))
+(test-assert "make-rectangular 1.5 0.0 agrees with the reader literal"
+  (eqv? (make-rectangular 1.5 0.0) z2269))
+(test-assert "decomposition round-trip: (make-rectangular (real-part z) (imag-part z)) == z"
+  (eqv? (make-rectangular (real-part z2269) (imag-part z2269)) z2269))
+(test-assert "write/read round-trip of 1.5+0.0i"
+  (let ((p (open-output-string)))
+    (write z2269 p)
+    (eqv? z2269 (read (open-input-string (get-output-string p))))))
+(test-equal "write of 1.5+0.0i is honest" "1.5+0.0i"
+  (let ((p (open-output-string)))
+    (write z2269 p)
+    (get-output-string p)))
+(test-assert "number->string/string->number round-trip (R7RS 6.2.7)"
+  (eqv? z2269 (string->number (number->string z2269))))
+(test-equal "number->string of 1.5+0.0i is honest" "1.5+0.0i"
+  (number->string z2269))
+
+;; --- #2269 (review): the arithmetic tower and make-polar use the same ---
+;; exact-zero-only rule. The issue's cross-implementation check showed the
+;; constructor/reader split was only half the bug: (+ 1.0+2.0i 1.0-2.0i),
+;; (* 1.5+0.0i 2.0), (- 1.5+2.0i 0.0+2.0i), (+ 1.5+0.0i 0), and
+;; (make-polar 1.5 0.0) all stay complex in Chez/Guile/chibi/Gambit; only
+;; an exact zero imag demotes. These pin the arithmetic tower and polar on
+;; the same rule. (Exactness of the zero is read off the input components,
+;; so an exact zero still demotes: (- z z) => 0, (make-polar 1.5 0) => 1.5.)
+(define zadd (read (open-input-string "1.0+2.0i")))
+(test-assert "(+ 1.0+2.0i 1.0-2.0i) keeps an inexact zero imag complex"
+  (not (real? (+ zadd (make-rectangular 1.0 -2.0)))))
+(test-equal "(+ 1.0+2.0i 1.0-2.0i) writes 2.0+0.0i" "2.0+0.0i"
+  (number->string (+ zadd (make-rectangular 1.0 -2.0))))
+(test-assert "(+ 1.0+2.0i 1.0-2.0i) round-trips through number->string"
+  (eqv? (+ zadd (make-rectangular 1.0 -2.0))
+        (string->number (number->string (+ zadd (make-rectangular 1.0 -2.0))))))
+(test-assert "(* 1.5+0.0i 2.0) keeps an inexact zero imag complex"
+  (not (real? (* (make-rectangular 1.5 0.0) 2.0))))
+(test-assert "(- 1.5+2.0i 0.0+2.0i) keeps an inexact zero imag complex"
+  (not (real? (- (make-rectangular 1.5 2.0) (make-rectangular 0.0 2.0)))))
+(test-assert "(+ 1.5+0.0i 0) keeps an inexact zero imag complex"
+  (not (real? (+ (make-rectangular 1.5 0.0) 0))))
+(test-assert "(- 1.5+0.0i 1.5+0.0i) stays complex but is zero"
+  (and (not (real? (- z2269 z2269))) (zero? (- z2269 z2269))))
+(test-assert "make-polar 1.5 0.0 keeps an inexact zero imag complex"
+  (not (real? (make-polar 1.5 0.0))))
+(test-equal "make-polar 1.5 0.0 writes 1.5+0.0i" "1.5+0.0i"
+  (number->string (make-polar 1.5 0.0)))
+(test-assert "make-polar 1.5 0.0 round-trips through number->string"
+  (eqv? (make-polar 1.5 0.0) (string->number (number->string (make-polar 1.5 0.0)))))
+(test-equal "make-polar 1.5 -0.0 preserves the negative zero imag" "1.5-0.0i"
+  (number->string (make-polar 1.5 -0.0)))
+(test-equal "make-polar 1.5 0 (exact angle) demotes to a real" 1.5
+  (make-polar 1.5 0))
+;; A tiny EXACT NONZERO angle whose sin underflows to 0.0 must NOT demote:
+;; the guard tests the angle is numerically zero, not merely exact
+;; (kaappi#2269, review). All four references keep this complex.
+(test-assert "make-polar with a tiny exact nonzero angle stays complex"
+  (let ((z (make-polar 1.5 (/ 1 (expt 10 400)))))
+    (and (not (real? z))
+         (eqv? z (string->number (number->string z))))))
+;; (make-polar 0.0 1.0) has a +0.0 real part; kaappi's printer omits a
+;; zero real in the full form ("+0.0i", a valid R7RS literal) while the
+;; references print "0.0+0.0i" — same value, same round-trip.
+(test-assert "make-polar 0.0 1.0 keeps a zero imag complex"
+  (let ((z (make-polar 0.0 1.0)))
+    (and (not (real? z)) (zero? z)
+         (eqv? z (string->number (number->string z))))))
+;; The exact-zero demotions must survive the change.
+(test-equal "(- z z) still demotes to exact 0" 0 (- (make-rectangular 3/2 1) (make-rectangular 3/2 1)))
+(test-equal "(exact 1.5+0.0i) still demotes to an exact real" 3/2
+  (exact 1.5+0.0i))
 
 ;; --- #2166 (full): write and real-part agree -------------------------------
 

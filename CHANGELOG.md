@@ -34,14 +34,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   through the normal numeric printer, so `write` and `real-part` agree;
   and the reader and `string->number` build components digit-exactly at
   any size. Per R7RS 6.2.2 a stored complex is never mixed-exactness (an
-  inexact operand makes both components inexact), and a zero imaginary
-  part demotes to the real component — except that a literal's *inexact*
-  zero imag stays complex (`(real? -2.5+0.0i)` => #f) while an exact one
-  demotes (`(integer? 3+0i)` => #t). The `.sbc` constant encoding stores
+  inexact operand makes both components inexact), and an *exact* zero
+  imaginary part demotes to the real component (`(integer? 3+0i)` => #t)
+  while an *inexact* zero imag keeps the value complex (`(real?
+  -2.5+0.0i)` => #f). The `.sbc` constant encoding stores
   the two component constants instead of f64+flags. This dissolves the
   #2182/#2243 f64 round-trip gates in the reader and `string->number`:
   `9007199254740993+1i`, `#x20000000000001+2i`, and
   `10000000000000000000000000/3+1i` all read digit-exactly now.
+
+- **An inexact zero imaginary part stays complex everywhere, and
+  `write`/`number->string` print it in full** (#2269). The reader already
+  kept `1.5+0.0i` complex (`(real? 1.5+0.0i)` => #f), but
+  `(make-rectangular 1.5 0.0)` demoted to the real `1.5`, the arithmetic
+  tower demoted any zero-imag result (`(+ 1.0+2.0i 1.0-2.0i)` => `2.0`),
+  and `(make-polar 1.5 0.0)` demoted too — while the printer collapsed an
+  inexact-zero-imag complex to its bare real part, so `(write 1.5+0.0i)`
+  printed `1.5`, which reads back as a different value, violating R7RS
+  6.2.7's `number->string` round-trip. Every construction site — the
+  reader, `string->number`, `make-rectangular`, `+ - * /`, `make-polar`,
+  and exact/inexact conversion — now shares one rule: only an EXACT zero
+  imaginary part demotes, an inexact zero keeps the value complex
+  (`(integer? 3+0i)` => #t, `(real? 1.5+0.0i)` => #f). The printer emits
+  the full form (`"1.5+0.0i"` / `"1.5-0.0i"`), and the decomposition
+  round-trip `(eqv? (make-rectangular (real-part z) (imag-part z)) z)`
+  holds for `z = 1.5+0.0i`. c64/c128 elements with a +0.0 imaginary part
+  likewise decode to a Complex instead of a plain real. Chez, Guile,
+  chibi, and Gambit all behave this way. (The f64 transcendental and
+  power paths — `sin`/`cos`/`tan`, `sqrt`, `expt`, `exp`, `log`, `asin`
+  — are unchanged: they still demote an exactly-zero (or, for `exp`/
+  `log`/`asin`, below-1e-15-noise) imaginary result via the pre-existing
+  `makeComplexOrReal` and its epsilon guard. That noise-suppression design
+  is deliberate and orthogonal to the construction-site rule above.)
 
 - **Rational→flonum conversion is correct when a single side alone leaves
   f64 range** (#2183). `(inexact (/ 1 (expt 2 1074)))` was `0.0` instead of
