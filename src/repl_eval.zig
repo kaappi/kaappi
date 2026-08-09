@@ -58,6 +58,21 @@ pub fn evalInput(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u8
     evalInputInner(vm, allocator, input, .normal);
 }
 
+/// Evaluate one already-read top-level expression with the same driver the
+/// text path uses, skipping only the reader. `,load` builds `(load "path")`
+/// as Values this way so a path is never round-tripped through the reader's
+/// string escapes, which would mangle a path containing `"` or `\`
+/// (kaappi#2273). The caller may pass an unrooted value; it is rooted here
+/// across the compile and execute below.
+pub fn evalInputValue(vm: *vm_mod.VM, allocator: std.mem.Allocator, expr: types.Value, mode: EvalMode) void {
+    var expr_root = expr;
+    vm.gc.pushRoot(&expr_root);
+    defer vm.gc.popRoot();
+    crash.note(.executing, "<repl>");
+    defer crash.reset();
+    _ = evalExpr(vm, allocator, expr_root, mode, 0, 0);
+}
+
 fn evalInputInner(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u8, mode: EvalMode) void {
     // Crash breadcrumb (kaappi#1514); reset on return so a crash at the idle
     // prompt is not mislabeled as this input's last stage.
@@ -85,88 +100,79 @@ fn evalInputInner(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u
         vm.gc.pushRoot(&expr);
         defer vm.gc.popRoot();
 
-        crash.noteStage(.executing);
-        if (vm.handleTopLevelForm(expr)) |top_result| {
-            const result = top_result catch |err| {
-                toplevel_driver.reportRuntimeError(vm, err, null);
-                break;
-            };
-            var dr = result;
-            if (types.isMultipleValues(dr)) {
-                const mv = types.toObject(dr).as(types.MultipleValues);
-                dr = if (mv.values.len > 0) mv.values[0] else types.VOID;
-                if (mode != .show_type) {
-                    printValuesLines(allocator, mv.values);
-                    if (mode == .store_last and dr != types.VOID) {
-                        vm.globalsPut("_", dr) catch {};
-                    }
-                    continue;
-                }
-            }
-            if (dr != types.VOID) {
-                if (mode == .show_type) {
-                    writeStdout("; ");
-                    writeStdout(types.typeName(dr));
-                    writeStdout("\n");
-                } else {
-                    const s = printer.prettyPrint(allocator, dr, terminal_width) catch
-                        (printer.valueToString(allocator, dr, .write) catch continue);
-                    defer allocator.free(s);
-                    writeStdout(s);
-                    writeStdout("\n");
-                }
-                if (mode == .store_last) {
-                    vm.globalsPut("_", dr) catch {};
-                }
-            }
-            continue;
-        }
+        // The reader loop stops at the first form that errors (a pasted
+        // batch fails loud rather than limping on), so a false return from
+        // evalExpr breaks out here.
+        if (!evalExpr(vm, allocator, expr, mode, datum_lc.line, datum_lc.col)) break;
+    }
+}
 
-        crash.noteStage(.compiling);
-        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, datum_lc.line, "<repl>", false) catch |err| {
-            toplevel_driver.reportCompileError("<repl>", datum_lc.line, datum_lc.col, err);
-            break;
-        };
-
-        var func_val = types.makePointer(&func.header);
-        vm.gc.pushRoot(&func_val);
-
-        crash.noteStage(.executing);
-        const result = vm.execute(func) catch |err| {
-            vm.gc.popRoot();
+/// The read-independent half of the REPL driver: classify, compile, execute
+/// and print one top-level expression. Returns false when evaluation errored
+/// (the reader loop treats that as fatal to the batch). Errors report exactly
+/// as the reader-driven path does, including the stack trace for runtime
+/// errors.
+fn evalExpr(vm: *vm_mod.VM, allocator: std.mem.Allocator, expr: types.Value, mode: EvalMode, line: u32, col: u32) bool {
+    crash.noteStage(.executing);
+    if (vm.handleTopLevelForm(expr)) |top_result| {
+        const result = top_result catch |err| {
             toplevel_driver.reportRuntimeError(vm, err, null);
-            toplevel_driver.printStackTrace(vm);
-            break;
+            return false;
         };
-        vm.gc.popRoot();
+        printResult(allocator, result, mode, vm);
+        return true;
+    }
 
-        var display_result = result;
-        if (types.isMultipleValues(display_result)) {
-            const mv = types.toObject(display_result).as(types.MultipleValues);
-            display_result = if (mv.values.len > 0) mv.values[0] else types.VOID;
-            if (mode != .show_type) {
-                printValuesLines(allocator, mv.values);
-                if (mode == .store_last and display_result != types.VOID) {
-                    vm.globalsPut("_", display_result) catch {};
-                }
-                continue;
+    crash.noteStage(.compiling);
+    const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, line, "<repl>", false) catch |err| {
+        toplevel_driver.reportCompileError("<repl>", line, col, err);
+        return false;
+    };
+
+    var func_val = types.makePointer(&func.header);
+    vm.gc.pushRoot(&func_val);
+
+    crash.noteStage(.executing);
+    const result = vm.execute(func) catch |err| {
+        vm.gc.popRoot();
+        toplevel_driver.reportRuntimeError(vm, err, null);
+        toplevel_driver.printStackTrace(vm);
+        return false;
+    };
+    vm.gc.popRoot();
+
+    printResult(allocator, result, mode, vm);
+    return true;
+}
+
+/// Print one evaluation result (or the first of a multiple-values result) the
+/// way the interactive loop does, and record it into `_` in store-last mode.
+fn printResult(allocator: std.mem.Allocator, result: types.Value, mode: EvalMode, vm: *vm_mod.VM) void {
+    var dr = result;
+    if (types.isMultipleValues(dr)) {
+        const mv = types.toObject(dr).as(types.MultipleValues);
+        dr = if (mv.values.len > 0) mv.values[0] else types.VOID;
+        if (mode != .show_type) {
+            printValuesLines(allocator, mv.values);
+            if (mode == .store_last and dr != types.VOID) {
+                vm.globalsPut("_", dr) catch {};
             }
+            return;
         }
-        if (display_result != types.VOID) {
-            if (mode == .show_type) {
-                writeStdout("; ");
-                writeStdout(types.typeName(display_result));
-                writeStdout("\n");
-            } else {
-                const s = printer.prettyPrint(allocator, display_result, terminal_width) catch
-                    (printer.valueToString(allocator, display_result, .write) catch continue);
-                defer allocator.free(s);
-                writeStdout(s);
-                writeStdout("\n");
-            }
-            if (mode == .store_last) {
-                vm.globalsPut("_", display_result) catch {};
-            }
-        }
+    }
+    if (dr == types.VOID) return;
+    if (mode == .show_type) {
+        writeStdout("; ");
+        writeStdout(types.typeName(dr));
+        writeStdout("\n");
+    } else {
+        const s = printer.prettyPrint(allocator, dr, terminal_width) catch
+            (printer.valueToString(allocator, dr, .write) catch return);
+        defer allocator.free(s);
+        writeStdout(s);
+        writeStdout("\n");
+    }
+    if (mode == .store_last) {
+        vm.globalsPut("_", dr) catch {};
     }
 }

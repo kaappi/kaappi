@@ -185,12 +185,43 @@ pub fn handleCommand(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []cons
         if (load_path.len == 0) {
             writeStderr(",load requires a file path\n");
         } else {
-            var load_buf: [1024]u8 = undefined;
-            const load_expr = std.fmt.bufPrint(&load_buf, "(load \"{s}\")", .{load_path}) catch {
-                writeStderr("path too long\n");
+            // Build `(load "path")` as Values instead of splicing the path
+            // into a string literal: the reader's escapes (`\"`, `\\`,
+            // `\t`, ...) would mangle a path containing a quote or a
+            // backslash — on Windows every path does (kaappi#2273).
+            // evalInputValue evaluates the form with the same driver as the
+            // text path, errors included.
+            //
+            // Assign before rooting (matching `,expand`/`,import` below): the
+            // slot must hold a valid value before any later call can collect
+            // — allocString/allocSymbol copy their bytes, then maybeCollect()
+            // *before* returning, and markRoots dereferences every rooted
+            // slot, so rooting an undefined slot would let garbage bits that
+            // happen to look like a pointer corrupt the heap (kaappi#2274
+            // review). path_val is rooted before allocSymbol (the next
+            // allocation) and sym_val before the allocPair calls; allocPair
+            // roots its Value arguments internally.
+            var path_val = vm.gc.allocString(load_path) catch {
+                writeStderr("out of memory\n");
                 return .handled;
             };
-            repl_eval.evalInput(vm, allocator, load_expr);
+            vm.gc.pushRoot(&path_val);
+            defer vm.gc.popRoot();
+            var sym_val = vm.gc.allocSymbol("load") catch {
+                writeStderr("out of memory\n");
+                return .handled;
+            };
+            vm.gc.pushRoot(&sym_val);
+            defer vm.gc.popRoot();
+            const args = vm.gc.allocPair(path_val, types.NIL) catch {
+                writeStderr("out of memory\n");
+                return .handled;
+            };
+            const form = vm.gc.allocPair(sym_val, args) catch {
+                writeStderr("out of memory\n");
+                return .handled;
+            };
+            repl_eval.evalInputValue(vm, allocator, form, .normal);
         }
         return .handled;
     }
