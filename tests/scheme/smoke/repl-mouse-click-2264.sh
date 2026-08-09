@@ -60,6 +60,7 @@ import fcntl, os, pty, re, select, struct, sys, termios, time
 
 kaappi = sys.argv[1]
 mode = sys.argv[2]              # 'on'  -> repl.mouse: true;  'off' -> default
+width = int(sys.argv[3]) if len(sys.argv) > 3 else 200
 assert mode in ('on', 'off')
 ansi = re.compile(rb'\x1b\[[0-9;?]*[a-zA-Z]|\x1b[()][B0]|\x1b[=>]|\r')
 
@@ -93,6 +94,15 @@ CASES = [
 # one form and (1 2 3 4) would never print.
 OFF_CASE = (b'(list 1 2\r3 4)', b'3 4)', click(11, 5), b'9', b'(1 2 3 4)', b'(1 2 3 94)')
 
+# An automatically wrapped row, driven by a NARROW pty (20 columns: 8 for
+# the prompt, and the wrap threshold leaves 11 for content — the cursor
+# column is reserved), so "(list 1 2 3 4 5 6)" spills onto two visual rows:
+# "(list 1 2 " + "3 4 5 6)". Click at (9+2, 4+1) = editor (1, 2) -> the
+# wrapped row's '4'; typing '9' gives "(list 1 2 3 94 5 6)" ->
+# (1 2 3 94 5 6), where a plain end-insert gives (1 2 3 4 5 69).
+WRAP_CASE = (b'(list 1 2 3 4 5 6)', b'5 6)', click(11, 5), b'9',
+             b'(1 2 3 94 5 6)', b'(1 2 3 4 5 69)')
+
 pid, fd = pty.fork()
 if pid == 0:
     # The child must exec or die: `pty.fork` gives it the parent's code, so a
@@ -106,8 +116,10 @@ if pid == 0:
         pass
     os._exit(127)
 
-# A pty starts out 0x0, which gives the editor no room to render in.
-fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 200, 0, 0))
+# A pty starts out 0x0, which gives the editor no room to render in. The
+# default 200 columns keep every input on one row; a 20-column run forces
+# automatic wrapping so the wrapped-row mapping is exercised.
+fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', 40, width, 0, 0))
 
 buf = b''
 eof = False
@@ -195,6 +207,8 @@ if not wait_for(b'kaappi> ', 0, 25):
 idle()
 
 cases = CASES if mode == 'on' else [OFF_CASE]
+if width < 100:
+    cases = [WRAP_CASE]
 failures = []
 for send_bytes, echo, clk, editkey, expect, reject in cases:
     mark = len(buf)
@@ -203,7 +217,7 @@ for send_bytes, echo, clk, editkey, expect, reject in cases:
     # and typing on while the REPL is still evaluating puts the bytes in the
     # tty's canonical buffer, where the click then arrives as a literal ESC.
     if not wait_for(echo, mark, 20):
-        failures.append((typed, expect, seen(mark)))
+        failures.append((send_bytes, expect, seen(mark)))
         idle()
         continue
     idle(0.3)
@@ -233,12 +247,12 @@ try:
 except OSError:
     pass
 
-for typed, expect, produced in failures:
-    sys.stdout.write('FAIL %r: expected %r in\n%r\n\n' % (typed, expect, produced))
+for failed, expect, produced in failures:
+    sys.stdout.write('FAIL %r: expected %r in\n%r\n\n' % (failed, expect, produced))
 sys.exit(1 if failures else 0)
 PY
 
-run_case() {  # $1 = mode ('on' | 'off')
+run_case() {  # $1 = mode ('on' | 'off'), $2 = pty width
     mkdir -p "$work/home"
     if [ "$1" = "on" ]; then
         printf 'repl.mouse: true\n' > "$work/home/config"
@@ -246,13 +260,13 @@ run_case() {  # $1 = mode ('on' | 'off')
         rm -f "$work/home/config"
     fi
     set +e
-    KAAPPI_HOME="$work/home" python3 "$driver" "$kaappi_abs" "$1"
+    KAAPPI_HOME="$work/home" python3 "$driver" "$kaappi_abs" "$1" "$2"
     status=$?
     set -e
     return $status
 }
 
-run_case on
+run_case on 200
 status_on=$?
 if [ $status_on -eq 0 ]; then
     echo "PASS: click repositions the cursor (single-line and continuation rows)"
@@ -264,11 +278,20 @@ else
     exit 1
 fi
 
-run_case off
+run_case off 200
 status_off=$?
 if [ $status_off -eq 0 ]; then
     echo "PASS: without repl.mouse the SGR bytes are ignored (default stays safe)"
 else
     echo "FAIL: SGR bytes must be inert when repl.mouse is off"
+    exit 1
+fi
+
+run_case on 20
+status_wrap=$?
+if [ $status_wrap -eq 0 ]; then
+    echo "PASS: click maps correctly on an automatically wrapped row"
+else
+    echo "FAIL: click-to-position on a wrapped row"
     exit 1
 fi
