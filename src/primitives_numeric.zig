@@ -364,10 +364,11 @@ pub fn inexactFn(args: []const Value) PrimitiveError!Value {
     }
     if (types.isComplex(args[0])) {
         const c = types.toComplex(args[0]);
-        // Already all-inexact: return unchanged. Rebuilding through
-        // makeComplexOrRealV would demote a stored inexact zero imag
-        // (-2.5+0.0i) to the real -2.5, losing the complexness the reader
-        // deliberately keeps ((real? -2.5+0.0i) => #f, kaappi#2166).
+        // Already all-inexact: return unchanged rather than rebuild. With
+        // makeComplexOrRealV's exact-zero-only demotion (kaappi#2269) a
+        // rebuild would preserve the stored inexact zero imag anyway
+        // ((real? -2.5+0.0i) => #f); this is a no-alloc shortcut, not a
+        // correctness guard.
         if (!types.isExactNumber(c.real)) return args[0];
         const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const real_i = try inexactFn(&[1]Value{c.real});
@@ -1031,31 +1032,20 @@ pub fn isZeroValue(v: Value) bool {
 /// Build a complex number from two real component Values, applying the
 /// R7RS 6.2.2 inexactness rule — if either component is inexact both become
 /// inexact, so a stored complex is never mixed-exactness (kaappi#2166) — and
-/// demoting to the real component when the imaginary part is zero, so every
-/// complex constructed here has a nonzero imaginary part. The construction
-/// site behind exact/inexact conversions and the arithmetic tower
-/// (kaappi#2269 moved make-rectangular to makeComplexOrRealLiteral so an
-/// inexact zero imag stays complex there).
+/// demoting to the real component only when the imaginary part is an EXACT
+/// zero. An inexact zero imag keeps the value complex ((real? -2.5+0.0i)
+/// => #f, kaappi#2269) at every construction site — the reader,
+/// string->number, make-rectangular, the arithmetic tower (+ - * /), and
+/// exact/inexact conversion — matching Chez, Guile, chibi, and Gambit.
+/// This single rule replaced makeComplexOrRealLiteral (kaappi#2269); an
+/// exact zero imag demotes ((integer? 3+0i) => #t).
 pub fn makeComplexOrRealV(gc: *memory.GC, real_in: Value, imag_in: Value) PrimitiveError!Value {
     var real = real_in;
     var imag = imag_in;
-    if (!types.isExactNumber(real) or !types.isExactNumber(imag)) {
-        real = try inexactFn(&[1]Value{real});
-        imag = try inexactFn(&[1]Value{imag});
-    }
-    if (isZeroValue(imag)) return real;
-    return gc.allocComplex(real, imag) catch return PrimitiveError.OutOfMemory;
-}
-
-/// Reader/string->number complex construction: like makeComplexOrRealV, but
-/// only an EXACT zero imaginary part demotes to the real component. The R7RS
-/// conformance suite pins both sides: (real? -2.5+0.0i) => #f (an inexact
-/// zero imag written in a literal stays a complex) and (integer? 3+0i) => #t
-/// (an exact zero imag demotes). Inexactness still propagates whole-number
-/// (R7RS 6.2.2), so the two parsers agree (R7RS 6.2.7, kaappi#2166).
-pub fn makeComplexOrRealLiteral(gc: *memory.GC, real_in: Value, imag_in: Value) PrimitiveError!Value {
-    var real = real_in;
-    var imag = imag_in;
+    // Exactness of the zero is read off the INPUT imag: an inexact 0.0
+    // must stay complex, while an exact 0 (fixnum/bignum/rational zero)
+    // demotes — after the whole-number inexactness propagation below the
+    // imag would be an indistinguishable 0.0 flonum.
     const imag_exact_zero = types.isExactNumber(imag) and isZeroValue(imag);
     if (!types.isExactNumber(real) or !types.isExactNumber(imag)) {
         real = try inexactFn(&[1]Value{real});
@@ -1513,7 +1503,7 @@ pub fn parseNumberText(gc: *@import("memory.zig").GC, text: []const u8, radix_in
             const imag_str = body[sp..];
             // Components are built digit-exactly; exactness is carried by
             // each component's own type (integer/rational parts are exact,
-            // decimals and exponents inexact), and makeComplexOrRealLiteral
+            // decimals and exponents inexact), and makeComplexOrRealV
             // normalizes the pair to a single exactness. `#e`/`#i` still
             // override everything via applyExactness below (#2243 review).
             const real_v = if (real_str.len == 0)
@@ -1528,7 +1518,7 @@ pub fn parseNumberText(gc: *@import("memory.zig").GC, text: []const u8, radix_in
                 types.makeFixnum(-1)
             else
                 parseComplexComponent(gc, imag_str, radix) orelse return types.FALSE;
-            const c = makeComplexOrRealLiteral(gc, slot.get(), imag_v) catch return PrimitiveError.OutOfMemory;
+            const c = makeComplexOrRealV(gc, slot.get(), imag_v) catch return PrimitiveError.OutOfMemory;
             return applyExactness(gc, c, exactness);
         } else {
             // No split found -- pure imaginary with a magnitude: +3i,
@@ -1577,7 +1567,7 @@ pub fn parseNumberText(gc: *@import("memory.zig").GC, text: []const u8, radix_in
                     imag_v = types.makeFlonum(f);
                 }
             }
-            const c = makeComplexOrRealLiteral(gc, types.makeFixnum(0), imag_v) catch return PrimitiveError.OutOfMemory;
+            const c = makeComplexOrRealV(gc, types.makeFixnum(0), imag_v) catch return PrimitiveError.OutOfMemory;
             return applyExactness(gc, c, exactness);
         }
     }
@@ -1596,19 +1586,27 @@ fn makeRectangular(args: []const Value) PrimitiveError!Value {
     }
     // Components are never forced through an f64: 2^53+1 and 10^25 survive
     // digit-exactly (kaappi#2166). The exactness rule (R7RS 6.2.2) and the
-    // zero-imag demotion live in makeComplexOrRealLiteral — the same
-    // construction the reader uses, so an INEXACT zero imaginary part stays
-    // complex ((real? (make-rectangular 1.5 0.0)) => #f, kaappi#2269) and
-    // only an exact zero demotes, matching the literal 1.5+0.0i.
-    return makeComplexOrRealLiteral(gc, args[0], args[1]);
+    // exact-zero-only demotion live in makeComplexOrRealV — the same
+    // construction the reader and arithmetic use, so an INEXACT zero
+    // imaginary part stays complex ((real? (make-rectangular 1.5 0.0))
+    // => #f, kaappi#2269) and only an exact zero demotes, matching the
+    // literal 1.5+0.0i.
+    return makeComplexOrRealV(gc, args[0], args[1]);
 }
 
 fn makePolar(args: []const Value) PrimitiveError!Value {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const mag = try toF64(args[0]);
     const ang = try toF64(args[1]);
     const real = mag * @cos(ang);
     const imag = mag * @sin(ang);
-    return makeComplexOrReal(real, imag);
+    // An inexact zero imaginary part keeps the value complex
+    // ((make-polar 1.5 0.0) => 1.5+0.0i, kaappi#2269), matching the reader,
+    // make-rectangular, and arithmetic. Only an EXACT zero angle — which
+    // produces an exact zero imag — demotes ((make-polar 1.5 0) => 1.5).
+    // Verified against Chez, Guile, chibi, and Gambit.
+    if (imag == 0.0 and types.isExactNumber(args[1])) return types.makeFlonum(real);
+    return gc.allocComplex(types.makeFlonum(real), types.makeFlonum(imag)) catch return PrimitiveError.OutOfMemory;
 }
 
 fn realPart(args: []const Value) PrimitiveError!Value {

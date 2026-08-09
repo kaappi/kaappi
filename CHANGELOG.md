@@ -43,20 +43,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `9007199254740993+1i`, `#x20000000000001+2i`, and
   `10000000000000000000000000/3+1i` all read digit-exactly now.
 
-- **`make-rectangular` keeps an inexact zero imaginary part complex, and
+- **An inexact zero imaginary part stays complex everywhere, and
   `write`/`number->string` print it in full** (#2269). The reader already
   kept `1.5+0.0i` complex (`(real? 1.5+0.0i)` => #f), but
-  `(make-rectangular 1.5 0.0)` demoted to the real `1.5` and the printer
-  collapsed an inexact-zero-imag complex to its bare real part, so
-  `(write 1.5+0.0i)` printed `1.5` — which reads back as a different
-  value, violating R7RS 6.2.7's `number->string` round-trip. Both
-  construction and printing now match the reader: only an exact zero imag
-  demotes, `(write 1.5+0.0i)` emits `"1.5+0.0i"`, and the decomposition
+  `(make-rectangular 1.5 0.0)` demoted to the real `1.5`, the arithmetic
+  tower demoted any zero-imag result (`(+ 1.0+2.0i 1.0-2.0i)` => `2.0`),
+  and `(make-polar 1.5 0.0)` demoted too — while the printer collapsed an
+  inexact-zero-imag complex to its bare real part, so `(write 1.5+0.0i)`
+  printed `1.5`, which reads back as a different value, violating R7RS
+  6.2.7's `number->string` round-trip. Every construction site — the
+  reader, `string->number`, `make-rectangular`, `+ - * /`, `make-polar`,
+  and exact/inexact conversion — now shares one rule: only an EXACT zero
+  imaginary part demotes, an inexact zero keeps the value complex
+  (`(integer? 3+0i)` => #t, `(real? 1.5+0.0i)` => #f). The printer emits
+  the full form (`"1.5+0.0i"` / `"1.5-0.0i"`), and the decomposition
   round-trip `(eqv? (make-rectangular (real-part z) (imag-part z)) z)`
   holds for `z = 1.5+0.0i`. c64/c128 elements with a +0.0 imaginary part
-  likewise decode to a Complex instead of a plain real, so SRFI-160 refs
-  and the standalone constructor agree (Chez, Guile, chibi, and Gambit
-  all behave this way).
+  likewise decode to a Complex instead of a plain real. Chez, Guile,
+  chibi, and Gambit all behave this way. (The f64 transcendental and
+  power paths — `sin`/`cos`/`tan`, `sqrt`, `expt`, `exp`, `log`, `asin`
+  — are unchanged: they still demote an exactly-zero (or, for `exp`/
+  `log`/`asin`, below-1e-15-noise) imaginary result via the pre-existing
+  `makeComplexOrReal` and its epsilon guard. That noise-suppression design
+  is deliberate and orthogonal to the construction-site rule above.)
 
 - **Rational→flonum conversion is correct when a single side alone leaves
   f64 range** (#2183). `(inexact (/ 1 (expt 2 1074)))` was `0.0` instead of

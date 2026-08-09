@@ -84,9 +84,9 @@ fn tokenToValue(self: *Reader, tok: Token) ReadError!Value {
             // constructor applies the whole-number inexactness rule and
             // demotes only an exact zero imaginary part, so -2.5+0.0i stays
             // a complex ((real? -2.5+0.0i) => #f) while 3+0i is the real 3
-            // ((integer? 3+0i) => #t, kaappi#2166).
+            // ((integer? 3+0i) => #t, kaappi#2269).
             const numeric = @import("primitives_numeric.zig");
-            return numeric.makeComplexOrRealLiteral(self.gc, c.real, c.imag) catch return ReadError.OutOfMemory;
+            return numeric.makeComplexOrRealV(self.gc, c.real, c.imag) catch return ReadError.OutOfMemory;
         },
         .boolean => |b| return if (b) types.TRUE else types.FALSE,
         .character => |c| return types.makeChar(c),
