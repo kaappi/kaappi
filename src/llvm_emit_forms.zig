@@ -1015,9 +1015,14 @@ pub fn emitPassthrough(self: *LLVMEmitter, expr: Value, is_tail: bool) EmitError
 //     `apply` since #2033, so the fast path must be gated the same way: a
 //     define/set! of `apply` in this module marks it rebound and routes the
 //     form through an ordinary indirect call instead.
-//   - tail + unshadowed + <2 operands → the interpreter's compileApplyTail
-//     raises InvalidSyntax at compile time; abandoning native compilation
-//     routes the enclosing form to that exact error.
+//   - tail + unshadowed + unrebound + <2 operands → the interpreter's
+//     compileApplyTail raises InvalidSyntax at compile time; abandoning
+//     native compilation routes the enclosing form to that exact error. A
+//     REBOUND `apply` with too few operands is not this case: the
+//     interpreter routes it through the ordinary call path (its #2033
+//     gate), so the generic indirect call below is the matching behavior,
+//     and the user's own procedure (or the built-in arity check) raises at
+//     run time.
 //   - everything else — lexically shadowed `apply` (any shape), a rebound
 //     `apply` (tail or non-tail), or a non-tail form with <2 operands — is
 //     an ordinary indirect call through whatever `apply` resolves to in
@@ -1043,7 +1048,13 @@ pub fn emitApplyForm(self: *LLVMEmitter, expr: Value, is_tail: bool) EmitError![
     const rebound = self.rebound_globals.contains("apply") or
         self.native_fns.contains("apply");
 
-    if (!shadowed and is_tail and operands.items.len < 2)
+    // Abandon to the interpreter only for the genuinely builtin shape: a
+    // rebound `apply` with too few operands is a runtime arity/behavior
+    // question for the user's procedure, exactly as in the interpreter
+    // (whose #2033 gate routes it through the ordinary call path), so it
+    // falls through to the generic indirect call below, not this compile
+    // error.
+    if (!shadowed and !rebound and is_tail and operands.items.len < 2)
         return error.UnsupportedNodeType;
 
     const is_builtin_apply = !shadowed and !rebound;

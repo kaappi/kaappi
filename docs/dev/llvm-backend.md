@@ -646,9 +646,13 @@ expression in the body (~19x on kaappi#1803's arithmetic-loop reproducer). So
   global binding — so this path is gated the same way: a define/set! of
   `apply` in the module marks it rebound and routes the form through an
   ordinary indirect call instead.
-- **tail + unshadowed + <2 operands** — the interpreter raises InvalidSyntax
-  at compile time; abandoning native compilation of the enclosing scope
-  (`error.UnsupportedNodeType`) routes the form to that exact error.
+- **tail + unshadowed + unrebound + <2 operands** — the interpreter raises
+  InvalidSyntax at compile time; abandoning native compilation of the enclosing
+  scope (`error.UnsupportedNodeType`) routes the form to that exact error. A
+  **rebound** `apply` with too few operands is not this case — the interpreter
+  routes it through the ordinary call path (its #2033 gate), and so does the
+  generic indirect call here, raising whatever the user's procedure (or the
+  built-in arity check) raises at run time.
 - **everything else resolvable** — a lexically shadowed `apply`, a rebound
   `apply` (tail or non-tail), or a non-tail form with too few operands — is an
   ordinary indirect call through whatever `apply` resolves to in scope,

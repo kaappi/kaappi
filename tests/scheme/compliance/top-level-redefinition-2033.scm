@@ -159,14 +159,30 @@
             3 ((case-lambda ((a b) (+ a b)) (a a)) 1 2))
 (test-equal "case-lambda desugaring keeps pristine apply (rest-arg arm)"
             '(5) ((case-lambda ((a b) (+ a b)) (a a)) 5))
-(test-equal "define-record-type desugaring keeps pristine apply"
-            3 (let ()
-                (define-record-type <t2033-pt> (make-t2033-pt x y) t2033-pt?
-                  (x t2033-pt-x) (y t2033-pt-y))
-                (define-record-type <t2033-pt3> (make-t2033-pt3 x y z) t2033-pt3?
-                  (x t2033-pt3-x) (y t2033-pt3-y) (z t2033-pt3-z)
-                  (parent <t2033-pt>))
-                (t2033-pt3-z (make-t2033-pt3 1 2 3))))
+
+;; R6RS clause-syntax define-record-type with a parent — exercises the two
+;; inherited-constructor paths in vm_records whose synthesized `apply`
+;; (and list/append/car/cdr) references must stay pristine under the
+;; rebinding: the protocol-less split-args path and the protocol path.
+;; R6RS clause syntax is only supported at top level (vm_records.zig), so
+;; the definitions live here, inside the redefinition window.
+(define-record-type (t2033-r6 make-t2033-r6 t2033-r6?)
+  (fields (immutable x t2033-r6-x) (immutable y t2033-r6-y)))
+(define-record-type (t2033-r63 make-t2033-r63 t2033-r63?)
+  (parent t2033-r6)
+  (fields (immutable z t2033-r63-z)))
+(define-record-type (t2033-r6p make-t2033-r6p t2033-r6p?)
+  (parent t2033-r6)
+  (fields (immutable w t2033-r6p-w))
+  (protocol (lambda (new) (lambda (x y w) (let ((p (new x y))) (p w))))))
+(test-equal "define-record-type (R6RS, protocol-less parent): keeps pristine apply"
+            '(1 2 3) (list (t2033-r6-x (make-t2033-r63 1 2 3))
+                           (t2033-r6-y (make-t2033-r63 1 2 3))
+                           (t2033-r63-z (make-t2033-r63 1 2 3))))
+(test-equal "define-record-type (R6RS, protocol parent): keeps pristine apply"
+            '(1 2 9) (list (t2033-r6-x (make-t2033-r6p 1 2 9))
+                           (t2033-r6-y (make-t2033-r6p 1 2 9))
+                           (t2033-r6p-w (make-t2033-r6p 1 2 9))))
 
 ;; The define-values single case also synthesizes a `list` consumer; that
 ;; immunity needs a `list` redefinition, which would corrupt SRFI-64's own

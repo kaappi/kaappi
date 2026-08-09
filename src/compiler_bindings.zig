@@ -679,18 +679,14 @@ pub fn compileLetStarValues(self: *Compiler, args: Value, dst: u16, is_tail: boo
 ///   (lambda (a b)
 ///     (call-with-values (lambda () e2) (lambda (c) (begin body)))))
 ///
-/// Each *nested* call-with-values (built by the recursive call below) is
-/// the sole body of its enclosing consumer lambda, so it is always in tail
-/// position, hence always compiled through compileCallWithValuesTail's
-/// bytecode fast path — which avoids both native re-entrancy and (since
-/// #1715) shadowing, as it now loads the true `(scheme base)` binding
-/// directly instead of resolving `call-with-values` by name. Only the
-/// OUTERMOST call-with-values (returned to the original, non-recursive
-/// caller) has tail-ness that depends on this let*-values's own is_tail;
-/// when that's false, it falls through to ordinary call compilation, whose
-/// identifier resolution can be shadowed by a top-level redefinition of
-/// `call-with-values` (#1715) — so it takes the same true-binding reference
-/// unconditionally rather than relying on which path the compiler picks.
+/// Every call-with-values built here is a compiler-synthesized reference to
+/// the true `(scheme base)` binding (base-binding-prefixed, #1715): the
+/// nested ones sit in tail position and compile through
+/// compileCallWithValuesTail's bytecode fast path — which avoids both
+/// native re-entrancy and (since #2033) the redefinition gate, as the
+/// dispatch recognizes the prefixed spelling as immune — and any that fall
+/// through to ordinary call compilation resolve the pristine binding
+/// regardless of how the program rebinds `call-with-values`.
 pub fn buildLetValues(self: *Compiler, bindings: Value, body: Value) !Value {
     const gc = self.gc;
     gc.no_collect += 1;
