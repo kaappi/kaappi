@@ -1,6 +1,10 @@
 # REPL
 
-Reference for the interactive REPL (`src/repl.zig`).
+Reference for the interactive REPL: `src/repl.zig` owns the loop and the
+line-editing callbacks, with the comma commands, the syntax highlighting, and
+the evaluation driver split out into `src/repl_commands.zig`,
+`src/repl_highlight.zig`, and `src/repl_eval.zig` (see
+[Key files](#key-files)).
 
 ## Overview
 

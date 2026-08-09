@@ -11,6 +11,11 @@
 //! `ic.*` references in the completion helpers are only ever analyzed when
 //! `repl()` is — which `main.zig` never reaches on that target. The
 //! `use_isocline` gate is the same one `repl.zig` uses.
+//!
+//! GC safety: the handlers that build or expand Scheme values through the VM
+//! follow the rules in `.claude/rules/gc-safety.md` — `,import` barriers its
+//! spine writes (old→young edges must reach the remembered set) and `,expand`
+//! roots the datum and its expansion across the allocating calls.
 
 const std = @import("std");
 const is_wasm = @import("builtin").os.tag == .wasi;
@@ -204,7 +209,7 @@ pub fn handleCommand(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []cons
                 break;
             };
             vm.gc.pushRoot(&datum);
-            var pair = vm.gc.allocPair(datum, types.NIL) catch {
+            const pair = vm.gc.allocPair(datum, types.NIL) catch {
                 vm.gc.popRoot();
                 writeStderr("out of memory\n");
                 read_ok = false;
@@ -215,10 +220,14 @@ pub fn handleCommand(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []cons
                 import_root = pair;
                 import_list = pair;
             } else {
-                types.toObject(import_list).as(types.Pair).cdr = pair;
+                // Old→young edge once a collection promotes the spine: barrier
+                // it or a minor GC can free the fresh pair while the list
+                // still references it (see .claude/rules/gc-safety.md).
+                const tail_obj = types.toObject(import_list);
+                tail_obj.as(types.Pair).cdr = pair;
+                vm.gc.writeBarrier(tail_obj, pair);
                 import_list = pair;
             }
-            _ = &pair;
         }
         if (read_ok and import_root != types.NIL) {
             _ = vm_library.handleImport(vm, import_root) catch {
@@ -295,7 +304,7 @@ pub fn handleCommand(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []cons
     }
     if (std.mem.startsWith(u8, debug_trimmed, ",describe ")) {
         const sym_name = std.mem.trim(u8, debug_trimmed[10..], " ");
-        describeSymbol(vm, allocator, sym_name);
+        describeSymbol(vm, sym_name);
         return .handled;
     }
     if (std.mem.startsWith(u8, debug_trimmed, ",apropos ")) {
@@ -303,7 +312,7 @@ pub fn handleCommand(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []cons
         var env_count: usize = 0;
         var git3 = vm.globals.keyIterator();
         while (git3.next()) |key| {
-            if (needle.len == 0 or containsSubstring(key.*, needle)) {
+            if (needle.len == 0 or std.mem.indexOf(u8, key.*, needle) != null) {
                 writeStdout("  ");
                 writeStdout(key.*);
                 writeStdout("\n");
@@ -319,17 +328,25 @@ pub fn handleCommand(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []cons
         const expand_src = debug_trimmed[8..];
         var er = reader.Reader.init(vm.gc, expand_src);
         defer er.deinit();
-        const expr = er.readDatum() catch {
+        // The datum and its expansion outlive allocating calls below
+        // (expandMacro, stripUsertextMarkers), so root them per
+        // .claude/rules/gc-safety.md — a collection in between would free
+        // them while the expander or printer still holds the pointers.
+        var expr = er.readDatum() catch {
             writeStderr("read error\n");
             return .handled;
         };
+        vm.gc.pushRoot(&expr);
+        defer vm.gc.popRoot();
         if (types.isPair(expr) and types.isSymbol(types.car(expr))) {
             const ename = types.symbolName(types.car(expr));
             if (vm.macros.get(ename)) |transformer| {
-                const expanded = expander.expandMacro(vm.gc, expr, transformer, vm.globals, &vm.macros, .{}) catch {
+                var expanded = expander.expandMacro(vm.gc, expr, transformer, vm.globals, &vm.macros, .{}) catch {
                     writeStderr("expansion error\n");
                     return .handled;
                 };
+                vm.gc.pushRoot(&expanded);
+                defer vm.gc.popRoot();
                 var expanded_stripped = expanded;
                 if (expander.isUsertextPair(expanded_stripped)) expanded_stripped = expander.unwrapUsertext(expanded_stripped);
                 if (types.isPair(expanded_stripped) or types.isVector(expanded_stripped)) expander.stripUsertextMarkers(vm.gc, expanded_stripped);
@@ -407,18 +424,7 @@ fn getCommandUsage(input: []const u8) ?[]const u8 {
     return null;
 }
 
-fn containsSubstring(haystack: []const u8, needle: []const u8) bool {
-    if (needle.len > haystack.len) return false;
-    var i: usize = 0;
-    while (i + needle.len <= haystack.len) : (i += 1) {
-        if (std.mem.eql(u8, haystack[i..][0..needle.len], needle)) return true;
-    }
-    return false;
-}
-
-const getTypeName = types.typeName;
-
-fn describeSymbol(vm: *vm_mod.VM, allocator: std.mem.Allocator, name: []const u8) void {
+fn describeSymbol(vm: *vm_mod.VM, name: []const u8) void {
     const val_opt = vm.globals.get(name);
     if (val_opt == null) {
         writeStdout("  not found: ");
@@ -430,7 +436,7 @@ fn describeSymbol(vm: *vm_mod.VM, allocator: std.mem.Allocator, name: []const u8
     writeStdout("  ");
     writeStdout(name);
     writeStdout("\n    type: ");
-    writeStdout(getTypeName(val));
+    writeStdout(types.typeName(val));
     writeStdout("\n");
 
     if (types.isPointer(val)) {
@@ -465,5 +471,4 @@ fn describeSymbol(vm: *vm_mod.VM, allocator: std.mem.Allocator, name: []const u8
             writeStdout("    (syntax transformer)\n");
         }
     }
-    _ = allocator;
 }
