@@ -558,19 +558,12 @@
   ;;                       ((op 'make) c 1 'a 2 'b 3 'c 4 'd 5 'e))
   ;;            n)))
 
-  ;; FAIL: #2052 (the comparison predicates reject the single-mapping form
-  ;;              the signature allows; guard keeps a re-enabled run reporting
-  ;;              a failed assertion rather than aborting on the raise)
-  ;; (test-assert "mapping=? accepts a single mapping"
-  ;;   (guard (e (#t #f)) (mapping=? c (mapping c 1 'a))))
-  ;; FAIL: #2052
-  ;; (test-assert "mapping<=? accepts a single mapping"
-  ;;   (guard (e (#t #f)) (mapping<=? c (mapping c 1 'a))))
-  ;; FAIL: #2052
-  ;; (test-assert "hashmap=? accepts a single hashmap"
-  ;;   (guard (e (#t #f)) (hashmap=? c (hashmap c 1 'a))))
-  (test-assert "pins #2052: the single-mapping comparison form still raises"
-    (guard (e (#t #t)) (mapping=? c (mapping c 1 'a)) #f)))
+  (test-assert "mapping=? accepts a single mapping"
+    (guard (e (#t #f)) (mapping=? c (mapping c 1 'a))))
+  (test-assert "mapping<=? accepts a single mapping"
+    (guard (e (#t #f)) (mapping<=? c (mapping c 1 'a))))
+  (test-assert "hashmap=? accepts a single hashmap"
+    (guard (e (#t #f)) (hashmap=? c (hashmap c 1 'a)))))
 
 ;;; ------------------------------------------------- duplicate-key precedence
 

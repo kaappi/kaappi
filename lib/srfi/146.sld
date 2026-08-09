@@ -428,26 +428,31 @@
 
     (define mapping=?
       (case-lambda
+        ((vcmp m1) #t)               ; one mapping: vacuously true (#2052)
         ((vcmp m1 m2) (%mapping=? vcmp m1 m2))
         ((vcmp m1 m2 . rest) (and (%mapping=? vcmp m1 m2) (apply mapping=? vcmp m2 rest)))))
 
     (define mapping<?
       (case-lambda
+        ((vcmp m1) #t)
         ((vcmp m1 m2) (and (%mapping<=? vcmp m1 m2) (not (%mapping=? vcmp m1 m2))))
         ((vcmp m1 m2 . rest) (and (mapping<? vcmp m1 m2) (apply mapping<? vcmp m2 rest)))))
 
     (define mapping>?
       (case-lambda
+        ((vcmp m1) #t)
         ((vcmp m1 m2) (mapping<? vcmp m2 m1))
         ((vcmp m1 m2 . rest) (and (mapping>? vcmp m1 m2) (apply mapping>? vcmp m2 rest)))))
 
     (define mapping<=?
       (case-lambda
+        ((vcmp m1) #t)
         ((vcmp m1 m2) (%mapping<=? vcmp m1 m2))
         ((vcmp m1 m2 . rest) (and (%mapping<=? vcmp m1 m2) (apply mapping<=? vcmp m2 rest)))))
 
     (define mapping>=?
       (case-lambda
+        ((vcmp m1) #t)
         ((vcmp m1 m2) (%mapping<=? vcmp m2 m1))
         ((vcmp m1 m2 . rest) (and (mapping>=? vcmp m1 m2) (apply mapping>=? vcmp m2 rest)))))
 

@@ -296,22 +296,27 @@
 
     (define hashmap=?
       (case-lambda
+        ((vcmp m1) #t)               ; one hashmap: vacuously true (#2052)
         ((vcmp m1 m2) (%hm=? vcmp m1 m2))
         ((vcmp m1 m2 . rest) (and (%hm=? vcmp m1 m2) (apply hashmap=? vcmp m2 rest)))))
     (define hashmap<?
       (case-lambda
+        ((vcmp m1) #t)
         ((vcmp m1 m2) (and (%hm<=? vcmp m1 m2) (not (%hm=? vcmp m1 m2))))
         ((vcmp m1 m2 . rest) (and (hashmap<? vcmp m1 m2) (apply hashmap<? vcmp m2 rest)))))
     (define hashmap>?
       (case-lambda
+        ((vcmp m1) #t)
         ((vcmp m1 m2) (hashmap<? vcmp m2 m1))
         ((vcmp m1 m2 . rest) (and (hashmap>? vcmp m1 m2) (apply hashmap>? vcmp m2 rest)))))
     (define hashmap<=?
       (case-lambda
+        ((vcmp m1) #t)
         ((vcmp m1 m2) (%hm<=? vcmp m1 m2))
         ((vcmp m1 m2 . rest) (and (%hm<=? vcmp m1 m2) (apply hashmap<=? vcmp m2 rest)))))
     (define hashmap>=?
       (case-lambda
+        ((vcmp m1) #t)
         ((vcmp m1 m2) (%hm<=? vcmp m2 m1))
         ((vcmp m1 m2 . rest) (and (hashmap>=? vcmp m1 m2) (apply hashmap>=? vcmp m2 rest)))))
 
