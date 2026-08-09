@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786299951715,
+  "lastUpdate": 1786302992742,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5ca8f28d00d7d1f84d0d5bfa0f7ee8323a126821",
-          "message": "Phase 3.9: eight large-and-thin SRFIs — 1579 assertions, and bitvector-logical-shift shifts the wrong way (#2095)\n\nEight SRFIs with substantial export surfaces and thin tests: 113, 225, 178,\n152, 240, 189, 35, 27. Coverage of exported names goes from 288/456 to\n441/456; assertions from 495 to 2074.\n\nThe unit was scoped as a measurement gap, and the strategy doc is explicit\nthat a high untested-export count is not itself evidence of bugs. It found\nsix anyway, because two of these SRFIs had a real oracle available:\n\n  * SRFI 178's own reference implementation loads into this build as an\n    alternate library. Diffing all 107 exports against it over a\n    523,361-check corpus left exactly three divergences — one real bug\n    (#2083), one shrinking-`pad` case the spec leaves ambiguous (not filed,\n    documented in the suite header), and nothing else. That is a much\n    stronger statement than any hand-written suite could make.\n  * SRFI 113 has both a reference implementation and chibi-scheme. Where the\n    three disagree the suite says which is right and why: three chibi\n    defects are asserted in Kaappi's favour, and two Kaappi defects are\n    disabled with the reference's own code quoted.\n\nFindings, all reproduced on a fresh ReleaseSafe build with a discriminating\ncontrol:\n\n  #2083  bitvector-logical-shift moves bits toward higher indices for\n         count>=0 and lower for count<0 — inverted on both branches, and it\n         fails the two assertions in SRFI 178's own test/quasi-ints.scm.\n         count=0 is correct, which is the control.\n  #2084  bitvector-segment conses outside its recursive call, so a legal\n         200,000-bit vector with n=1 dies of an *uncatchable* KP3008, and\n         n=0 recurses without bound instead of raising. 1,000 segments is\n         the control. The reference validates n and delegates to a map.\n  #2085  bag-increment! ignores the spec's \"but not less than zero\", and the\n         resulting negative multiplicity makes bag->list, bag-fold and\n         bag-for-each loop forever on `(= i count)`. bag-product with a\n         negative n is a second route. Zero and positive counts terminate.\n  #2086  set->bag! leaves an element already in the bag at its old count;\n         the reference and chibi both increment.\n  #2087  SRFI 189 exports 24 names of the spec's 82, four of the present\n         ones have narrower signatures than the spec, `either` is exported\n         but never defined — and cond-expand answers yes to both srfi-189\n         and (library (srfi 189)). The three monad laws and both functor\n         laws are asserted as properties over five payloads and all hold.\n  #2088  An R7RS define-record-type produces an rtd whose own_field_names is\n         empty, so record-type-field-names returns #() for a record that has\n         fields and record-accessor/mutator/field-mutable? are unusable —\n         the exact interoperability SRFI 240 exists to provide. The R6RS\n         clause syntax and make-record-type-descriptor are the controls.\n\nClean results worth recording, since they are what the measurement was for:\n\n  * SRFI 225's generic layer agrees across all three DTOs on 49 of 51\n    operation groups; the two that differ do so correctly (dict-ref with no\n    failure raises everywhere, dict-pure? is what tells the two apart). All\n    35 proc-id tags are exercised through dto-ref for the first time.\n  * SRFI 152 cannot diverge from SRFI 13 at all: the .sld imports those 22\n    names straight from (srfi 13), so they are the same binding. Asserted by\n    identity, which doubles as a gate if anyone reimplements one. Gone\n    deliberately shallow otherwise — #1234 already audited 152 in v1 and its\n    20 remaining untested exports are (scheme base) re-exports.\n  * SRFI 27 is correct on every axis a random source can be pinned on:\n    range and exclusivity of both bounds, exactness, bignum bounds,\n    pseudo-randomize reproducibility and independence, and state\n    capture/restore including mid-sequence and across sources. Stable over\n    three consecutive runs.\n  * SRFI 35's condition world and R7RS's error-object world are disjoint and\n    self-consistent in both directions. Not a defect, but nothing pinned it.\n\nAll 32 disabled assertions were mutation-tested by enabling each one alone in\nits own copy of the file: 30 fail, one errors, one hangs. None pins nothing.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T18:19:40+05:30",
-          "tree_id": "5438004f1124f0c6e8d88aa97e30e358117ab012",
-          "url": "https://github.com/kaappi/kaappi/commit/5ca8f28d00d7d1f84d0d5bfa0f7ee8323a126821"
-        },
-        "date": 1785601219515,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.348726,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.669102,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.612807,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.029662,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004787,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046996,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.315838,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057256,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.706146,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.216685,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.590027,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.28993,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.807711,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.636382,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04595,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.036308,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c692aed681e62ee31bb146464ba9ebb7ae0b0328",
+          "message": ",load: build the form as Values so paths with quotes or backslashes load (Fixes #2273) (#2274)\n\n* Fix ,load mangling paths with quotes or backslashes (#2273)\n\nThe command spliced the path into a (load \"...\") string literal, so the\nreader's escapes broke or changed it: a quote ended the string (reader\nerror), a backslash started an escape (\\s is invalid, \\t decodes to a\nTAB and loads a different file). On Windows every path uses backslashes,\nso ,load was effectively broken there for normal use.\n\nBuild the form as Values instead — a load symbol, a Scheme string holding\nthe raw path bytes, and the two pairs — and evaluate it through a new\nrepl_eval.evalInputValue that shares the compile/execute/print driver\nwith the text path (the loop body was extracted into evalExpr so the\nerror handling, stack trace, multiple-values printing, and _ binding\nstay byte-for-byte the same). No escaping to get wrong, and the old\n1024-byte path limit is gone.\n\nThe pty smoke test creates files whose names contain a quote, a\nbackslash, and the literal \\t sequence and asserts each loads; all\nthree fail on the old code (unterminated string, invalid escape, and\ncannot-open-file on the TAB-mangled name).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Root path/symbol values only after assignment (kaappi#2274 review)\n\nThe previous ,load handler declared the two locals as = undefined, rooted\ntheir slots, and only then assigned the allocString/allocSymbol results.\nBut allocXxx copies its bytes and calls maybeCollect() before returning, so\nthe collection during that call marks a slot still holding undefined. In\nDebug and ReleaseSafe the 0xAA fill keeps isPointer false, but under\nReleaseFast the slot is genuinely uninitialized: bits that happen to look\nlike a pointer make markRoots dereference a bogus address. Assign first,\nthen root, matching the ,expand and ,import handlers in this file.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-09T18:40:43Z",
+          "tree_id": "11dcf8948be341b0d0a6bbf2789cd1612a4a06c2",
+          "url": "https://github.com/kaappi/kaappi/commit/c692aed681e62ee31bb146464ba9ebb7ae0b0328"
+        },
+        "date": 1786302990925,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.101684,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.895877,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.433625,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.201107,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00379,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.035431,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.229697,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.042121,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.878348,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.956293,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.192534,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.24381,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.339722,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.401928,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.035918,
             "unit": "seconds"
           }
         ]
