@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786288488126,
+  "lastUpdate": 1786297083317,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "fc66b3c47104e4272ff2209622f0765d38533304",
-          "message": "Phase 3.5: SRFI 166 audit — 244 assertions across all 89 exports, and pretty never breaks a line at any width (#2069)\n\n* Phase 3.5: SRFI 166 audit — 245 assertions across all 89 exports\n\nThe unit was scoped as closing a measurement gap: 52 of 89 exported names\nnever appeared in a test file. The gap turned out to be hiding a library\nthat is largely a skeleton, so the suite is written against the SRFI's own\nspec page rather than against the implementation, and every expected value\nis either quoted verbatim from one of the spec's \"=>\" examples or derived\nfrom a sentence of its prose cited in a comment.\n\n188 assertions pass; 57 are committed disabled with a `;; FAIL: #NNNN`\nmarker naming the issue. Uncommenting the disabled set makes exactly those\n57 fail and leaves all 188 passing, in both ReleaseSafe and\n-Dgc-stress=true.\n\nEleven issues, one per root cause:\n\n  #2054  fn and with are procedures where the spec defines macros, so every\n         documented use of the state-variable API raises \"not a procedure\";\n         fn additionally binds nothing, computing its bindings and\n         discarding them, and the `output` state variable has no slot\n  #2056  with restores the whole 13-slot state vector, so col and row are\n         rolled back and output written inside a with is invisible to the\n         space-to / tab-to / fl that follow it\n  #2058  tab-to emits a full tab width when already on a tab stop, which\n         the spec calls out explicitly; tab-width 0 divides by zero\n  #2059  escaped wraps its output in quote delimiters the spec does not add\n         and ignores esc-ch/renamer; maybe-escaped never quotes on an\n         embedded quote character\n  #2061  the numeric family reads only num/radix/precision: sign-rule,\n         comma-rule, comma-sep and decimal-sep are ignored, radix is\n         dropped as soon as precision is given, numeric/comma inserts no\n         commas at all, and numeric/si ignores its base and separator\n  #2062  padded/trimmed/fitted measure with string-length, so the ellipsis\n         and string-width state variables are never read\n  #2063  displayed renders a formatter argument as #<procedure>\n  #2064  pretty is write — it never breaks a line at any width — and\n         written-shared/pretty-shared do not label shared structure\n  #2065  columnar and tabular do not align, wrapped hardcodes width 78,\n         wrapped/char and justified are aliases of wrapped, line-numbers\n         is not a stream; the SRFI's own nl(1) example produces garbage\n  #2066  (srfi 166 unicode) is a stub: substring-terminal-width returns an\n         integer where the spec returns a substring, string-terminal-width\n         is string-length, terminal-aware is a no-op\n  #2067  15 documented names are not exported and (srfi 166 base) does not\n         exist, while (cond-expand (srfi-166 ...)) answers yes\n\nCorrect and asserted as such: all 23 (srfi 166 color) exports, including\nthe exact SGR codes for the 16 foreground/background colours, the three\nstyles, and both the 8-bit cube and 24-bit true-colour forms; the whole\njoined family; every non-ellipsis trimming case including the odd/even\nasymmetry; fitted in all three directions; forked, call-with-output,\nfrom-file, upcased and downcased (with the spec's Greek word-final sigma);\ncycle detection in written and pretty; and pretty's read-back round trip.\n\nTwo portability notes the file documents inline. Non-ASCII text is written\nwith \\x...; escapes so the assertions are byte-stable on every CI leg, and\nno assertion consults the ambient terminal width. Also worth knowing:\n#\\x1b; is not a hex character escape — R7RS spells the in-string form\n\"\\x1b;\" with a terminating semicolon and the character literal #\\x1b\nwithout one, so #\\x1b; reads as ESC followed by a comment that swallows\nthe rest of the line. The suite uses (integer->char 27).\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Drop the one disabled assertion that would not flip on its own fix\n\n\"fn: a binding is visible to the body under the procedural form\" asserted\na value this implementation's calling convention never defined — there is\nno way to *name* an fn binding under the procedural form, so the assertion\nfailed only incidentally, and #2054's fix (making fn a macro) would have\nrequired deleting it rather than re-enabling it. A `;; FAIL:` marker\npromises the opposite.\n\nThe three remaining #2054 assertions cover the same defect in the spec's\nown terms, where the fix does flip them. 244 assertions: 188 enabled,\n56 disabled; the mutation test is still exact.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T17:18:11+05:30",
-          "tree_id": "427e7d1dcb2fd66e6809fdc0409f646f651e5dac",
-          "url": "https://github.com/kaappi/kaappi/commit/fc66b3c47104e4272ff2209622f0765d38533304"
-        },
-        "date": 1785601100379,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.917303,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.035669,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.573342,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.816125,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00484,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.044874,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.292346,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.05462,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.295172,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.151661,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.613907,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.307154,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.676451,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.762969,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044827,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044094,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "88432dd1563027afaf6e3fc274425202feff71a5",
+          "message": "Split repl.zig along its natural seams (#2266) (#2270)\n\n* Split repl.zig along its natural seams (Fixes #2266)\n\nrepl.zig had grown to ~1,590 lines, over the 1,500-line guideline, with\ngenuinely tangled coupling: the REPL loop, the isocline callbacks\n(completeness, completion, highlighting, structural editing), and the\ncomma-command dispatch all lived in one file. The split is pure motion —\nno behavior changes — so the unit tests that covered the pure functions\nand the pty smoke tests that covered the loop still pass unchanged.\n\nThree seams, three new files:\n\n- repl_highlight.zig: the token scanner (scanHighlight), the isocline\n  highlighter callback, and the theme-to-isocline style bridge\n  (ansiToIcStyle, applyTheme), with all of its unit tests. Driven by\n  Reader.isDelimiter and config.zig's theme escapes, so colors cannot\n  disagree with the parse.\n- repl_commands.zig: the comma-command dispatch (handleCommand, returning\n  tri-state so `,quit` can end the REPL rather than continue it), the\n  handlers, the command-name completion helpers, and the usage table.\n- repl_eval.zig: the read -> compile -> execute -> print driver\n  (evalInputInner and friends, with EvalMode), shared by the main loop\n  and the commands, plus the pretty-print terminal width.\n\nrepl.zig keeps the main loop, line editing, the completeness/completion/\nsexp-edit callbacks, and inputIncomplete's tests — now ~490 lines, and\nthe new files are each well under the limit. The dependency graph is\nacyclic: repl -> {highlight, eval, commands}, commands -> eval.\n\nAlso dropped the write-only `theme` global (assigned at startup, never\nread), and updated docs/dev/repl.md's file map plus the repl.zig file\nreferences in docs/dev/crash-reporting.md and docs/dev/porting.md.\n\nVerified behavior-identical against the pre-split binary: unit tests\n(plain and -Dgc-stress), the full Scheme suite (2097 pass), the six\nrepl-* pty smoke tests, `zig build wasm`, and a pty-driven pass over\nevery comma command (byte-identical output to the original binary).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: GC-safe ,import/,expand, tidy moved helpers\n\nCodeRabbit review of #2270 flagged that the moved ,import and ,expand\nhandlers skip two GC-safety steps the rest of the codebase takes (see\n.claude/rules/gc-safety.md): the ,import spine write\n`Pair.cdr = pair` had no writeBarrier, and the ,expand datum and its\nexpansion were unrooted across the allocating expander calls. Both are\npre-existing (the code moved verbatim from repl.zig), but they are\nbehavior-identical to fix and this PR is where that code lands in its\nnew home, so harden it now:\n\n- ,import: barrier the old->young cdr edge after a collection promotes\n  the spine, matching primitives_fiber.zig / bytecode_file_read.zig;\n  also declare the pair const and drop the `_ = &pair` suppression.\n- ,expand: root expr before expandMacro and the expansion before\n  stripUsertextMarkers, mirroring evalInputInner's own rooting of read\n  datums (pushRoot + defer popRoot, LIFO-safe here).\n\nPlus three low-value cleanups of the moved code: ,apropos now uses\nstd.mem.indexOf instead of the hand-rolled containsSubstring (same\nempty-needle semantics), describeSymbol drops its unused allocator\nparameter, and docs/dev/repl.md's intro names all four REPL files.\n\nDeliberately not done in this PR: the ,load path-escaping gap (fixing\nit changes behavior and wants its own regression test — filed\nseparately) and collapsing evalInputInner's duplicated print blocks\n(control-flow risk in a pure-motion split; both copies pre-existing).\n\nVerified: unit tests (plain and -Dgc-stress), full Scheme suite (2097\npass), the six repl-* pty smoke tests, `zig build wasm`, and the pty\ncommand matrix against the pre-split binary (still byte-identical).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-09T17:02:01Z",
+          "tree_id": "814d1cadf3a4b77044665877e9d01bb8703c1ca5",
+          "url": "https://github.com/kaappi/kaappi/commit/88432dd1563027afaf6e3fc274425202feff71a5"
+        },
+        "date": 1786297081633,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.933419,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.050128,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.583881,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.834753,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004955,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.045557,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.289583,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055682,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.356782,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.158163,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.574651,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.311336,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.727524,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.814207,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045167,
             "unit": "seconds"
           }
         ]
