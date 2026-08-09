@@ -91,9 +91,14 @@ that line's content.
 
 The mouse reports absolute screen coordinates, so the editor anchors the
 input's on-screen start with a one-time `ESC[6n` query at the start of each
-read. A terminal that does not answer (some emulators, SSH without mouse
-support) makes clicks no-ops. The Windows console needs its own mouse-input
-path, not SGR, and is not supported (`vendor/isocline/PATCHES.md`, patch 5).
+read. The response reader never consumes input: typing ahead between forms
+(Enter, then start typing the next form while the previous one evaluates)
+is common, and bytes that are not a well-formed response are pushed back to
+be read as keys — only the anchor is skipped for that line, never a
+keystroke. A terminal that does not answer (some emulators, SSH without
+mouse support) makes clicks no-ops. The Windows console needs its own
+mouse-input path, not SGR, and is not supported
+(`vendor/isocline/PATCHES.md`, patch 5).
 
 `tests/scheme/smoke/repl-mouse-click-2264.sh` drives the whole path over a
 real pty: it answers the DSR query the way a terminal emulator would and
