@@ -20,6 +20,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`,load` no longer mangles paths containing `"` or `\`** (#2273). The
+  command spliced the path into a `(load "...")` string literal, so the
+  reader's escapes broke or changed it: a quote ended the string (reader
+  error), a backslash started an escape (`\s` was an invalid escape and
+  `\t` decoded to a TAB, loading a different file — on Windows, whose
+  paths all use backslashes, `,load` was effectively broken). It now builds
+  the form as Values and hands the raw path bytes to `load`, so every path
+  works and the old 1024-byte path limit is gone.
+
 - **Exact complex numbers are stored, computed, printed, and read back
   digit-exactly** (#2166). A `Complex` held its components as two f64s
   plus exactness flags, so every consumer had to choose between

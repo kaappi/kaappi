@@ -185,12 +185,38 @@ pub fn handleCommand(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []cons
         if (load_path.len == 0) {
             writeStderr(",load requires a file path\n");
         } else {
-            var load_buf: [1024]u8 = undefined;
-            const load_expr = std.fmt.bufPrint(&load_buf, "(load \"{s}\")", .{load_path}) catch {
-                writeStderr("path too long\n");
+            // Build `(load "path")` as Values instead of splicing the path
+            // into a string literal: the reader's escapes (`\"`, `\\`,
+            // `\t`, ...) would mangle a path containing a quote or a
+            // backslash — on Windows every path does (kaappi#2273).
+            // evalInputValue evaluates the form with the same driver as the
+            // text path, errors included.
+            var path_val: types.Value = undefined;
+            vm.gc.pushRoot(&path_val);
+            defer vm.gc.popRoot();
+            path_val = vm.gc.allocString(load_path) catch {
+                writeStderr("out of memory\n");
                 return .handled;
             };
-            repl_eval.evalInput(vm, allocator, load_expr);
+            var sym_val: types.Value = undefined;
+            vm.gc.pushRoot(&sym_val);
+            defer vm.gc.popRoot();
+            sym_val = vm.gc.allocSymbol("load") catch {
+                writeStderr("out of memory\n");
+                return .handled;
+            };
+            // allocPair roots its Value arguments internally, so only the
+            // two locals above need explicit roots across the calls below
+            // (see .claude/rules/gc-safety.md).
+            const args = vm.gc.allocPair(path_val, types.NIL) catch {
+                writeStderr("out of memory\n");
+                return .handled;
+            };
+            const form = vm.gc.allocPair(sym_val, args) catch {
+                writeStderr("out of memory\n");
+                return .handled;
+            };
+            repl_eval.evalInputValue(vm, allocator, form, .normal);
         }
         return .handled;
     }
