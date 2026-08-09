@@ -204,6 +204,15 @@ already safe. A terminal that does not answer (some emulators, SSH without
 mouse support) leaves the anchor unset and clicks become no-ops — the
 query costs at most the escape-sequence timeout.
 
+The push-back is bounded so it can never overflow the 32-byte `cpushbuf`:
+the digit buffer is capped at `TTY_PUSH_MAX - 2` (a real cursor report is
+a handful of digits), and the restore is skipped entirely if it would not
+fit. The `tty_cpush` overflow guard itself was also fixed: it tested
+`push_count` (the high-level code pushback buffer) while writing
+`cpushbuf` via `cpush_count`, so an overflow would silently corrupt the
+struct instead of tripping the assert — a pre-existing upstream mismatch
+this reader is the first caller able to exercise.
+
 Clicks outside the editing area are safe no-ops (`edit_set_pos_at_rowcol`
 already guards `if (pos < 0) return;`, and the mapper returns `-1` for
 out-of-range rows):
