@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786277482710,
+  "lastUpdate": 1786288488126,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "22a8930f764e725c9df4e156a3ea15abaa55efa1",
-          "message": "Stop pinning an exact atime in the filesystem audit (#2077) (#2091)\n\nThree assertions in tests/scheme/audit/primitives_filesystem-audit.scm\npinned an exact access time. Nothing can hold st_atime still: any read by\nany process — an indexer, a backup agent, an AV scanner, the periodic /tmp\ncleaner — moves it to \"now\". It flaked in ~2 of 9 parallel corpus runs,\nreporting the current epoch second where the set value belonged.\n\nReproduced deterministically rather than by re-running until it broke:\n\n    set-file-times p 1000000 2000000\n    before reader: atime=1000000     mtime=2000000\n    (call-with-input-file p read-char)      ; one read, what a scanner does\n    after  reader: atime=1785575578  mtime=2000000\n\n    OLD  (= atime 1000000)  => #f     ← the flake\n    NEW  (>= atime 1000000) => #t\n    mtime still exact       => #t\n\nmtime now carries the discrimination. No reader changes it, and it alone\nseparates all three cases (set / both sentinels / atime sentinel with a\nreal mtime). atime is asserted as \"not earlier than what we set\" — the\nstrongest true statement available, since an intervening reader can move it\nforward but never backward.\n\nEach case also takes one file-info and reads both fields from it, instead\nof stat'ing twice for the two halves of one assertion.\n\nThis is the same class as #1993 from the same unit: an assertion that held\nonly because the machine happened to be quiet. 427 -> 430 assertions (three\ncombined assertions became six).",
-          "timestamp": "2026-08-01T17:12:51+05:30",
-          "tree_id": "f4264a049bcf568fd20a98c74f06c34f6ab4217f",
-          "url": "https://github.com/kaappi/kaappi/commit/22a8930f764e725c9df4e156a3ea15abaa55efa1"
-        },
-        "date": 1785599671803,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.921249,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.784503,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.559102,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.807649,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004861,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.044745,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.292137,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.055107,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.288358,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.155191,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.508512,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.306209,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.668407,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.800001,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044915,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045841,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "55708cfa6d02cd3b86a74483f6305e108398fc35",
+          "message": "Store complex components as Values: exact complex arithmetic, make-rectangular, write/real-part, reader (#2268)\n\n* Store complex components as Values: exact complex arithmetic, make-rectangular, write/real-part, reader (Fixes #2166)\n\nComplex stored its components as two f64s plus exactness flags, so every\nconsumer had to choose between honest-but-inexact and exact-but-wrong:\n(+ 3/2+1i 1/2) returned inexact 2.0+1.0i, (make-rectangular\n9007199254740993 1) silently rounded 2^53+1, (exact? (make-rectangular\n(expt 10 400) 1)) claimed an exact infinity, and (write z) printed 3/2+1i\nwhile (real-part z) returned inexact 1.5.\n\nComponents are now Values (fixnum/bignum/rational/flonum) with no flags:\n\n- + - * / and expt with an integer exponent run componentwise over the\n  exact tower, which is exact-closed; the interim unary-negation\n  special-case dissolves.\n- make-rectangular never touches an f64; 2^53+1 and 10^400 survive\n  digit-exactly.\n- write prints components through the normal numeric printer (the\n  f64-unrounding path is deleted), so write and real-part agree.\n- The reader and string->number build components digit-exactly at any\n  size; the #2182/#2243 f64 round-trip gates dissolve.\n- eqv?/equal?/memv/assv/eqv-keyed hash tables compare components with\n  numeric eqv?, and hash by component value.\n- Per R7RS 6.2.2 a stored complex is never mixed-exactness; a zero imag\n  demotes, except that a literal's inexact zero imag stays complex\n  ((real? -2.5+0.0i) => #f) while an exact one demotes\n  ((integer? 3+0i) => #t).\n- .sbc: TAG_COMPLEX now writes the two component constants; the golden\n  byte test is updated.\n\nGC: complex is now a Value-bearing heap type (mark/sweep/deep-copy arms\nadded; the field pin re-pinned). The reader roots scanned complex\ncomponents until the datum constructor converts them.\n\nTest updates: the interim-slice assertions in the #2166/#2167 compliance\nsuite now pin the full behavior; the gate assertions in the reader\ndelimiter/exactness-gap suites and tests_numeric pin the digit-exact\nreads; new coverage for arithmetic, make-rectangular, write/real-part,\nreader, string->number, expt, and hash tables.\n\nSigned-off-by: bmuthuka <bmuthuka@users.noreply.github.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Fix GC use-after-free in radix complex reader; address review findings\n\n- HIGH: rootComplexImag now performs the lazy root registration too.\n  readIntegerWithRadix parses the imaginary part first (tryComplexTail\n  stores a heap imag via rootComplexImag) and only then builds the real\n  part, so with only rootComplexReal registering the slots the imag was\n  unrooted across that allocation — (read \"#x1/2+3/4i\") aborted with\n  'GC: marking freed object' under -Dgc-stress=true (found in review and\n  by the gc-stress-scheme CI job).\n- Printer: the +i/-i unit spelling is only used for an exact ±1 fixnum;\n  an inexact ±1.0 prints its magnitude, so write preserves exactness\n  (0.0+1.0i writes +1.0i, not +i which would read back exact).\n- expt with an exact integer exponent uses square-and-multiply (O(log n)\n  instead of O(n)): (expt +i 1000000000) => 1 no longer hangs.\n- inexact on an all-inexact complex returns it unchanged, keeping\n  -2.5+0.0i complex instead of demoting it to the real -2.5.\n- Unary (- z) and the (/ z) conjugation use IEEE negation (negate2), so\n  an inexact zero component flips its sign bit (0.0 -> -0.0).\n- makeFixnumChecked checks the i48 range before touching gc_instance, so\n  in-range values never need the GC in reader-only contexts.\n- .sbc: VERSION bumped 11 -> 12 (TAG_COMPLEX payload is incompatible);\n  the writer validates components are real before serializing; the\n  fuzz-seed fixture is regenerated; the round-trip test and the\n  sbc-constants probe now cover bignum/rational components.\n- toComplexParts (f64) removed as dead; complexPowGeneral's unused gc\n  parameter removed; string->number propagates OutOfMemory instead of\n  returning #f on the signless pure-imaginary path.\n- Tests: gc-stress regression tests for the radix complex literals\n  (#x1/2+3/4i, #x800000000000+99999999999999999999i), gc-tracing tests\n  for complex components, a deep-copy test with a bignum component, the\n  stale comments fixed, and the '1/2+3i real part is exact' pin enabled.\n\nSigned-off-by: bmuthuka <bmuthuka@users.noreply.github.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Root the bignum component across allocRational in the .sbc round-trip test\n\nThe new exact-complex constant in the bytecode round-trip test stored an\nunrooted bignum real across the allocRational in the second argument, so\n-Dgc-stress=true (collection on every allocation) freed it before\nallocComplex stored the dangling pointer: 'GC: marking freed object' in\nthe gc-stress CI job (found in review). Root it for the two allocations.\n\nSigned-off-by: bmuthuka <bmuthuka@users.noreply.github.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: bmuthuka <bmuthuka@users.noreply.github.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-09T14:39:44Z",
+          "tree_id": "ea699a2622bbe92926388825d3ccf01692fe9139",
+          "url": "https://github.com/kaappi/kaappi/commit/55708cfa6d02cd3b86a74483f6305e108398fc35"
+        },
+        "date": 1786288486047,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.250877,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.862564,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.563016,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.976347,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00463,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047276,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.304958,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05655,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.746478,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.173357,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.58854,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.273561,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.789046,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.613227,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044094,
             "unit": "seconds"
           }
         ]
