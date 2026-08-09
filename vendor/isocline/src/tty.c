@@ -11,6 +11,7 @@
 #include <locale.h>
 
 #include "tty.h"
+#include "stringbuf.h"  // ic_atoz2 (KAAPPI PATCH 5)
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -52,6 +53,7 @@ struct tty_s {
   uint32_t  mouse_button;           // SGR button code (see tty.h `tty_mouse_t`)
   ssize_t   mouse_row;              // 1-based absolute row
   ssize_t   mouse_col;              // 1-based absolute column
+  bool      mouse_press;            // press ('M') or release ('m')
   #if defined(_WIN32)
   HANDLE    hcon;                   // console input handle
   DWORD     hcon_orig_mode;         // original console mode
@@ -234,10 +236,11 @@ ic_private code_t tty_read(tty_t* tty)
 // KAAPPI PATCH 5: see PATCHES.md — set/read the last decoded SGR mouse event.
 // The decoder in tty_esc.c writes through the setter; the edit loop in
 // editline.c reads through the getter, so the tty struct can stay opaque.
-ic_private void tty_set_mouse_event(tty_t* tty, uint32_t button, ssize_t row, ssize_t col) {
+ic_private void tty_set_mouse_event(tty_t* tty, uint32_t button, ssize_t row, ssize_t col, bool press) {
   tty->mouse_button = button;
   tty->mouse_row = row;
   tty->mouse_col = col;
+  tty->mouse_press = press;
 }
 
 ic_private bool tty_last_mouse(const tty_t* tty, tty_mouse_t* mouse) {
@@ -245,7 +248,61 @@ ic_private bool tty_last_mouse(const tty_t* tty, tty_mouse_t* mouse) {
   mouse->button = tty->mouse_button;
   mouse->row = tty->mouse_row;
   mouse->col = tty->mouse_col;
+  mouse->press = tty->mouse_press;
   return true;
+}
+
+// KAAPPI PATCH 5: see PATCHES.md — read a DSR response (ESC [ row ; col R)
+// without ever losing input. In a REPL the user types ahead between forms,
+// and those bytes sit in the tty buffer when the anchor query runs; a naive
+// "read the response" would consume the first one and discard it. Every
+// failure path here pushes back exactly the bytes it read (in order), so the
+// edit loop still sees a queued keystroke as a key. The response is only
+// accepted when it is a well-formed ESC [ digits ; digits R.
+ic_private bool tty_read_dsr_response(tty_t* tty, ssize_t* row, ssize_t* col) {
+  if (tty == NULL || row == NULL || col == NULL) return false;
+  uint8_t c = 0;
+  if (!tty_readc_noblock(tty, &c, 2*tty->esc_initial_timeout)) {
+    return false;                          // nothing arrived: nothing consumed
+  }
+  if (c != '\x1B') {
+    tty_cpush_char(tty, c);                // a queued keystroke: hand it back
+    return false;
+  }
+  if (!tty_readc_noblock(tty, &c, tty->esc_timeout)) {
+    tty_cpush_char(tty, '\x1B');
+    return false;
+  }
+  if (c != '[') {
+    tty_cpush_char(tty, c);                // Alt+<char> etc.: hand it back
+    tty_cpush_char(tty, '\x1B');
+    return false;
+  }
+
+  // ESC [ <digits;digits> R. Anything else (an arrow key is ESC [ A, ...) is
+  // a key sequence, not a response, and must be handed back whole.
+  char buf[64];
+  ssize_t n = 0;
+  for (;;) {
+    if (!tty_readc_noblock(tty, &c, tty->esc_timeout)) break;
+    if (c == 'R') {
+      buf[n] = 0;
+      if (ic_atoz2(buf, row, col)) {
+        debug_msg("tty: dsr response: cursor at %zd,%zd\n", *row, *col);
+        return true;
+      }
+      break;                               // malformed payload: restore below
+    }
+    if ((c < '0' || c > '9') && c != ';') break;  // not a DSR: restore below
+    if (n >= (ssize_t)sizeof(buf) - 1) break;     // absurdly long: restore
+    buf[n++] = (char)c;
+  }
+  // push back everything we read, in order (the low-level buffer pops LIFO)
+  tty_cpush_char(tty, c);
+  while (n > 0) { n--; tty_cpush_char(tty, buf[n]); }
+  tty_cpush_char(tty, '[');
+  tty_cpush_char(tty, '\x1B');
+  return false;
 }
 
 //-------------------------------------------------------------

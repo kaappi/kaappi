@@ -47,10 +47,16 @@ typedef struct tty_mouse_s {
   uint32_t button;   // SGR button code: 0 left, 1 middle, 2 right, 64/65 wheel up/down; +4 shift, +8 alt, +16 ctrl
   ssize_t  row;      // 1-based absolute row
   ssize_t  col;      // 1-based absolute column
+  bool     press;    // true = button press ('M'), false = release ('m')
 } tty_mouse_t;
 
-ic_private void tty_set_mouse_event(tty_t* tty, uint32_t button, ssize_t row, ssize_t col);
+ic_private void tty_set_mouse_event(tty_t* tty, uint32_t button, ssize_t row, ssize_t col, bool press);
 ic_private bool tty_last_mouse(const tty_t* tty, tty_mouse_t* mouse);
+
+// KAAPPI PATCH 5: see PATCHES.md — read a DSR response (ESC [ row ; col R)
+// without ever losing input: any bytes read that turn out not to be a valid
+// response are pushed back so the edit loop still sees them as keys.
+ic_private bool tty_read_dsr_response(tty_t* tty, ssize_t* row, ssize_t* col);
 
 // shared between tty.c and tty_esc.c: low level character push
 ic_private void   tty_cpush_char(tty_t* tty, uint8_t c);

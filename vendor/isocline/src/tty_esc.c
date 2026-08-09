@@ -278,7 +278,7 @@ static code_t tty_read_csi(tty_t* tty, uint8_t c1, uint8_t peek, code_t mods0, l
     }
     uint8_t final = peek;   // 'M' = press, 'm' = release
     if (final == 'M' || final == 'm') {
-      tty_set_mouse_event(tty, btn, (ssize_t)y, (ssize_t)x);
+      tty_set_mouse_event(tty, btn, (ssize_t)y, (ssize_t)x, (final == 'M'));
       debug_msg("tty: mouse: button %u at %u,%u (%c)\n", btn, x, y, final);
       return KEY_EVENT_MOUSE;
     }

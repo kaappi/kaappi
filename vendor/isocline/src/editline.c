@@ -194,7 +194,7 @@ static void edit_mouse_click(ic_env_t* env, editor_t* eb) {
   tty_mouse_t m;
   if (!tty_last_mouse(env->tty, &m)) return;
   if (!eb->has_anchor) return;
-  if (m.button != 0) return;                    // only a plain left press moves the cursor
+  if (m.button != 0 || !m.press) return;   // only a plain left press moves the cursor
   if (m.row < 1 || m.col < 1) return;
   const ssize_t row = m.row - eb->anchor_row;   // 0-based, relative to the prompt
   if (row < 0) return;                          // click above the input: scrollback, no-op
@@ -944,22 +944,17 @@ static char* edit_line( ic_env_t* env, const char* prompt_text )
   // query (ESC[6n). The mouse reports absolute screen coordinates; isocline
   // works relative to the prompt, so this anchor is the only mapping piece —
   // everything downstream (prompt width, continuation prompt, line wrapping)
-  // is already handled by `sbuf_get_pos_at_rc`. A terminal that does not
-  // answer (some emulators, SSH without mouse support) just leaves the anchor
-  // unset and clicks become no-ops. See PATCHES.md.
+  // is already handled by `sbuf_get_pos_at_rc`. The response reader never
+  // consumes input: typing ahead between forms is common in a REPL, and any
+  // bytes that are not a well-formed response are pushed back so the edit
+  // loop still reads them as keys. A terminal that does not answer just
+  // leaves the anchor unset and clicks become no-ops. See PATCHES.md.
   #if !defined(_WIN32)
   if (env->mouse) {
     term_writef(env->term, "\x1B[6n");
     term_flush(env->term);
-    char dsrbuf[128];
-    if (tty_read_esc_response(env->tty, '[', false, dsrbuf, sizeof(dsrbuf))) {
-      ssize_t crow = 0;
-      ssize_t ccol = 0;
-      if (ic_atoz2(dsrbuf, &crow, &ccol)) {
-        eb.anchor_row = crow;
-        eb.anchor_col = ccol;
-        eb.has_anchor = true;
-      }
+    if (tty_read_dsr_response(env->tty, &eb.anchor_row, &eb.anchor_col)) {
+      eb.has_anchor = true;
     }
   }
   #endif

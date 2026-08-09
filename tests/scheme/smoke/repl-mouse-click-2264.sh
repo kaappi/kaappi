@@ -61,7 +61,9 @@ import fcntl, os, pty, re, select, struct, sys, termios, time
 kaappi = sys.argv[1]
 mode = sys.argv[2]              # 'on'  -> repl.mouse: true;  'off' -> default
 width = int(sys.argv[3]) if len(sys.argv) > 3 else 200
+scenario = sys.argv[4] if len(sys.argv) > 4 else 'cases'   # 'cases' | 'ahead'
 assert mode in ('on', 'off')
+assert scenario in ('cases', 'ahead')
 ansi = re.compile(rb'\x1b\[[0-9;?]*[a-zA-Z]|\x1b[()][B0]|\x1b[=>]|\r')
 
 # The fixed DSR answer: the prompt's content starts at row 4, col 9 (two
@@ -210,33 +212,48 @@ cases = CASES if mode == 'on' else [OFF_CASE]
 if width < 100:
     cases = [WRAP_CASE]
 failures = []
-for send_bytes, echo, clk, editkey, expect, reject in cases:
+if scenario == 'ahead':
+    # Type-ahead (maintainer review): submit a form and immediately start
+    # typing the next one while it evaluates. The next prompt's DSR anchor
+    # query must not eat the '(' — the reader pushes back bytes that are not
+    # a well-formed response, so the whole form still lands in the buffer.
+    # Without that, the buffer would be "list 9 8)" and error out.
     mark = len(buf)
-    send(send_bytes)
-    # The echoed text is proof the editor has the buffer — a plain sleep is not,
-    # and typing on while the REPL is still evaluating puts the bytes in the
-    # tty's canonical buffer, where the click then arrives as a literal ESC.
-    if not wait_for(echo, mark, 20):
-        failures.append((send_bytes, expect, seen(mark)))
-        idle()
-        continue
-    idle(0.3)
-    send(clk)
-    idle(0.3)
-    send(editkey)
-    idle(0.3)
-    send(b'\r')
-    # The result line, not the prompt: the prompt string appears in every
-    # redraw of the line being typed, so it says nothing about evaluation.
-    ok = wait_for(b'\n' + expect + b'\n', mark, 20)
+    send(b'(+ 1 2)\r')
+    send(b'(list 9 8)\r')     # no idle between: typed while the first evaluates
+    ok1 = wait_for(b'\n3\n', mark, 20)
+    ok2 = wait_for(b'\n(9 8)\n', mark, 20)
     idle()
-    # Only what this case produced, so an earlier case cannot satisfy a later
-    # assertion. The reject is scoped to a standalone result line too: the
-    # typed echo of `abc` contains `ab`, which would false-positive a plain
-    # substring check.
-    produced = seen(mark)
-    if not ok or (reject is not None and (b'\n' + reject + b'\n') in produced):
-        failures.append((send_bytes, expect, produced))
+    if not (ok1 and ok2):
+        failures.append((b'ahead', b'3 then (9 8)', seen(mark)))
+else:
+    for send_bytes, echo, clk, editkey, expect, reject in cases:
+        mark = len(buf)
+        send(send_bytes)
+        # The echoed text is proof the editor has the buffer — a plain sleep is not,
+        # and typing on while the REPL is still evaluating puts the bytes in the
+        # tty's canonical buffer, where the click then arrives as a literal ESC.
+        if not wait_for(echo, mark, 20):
+            failures.append((send_bytes, expect, seen(mark)))
+            idle()
+            continue
+        idle(0.3)
+        send(clk)
+        idle(0.3)
+        send(editkey)
+        idle(0.3)
+        send(b'\r')
+        # The result line, not the prompt: the prompt string appears in every
+        # redraw of the line being typed, so it says nothing about evaluation.
+        ok = wait_for(b'\n' + expect + b'\n', mark, 20)
+        idle()
+        # Only what this case produced, so an earlier case cannot satisfy a later
+        # assertion. The reject is scoped to a standalone result line too: the
+        # typed echo of `abc` contains `ab`, which would false-positive a plain
+        # substring check.
+        produced = seen(mark)
+        if not ok or (reject is not None and (b'\n' + reject + b'\n') in produced):
+            failures.append((send_bytes, expect, produced))
 
 send(b',quit\r')
 while pump(1.0):
@@ -252,7 +269,7 @@ for failed, expect, produced in failures:
 sys.exit(1 if failures else 0)
 PY
 
-run_case() {  # $1 = mode ('on' | 'off'), $2 = pty width
+run_case() {  # $1 = mode ('on' | 'off'), $2 = pty width, $3 = scenario
     mkdir -p "$work/home"
     if [ "$1" = "on" ]; then
         printf 'repl.mouse: true\n' > "$work/home/config"
@@ -260,13 +277,13 @@ run_case() {  # $1 = mode ('on' | 'off'), $2 = pty width
         rm -f "$work/home/config"
     fi
     set +e
-    KAAPPI_HOME="$work/home" python3 "$driver" "$kaappi_abs" "$1" "$2"
+    KAAPPI_HOME="$work/home" python3 "$driver" "$kaappi_abs" "$1" "$2" "$3"
     status=$?
     set -e
     return $status
 }
 
-run_case on 200
+run_case on 200 cases
 status_on=$?
 if [ $status_on -eq 0 ]; then
     echo "PASS: click repositions the cursor (single-line and continuation rows)"
@@ -278,7 +295,7 @@ else
     exit 1
 fi
 
-run_case off 200
+run_case off 200 cases
 status_off=$?
 if [ $status_off -eq 0 ]; then
     echo "PASS: without repl.mouse the SGR bytes are ignored (default stays safe)"
@@ -287,11 +304,20 @@ else
     exit 1
 fi
 
-run_case on 20
+run_case on 20 cases
 status_wrap=$?
 if [ $status_wrap -eq 0 ]; then
     echo "PASS: click maps correctly on an automatically wrapped row"
 else
     echo "FAIL: click-to-position on a wrapped row"
+    exit 1
+fi
+
+run_case on 200 ahead
+status_ahead=$?
+if [ $status_ahead -eq 0 ]; then
+    echo "PASS: typing ahead between forms loses no characters to the DSR query"
+else
+    echo "FAIL: type-ahead was consumed by the anchor query"
     exit 1
 fi

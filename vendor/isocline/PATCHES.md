@@ -172,11 +172,13 @@ on the `tty` (via `tty_set_mouse_event`, new in `tty.h`) and surfaced as a
 single `KEY_EVENT_MOUSE` code; the edit loop reads it back with
 `tty_last_mouse`.
 
-3. **Cursor move** (`editline.c`): on a plain left press (button 0, no
-modifiers), convert the absolute screen coordinates to prompt-relative
-(row, col) and call the existing `edit_set_pos_at_rowcol` — the hard part,
-mapping (row, col) to a buffer byte position with prompt width, continuation
-prompt, and line wrapping, is already implemented (`sbuf_get_pos_at_rc`).
+3. **Cursor move** (`editline.c`): on a plain left **press** (button 0, no
+modifiers — the release event `m` is decoded but ignored, so a click moves
+the cursor exactly once), convert the absolute screen coordinates to
+prompt-relative (row, col) and call the existing `edit_set_pos_at_rowcol`
+— the hard part, mapping (row, col) to a buffer byte position with prompt
+width, continuation prompt, and line wrapping, is already implemented
+(`sbuf_get_pos_at_rc`).
 
 ### The one hard part: absolute → relative anchor
 
@@ -186,13 +188,21 @@ the prompt) and never queries the absolute cursor position — `term.c` has no
 DSR reader wired into the edit loop. So the patch anchors the input's
 on-screen start with a **one-time `\x1b[6n` query at edit-session start**
 (`edit_line`, right after the prompt is written), storing the answer on the
-editor as `anchor_row`/`anchor_col`. The response is read with the existing
-`tty_read_esc_response` (raw mode is already on, so the toggling
-`term_esc_query` is unusable here). This anchor is the only piece that must
-be correct; everything downstream is already safe. A terminal that does not
-answer (some emulators, SSH without mouse support) leaves the anchor unset
-and clicks become no-ops — the query costs at most the escape-sequence
-timeout.
+editor as `anchor_row`/`anchor_col`. The response is read by a new
+dedicated reader (`tty_read_dsr_response` in `tty.c`, deliberately not the
+existing `tty_read_esc_response`): a REPL user types ahead between forms —
+press Enter and start typing the next form while the previous one evaluates
+— so the first bytes the reader sees are often **not** the response. The
+reader accepts only a well-formed `ESC [ digits ; digits R`; anything else
+it read is pushed back in order, so a queued keystroke (or an arrow key
+sent as `ESC [ A`) still reaches the edit loop as a key. The only
+consequence of a response that cannot be read is an unset anchor, i.e.
+clicks no-op for that line — never lost input. A response that arrives
+after the reader gave up decodes to `KEY_NONE` later and is ignored. This
+anchor is the only piece that must be correct; everything downstream is
+already safe. A terminal that does not answer (some emulators, SSH without
+mouse support) leaves the anchor unset and clicks become no-ops — the
+query costs at most the escape-sequence timeout.
 
 Clicks outside the editing area are safe no-ops (`edit_set_pos_at_rowcol`
 already guards `if (pos < 0) return;`, and the mapper returns `-1` for
