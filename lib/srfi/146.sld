@@ -307,11 +307,6 @@
     (define (mapping-size m) (%rbt-size (%mapping-tree m)))
 
     (define (mapping-find pred m failure)
-      (%rbt-fold (lambda (k v acc)
-                   (if (eq? acc 'not-found)
-                       (if (pred k v) (cons k v) acc)
-                       acc))
-                 'not-found (%mapping-tree m))
       (let ((result (%rbt-fold (lambda (k v acc)
                                  (if (pair? acc) acc
                                      (if (pred k v) (cons k v) acc)))
@@ -342,12 +337,12 @@
     ;;; Mapping and folding
 
     (define (mapping-map proc comparator m)
+      ;; The spec deliberately gives mapping-map no "no guarantees how many
+      ;; times proc is invoked" licence, unlike its neighbours -- the first
+      ;; copy of this fold was dead work, and applying a side-effecting proc
+      ;; twice per association is observable (#2053).
       (let ((lt (comparator-ordering-predicate comparator))
             (eq (comparator-equality-predicate comparator)))
-        (%rbt-fold (lambda (k v acc)
-                     (let-values (((nk nv) (proc k v)))
-                       (%rbt-insert acc nk nv lt eq)))
-                   %empty (%mapping-tree m))
         (%make-mapping comparator
           (%rbt-fold (lambda (k v acc)
                        (let-values (((nk nv) (proc k v)))

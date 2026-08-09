@@ -550,13 +550,12 @@
          (lambda (op) (procedure? ((op 'ref/default) ((op 'make) c 1 'a) 99
                                                      (lambda () 'called)))))
 
-  ;; FAIL: #2053 (mapping-map runs its whole fold twice; hashmap-map does not)
-  ;; (agree "map applies proc once per association"
-  ;;        (lambda (op)
-  ;;          (let ((n 0))
-  ;;            ((op 'map) (lambda (k v) (set! n (+ n 1)) (values k v)) c
-  ;;                       ((op 'make) c 1 'a 2 'b 3 'c 4 'd 5 'e))
-  ;;            n)))
+  (agree "map applies proc once per association"
+         (lambda (op)
+           (let ((n 0))
+             ((op 'map) (lambda (k v) (set! n (+ n 1)) (values k v)) c
+                        ((op 'make) c 1 'a 2 'b 3 'c 4 'd 5 'e))
+             n)))
 
   (test-assert "mapping=? accepts a single mapping"
     (guard (e (#t #f)) (mapping=? c (mapping c 1 'a))))
