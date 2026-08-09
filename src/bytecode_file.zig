@@ -996,9 +996,13 @@ test "bytecode round-trip: vector pair bignum rational complex constants" {
     func.constants.append(allocator, cx) catch unreachable;
 
     // Exact components (bignum real, rational imag) must survive the .sbc
-    // round trip digit-exactly (kaappi#2166).
+    // round trip digit-exactly (kaappi#2166). The bignum must stay rooted
+    // across the allocRational in the second argument (gc-stress).
     const cx_bn = try gc.allocBignumFromI64(9007199254740993);
-    const cx_exact = try gc.allocComplex(cx_bn, try gc.allocRational(types.makeFixnum(3), types.makeFixnum(4)));
+    var cx_bn_root = cx_bn;
+    gc.pushRoot(&cx_bn_root);
+    defer gc.popRoot();
+    const cx_exact = try gc.allocComplex(cx_bn_root, try gc.allocRational(types.makeFixnum(3), types.makeFixnum(4)));
     func.constants.append(allocator, cx_exact) catch unreachable;
 
     func.arity = 0;
