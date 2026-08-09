@@ -280,8 +280,12 @@ ic_private bool tty_read_dsr_response(tty_t* tty, ssize_t* row, ssize_t* col) {
   }
 
   // ESC [ <digits;digits> R. Anything else (an arrow key is ESC [ A, ...) is
-  // a key sequence, not a response, and must be handed back whole.
-  char buf[64];
+  // a key sequence, not a response, and must be handed back whole. The digit
+  // cap keeps a restore within TTY_PUSH_MAX bytes: 1 (c) + n + 2 ('[' + ESC);
+  // a real cursor report is only a handful of digits, so a tight cap costs
+  // nothing. A longer run of digits (a garbled or hostile terminal report)
+  // simply fails the read and is restored as far as the cap allows.
+  char buf[TTY_PUSH_MAX - 2];   // n <= sizeof(buf)-1 leaves room for the NUL
   ssize_t n = 0;
   for (;;) {
     if (!tty_readc_noblock(tty, &c, tty->esc_timeout)) break;
@@ -294,14 +298,18 @@ ic_private bool tty_read_dsr_response(tty_t* tty, ssize_t* row, ssize_t* col) {
       break;                               // malformed payload: restore below
     }
     if ((c < '0' || c > '9') && c != ';') break;  // not a DSR: restore below
-    if (n >= (ssize_t)sizeof(buf) - 1) break;     // absurdly long: restore
+    if (n >= (ssize_t)sizeof(buf) - 1) break;     // restore cap: stop reading
     buf[n++] = (char)c;
   }
-  // push back everything we read, in order (the low-level buffer pops LIFO)
-  tty_cpush_char(tty, c);
-  while (n > 0) { n--; tty_cpush_char(tty, buf[n]); }
-  tty_cpush_char(tty, '[');
-  tty_cpush_char(tty, '\x1B');
+  // push back everything we read, in order (the low-level buffer pops LIFO).
+  // Guard the restore against overflowing cpushbuf even if it holds leftover
+  // bytes from elsewhere (it is normally empty here, but the guard is cheap).
+  if (tty->cpush_count + n + 3 <= TTY_PUSH_MAX) {
+    tty_cpush_char(tty, c);
+    while (n > 0) { n--; tty_cpush_char(tty, buf[n]); }
+    tty_cpush_char(tty, '[');
+    tty_cpush_char(tty, '\x1B');
+  }
   return false;
 }
 
@@ -385,7 +393,12 @@ ic_private bool tty_cpop(tty_t* tty, uint8_t* c) {
 
 static void tty_cpush(tty_t* tty, const char* s) {
   ssize_t len = ic_strlen(s);
-  if (tty->push_count + len > TTY_PUSH_MAX) {
+  // KAAPPI PATCH 5: the guard used to test `push_count` — the *high-level*
+  // code pushback buffer — while the writes below land in `cpushbuf` via
+  // `cpush_count`. The two counts are unrelated, so a push could silently
+  // write past the 32-byte cpushbuf (the assert never fired). Guard the
+  // counter the writes actually use. See PATCHES.md, patch 5.
+  if (tty->cpush_count + len > TTY_PUSH_MAX) {
     debug_msg("tty: cpush buffer full! (pushing %s)\n", s);
     assert(false);
     return;

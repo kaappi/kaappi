@@ -61,9 +61,9 @@ import fcntl, os, pty, re, select, struct, sys, termios, time
 kaappi = sys.argv[1]
 mode = sys.argv[2]              # 'on'  -> repl.mouse: true;  'off' -> default
 width = int(sys.argv[3]) if len(sys.argv) > 3 else 200
-scenario = sys.argv[4] if len(sys.argv) > 4 else 'cases'   # 'cases' | 'ahead'
+scenario = sys.argv[4] if len(sys.argv) > 4 else 'cases'   # 'cases' | 'ahead' | 'garble'
 assert mode in ('on', 'off')
-assert scenario in ('cases', 'ahead')
+assert scenario in ('cases', 'ahead', 'garble')
 ansi = re.compile(rb'\x1b\[[0-9;?]*[a-zA-Z]|\x1b[()][B0]|\x1b[=>]|\r')
 
 # The fixed DSR answer: the prompt's content starts at row 4, col 9 (two
@@ -226,6 +226,25 @@ if scenario == 'ahead':
     idle()
     if not (ok1 and ok2):
         failures.append((b'ahead', b'3 then (9 8)', seen(mark)))
+elif scenario == 'garble':
+    # Hostile terminal report (maintainer review, memory safety): a CSI with
+    # 40 digits/semicolons not terminated by R, arriving while the DSR
+    # anchor query is pending. The reader must cap its restore at
+    # TTY_PUSH_MAX bytes — the pre-fix code wrote up to 66 bytes into the
+    # 32-byte cpushbuf (OOB into the tty struct). Assert the REPL survives:
+    # ctrl-C clears whatever leftover digits got typed, then a fresh form
+    # still evaluates.
+    mark = len(buf)
+    send(b'(+ 1 2)\r')
+    send(b'\x1b[' + b'0;' * 20)     # 40 bytes of digits/semicolons, no 'R'
+    send(b'\x03')                    # ctrl-C: clear any garbage the leftovers typed
+    idle()
+    send(b'(+ 40 2)\r')
+    ok1 = wait_for(b'\n3\n', mark, 20)
+    ok2 = wait_for(b'\n42\n', mark, 20)
+    idle()
+    if not (ok1 and ok2):
+        failures.append((b'garble', b'3 then 42 (no crash)', seen(mark)))
 else:
     for send_bytes, echo, clk, editkey, expect, reject in cases:
         mark = len(buf)
@@ -319,5 +338,14 @@ if [ $status_ahead -eq 0 ]; then
     echo "PASS: typing ahead between forms loses no characters to the DSR query"
 else
     echo "FAIL: type-ahead was consumed by the anchor query"
+    exit 1
+fi
+
+run_case on 200 garble
+status_garble=$?
+if [ $status_garble -eq 0 ]; then
+    echo "PASS: a hostile 40-byte CSI during the DSR query neither crashes nor corrupts"
+else
+    echo "FAIL: the DSR reader mishandled a hostile report"
     exit 1
 fi
