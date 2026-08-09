@@ -549,10 +549,9 @@
   ;; (agree "every? returns a boolean"
   ;;        (lambda (op) ((op 'every?) (lambda (k v) v) ((op 'make) c 1 'a 2 'b))))
 
-  ;; FAIL: #2049 (hashmap-ref/default calls a procedural default as a thunk)
-  ;; (agree "ref/default returns a procedural default unchanged"
-  ;;        (lambda (op) (procedure? ((op 'ref/default) ((op 'make) c 1 'a) 99
-  ;;                                                    (lambda () 'called)))))
+  (agree "ref/default returns a procedural default unchanged"
+         (lambda (op) (procedure? ((op 'ref/default) ((op 'make) c 1 'a) 99
+                                                     (lambda () 'called)))))
 
   ;; FAIL: #2053 (mapping-map runs its whole fold twice; hashmap-map does not)
   ;; (agree "map applies proc once per association"

@@ -80,7 +80,12 @@
              (success (hash-table-ref (%hm-ht m) key)) (failure)))))
 
     (define (hashmap-ref/default m key default)
-      (hash-table-ref (%hm-ht m) key default))
+      ;; hash-table-ref's third argument is a failure THUNK, so forwarding the
+      ;; plain default there would invoke a procedural default and return its
+      ;; result in place of the procedure the caller asked for.  The spec
+      ;; means "may be more efficient than (hashmap-ref m key (lambda ()
+      ;; default))", exactly like mapping-ref/default (#2049).
+      (hash-table-ref/default (%hm-ht m) key default))
 
     (define (hashmap-key-comparator m) (%hm-comparator m))
 
