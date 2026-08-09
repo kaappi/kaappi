@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786277191239,
+  "lastUpdate": 1786277482710,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c83f07a6bb79eeb1be27380bb87f460674f10af9",
-          "message": "Phase 3.6: SRFI 158 audit — 349 assertions over all 55 exports (#2068)\n\n43 of SRFI 158's 55 exported names appeared in no test. The reconnaissance\npass had spot-probed 18 of them and found nothing, so this unit was scoped as\nclosing a measurement gap rather than a bug hunt, with effort ranked toward\nthe three places a generator library actually breaks. Two of those three came\nback clean and are now pinned rather than assumed:\n\n  * Laziness — every combinator's construction is instrumented with a\n    call-counting source and asserted to consume zero. gmerge is the one\n    exception (it primes both inputs at construction); that is the reference\n    implementation's design, chibi agrees, and the spec constrains only merge\n    order, so it is pinned as documented behaviour.\n  * Exhaustion — all 12 constructors and all 18 combinators are drained and\n    then called three more times. Every one keeps returning eof.\n  * Infinite sources — 37 compositions of an endless generator with a bounded\n    consumer, all under run_timeout during development. No hangs.\n\nThe bugs were elsewhere, and each has its own root cause:\n\n  #2055  make-range-generator does not begin the sequence with an inexact\n         start. The (- (+ start step) step) round trip that carries exactness\n         contagion also perturbs a start that is already inexact — and when\n         step is much larger, annihilates it: (make-range-generator 1e-20 1.0\n         1.0) begins at 0.0. make-iota-generator, with identical \"begins with\n         start\" wording, is correct at every one of those inputs, and so is\n         make-range-generator's own one-argument form.\n\n  #2057  gflatten raises on an empty list from its source. Its refill runs\n         once instead of looping, so (car '()) escapes. A filtering gmap that\n         yields '() for rejected elements is the natural way to hit it.\n\n  #2060  SRFI 158's own generator-unfold example does not run. SRFI 1's\n         higher-order procedures, hash-table-walk, and assoc/member with a\n         predicate are still native drivers, and four SRFI 158 constructors —\n         including gtake — are coroutine-backed, so a resume crosses a\n         returned native frame. make-for-each-generator's stated job of\n         converting \"any collection\" fails for a hash table, and fails on the\n         *second* call, not the first. #1347 closed this for the map family;\n         SRFI 1 was never in its scope. CONFORMANCE.md cites a README section\n         for the restriction that does not state it.\n\n13 assertions are disabled against those three; the mutation test enables them\nand exactly those 13 fail. Nine controls are enabled beside them, so a fix\nflips both sets.\n\nTwo portability traps worth carrying: never write (list (g) (g)) — chibi\nevaluates arguments right to left, so the same generator yields the reverse\nsequence and the file only looks correct on one implementation — and an\naccumulator's return value for a non-eof argument is explicitly unspecified,\nso only its eof value is asserted anywhere here.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T15:12:04+05:30",
-          "tree_id": "071726d345164485a54197d7e6b0d6be92b274f9",
-          "url": "https://github.com/kaappi/kaappi/commit/c83f07a6bb79eeb1be27380bb87f460674f10af9"
-        },
-        "date": 1785598662413,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.924445,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.522821,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.556833,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.80722,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004842,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04511,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.291488,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054834,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.294553,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.151848,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.535459,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.303796,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.677471,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.770293,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044913,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046483,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7c1223ff434c5df6d9ad3906205ec15721ddbfec",
+          "message": "REPL: click inside the input to move the edit cursor (#2264) (#2265)\n\n* REPL: click inside the input to move the edit cursor (#2264)\n\nAdd opt-in SGR mouse support to the REPL, behind a `repl.mouse: true`\nsetting in ~/.kaappi/config (default off, so drag-to-select behavior never\nchanges unasked). A left click inside the current input repositions the\nedit cursor, on single-line, wrapped, and multi-line forms alike; clicks\noutside the editing area are safe no-ops.\n\nThis is the fifth Kaappi patch to vendored isocline (PATCHES.md):\n\n- Tracking: emit ?1000h (button presses, deliberately not ?1002h/?1003h\n  motion) + ?1006h (SGR coordinates) around each edit session, gated\n  `#if !defined(_WIN32)` — the Windows console reads INPUT_RECORD structs,\n  not a byte stream, so SGR has nothing to decode there; a follow-up needs\n  its own Console-API path (MOUSE_EVENT arm + ENABLE_MOUSE_INPUT, with\n  GetConsoleScreenBufferInfo for the anchor instead of ESC[6n).\n- Decode: `ESC[<b;x;yM|m` lands in the CSI decoder's \"special byte\" catch\n  and the generic parser only takes two parameters, so the three-part SGR\n  mouse event is intercepted right after the special-byte check. The\n  coordinates cannot fit the code_t keycode space, so the event is stashed\n  on the tty (tty_set_mouse_event) and surfaced as a single\n  KEY_EVENT_MOUSE code.\n- Anchor: the mouse reports absolute screen coordinates while isocline\n  works relative to the prompt, so the editor queries ESC[6n once per edit\n  session, right after the prompt is written, and maps the click through\n  the existing edit_set_pos_at_rowcol / sbuf_get_pos_at_rc machinery\n  (prompt width, continuation prompt, and line wrapping already handled).\n  A terminal that does not answer leaves the anchor unset and clicks\n  become no-ops. A delayed DSR response now decodes to KEY_NONE, which the\n  edit loop ignores instead of inserting a NUL.\n\nNew pty test tests/scheme/smoke/repl-mouse-click-2264.sh plays the\nterminal emulator: it answers the DSR query and feeds SGR presses relative\nto that anchor, asserting on what the evaluator prints (single-line and\ncontinuation-row clicks, plus a mouse-off run proving the bytes are\ninert). Also fixes the stale \"three patches\" count in the isocline.zig\nmodule doc, which PATCHES.md had already outgrown.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Harden the mouse-click pty test: fix undefined variable, add wrap case\n\nThree changes to tests/scheme/smoke/repl-mouse-click-2264.sh, two from\nCodeRabbit review:\n\n- The timeout-failure path referenced `typed`, undefined since the case\n  tuple was renamed to `send_bytes`; a timed-out echo would raise NameError\n  instead of recording the failure.\n- New narrow-pty (20-column) run exercises an automatically wrapped row:\n  \"(list 1 2 3 4 5 6)\" spills onto two visual rows and a click on the\n  wrapped row lands before the '4', proving the wrap-aware\n  sbuf_get_pos_at_rc mapping (the wrap threshold leaves 11 content columns\n  on a 20-column terminal, with the cursor column reserved).\n- The failure-report loop variable is renamed to match.\n\nThe wide runs now also assert with `send_bytes` instead of the undefined\n`typed`.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* REPL mouse: never eat type-ahead in the DSR anchor query, act on press only\n\nMaintainer review of #2265 raised the one blocking concern: the per-prompt\nESC[6n anchor query ran through tty_read_esc_response, which consumes the\nfirst queued byte and bails if it is not ESC. Typing ahead between forms is\ncommon in a REPL — press Enter, start typing the next form while the\nprevious one evaluates — so the first character of the next input was\nsilently lost for repl.mouse: true users, and the anchor was unset for that\nline anyway.\n\nNew tty_read_dsr_response in tty.c reads the response (ESC [ row ; col R)\nand pushes back every byte it read on any failure path, in order, so a\nqueued keystroke or a key sequence sent as ESC (arrows, Alt+key) still\nreaches the edit loop. The only consequence of an unreadable response is an\nunset anchor — clicks no-op for that line, input is never lost. A response\nthat arrives after the reader gave up decodes to KEY_NONE and is ignored\n(covered by the KEY_NONE guard). editline.c now uses it instead of\ntty_read_esc_response + ic_atoz2.\n\nAlso: the SGR decoder now carries the press/release flag ('M' vs 'm') on\nthe mouse event, and edit_mouse_click repositions on press only — with\n?1000h a single click reports both, so previously it moved the cursor\ntwice (idempotent but a redundant refresh per click).\n\nThe pty test gains a fourth run: submit a form and immediately type the\nnext one with no idle between; it asserts both results print, i.e. the\nDSR query ate nothing. Verified to fail without the push-back.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* docs: note that the DSR anchor query never consumes type-ahead input\n\nReflects the tty_read_dsr_response guarantee in docs/dev/repl.md: bytes\nthat are not a well-formed response are pushed back to be read as keys.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* REPL mouse: cap the DSR restore at TTY_PUSH_MAX, fix the tty_cpush guard\n\nMaintainer review (round 2) found a memory-safety bug in the type-ahead\nfix: the DSR reader's push-back path could write up to 66 bytes into the\n32-byte cpushbuf. The digit buffer was 64 bytes and the restore pushed\n1 (c) + n + 2 ('[' + ESC) back-to-back; tty_cpush's overflow guard tested\npush_count — the high-level code pushback buffer — while the writes land\nin cpushbuf via cpush_count, so it never tripped and no assert fired. The\nmismatched guard is pre-existing upstream, but this reader is the first\ncaller able to push back more than a couple of bytes.\n\nTwo fixes:\n\n- tty_read_dsr_response now caps the digit buffer at TTY_PUSH_MAX - 2\n  (29 digits; a real cursor report is a handful), so a restore is at most\n  32 bytes, and additionally skips the restore entirely if\n  cpush_count + n + 3 would exceed TTY_PUSH_MAX (defensive against\n  leftover bytes). A garbled or hostile 30+ digit CSI simply fails the\n  read; nothing is corrupted.\n- tty_cpush's guard now checks cpush_count, the counter the writes\n  actually use.\n\nThe pty test gains a fifth run: a 40-byte CSI of digits/semicolons with no\nR terminator, delivered while the DSR query is pending. It asserts the\nREPL survives and a later form still evaluates; verified to crash the\nchild (SIGTRAP via the OOB) without the fix.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* docs: record the DSR restore cap and the tty_cpush guard fix in PATCHES.md\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-09T11:32:22Z",
+          "tree_id": "2eba0db4c143db8a6a88949ddc61f5ef8ef67f8e",
+          "url": "https://github.com/kaappi/kaappi/commit/7c1223ff434c5df6d9ad3906205ec15721ddbfec"
+        },
+        "date": 1786277480831,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.348249,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.395516,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.58013,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.074869,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004703,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046909,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.313985,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055902,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.744885,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.250482,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.594864,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.274429,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.794726,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.614696,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045841,
             "unit": "seconds"
           }
         ]
