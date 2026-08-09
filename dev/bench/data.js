@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786302992742,
+  "lastUpdate": 1786308227223,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "70675ffae061552ebbb9a2373e45dae431353560",
-          "message": "Phase 6B: reconcile kaappi test with run-all.sh — a suppressed (exit 0) still meant exit 0 (#2081)\n\n* Phase 6B: reconcile kaappi test with run-all.sh — a suppressed (exit) still has semantics\n\nThe two runners disagreed on tests/scheme/srfi/srfi150.scm: green under\nrun-all.sh, `1 errored` and exit 1 under `kaappi test`, with a summary that\nread as self-contradictory (`0 failed` tests above `1 failed` files). Every\nunit of the audit campaign has been reporting it as noise, and it is what\nblocks `kaappi test` from replacing the legacy runner.\n\nThe cause is not `test-expect-fail`, where the finding pointed — those\nannotations only decide whether the orphaned assertions land in `xfail`\nrather than `fail`. It is the file's own exit status. srfi150.scm provokes an\nuncaught top-level error and then calls `(exit 0)` on the SRFI-64-clean path,\ndeliberately. A plain run honours that, so run-all.sh reads 0 and says PASS.\nThe `kaappi test` worker sets `suppress_exit` so the file's `(exit)` cannot\nrob it of the chance to emit a result — but it then reported `script_had_error`\ndirectly, never consulting what the suppressed call had asked for.\n\nrun-all.sh was right. tests/scheme/errors/exit-code.sh already pins the rule a\nplain run follows, with its own regression test: an explicit `(exit N)` wins\nover an already-reported top-level error. And this was a gap rather than a\npolicy — `emitResult`'s own doc comment claimed `errored` covered \"a nonzero\n`(exit)`\", which the code never did. Suppressing the termination was never\nmeant to also discard the status.\n\nSo the semantics are reapplied where the verdict is formed, in one function\nwith all three facts in hand. An `(exit 0)` waives the file's own top-level\nerror; it can never bury a failing assertion, because the counters stay\nauthoritative. A nonzero exit the counters already explain stays redundant, as\nbefore — calling it an error would trade per-assertion detail for a bare ERROR\nline. A nonzero exit they do not explain is now an error, which closes the\nopposite-direction divergence nobody had noticed: such a file was FAIL under\nrun-all.sh and silently PASS here.\n\nNothing goes quiet. A waived error becomes a note — carried in error_message\nwith error:false, printed under the file's verdict line with the worker's own\ndiagnostic, and tallied as `noted` in both summaries. The first summary line is\nrelabelled `Tests:`, since it counts tests and the line under it counts files.\n\nVerified by running both runners' verdict rules over all 352 SRFI-64 files:\n1 disagreement before, 0 after. srfi150.scm is the only file repo-wide in this\nstate, and it is untouched by this change.\n\nrunner-agreement.sh is the gate that keeps it that way: seven fixtures, each run\nthrough both rules, which must agree and land on the expected verdict. Its first\nfixture rebuilds srfi150's shape from scratch, so the guarantee outlives #2051\nfixing SRFI 150. Reverting resolveVerdict kills 3 of its 10 assertions, in both\ndirections.\n\nCloses #1903.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Record the runner-agreement fix in the changelog\n\nThe changelog gate is right to fire here: this changes what `kaappi test`\nreports for a real class of file, which is user-visible behaviour, not a\nrefactor.\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T18:29:58+05:30",
-          "tree_id": "a20f5d30d65ea1222a32cdc4d69cc923a5e1e4d9",
-          "url": "https://github.com/kaappi/kaappi/commit/70675ffae061552ebbb9a2373e45dae431353560"
-        },
-        "date": 1785601242778,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.268112,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.567725,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.569836,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.977499,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00466,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046511,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.314248,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.0571,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.695347,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.224677,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.57476,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.282775,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.768204,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.464813,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044264,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.035918,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cb71bd209d00d8f728e8ce0d04a00c7378026dcf",
+          "message": "Remove syntax-rules rule/literal caps; fix define-property in templates (Fixes #2184, #2089) (#2275)\n\n* Remove the syntax-rules 32-rule and 32-literal caps (Fixes #2184)\n\nparseSyntaxRules parsed into fixed [32]Value stack buffers and rejected\nthe 33rd rule or literal with a bare KP2001 InvalidSyntax, making a\nlegal macro fail as if it were malformed. R7RS places no bound on\neither count, and a 33+ rule dispatcher macro is a normal shape.\n\nThe buffers are now growable ArrayLists (raw allocator, never\nGC-triggering; every held Value is a subpart of the rooted spec), with\na u16 guard where the old cap used to make Transformer.num_rules\noverflow unreachable.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Keep define-property bare in templates and dispatch it on the legacy path (Fixes #2089)\n\nA syntax-rules template emitting define-property failed with 'undefined\nvariable' two ways: the keyword was missing from the expander's\nreserved_template_forms, so the template head was hygiene-renamed to\n__hyg_N_define-property (well_known_forms alone does not stop the\nrename - instantiateTemplate consults isTemplateReserved); and even\nleft bare, the legacy compileForm path that compiles macro expansions\nhad no define-property dispatch, only the IR path did.\n\ndefine-property now sits in both reserved_template_forms and\nwell_known_forms (mirroring define-values), and compileForm dispatches\nit like the IR path.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Merge srfi 42's split qualifier macro back into a single %do-ec\n\nThe qualifier processor was split into %do-ec (generators) and\n%do-ec-more (grouping/command/control/guard) purely to dodge the\nengine's old 32-rule cap. With that cap gone the merged form is 34\nrules - back to one macro, with the workaround comment rewritten.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Update CHANGELOG for the syntax-rules cap removal and define-property fix\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Broaden the parseSyntaxRules GC-safety comment to cover the body-scan caller\n\nThe comment credited resolveTransformerSpecRec for rooting the spec,\nwhich is right for the primary caller but not for the define-syntax\nbranch of the lambda/let body scan (compiler_lambda.zig), which calls\nparseSyntaxRules directly without a root. Safety holds there for a\ndifferent reason - nothing in the parse loops GC-allocates and\nallocTransformer dupes the slices before it can collect - so the\ncomment now states the guarantee in terms of what this code itself\nensures, with an explicit warning not to add a GC-triggering call to\nthe loops.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-09T20:07:37Z",
+          "tree_id": "4f72d54ea8c1d1a4a5f67079c0c2ef1ff28f4bf5",
+          "url": "https://github.com/kaappi/kaappi/commit/cb71bd209d00d8f728e8ce0d04a00c7378026dcf"
+        },
+        "date": 1786308225631,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.266241,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.956004,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.562442,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.978641,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00468,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046857,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.304812,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055533,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.765175,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.180279,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.584985,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.277058,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.785844,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.589952,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044776,
             "unit": "seconds"
           }
         ]
