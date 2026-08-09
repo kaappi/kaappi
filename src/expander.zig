@@ -45,17 +45,17 @@ pub fn isEllipsis(name: []const u8) bool {
 /// variables. The compiler recognizes hygienic renames via
 /// effective_name stripping.
 const well_known_forms = [_][]const u8{
-    "begin",         "define",        "set!",             "lambda",
-    "let*",          "letrec",        "letrec*",          "quote",
-    "quasiquote",    "unquote",       "unquote-splicing", "define-syntax",
-    "let-syntax",    "letrec-syntax", "syntax-rules",     "define-record-type",
-    "define-values", "let-values",    "let*-values",      "case-lambda",
-    "cond-expand",   "cond",          "case",             "and",
-    "or",            "when",          "unless",           "do",
-    "guard",         "delay",         "delay-force",      "parameterize",
-    "syntax-error",  "include",       "include-ci",       "define-library",
-    "import",        "export",        "else",             "=>",
-    "...",           "_",
+    "begin",          "define",          "set!",             "lambda",
+    "let*",           "letrec",          "letrec*",          "quote",
+    "quasiquote",     "unquote",         "unquote-splicing", "define-syntax",
+    "let-syntax",     "letrec-syntax",   "syntax-rules",     "define-record-type",
+    "define-values",  "define-property", "let-values",       "let*-values",
+    "case-lambda",    "cond-expand",     "cond",             "case",
+    "and",            "or",              "when",             "unless",
+    "do",             "guard",           "delay",            "delay-force",
+    "parameterize",   "syntax-error",    "include",          "include-ci",
+    "define-library", "import",          "export",           "else",
+    "=>",             "...",             "_",
 };
 
 pub fn isWellKnown(name: []const u8) bool {
@@ -86,11 +86,11 @@ pub fn isWellKnown(name: []const u8) bool {
 ///    / `(quasiquote ...)` FORM heads are renamed separately by the form
 ///    branches in instantiateTemplate.
 const reserved_template_forms = [_][]const u8{
-    "define",         "define-syntax", "define-values",    "define-record-type",
-    "let-syntax",     "letrec-syntax", "syntax-rules",     "quote",
-    "quasiquote",     "unquote",       "unquote-splicing", "else",
-    "...",            "_",             "import",           "export",
-    "define-library", "include",       "include-ci",
+    "define",          "define-syntax",  "define-values", "define-record-type",
+    "define-property", "let-syntax",     "letrec-syntax", "syntax-rules",
+    "quote",           "quasiquote",     "unquote",       "unquote-splicing",
+    "else",            "...",            "_",             "import",
+    "export",          "define-library", "include",       "include-ci",
 };
 
 /// True when a template-introduced identifier must keep its exact spelling

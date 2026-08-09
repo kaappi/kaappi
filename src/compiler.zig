@@ -877,6 +877,11 @@ pub const Compiler = struct {
                 if (std.mem.eql(u8, effective_name, "define")) return self.compileDefine(args, dst);
                 if (std.mem.eql(u8, effective_name, "define-record-type")) return self.compileDefineRecordType(args, dst);
                 if (std.mem.eql(u8, effective_name, "define-values")) return self.compileDefineValues(args, dst);
+                // #2089: the legacy path (macro expansions compile through
+                // compileExpr, not the IR pipeline) must dispatch
+                // define-property like the IR path does, or a template-
+                // introduced one compiles as a call to an undefined name.
+                if (std.mem.eql(u8, effective_name, "define-property")) return macro.compileDefineProperty(self, args, dst);
                 if (std.mem.eql(u8, effective_name, "set!")) return self.compileSet(args, dst);
                 if (std.mem.eql(u8, effective_name, "begin")) return self.compileBegin(args, dst, is_tail);
 
