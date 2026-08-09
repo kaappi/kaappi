@@ -56,7 +56,7 @@
 (chk "rational-exact" (list (exact? 1/3)) (list #t))
 (chk "rational-parts" (list (numerator '-22/7) (denominator '-22/7)) (list -22 7))
 
-;; --- complex (two f64s plus two exactness bits) ---------------------------
+;; --- complex (two component Values: fixnum/bignum/rational/flonum) ---------
 (write (list 1+2i -3.5-4.25i 0+1i))
 (newline)
 (chk "complex-value" '1+2i (make-rectangular 1 2))

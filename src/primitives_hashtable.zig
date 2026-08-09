@@ -332,9 +332,13 @@ fn valueHashDepth(key: Value, depth: usize) usize {
         return h1 *% 31 +% h2;
     }
     if (types.isComplex(key)) {
+        // Components are Values; hash each by value (fixnum/bignum/rational/
+        // flonum) so two eqv? complexes — whose components may be distinct
+        // bignum objects with the same value — collide correctly
+        // (kaappi#2166).
         const c = types.toComplex(key);
-        const hr: usize = @truncate(@as(u64, @bitCast(c.real)) *% 2654435761);
-        const hi: usize = @truncate(@as(u64, @bitCast(c.imag)) *% 2654435761);
+        const hr = valueHashDepth(c.real, depth + 1);
+        const hi = valueHashDepth(c.imag, depth + 1);
         return hr *% 31 +% hi;
     }
     // Structural types below are compared with `deepEqual`, so their hash must

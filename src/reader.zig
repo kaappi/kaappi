@@ -84,7 +84,13 @@ pub const Token = union(enum) {
     /// the same digit-exact parseNumberText that backs string->number, so
     /// the two parsers cannot diverge on exactness (R7RS 6.2.7, #1911).
     prefixed_real: struct { str: []const u8, exact: bool, radix: u8 },
-    complex: struct { real: f64, imag: f64, exact_real: bool = false, exact_imag: bool = false },
+    /// A complex literal's two component Values (fixnum/bignum/rational for
+    /// exact components, flonum for decimals/exponents/inf/nan). Components
+    /// are built digit-exactly by the scanner — never through f64 — so
+    /// 2^53+1 and friends survive reading (kaappi#2166). The values are
+    /// rooted in `Reader.complex_root` until the datum constructor converts
+    /// the token.
+    complex: struct { real: Value, imag: Value },
     eof,
 };
 
@@ -122,6 +128,14 @@ pub const Reader = struct {
     /// and every refill re-parses the buffer from scratch with a fresh
     /// Reader, so the directive's bytes have to stay in the buffer.
     saw_directive: bool = false,
+    /// GC root slots for the component Values of a just-scanned complex
+    /// token (kaappi#2166). The scanner builds exact components digit-exactly
+    /// and the datum constructor converts the token after dispatch, so the
+    /// components must stay reachable across that gap. Registered as GC
+    /// roots once, lazily — after `init`'s caller has copied the Reader
+    /// into its final location — and popped by `deinit`.
+    complex_root: [2]Value = .{ types.NIL, types.NIL },
+    complex_roots_pushed: bool = false,
 
     pub const MAX_NESTING_DEPTH = 1024;
     pub const MAX_BLOCK_COMMENT_DEPTH = 256;
@@ -199,6 +213,10 @@ pub const Reader = struct {
     }
 
     pub fn deinit(self: *Reader) void {
+        if (self.complex_roots_pushed) {
+            self.gc.popRoot();
+            self.gc.popRoot();
+        }
         self.token_buf.deinit(self.gc.allocator);
     }
 
@@ -1037,15 +1055,24 @@ test "prefixed numeric tokens require a trailing delimiter" {
     try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x3i"));
     try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#xi"));
     try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x3/4i"));
-    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x99999999999999999999+2i"));
-    // A component that does not round-trip through f64 (2^53+1, and a
-    // 64-bit hex bignum) must be a loud error, never a silently-rounded
-    // value claiming exactness (kaappi#2182/#2243).
-    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x20000000000001+2i"));
-    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x1+20000000000001i"));
-    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x9007199254740993+2i"));
-    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "9007199254740993+2i"));
-    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "9007199254740993i"));
+    // A 64-bit bignum real with a complex tail reads digit-exactly now.
+    try testing.expectError(ReadError.InvalidNumber, readString(&gc, "#x99999999999999999999+2iz"));
+    const big4 = try readAndPrint(&gc, "#x99999999999999999999+2i");
+    defer testing.allocator.free(big4);
+    try testing.expectEqualStrings("725355491768777504823705+2i", big4);
+    // Components are Values now, so a component that does not round-trip
+    // through f64 (2^53+1, a 64-bit hex bignum) reads digit-exactly instead
+    // of erroring -- the #2182/#2243 gates dissolved with the f64
+    // representation (kaappi#2166).
+    const big = try readAndPrint(&gc, "#x20000000000001+2i");
+    defer testing.allocator.free(big);
+    try testing.expectEqualStrings("9007199254740993+2i", big);
+    const big2 = try readAndPrint(&gc, "9007199254740993+2i");
+    defer testing.allocator.free(big2);
+    try testing.expectEqualStrings("9007199254740993+2i", big2);
+    const big3 = try readAndPrint(&gc, "9007199254740993i");
+    defer testing.allocator.free(big3);
+    try testing.expectEqualStrings("+9007199254740993i", big3);
 
     // A whole list holding one is a read error too, never a longer list.
     try testing.expectError(ReadError.InvalidNumber, readString(&gc, "(#b1p4)"));

@@ -989,7 +989,7 @@ test "bytecode round-trip: vector pair bignum rational complex constants" {
     const rat = try gc.allocRational(rat_num, rat_den);
     func.constants.append(allocator, rat) catch unreachable;
 
-    const cx = try gc.allocComplexEx(3.0, 4.0, false, false);
+    const cx = try gc.allocComplex(types.makeFlonum(3.0), types.makeFlonum(4.0));
     func.constants.append(allocator, cx) catch unreachable;
 
     func.arity = 0;
@@ -1028,8 +1028,8 @@ test "bytecode round-trip: vector pair bignum rational complex constants" {
 
     try std.testing.expect(types.isComplex(consts[4]));
     const loaded_cx = types.toObject(consts[4]).as(types.Complex);
-    try std.testing.expectEqual(@as(f64, 3.0), loaded_cx.real);
-    try std.testing.expectEqual(@as(f64, 4.0), loaded_cx.imag);
+    try std.testing.expectEqual(@as(f64, 3.0), types.toFlonum(loaded_cx.real));
+    try std.testing.expectEqual(@as(f64, 4.0), types.toFlonum(loaded_cx.imag));
 }
 
 test "bytecode round-trip: line table and source_line preserved" {

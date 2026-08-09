@@ -314,11 +314,13 @@ fn writeConstant(w: *Writer, allocator: std.mem.Allocator, val: Value, all_funcs
             },
             .complex => {
                 const cx = obj.as(types.Complex);
+                // Components are written as nested constants (fixnum /
+                // bignum / rational / flonum), digit-exact like every other
+                // value — the old f64+flags encoding could not carry an
+                // exact component (kaappi#2166).
                 try w.writeU8(allocator, bf.TAG_COMPLEX);
-                try w.writeF64(allocator, cx.real);
-                try w.writeF64(allocator, cx.imag);
-                try w.writeU8(allocator, if (cx.exact_real) @as(u8, 1) else @as(u8, 0));
-                try w.writeU8(allocator, if (cx.exact_imag) @as(u8, 1) else @as(u8, 0));
+                try writeConstant(w, allocator, cx.real, all_funcs, seen, depth + 1);
+                try writeConstant(w, allocator, cx.imag, all_funcs, seen, depth + 1);
             },
             else => return BytecodeError.UnsupportedConstant,
         }

@@ -154,7 +154,7 @@ const ComplexParts = struct { re: f64, im: f64 };
 fn expectComplexParts(proc: []const u8, val: Value) PrimitiveError!ComplexParts {
     if (types.isComplex(val)) {
         const c = types.toComplex(val);
-        return .{ .re = c.real, .im = c.imag };
+        return .{ .re = try expectReal(proc, c.real), .im = try expectReal(proc, c.imag) };
     }
     return .{ .re = try expectReal(proc, val), .im = 0.0 };
 }
@@ -228,14 +228,14 @@ fn decodeElement(gc: *memory.GC, kind: NumericElementKind, bytes: []const u8) Pr
             // write as "1.5" and read back as a different type. -0.0 is
             // preserved -- its sign is real information the printer keeps.
             if (im == 0.0 and !std.math.signbit(im)) break :blk types.makeFlonum(re);
-            break :blk gc.allocComplexEx(re, im, false, false) catch PrimitiveError.OutOfMemory;
+            break :blk gc.allocComplex(types.makeFlonum(re), types.makeFlonum(im)) catch PrimitiveError.OutOfMemory;
         },
         .c128 => blk: {
             const re: f64 = @bitCast(std.mem.readInt(u64, bytes[0..8], native_endian));
             const im: f64 = @bitCast(std.mem.readInt(u64, bytes[8..16], native_endian));
             // Same zero-imaginary normalisation as .c64 (kaappi#1951).
             if (im == 0.0 and !std.math.signbit(im)) break :blk types.makeFlonum(re);
-            break :blk gc.allocComplexEx(re, im, false, false) catch PrimitiveError.OutOfMemory;
+            break :blk gc.allocComplex(types.makeFlonum(re), types.makeFlonum(im)) catch PrimitiveError.OutOfMemory;
         },
     };
 }

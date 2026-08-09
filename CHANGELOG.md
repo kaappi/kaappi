@@ -20,6 +20,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Exact complex numbers are stored, computed, printed, and read back
+  digit-exactly** (#2166). A `Complex` held its components as two f64s
+  plus exactness flags, so every consumer had to choose between
+  honest-but-inexact and exact-but-wrong: `(+ 3/2+1i 1/2)` returned an
+  inexact `2.0+1.0i`, `(make-rectangular 9007199254740993 1)` silently
+  rounded 2^53+1 down, `(exact? (make-rectangular (expt 10 400) 1))`
+  claimed an exact infinity, and `(write z)` printed `3/2+1i` while
+  `(real-part z)` returned inexact `1.5`. Components are now Values
+  (fixnum/bignum/rational/flonum) with no flags: `+ - * / expt` (integer
+  exponent) run componentwise over the exact tower and are exact-closed;
+  `make-rectangular` never touches an f64; `write` prints components
+  through the normal numeric printer, so `write` and `real-part` agree;
+  and the reader and `string->number` build components digit-exactly at
+  any size. Per R7RS 6.2.2 a stored complex is never mixed-exactness (an
+  inexact operand makes both components inexact), and a zero imaginary
+  part demotes to the real component — except that a literal's *inexact*
+  zero imag stays complex (`(real? -2.5+0.0i)` => #f) while an exact one
+  demotes (`(integer? 3+0i)` => #t). The `.sbc` constant encoding stores
+  the two component constants instead of f64+flags. This dissolves the
+  #2182/#2243 f64 round-trip gates in the reader and `string->number`:
+  `9007199254740993+1i`, `#x20000000000001+2i`, and
+  `10000000000000000000000000/3+1i` all read digit-exactly now.
+
 - **Rational→flonum conversion is correct when a single side alone leaves
   f64 range** (#2183). `(inexact (/ 1 (expt 2 1074)))` was `0.0` instead of
   the minimum subnormal, `(inexact (/ (+ (expt 2 1030) 1) (expt 2 1000)))`
@@ -49,7 +72,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `m/2^k` forms round-trip exactly. A small adjacent parity gap also
   closed: an exact-flagged imaginary part past 2^53 after a rational real
   (`1/2+123456789012345678901234567890i`) is a loud error instead of a
-  silently rounded value.
+  silently rounded value. (Both gates dissolved with #2166: components are
+  Values now, so every exact part reads digit-exactly at any size.)
 
 - **A use-site local binding no longer captures a macro template's free
   reference to a global procedure** (#2003). A template free reference to a

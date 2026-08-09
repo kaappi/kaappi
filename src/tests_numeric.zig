@@ -472,8 +472,10 @@ test "eqv? discriminates exact and inexact complex (#2167)" {
     try th.expectEvalBool("(equal? (make-rectangular -3/2 -1) -1.5-1.0i)", false);
     try th.expectEvalBool("(= (make-rectangular -3/2 -1) -1.5-1.0i)", true);
     try th.expectEvalBool("(eqv? (make-rectangular 3/2 1) (make-rectangular 1.5 1))", false);
-    // Mixed-component values compare flags componentwise.
-    try th.expectEvalBool("(eqv? (make-rectangular 3/2 1.0) 1.5+1.0i)", false);
+    // make-rectangular with an inexact part is whole-inexact (R7RS 6.2.2:
+    // no mixed-exactness complex is ever stored), so it equals its
+    // all-inexact twin (kaappi#2166).
+    try th.expectEvalBool("(eqv? (make-rectangular 3/2 1.0) 1.5+1.0i)", true);
     // Same exactness still compares equal...
     try th.expectEvalBool("(eqv? (make-rectangular 3/2 1) (make-rectangular 3/2 1))", true);
     try th.expectEvalBool("(eqv? 1.5+1.0i 1.5+1.0i)", true);
@@ -580,22 +582,28 @@ test "#e/#i reach complex literals on both parsers (#1910, #751)" {
         "(let ((p (open-output-string))) (write #e1e-300+1i p)" ++
             " (equal? (read (open-input-string (get-output-string p))) #e1e-300+1i))",
     );
-    // The gate: a bignum rational that is NOT exactly representable in f64
-    // still reads loudly instead of silently rounding an exact-flagged
-    // component, and string->number agrees (R7RS 6.2.7).
+    // Components are Values now, so the f64 round-trip gate is gone: a
+    // bignum rational real part reads digit-exactly at any size, and
+    // string->number agrees (R7RS 6.2.7, kaappi#2166).
     try th.expectEvalTrue(
-        "(guard (e (#t #t)) (read (open-input-string \"10000000000000000000000000/3+1i\")) #f)",
+        "(equal? (read (open-input-string \"10000000000000000000000000/3+1i\"))" ++
+            " (make-rectangular (/ (expt 10 25) 3) 1))",
     );
-    try th.expectEvalBool("(string->number \"10000000000000000000000000/3+1i\")", false);
-    // The gate's overflow side: a power-of-two-scaled numerator whose value
-    // exceeds f64 range (2^2001/2) must stay loud too -- an exact-flagged
-    // component that converts to +inf.0 is the same silent masquerade.
+    try th.expectEvalTrue("(number? (string->number \"10000000000000000000000000/3+1i\"))");
     try th.expectEvalTrue(
-        "(guard (e (#t #t)) (read (open-input-string " ++
-            "(string-append (number->string (expt 2 2001)) \"/2+1i\"))) #f)",
+        "(eqv? (string->number \"10000000000000000000000000/3+1i\")" ++
+            " (read (open-input-string \"10000000000000000000000000/3+1i\")))",
+    );
+    // The overflow side: a power-of-two-scaled numerator whose value
+    // exceeds f64 range (2^2001/2) reads digit-exactly too.
+    try th.expectEvalTrue(
+        "(equal? (read (open-input-string " ++
+            "(string-append (number->string (expt 2 2001)) \"/2+1i\")))" ++
+            " (make-rectangular (/ (expt 2 2001) 2) 1))",
     );
     try th.expectEvalTrue(
-        "(guard (e (#t #t)) (read (open-input-string \"1/10000000000000000000000001+1i\")) #f)",
+        "(equal? (read (open-input-string \"1/10000000000000000000000001+1i\"))" ++
+            " (make-rectangular (/ 1 (+ (expt 10 25) 1)) 1))",
     );
     // The dead zone is closed: an i64 power-of-two denominator past the
     // printer's small-rational recovery limit (1/2^40) is exactly
@@ -610,11 +618,13 @@ test "#e/#i reach complex literals on both parsers (#1910, #751)" {
         "(string-append \"#x\" (number->string (expt 2 100) 16) \"/2+12i\")))) 18.0)");
     try th.expectEvalTrue("(= (imag-part (string->number " ++
         "(string-append \"#x\" (number->string (expt 2 100) 16) \"/2+12i\"))) 18.0)");
-    // An exact-flagged imaginary part past 2^53 after a bignum rational real
-    // is a loud error, not a silently rounded value claiming exactness.
+    // An exact-flagged imaginary part past 2^53 after a bignum rational
+    // real reads digit-exactly now -- no rounded value, because the value
+    // itself is stored, not an f64 image of it (kaappi#2166).
     try th.expectEvalTrue(
-        "(guard (e (#t #t)) (read (open-input-string " ++
-            "(string-append \"1/3+123456789012345678901234567890i\"))) #f)",
+        "(equal? (read (open-input-string " ++
+            "(string-append \"1/3+123456789012345678901234567890i\")))" ++
+            " (make-rectangular 1/3 123456789012345678901234567890))",
     );
     // string->number shares the grammar: it accepts the m/2^k spelling too.
     try th.expectEvalTrue(

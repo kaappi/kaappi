@@ -586,31 +586,34 @@
   (test-assert "s->n #xi" (not (string->number "#xi")))
   (test-assert "#x3/4i rejected (signless rational imaginary)"
     (rejects? "#x3/4i"))
-  ;; Bignum components have no honest f64 token value: loud rejection,
-  ;; matching the radix-10 grammar's i64 bound (kaappi#2182 stance).
-  (test-assert "#x99999999999999999999+2i rejected"
-    (rejects? "#x99999999999999999999+2i"))
-  (test-assert "#x1+99999999999999999999i rejected"
-    (rejects? "#x1+99999999999999999999i"))
-  ;; A component in (2^53, 2^63] that does not round-trip through f64 is
-  ;; rejected loudly too -- an exact-flagged token must never silently
-  ;; carry a rounded value (kaappi#2182/#2243).
-  (test-assert "#x20000000000001+2i rejected (2^53+1)"
-    (rejects? "#x20000000000001+2i"))
-  (test-assert "#x1+20000000000001i rejected"
-    (rejects? "#x1+20000000000001i"))
+  ;; Components are Values now: bignum parts (2^53+1, 64-bit hex, huge
+  ;; rationals) read digit-exactly at any size instead of erroring -- the
+  ;; #2182/#2243 f64 round-trip gates dissolved with the f64 representation
+  ;; (kaappi#2166).
+  (test-assert "#x99999999999999999999+2i reads digit-exactly"
+    (and (exact? (read (open-input-string "#x99999999999999999999+2i")))
+         (eqv? (read (open-input-string "#x99999999999999999999+2i"))
+               (string->number "#x99999999999999999999+2i"))))
+  (test-assert "#x1+99999999999999999999i reads digit-exactly"
+    (exact? (read (open-input-string "#x1+99999999999999999999i"))))
+  (test-assert "#x20000000000001+2i reads exactly (2^53+1)"
+    (eqv? (read (open-input-string "#x20000000000001+2i")) 9007199254740993+2i))
+  (test-assert "#x1+20000000000001i reads exactly"
+    (eqv? (read (open-input-string "#x1+20000000000001i")) 1+9007199254740993i))
   (test-assert "s->n #x20000000000001+2i"
-    (not (string->number "#x20000000000001+2i")))
-  (test-assert "9007199254740993+2i rejected (radix 10, 2^53+1)"
-    (rejects? "9007199254740993+2i"))
+    (eqv? (string->number "#x20000000000001+2i") 9007199254740993+2i))
+  (test-assert "9007199254740993+2i reads exactly (radix 10, 2^53+1)"
+    (eqv? (read (open-input-string "9007199254740993+2i")) 9007199254740993+2i))
   (test-assert "s->n 9007199254740993+2i"
-    (not (string->number "9007199254740993+2i")))
-  ;; A rational component beyond the printer's recovery granularity is
-  ;; rejected too (its f64 would print as a wrong mantissa/2^k fraction).
-  (test-assert "1/20000000000001+3i rejected (den > 1e6)"
-    (rejects? "1/20000000000001+3i"))
+    (eqv? (string->number "9007199254740993+2i") 9007199254740993+2i))
+  ;; A rational component beyond the old recovery granularity reads
+  ;; digit-exactly too.
+  (test-assert "1/20000000000001+3i reads exactly (den > 1e6)"
+    (eqv? (read (open-input-string "1/20000000000001+3i"))
+          (make-rectangular (/ 1 20000000000001) 3)))
   (test-assert "s->n 1/20000000000001+3i"
-    (not (string->number "1/20000000000001+3i")))
+    (eqv? (string->number "1/20000000000001+3i")
+          (make-rectangular (/ 1 20000000000001) 3)))
   ;; A radix complex inside a list is one datum, never two.
   (test-eqv "(#x1+2i) has one element" 1 (length (read1 "(#x1+2i)")))
   (test-assert "(#x1+2iz) is a read error, not two datums"

@@ -702,7 +702,7 @@ test "gc tracing: leaf tags survive while rooted and are reclaimed when not" {
         try gc.allocNativeFn("probe", &dummyNative, .{ .exact = 0 }),
         try gc.allocBytevector(&.{ 1, 2, 3 }),
         try gc.allocNumericVector(.f64, &.{ 0, 0, 0, 0, 0, 0, 0, 0 }),
-        try gc.allocComplex(1.0, 2.0),
+        try gc.allocComplex(types.makeFixnum(1), types.makeFixnum(2)),
         try gc.allocBignumFromI64(1 << 62),
         try gc.allocFfiLibrary(null, "probe"),
         try gc.allocUserInfo("u", 0, 0, "/", "/bin/sh", "U"),
@@ -1369,7 +1369,7 @@ test "gc tracing: heap-struct field inventory is unchanged" {
         "valid",    "target_frame_count", "target_wind_count", "target_handler_count",
     });
     expectFields(types.MultipleValues, &.{ "header", "values" });
-    expectFields(types.Complex, &.{ "header", "real", "imag", "exact_real", "exact_imag" });
+    expectFields(types.Complex, &.{ "header", "real", "imag" });
     expectFields(types.Promise, &.{ "header", "forced", "forcing", "value" });
     expectFields(types.ParameterObject, &.{ "header", "value", "converter" });
     expectFields(types.FfiLibrary, &.{ "header", "handle", "name" });

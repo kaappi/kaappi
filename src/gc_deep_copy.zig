@@ -160,7 +160,9 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
         .flonum => try gc.allocFlonum(obj.as(types.Flonum).value),
         .complex => {
             const c = obj.as(types.Complex);
-            return try gc.allocComplexEx(c.real, c.imag, c.exact_real, c.exact_imag);
+            const real = try deepCopyValue(gc, c.real, visited);
+            const imag = try deepCopyValue(gc, c.imag, visited);
+            return try gc.allocComplex(real, imag);
         },
         .bignum => {
             const bn = obj.as(types.Bignum);

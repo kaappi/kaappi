@@ -395,12 +395,12 @@ const GOLDEN_BODY =
     [_]u8{bf.TAG_RATIONAL} ++
     [_]u8{bf.TAG_FIXNUM} ++ [_]u8{ 0x16, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 } ++
     [_]u8{bf.TAG_FIXNUM} ++ [_]u8{ 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 } ++
-    // 17: complex 3.0+4.0i: f64 0x4008000000000000, f64 0x4010000000000000,
-    //     then exact_real u8, exact_imag u8
+    // 17: complex 3.0+4.0i: TAG_COMPLEX, then two nested constants —
+    //     TAG_FLONUM + f64 0x4008000000000000, TAG_FLONUM + f64
+    //     0x4010000000000000 (components are Values, kaappi#2166)
     [_]u8{bf.TAG_COMPLEX} ++
-    [_]u8{ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x40 } ++
-    [_]u8{ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x40 } ++
-    [_]u8{ 0x00, 0x00 } ++
+    [_]u8{bf.TAG_FLONUM} ++ [_]u8{ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x40 } ++
+    [_]u8{bf.TAG_FLONUM} ++ [_]u8{ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x40 } ++
     // 18: the pair from constant 12 again — a v11 back-reference, u32 id 1
     //     (LSB first; its byte-reverse is a different id, so a swap shows)
     [_]u8{bf.TAG_BACKREF} ++ [_]u8{ 0x01, 0x00, 0x00, 0x00 } ++
@@ -510,7 +510,7 @@ fn buildGoldenGraph(gc: *GC, allocator: std.mem.Allocator, roots: *[2]types.Valu
     const limbs = [_]u64{0x0102030405060708};
     c.append(allocator, try gc.allocBignumFromLimbs(&limbs, 1, true)) catch unreachable;
     c.append(allocator, try gc.allocRational(types.makeFixnum(22), types.makeFixnum(7))) catch unreachable;
-    c.append(allocator, try gc.allocComplexEx(3.0, 4.0, false, false)) catch unreachable;
+    c.append(allocator, try gc.allocComplex(types.makeFlonum(3.0), types.makeFlonum(4.0))) catch unreachable;
     c.append(allocator, pair) catch unreachable;
 
     parent.source_line = 0x00030201;
@@ -610,8 +610,8 @@ test "endian: the deserializer decodes the golden .sbc byte sequence" {
     try std.testing.expectEqual(@as(i64, 7), types.toFixnum(rat.denominator));
 
     const cx = types.toObject(k[17]).as(types.Complex);
-    try std.testing.expectEqual(@as(f64, 3.0), cx.real);
-    try std.testing.expectEqual(@as(f64, 4.0), cx.imag);
+    try std.testing.expectEqual(@as(f64, 3.0), types.toFlonum(cx.real));
+    try std.testing.expectEqual(@as(f64, 4.0), types.toFlonum(cx.imag));
 
     try std.testing.expectEqual(@as(u32, 0x00030201), f.source_line);
     try std.testing.expectEqual(@as(usize, 1), f.line_table.items.len);

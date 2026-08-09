@@ -531,13 +531,17 @@ pub const CallFrame = types_continuation.CallFrame;
 pub const Continuation = types_continuation.Continuation;
 pub const MultipleValues = types_continuation.MultipleValues;
 
-/// Complex number (R7RS 6.2.6).
+/// Complex number (R7RS 6.2.6): two real components, each a fixnum, bignum,
+/// rational (all exact), or flonum (inexact). Exactness is carried
+/// per-component by the component's own type — there are no exactness flags,
+/// because a flag over an already-rounded f64 could not faithfully claim the
+/// exact value it was supposed to hold (kaappi#2166). A Complex whose imag
+/// component is zero is never stored: construction demotes to the real
+/// component, so every live Complex has a nonzero imaginary part.
 pub const Complex = struct {
     header: Object,
-    real: f64,
-    imag: f64,
-    exact_real: bool = false,
-    exact_imag: bool = false,
+    real: Value,
+    imag: Value,
 };
 
 /// Parameter object (R7RS make-parameter / parameterize).
@@ -778,21 +782,48 @@ pub fn toComplex(v: Value) *Complex {
     return toObject(v).as(Complex);
 }
 
-/// eqv? semantics for two complex numbers (R7RS 6.1): components compare
-/// bitwise — the flonum rule, so NaN and signed zero stay consistent — and
-/// the per-component exactness flags must match, because an exact and an
-/// inexact number are never eqv? however equal their f64 images (#2167).
-/// Shared by eqv?, equal?, memv/assv, and eqv-keyed hash tables so the four
-/// call sites cannot drift apart again.
+/// True when `v` is an exact real number (fixnum, bignum, or rational).
+/// Flonums and complexes are never exact.
+pub fn isExactNumber(v: Value) bool {
+    return isFixnum(v) or isBignum(v) or isRationalObj(v);
+}
+
+/// R7RS 6.1 eqv? semantics for two real-number values (fixnum, bignum,
+/// rational, or flonum): same value AND same exactness. Flonums compare
+/// bitwise, so NaN and signed zero stay consistent; exact values compare
+/// by value across fixnum/bignum; rationals compare by numerator and
+/// denominator (always in lowest terms, so value equality is component
+/// equality). This is the per-component rule for Complex eqv?
+/// (kaappi#2166): a complex is eqv? to another iff both of its components
+/// are, and each component's exactness is carried by its own type instead
+/// of a flag.
+pub fn numericEqv(a: Value, b: Value) bool {
+    if (isFlonum(a) or isFlonum(b)) {
+        if (!isFlonum(a) or !isFlonum(b)) return false;
+        return @as(u64, @bitCast(toFlonum(a))) == @as(u64, @bitCast(toFlonum(b)));
+    }
+    const a_int = isFixnum(a) or isBignum(a);
+    const b_int = isFixnum(b) or isBignum(b);
+    if (a_int and b_int) {
+        if (isFixnum(a) and isFixnum(b)) return toFixnum(a) == toFixnum(b);
+        const bignum_mod = @import("bignum.zig");
+        return bignum_mod.compare(a, b) == 0;
+    }
+    if (isRationalObj(a) and isRationalObj(b)) {
+        const ra = toRational(a);
+        const rb = toRational(b);
+        return numericEqv(ra.numerator, rb.numerator) and numericEqv(ra.denominator, rb.denominator);
+    }
+    return false;
+}
+
+/// eqv? semantics for two complex numbers (R7RS 6.1): component-wise
+/// numeric eqv?. Shared by eqv?, equal?, memv/assv, and eqv-keyed hash
+/// tables so the four call sites cannot drift apart again (kaappi#2167).
 pub fn complexEqv(a: Value, b: Value) bool {
     const ca = toComplex(a);
     const cb = toComplex(b);
-    const ra: u64 = @bitCast(ca.real);
-    const rb: u64 = @bitCast(cb.real);
-    const ia: u64 = @bitCast(ca.imag);
-    const ib: u64 = @bitCast(cb.imag);
-    return ra == rb and ia == ib and
-        ca.exact_real == cb.exact_real and ca.exact_imag == cb.exact_imag;
+    return numericEqv(ca.real, cb.real) and numericEqv(ca.imag, cb.imag);
 }
 
 pub fn isParameter(v: Value) bool {

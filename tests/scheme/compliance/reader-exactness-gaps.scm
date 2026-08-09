@@ -331,12 +331,16 @@
              (round-trips? (rd "#e1e-300+1e-300i")))
 (test-assert "#e1+1e-300i round-trips (integer real, bignum imag)"
              (round-trips? (rd "#e1+1e-300i")))
-;; The gate: a bignum rational whose value is NOT exactly representable in
-;; f64 (10^25/3) still reads loudly rather than silently rounding an
-;; exact-flagged component (#2182).
-(test-assert "10^25/3+1i is still a loud read error"
-             (eq? 'read-error (rd/safe "10000000000000000000000000/3+1i")))
-(test-assert "s->n 10^25/3+1i" (not (string->number "10000000000000000000000000/3+1i")))
+;; The old gate -- a bignum rational whose value is NOT exactly
+;; representable in f64 (10^25/3) read loudly rather than silently rounding
+;; an exact-flagged component (#2182). With components stored as Values the
+;; gate is gone: the rational reads digit-exactly at any size (kaappi#2166).
+(test-assert "10^25/3+1i reads digit-exactly"
+             (eqv? (rd "10000000000000000000000000/3+1i")
+                   (make-rectangular (/ (expt 10 25) 3) 1)))
+(test-assert "s->n 10^25/3+1i"
+             (eqv? (string->number "10000000000000000000000000/3+1i")
+                   (make-rectangular (/ (expt 10 25) 3) 1)))
 
 ;; ---------------------------------------------------------------------------
 ;; 8. R7RS 6.2.7 parity: `read` and `string->number` used to be two

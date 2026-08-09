@@ -303,14 +303,12 @@ test "deepCopy complex" {
     var gc2 = memory.GC.init(std.testing.allocator);
     defer gc2.deinit();
 
-    const cplx = try gc1.allocComplexEx(1.5, 2.5, false, true);
+    const cplx = try gc1.allocComplex(types.makeFlonum(1.5), types.makeFixnum(2));
     const copied = try gc2.deepCopy(cplx);
     try std.testing.expect(cplx != copied);
     const cc = types.toObject(copied).as(types.Complex);
-    try std.testing.expectEqual(@as(f64, 1.5), cc.real);
-    try std.testing.expectEqual(@as(f64, 2.5), cc.imag);
-    try std.testing.expectEqual(false, cc.exact_real);
-    try std.testing.expectEqual(true, cc.exact_imag);
+    try std.testing.expectEqual(@as(f64, 1.5), types.toFlonum(cc.real));
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(cc.imag));
 }
 
 test "deepCopy bignum" {

@@ -272,11 +272,14 @@ fn readConstantTagged(r: *Reader, gc: *GC, all_funcs: []*Function, shared: *Shar
             return gc.allocRational(num_root, den) catch return BytecodeError.OutOfMemory;
         },
         bf.TAG_COMPLEX => {
-            const real = try r.readF64();
-            const imag = try r.readF64();
-            const exact_real = (try r.readU8()) != 0;
-            const exact_imag = (try r.readU8()) != 0;
-            return gc.allocComplexEx(real, imag, exact_real, exact_imag) catch return BytecodeError.OutOfMemory;
+            const real = try readConstant(r, gc, all_funcs, shared, depth + 1);
+            if (!isRealConstant(real)) return BytecodeError.CorruptedFile;
+            var real_root = real;
+            gc.pushRoot(&real_root);
+            defer gc.popRoot();
+            const imag = try readConstant(r, gc, all_funcs, shared, depth + 1);
+            if (!isRealConstant(imag)) return BytecodeError.CorruptedFile;
+            return gc.allocComplex(real_root, imag) catch return BytecodeError.OutOfMemory;
         },
         bf.TAG_BACKREF => {
             const id = try r.readU32();
@@ -285,6 +288,12 @@ fn readConstantTagged(r: *Reader, gc: *GC, all_funcs: []*Function, shared: *Shar
         },
         else => return BytecodeError.InvalidConstantTag,
     }
+}
+
+/// A component Value a deserialized Complex may hold: any real number
+/// (fixnum/bignum/rational/flonum), never a complex.
+fn isRealConstant(v: Value) bool {
+    return types.isFixnum(v) or types.isFlonum(v) or types.isBignum(v) or types.isRationalObj(v);
 }
 
 // ---------------------------------------------------------------------------
