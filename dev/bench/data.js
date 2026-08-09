@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786297083317,
+  "lastUpdate": 1786299951715,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6b5c4e21be3a1f4aba2816a19ef925b2db2b02f6",
-          "message": "Phase 2.8: hash-table audit — 201 assertions, and equal? tables lose any key deeper than 8 (#2031)\n\nThe 268-line audit test asked its hash/equality-consistency questions only\nat depth <= 2, so a green suite never noticed that `valueHashDepth` stops\nrecursing at MAX_HASH_DEPTH = 8 and returns the *pointer* of whatever sits\nat the cutoff. A nine-cons-cell key is enough: 200 of 200 freshly-built\ntwelve-element keys are unfindable, while the eight-element control misses\nnone. Closed #1180 named this exact residue in its own suggested fix and\nshipped only the bignum/rational half.\n\nTwo more, both new: a custom hash procedure that inserts into its own table\nmakes `rehash` keep iterating an entry array the nested rehash already\nfreed, aborting the process with empty stdout *and* stderr; and all four\nhash procedures mask to 62 bits and then hand the result to a 48-bit\n`makeFixnum`, so about half of them come back negative.\n\nEvery assertion now carries a name string, and the file states two standing\nportability rules for itself: never assert a hash value derived from a\npointer or from `usize`, and never assert iteration order.\n\nAll 8 callback sites were probed under mutation, raise, re-entry and\nblocking. Only the custom-hash site is unsafe. walk and fold are correct on\nevery route tried, and the path needs no blocking guard — a channel call\n6000 native frames deep inside a walk callback works, where the custom-port\npath aborts at 3000.\n\nIssues: #2023, #2024, #2025. D2 taxonomy for this file is already #2021.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T18:05:41+05:30",
-          "tree_id": "aae5667abea94253644f4bc9d78b6cbffeee55c0",
-          "url": "https://github.com/kaappi/kaappi/commit/6b5c4e21be3a1f4aba2816a19ef925b2db2b02f6"
-        },
-        "date": 1785601121553,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.038887,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 5.67648,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.441208,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.175095,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004384,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03764,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.227322,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.043156,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.132385,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.931104,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.210737,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.231549,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.319837,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.733514,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.035748,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045167,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7606c110749f644aac5568ca37d608782af4ae61",
+          "message": "Keep an inexact zero imaginary part complex in make-rectangular, write, and c64/c128 decode (Fixes #2269) (#2271)\n\n* Keep an inexact zero imaginary part complex in make-rectangular, write, and c64/c128 decode (Fixes #2269)\n\nmake-rectangular demoted an inexact zero imaginary part to the real\ncomponent while the reader kept it complex, so the constructor and the\nliteral 1.5+0.0i disagreed, and the printer collapsed an inexact-zero-imag\ncomplex to its bare real — (write 1.5+0.0i) printed 1.5, which reads back\nas a different value, violating R7RS 6.2.7's number->string round-trip.\n\nPer R7RS 6.2.6's worked examples, an explicitly inexact zero imaginary\npart keeps the value complex ((real? -2.5+0.0i) => #f); only an exact\nzero demotes. Chez, Guile, chibi, and Gambit all behave this way.\n\n- make-rectangular now routes through makeComplexOrRealLiteral (the\n  reader's exact-zero-only demotion) instead of makeComplexOrRealV.\n- The complex printer collapses only an exact zero imag, emitting the\n  full form (\"1.5+0.0i\" / \"1.5-0.0i\") for the inexact case, so write\n  and number->string round-trip through read.\n- c64/c128 decodeElement preserves a +0.0 imaginary part instead of\n  demoting it to a plain real, so SRFI-160 refs agree with the\n  standalone constructor.\n\nTests: re-pinned the srfi160 control/decode assertions and the\nmake-rectangular demotion tests to the new behavior, added regressions\nfor the decomposition and write/read round-trips (starting from the\nreader value, the discriminating probe), and kept (real? -2.5+0.0i)\n=> #f green in the R7RS suite.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Extend exact-zero-only demotion to the arithmetic tower and make-polar (review #2271)\n\nReview feedback: the PR fixed make-rectangular, the reader, and the\nprinter, but the same demotion survived in two other construction sites\n— the arithmetic tower (+ - * /) built results through makeComplexOrRealV,\nwhich demoted ANY zero imag, and make-polar demoted an inexact 0.0 imag\nthrough the f64 makeComplexOrReal path. Chez, Guile, chibi, and Gambit\nkeep an inexact zero imag complex everywhere: (+ 1.0+2.0i 1.0-2.0i) is\n2.0+0.0i, (* 1.5+0.0i 2.0), (- 1.5+2.0i 0.0+2.0i), (+ 1.5+0.0i 0), and\n(make-polar 1.5 0.0) are all (real? => #f).\n\n- makeComplexOrRealV and makeComplexOrRealLiteral were identical except\n  for the demotion rule; collapsed into one exact-zero-only\n  makeComplexOrRealV, now the single Value-component construction site\n  for the reader, string->number, make-rectangular, arithmetic, and\n  exact/inexact conversion.\n- make-polar now demotes only an EXACT zero angle ((make-polar 1.5 0) =>\n  1.5) and keeps an inexact zero imag complex ((make-polar 1.5 0.0) =>\n  1.5+0.0i), preserving -0.0 ((make-polar 1.5 -0.0) => 1.5-0.0i).\n- (exact 1.5+0.0i) still demotes to 3/2 (exact zero), and (- z z) for an\n  exact z still yields exact 0, as the references do.\n- Regression tests for the arithmetic and make-polar cases, plus the\n  exact-zero survival pins.\n\nThe f64 transcendental paths (sin/cos/tan, sqrt, expt, exp, log, asin)\nare intentionally unchanged: they still demote an exactly-zero or\nbelow-1e-15-noise imaginary result via makeComplexOrReal and the\npre-existing epsilon guard, a deliberate noise-suppression design that\nis orthogonal to the construction-site rule (noted in the CHANGELOG).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* make-polar: demote only a numerically-zero exact angle; test-helper and import tidy-ups (review #2271)\n\nReview follow-up: the make-polar guard tested the angle's EXACTNESS rather\nthan that it is ZERO, so a tiny exact nonzero angle whose sin underflows to\n0.0 demoted incorrectly: (make-polar 1.5 (/ 1 (expt 10 400))) returned the\nreal 1.5 while Chez, Guile, chibi, and Gambit all keep 1.5+0.0i (real? => #f).\nRequire isZeroValue(args[1]) alongside the exactness check; the exact-zero\nangle pin (make-polar 1.5 0) => 1.5 is unchanged, and a regression covers the\nunderflow path, which the existing pins did not exercise.\n\nAlso per review: convert the make-rectangular unit test to th.TestContext\n(the documented multi-evaluation helper, docs/dev/testing.md) and import\n(scheme process-context) in tests/scheme/smoke/complex-neg-zero.scm so its\nexit calls do not rely on kaappi registering exit ambiently.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-09T17:53:23Z",
+          "tree_id": "4a9db3eaf2e334d18ea106d395840efe241d3be2",
+          "url": "https://github.com/kaappi/kaappi/commit/7606c110749f644aac5568ca37d608782af4ae61"
+        },
+        "date": 1786299948956,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.038368,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.095877,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.459412,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.19378,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003761,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.035174,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.223541,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.041636,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.85257,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.912868,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.184398,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.240797,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.31139,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.322015,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.036308,
             "unit": "seconds"
           }
         ]
