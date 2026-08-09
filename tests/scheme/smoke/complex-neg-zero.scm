@@ -1,7 +1,7 @@
 ;;; Regression test for issue #637: Complex number printing must not drop
 ;;; real/imaginary part when it equals negative zero.
 
-(import (scheme base) (scheme write) (scheme inexact))
+(import (scheme base) (scheme write) (scheme inexact) (scheme process-context))
 
 ;; 1.0-0.0i: imaginary part is -0.0, must not be dropped
 (let* ((x (read (open-input-string "1.0-0.0i")))

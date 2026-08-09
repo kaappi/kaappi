@@ -1603,9 +1603,12 @@ fn makePolar(args: []const Value) PrimitiveError!Value {
     // An inexact zero imaginary part keeps the value complex
     // ((make-polar 1.5 0.0) => 1.5+0.0i, kaappi#2269), matching the reader,
     // make-rectangular, and arithmetic. Only an EXACT zero angle — which
-    // produces an exact zero imag — demotes ((make-polar 1.5 0) => 1.5).
+    // produces an exact zero imag — demotes ((make-polar 1.5 0) => 1.5);
+    // the angle must be numerically zero, not merely exact, so a tiny exact
+    // nonzero angle whose sin underflows to 0.0 stays complex
+    // ((make-polar 1.5 (/ 1 (expt 10 400))) => 1.5+0.0i).
     // Verified against Chez, Guile, chibi, and Gambit.
-    if (imag == 0.0 and types.isExactNumber(args[1])) return types.makeFlonum(real);
+    if (imag == 0.0 and types.isExactNumber(args[1]) and isZeroValue(args[1])) return types.makeFlonum(real);
     return gc.allocComplex(types.makeFlonum(real), types.makeFlonum(imag)) catch return PrimitiveError.OutOfMemory;
 }
 

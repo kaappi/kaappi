@@ -204,6 +204,13 @@
   (number->string (make-polar 1.5 -0.0)))
 (test-equal "make-polar 1.5 0 (exact angle) demotes to a real" 1.5
   (make-polar 1.5 0))
+;; A tiny EXACT NONZERO angle whose sin underflows to 0.0 must NOT demote:
+;; the guard tests the angle is numerically zero, not merely exact
+;; (kaappi#2269, review). All four references keep this complex.
+(test-assert "make-polar with a tiny exact nonzero angle stays complex"
+  (let ((z (make-polar 1.5 (/ 1 (expt 10 400)))))
+    (and (not (real? z))
+         (eqv? z (string->number (number->string z))))))
 ;; (make-polar 0.0 1.0) has a +0.0 real part; kaappi's printer omits a
 ;; zero real in the full form ("+0.0i", a valid R7RS literal) while the
 ;; references print "0.0+0.0i" — same value, same round-trip.
