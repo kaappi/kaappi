@@ -156,7 +156,10 @@ Width-aware pretty-printing for long output — tracked in
 
 | Component | Location |
 |-----------|----------|
-| REPL loop, command dispatch, completeness/completion/highlight callbacks | `src/repl.zig` |
+| REPL loop, line editing, completeness/completion callbacks | `src/repl.zig` |
+| Comma-command dispatch and handlers (`,load`, `,break`, `,time`, …) | `src/repl_commands.zig` |
+| Syntax highlighting: token scanner, highlighter callback, theme bridge | `src/repl_highlight.zig` |
+| Evaluation driver: read → compile → execute → print | `src/repl_eval.zig` |
 | Structural editing transforms (slurp, barf, raise, rotate) | `src/repl_sexp.zig` |
 | Entry point / CLI flags | `src/main.zig` |
 | Import handling | `src/vm_library.zig` (`handleImport`) |
