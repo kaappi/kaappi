@@ -812,23 +812,16 @@
     (mapping-key-predecessor m 5/2 (lambda () 'NONE)))
   (test-equal "mapping-key-successor works for an absent obj" 3
     (mapping-key-successor m 5/2 (lambda () 'NONE)))
-  ;; FAIL: #2046 (the failure thunk is the fold's seed, so it runs unconditionally)
-  ;; (test-equal "mapping-key-predecessor does not run failure when a key exists"
-  ;;   '(2 0) (let ((n 0))
-  ;;            (let ((r (mapping-key-predecessor m 3 (lambda () (set! n (+ n 1)) 'NONE))))
-  ;;              (list r n))))
-  ;; FAIL: #2046
-  ;; (test-equal "mapping-key-successor does not run failure when a key exists"
-  ;;   '(4 0) (let ((n 0))
-  ;;            (let ((r (mapping-key-successor m 3 (lambda () (set! n (+ n 1)) 'NONE))))
-  ;;              (list r n))))
-  ;; FAIL: #2046
-  ;; (test-equal "mapping-key-predecessor tolerates a raising failure thunk"
-  ;;   2 (mapping-key-predecessor m 3 (lambda () (error "no predecessor"))))
-  (test-equal "pins #2046: failure runs once even on the success path" '(2 1)
-    (let ((n 0))
-      (let ((r (mapping-key-predecessor m 3 (lambda () (set! n (+ n 1)) 'NONE))))
-        (list r n))))
+  (test-equal "mapping-key-predecessor does not run failure when a key exists"
+    '(2 0) (let ((n 0))
+             (let ((r (mapping-key-predecessor m 3 (lambda () (set! n (+ n 1)) 'NONE))))
+               (list r n))))
+  (test-equal "mapping-key-successor does not run failure when a key exists"
+    '(4 0) (let ((n 0))
+             (let ((r (mapping-key-successor m 3 (lambda () (set! n (+ n 1)) 'NONE))))
+               (list r n))))
+  (test-equal "mapping-key-predecessor tolerates a raising failure thunk"
+    2 (mapping-key-predecessor m 3 (lambda () (error "no predecessor"))))
   (test-equal "control: failure runs exactly once when there is no answer" '(NONE 1)
     (let ((n 0))
       (let ((r (mapping-key-predecessor m 1 (lambda () (set! n (+ n 1)) 'NONE))))

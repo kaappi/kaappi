@@ -509,16 +509,22 @@
           (let ((e (%rbt-max (%mapping-tree m)))) (values (car e) (cdr e)))))
 
     (define (mapping-key-predecessor m obj failure)
+      ;; The spec tail-calls `failure` only when no preceding key is contained
+      ;; in the mapping.  It is not a fold seed, so it must not run when the
+      ;; answer exists (#2046).
       (let ((lt (%cmp< m)))
-        (%rbt-fold (lambda (k v acc)
-                     (if (lt k obj) k acc))
-                   (failure) (%mapping-tree m))))
+        (let ((result (%rbt-fold (lambda (k v acc)
+                                   (if (lt k obj) (cons #t k) acc))
+                                 (cons #f #f) (%mapping-tree m))))
+          (if (car result) (cdr result) (failure)))))
 
     (define (mapping-key-successor m obj failure)
+      ;; Same discipline as mapping-key-predecessor (#2046).
       (let ((lt (%cmp< m)))
-        (%rbt-fold-right (lambda (k v acc)
-                           (if (lt obj k) k acc))
-                         (failure) (%mapping-tree m))))
+        (let ((result (%rbt-fold-right (lambda (k v acc)
+                                         (if (lt obj k) (cons #t k) acc))
+                                       (cons #f #f) (%mapping-tree m))))
+          (if (car result) (cdr result) (failure)))))
 
     (define (mapping-range= m obj)
       (let ((eq (%cmp= m)) (lt (%cmp< m)))
