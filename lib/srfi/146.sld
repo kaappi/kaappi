@@ -172,21 +172,26 @@
     ;;; Constructors
 
     (define (mapping comparator . args)
+      ;; The spec: "Earlier associations with equal keys take precedence over
+      ;; later arguments" -- the same first-wins semantics as mapping-adjoin,
+      ;; deliberately different from mapping-set (#2045).
       (let ((lt (comparator-ordering-predicate comparator))
             (eq (comparator-equality-predicate comparator)))
         (let loop ((args args) (t %empty))
           (if (null? args) (%make-mapping comparator t)
-              (loop (cddr args) (%rbt-insert t (car args) (cadr args) lt eq))))))
+              (loop (cddr args) (%rbt-adjoin t (car args) (cadr args) lt eq))))))
 
     (define mapping/ordered mapping)
 
     (define (mapping-unfold stop? mapper successor seed comparator)
+      ;; The spec: "Associations earlier in the list take precedence over those
+      ;; that come later" -- first-wins, matching mapping (#2045).
       (let ((lt (comparator-ordering-predicate comparator))
             (eq (comparator-equality-predicate comparator)))
         (let loop ((seed seed) (t %empty))
           (if (stop? seed) (%make-mapping comparator t)
               (let-values (((key val) (mapper seed)))
-                (loop (successor seed) (%rbt-insert t key val lt eq)))))))
+                (loop (successor seed) (%rbt-adjoin t key val lt eq)))))))
 
     (define mapping-unfold/ordered mapping-unfold)
 

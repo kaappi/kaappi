@@ -39,18 +39,25 @@
       ;; The table must be keyed by the comparator's equality/hash pair, not
       ;; the native equal? default, or 1 and 1.0 stay distinct keys under a
       ;; comparator whose equality is = (#2044).
+      ;; The spec: "Earlier associations with equal keys take precedence over
+      ;; later arguments" -- first-wins, matching hashmap-adjoin (#2045).
       (let ((ht (make-hash-table comparator)))
         (let loop ((args args))
           (if (null? args) (%make-hashmap comparator ht)
-              (begin (hash-table-set! ht (car args) (cadr args))
-                     (loop (cddr args)))))))
+              (begin
+                (if (not (hash-table-exists? ht (car args)))
+                    (hash-table-set! ht (car args) (cadr args)))
+                (loop (cddr args)))))))
 
     (define (hashmap-unfold stop? mapper successor seed comparator)
+      ;; The spec: "Associations earlier in the list take precedence over those
+      ;; that come later" -- first-wins, matching hashmap (#2045).
       (let ((ht (make-hash-table comparator)))
         (let loop ((seed seed))
           (if (stop? seed) (%make-hashmap comparator ht)
               (let-values (((key val) (mapper seed)))
-                (hash-table-set! ht key val)
+                (if (not (hash-table-exists? ht key))
+                    (hash-table-set! ht key val))
                 (loop (successor seed)))))))
 
     (define (hashmap-contains? m key) (hash-table-exists? (%hm-ht m) key))

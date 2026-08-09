@@ -594,33 +594,21 @@
   (test-equal "control: alist-> keeps the earlier association (hash)"
     'a (hashmap-ref (alist->hashmap c '((1 . a) (1 . b))) 1))
 
-  ;; FAIL: #2045 (the constructors and unfolds keep the LAST duplicate key)
-  ;; (test-equal "mapping keeps the earlier of two equal keys"
-  ;;   'a (mapping-ref (mapping c 1 'a 1 'b) 1))
-  ;; FAIL: #2045
-  ;; (test-equal "hashmap keeps the earlier of two equal keys"
-  ;;   'a (hashmap-ref (hashmap c 1 'a 1 'b) 1))
-  ;; FAIL: #2045
-  ;; (test-equal "mapping/ordered keeps the earlier of two equal keys"
-  ;;   'a (mapping-ref (mapping/ordered c 1 'a 1 'b) 1))
-  ;; FAIL: #2045
-  ;; (test-equal "mapping-unfold keeps the earliest association"
-  ;;   1 (mapping-ref (mapping-unfold (lambda (s) (> s 2)) (lambda (s) (values 'k s))
-  ;;                                  (lambda (s) (+ s 1)) 1 c) 'k))
-  ;; FAIL: #2045
-  ;; (test-equal "mapping-unfold/ordered keeps the earliest association"
-  ;;   1 (mapping-ref (mapping-unfold/ordered (lambda (s) (> s 2)) (lambda (s) (values 'k s))
-  ;;                                          (lambda (s) (+ s 1)) 1 c) 'k))
-  ;; FAIL: #2045
-  ;; (test-equal "hashmap-unfold keeps the earliest association"
-  ;;   1 (hashmap-ref (hashmap-unfold (lambda (s) (> s 2)) (lambda (s) (values 'k s))
-  ;;                                  (lambda (s) (+ s 1)) 1 c) 'k))
-
-  ;; These pin the current, wrong answers so a change is never silent.
-  (test-equal "pins #2045: mapping currently keeps the later key"
-    'b (mapping-ref (mapping c 1 'a 1 'b) 1))
-  (test-equal "pins #2045: hashmap currently keeps the later key"
-    'b (hashmap-ref (hashmap c 1 'a 1 'b) 1)))
+  (test-equal "mapping keeps the earlier of two equal keys"
+    'a (mapping-ref (mapping c 1 'a 1 'b) 1))
+  (test-equal "hashmap keeps the earlier of two equal keys"
+    'a (hashmap-ref (hashmap c 1 'a 1 'b) 1))
+  (test-equal "mapping/ordered keeps the earlier of two equal keys"
+    'a (mapping-ref (mapping/ordered c 1 'a 1 'b) 1))
+  (test-equal "mapping-unfold keeps the earliest association"
+    1 (mapping-ref (mapping-unfold (lambda (s) (> s 2)) (lambda (s) (values 'k s))
+                                  (lambda (s) (+ s 1)) 1 c) 'k))
+  (test-equal "mapping-unfold/ordered keeps the earliest association"
+    1 (mapping-ref (mapping-unfold/ordered (lambda (s) (> s 2)) (lambda (s) (values 'k s))
+                                          (lambda (s) (+ s 1)) 1 c) 'k))
+  (test-equal "hashmap-unfold keeps the earliest association"
+    1 (hashmap-ref (hashmap-unfold (lambda (s) (> s 2)) (lambda (s) (values 'k s))
+                                  (lambda (s) (+ s 1)) 1 c) 'k)))
 
 ;;; --------------------------------------------------- comparator plumbing
 
