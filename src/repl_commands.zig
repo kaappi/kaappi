@@ -191,23 +191,28 @@ pub fn handleCommand(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []cons
             // backslash — on Windows every path does (kaappi#2273).
             // evalInputValue evaluates the form with the same driver as the
             // text path, errors included.
-            var path_val: types.Value = undefined;
+            //
+            // Assign before rooting (matching `,expand`/`,import` below): the
+            // slot must hold a valid value before any later call can collect
+            // — allocString/allocSymbol copy their bytes, then maybeCollect()
+            // *before* returning, and markRoots dereferences every rooted
+            // slot, so rooting an undefined slot would let garbage bits that
+            // happen to look like a pointer corrupt the heap (kaappi#2274
+            // review). path_val is rooted before allocSymbol (the next
+            // allocation) and sym_val before the allocPair calls; allocPair
+            // roots its Value arguments internally.
+            var path_val = vm.gc.allocString(load_path) catch {
+                writeStderr("out of memory\n");
+                return .handled;
+            };
             vm.gc.pushRoot(&path_val);
             defer vm.gc.popRoot();
-            path_val = vm.gc.allocString(load_path) catch {
+            var sym_val = vm.gc.allocSymbol("load") catch {
                 writeStderr("out of memory\n");
                 return .handled;
             };
-            var sym_val: types.Value = undefined;
             vm.gc.pushRoot(&sym_val);
             defer vm.gc.popRoot();
-            sym_val = vm.gc.allocSymbol("load") catch {
-                writeStderr("out of memory\n");
-                return .handled;
-            };
-            // allocPair roots its Value arguments internally, so only the
-            // two locals above need explicit roots across the calls below
-            // (see .claude/rules/gc-safety.md).
             const args = vm.gc.allocPair(path_val, types.NIL) catch {
                 writeStderr("out of memory\n");
                 return .handled;
