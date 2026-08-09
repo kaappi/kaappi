@@ -719,14 +719,12 @@
   (test-assert "pins #2048: hashmap-comparator has no hash yet"
     (not (comparator-hashable? hashmap-comparator)))
 
-  ;; FAIL: #2047 (=? omits the key-comparator identity check)
-  ;; (test-assert "mapping=? separates mappings with different comparators"
-  ;;   (not (mapping=? c (mapping (make-default-comparator) 1 'a)
-  ;;                     (mapping (make-default-comparator) 1 'a))))
-  ;; FAIL: #2047
-  ;; (test-assert "hashmap=? separates hashmaps with different comparators"
-  ;;   (not (hashmap=? c (hashmap (make-default-comparator) 1 'a)
-  ;;                     (hashmap (make-default-comparator) 1 'a))))
+  (test-assert "mapping=? separates mappings with different comparators"
+    (not (mapping=? c (mapping (make-default-comparator) 1 'a)
+                      (mapping (make-default-comparator) 1 'a))))
+  (test-assert "hashmap=? separates hashmaps with different comparators"
+    (not (hashmap=? c (hashmap (make-default-comparator) 1 'a)
+                      (hashmap (make-default-comparator) 1 'a))))
   (test-assert "control: mapping=? on a shared comparator is #t"
     (mapping=? c (mapping c 1 'a) (mapping c 1 'a)))
   (test-assert "control: hashmap=? on a shared comparator is #t"

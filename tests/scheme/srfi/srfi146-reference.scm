@@ -366,9 +366,8 @@
           (test-assert "mapping=?: unequal mappings"
             (not (mapping=? comparator mapping1 mapping4)))
 
-          ;; FAIL: #2047 (mapping=? omits the key-comparator identity check)
-          ;; (test-assert "mapping=?: different comparators"
-          ;;   (not (mapping=? comparator mapping1 mapping6)))
+          (test-assert "mapping=?: different comparators"
+            (not (mapping=? comparator mapping1 mapping6)))
 
           (test-assert "mapping<?: proper subset"
             (mapping<? comparator mapping3 mapping1))
@@ -870,9 +869,8 @@
           (test-assert "hashmap=?: unequal hashmaps"
             (not (hashmap=? comparator hashmap1 hashmap4)))
 
-          ;; FAIL: #2047 (hashmap=? omits the key-comparator identity check)
-          ;; (test-assert "hashmap=?: different comparators"
-          ;;   (not (hashmap=? comparator hashmap1 hashmap6)))
+          (test-assert "hashmap=?: different comparators"
+            (not (hashmap=? comparator hashmap1 hashmap6)))
 
           (test-assert "hashmap<?: proper subset"
             (hashmap<? comparator hashmap3 hashmap1))

@@ -397,14 +397,18 @@
     ;;; Comparisons
 
     (define (%mapping=? vcmp m1 m2)
-      (let ((veq (comparator-equality-predicate vcmp))
-            (a1 (mapping->alist m1)) (a2 (mapping->alist m2)))
-        (and (= (length a1) (length a2))
-             (let loop ((a a1) (b a2))
-               (or (null? a)
-                   (and ((%cmp= m1) (caar a) (caar b))
-                        (veq (cdar a) (cdar b))
-                        (loop (cdr a) (cdr b))))))))
+      ;; The spec: it is "explicitly not an error" to compare mappings with
+      ;; different key comparators -- in that case #f is returned.  "Share the
+      ;; same comparator" means object identity, so this is eq? (#2047).
+      (and (eq? (%mapping-comparator m1) (%mapping-comparator m2))
+           (let ((veq (comparator-equality-predicate vcmp))
+                 (a1 (mapping->alist m1)) (a2 (mapping->alist m2)))
+             (and (= (length a1) (length a2))
+                  (let loop ((a a1) (b a2))
+                    (or (null? a)
+                        (and ((%cmp= m1) (caar a) (caar b))
+                             (veq (cdar a) (cdar b))
+                             (loop (cdr a) (cdr b)))))))))
 
     (define (%mapping<=? vcmp m1 m2)
       (let ((veq (comparator-equality-predicate vcmp))

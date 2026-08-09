@@ -265,15 +265,19 @@
                 (loop (cdr al)))))))
 
     (define (%hm=? vcmp m1 m2)
-      (let ((veq (comparator-equality-predicate vcmp)))
-        (and (= (hashmap-size m1) (hashmap-size m2))
-             (let ((all #t))
-               (hash-table-walk (%hm-ht m1)
-                 (lambda (k v1)
-                   (if (not (and (hash-table-exists? (%hm-ht m2) k)
-                                 (veq v1 (hash-table-ref (%hm-ht m2) k))))
-                       (set! all #f))))
-               all))))
+      ;; The spec: it is "explicitly not an error" to compare hashmaps with
+      ;; different key comparators -- in that case #f is returned.  "Share the
+      ;; same comparator" means object identity, so this is eq? (#2047).
+      (and (eq? (%hm-comparator m1) (%hm-comparator m2))
+           (let ((veq (comparator-equality-predicate vcmp)))
+             (and (= (hashmap-size m1) (hashmap-size m2))
+                  (let ((all #t))
+                    (hash-table-walk (%hm-ht m1)
+                      (lambda (k v1)
+                        (if (not (and (hash-table-exists? (%hm-ht m2) k)
+                                      (veq v1 (hash-table-ref (%hm-ht m2) k))))
+                            (set! all #f))))
+                    all)))))
 
     (define (%hm<=? vcmp m1 m2)
       (let ((veq (comparator-equality-predicate vcmp)))
