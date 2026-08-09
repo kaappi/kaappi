@@ -1033,7 +1033,9 @@ pub fn isZeroValue(v: Value) bool {
 /// inexact, so a stored complex is never mixed-exactness (kaappi#2166) — and
 /// demoting to the real component when the imaginary part is zero, so every
 /// complex constructed here has a nonzero imaginary part. The construction
-/// site behind make-rectangular and exact/inexact conversions.
+/// site behind exact/inexact conversions and the arithmetic tower
+/// (kaappi#2269 moved make-rectangular to makeComplexOrRealLiteral so an
+/// inexact zero imag stays complex there).
 pub fn makeComplexOrRealV(gc: *memory.GC, real_in: Value, imag_in: Value) PrimitiveError!Value {
     var real = real_in;
     var imag = imag_in;
@@ -1592,10 +1594,13 @@ fn makeRectangular(args: []const Value) PrimitiveError!Value {
     for (args) |a| {
         if (!isComponentValue(a)) return primitives.typeError("make-rectangular", "real number", a);
     }
-    // The exactness rule (R7RS 6.2.2) and the zero-imag demotion live in
-    // makeComplexOrRealV, so make-rectangular never touches an f64:
-    // 2^53+1 and 10^25 survive digit-exactly (kaappi#2166).
-    return makeComplexOrRealV(gc, args[0], args[1]);
+    // Components are never forced through an f64: 2^53+1 and 10^25 survive
+    // digit-exactly (kaappi#2166). The exactness rule (R7RS 6.2.2) and the
+    // zero-imag demotion live in makeComplexOrRealLiteral — the same
+    // construction the reader uses, so an INEXACT zero imaginary part stays
+    // complex ((real? (make-rectangular 1.5 0.0)) => #f, kaappi#2269) and
+    // only an exact zero demotes, matching the literal 1.5+0.0i.
+    return makeComplexOrRealLiteral(gc, args[0], args[1]);
 }
 
 fn makePolar(args: []const Value) PrimitiveError!Value {

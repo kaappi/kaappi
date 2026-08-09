@@ -34,14 +34,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   through the normal numeric printer, so `write` and `real-part` agree;
   and the reader and `string->number` build components digit-exactly at
   any size. Per R7RS 6.2.2 a stored complex is never mixed-exactness (an
-  inexact operand makes both components inexact), and a zero imaginary
-  part demotes to the real component — except that a literal's *inexact*
-  zero imag stays complex (`(real? -2.5+0.0i)` => #f) while an exact one
-  demotes (`(integer? 3+0i)` => #t). The `.sbc` constant encoding stores
+  inexact operand makes both components inexact), and an *exact* zero
+  imaginary part demotes to the real component (`(integer? 3+0i)` => #t)
+  while an *inexact* zero imag keeps the value complex (`(real?
+  -2.5+0.0i)` => #f). The `.sbc` constant encoding stores
   the two component constants instead of f64+flags. This dissolves the
   #2182/#2243 f64 round-trip gates in the reader and `string->number`:
   `9007199254740993+1i`, `#x20000000000001+2i`, and
   `10000000000000000000000000/3+1i` all read digit-exactly now.
+
+- **`make-rectangular` keeps an inexact zero imaginary part complex, and
+  `write`/`number->string` print it in full** (#2269). The reader already
+  kept `1.5+0.0i` complex (`(real? 1.5+0.0i)` => #f), but
+  `(make-rectangular 1.5 0.0)` demoted to the real `1.5` and the printer
+  collapsed an inexact-zero-imag complex to its bare real part, so
+  `(write 1.5+0.0i)` printed `1.5` — which reads back as a different
+  value, violating R7RS 6.2.7's `number->string` round-trip. Both
+  construction and printing now match the reader: only an exact zero imag
+  demotes, `(write 1.5+0.0i)` emits `"1.5+0.0i"`, and the decomposition
+  round-trip `(eqv? (make-rectangular (real-part z) (imag-part z)) z)`
+  holds for `z = 1.5+0.0i`. c64/c128 elements with a +0.0 imaginary part
+  likewise decode to a Complex instead of a plain real, so SRFI-160 refs
+  and the standalone constructor agree (Chez, Guile, chibi, and Gambit
+  all behave this way).
 
 - **Rational→flonum conversion is correct when a single side alone leaves
   f64 range** (#2183). `(inexact (/ 1 (expt 2 1074)))` was `0.0` instead of

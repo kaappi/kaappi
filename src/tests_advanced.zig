@@ -396,15 +396,23 @@ test "real-part and imag-part of real numbers" {
     try std.testing.expectEqual(@as(i64, 0), types.toFixnum(ip));
 }
 
-test "make-rectangular with zero imag returns flonum" {
+test "make-rectangular with zero imag keeps an inexact zero-imag complex" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
+    // An INEXACT zero imaginary part keeps the value complex (R7RS 6.2.6
+    // worked examples: (real? -2.5+0.0i) => #f; kaappi#2269). Only an
+    // exact zero demotes.
     const result = try vm.eval("(make-rectangular 5.0 0.0)");
-    try std.testing.expect(types.isFlonum(result));
-    try std.testing.expectEqual(@as(f64, 5.0), types.toFlonum(result));
+    try std.testing.expect(types.isComplex(result));
+    const c = types.toComplex(result);
+    try std.testing.expectEqual(@as(f64, 5.0), types.toFlonum(c.real));
+    try std.testing.expectEqual(@as(f64, 0.0), types.toFlonum(c.imag));
+
+    const exact = try vm.eval("(make-rectangular 5 0)");
+    try std.testing.expect(types.isFixnum(exact));
 }
 
 test "complex? predicate" {

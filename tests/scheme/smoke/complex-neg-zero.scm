@@ -30,13 +30,15 @@
     (display "FAIL: expected 3.0+4.0i, got ") (display s) (newline)
     (exit 1)))
 
-;; Positive zero imaginary should collapse to real
+;; Positive zero imaginary must NOT collapse: 5.0+0.0i is complex (an
+;; inexact zero imaginary part keeps the value complex, R7RS 6.2.6,
+;; kaappi#2269), so write emits the full form and the value round-trips.
 (let* ((w (read (open-input-string "5.0+0.0i")))
        (s (let ((p (open-output-string)))
             (write w p)
             (get-output-string p))))
-  (unless (string=? s "5.0")
-    (display "FAIL: expected 5.0, got ") (display s) (newline)
+  (unless (string=? s "5.0+0.0i")
+    (display "FAIL: expected 5.0+0.0i, got ") (display s) (newline)
     (exit 1)))
 
 (display "OK")

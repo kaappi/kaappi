@@ -12,9 +12,10 @@
 ;; flonum) instead of f64+exactness-flags, so exact complexes are computed,
 ;; stored, printed, and read back digit-exactly. A stored complex is never
 ;; mixed-exactness: if either component is inexact both are (R7RS 6.2.2's
-;; inexactness rule), and a zero imaginary part demotes to the real
-;; component. These tests pin the full behavior, including the exact
-;; arithmetic the interim slice deliberately left inexact.
+;; inexactness rule), and an EXACT zero imaginary part demotes to the real
+;; component while an INEXACT zero keeps the value complex (kaappi#2269).
+;; These tests pin the full behavior, including the exact arithmetic the
+;; interim slice deliberately left inexact.
 
 (import (scheme base) (scheme complex) (scheme write) (scheme process-context) (srfi 64) (srfi 69))
 
@@ -133,13 +134,41 @@
   (finite? (make-rectangular (expt 10 400) 1)))
 (test-equal "make-rectangular 3/2 0 demotes to exact rational" 3/2
   (make-rectangular 3/2 0))
-(test-equal "make-rectangular 3/2 0.0 demotes to inexact" 1.5
+(test-equal "make-rectangular 3/2 0.0 keeps an inexact zero imag complex" 1.5+0.0i
   (make-rectangular 3/2 0.0))
 (test-assert "make-rectangular 3/2 0.0 result is inexact"
   (inexact? (make-rectangular 3/2 0.0)))
-(test-equal "make-rectangular 1 0.0 demotes to inexact 1.0" 1.0
+(test-equal "make-rectangular 1 0.0 keeps an inexact zero imag complex" 1.0+0.0i
   (make-rectangular 1 0.0))
-(test-assert "make-rectangular 1.5 0.0 is real" (real? (make-rectangular 1.5 0.0)))
+(test-assert "make-rectangular 1.5 0.0 is not real (inexact zero imag)"
+  (not (real? (make-rectangular 1.5 0.0))))
+
+;; --- #2269: an inexact zero imag stays complex and round-trips -----------
+;; make-rectangular now constructs through the same exact-zero-only demotion
+;; the reader uses, so the constructor and the literal 1.5+0.0i agree: the
+;; value is NOT real (R7RS 6.2.6's worked examples pin (real? -2.5+0.0i)
+;; => #f), and write/number->string emit the full form so it round-trips
+;; through read/string->number (R7RS 6.2.7). The decomposition probe starts
+;; from the READER value (not make-rectangular), because that is the only
+;; starting point that fails under the old demotion — the discriminating
+;; case per the cross-implementation check on the issue.
+(define z2269 (read (open-input-string "1.5+0.0i")))
+(test-assert "make-rectangular 1.5 0.0 agrees with the reader literal"
+  (eqv? (make-rectangular 1.5 0.0) z2269))
+(test-assert "decomposition round-trip: (make-rectangular (real-part z) (imag-part z)) == z"
+  (eqv? (make-rectangular (real-part z2269) (imag-part z2269)) z2269))
+(test-assert "write/read round-trip of 1.5+0.0i"
+  (let ((p (open-output-string)))
+    (write z2269 p)
+    (eqv? z2269 (read (open-input-string (get-output-string p))))))
+(test-equal "write of 1.5+0.0i is honest" "1.5+0.0i"
+  (let ((p (open-output-string)))
+    (write z2269 p)
+    (get-output-string p)))
+(test-assert "number->string/string->number round-trip (R7RS 6.2.7)"
+  (eqv? z2269 (string->number (number->string z2269))))
+(test-equal "number->string of 1.5+0.0i is honest" "1.5+0.0i"
+  (number->string z2269))
 
 ;; --- #2166 (full): write and real-part agree -------------------------------
 

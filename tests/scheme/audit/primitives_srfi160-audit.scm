@@ -234,23 +234,24 @@
 (test-assert "c128 accepts an exact complex"
              (= (make-rectangular 1 2) (rt c128row (make-rectangular 1 2))))
 
-;;; A c64/c128 element decodes to a real when its imaginary part is exactly
-;;; +0.0, matching make-rectangular's normalisation and the standalone
-;;; complex printer's collapse (kaappi#1951). A -0.0 imaginary part keeps
-;;; its sign and stays a Complex, since the printer preserves -0.0 as
-;;; "1.5-0.0i". These assertions pin the decode boundary.
-(test-assert "a zero-imaginary (+0.0) c128 element decodes to a real"
-             (real? (c128vector-ref (c128vector 1.5) 0)))
-(test-assert "a zero-imaginary (+0.0) c64 element decodes to a real"
-             (real? (c64vector-ref (c64vector 1.5) 0)))
+;;; A c64/c128 element decodes to a Complex with BOTH components preserved
+;;; — an element stored as (1.5, +0.0) decodes to 1.5+0.0i, matching the
+;;; reader and make-rectangular, where an inexact zero imaginary part keeps
+;;; the value complex (R7RS 6.2.6; kaappi#2269). A -0.0 imaginary part keeps
+;;; its sign too, since the printer preserves it as "1.5-0.0i". These
+;;; assertions pin the decode boundary.
+(test-assert "a zero-imaginary (+0.0) c128 element stays complex"
+             (not (real? (c128vector-ref (c128vector 1.5) 0))))
+(test-assert "a zero-imaginary (+0.0) c64 element stays complex"
+             (not (real? (c64vector-ref (c64vector 1.5) 0))))
 (test-assert "a +0.0-imag c128 element is complex? (reals are complex)"
              (complex? (c128vector-ref (c128vector 1.5) 0)))
 (test-assert "its imaginary part is zero"
              (= 0 (imag-part (c128vector-ref (c128vector 1.5) 0))))
-;; Control 1: make-rectangular NORMALISES a zero imaginary part to a real,
-;; so decodeElement now agrees with the ordinary constructor.
-(test-assert "make-rectangular normalises a zero imaginary part"
-             (real? (make-rectangular 1.5 0.0)))
+;; Control 1: make-rectangular KEEPS an inexact zero imaginary part complex,
+;; so decodeElement agrees with the ordinary constructor.
+(test-assert "make-rectangular keeps an inexact zero imaginary part complex"
+             (not (real? (make-rectangular 1.5 0.0))))
 ;; Control 2: a genuinely complex element round-trips through write/read.
 (test-assert "a genuine complex writes and reads back as a complex"
              (let ((e (c128vector-ref (c128vector (make-rectangular 1.5 2.5)) 0)))
@@ -260,12 +261,12 @@
 (test-equal "#<c128vector 1.5+0.0i>" (write-to-string (c128vector 1.5)))
 (test-equal "#<c64vector 1.5+0.0i>" (write-to-string (c64vector 1.5)))
 
-;;; #1951 (a zero-imaginary c64/c128 element writes as a real): a +0.0
-;;; imaginary part now decodes to a plain real, so `write` emits "1.5" and
-;;; it reads back as the SAME type — real? agrees on both sides. The same
-;;; holds for c64 and for the DEFAULT FILL, so every freshly-made c64/c128
-;;; vector round-trips. A -0.0 imaginary part stays a Complex and writes
-;;; as "1.5-0.0i", which also round-trips.
+;;; #1951/#2269 (a zero-imaginary c64/c128 element writes as a real): a
+;;; +0.0 imaginary part now decodes to the complex 1.5+0.0i and `write`
+;;; emits "1.5+0.0i", so it reads back as the SAME type — real? agrees on
+;;; both sides. The same holds for c64 and for the DEFAULT FILL, so every
+;;; freshly-made c64/c128 vector round-trips. A -0.0 imaginary part stays a
+;;; Complex and writes as "1.5-0.0i", which also round-trips.
 (test-assert "a zero-imaginary c128 element round-trips through write/read"
              (let ((e (c128vector-ref (c128vector 1.5) 0)))
                (eq? (real? e)
