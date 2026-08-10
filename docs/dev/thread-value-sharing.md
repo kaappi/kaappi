@@ -14,7 +14,7 @@ routes, and they have separate, unrelated enforcement:
 | **globals** | reached by pointer, no copy | per-type owner checks in individual primitives — present for exactly four types, plus (since kaappi#1924) a general rejection of any store of a heap pointer into a container the running thread does not own (interned symbols excepted) |
 
 The tag list is not a statement about what can cross a thread boundary.
-It is a statement about what can be *copied*. Eleven of the fourteen tags
+It is a statement about what can be *copied*. Eight of the eleven tags
 on it are freely reachable through a top-level `define`, and for two of
 them that is the only supported way to share them at all.
 
@@ -42,13 +42,18 @@ that name through the shared globals map at run time, so the value never
 enters the copy at all. This is the whole reason the two routes exist as
 separate things.
 
-`gc_deep_copy.zig` refuses fourteen tags outright:
+`gc_deep_copy.zig` refuses eleven tags outright:
 
 ```text
 port  continuation  fiber  mutex  condition_variable  ffi_callback
-file_info  user_info  group_info  directory_object  scheme_environment
-ephemeron  guardian  transport_cell
+directory_object  scheme_environment  ephemeron  guardian  transport_cell
 ```
+
+`file-info`, `user-info` and `group-info` used to sit here too; they are
+pure value records (scalars plus owned string bytes, like `SchemeString`)
+and have copied by value since kaappi#1978, so a `file-info` can be the
+join result of a child thread. `directory_object` among the SRFI-170 types
+is still genuinely uncopyable — it owns a live `DIR*`.
 
 Channels are **not** on that list. Their arm promotes the channel to a
 shared representation and aliases it, which is what makes a lexically
@@ -92,7 +97,9 @@ into a catchable error naming neither the type nor the offending value:
 
 ```text
 uncaught exception in thread: thread thunk contains an uncopyable type
-(port, continuation, etc.), or a channel owned by another thread
+(port, continuation, fiber, mutex, condition variable, FFI callback,
+directory object, environment, ephemeron, guardian, or transport cell),
+or a channel owned by another thread
 ```
 
 ## The globals route
@@ -150,7 +157,7 @@ with a top-level `define` and named by the thunk.
 | port | refused | works | unchecked (see below) |
 | continuation | refused | no error, does not resume the parent | unchecked — kaappi#1936 |
 | `scheme-environment` | refused | works (`eval` in it succeeds) | unchecked |
-| `file-info` / `user-info` / `group-info` | refused | works | unchecked |
+| `file-info` / `user-info` / `group-info` | **copied by value** | works | **coherent** since kaappi#1978 — pure value records, now copy like `SchemeString` |
 | directory object | refused | works | unchecked |
 | ffi-library / ffi-function | **copied** | works | **coherent** since kaappi#2027 — the wrapper crosses, the process-global handle is shared by value |
 | record type / instance | **copied, same type** | works | **coherent** since kaappi#1932 — identity is a counter carried by the copy, not the address |
@@ -206,7 +213,7 @@ the general mutation hazard for the ones that do".
 ## Why the checks were not simply extended to the globals route
 
 kaappi#1937 offered this as one of two fixes. It cannot be done
-uniformly, because for two of the fourteen tags the globals route is the
+uniformly, because for two of the eleven tags the globals route is the
 *only* route: refusing a foreign mutex or condition variable would remove
 the sole supported way to synchronise threads, and SRFI-18 has no other.
 Ports through globals would break too, and the issue itself argues that
@@ -322,7 +329,11 @@ the code and this table.
 
 The four SRFI-170 record types are left out on purpose: `user-info` raises
 "unsupported" on Windows and this suite runs there, and those rows add no
-enforcement shape the nine already cover. `ffi-callback` needs a loaded
+enforcement shape the nine already cover. (The three *copyable* ones —
+`file-info`, `user-info`, `group-info` — have their own cross-boundary
+coverage in `tests/scheme/audit/srfi18-deepcopy-matrix-audit.scm` and
+`tests/scheme/audit/primitives_filesystem-audit.scm` section H since
+kaappi#1978.) `ffi-callback` needs a loaded
 FFI library; the transport cell is unreachable, as above.
 
 Two smaller checks live elsewhere and are worth knowing about rather than

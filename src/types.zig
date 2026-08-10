@@ -337,6 +337,10 @@ pub const NativeFn = struct {
     pub const Arity = union(enum) {
         exact: u8,
         variadic: u8, // minimum args
+        /// A variadic with a documented upper bound (SRFI signatures like
+        /// SRFI-170's `(create-temp-file [prefix])`). Surplus arguments are
+        /// rejected as an arity mismatch rather than silently ignored.
+        range: struct { min: u8, max: u8 },
     };
 };
 
@@ -684,6 +688,7 @@ pub fn acceptsArgCount(v: Value, nargs: usize) bool {
         return switch (toObject(v).as(NativeFn).arity) {
             .exact => |n| nargs == n,
             .variadic => |min| nargs >= min,
+            .range => |r| nargs >= r.min and nargs <= r.max,
         };
     }
     if (isNativeClosure(v)) return nargs == toObject(v).as(NativeClosure).arity;

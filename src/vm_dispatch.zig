@@ -537,6 +537,16 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                                 return VMError.ArityMismatch;
                             }
                         },
+                        .range => |r| {
+                            if (nargs < r.min) {
+                                self.setErrorDetail("'{s}': expected at least {d} arguments, got {d}", .{ native.name, r.min, nargs });
+                                return VMError.ArityMismatch;
+                            }
+                            if (nargs > r.max) {
+                                self.setErrorDetail("'{s}': expected at most {d} arguments, got {d}", .{ native.name, r.max, nargs });
+                                return VMError.ArityMismatch;
+                            }
+                        },
                     }
                     const saved_alloc_target = self.gc.profile_alloc_target;
                     if (self.profile_mode) {
@@ -746,6 +756,16 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         .variadic => |min| {
                             if (count < min) {
                                 self.setErrorDetail("'{s}': expected at least {d} arguments, got {d}", .{ native.name, min, count });
+                                return VMError.ArityMismatch;
+                            }
+                        },
+                        .range => |r| {
+                            if (count < r.min) {
+                                self.setErrorDetail("'{s}': expected at least {d} arguments, got {d}", .{ native.name, r.min, count });
+                                return VMError.ArityMismatch;
+                            }
+                            if (count > r.max) {
+                                self.setErrorDetail("'{s}': expected at most {d} arguments, got {d}", .{ native.name, r.max, count });
                                 return VMError.ArityMismatch;
                             }
                         },
@@ -1026,6 +1046,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     const arity_ok = switch (native.arity) {
                         .exact => |expected| nargs == expected,
                         .variadic => |min| nargs >= min,
+                        .range => |r| nargs >= r.min and nargs <= r.max,
                     };
                     if (arity_ok and base + @as(u16, nargs) + 1 < self.registers.len) {
                         const args = self.registers[base + 1 .. base + 1 + nargs];

@@ -11,6 +11,7 @@ const GC = memory.GC;
 const arith = @import("primitives_arithmetic.zig");
 
 extern fn mkstemp(template: [*:0]u8) c_int;
+extern "c" fn strerror(errnum: c_int) [*:0]const u8;
 
 extern "c" fn truncate(path: [*:0]const u8, length: std.c.off_t) c_int;
 extern "c" fn mkfifo(path: [*:0]const u8, mode: std.c.mode_t) c_int;
@@ -23,6 +24,27 @@ extern "c" fn unsetenv(name: [*:0]const u8) c_int;
 extern "c" fn getgrnam(name: [*:0]const u8) ?*std.c.group;
 const is_linux = @import("builtin").os.tag == .linux;
 
+/// SRFI-170's posix-error-name: the symbol naming the errno code, e.g.
+/// `ENOENT`. Zig's `std.c.E` is an exhaustive enum on every target we
+/// build (darwin, linux, the BSDs, windows, wasi) but `void` on the
+/// `else` platforms the switch does not enumerate — guard that case.
+/// `@tagName` of `NOENT` is `"NOENT"`, so the POSIX spelling is a simple
+/// `"E"` prefix; errno values with no declared tag (or errno 0, which
+/// no failing syscall produces) get `EUNKNOWN`.
+fn errnoName(errno_val: c_int) []const u8 {
+    const E = std.c.E;
+    if (E == void) return "EUNKNOWN";
+    // `std.meta.tags` returns a pointer (not a tuple), whose elements an
+    // `inline for` cannot use at comptime; `std.enums.values` returns a
+    // tuple, so the unrolled `@tagName` below stays comptime-known.
+    inline for (std.enums.values(E)) |tag| {
+        if (@as(c_int, @intCast(@intFromEnum(tag))) == errno_val) {
+            return "E" ++ @tagName(tag);
+        }
+    }
+    return "EUNKNOWN";
+}
+
 fn validateMode(gc: *GC, val: Value) PrimitiveError!std.c.mode_t {
     if (!types.isFixnum(val)) return primitives.typeError("set-file-mode", "integer", val);
     const n = types.toFixnum(val);
@@ -31,7 +53,7 @@ fn validateMode(gc: *GC, val: Value) PrimitiveError!std.c.mode_t {
     // on Linux, so out-of-range values were rejected on one and silently
     // passed to chmod on the other.
     if (n < 0 or n > 0o7777) {
-        _ = try raiseFileError(gc, "mode value out of range", val);
+        _ = try raiseArgError(gc, "mode value out of range", val);
         unreachable;
     }
     return @truncate(@as(u64, @intCast(n)));
@@ -41,7 +63,7 @@ fn validateUid(gc: *GC, val: Value) PrimitiveError!std.c.uid_t {
     const n = types.toFixnum(val);
     if (n == -1) return @bitCast(@as(u32, 0xFFFFFFFF));
     if (n < 0 or n > std.math.maxInt(std.c.uid_t)) {
-        _ = try raiseFileError(gc, "uid/gid value out of range", val);
+        _ = try raiseArgError(gc, "uid/gid value out of range", val);
         unreachable;
     }
     return @truncate(@as(u64, @intCast(n)));
@@ -159,8 +181,8 @@ fn doStat(path: [*:0]const u8, follow: bool) ?StatResult {
 }
 
 pub const specs = [_]primitives.PrimSpec{
-    .{ .name = "directory-files", .func = &directoryFiles, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
-    .{ .name = "file-info", .func = &fileInfoFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "directory-files", .func = &directoryFiles, .arity = .{ .range = .{ .min = 1, .max = 2 } }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "file-info", .func = &fileInfoFn, .arity = .{ .range = .{ .min = 1, .max = 2 } }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
     .{ .name = "file-info?", .func = &fileInfoP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
     .{ .name = "file-info-directory?", .func = &fileInfoDirectoryP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
     .{ .name = "file-info-regular?", .func = &fileInfoRegularP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
@@ -181,7 +203,7 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "file-info-fifo?", .func = &fileInfoFifoP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
     .{ .name = "file-info-socket?", .func = &fileInfoSocketP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
     .{ .name = "file-info-device?", .func = &fileInfoDeviceP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
-    .{ .name = "create-directory", .func = &createDirectoryFn, .arity = .{ .variadic = 1 }, .libs = LS.initMany(&.{ .scheme_file, .srfi_170 }), .sandbox = false, .wasm = false },
+    .{ .name = "create-directory", .func = &createDirectoryFn, .arity = .{ .range = .{ .min = 1, .max = 2 } }, .libs = LS.initMany(&.{ .scheme_file, .srfi_170 }), .sandbox = false, .wasm = false },
     .{ .name = "delete-directory", .func = &deleteDirectoryFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_file, .srfi_170 }), .sandbox = false, .wasm = false },
     .{ .name = "rename-file", .func = &renameFileFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
     .{ .name = "create-symlink", .func = &createSymlinkFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
@@ -190,12 +212,12 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "real-path", .func = &realPathFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
     .{ .name = "set-file-mode", .func = &setFileModeFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
     .{ .name = "truncate-file", .func = &truncateFileFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
-    .{ .name = "create-fifo", .func = &createFifoFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "create-fifo", .func = &createFifoFn, .arity = .{ .range = .{ .min = 1, .max = 2 } }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
     .{ .name = "set-file-owner", .func = &setFileOwnerFn, .arity = .{ .exact = 3 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
-    .{ .name = "set-file-times", .func = &setFileTimesFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "set-file-times", .func = &setFileTimesFn, .arity = .{ .range = .{ .min = 1, .max = 3 } }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
     .{ .name = "file-info-type", .func = &fileInfoTypeFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
     .{ .name = "temp-file-prefix", .func = &tempFilePrefixFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
-    .{ .name = "create-temp-file", .func = &createTempFileFn, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "create-temp-file", .func = &createTempFileFn, .arity = .{ .range = .{ .min = 0, .max = 1 } }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
     .{ .name = "pid", .func = &pidFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
     .{ .name = "umask", .func = &umaskFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
     .{ .name = "set-umask!", .func = &setUmaskFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
@@ -222,14 +244,30 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "group-info?", .func = &groupInfoP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
     .{ .name = "group-info:name", .func = &groupInfoName, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
     .{ .name = "group-info:gid", .func = &groupInfoGidFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
-    .{ .name = "open-directory", .func = &openDirectoryFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "posix-error?", .func = &posixErrorP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "posix-error-name", .func = &posixErrorName, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "posix-error-message", .func = &posixErrorMessage, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "open-directory", .func = &openDirectoryFn, .arity = .{ .range = .{ .min = 1, .max = 2 } }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
     .{ .name = "read-directory", .func = &readDirectoryFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
     .{ .name = "close-directory", .func = &closeDirectoryFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
     .{ .name = "posix-time", .func = &posixTimeFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
     .{ .name = "monotonic-time", .func = &monotonicTimeFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
 };
 
+/// Raise a catchable `.file` error whose condition carries the *current*
+/// errno (SRFI-170's posix-error protocol, #1978). Only call this
+/// immediately after the failing syscall — the snapshot is taken on entry,
+/// before any allocation can clobber the thread-local. Raise sites that
+/// never touched the filesystem use `raiseFileErrorCode(..., 0)`.
 fn raiseFileError(gc: *GC, msg_text: []const u8, irritant: Value) PrimitiveError!Value {
+    return raiseFileErrorCode(gc, msg_text, irritant, std.c._errno().*);
+}
+
+/// `raiseFileError` with an explicit errno — 0 for an error that did not
+/// come from a syscall (a pre-check like the embedded-NUL guard, or a
+/// semantic failure like "symlink target too long"), so `posix-error?`
+/// stays false and `posix-error-name` is not handed a stale code.
+fn raiseFileErrorCode(gc: *GC, msg_text: []const u8, irritant: Value, errno_val: c_int) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     var msg = gc.allocString(msg_text) catch return PrimitiveError.OutOfMemory;
     gc.pushRoot(&msg);
@@ -239,9 +277,72 @@ fn raiseFileError(gc: *GC, msg_text: []const u8, irritant: Value) PrimitiveError
     gc.pushRoot(&irritants_root);
     defer gc.popRoot();
     const err_obj = gc.allocErrorObject(msg, irritants_root) catch return PrimitiveError.OutOfMemory;
-    types.toObject(err_obj).as(types.ErrorObject).error_type = .file;
+    const err = types.toObject(err_obj).as(types.ErrorObject);
+    err.error_type = .file;
+    err.posix_errno = errno_val;
     vm.current_exception = err_obj;
     return PrimitiveError.ExceptionRaised;
+}
+
+/// Raise a catchable KP3007 (invalid argument) error — a value of
+/// acceptable type the procedure rejects anyway, e.g. an out-of-range mode
+/// or nice value (audit D2, #1978). Not a `.file` error: nothing about the
+/// filesystem failed, so a `guard` clause matching `(file-error? e)` must
+/// not fire. The message is deliberately the bare explanation, matching the
+/// long-standing error strings these sites already used.
+fn raiseArgError(gc: *GC, msg_text: []const u8, irritant: Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
+    var msg = gc.allocString(msg_text) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&msg);
+    defer gc.popRoot();
+    const irritants = gc.allocPair(irritant, types.NIL) catch return PrimitiveError.OutOfMemory;
+    var irritants_root = irritants;
+    gc.pushRoot(&irritants_root);
+    defer gc.popRoot();
+    const err_obj = gc.allocErrorObjectCoded(msg, irritants_root, .invalid_argument) catch return PrimitiveError.OutOfMemory;
+    vm.current_exception = err_obj;
+    return PrimitiveError.ExceptionRaised;
+}
+
+// -------------------------------------------------------------------------
+// SRFI-170 §3.1 error protocol: posix-error? / posix-error-name /
+// posix-error-message. The three procedures read `posix_errno` off the
+// condition object, which the raise helpers in this file stamp at the
+// failing syscall (#1978).
+// -------------------------------------------------------------------------
+
+/// `posix-error?` — a condition that describes a POSIX error is an error
+/// object carrying a nonzero errno. Argument-range failures (KP3007, raised
+/// by `raiseArgError`) and type errors never touch a syscall, so they answer
+/// `#f` — exactly the discrimination the audit's D2 dimension demands.
+fn posixErrorP(args: []const Value) PrimitiveError!Value {
+    if (!types.isErrorObject(args[0])) return types.FALSE;
+    const err = types.toObject(args[0]).as(types.ErrorObject);
+    return if (err.posix_errno != 0) types.TRUE else types.FALSE;
+}
+
+fn expectPosixError(args: []const Value) PrimitiveError!*types.ErrorObject {
+    if (!types.isErrorObject(args[0])) return primitives.typeError("posix-error-name", "posix-error", args[0]);
+    const err = types.toObject(args[0]).as(types.ErrorObject);
+    if (err.posix_errno == 0) return primitives.typeError("posix-error-name", "posix-error", args[0]);
+    return err;
+}
+
+/// `posix-error-name` — a symbol naming the errno value, e.g. `ENOENT`.
+/// errno numbers differ across POSIX systems but the names are shared, so
+/// the spec returns the name rather than the code.
+fn posixErrorName(args: []const Value) PrimitiveError!Value {
+    const err = try expectPosixError(args);
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    return gc.allocSymbol(errnoName(err.posix_errno)) catch return PrimitiveError.OutOfMemory;
+}
+
+/// `posix-error-message` — the strerror(3) text for the captured errno.
+fn posixErrorMessage(args: []const Value) PrimitiveError!Value {
+    const err = try expectPosixError(args);
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const text = strerror(err.posix_errno);
+    return gc.allocString(std.mem.span(text)) catch return PrimitiveError.OutOfMemory;
 }
 
 /// POSIX-only operations raise a clean, catchable file error on Windows
@@ -249,7 +350,7 @@ fn raiseFileError(gc: *GC, msg_text: []const u8, irritant: Value) PrimitiveError
 /// code can probe with guard/with-exception-handler.
 fn raiseUnsupportedOnWindows(comptime name: []const u8) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    return raiseFileError(gc, name ++ ": not supported on Windows", types.FALSE);
+    return raiseFileErrorCode(gc, name ++ ": not supported on Windows", types.FALSE, 0);
 }
 
 fn extractPath(val: Value) ?[]const u8 {
@@ -261,7 +362,8 @@ fn extractPath(val: Value) ?[]const u8 {
 fn validatePathNoNul(path: []const u8, original: Value) PrimitiveError!void {
     if (std.mem.indexOfScalar(u8, path, 0) != null) {
         const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-        _ = try raiseFileError(gc, "path contains embedded NUL byte", original);
+        // Pre-check, not a syscall failure: errno would be stale.
+        _ = try raiseFileErrorCode(gc, "path contains embedded NUL byte", original, 0);
     }
 }
 
@@ -478,10 +580,7 @@ fn createDirectoryFn(args: []const Value) PrimitiveError!Value {
     const path = extractPath(args[0]) orelse return primitives.typeError("create-directory", "string", args[0]);
     try validatePathNoNul(path, args[0]);
 
-    const mode: std.c.mode_t = if (args.len > 1 and types.isFixnum(args[1]))
-        try validateMode(gc, args[1])
-    else
-        0o755;
+    const mode: std.c.mode_t = if (args.len > 1) try validateMode(gc, args[1]) else 0o755;
 
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
@@ -562,7 +661,8 @@ fn readSymlinkFn(args: []const Value) PrimitiveError!Value {
         return raiseFileError(gc, "cannot read symlink", args[0]);
     }
     if (@as(usize, @intCast(r)) == buf.len) {
-        return raiseFileError(gc, "symlink target too long", args[0]);
+        // readlink succeeded — ENAMETOOLONG was never set, so errno is stale.
+        return raiseFileErrorCode(gc, "symlink target too long", args[0], 0);
     }
     return gc.allocString(buf[0..@intCast(r)]) catch return PrimitiveError.OutOfMemory;
 }
@@ -641,10 +741,7 @@ fn createFifoFn(args: []const Value) PrimitiveError!Value {
     const path = extractPath(args[0]) orelse return primitives.typeError("create-fifo", "string", args[0]);
     try validatePathNoNul(path, args[0]);
 
-    const mode: std.c.mode_t = if (args.len > 1 and types.isFixnum(args[1]))
-        try validateMode(gc, args[1])
-    else
-        0o664;
+    const mode: std.c.mode_t = if (args.len > 1) try validateMode(gc, args[1]) else 0o664;
 
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
@@ -678,7 +775,7 @@ fn setFileOwnerFn(args: []const Value) PrimitiveError!Value {
 const TIME_NOW: i64 = -1;
 const TIME_UNCHANGED: i64 = -2;
 
-fn timeArgToTimespec(args: []const Value, idx: usize) std.c.timespec {
+fn timeArgToTimespec(args: []const Value, idx: usize) PrimitiveError!std.c.timespec {
     if (args.len <= idx) return std.c.UTIME.NOW;
     const v = args[idx];
     if (types.isSrfi18Time(v)) {
@@ -691,12 +788,20 @@ fn timeArgToTimespec(args: []const Value, idx: usize) std.c.timespec {
         if (val == TIME_UNCHANGED) return std.c.UTIME.OMIT;
         return .{ .sec = @intCast(val), .nsec = 0 };
     }
-    return std.c.UTIME.NOW;
+    // A mistyped time must be rejected, never silently stamped with the
+    // current clock (#1977) — SRFI-170 requires time-utc objects here.
+    return primitives.typeError("set-file-times", "time object or integer", v);
 }
 
 fn setFileTimesFn(args: []const Value) PrimitiveError!Value {
     if (comptime platform.is_windows) return raiseUnsupportedOnWindows("set-file-times");
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    // SRFI-170: "It is an error if exactly one time is provided." With no
+    // time arguments both default to now; with two both are used.
+    if (args.len == 2) {
+        _ = try raiseArgError(gc, "exactly one time argument provided; supply both access and modification times or neither", args[1]);
+        unreachable;
+    }
     const path = extractPath(args[0]) orelse return primitives.typeError("set-file-times", "string", args[0]);
     try validatePathNoNul(path, args[0]);
 
@@ -705,8 +810,8 @@ fn setFileTimesFn(args: []const Value) PrimitiveError!Value {
 
     var times: [2]std.c.timespec = undefined;
 
-    times[0] = timeArgToTimespec(args, 1);
-    times[1] = timeArgToTimespec(args, 2);
+    times[0] = try timeArgToTimespec(args, 1);
+    times[1] = try timeArgToTimespec(args, 2);
 
     if (std.c.utimensat(std.posix.AT.FDCWD, path_z, &times, 0) != 0) {
         return raiseFileError(gc, "cannot set file times", args[0]);
@@ -817,13 +922,16 @@ fn niceFn(args: []const Value) PrimitiveError!Value {
     if (comptime platform.is_windows) return raiseUnsupportedOnWindows("nice");
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var delta: c_int = 1;
-    if (args.len > 0 and types.isFixnum(args[0])) {
+    if (args.len > 0) {
+        // A mistyped increment used to be treated as "no argument supplied"
+        // and silently renice'd the process by the default +1 (#1977).
+        if (!types.isFixnum(args[0])) return primitives.typeError("nice", "integer", args[0]);
         // Fixnums range up to ±2^47, but nice() takes a C int. An unchecked
         // @intCast panics (SIGABRT) on out-of-range values in ReleaseSafe;
         // reject them as a recoverable Scheme error instead.
         const n = types.toFixnum(args[0]);
         if (n < std.math.minInt(c_int) or n > std.math.maxInt(c_int)) {
-            return raiseFileError(gc, "nice value out of range", args[0]);
+            return raiseArgError(gc, "nice value out of range", args[0]);
         }
         delta = @intCast(n);
     }
@@ -848,9 +956,13 @@ fn setEnvVarFn(args: []const Value) PrimitiveError!Value {
     try validatePathNoNul(name, args[0]);
     try validatePathNoNul(value, args[1]);
 
-    platform.setEnv(gc.allocator, name, value) catch {
-        return raiseFileError(gc, "cannot set environment variable", args[0]);
-    };
+    const err = platform.setEnv(gc.allocator, name, value) catch return PrimitiveError.OutOfMemory;
+    if (err != 0) {
+        // setenv(3) rejects names containing '=' and empty names with
+        // EINVAL; the return used to be discarded, so the failure was
+        // silent (#1977).
+        return raiseFileErrorCode(gc, "cannot set environment variable", args[0], err);
+    }
     return types.VOID;
 }
 
@@ -859,7 +971,12 @@ fn deleteEnvVarFn(args: []const Value) PrimitiveError!Value {
     const name = extractPath(args[0]) orelse return primitives.typeError("delete-environment-variable!", "string", args[0]);
     try validatePathNoNul(name, args[0]);
 
-    platform.unsetEnv(gc.allocator, name) catch return PrimitiveError.OutOfMemory;
+    const err = platform.unsetEnv(gc.allocator, name) catch return PrimitiveError.OutOfMemory;
+    if (err != 0) {
+        // Same shape as setEnvVarFn: unsetenv(3) fails (EINVAL) on a name
+        // containing '=', and the failure used to be silent.
+        return raiseFileErrorCode(gc, "cannot delete environment variable", args[0], err);
+    }
     return types.VOID;
 }
 
@@ -1093,7 +1210,10 @@ fn createTempFileFn(args: []const Value) PrimitiveError!Value {
 
     var prefix_buf: [512]u8 = undefined;
     var prefix: []const u8 = platform.tempFilePrefix(&prefix_buf);
-    if (args.len > 0 and types.isString(args[0])) {
+    if (args.len > 0) {
+        // A mistyped prefix used to be silently discarded and the default
+        // temp-file-prefix used (#1977).
+        if (!types.isString(args[0])) return primitives.typeError("create-temp-file", "string", args[0]);
         const s = types.toObject(args[0]).as(types.SchemeString);
         prefix = s.data[0..s.len];
         try validatePathNoNul(prefix, args[0]);
@@ -1101,7 +1221,7 @@ fn createTempFileFn(args: []const Value) PrimitiveError!Value {
 
     // Build template: prefix + XXXXXX + null
     var template_buf: [256]u8 = undefined;
-    if (prefix.len + 7 > template_buf.len) return raiseFileError(gc, "temp file prefix too long", if (args.len > 0) args[0] else types.FALSE);
+    if (prefix.len + 7 > template_buf.len) return raiseArgError(gc, "temp file prefix too long", if (args.len > 0) args[0] else types.FALSE);
     @memcpy(template_buf[0..prefix.len], prefix);
     @memcpy(template_buf[prefix.len..][0..6], "XXXXXX");
     template_buf[prefix.len + 6] = 0;

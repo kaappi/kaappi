@@ -567,20 +567,29 @@
 (define mk-group-info (srfi170 '(group-info (user-gid))))
 
 (when (constructible? mk-file-info)
-  (test-assert "IN file_info: refused child-side (wrapped)" (refuses-in? mk-file-info))
-  (test-assert "OUT file_info: refused at the join (direct)" (refuses-out? mk-file-info)))
+  (test-assert "IN file_info: crosses to the child intact (#1978)"
+               (let ((v (mk-file-info)))
+                 (crossed? (lambda () (file-info-directory? v)) (lambda (r) (eq? r #t)))))
+  (test-assert "OUT file_info: crosses back from the child intact (#1978)"
+               (crossed? (lambda () (mk-file-info)) (lambda (v) (file-info? v)))))
 
 (when (constructible? mk-directory)
   (test-assert "IN directory_object: refused child-side (wrapped)" (refuses-in? mk-directory))
   (test-assert "OUT directory_object: refused at the join (direct)" (refuses-out? mk-directory)))
 
 (when (constructible? mk-user-info)
-  (test-assert "IN user_info: refused child-side (wrapped)" (refuses-in? mk-user-info))
-  (test-assert "OUT user_info: refused at the join (direct)" (refuses-out? mk-user-info)))
+  (test-assert "IN user_info: crosses to the child intact (#1978)"
+               (let ((v (mk-user-info)))
+                 (crossed? (lambda () (string? (user-info:name v))) (lambda (r) (eq? r #t)))))
+  (test-assert "OUT user_info: crosses back from the child intact (#1978)"
+               (crossed? (lambda () (mk-user-info)) (lambda (v) (and (user-info? v) (string? (user-info:name v)))))))
 
 (when (constructible? mk-group-info)
-  (test-assert "IN group_info: refused child-side (wrapped)" (refuses-in? mk-group-info))
-  (test-assert "OUT group_info: refused at the join (direct)" (refuses-out? mk-group-info)))
+  (test-assert "IN group_info: crosses to the child intact (#1978)"
+               (let ((v (mk-group-info)))
+                 (crossed? (lambda () (string? (group-info:name v))) (lambda (r) (eq? r #t)))))
+  (test-assert "OUT group_info: crosses back from the child intact (#1978)"
+               (crossed? (lambda () (mk-group-info)) (lambda (v) (and (group-info? v) (string? (group-info:name v)))))))
 
 ;; ---------------------------------------------------------------------
 ;; Section E — the FFI wrapper tags

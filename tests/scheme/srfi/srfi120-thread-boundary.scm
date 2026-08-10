@@ -14,7 +14,7 @@
 ;; tests/scheme/srfi/srfi18-sharing-model.scm for the general matrix):
 ;;
 ;;   COPY ROUTE -- a thread-start! thunk closure, a thread-join! result, a
-;;   channel message payload. Governed by gc_deep_copy.zig's fourteen-tag
+;;   channel message payload. Governed by gc_deep_copy.zig's eleven-tag
 ;;   uncopyable list. A <timer> holds a thread handle, which is a `.fiber`,
 ;;   which is on that list -- so a timer is structurally uncopyable and the
 ;;   copy fails as a whole.

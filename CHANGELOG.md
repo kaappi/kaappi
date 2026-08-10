@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **SRFI 170's posix-error protocol: `posix-error?`, `posix-error-name` and
+  `posix-error-message`** (#1978). Every SRFI-170 file error raised from a
+  failing syscall now captures the thread-local `errno` on the condition
+  object at the raise site, and the three spec procedures read it back:
+  `posix-error-name` returns the symbol naming the code (e.g. `ENOENT`,
+  derived from Zig's per-OS errno tables so the *name* stays portable even
+  though the *numbers* differ), and `posix-error-message` returns the
+  strerror(3) text. Failures that never reached a syscall — type errors and
+  the embedded-NUL pre-check — answer `#f` to `posix-error?`.
+
 - **Click inside the REPL input to move the edit cursor** (#2264). SGR mouse
   tracking behind a `repl.mouse: true` setting in `~/.kaappi/config` (default
   off, so drag-to-select behavior never changes unasked): a left click maps
@@ -19,6 +29,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   Windows console needs its own mouse-input path and is not yet supported.
 
 ### Fixed
+
+- **SRFI-170 no longer silently discards a mistyped argument** (#1977).
+  `(nice "x")` used to be treated as "no argument supplied" and really
+  renice the process by the default +1; `(set-environment-variable!
+  "NAME=x" "v")` and an empty name used to return normally while setting
+  nothing because `platform.setEnv` discarded setenv(3)'s return; and a
+  mistyped optional was ignored by `create-directory`/`create-fifo` (mode),
+  `create-temp-file` (prefix) and `set-file-times` (both stamps set to the
+  current clock). All six now raise; `set-file-times` additionally enforces
+  SRFI-170's "exactly one time is an error" rule. Surplus arguments to the
+  variadic SRFI-170 procedures are an arity mismatch too — the specs now
+  declare a `.range` arity with the SRFI signature's upper bound.
+
+- **SRFI-170 argument-range failures are no longer file errors** (#1978).
+  `(set-file-mode p #o10000)`, `(set-umask! -1)`, `(nice
+  999999999999)`, an out-of-range uid/gid and an over-long temp prefix
+  validate the argument, never the filesystem, so they are now raised as
+  KP3007 invalid-argument conditions and answer `#f` to `file-error?` (the
+  message text is unchanged).
+
+- **`file-info`, `user-info` and `group-info` now cross the SRFI-18 thread
+  boundary** (#1978). The three are pure value records (scalars plus owned
+  string bytes, like the already-copyable `SchemeString`) but were listed
+  as `UncopyableType` beside ports/continuations/fibers, so a child thread
+  could not return one. `gc_deep_copy.zig` now copies them by value, and
+  the "uncopyable type (port, continuation, etc.)" messages name the real
+  uncopyable set instead of implying these records are in it.
 
 - **`and-let*` with claws and no body returns the last claw's value**
   (#2073). The base case expanded to `(begin #t body ...)`, so an `and-let*`

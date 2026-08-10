@@ -38,4 +38,11 @@ pub const ErrorObject = struct {
     /// so it survives catch/re-raise and is the seed the Phase-4
     /// `error-object-code` accessor reads.
     code: diagnostics.Code = .uncategorized,
+    /// The `errno` captured at the failing syscall, or 0 when the error did
+    /// not come from a syscall (SRFI-170's posix-error protocol, #1978).
+    /// Snapshot the thread-local *before* any further libc call — the GC
+    /// and strerror(3) itself can clobber it. Stamped by the SRFI-170
+    /// raise sites in primitives_filesystem.zig; `posix-error?`/
+    /// `posix-error-name`/`posix-error-message` read it.
+    posix_errno: c_int = 0,
 };

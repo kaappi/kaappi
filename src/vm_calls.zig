@@ -641,6 +641,16 @@ fn checkNativeArity(vm: *VM, native: *types.NativeFn, nargs: usize) VMError!void
                 return VMError.ArityMismatch;
             }
         },
+        .range => |r| {
+            if (nargs < r.min) {
+                vm.setErrorDetail("'{s}': expected at least {d} arguments, got {d}", .{ native.name, r.min, nargs });
+                return VMError.ArityMismatch;
+            }
+            if (nargs > r.max) {
+                vm.setErrorDetail("'{s}': expected at most {d} arguments, got {d}", .{ native.name, r.max, nargs });
+                return VMError.ArityMismatch;
+            }
+        },
     }
 }
 

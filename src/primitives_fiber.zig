@@ -1341,8 +1341,8 @@ fn raiseFiberError(msg: []const u8) PrimitiveError {
 /// fall back to OutOfMemory.
 fn translateSharedChannelError(err: anyerror, proc: []const u8) PrimitiveError {
     if (err == error.UncopyableType) {
-        var buf: [96]u8 = undefined;
-        const msg = std.fmt.bufPrint(&buf, "{s}: value contains an uncopyable type (port, continuation, etc.)", .{proc}) catch
+        var buf: [256]u8 = undefined;
+        const msg = std.fmt.bufPrint(&buf, "{s}: value contains an uncopyable type (port, continuation, fiber, mutex, condition variable, FFI callback, directory object, environment, ephemeron, guardian, or transport cell)", .{proc}) catch
             return PrimitiveError.OutOfMemory;
         return raiseFiberError(msg);
     }

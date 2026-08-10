@@ -311,6 +311,10 @@ fn getArity(val: types.Value, buf: *[32]u8) ?[]const u8 {
         return switch (nfn.arity) {
             .exact => |n| std.fmt.bufPrint(buf, "{d}", .{n}) catch null,
             .variadic => |n| std.fmt.bufPrint(buf, "{d}+", .{n}) catch null,
+            .range => |r| if (r.min == r.max)
+                std.fmt.bufPrint(buf, "{d}", .{r.min}) catch null
+            else
+                std.fmt.bufPrint(buf, "{d}..{d}", .{ r.min, r.max }) catch null,
         };
     }
     if (obj.tag == .closure) {

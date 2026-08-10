@@ -234,6 +234,7 @@ fn checkArity(ctx: *Context, node: *Node, name: []const u8, arity: types.NativeF
     const bad = switch (arity) {
         .exact => |e| nargs != e,
         .variadic => |min| nargs < min,
+        .range => |r| nargs < r.min or nargs > r.max,
     };
     if (!bad) return false;
 
@@ -248,6 +249,17 @@ fn checkArity(ctx: *Context, node: *Node, name: []const u8, arity: types.NativeF
             "'{s}' expects at least {d} argument{s}, but {d} {s} given",
             .{ name, min, plural(min), nargs, wasWere(nargs) },
         ),
+        .range => |r| blk: {
+            const expected: []const u8 = if (r.min == r.max)
+                std.fmt.allocPrint(ctx.arena, "{d}", .{r.min}) catch break :blk error.OutOfMemory
+            else
+                std.fmt.allocPrint(ctx.arena, "{d} to {d}", .{ r.min, r.max }) catch break :blk error.OutOfMemory;
+            break :blk std.fmt.allocPrint(
+                ctx.arena,
+                "'{s}' expects {s} argument{s}, but {d} {s} given",
+                .{ name, expected, plural(if (r.min == r.max) r.min else r.max), nargs, wasWere(nargs) },
+            );
+        },
     } catch return true;
     ctx.addFinding(.primitive_arity_mismatch, node.ann.span, msg);
     return true;

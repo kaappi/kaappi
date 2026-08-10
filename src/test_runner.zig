@@ -464,7 +464,7 @@ fn run(allocator: std.mem.Allocator, argv0: []const u8, opts: *ParentOpts) u8 {
     {
         var sbuf: [32]u8 = undefined;
         const s = std.fmt.bufPrintZ(&sbuf, "{d}", .{seed}) catch return 1;
-        platform.setEnv(allocator, SEED_ENV, std.mem.sliceTo(s.ptr, 0)) catch return 1;
+        _ = platform.setEnv(allocator, SEED_ENV, std.mem.sliceTo(s.ptr, 0)) catch return 1;
     }
 
     var files: std.ArrayList([]const u8) = .empty;
@@ -771,7 +771,7 @@ fn spawnWorker(allocator: std.mem.Allocator, exe_path: []const u8, file: []const
     try argv.append(allocator, file);
 
     if (comptime platform.is_windows) {
-        platform.setEnv(allocator, EMIT_ENV, emit_path) catch {};
+        _ = platform.setEnv(allocator, EMIT_ENV, emit_path) catch {};
         // Same 1 MiB in-loop cap as the POSIX read loop below: the pipe
         // keeps draining past it, so a runaway worker can neither exhaust
         // memory here nor block on a full pipe.

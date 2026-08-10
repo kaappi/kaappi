@@ -607,7 +607,7 @@ fn threadStartImpl(args: []const Value) PrimitiveError!Value {
         // spawned), so child_registry.storeResult -- which every *post-spawn*
         // failure in threadEntryFn goes through instead -- doesn't apply
         // here: this is the one place a fiber's error state is set directly.
-        fiber.current_exception = try makeErrorWithType(.general, "thread thunk contains an uncopyable type (port, continuation, etc.), or a channel owned by another thread", types.NIL);
+        fiber.current_exception = try makeErrorWithType(.general, "thread thunk contains an uncopyable type (port, continuation, fiber, mutex, condition variable, FFI callback, directory object, environment, ephemeron, guardian, or transport cell), or a channel owned by another thread", types.NIL);
         gc.writeBarrier(&fiber.header, fiber.current_exception.?);
         @atomicStore(fiber_mod.FiberStatus, &fiber.status, .errored, .release);
         return args[0];
@@ -1292,7 +1292,7 @@ fn reapOsThread(target: *fiber_mod.Fiber, fiber_val: Value) PrimitiveError!Value
                     // handed -- gc_deep_copy.zig's `.channel` arm returns
                     // UncopyableType for both, so this message covers both
                     // rather than mis-describing the second as a type error.
-                    return raiseError(.general, "thread-join!: result contains an uncopyable type (port, continuation, etc.), or a channel owned by another thread", types.VOID);
+                    return raiseError(.general, "thread-join!: result contains an uncopyable type (port, continuation, fiber, mutex, condition variable, FFI callback, directory object, environment, ephemeron, guardian, or transport cell), or a channel owned by another thread", types.VOID);
                 }
                 return PrimitiveError.OutOfMemory;
             },

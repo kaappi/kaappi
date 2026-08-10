@@ -10,7 +10,7 @@
 
 (import (scheme base) (scheme write) (scheme file) (srfi 170) (srfi 60))
 (import (scheme process-context) (srfi 64))
-(import (only (srfi 18) make-thread thread-start! thread-join! time? time->seconds))
+(import (only (srfi 18) make-thread thread-start! thread-join! time? time->seconds uncaught-exception-reason))
 
 ;; symlinks/FIFOs/uid-gid are POSIX-only — skip there. (After the imports:
 ;; the skip branch calls exit, which (scheme process-context) provides.)
@@ -722,38 +722,32 @@
 
 ;;; =====================================================================
 ;;; E. Optional arguments that are silently discarded when mistyped.
-;;;    Every disabled line below has an enabled control directly under it
-;;;    proving the *same* validation fires for an in-band-but-invalid value,
-;;;    so the gap is the type test, not a missing check.
+;;;    (#1977) The four procedures below now reject a mistyped optional
+;;;    argument instead of ignoring it, and the variadic specs carry an
+;;;    upper bound so surplus arguments are an arity mismatch. The old
+;;;    enabled controls that *pinned* the discarded-argument behaviour
+;;;    (create-directory /m4 succeeding with the default mode, create-temp-
+;;;    file 42 creating a file under the default prefix, set-file-times
+;;;    "garbage" stamping the file with the current clock) were removed —
+;;;    they are exactly the wrong results #1977 reported.
 ;;; =====================================================================
 
 (with-scratch
  (lambda (dir)
    ;; -- create-directory mode --
-   ;; FAIL: #1977 (a non-fixnum mode is silently discarded and 0o755 used:
-   ;; `if (args.len > 1 and types.isFixnum(args[1]))` in createDirectoryFn)
-   ;; (test-equal "(raised? (lambda () (create-directory (string-append dir ..." #t (raised? (lambda () (create-directory (string-append dir "/m1") "notanum"))))
+   (test-equal "(raised? (lambda () (create-directory (string-append dir ..." #t (raised? (lambda () (create-directory (string-append dir "/m1") "notanum"))))
+   ;; the range check still fires for an in-band-but-invalid mode
    (test-equal "(raised? (lambda () (create-directory (string-append dir ..." #t (raised? (lambda () (create-directory (string-append dir "/m2") #o10000))))
    (test-equal "(raised? (lambda () (create-directory (string-append dir ..." #t (raised? (lambda () (create-directory (string-append dir "/m3") -1))))
-   ;; the discarded-mode call succeeds outright, with the default mode
-   (create-directory (string-append dir "/m4") "notanum")
-   (test-equal "(file-info-type (file-info (string-append dir '/m4') #t))" 'directory (file-info-type (file-info (string-append dir "/m4") #t)))
 
    ;; -- create-fifo mode --
-   ;; FAIL: #1977 (same shape in createFifoFn — non-fixnum mode ignored, 0o664 used)
-   ;; (test-equal "(raised? (lambda () (create-fifo (string-append dir '/ff1..." #t (raised? (lambda () (create-fifo (string-append dir "/ff1") "notanum"))))
+   (test-equal "(raised? (lambda () (create-fifo (string-append dir '/ff1..." #t (raised? (lambda () (create-fifo (string-append dir "/ff1") "notanum"))))
    (test-equal "(raised? (lambda () (create-fifo (string-append dir '/ff2..." #t (raised? (lambda () (create-fifo (string-append dir "/ff2") #o10000))))
    (test-equal "(raised? (lambda () (create-fifo (string-append dir '/ff3..." #t (raised? (lambda () (create-fifo (string-append dir "/ff3") -1))))
 
    ;; -- create-temp-file prefix --
-   ;; FAIL: #1977 (a non-string prefix is silently discarded and the default
-   ;; temp-file-prefix used: `if (args.len > 0 and types.isString(args[0]))`)
-   ;; (test-equal "(raised? (lambda () (create-temp-file 42)))" #t (raised? (lambda () (create-temp-file 42))))
+   (test-equal "(raised? (lambda () (create-temp-file 42)))" #t (raised? (lambda () (create-temp-file 42))))
    (test-equal "(raised? (lambda () (create-temp-file (make-string 400 #\\..." #t (raised? (lambda () (create-temp-file (make-string 400 #\z)))))
-   (let ((t (create-temp-file 42)))
-     ;; it really did create a file — under the default prefix, not "42"
-     (test-equal "(file-exists? t)" #t (file-exists? t))
-     (delete-file t))
 
    ;; -- set-file-times --
    ;;
@@ -793,34 +787,40 @@
                    3000000 (file-info:mtime fi))
        (test-assert "(>= (file-info:atime fi) 1000000) after (set-file-times p -2 3000000)"
                     (>= (file-info:atime fi) 1000000)))
-     ;; FAIL: #1977 (a non-fixnum, non-time argument falls through to UTIME_NOW
-     ;; in timeArgToTimespec, so a mistyped time silently stamps the file with
-     ;; the current clock instead of raising)
-     ;; (test-equal "(raised? (lambda () (set-file-times p 'garbage' 'garbage')))" #t (raised? (lambda () (set-file-times p "garbage" "garbage"))))
-     ;; (test-equal "(raised? (lambda () (set-file-times p 5.0 5.0)))" #t (raised? (lambda () (set-file-times p 5.0 5.0))))
+     ;; (#1977) a non-fixnum, non-time argument used to fall through to
+     ;; UTIME_NOW and silently stamp the file with the current clock; it is
+     ;; now rejected, and SRFI-170's "exactly one time provided" rule is
+     ;; enforced too.
+     (test-equal "(raised? (lambda () (set-file-times p 'garbage' 'garbage')))" #t (raised? (lambda () (set-file-times p "garbage" "garbage"))))
+     (test-equal "(raised? (lambda () (set-file-times p 5.0 5.0)))" #t (raised? (lambda () (set-file-times p 5.0 5.0))))
+     (test-equal "(raised? (lambda () (set-file-times p 1000000)))" #t (raised? (lambda () (set-file-times p 1000000))))
      ;; Enabled control: the *path* argument of the same call is type-checked
      (test-equal "(raised? (lambda () (set-file-times 42)))" #t (raised? (lambda () (set-file-times 42))))
-     ;; and the discarded-time call does mutate the file, to "now"
-     (set-file-times p "garbage" "garbage")
-     (test-equal "(> (file-info:mtime (file-info p #t)) 1700000000)" #t (> (file-info:mtime (file-info p #t)) 1700000000)))
+     ;; and the file was *not* touched by the rejected calls: mtime is still
+     ;; the 3000000 the previous (valid) call set.
+     (test-equal "(file-info:mtime (file-info p #t)) after rejected calls" 3000000 (file-info:mtime (file-info p #t))))
 
    ;; -- nice --
-   ;; FAIL: #1977 (a non-fixnum increment is silently discarded and the default
-   ;; +1 applied, so `(nice "x")` really does renice the process:
-   ;; `if (args.len > 0 and types.isFixnum(args[0]))` in niceFn)
-   ;; (test-equal "(raised? (lambda () (nice 'x')))" #t (raised? (lambda () (nice "x"))))
-   ;; (test-equal "(raised? (lambda () (nice (expt 2 100))))" #t (raised? (lambda () (nice (expt 2 100)))))
+   ;; (#1977) a non-fixnum increment used to be treated as "no argument
+   ;; supplied" and silently renice the process by the default +1.
+   (test-equal "(raised? (lambda () (nice 'x')))" #t (raised? (lambda () (nice "x"))))
+   (test-equal "(raised? (lambda () (nice (expt 2 100))))" #t (raised? (lambda () (nice (expt 2 100)))))
    ;; Enabled control: a fixnum outside c_int *is* rejected, so the range
-   ;; check exists and only the type test is missing.
+   ;; check exists and only the type test was missing.
    (test-equal "(raised? (lambda () (nice 999999999999)))" #t (raised? (lambda () (nice 999999999999))))
    (test-equal "(exact-integer? (nice 0))" #t (exact-integer? (nice 0)))
 
-   ;; -- directory-files / file-info extra arguments --
-   ;; FAIL: #1977 (SRFI 170 caps these at 2 and 1 arguments respectively; the
-   ;; specs declare `.variadic` which has no upper bound, so surplus
-   ;; arguments are accepted and ignored rather than reported)
-   ;; (test-equal "(raised? (lambda () (file-info (string-append dir '/t') #..." #t (raised? (lambda () (file-info (string-append dir "/t") #t 'extra))))
-   ;; (test-equal "(raised? (lambda () (create-temp-file '/tmp/x' 'y')))" #t (raised? (lambda () (create-temp-file "/tmp/x" "y"))))
+   ;; -- directory-files / file-info / create-temp-file / ... extra args --
+   ;; (#1977) SRFI 170 caps these; the specs used to declare `.variadic`,
+   ;; which has no upper bound, so surplus arguments were accepted and
+   ;; ignored. Every variadic SRFI-170 primitive now declares a `.range`.
+   (test-equal "(raised? (lambda () (file-info (string-append dir '/t') #..." #t (raised? (lambda () (file-info (string-append dir "/t") #t 'extra))))
+   (test-equal "(raised? (lambda () (create-temp-file '/tmp/x' 'y')))" #t (raised? (lambda () (create-temp-file "/tmp/x" "y"))))
+   (test-equal "(raised? (lambda () (set-file-times p 1 2 3)))" #t (raised? (lambda () (set-file-times p 1 2 3))))
+   (test-equal "(raised? (lambda () (directory-files dir #t 'extra)))" #t (raised? (lambda () (directory-files dir #t 'extra))))
+   (test-equal "(raised? (lambda () (create-directory (string-append dir ..." #t (raised? (lambda () (create-directory (string-append dir "/x") #o700 'extra))))
+   (test-equal "(raised? (lambda () (create-fifo (string-append dir '/y')..." #t (raised? (lambda () (create-fifo (string-append dir "/y") #o600 'extra))))
+   (test-equal "(raised? (lambda () (open-directory dir #t 'extra)))" #t (raised? (lambda () (open-directory dir #t 'extra))))
    ;; Enabled control: too *few* arguments is reported correctly
    (test-equal "(raised? (lambda () (file-info)))" #t (raised? (lambda () (file-info))))
    (test-equal "(raised? (lambda () (rename-file (string-append dir '/t'))))" #t (raised? (lambda () (rename-file (string-append dir "/t")))))
@@ -846,24 +846,15 @@
 (test-equal "(assoc 'KAAPPI_A212_LIST' (get-environment-variables))" '("KAAPPI_A212_LIST" . "here") (assoc "KAAPPI_A212_LIST" (get-environment-variables)))
 (delete-environment-variable! "KAAPPI_A212_LIST")
 (test-equal "(assoc 'KAAPPI_A212_LIST' (get-environment-variables))" #f (assoc "KAAPPI_A212_LIST" (get-environment-variables)))
-;; FAIL: #1977 (setenv(3)'s return value is discarded — `_ = setenv(...)` in
-;; platform.setEnv — so setEnvVarFn's raiseFileError branch is unreachable and
-;; an EINVAL name silently does nothing.  A name containing "=" and an empty
-;; name are both rejected by POSIX; both return normally here and set nothing.)
-;; (test-equal "(raised? (lambda () (set-environment-variable! 'KAAPPI_A212_ABSENT=x' 'v')))" #t (raised? (lambda () (set-environment-variable! "KAAPPI_A212_ABSENT=x" "v"))))
-;; (test-equal "(raised? (lambda () (set-environment-variable! '' 'v')))" #t (raised? (lambda () (set-environment-variable! "" "v"))))
-;; Enabled control: the call really does nothing at all, under either spelling
-;; — neither the whole "name=value" string nor the part before the "=" ends up
-;; set.  Both names must be ones this test owns.  They used to be "KAAPPI=A212"
-;; and "KAAPPI", and "KAAPPI" is the name every harness in this repo uses for
-;; "the binary under test" (tests/scheme/shell-common.sh, both Windows CI
-;; `Shell suites` steps), so all three assertions went red the moment a runner
-;; exported it — for reasons with nothing to do with the code under test
-;; (kaappi#2162).
-(set-environment-variable! "KAAPPI_A212_ABSENT=x" "v")
-(test-equal "(get-environment-variable 'KAAPPI_A212_ABSENT')" #f (get-environment-variable "KAAPPI_A212_ABSENT"))
-(test-equal "(get-environment-variable 'KAAPPI_A212_ABSENT=x')" #f (get-environment-variable "KAAPPI_A212_ABSENT=x"))
-(test-equal "(assoc 'KAAPPI_A212_ABSENT' (get-environment-variables))" #f (assoc "KAAPPI_A212_ABSENT" (get-environment-variables)))
+;; (#1977) setenv(3)'s return used to be discarded — `_ = setenv(...)` in
+;; platform.setEnv — so an EINVAL name silently did nothing.  A name
+;; containing "=" and an empty name are both rejected by POSIX; both now
+;; raise a catchable posix error.  The old enabled control that pinned the
+;; "really does nothing" behaviour was removed — it is the wrong result
+;; #1977 reported.
+(test-equal "(raised? (lambda () (set-environment-variable! 'KAAPPI_A212_ABSENT=x' 'v')))" #t (raised? (lambda () (set-environment-variable! "KAAPPI_A212_ABSENT=x" "v"))))
+(test-equal "(raised? (lambda () (set-environment-variable! '' 'v')))" #t (raised? (lambda () (set-environment-variable! "" "v"))))
+(test-equal "(raised? (lambda () (delete-environment-variable! 'KAAPPI_A212_ABSENT=x')))" #t (raised? (lambda () (delete-environment-variable! "KAAPPI_A212_ABSENT=x"))))
 
 ;;; =====================================================================
 ;;; G. Error taxonomy — which failures are file errors?
@@ -893,20 +884,89 @@
      ;; ...and they name the procedure and the expected type
      (test-equal "type error in 'file-info:size': expected file-info, got 42"
                  (msg-of (lambda () (file-info:size 42))))
-     ;; FAIL: #1978 (pure argument-range validation is raised through
-     ;; raiseFileError, so `file-error?` answers #t for failures that never
-     ;; touched the filesystem.  These are argError/KP3007 cases — "a value of
-     ;; acceptable type the procedure rejects anyway" — not file errors.)
-     ;; (test-equal "(file-err? (lambda () (set-file-mode a #o10000)))" #f (file-err? (lambda () (set-file-mode a #o10000))))
-     ;; (test-equal "(file-err? (lambda () (set-umask! -1)))" #f (file-err? (lambda () (set-umask! -1))))
-     ;; (test-equal "(file-err? (lambda () (nice 999999999999)))" #f (file-err? (lambda () (nice 999999999999))))
-     ;; (test-equal "(file-err? (lambda () (create-temp-file (make-string 400 ..." #f (file-err? (lambda () (create-temp-file (make-string 400 #\z)))))
-     ;; Enabled control: each of those does raise, and with its own message
+     ;; (#1978) pure argument-range validation used to be raised through
+     ;; raiseFileError, so `file-error?` answered #t for failures that never
+     ;; touched the filesystem.  These are argError/KP3007 cases — "a value
+     ;; of acceptable type the procedure rejects anyway" — not file errors.
+     (test-equal "(file-err? (lambda () (set-file-mode a #o10000)))" #f (file-err? (lambda () (set-file-mode a #o10000))))
+     (test-equal "(file-err? (lambda () (set-umask! -1)))" #f (file-err? (lambda () (set-umask! -1))))
+     (test-equal "(file-err? (lambda () (nice 999999999999)))" #f (file-err? (lambda () (nice 999999999999))))
+     (test-equal "(file-err? (lambda () (create-temp-file (make-string 400 ..." #f (file-err? (lambda () (create-temp-file (make-string 400 #\z)))))
+     ;; ...they still raise, with their own message, stamped KP3007, and they
+     ;; are NOT posix errors (no syscall ran)
      (test-equal "mode value out of range" (msg-of (lambda () (set-file-mode a #o10000))))
      (test-equal "mode value out of range" (msg-of (lambda () (set-umask! -1))))
      (test-equal "nice value out of range" (msg-of (lambda () (nice 999999999999))))
      (test-equal "temp file prefix too long"
-                 (msg-of (lambda () (create-temp-file (make-string 400 #\z))))))))
+                 (msg-of (lambda () (create-temp-file (make-string 400 #\z)))))
+     (test-equal "(code-of (set-file-mode a #o10000)) is KP3007" 'KP3007
+                 (guard (e (#t (error-object-code e))) (set-file-mode a #o10000)))
+     (test-equal "(code-of (nice 999999999999)) is KP3007" 'KP3007
+                 (guard (e (#t (error-object-code e))) (nice 999999999999)))
+     (test-equal "(posix-error? of a range failure)" #f
+                 (guard (e (#t (posix-error? e))) (set-file-mode a #o10000))))))
+
+;;; ---------------------------------------------------------------------
+;;; G2. SRFI-170 §3.1 posix-error protocol (#1978).  A file error raised
+;;;      from a failing syscall carries the errno, so the three procedures
+;;;      can name and describe it; failures that never reached a syscall
+;;;      (type errors, argument-range errors, the embedded-NUL pre-check)
+;;;      answer #f to posix-error? and must not be handed to the accessors.
+;;; ---------------------------------------------------------------------
+
+(with-scratch
+ (lambda (dir)
+   (write-file (string-append dir "/a") "x")
+   (let ((a (string-append dir "/a")) (nx (string-append dir "/missing")))
+     (define (posix-of thunk)
+       (guard (e (#t (list (posix-error? e) (posix-error-name e) (posix-error-message e))))
+         (begin (thunk) 'no-raise)))
+     (test-equal "(posix-error? 42)" #f (posix-error? 42))
+     (test-equal "(posix-error? of a user (error ...))" #f (posix-error? (error "plain")))
+     ;; ENOENT is the same value on every POSIX host
+     (test-equal "missing path: posix-error? + ENOENT + message"
+                 '(#t ENOENT "No such file or directory")
+                 (posix-of (lambda () (file-info nx #t))))
+     (test-equal "missing parent dir: posix-error? + ENOENT + string message"
+                 '(#t ENOENT #t)
+                 (let ((r (posix-of (lambda () (create-directory (string-append nx "/child"))))))
+                   (list (car r) (cadr r) (string? (caddr r)))))
+     ;; a directory stream over a regular file is ENOTDIR
+     (test-equal "directory-files on a file: ENOTDIR + string message"
+                 '(#t ENOTDIR #t)
+                 (let ((r (posix-of (lambda () (directory-files a)))))
+                   (list (car r) (cadr r) (string? (caddr r)))))
+     ;; a symlink loop is ELOOP (stat follows); lstat does not loop
+     (create-symlink (string-append dir "/loopB") (string-append dir "/loopA"))
+     (create-symlink (string-append dir "/loopA") (string-append dir "/loopB"))
+     (test-equal "file-info on a symlink loop: ELOOP + string message"
+                 '(#t ELOOP #t)
+                 (let ((r (posix-of (lambda () (file-info (string-append dir "/loopA") #t)))))
+                   (list (car r) (cadr r) (string? (caddr r)))))
+     ;; EINVAL from setenv(3) is named and described
+     (test-equal "setenv EINVAL: posix-error? + EINVAL + string message"
+                 '(#t EINVAL #t)
+                 (let ((r (posix-of (lambda () (set-environment-variable! "KAAPPI_A212_G2=x" "v")))))
+                   (list (car r) (cadr r) (string? (caddr r)))))
+     ;; the accessors reject a non-posix error object
+     (test-equal "posix-error-name on a non-posix error raises" #t
+                 (guard (e (#t (error-object? e)))
+                   (posix-error-name (error "plain")) #f))
+     (test-equal "posix-error-name on 42 raises" #t
+                 (guard (e (#t (error-object? e)))
+                   (posix-error-name 42) #f))
+     (test-equal "posix-error-message on 42 raises" #t
+                 (guard (e (#t (error-object? e)))
+                   (posix-error-message 42) #f))
+     ;; a raised posix error round-trips through the boundary: thread-join!
+     ;; re-raises a wrapper whose reason carries the original exception, and
+     ;; the deep copy in gc_deep_copy.zig's .error_object arm preserved the
+     ;; errno through the child->parent copy
+     (test-equal "posix error crosses the thread boundary"
+                 '(#t ENOENT #t)
+                 (guard (e (#t (let ((r (uncaught-exception-reason e)))
+                                 (list (posix-error? r) (posix-error-name r) (string? (posix-error-message r))))))
+                   (thread-join! (thread-start! (make-thread (lambda () (file-info nx #t))))))))))
 
 ;;; =====================================================================
 ;;; H. Cross-heap deep copy across the SRFI-18 thread boundary (D6).
@@ -917,10 +977,12 @@
 (test-equal "(let ((t (thread-join! (thread-start! (make-thread (lambd..." #t (let ((t (thread-join! (thread-start! (make-thread (lambda () (posix-time)))))))
                  (and (time? t) (> (time->seconds t) 1700000000))))
 
-;; file-info / user-info / group-info / directory-object are listed as
-;; UncopyableType in gc_deep_copy.zig, so a value of any of them must at
-;; least fail *cleanly* — never corrupt, never crash.  The assertion is
-;; written so that a future fix making them copyable keeps it green.
+;; The SRFI-170 record types cross the boundary. file-info / user-info /
+;; group-info are pure value records and have copied by value since #1978,
+;; so each round-trips intact; directory-object holds a live `DIR*` and
+;; stays genuinely uncopyable, so it must at least fail *cleanly* — never
+;; corrupt, never crash. The ok? branch pins the copy, the guard pins the
+;; clean refusal.
 (with-scratch
  (lambda (dir)
    (write-file (string-append dir "/a") "abcd")

@@ -712,32 +712,38 @@ const unsetenv = if (builtin.os.tag == .netbsd) netbsd_env.__unsetenv13 else str
 }.unsetenv;
 
 /// setenv(3) equivalent. Windows CRT has no setenv; _putenv takes a
-/// single "NAME=VALUE" string (which it copies).
-pub fn setEnv(allocator: std.mem.Allocator, name: []const u8, value: []const u8) !void {
+/// single "NAME=VALUE" string (which it copies). Returns 0 on success or
+/// the errno of the failed call (EINVAL for a name containing '=' or an
+/// empty name) — the caller decides whether to raise (#1977).
+pub fn setEnv(allocator: std.mem.Allocator, name: []const u8, value: []const u8) !c_int {
     if (comptime is_windows) {
         const pair = try std.fmt.allocPrintSentinel(allocator, "{s}={s}", .{ name, value }, 0);
         defer allocator.free(pair);
-        _ = win._putenv(pair.ptr);
-        return;
+        if (win._putenv(pair.ptr) != 0) return std.c._errno().*;
+        return 0;
     }
     const name_z = try allocator.dupeZ(u8, name);
     defer allocator.free(name_z);
     const value_z = try allocator.dupeZ(u8, value);
     defer allocator.free(value_z);
-    _ = setenv(name_z, value_z, 1);
+    if (setenv(name_z, value_z, 1) != 0) return std.c._errno().*;
+    return 0;
 }
 
 /// unsetenv(3) equivalent ("NAME=" removes the variable via _putenv).
-pub fn unsetEnv(allocator: std.mem.Allocator, name: []const u8) !void {
+/// Returns 0 on success or the errno of the failed call; deleting a name
+/// that was never set is a silent success per POSIX.
+pub fn unsetEnv(allocator: std.mem.Allocator, name: []const u8) !c_int {
     if (comptime is_windows) {
         const pair = try std.fmt.allocPrintSentinel(allocator, "{s}=", .{name}, 0);
         defer allocator.free(pair);
-        _ = win._putenv(pair.ptr);
-        return;
+        if (win._putenv(pair.ptr) != 0) return std.c._errno().*;
+        return 0;
     }
     const name_z = try allocator.dupeZ(u8, name);
     defer allocator.free(name_z);
-    _ = unsetenv(name_z);
+    if (unsetenv(name_z) != 0) return std.c._errno().*;
+    return 0;
 }
 
 extern "c" fn _getpid() c_int;

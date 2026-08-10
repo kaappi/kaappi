@@ -484,6 +484,13 @@ fn describeSymbol(vm: *vm_mod.VM, name: []const u8) void {
                     const s = std.fmt.bufPrint(&abuf, "    arity: {d}+\n", .{min}) catch "";
                     writeStdout(s);
                 },
+                .range => |r| {
+                    const s = if (r.min == r.max)
+                        std.fmt.bufPrint(&abuf, "    arity: {d}\n", .{r.min}) catch ""
+                    else
+                        std.fmt.bufPrint(&abuf, "    arity: {d}..{d}\n", .{ r.min, r.max }) catch "";
+                    writeStdout(s);
+                },
             }
         } else if (obj.tag == .closure) {
             const cls = obj.as(types.Closure);

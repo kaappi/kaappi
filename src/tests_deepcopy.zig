@@ -637,3 +637,105 @@ test "deepCopy rejects continuation" {
     const cont = try gc1.allocEscapeContinuation(0, 0, 0, 0, 0);
     try std.testing.expectError(error.UncopyableType, gc2.deepCopy(cont));
 }
+
+// #1978: file-info / user-info / group-info are pure value records and now
+// cross the thread boundary by value, like SchemeString. Each test copies
+// into a *fresh* GC (the thread-join!/channel shape) and checks every field.
+test "deepCopy file-info" {
+    var gc1 = memory.GC.init(std.testing.allocator);
+    defer gc1.deinit();
+    var gc2 = memory.GC.init(std.testing.allocator);
+    defer gc2.deinit();
+
+    const val = try gc1.allocFileInfo(.{
+        .size = 4,
+        .mtime = 2000000,
+        .atime = 1000000,
+        .ctime = 3000000,
+        .dev = 7,
+        .ino = 42,
+        .nlinks = 2,
+        .rdev = 0,
+        .blksize = 4096,
+        .blocks = 8,
+        .mode = 0o100644,
+        .uid = 501,
+        .gid = 20,
+        .file_type = .regular,
+    });
+    const copied = try gc2.deepCopy(val);
+    try std.testing.expect(val != copied);
+    const fi = types.toObject(copied).as(types.FileInfo);
+    try std.testing.expectEqual(types.ObjectTag.file_info, types.toObject(copied).tag);
+    try std.testing.expectEqual(@as(i64, 4), fi.size);
+    try std.testing.expectEqual(@as(i64, 2000000), fi.mtime);
+    try std.testing.expectEqual(@as(u32, 0o100644), fi.mode);
+    try std.testing.expectEqual(types.FileInfo.FileType.regular, fi.file_type);
+}
+
+test "deepCopy user-info and group-info" {
+    var gc2 = memory.GC.init(std.testing.allocator);
+    defer gc2.deinit();
+    var ucopy: types.Value = undefined;
+    {
+        var gc1 = memory.GC.init(std.testing.allocator);
+        defer gc1.deinit();
+        const uval = try gc1.allocUserInfo("root", 0, 0, "/root", "/bin/sh", "root");
+        ucopy = try gc2.deepCopy(uval);
+    }
+    // the copy owns its own bytes — the source GC is already gone
+    const ui = types.toObject(ucopy).as(types.UserInfo);
+    try std.testing.expectEqual(types.ObjectTag.user_info, types.toObject(ucopy).tag);
+    try std.testing.expectEqualStrings("root", ui.name);
+    try std.testing.expectEqual(@as(u32, 0), ui.uid);
+    try std.testing.expectEqualStrings("/bin/sh", ui.shell);
+    try std.testing.expectEqualStrings("root", ui.full_name);
+    try std.testing.expectEqualStrings("/root", ui.home_dir);
+
+    var gc3 = memory.GC.init(std.testing.allocator);
+    defer gc3.deinit();
+    var gc4 = memory.GC.init(std.testing.allocator);
+    defer gc4.deinit();
+    const gval = try gc3.allocGroupInfo("wheel", 0);
+    const gcopy = try gc4.deepCopy(gval);
+    const gi = types.toObject(gcopy).as(types.GroupInfo);
+    try std.testing.expectEqual(types.ObjectTag.group_info, types.toObject(gcopy).tag);
+    try std.testing.expectEqualStrings("wheel", gi.name);
+    try std.testing.expectEqual(@as(u32, 0), gi.gid);
+}
+
+test "deepCopy error_object preserves posix_errno" {
+    var gc1 = memory.GC.init(std.testing.allocator);
+    defer gc1.deinit();
+    var gc2 = memory.GC.init(std.testing.allocator);
+    defer gc2.deinit();
+
+    const msg = try gc1.allocString("cannot stat file");
+    var msg_root = msg;
+    gc1.pushRoot(&msg_root);
+    defer gc1.popRoot();
+    const err = try gc1.allocErrorObjectCoded(msg, types.NIL, .invalid_argument);
+    var err_obj = types.toObject(err).as(types.ErrorObject);
+    err_obj.posix_errno = 2; // ENOENT
+    err_obj.error_type = .file;
+
+    const copied = try gc2.deepCopy(err);
+    const ce = types.toObject(copied).as(types.ErrorObject);
+    try std.testing.expectEqual(@as(c_int, 2), ce.posix_errno);
+    try std.testing.expectEqual(types.ErrorObject.ErrorType.file, ce.error_type);
+    try std.testing.expectEqual(.invalid_argument, ce.code);
+}
+
+test "deepCopy rejects directory_object" {
+    var gc1 = memory.GC.init(std.testing.allocator);
+    defer gc1.deinit();
+    var gc2 = memory.GC.init(std.testing.allocator);
+    defer gc2.deinit();
+
+    var dummy: u8 = 0;
+    const d = try gc1.allocDirectoryObject(&dummy, false);
+    // sweep would closedir() a live dir pointer on gc1.deinit; null it first
+    // (deepCopy rejects on the tag alone and never dereferences it)
+    types.toObject(d).as(types.DirectoryObject).dir = null;
+    try std.testing.expectError(error.UncopyableType, gc2.deepCopy(d));
+}
