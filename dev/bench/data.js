@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786332022056,
+  "lastUpdate": 1786339233529,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f04aa5a75fa7bfe12381d1732ebaeb88787f7b7e",
-          "message": "Phase 4A: derive isRejectedFormHead — the one missing name was define-property, and it was live on cond/case/do (#2092)\n\n* Phase 4A: derive isRejectedFormHead from the eval-fallback set\n\nThe native backend had two gates against splitting a lexical scope across\nthe native/interpreted boundary, and only one of them was derived.\n`ir.eval_fallback_form_names` is comptime-built from `llvm_node_table`,\nevery `FormKind` field, and `other_special_forms`; `isRejectedFormHead` —\nwhich gates cond/case/do through `exprNativeEmittable` — was a literal\n32-name array standing parallel to it. Parallel lists drift, and this one\nhad: `define-property` was in the derived set and absent from the array.\n\nThat was not latent. `define-property` is a compile-time form —\n`compileDefineProperty` evaluates its expression and stores the property\nwhile the enclosing form is compiled — and the interpreter compiles a\ntop-level `cond` whole, so the effect lands ahead of the clause body. With\nthe name missing, the backend emitted the cond natively and left only the\nregistration behind as a run-time `kaappi_eval`, moving that effect after\nthe rest of the body: `PBC` interpreted, `BPC` compiled. `case` diverged\nthe same way, and `do` did not compile at all (KP9001), because `emitDo`\ninstalls loop-variable locals before reaching the deferred form and\n`emitFormEval` refuses to eval inside a lexical scope.\n\n`rejected_form_heads` is now\n`(eval_fallback_form_names \\ derived_exclusions) ∪ extra_rejected_heads`.\n`derived_exclusions` is empty. `extra_rejected_heads` holds the six names\nthis gate rejects for its own reasons — `lambda` and `define`, lowered\nnatively elsewhere but not in sub-expression position here, and the four\nsyntax-position markers `unquote`/`unquote-splicing`/`else`/`=>`, which\nmust stay out of the derived set or `sexprNeedsEvalFallback`'s blind\nrecursion would reject every natively-lowered cond with an else clause.\nBoth lists now carry their reasons in code.\n\nA comptime block rejects a stale exclusion, an extra that duplicates a\nderived name, and any derived name that escapes the gate. The runtime test\nis deliberately stricter than the comptime invariant: it permits no\nexclusions at all, so weakening the gate takes two deliberate edits rather\nthan one quiet line. A second runtime test asserts the emitter behaviour,\nsince a correct list nothing reads would pass every list-level check.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Record the isRejectedFormHead fix in the changelog\n\nThis changes what the native backend emits for a real form, which is\nuser-visible behaviour rather than a refactor, so the gate is right to\nrequire an entry.\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T19:52:25+05:30",
-          "tree_id": "9ad05ae621efe0d3e61d5136c28e57b32aaf7a7e",
-          "url": "https://github.com/kaappi/kaappi/commit/f04aa5a75fa7bfe12381d1732ebaeb88787f7b7e"
-        },
-        "date": 1785606301182,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.961793,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.753976,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.575551,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.823901,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004882,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.044619,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.297449,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054999,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.305794,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.156004,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.618274,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.312044,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.682164,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.827887,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045445,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04314,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "56b189830bc55868d68bc4060d62bf1d16a7696a",
+          "message": "Implement the full SRFI-189 spec surface: all 82 names with spec signatures (Fixes #2087) (#2278)\n\nlib/srfi/189.sld exported 24 names, of which 23 were spec names: 59 of the\nspec's 82 identifiers were absent, four signatures were narrower than the\nspec requires, and `either` was exported without ever being defined, so a\nprogram importing it failed at the point of use. cond-expand answered yes\nto both feature tests throughout, so portable code had no way to detect\nthe gap.\n\nThe library is now a port of the reference implementation, exporting all\n82 spec identifiers with their spec signatures:\n\n- maybe-ref/either-ref take a required failure procedure and an optional\n  success procedure (default values) instead of only the container; the\n  Left payload is readable again through either-ref's failure argument\n  and either-swap.\n- maybe-bind/either-bind are variadic in the mprocs, short-circuiting\n  Nothing/Left immediately; the spec defines the result as if compose had\n  been applied, and the implementation inlines a local loop over the\n  mprocs through maybe-ref/either-ref.\n- either-filter/either-remove take obj ... for the Left payload.\n- values->maybe/values->either invoke a producer thunk rather than\n  taking bare values, per the spec's values protocol.\n- The list-protocol procedures (maybe->list, either->list,\n  maybe->list-truth, either->list-truth) return a copy of the payload,\n  so mutating a result cannot corrupt an immutable container.\n- The phantom `either` export is gone.\n\nA Just/Right/Left may hold zero or more payload objects, stored as a\nlist, so a Just with no payload is not Nothing (success with no values),\nas the spec requires. The syntax group (maybe-if, maybe-and, maybe-or,\nmaybe-let*, maybe-let*-values, either-guard, ...) is portable\nsyntax-rules over the library's own bindings.\n\nThe audit suite's 18 disabled FAIL: #2087 assertions are now live, the\nold-signature tests were updated to the spec, and the export-completeness\nsection grew to cover each spec group (protocol conversions, trivalent\nlogic, sequence ops, map/fold/unfold, compose, generation and two-values\nprotocols). 237 assertions pass, plus the older srfi189.scm regression\nfile. Full Scheme suite: 703 pass; R7RS suite: 1395 pass.\n\nOne known engine interaction, documented in compileGuard: when no guard\nclause matches, kaappi's guard re-raises in its own dynamic environment\nand does not resume the original raise-continuable site, so the reference\nsuite's continuable-reraise edge check cannot pass until that engine\ndeviation is addressed. Matching raises are caught into a Left and\nnon-matching raises propagate; both are pinned in the audit.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-10T10:15:10+05:30",
+          "tree_id": "0dba96808e9ecf18b78e6be0f7d3cf7e8d0e9619",
+          "url": "https://github.com/kaappi/kaappi/commit/56b189830bc55868d68bc4060d62bf1d16a7696a"
+        },
+        "date": 1786339231903,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.213376,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.110483,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.578728,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.954365,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004641,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047134,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.302173,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056387,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.77386,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.154052,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.582496,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.282872,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.765021,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.666517,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044707,
             "unit": "seconds"
           }
         ]
