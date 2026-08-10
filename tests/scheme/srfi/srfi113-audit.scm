@@ -264,10 +264,10 @@
 ;;      (hash-table-for-each (lambda (key value) (sob-increment! bag key value))
 ;;                           (sob-hash-table set))
 ;;  — every element of the set is ADDED to whatever count the bag already has.
-;;  chibi-scheme 0.12.0 agrees with the reference here.
-;; FAIL: #2086 (set->bag! leaves an element already in the bag at its old count)
-;; (test-equal "set->bag! adds to the count of an element already in the bag"
-;;             '((1 . 3) (2 . 1)) (ba (set->bag! (B 1 1) (S 1 2))))
+;;  chibi-scheme 0.12.0 agrees with the reference here. (#2086: set->bag! used
+;;  to leave an element already in the bag at its old count.)
+(test-equal "set->bag! adds to the count of an element already in the bag"
+            '((1 . 3) (2 . 1)) (ba (set->bag! (B 1 1) (S 1 2))))
 
 ;; Discriminating control: the element the bag does NOT already hold is added
 ;; correctly, so only the already-present branch is wrong.

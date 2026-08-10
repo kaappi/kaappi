@@ -8,7 +8,8 @@
 ;; The one defect this file pins is #2073: the spec's rule
 ;;     eval[ (AND-LET* (CLAW) ), env] = eval_claw[ CLAW, env ]
 ;; requires an and-let* with claws and NO body to return the last claw's
-;; value; lib/srfi/2.sld returns #t instead, for all three claw shapes.
+;; value; lib/srfi/2.sld used to return #t instead, for all three claw
+;; shapes, and now returns the claw value.
 ;;
 ;; Run directly: zig-out/bin/kaappi tests/scheme/srfi/srfi2.scm
 
@@ -138,30 +139,38 @@
 ;;; --------------------------------------------------------------------
 ;;; #2073 -- an and-let* with claws and NO body must return the last claw's
 ;;; value, per the spec's own eval[ (AND-LET* (CLAW) ) ] = eval_claw[ CLAW ]
-;;; rule. All three claw shapes return #t instead. Chibi 0.12.0 returns the
-;;; claw value for every line below.
+;;; rule. lib/srfi/2.sld now ends the recursion on the last claw, so all
+;;; three claw shapes yield their value. Chibi 0.12.0 returns the claw value
+;;; for every line below.
 ;;;
-;;; The failure-path counterpart is pinned enabled just above/below, so the
-;;; disabled block isolates exactly the success value.
+;;; The failure-path counterpart is pinned enabled just above/below, so this
+;;; block isolates exactly the success value.
 ;;; --------------------------------------------------------------------
 
 (test-equal "empty body, failing claw still yields #f" #f (and-let* ((x #f))))
 
-;; FAIL: #2073 (and-let* with claws and an empty body returns #t, not the claw value)
-;; (test-equal "empty body, (VARIABLE EXPRESSION) claw yields its value" 1
-;;             (and-let* ((x 1))))
-;; (test-equal "empty body, (VARIABLE EXPRESSION) claw yields a symbol" 'sym
-;;             (and-let* ((x 'sym))))
-;; (test-equal "empty body, (EXPRESSION) claw yields its value" 3
-;;             (and-let* (((+ 1 2)))))
-;; (test-equal "empty body, BOUND-VARIABLE claw yields its value" 5
-;;             (let ((v 5)) (and-let* (v))))
-;; (test-equal "empty body, two claws yields the last one's value" 2
-;;             (and-let* ((x 1) (y 2))))
-;; (test-equal "empty body, last claw is an (EXPRESSION)" 7
-;;             (and-let* ((x 1) ((* x 7)))))
-;; (test-equal "empty body, last claw is a BOUND-VARIABLE" 9
-;;             (let ((v 9)) (and-let* ((x 1) v))))
+(test-equal "empty body, (VARIABLE EXPRESSION) claw yields its value" 1
+            (and-let* ((x 1))))
+(test-equal "empty body, (VARIABLE EXPRESSION) claw yields a symbol" 'sym
+            (and-let* ((x 'sym))))
+(test-equal "empty body, (EXPRESSION) claw yields its value" 3
+            (and-let* (((+ 1 2)))))
+(test-equal "empty body, BOUND-VARIABLE claw yields its value" 5
+            (let ((v 5)) (and-let* (v))))
+(test-equal "empty body, two claws yields the last one's value" 2
+            (and-let* ((x 1) (y 2))))
+(test-equal "empty body, last claw is an (EXPRESSION)" 7
+            (and-let* ((x 1) ((* x 7)))))
+(test-equal "empty body, last claw is a BOUND-VARIABLE" 9
+            (let ((v 9)) (and-let* ((x 1) v))))
+;; A failing claw still short-circuits with no body: the value of a false
+;; claw is #f, which is exactly what the and-let* must return.
+(test-equal "empty body, failing last claw yields #f" #f
+            (and-let* ((x 1) (y #f))))
+(test-equal "empty body, a side-effecting (EXPRESSION) claw runs once" 1
+            (let ((n 0))
+              (and-let* (((begin (set! n (+ n 1)) 2))))
+              n))
 
 (let ((runner (test-runner-current)))
   (test-end "srfi-2")

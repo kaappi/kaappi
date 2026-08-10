@@ -20,6 +20,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`and-let*` with claws and no body returns the last claw's value**
+  (#2073). The base case expanded to `(begin #t body ...)`, so an `and-let*`
+  with at least one claw and an empty body — the value-producing guarded
+  lookup idiom SRFI 2 exists for — collapsed to a bare `#t`, discarding the
+  result. The expansion now ends on the last claw and returns its value for
+  all three claw shapes (`(VARIABLE EXPRESSION)`, `(EXPRESSION)`,
+  `BOUND-VARIABLE`), keeping the `#f` short-circuit; `(and-let* ())` is
+  still `#t` per the spec.
+
+- **SRFI 222 ships all ten procedures, `make-compound` flattens nested
+  compounds, and `compound-subobjects` no longer raises on a non-compound**
+  (#2072). `(srfi 222)` exported only 5 of the spec's 10 procedures —
+  `compound-map`, `compound-map->list`, `compound-filter`,
+  `compound-predicate` and `compound-access` were missing — `make-compound`
+  kept a nested compound as a single subobject instead of splicing in its
+  subobjects, and `compound-subobjects` was the bare record accessor, which
+  raised on a non-compound instead of returning a one-element list. The
+  library now implements the full spec: `compound-map` flattens compound
+  results, `compound-predicate` returns `#t` when the object or any
+  subobject satisfies the predicate, and `compound-access` implements the
+  spec's `(predicate accessor default obj)` worked-example shape.
+
+- **`set->bag!` adds the set's contribution to elements the bag already
+  holds** (#2086). It only inserted a set element the bag did not already
+  contain, leaving an element the bag held at its old count — a silent
+  wrong result for `(set->bag! (bag cmp 1 1) (set cmp 1 2))`, which must
+  give element 1 a count of 3. It now unconditionally increments, matching
+  the reference implementation and chibi-scheme.
+
+- **`%random-port-make-from-seed` rejects an all-zero seed** (#1913). An
+  all-zero seed put the xoshiro256** state at its degenerate fixed point,
+  so every byte drawn from the port was zero, silently. The sibling entry
+  points already rejected it (`isStateBytevector` in
+  `primitives_random_port.zig`, `bytevector-all-zero?` in
+  `lib/srfi/271/determinized.sld`); the raw seed primitive now does too.
+
 - **`,load` no longer mangles paths containing `"` or `\`** (#2273). The
   command spliced the path into a `(load "...")` string literal, so the
   reader's escapes broke or changed it: a quote ended the string (reader
