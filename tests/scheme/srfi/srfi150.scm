@@ -20,35 +20,22 @@
 ;;     reference gained a descriptive string label, matching every other
 ;;     test file in this directory (srfi131.scm included).
 ;;
-;; Four assertions below are annotated as KNOWN FAILURES, all four of
-;; them one defect: kaappi#2051. They were originally attributed to
-;; kaappi#1832 ("a pre-existing top-level binding same-spelled as a
-;; macro template's own field-name literal leaks through unrenamed on
-;; one of a macro's two internal expansion passes"). Audit v2 Phase 3.10
-;; established that attribution is wrong on both halves. #1832 is fixed
-;; and its own regression test passes; its exact shape works correctly
-;; under plain (scheme base) define-record-type. And a pre-existing
-;; top-level binding is not required here at all -- removing it leaves
-;; every one of these cases failing identically.
-;;
-;; The real mechanism is that lib/srfi/150.sld carries field names from
-;; expansion time to run time inside `quote`, and a hygiene rename does
-;; not survive quoting ((eq? '__hyg_2_a 'a) is #t). The expansion is
-;; correct -- `kaappi expand` shows the two field names properly
-;; distinguished as __hyg_2_a and a -- and both then strip to `a` before
-;; the runtime by-name lookup sees them, so the two fields collapse into
-;; one. The trigger is purely a spelling collision between the template's
-;; own field-name literal and the identifier the use site supplies;
-;; giving the use site a different spelling makes each case pass.
-;;
-;; Two of the four additionally hard-
-;; error at the record-type-definition site itself, not merely at the
-;; assertion that reads a field back -- SRFI-64's `test-expect-fail`
-;; only covers a wrong-value assertion, not a top-level form throwing
-;; before any assertion runs, so those two are wrapped in `guard`
-;; instead: if the known limitation is ever fixed, the `guard` simply
-;; stops catching anything and the real assertions inside it start
-;; running and being checked normally, with no further edits needed here.
+;; The whole reference suite passes, including the four assertions
+;; (Hygiene 1's two, Hygiene 2's own-field one, and Alex Shinn's
+;; explicitly-constructed tuple) that used to be marked `test-expect-fail`
+;; for kaappi#2051. That defect -- lib/srfi/150.sld carried field names
+;; from expansion time to run time inside `quote`, and a hygiene rename
+;; does not survive quoting ((eq? '__hyg_2_a 'a) is #t), so two fields
+;; the expander had correctly distinguished (e.g. __hyg_2_a and a)
+;; collapsed into one name before the runtime by-name lookup saw them --
+;; is fixed by resolving field identity to absolute layout indices and
+;; deduped runtime names entirely at macro-expansion time. The reference
+;; suite's own shapes are below, followed by the issue's discriminating
+;; controls as regression tests: the no-top-level-binding variant (C5),
+;; the non-colliding-spelling control (C6), constant field names, and the
+;; type-name-redefinition shape (the pre-existing `<record>` binding is
+;; NOT the trigger for the field-name collapse; it is a separate,
+;; also-fixed hazard for the type-name binding itself).
 ;;
 ;; Run directly: zig-out/bin/kaappi tests/scheme/srfi/srfi150.scm
 
@@ -162,32 +149,20 @@
        (a get-a)
        (b get-b)))))
 
-;; KNOWN FAILURE: kaappi#2051 (see the file header above). `def`'s own
-;; field-name literal `a` and the `a` this use site passes as `b` are
-;; distinct after expansion (__hyg_2_a vs a) but collapse to one name
-;; when SRFI 150 carries them through `quote` into its runtime lookup.
-;; The `(define a #f)` above is NOT the trigger -- deleting it leaves
-;; this failing identically; passing a different spelling at the use
-;; site is what makes it pass. This hard-errors at
-;; definition time on kaappi (reported directly to stderr below) rather
-;; than merely returning a wrong value -- `get-a`/`get-b` are therefore
-;; never defined, and both dependent assertions below fail by reference
-;; error. `guard` cannot isolate this the way it would on a spec-
-;; conformant Scheme: `def`'s expansion contains a nested
-;; define-record-type call, and kaappi's define-record-type-shadowing-
-;; by-macro mechanism only fires at real top level (the same limitation
-;; the file header above already documents for `test-group`) -- wrapping
-;; it in `guard`'s body form breaks that shadowing outright. Left
-;; unguarded at true top level instead, matching the reference's own
-;; structure; kaappi's batch runner tolerates one top-level form
-;; erroring and continues to the next, so the rest of the suite still
-;; runs and reports correctly.
 (def a make-record get-a get-b)
 
-(test-expect-fail "hygiene 1: macro's own field name, unconfused by caller's same-spelled argument")
+;; kaappi#2051: `def`'s own field-name literal `a` and the `a` this use
+;; site passes as `b` are distinct after expansion (__hyg_2_a vs a) but
+;; used to collapse to one name when SRFI 150 carried them through `quote`
+;; into its runtime by-name lookup. The `(define a #f)` above is NOT the
+;; trigger (see the C5 control below); a pre-existing top-level binding of
+;; the type name `<record>` from the field-referral section above IS a
+;; separate hazard that used to surface here too -- the type-name binding
+;; is now emitted hygiene-stripped, so the accessors below bind against the
+;; freshly redefined type rather than the old one. Both are fixed; these
+;; used to be `test-expect-fail`.
 (test-eqv "hygiene 1: macro's own field name, unconfused by caller's same-spelled argument"
   1 (get-a (make-record 1 2)))
-(test-expect-fail "hygiene 1: caller's argument correctly becomes its own, separate field")
 (test-eqv "hygiene 1: caller's argument correctly becomes its own, separate field"
   2 (get-b (make-record 1 2)))
 
@@ -210,13 +185,12 @@
 
 (define-child make-child child-get x)
 
-;; KNOWN FAILURE: kaappi#2051, same root cause as hygiene 1 above --
-;; the template's own field `x` and the inherited parent field the use
-;; site names `x` collapse to one name through `quote`. This one returns
-;; a wrong value instead of hard-erroring, so plain test-expect-fail
-;; covers it. Control: renaming the template's own field to `y` (no
-;; spelling collision) makes it return the correct (1 2).
-(test-expect-fail "hygiene 2: inherited field set via macro-introduced reference")
+;; kaappi#2051, same root cause as hygiene 1: the template's own field `x`
+;; and the inherited parent field the use site names `x` collapse to one
+;; name through `quote`. The constructor now resolves its arguments to
+;; absolute indices at expansion time, so the parent field (index 0) and
+;; the shadowing own field (index 1) are filled separately even though
+;; both spellings strip to `x`. Used to be `test-expect-fail`.
 (test-eqv "hygiene 2: inherited field set via macro-introduced reference"
   1 (parent-get (make-child 1 2)))
 (test-eqv "hygiene 2: own field, unconfused by the macro's own same-spelled field name"
@@ -251,27 +225,114 @@
 
 (test-equal "Alex Shinn's example: default-filled tuple"
   '(0 0) (let ((pt (make-point))) (list (point-ref pt 0) (point-ref pt 1))))
-;; KNOWN FAILURE: kaappi#2051, same root cause as the hygiene tests
-;; above -- both explicitly-supplied fields read back as the second
-;; argument ((2 2), not (1 2)). The earlier guess here, that deftuple's
-;; per-step `tmp` template literal collapses to one shared name across
-;; its recursive expansion, is now confirmed and its mechanism traced:
-;; `kaappi expand` shows the fields correctly distinguished as
-;; __hyg_1_tmp and __hyg_2_tmp, and both strip to `tmp` when SRFI 150
-;; carries them through `quote` into its runtime by-name lookup.
-(test-expect-fail "Alex Shinn's example: explicitly-constructed tuple")
+;; kaappi#2051, same root cause as the hygiene tests: deftuple's per-step
+;; `tmp` template literal is renamed per step (__hyg_1_tmp, __hyg_2_tmp)
+;; and the two fields used to strip to one shared `tmp` through `quote`,
+;; so both explicitly-supplied fields read back as the second argument
+;; ((2 2) instead of (1 2)). Used to be `test-expect-fail`.
 (test-equal "Alex Shinn's example: explicitly-constructed tuple"
   '(1 2) (let ((pt (make-point 1 2))) (list (point-ref pt 0) (point-ref pt 1))))
 
-;; The "hygiene 1" block above deliberately triggers one uncaught,
-;; directly-to-stderr top-level error (the known engine limitation
-;; documented at the top of this file and in lib/srfi/150.sld's header)
-;; -- kaappi's batch runner tolerates it and keeps running, but it still
-;; leaves the process's OWN natural exit status non-zero even though the
-;; SRFI-64 summary below is clean (0 unexpected failures). Exit
-;; explicitly on the success path rather than relying on fall-through,
-;; so this known, harmless error doesn't make run-all.sh treat this
-;; suite as failed.
+;;; --- kaappi#2051 regression controls ----------------------------------------
+
+;; C5 from the issue: the exact Hygiene 1 shape with NO top-level `a` at
+;; all. It failed identically to the reference shape before the fix --
+;; proving a pre-existing binding of the colliding spelling was never
+;; required -- and must pass now.
+(define-syntax def-no-binding
+  (syntax-rules ()
+    ((def-no-binding b make-record get-a get-b)
+     (define-record-type <r-no-binding>
+       (make-record a b)
+       r-no-binding?
+       (a get-a)
+       (b get-b)))))
+
+(def-no-binding a make-record get-a get-b)
+
+(test-equal "issue C5: no pre-existing binding of the colliding spelling"
+  '(1 2) (list (get-a (make-record 1 2)) (get-b (make-record 1 2))))
+
+;; C6 from the issue: same macro, but the use site passes a NON-colliding
+;; spelling. This passed even before the fix and pins down that the
+;; trigger is purely the spelling collision, not the macro shape.
+(define-syntax def-non-colliding
+  (syntax-rules ()
+    ((def-non-colliding b make-record get-a get-b)
+     (define-record-type <r-non-colliding>
+       (make-record a b)
+       r-non-colliding?
+       (a get-a)
+       (b get-b)))))
+
+(def-non-colliding q make-record get-a get-b)
+
+(test-equal "issue C6: non-colliding use-site spelling"
+  '(1 2) (list (get-a (make-record 1 2)) (get-b (make-record 1 2))))
+
+;; The issue's minimal reproduction, verbatim.
+(define-syntax def-minimal
+  (syntax-rules ()
+    ((def-minimal b mk ga gb)
+     (define-record-type <r-minimal> (mk a b) r-minimal? (a ga) (b gb)))))
+
+(def-minimal a mk ga gb)
+
+(test-equal "issue minimal reproduction"
+  '(1 2) (list (ga (mk 1 2)) (gb (mk 1 2))))
+
+;; The type-name-redefinition hazard is exercised by the reference suite's
+;; Hygiene 1 shape above: `<record>` is already bound (field-referral
+;; section) when `def` redefines it through a macro, and the accessors
+;; still bind against the freshly redefined type. The type-name binding is
+;; emitted hygiene-stripped, so the redefinition lands on the global like
+;; any top-level redefinition instead of being shadowed by the engine's
+;; referential-transparency alias for the old type.
+
+;; Non-identifier constant field names (SRFI 150: field names may be
+;; numbers, strings, booleans, or characters; matched with equal?, never
+;; against an identifier).
+(define-record-type <const-rec>
+  (make-const-rec 1 2)
+  const-rec?
+  (1 get-one)
+  (2 get-two))
+
+(test-equal "constant field names: numbers"
+  '(10 20) (list (get-one (make-const-rec 10 20)) (get-two (make-const-rec 10 20))))
+
+(define-record-type <const-str>
+  (make-const-str "x" "y")
+  const-str?
+  ("x" get-str-x)
+  ("y" get-str-y))
+
+(test-equal "constant field names: strings"
+  '(1 2) (list (get-str-x (make-const-str 1 2)) (get-str-y (make-const-str 1 2))))
+
+;; An inherited constant field, referenced through the constructor.
+(define-record-type <const-parent>
+  (make-const-parent 1)
+  const-parent?
+  (1 get-parent-one))
+
+(define-record-type (<const-child> <const-parent>)
+  (make-const-child 1 2)
+  const-child?
+  (2 get-child-two))
+
+(test-equal "constant field names: inherited, set through child constructor"
+  '(10 20) (list (get-parent-one (make-const-child 10 20))
+                 (get-child-two (make-const-child 10 20))))
+
+;; The `__hyg_` note from the issue: the strip is by spelling, not by
+;; provenance -- a symbol a user literally types as `'__hyg_2_a` also
+;; reads back as `a` in quoted data. That is engine behavior, unchanged by
+;; this fix; pinned here so the SRFI's own field-name handling stays
+;; visibly distinct from it.
+(test-assert "engine: quoted __hyg_-prefixed symbol strips by spelling"
+  (eq? '__hyg_2_a 'a))
+
 (let ((runner (test-runner-current)))
   (test-end "srfi-150")
   (if (> (test-runner-fail-count runner) 0) (exit 1) (exit 0)))

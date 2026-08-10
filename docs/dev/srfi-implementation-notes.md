@@ -910,12 +910,14 @@ query macro: each `define-record-type` use attaches its own field/
 accessor-name pairs to the type name via `define-property`, a child
 reads its parent's via `lookup`, and `lookup` is only reachable from a
 procedural transformer, so `define-record-type` itself is a SRFI 211
-`er-macro-transformer` rather than an `em-syntax-rules` macro. Since this
-engine represents every identifier as a plain, hygiene-renamed symbol,
-plain `equal?` on that raw symbol already implements both
-bound-identifier=? and free-identifier=? for SRFI 213's stored names —
-specific to this engine's rename-by-spelling hygiene representation, not
-a portable assumption. This design surfaced the library global-resolution
+`er-macro-transformer` rather than an `em-syntax-rules` macro. (The
+matching and index resolution themselves happen entirely inside that
+transformer — see the kaappi#2051 paragraph below, which replaced an
+earlier scheme that stored field-name symbols in the property table and
+compared them by plain `equal?` on the raw, hygiene-renamed spelling.
+That scheme was unsound: quoted data strips the rename, so the stored
+symbols collapsed across hygienically-distinct fields.) This design
+surfaced the library global-resolution
 bug fixed in kaappi#1831, which first presented as `cadar` specifically —
 not `caar`/`cadr`/`cddr`, and not its own unrolled spelling
 `(cadr (car x))` — failing when called from a helper function invoked
@@ -927,20 +929,62 @@ cxr-only name (`cdddr`) sits inside the transformer's own lambda, which
 is evaluated at macro-definition time in the global environment and so
 never consults lib_env at all. The real rule was tail vs. non-tail
 position (see the SRFI 237 paragraph above); the idiomatic `cadar`
-spelling is back in `field-alist-ref`. SRFI 150 ships with one
-documented, unfixed gap rather than blocking on an engine fix: 21 of 25
-tests ported from the reference suite pass; the other 4 (two "Hygiene 1"
-assertions, one "Hygiene 2" assertion, and Alex Shinn's
-explicit-construction tuple
-example, marked `test-expect-fail`/annotated in
-`tests/scheme/srfi/srfi150.scm`) hit a precise, minimal, record-free
-reproduction (kaappi#1832) of the already-documented "a use-site
-top-level redefinition of a referenced name reaches the expansion"
-limitation noted in the SRFI 211 paragraph below — a `syntax-rules`
-template's own field-name literal can lose its hygienic rename on one of
-two internal re-expansions specifically when it collides in spelling
-with a pre-existing top-level binding, which is exactly the adversarial
-case SRFI 150's own hygiene tests are designed to probe. Issue #1694 (the
+spelling is back in `field-alist-ref`.
+
+SRFI 150's own final design (kaappi#2051) then had to be reworked twice:
+field identity was originally carried from expansion time to run time
+inside `quote`, on the theory that the engine's rename-by-spelling
+hygiene representation made the stored symbol's full spelling a sufficient
+runtime key. It is not: the compiler strips a `__hyg_N_` rename from any
+quoted datum (`compileQuote`'s `stripHygieneFromDatum`, which is correct
+and required — a `syntax-rules` template's `'foo` must yield `foo`, not
+`__hyg_1_foo`), so two hygienically-distinct field identifiers whose
+spellings strip to the same name (a macro template's own field-name
+literal and the same-spelled identifier the use site supplies, e.g.
+`__hyg_2_a` and `a`) collapsed into one runtime field. All four of the
+reference suite's hygiene assertions failed on it, and the defect was
+misattributed to kaappi#1832 (a pre-existing top-level binding of the
+colliding spelling is NOT required — the no-binding control fails
+identically). The current design therefore resolves field identity
+ENTIRELY at macro-expansion time, while the renamed symbols are still in
+hand, and never round-trips a hygienic symbol through `quote`:
+
+* A constructor spec entry matches the current form's own fields by
+    FULL spelling (same template identifier, same gensym — this engine's
+    bound-identifier=?), then inherited fields by hygiene-STRIPPED
+    spelling against the parent's stored property (free-identifier=? for
+    the top-level bindings a parent's field name actually refers to), and
+    resolves to a numeric ABSOLUTE index into the full
+    (inherited-then-own) field layout. `named-constructor` fills the
+    record's field vector by index; no by-name lookup happens at run
+    time.
+* Each own field gets a runtime name for the record-type-descriptor
+    and accessor/mutator creation: its stripped spelling, deduped with a
+    numeric suffix when two own fields strip to the same name (the
+    Hygiene 1 shape); a non-identifier constant field name gets a
+    generated `field-<index>` name (the rtd layer requires a symbol). An
+    own field matching an inherited field's stripped spelling is
+    deliberately NOT deduped — that is ordinary shadowing, resolved
+    own-fields-first at run time.
+* The property table stores the parent's total field count plus an
+    alist of stripped-spelling KEYs to absolute indices — keys and
+    indices only, no renamed symbols.
+
+One separate hazard surfaced while re-enabling the tests: the emitted
+type-name binding is also emitted hygiene-STRIPPED, because a
+macro-introduced `__hyg_N_<t>` reference whose base `<t>` is an
+already-bound global is intercepted by the #1832 referential-transparency
+alias (it loads the PRE-EXISTING global's value for every such reference,
+even inside the same expansion that defines it), so the accessors would
+bind against the old record type when a macro redefines an already-bound
+type name. The type name is a define target, not a genuinely free
+reference, so the stripped spelling is the correct emission — it rebinds
+the global like any top-level redefinition (R7RS 5.3.1) and matches what
+SRFI 131 emits for its type names. The reference suite now passes in
+full; `tests/scheme/srfi/srfi150.scm` adds the issue's discriminating
+controls (the no-binding C5 variant, the non-colliding-spelling C6
+control, constant field names, and the quoted-`__hyg_`-strip note) as
+regression tests. Issue #1694 (the
 numeric-vector and array family) is now fully closed: the vector-family
 subset — 4 (already shipped pre-Phase-4, just undocumented until Phase 4
 Slice 4), 160, 66, 74 — shipped in Phase 4 Slice 4 on one shared native
