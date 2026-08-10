@@ -793,6 +793,15 @@
      ;; enforced too.
      (test-equal "(raised? (lambda () (set-file-times p 'garbage' 'garbage')))" #t (raised? (lambda () (set-file-times p "garbage" "garbage"))))
      (test-equal "(raised? (lambda () (set-file-times p 5.0 5.0)))" #t (raised? (lambda () (set-file-times p 5.0 5.0))))
+     ;; SRFI-170 requires time-utc objects: a monotonic-clock object is
+     ;; rejected too, not written to utimensat as wall-clock seconds
+     (test-equal "(raised? (lambda () (set-file-times p (monotonic-time) (monotonic-time))))" #t
+                 (raised? (lambda () (set-file-times p (monotonic-time) (monotonic-time)))))
+     ;; ...while a genuine time-utc object round-trips; restore mtime to the
+     ;; 3000000 the earlier valid call set, so the "rejected calls did not
+     ;; touch the file" assertion below still pins the rejects.
+     (test-equal "(begin (set-file-times p (posix-time) (posix-time)) #t)" #t (begin (set-file-times p (posix-time) (posix-time)) #t))
+     (set-file-times p -2 3000000)
      (test-equal "(raised? (lambda () (set-file-times p 1000000)))" #t (raised? (lambda () (set-file-times p 1000000))))
      ;; Enabled control: the *path* argument of the same call is type-checked
      (test-equal "(raised? (lambda () (set-file-times 42)))" #t (raised? (lambda () (set-file-times 42))))
@@ -821,6 +830,7 @@
    (test-equal "(raised? (lambda () (create-directory (string-append dir ..." #t (raised? (lambda () (create-directory (string-append dir "/x") #o700 'extra))))
    (test-equal "(raised? (lambda () (create-fifo (string-append dir '/y')..." #t (raised? (lambda () (create-fifo (string-append dir "/y") #o600 'extra))))
    (test-equal "(raised? (lambda () (open-directory dir #t 'extra)))" #t (raised? (lambda () (open-directory dir #t 'extra))))
+   (test-equal "(raised? (lambda () (nice 0 'extra)))" #t (raised? (lambda () (nice 0 'extra))))
    ;; Enabled control: too *few* arguments is reported correctly
    (test-equal "(raised? (lambda () (file-info)))" #t (raised? (lambda () (file-info))))
    (test-equal "(raised? (lambda () (rename-file (string-append dir '/t'))))" #t (raised? (lambda () (rename-file (string-append dir "/t")))))
@@ -924,9 +934,11 @@
      (test-equal "(posix-error? 42)" #f (posix-error? 42))
      (test-equal "(posix-error? of a user (error ...))" #f (posix-error? (error "plain")))
      ;; ENOENT is the same value on every POSIX host
-     (test-equal "missing path: posix-error? + ENOENT + message"
-                 '(#t ENOENT "No such file or directory")
-                 (posix-of (lambda () (file-info nx #t))))
+     (test-equal "missing path: posix-error? + ENOENT + non-empty message"
+                 '(#t ENOENT #t)
+                 (let ((r (posix-of (lambda () (file-info nx #t)))))
+                   (list (car r) (cadr r)
+                         (and (string? (caddr r)) (> (string-length (caddr r)) 0)))))
      (test-equal "missing parent dir: posix-error? + ENOENT + string message"
                  '(#t ENOENT #t)
                  (let ((r (posix-of (lambda () (create-directory (string-append nx "/child"))))))
@@ -980,23 +992,29 @@
 ;; The SRFI-170 record types cross the boundary. file-info / user-info /
 ;; group-info are pure value records and have copied by value since #1978,
 ;; so each round-trips intact; directory-object holds a live `DIR*` and
-;; stays genuinely uncopyable, so it must at least fail *cleanly* — never
-;; corrupt, never crash. The ok? branch pins the copy, the guard pins the
-;; clean refusal.
+;; stays genuinely uncopyable, so it must be refused cleanly. The two
+;; helpers pin the directions separately: `copies?` fails if the transfer
+;; is refused, and `refused?` fails if the transfer succeeds — a future
+;; change letting a live `DIR*` cross (double-close, use-after-free) must
+;; turn the directory-object assertion red, not pass it via the guard.
 (with-scratch
  (lambda (dir)
    (write-file (string-append dir "/a") "abcd")
-   (define (out-of-thread thunk ok?)
-     (guard (e (#t (error-object? e)))
+   ;; The copy must succeed — a refusal must NOT be reported as success.
+   (define (copies? thunk ok?)
+     (guard (e (#t (list 'refused (and (error-object? e) (error-object-message e)))))
        (ok? (thread-join! (thread-start! (make-thread thunk))))))
-   (test-equal "(out-of-thread (lambda () (file-info (string-append dir '..." #t (out-of-thread (lambda () (file-info (string-append dir "/a") #t))
+   ;; The copy must be refused, and refused cleanly.
+   (define (refused? thunk)
+     (guard (e (#t (error-object? e)))
+       (begin (thread-join! (thread-start! (make-thread thunk))) 'copied)))
+   (test-equal "(copies? (lambda () (file-info (string-append dir '/a') #t)) ..." #t (copies? (lambda () (file-info (string-append dir "/a") #t))
                                  (lambda (v) (and (file-info? v) (= 4 (file-info:size v))))))
-   (test-equal "(out-of-thread (lambda () (user-info (user-uid))) (lambda..." #t (out-of-thread (lambda () (user-info (user-uid)))
+   (test-equal "(copies? (lambda () (user-info (user-uid))) ...)" #t (copies? (lambda () (user-info (user-uid)))
                                  (lambda (v) (and (user-info? v) (string? (user-info:name v))))))
-   (test-equal "(out-of-thread (lambda () (group-info (user-gid))) (lambd..." #t (out-of-thread (lambda () (group-info (user-gid)))
+   (test-equal "(copies? (lambda () (group-info (user-gid))) ...)" #t (copies? (lambda () (group-info (user-gid)))
                                  (lambda (v) (and (group-info? v) (string? (group-info:name v))))))
-   (test-equal "(out-of-thread (lambda () (open-directory dir)) (lambda (..." #t (out-of-thread (lambda () (open-directory dir))
-                                 (lambda (v) (begin (close-directory v) #t))))
+   (test-equal "a live directory-object is refused at the thread boundary" #t (refused? (lambda () (open-directory dir))))
    ;; the same value travelling *into* a child thread
    (let ((fi (file-info (string-append dir "/a") #t)))
      (test-equal "(guard (e (#t (error-object? e))) (thread-join! (thread-s..." #t (guard (e (#t (error-object? e)))

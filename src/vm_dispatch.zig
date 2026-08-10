@@ -524,30 +524,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 } else if (types.isNativeFn(callee)) {
                     const native = types.toObject(callee).as(types.NativeFn);
                     if (self.profile_mode) native.profile_calls += 1;
-                    switch (native.arity) {
-                        .exact => |expected| {
-                            if (nargs != expected) {
-                                self.setErrorDetail("'{s}': expected {d} arguments, got {d}", .{ native.name, expected, nargs });
-                                return VMError.ArityMismatch;
-                            }
-                        },
-                        .variadic => |min| {
-                            if (nargs < min) {
-                                self.setErrorDetail("'{s}': expected at least {d} arguments, got {d}", .{ native.name, min, nargs });
-                                return VMError.ArityMismatch;
-                            }
-                        },
-                        .range => |r| {
-                            if (nargs < r.min) {
-                                self.setErrorDetail("'{s}': expected at least {d} arguments, got {d}", .{ native.name, r.min, nargs });
-                                return VMError.ArityMismatch;
-                            }
-                            if (nargs > r.max) {
-                                self.setErrorDetail("'{s}': expected at most {d} arguments, got {d}", .{ native.name, r.max, nargs });
-                                return VMError.ArityMismatch;
-                            }
-                        },
-                    }
+                    try vm_calls.checkNativeArity(self, native, nargs);
                     const saved_alloc_target = self.gc.profile_alloc_target;
                     if (self.profile_mode) {
                         vm_calls.profileCreditSelf(self);
@@ -746,30 +723,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     frame.ip = 0;
                 } else if (types.isNativeFn(proc)) {
                     const native = types.toObject(proc).as(types.NativeFn);
-                    switch (native.arity) {
-                        .exact => |expected| {
-                            if (count != expected) {
-                                self.setErrorDetail("'{s}': expected {d} arguments, got {d}", .{ native.name, expected, count });
-                                return VMError.ArityMismatch;
-                            }
-                        },
-                        .variadic => |min| {
-                            if (count < min) {
-                                self.setErrorDetail("'{s}': expected at least {d} arguments, got {d}", .{ native.name, min, count });
-                                return VMError.ArityMismatch;
-                            }
-                        },
-                        .range => |r| {
-                            if (count < r.min) {
-                                self.setErrorDetail("'{s}': expected at least {d} arguments, got {d}", .{ native.name, r.min, count });
-                                return VMError.ArityMismatch;
-                            }
-                            if (count > r.max) {
-                                self.setErrorDetail("'{s}': expected at most {d} arguments, got {d}", .{ native.name, r.max, count });
-                                return VMError.ArityMismatch;
-                            }
-                        },
-                    }
+                    try vm_calls.checkNativeArity(self, native, count);
                     // native.func may re-enter the VM and grow self.frames,
                     // invalidating `frame` — read dst before the call.
                     const return_dst = frame.dst;

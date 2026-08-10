@@ -627,7 +627,7 @@ pub fn callClosure(vm: *VM, closure: *types.Closure, base: u32, nargs: u8) VMErr
 /// ReleaseSafe build that is a panic, i.e. a process abort out of ordinary
 /// Scheme (`(call-with-values cons list)` was enough), not the catchable
 /// ArityMismatch the closure path produces.
-fn checkNativeArity(vm: *VM, native: *types.NativeFn, nargs: usize) VMError!void {
+pub fn checkNativeArity(vm: *VM, native: *types.NativeFn, nargs: usize) VMError!void {
     switch (native.arity) {
         .exact => |expected| {
             if (nargs != expected) {

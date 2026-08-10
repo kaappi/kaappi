@@ -700,10 +700,10 @@ pub fn getenv(name: [*:0]const u8) ?[*:0]const u8 {
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 /// NetBSD renamed unsetenv when its return type changed (void → int,
 /// POSIX alignment): the plain symbol is the void compat version, the
-/// modern one is `__unsetenv13`. We ignore the return either way, but
-/// bind the modern symbol for a correct signature (and to silence
-/// NetBSD ld's .gnu.warning on the compat reference). setenv was never
-/// renamed — the plain symbol is current there.
+/// modern one is `__unsetenv13`. Bind the modern symbol for a correct
+/// signature (and to silence NetBSD ld's .gnu.warning on the compat
+/// reference); its int return is the status `unsetEnv` propagates to the
+/// caller. setenv was never renamed — the plain symbol is current there.
 const netbsd_env = struct {
     extern "c" fn __unsetenv13(name: [*:0]const u8) c_int;
 };

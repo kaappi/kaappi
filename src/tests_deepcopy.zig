@@ -667,9 +667,20 @@ test "deepCopy file-info" {
     try std.testing.expect(val != copied);
     const fi = types.toObject(copied).as(types.FileInfo);
     try std.testing.expectEqual(types.ObjectTag.file_info, types.toObject(copied).tag);
+    // every field, so an omitted copy is caught
     try std.testing.expectEqual(@as(i64, 4), fi.size);
     try std.testing.expectEqual(@as(i64, 2000000), fi.mtime);
+    try std.testing.expectEqual(@as(i64, 1000000), fi.atime);
+    try std.testing.expectEqual(@as(i64, 3000000), fi.ctime);
+    try std.testing.expectEqual(@as(i64, 7), fi.dev);
+    try std.testing.expectEqual(@as(i64, 42), fi.ino);
+    try std.testing.expectEqual(@as(i64, 2), fi.nlinks);
+    try std.testing.expectEqual(@as(i64, 0), fi.rdev);
+    try std.testing.expectEqual(@as(i64, 4096), fi.blksize);
+    try std.testing.expectEqual(@as(i64, 8), fi.blocks);
     try std.testing.expectEqual(@as(u32, 0o100644), fi.mode);
+    try std.testing.expectEqual(@as(u32, 501), fi.uid);
+    try std.testing.expectEqual(@as(u32, 20), fi.gid);
     try std.testing.expectEqual(types.FileInfo.FileType.regular, fi.file_type);
 }
 
@@ -680,7 +691,7 @@ test "deepCopy user-info and group-info" {
     {
         var gc1 = memory.GC.init(std.testing.allocator);
         defer gc1.deinit();
-        const uval = try gc1.allocUserInfo("root", 0, 0, "/root", "/bin/sh", "root");
+        const uval = try gc1.allocUserInfo("root", 0, 20, "/root", "/bin/sh", "root");
         ucopy = try gc2.deepCopy(uval);
     }
     // the copy owns its own bytes — the source GC is already gone
@@ -688,6 +699,7 @@ test "deepCopy user-info and group-info" {
     try std.testing.expectEqual(types.ObjectTag.user_info, types.toObject(ucopy).tag);
     try std.testing.expectEqualStrings("root", ui.name);
     try std.testing.expectEqual(@as(u32, 0), ui.uid);
+    try std.testing.expectEqual(@as(u32, 20), ui.gid);
     try std.testing.expectEqualStrings("/bin/sh", ui.shell);
     try std.testing.expectEqualStrings("root", ui.full_name);
     try std.testing.expectEqualStrings("/root", ui.home_dir);

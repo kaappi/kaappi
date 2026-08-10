@@ -45,8 +45,8 @@ fn errnoName(errno_val: c_int) []const u8 {
     return "EUNKNOWN";
 }
 
-fn validateMode(gc: *GC, val: Value) PrimitiveError!std.c.mode_t {
-    if (!types.isFixnum(val)) return primitives.typeError("set-file-mode", "integer", val);
+fn validateMode(gc: *GC, proc: []const u8, val: Value) PrimitiveError!std.c.mode_t {
+    if (!types.isFixnum(val)) return primitives.typeError(proc, "integer", val);
     const n = types.toFixnum(val);
     // POSIX permission modes use only the low 12 bits (07777). Bounding by
     // maxInt(mode_t) is platform-dependent: mode_t is u16 on macOS but u32
@@ -118,7 +118,9 @@ fn doStat(path: [*:0]const u8, follow: bool, errno_out: *c_int) ?StatResult {
         // as zero, exactly like SRFI-170 suggests for hosts without them.
         var wbuf: platform.WPathBuf = undefined;
         const wpath = platform.widen(&wbuf, std.mem.sliceTo(path, 0)) orelse {
-            errno_out.* = std.c._errno().*;
+            // widen is a UTF-8→UTF-16 conversion, not a syscall — errno is
+            // stale here, so report no errno.
+            errno_out.* = 0;
             return null;
         };
         var st: platform.win.Stat64 = undefined;
@@ -250,7 +252,7 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "user-effective-uid", .func = &userEffectiveUidFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
     .{ .name = "user-effective-gid", .func = &userEffectiveGidFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
     .{ .name = "user-supplementary-gids", .func = &userSupplementaryGidsFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
-    .{ .name = "nice", .func = &niceFn, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "nice", .func = &niceFn, .arity = .{ .range = .{ .min = 0, .max = 1 } }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
     .{ .name = "set-environment-variable!", .func = &setEnvVarFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
     .{ .name = "delete-environment-variable!", .func = &deleteEnvVarFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
     .{ .name = "terminal?", .func = &terminalP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
@@ -343,10 +345,10 @@ fn posixErrorP(args: []const Value) PrimitiveError!Value {
     return if (err.posix_errno != 0) types.TRUE else types.FALSE;
 }
 
-fn expectPosixError(args: []const Value) PrimitiveError!*types.ErrorObject {
-    if (!types.isErrorObject(args[0])) return primitives.typeError("posix-error-name", "posix-error", args[0]);
+fn expectPosixError(comptime proc: []const u8, args: []const Value) PrimitiveError!*types.ErrorObject {
+    if (!types.isErrorObject(args[0])) return primitives.typeError(proc, "posix-error", args[0]);
     const err = types.toObject(args[0]).as(types.ErrorObject);
-    if (err.posix_errno == 0) return primitives.typeError("posix-error-name", "posix-error", args[0]);
+    if (err.posix_errno == 0) return primitives.typeError(proc, "posix-error", args[0]);
     return err;
 }
 
@@ -354,16 +356,20 @@ fn expectPosixError(args: []const Value) PrimitiveError!*types.ErrorObject {
 /// errno numbers differ across POSIX systems but the names are shared, so
 /// the spec returns the name rather than the code.
 fn posixErrorName(args: []const Value) PrimitiveError!Value {
-    const err = try expectPosixError(args);
+    // Copy the scalar before allocating: allocSymbol may collect, and the
+    // raw ErrorObject pointer must not survive an allocation unrooted
+    // (the args register file roots the value itself, but the gc-safety
+    // rule is pointer-across-allocation, so read the field out first).
+    const errno_val = (try expectPosixError("posix-error-name", args)).posix_errno;
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    return gc.allocSymbol(errnoName(err.posix_errno)) catch return PrimitiveError.OutOfMemory;
+    return gc.allocSymbol(errnoName(errno_val)) catch return PrimitiveError.OutOfMemory;
 }
 
 /// `posix-error-message` — the strerror(3) text for the captured errno.
 fn posixErrorMessage(args: []const Value) PrimitiveError!Value {
-    const err = try expectPosixError(args);
+    const errno_val = (try expectPosixError("posix-error-message", args)).posix_errno;
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const text = strerror(err.posix_errno);
+    const text = strerror(errno_val);
     return gc.allocString(std.mem.span(text)) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -603,7 +609,7 @@ fn createDirectoryFn(args: []const Value) PrimitiveError!Value {
     const path = extractPath(args[0]) orelse return primitives.typeError("create-directory", "string", args[0]);
     try validatePathNoNul(path, args[0]);
 
-    const mode: std.c.mode_t = if (args.len > 1) try validateMode(gc, args[1]) else 0o755;
+    const mode: std.c.mode_t = if (args.len > 1) try validateMode(gc, "create-directory", args[1]) else 0o755;
 
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
@@ -734,7 +740,7 @@ fn setFileModeFn(args: []const Value) PrimitiveError!Value {
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
-    const mode = try validateMode(gc, args[1]);
+    const mode = try validateMode(gc, "set-file-mode", args[1]);
     if (std.c.chmod(path_z, mode) != 0) {
         return raiseFileError(gc, "cannot set file mode", args[0]);
     }
@@ -764,7 +770,7 @@ fn createFifoFn(args: []const Value) PrimitiveError!Value {
     const path = extractPath(args[0]) orelse return primitives.typeError("create-fifo", "string", args[0]);
     try validatePathNoNul(path, args[0]);
 
-    const mode: std.c.mode_t = if (args.len > 1) try validateMode(gc, args[1]) else 0o664;
+    const mode: std.c.mode_t = if (args.len > 1) try validateMode(gc, "create-fifo", args[1]) else 0o664;
 
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
@@ -803,6 +809,11 @@ fn timeArgToTimespec(args: []const Value, idx: usize) PrimitiveError!std.c.times
     const v = args[idx];
     if (types.isSrfi18Time(v)) {
         const t = types.toSrfi18Time(v);
+        // SRFI-170: "It is an error if they are not of type time-utc." A
+        // monotonic clock's seconds are an arbitrary epoch and must not be
+        // written to utimensat as wall-clock time.
+        if (t.time_type != .utc)
+            return primitives.typeError("set-file-times", "time-utc object or integer", v);
         return .{ .sec = @intCast(t.seconds), .nsec = @intCast(t.nanoseconds) };
     }
     if (types.isFixnum(v)) {
@@ -863,7 +874,7 @@ fn setUmaskFn(args: []const Value) PrimitiveError!Value {
     if (comptime platform.is_windows) return raiseUnsupportedOnWindows("set-umask!");
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (!types.isFixnum(args[0])) return primitives.typeError("set-umask!", "integer", args[0]);
-    const mask = try validateMode(gc, args[0]);
+    const mask = try validateMode(gc, "set-umask!", args[0]);
     _ = std.c.umask(mask);
     return types.VOID;
 }

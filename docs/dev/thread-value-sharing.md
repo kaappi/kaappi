@@ -284,7 +284,7 @@ thread gets its own VM and GC with an independent heap.
 |-------|-------|--------------|
 | `vm_instance`, `gc_instance` | `src/vm.zig`, `src/memory.zig` | `threadlocal` — the running thread's VM and GC |
 | `GC.initForThread` | `src/memory.zig` | Per-thread GC, sharing the **root's** symbol table (chained through the parent chain; a joined middle thread's own tables stay empty, kaappi#2129) |
-| `GC.deepCopy` / `deepCopyValue` | `src/memory.zig` (impl in `gc_deep_copy.zig`) | Deep-copies values between GC heaps; owns the 14-tag refusal list |
+| `GC.deepCopy` / `deepCopyValue` | `src/memory.zig` (impl in `gc_deep_copy.zig`) | Deep-copies values between GC heaps; owns the 11-tag refusal list |
 | `VM.initForThread` | `src/vm.zig` | Per-thread VM, sharing the **root's** globals and libraries **by pointer** |
 | `VM.owns_globals` | `src/vm.zig` | Stops a child VM freeing the shared maps on deinit |
 | `symbol_mutex` | `src/memory.zig` | Spinlock protecting concurrent symbol interning |
