@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786308227223,
+  "lastUpdate": 1786323415067,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e699b451536d8200d76cfe0d5ed71e2f98f905f8",
-          "message": "Phase 3.10: un-quarantine the SRFI 257 reference suites; re-triage SRFI 150 (#2071)\n\ntests/scheme/srfi/slow/ held the two full SRFI 257 reference suites and no\nrunner reached it: run-all.sh's globs are non-recursive (kaappi#1900). The\nquarantine's premise was wall-clock — the headers claimed 4.5 and 1.5 minutes\nof macro expansion against a 60s per-file budget. Both now run in ~0.4s.\n#1802/#1804 (ReleaseSafe was memsetting the expander's 1MB buffers on every\nexpansion) obsoleted the quarantine eight days after it went in, and nothing\nre-measured, because nothing ever reported the files as missing.\n\nMove both up into tests/scheme/srfi/ rather than teaching run-all.sh one more\nglob: that keeps the invariant \"subdirectories hold fixtures, suite files sit\nat the top level\" intact, and needs no change to the 18 CI legs that run this\nscript. They rank 6th and 7th slowest of 202 srfi files; five already-enabled\nfiles are slower, so the budget argument is settled by a wide margin.\n\nThey do not supersede the lean srfi257.scm / srfi257-rx.scm: 18 of 34 and 8 of\n25 of those assertions have no counterpart in the full ports, so both are\nkept. That made their SRFI-64 suite names collide — the only two duplicate\ntest-begin names in the tree, and SRFI-64 derives its log filename from the\nsuite name — so the full ports are renamed to srfi-257-full / srfi-257-rx-full.\nNet: +131 assertions for ~0.8s.\n\nrun-all.sh gains a reachability check so this cannot recur silently. It fails\nthe run if any .scm under a suite subdirectory contains test-begin. Fixtures\nare exempt by construction (a fixture never opens a SRFI-64 suite), verified\nagainst the whole tree: 11 fixture files under suite subdirectories, zero\nfalse positives, and the check is mutation-tested in both directions.\n\nSRFI 150's four expected failures are re-triaged. They cited closed #1832;\nthat attribution is wrong on both halves. #1832 is fixed — its own regression\ntest passes and its exact shape works under plain (scheme base)\ndefine-record-type — and a pre-existing top-level binding, #1832's defining\ncondition, is not required here at all: removing it leaves every case failing\nidentically. They are also not #2003, which needs the captured global to hold\na procedure. All four are one new defect, kaappi#2051: lib/srfi/150.sld\ncarries field names to run time inside quote, and quoting strips the hygiene\nrename, so two hygienically-distinct fields collapse into one. The expansion\nitself is correct. The library header's claim that the rename survives that\nboundary is corrected in place.\n\nThe annotations' structure is deliberately left alone so #1903 keeps its\nreproducer; that issue's own text contemplates restructuring this file as one\npossible resolution, which is 6B's call to make, not this PR's.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T19:09:13+05:30",
-          "tree_id": "a69c0245756d44d237d4df5d27d334d9a764413f",
-          "url": "https://github.com/kaappi/kaappi/commit/e699b451536d8200d76cfe0d5ed71e2f98f905f8"
-        },
-        "date": 1785604353533,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.285411,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.136965,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.581225,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.010866,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004694,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.048087,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.318348,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.05728,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.677152,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.228172,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.580147,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.292904,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.782904,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.676398,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04602,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044776,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ac6d5bf25a52e639799c0deea4f2df9bc81c2da0",
+          "message": "Fix all eight SRFI-146 audit findings (2045, 2046, 2047, 2048, 2049, 2050, 2052, 2053) (#2276)\n\n* Make mapping/hashmap constructors and unfolds keep the first duplicate key (Fixes #2045)\n\nThe spec (SRFI 146, Constructors) says the first association wins for\nmapping, mapping-unfold, and their /ordered and hash twins, and the Note\nexplicitly contrasts this with mapping-set.  Both libraries inserted with\nreplace semantics, so the last duplicate key won -- the opposite of the\nspecified precedence, and the opposite of the sibling mapping-adjoin and\nalist->mapping/alist->hashmap procedures in the same files.\n\nmapping/mapping-unfold now accumulate with %rbt-adjoin (the same first-wins\nhelper mapping-adjoin uses); hashmap/hashmap-unfold guard their\nhash-table-set! with an exists? check, matching hashmap-adjoin and\nalist->hashmap.  mapping/ordered, mapping-unfold/ordered inherit via their\naliases.  The reference implementation accumulates with mapping-adjoin too.\n\nRe-enables the six duplicate-key assertions in the differential suite and\ndrops the pins that recorded the wrong answers.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Only run mapping-key-predecessor/-successor's failure thunk when no key exists (Fixes #2046)\n\nThe spec tail-calls `failure` only when no preceding/succeeding key is\ncontained in the mapping.  The implementation passed `(failure)` as the\nfold's seed, so the thunk ran on every call -- even when the answer\nexisted and the thunk's value was discarded.  A thunk that raises (the\nnatural spelling of \"this is a bug\") therefore raised on the success\npath, and a logging/counting thunk fired on every lookup.\n\nBoth procedures now fold over a (found . key) accumulator and invoke\n`failure` only after the fold, when nothing was found.  The reference\nimplementation tail-calls `failure` only on the empty branch.\n\nRe-enables the three successor/predecessor assertions in the differential\nsuite and drops the pin that recorded the spurious invocation.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Make mapping=?/hashmap=? return #f for mappings with different key comparators (Fixes #2047)\n\nThe spec (SRFI 146, Submappings) says it is \"explicitly not an error\" to\ninvoke mapping=? on mappings that do not share the same key comparator, and\nthat #f is returned in that case.  Both %mapping=? and %hm=? compared\nsizes and walked the associations without ever looking at either mapping's\nkey comparator, so two mappings built with different comparators compared\n#t -- and, worse, the comparison silently used mapping1's equality on\nmapping2's keys.  The reference implementation opens %mapping=? with\n(eq? (mapping-key-comparator mapping1) (mapping-key-comparator mapping2)),\nso \"share the same comparator\" means object identity.\n\nBoth helpers now open with that eq? check.  The 3+ mapping variadic clauses\nare unaffected: each adjacent pair already shares the same comparator by\ntransitivity.\n\nRe-enables the four \"different comparators\" assertions in the differential\nand reference suites.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Give make-mapping-comparator an ordering predicate and make-hashmap-comparator a hash function (Fixes #2048)\n\nThe spec (SRFI 146, Comparators) is explicit about why these exist: \"The\nexistence of comparators returned by make-mapping-comparator allows\nmappings whose keys are mappings themselves\".  Both constructors passed #f\nfor the ordering/hash slots of make-comparator, so a mapping could not be\nkeyed by mappings at all -- comparator-ordered? was #f and building such a\nmapping raised.\n\nmake-mapping-comparator now wires in mapping-ordering, the lexicographic\nordering the spec describes: compare key/value pairs in increasing key\norder, keys with the key comparator, values with the value comparator, and\nthe mapping that runs out of pairs first sorts smaller.  The reference\nimplements this by walking two tree generators in parallel; walking the two\nsorted alists is the same comparison.\n\nmake-hashmap-comparator now supplies the hash function the reference\nimplementation itself ships: a constant (srfi/146/hash.scm leaves a real\nhash as a TODO).  The spec only requires an implementation-dependent hash\nconsistent with the equality, and a constant is always consistent; it is\nwhat keeps hashmap-keyed tables a linear scan rather than something\ncorrect, matching the reference exactly.\n\nRe-enables the five reference-suite assertions (mapping-keyed mapping, <?:\ncase 1/2/3, hashmap-keyed hashmap -- the last was pinned under #2044,\nwhose comparator fix landed separately and which this hash function\ncompletes) and the two differential-suite assertions, and drops the pins\nthat recorded the missing slots.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Return a procedural default unchanged from hashmap-ref/default (Fixes #2049)\n\nThe spec defines hashmap-ref/default as \\\"semantically equivalent to, but\nmay be more efficient than, (mapping-ref mapping key (lambda ()\ndefault))\\\" -- the default is a VALUE, not a thunk, so a procedure passed\nas the default must be returned as-is.  The implementation forwarded the\ndefault to SRFI 69's hash-table-ref, whose third argument is a failure\nthunk: hashTableRefFn invoked any procedural default with no arguments and\nreturned its result in place of the procedure.  A dispatch table or memo\nof thunks therefore had its fallback called at lookup time.\n\nSwitches to hash-table-ref/default, which takes a plain default value; the\nordered sibling mapping-ref/default already had the right shape, and this\nrestores the differential agreement.  Non-procedure defaults were never\naffected, which is why the existing suite did not notice.\n\nRe-enables the differential assertion and its agree() oracle.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Make mapping-any?/mapping-every? return #t/#f, not the predicate's value (Fixes #2050)\n\nThe spec says mapping-any? \\\"Returns #t if any association of the mapping\nsatisfies predicate, or #f otherwise\\\", and identically for mapping-every?.\nBoth were implemented as accumulating folds that kept the predicate's own\nreturn value, so a predicate returning a truthy non-#t value (e.g. the\nvalue itself, in the common (lambda (k v) v) shape) leaked that value out\ninstead of #t.  The hashmap twins accumulate into a boolean flag, so the\ntwo halves of the same SRFI disagreed for identical predicates.\n\nBoth now coerce the fold result to a literal boolean; the reference\nimplementation returns literal #t/#f too (mapping-any? escapes with (return\n#t) and falls through to #f; mapping-every? is (not (mapping-any? (lambda\n(k v) (not (predicate k v))) mapping))).\n\nRe-enables the two differential agree() assertions.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Accept the single-mapping form in the ten submapping comparison predicates (Fixes #2052)\n\nAll five signatures are (predicate comparator mapping1 mapping2 ...) with\nzero-or-more trailing mappings, so one mapping is a legal argument list and\nthe prose is vacuously satisfied by it.  Each case-lambda started at three\narguments, so the one-mapping form raised instead of returning #t -- and\nthe variadic set-theory procedures in the same files (mapping-union m,\nmapping-intersection m, ...) already accept it, so the omission was\nspecific to the comparison predicates rather than a house convention.\n\nEach of the ten case-lambdas (mapping=?/<?/>?/<=?/>=? and their hashmap\ntwins) now opens with an unconditional ((vcmp m1) #t) clause, exactly like\nthe reference implementation, which returns #t for the degenerate case of\nthe strict predicates too.\n\nRe-enables the three single-mapping assertions in the differential suite\nand drops the pin that recorded the raise.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Delete the discarded double folds in mapping-map and mapping-find (Fixes #2053)\n\nBoth procedures contained a complete first copy of their fold whose result\nwas thrown away, then recomputed the same fold.  mapping-map ran a\nside-effecting proc twice per association (the spec deliberately gives it\nno \\\"no guarantees how many times\\\" licence, unlike its neighbours) and was\n2x slower than necessary; mapping-find was 2x slower too, its redundant\npredicate calls permitted but the wasted work not.  Results were correct\nin both cases.  The hashmap siblings are single-pass, which is why the\ndifferential suite caught it.\n\nThe fix is to delete the discarded expression from each.  mapping-find's\nsingle remaining fold keeps the (pair? acc) short-circuit of the second\ncopy; mapping-map keeps the fold inside %make-mapping.\n\nRe-enables the differential agree() assertion that counts proc invocations.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Keep the strict submapping predicates antisymmetric across different key comparators (review of #2047)\n\nThe #2047 identity guard on %mapping=? leaked into mapping<?/mapping>?\nthrough their (and <=? (not =?)) shape: %mapping<=? is structural, so two\nsame-content mappings built with different (but structurally identical)\ncomparator objects compared < in BOTH directions -- non-antisymmetric,\nwhere pre-PR behaviour and the reference (whose <? is defined without\nconsulting =?) both gave #f/#f.\n\nThe strict predicates now carry their own (eq? ...) key-comparator guard.\n%mapping<=? stays structural, matching the reference; same-comparator\nproper-subset semantics are unchanged.  The hash side mirrors the ordered\nside exactly.\n\nAlso from review:\n- completes the #2052 single-mapping coverage to all ten predicates\n  (mapping<?/>?/>=? and hashmap<?/>?/<=?/>=? were untested),\n- pins the spec value of the #2050/#2049/#2053 fixes with direct\n  assertions on the defective side, so they fail even if both libraries\n  were to regress together rather than disagreeing,\n- regression tests for the antisymmetry fix, verified to fail without it.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-10T05:51:12+05:30",
+          "tree_id": "8effcb2f0fda8e906ecf41edab9998fcd5189552",
+          "url": "https://github.com/kaappi/kaappi/commit/ac6d5bf25a52e639799c0deea4f2df9bc81c2da0"
+        },
+        "date": 1786323412829,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.232112,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.484669,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.574231,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.983292,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004704,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046994,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.305558,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055559,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.83515,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.174072,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.591407,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.284568,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.792724,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.561803,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04536,
             "unit": "seconds"
           }
         ]
