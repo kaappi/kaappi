@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786339233529,
+  "lastUpdate": 1786356937510,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5681053f9c173173264bb359f8cbf024f94f85f3",
-          "message": "Make a fuzz overrun reportable, and stop it destroying its own evidence (#2094)\n\n* Report a fuzz job killed by its own timeout\n\nA job killed by `timeout-minutes` is CANCELLED, not failed, and it cancels the\nwhole run with it — so the report job's bare `if: failure()` was false and the\njob was skipped. The single outcome this workflow most wants to hear about, a\nfuzz leg overrunning its budget, filed nothing at all. Verified live: #2040's\nre-run burned its full 55 minutes and produced no issue.\n\nGate the job on `failure() || cancelled()`, and inside the step decide by the\ncheck-run annotation: a leg carrying `exceeded the maximum execution time`\nreaches the infra issue (including when a sibling leg's crash artifact would\notherwise have been the only thing filed), while a plain manual or concurrency\ncancellation still files nothing.\n\nThe annotation is also the only durable evidence a timeout leaves — a cancelled\njob's log blob is frequently never archived, and #2040's re-run answered\nBlobNotFound while its annotation was intact — so the verdict now reads logs\nand annotations together. The runner-shutdown line lives only in the former,\nthe timeout message only in the latter.\n\nThat same re-run disproved the shutdown verdict this file shipped hours ago:\nit claimed a reclaimed runner meant \"not a hang… re-run the job\", when in fact\nthe shutdown had masked an overrun already in progress on that very leg. It now\nsays a shutdown does not certify the job was healthy, and to check the leg's\nelapsed time against its history.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Keep a fuzz overrun's evidence instead of destroying it\n\nAn overrunning fuzz job erased everything needed to diagnose it. Reaching\n`timeout-minutes` cancels the job; a cancelled job skips its `if: failure()`\nupload, so nothing is captured — and the corpus it started from is never\nwritten back (save-on-success) and is eventually LRU-evicted. By the time\n#2040's arm64 overrun was investigated, no copy of the input set that\nprovoked it existed anywhere, and it is still unexplained.\n\nBound the fuzz command itself with `timeout`, derived as the job budget minus\n8 minutes so the two cannot drift. The step now fails on its own terms while\nthe job is still alive, so the upload runs — and it carries the whole corpus\nand coverage map plus `fuzz-state.txt`, an mtime-ordered corpus listing whose\nnewest entries are what the fuzzer was working on when it stalled.\n\nAdd a one-minute heartbeat: `zig build` writes nothing until it finishes on a\nrunner, so a stalled job and a healthy one were indistinguishable for the\nwhole budget — #2040 burned 55 minutes of silence twice.\n\nThe report job gets a matching verdict, ordered ahead of the job-level\ntimeout, so an issue says which of the two happened and where to look.\n\nAlso record what the investigation ruled out, so a recurrence does not repeat\nit: no code regression (a local aarch64 A/B of the two commits is flat, the\nfailing one marginally faster, with the harness byte-identical), not corpus\nsize (x86_64 restored a larger one and ran fastest), not unit-suite growth,\nnot slow arm64 hardware (the gc-stress leg on the same run was normal), not a\nprinter cycle hang. And correct the matrix comment's headroom figure: one\nall-targets `--fuzz=200` pass measures ~13 min, not the \"~2 minute pass\" the\n2K limit was justified with.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Correct the corpus claims: it is evicted nightly and never restored\n\nInvestigating #2040 mis-attributed a \"Cache Size: ~49 MB / restored\" line to\nthe fuzz corpus. It belongs to the setup-zig cache, which the corpus step's\noutput happens to follow. The corpus step's own line, on every arm64 default\nrun checked — six consecutive nightlies, including both the failing run and\nthe last green one — reads \"Cache not found for input keys:\nfuzz-corpus-arm64-default-\".\n\nSo the corpus has never once been restored. Saving works (an entry appears\nafter a green run), but ~365 KB touched once a day loses the repo's 10 GB LRU\nrace against the 100-400 MB setup-zig caches CI churns continuously. The\ncoverage-guided fuzzer has been running undirected, from an empty corpus,\nevery night — the workflow comment and the runbook both claimed the opposite.\n\nFor #2040 this settles one thing and unsettles another: the accumulated\ncorpus cannot explain the arm64 overrun, because both runs had none, which\nremoves the last standing hypothesis. A dispatched run on later main then\nfinished the same leg in 1826s, inside the historical band, so it does not\ncurrently reproduce. What is left is transient runner environment — recorded\nas such, not as a conclusion.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T20:03:21+05:30",
-          "tree_id": "72bf0c75156055504cfc889a397a3ab441d51858",
-          "url": "https://github.com/kaappi/kaappi/commit/5681053f9c173173264bb359f8cbf024f94f85f3"
-        },
-        "date": 1785606319631,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.262877,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.001142,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.5898,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.979079,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004676,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046998,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.313906,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057224,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.676322,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.23042,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.592305,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.2795,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.774578,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.637088,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044365,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044707,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "59e473cf7f01fbd8dd28d39e5767334b0891a83c",
+          "message": "Fix SRFI-170 validation gaps and implement the posix-error protocol (Fixes #1977, #1978) (#2279)\n\n* Fix SRFI-170 validation gaps and implement the posix-error protocol (Fixes #1977, #1978)\n\nTwo audit findings (systematic audit v2, Phase 2.12) covered together\nbecause they touch the same file and the same raise helpers:\n\n#1977 — a mistyped argument was discarded rather than rejected:\n- (nice \"x\") was treated as \"no argument supplied\" and really renice'd\n  the process by the default +1; only the type test was missing.\n- platform.setEnv/unsetEnv discarded setenv(3)'s return, so an EINVAL\n  name (containing '=' or empty) returned normally while setting nothing.\n- create-directory/create-fifo silently defaulted the mode, create-temp-\n  file silently defaulted the prefix, and set-file-times stamped both\n  timestamps to now on a mistyped time argument.\n- The variadic specs had no upper bound, so surplus arguments were\n  accepted and ignored.\nEach now raises, set-file-times enforces SRFI-170's \"exactly one time is\nan error\" rule, and the seven variadic SRFI-170 signatures declare a new\n.range arity (min..max) so surplus arguments are an arity mismatch.\n\n#1978 — the spec's error protocol was absent and the taxonomy was wrong:\n- Added posix-error?, posix-error-name and posix-error-message. Every\n  SRFI-170 file error now captures the thread-local errno on the\n  condition object at the failing syscall (raiseFileError snapshots\n  std.c._errno() before any allocation); posix-error-name scans std.c.E\n  per-OS enums so the name (ENOENT/ENOTDIR/EACCES/ELOOP/...) is portable\n  even though the numbers differ; posix-error-message calls strerror(3).\n  Non-syscall raises (NUL pre-check, symlink-target-too-long, Windows\n  stubs) pass errno 0 explicitly so posix-error? stays false.\n- Argument-range validation (mode/uid-gid/nice/prefix) is now raised as\n  KP3007 invalid-argument via raiseArgError instead of a file error, so\n  file-error? answers #f for failures that never touched the filesystem.\n- file-info/user-info/group-info are pure value records but were listed\n  as UncopyableType; gc_deep_copy.zig now copies them by value across\n  the SRFI-18 boundary (directory-object stays uncopyable - live DIR*),\n  and the \"uncopyable type (port, continuation, etc.)\" messages name\n  the real uncopyable set instead of implying these records are in it.\n\nTests: the audit suite's disabled FAIL rows for both issues are enabled\n(the bug-pinning controls are removed), section G2 adds the posix-error\nprotocol matrix incl. errno survival through the thread boundary, the\ndeep-copy matrix audit flips the three SRFI-170 rows to cross, and\ntests_deepcopy.zig gains unit tests for the three copyable types, the\ndirectory-object refusal, and errno preservation on error-object copy.\nAll 2099 Scheme files + 1395 R7RS tests + unit suite (incl. -Dgc-stress)\npass; all 8 cross-compile targets and wasm still build.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Capture the real errno from statx on Linux (Fixes CI regression in #2279)\n\ndoStat's Linux path calls the raw statx(2) syscall, which reports failure\nby returning -errno as the syscall result rather than setting the libc\nerrno. The posix-error protocol (#1978) snapshots errno at the raise site,\nso on Linux a failed stat carried a stale thread-local: posix-error?\nanswered #f and posix-error-name/message could not name ENOENT/ELOOP.\ndoStat now reports the errno itself — statx's huge-usize raw result is\nbitcast back to isize and negated, and the libc paths read _errno() — and\nfile-info raises through raiseFileErrorCode with that value. Caught by the\nubuntu CI legs (the first attempt even panicked: an @intCast of the raw\nusize to c_int). Verified in an alpine container: the audit suite's\nposix-error matrix and all 49 protocol smoke tests now pass on x86_64\nLinux; macOS and the cross-compile matrix are unaffected.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review comments on #2279\n\nCode-review follow-ups (CodeRabbit + maintainer):\n\n- Bound  to 0..1 arguments — it was the one remaining variadic\n  SRFI-170 signature without an upper bound, so (nice 1 2 3) silently\n  ignored the surplus (the exact #1977 defect class). Audit pins it.\n- Thread the calling procedure name through validateMode and\n  expectPosixError, which hard-coded 'set-file-mode' / 'posix-error-name':\n  (create-directory d \"x\") reported a type error naming set-file-mode,\n  and (posix-error-message 42) named posix-error-name. Reached for the\n  first time by this PR's validation fixes.\n- Copy posix_errno out of the ErrorObject before gc.allocSymbol /\n  gc.allocString in posix-error-name/-message: the raw object pointer\n  must not survive an allocation unrooted (gc-safety rule).\n- set-file-times now rejects non-UTC time objects: a monotonic clock's\n  seconds are an arbitrary epoch and were being written to utimensat as\n  wall-clock time (SRFI-170 requires time-utc).\n- doStat's Windows widen failure no longer reads a stale errno (it is a\n  UTF conversion, not a syscall) — reports 0.\n- vm_dispatch's two inline native-arity switches now call the shared\n  vm_calls.checkNativeArity (made pub), so a future Arity variant is\n  edited once, not three times.\n- check_lint renders a range with the plural noun (\"0 to 1 arguments\").\n- platform.zig: drop the stale \"We ignore the return either way\" note —\n  unsetEnv now propagates the errno.\n- thread-value-sharing.md:287: 14-tag -> 11-tag refusal list.\n\nTests: audit adds (nice 0 'extra), the monotonic-time rejection plus a\nposix-time round-trip control for set-file-times, splits section H into\ncopies?/refused? so the directory-object refusal is actually pinned (the\nold out-of-thread helper returned #t for both a successful copy and a\nclean refusal), drops the locale-dependent strerror literal for a\nstring? check, and tests_deepcopy asserts every FileInfo/UserInfo field.\n\nFull suite green: 2099 Scheme files, 1395 R7RS, unit + gc-stress, wasm\nand all cross-compile targets.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-10T15:10:10+05:30",
+          "tree_id": "34d52b57aea059bf5f3950e75e19c9d099d1f478",
+          "url": "https://github.com/kaappi/kaappi/commit/59e473cf7f01fbd8dd28d39e5767334b0891a83c"
+        },
+        "date": 1786356935276,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.359135,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.565846,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.56452,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.034818,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004608,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.049571,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.305412,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055954,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.855033,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.232895,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.676086,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.280126,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.773581,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.478451,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044857,
             "unit": "seconds"
           }
         ]
