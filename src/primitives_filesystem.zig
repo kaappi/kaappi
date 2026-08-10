@@ -105,15 +105,27 @@ fn devToU64(dev: anytype) u64 {
     return dev;
 }
 
-fn doStat(path: [*:0]const u8, follow: bool) ?StatResult {
+/// Returns the stat result, or null with `errno_out` set to the errno of
+/// the failed call. The errno must be captured HERE, not at the raise site:
+/// the Linux path calls the raw statx(2) syscall, which reports failure by
+/// returning `-errno` instead of setting the libc errno, so the thread-local
+/// would be stale by the time the caller raises (#1978, caught by the Linux
+/// CI legs).
+fn doStat(path: [*:0]const u8, follow: bool, errno_out: *c_int) ?StatResult {
     if (comptime platform.is_windows) {
         // _wstat64 always follows reparse points (`follow` has no effect)
         // and Windows has no POSIX uid/gid/blocks; absent concepts report
         // as zero, exactly like SRFI-170 suggests for hosts without them.
         var wbuf: platform.WPathBuf = undefined;
-        const wpath = platform.widen(&wbuf, std.mem.sliceTo(path, 0)) orelse return null;
+        const wpath = platform.widen(&wbuf, std.mem.sliceTo(path, 0)) orelse {
+            errno_out.* = std.c._errno().*;
+            return null;
+        };
         var st: platform.win.Stat64 = undefined;
-        if (platform.win._wstat64(wpath.ptr, &st) != 0) return null;
+        if (platform.win._wstat64(wpath.ptr, &st) != 0) {
+            errno_out.* = std.c._errno().*;
+            return null;
+        }
         return .{
             .mode = @intCast(st.st_mode),
             .size = st.st_size,
@@ -136,7 +148,14 @@ fn doStat(path: [*:0]const u8, follow: bool) ?StatResult {
         var flags: u32 = 0x0000;
         if (!follow) flags |= 0x100;
         const rc = linux.statx(@bitCast(@as(i32, std.posix.AT.FDCWD)), path, flags, linux.STATX.BASIC_STATS, &sx);
-        if (rc > @as(usize, std.math.maxInt(isize))) return null;
+        if (rc > @as(usize, std.math.maxInt(isize))) {
+            // statx returns the error as the raw syscall result: a huge
+            // usize encoding -errno (never the libc errno). Bitcast back to
+            // isize to recover the negative errno, then negate.
+            const rc_i: isize = @bitCast(rc);
+            errno_out.* = -@as(c_int, @intCast(rc_i));
+            return null;
+        }
         return .{
             .mode = @intCast(sx.mode),
             .size = @intCast(sx.size),
@@ -161,7 +180,10 @@ fn doStat(path: [*:0]const u8, follow: bool) ?StatResult {
         const lstat_fn = @extern(*const fn ([*:0]const u8, *std.c.Stat) callconv(.c) c_int, .{ .name = lstat_name });
         var stat_buf: std.c.Stat = undefined;
         const r = if (!follow) lstat_fn(path, &stat_buf) else std.c.fstatat(std.posix.AT.FDCWD, path, &stat_buf, 0);
-        if (r != 0) return null;
+        if (r != 0) {
+            errno_out.* = std.c._errno().*;
+            return null;
+        }
         return .{
             .mode = @intCast(stat_buf.mode),
             .size = @intCast(stat_buf.size),
@@ -416,8 +438,9 @@ fn fileInfoFn(args: []const Value) PrimitiveError!Value {
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
-    const sr = doStat(path_z, follow) orelse {
-        return raiseFileError(gc, "cannot stat file", args[0]);
+    var stat_errno: c_int = 0;
+    const sr = doStat(path_z, follow, &stat_errno) orelse {
+        return raiseFileErrorCode(gc, "cannot stat file", args[0], stat_errno);
     };
 
     // std.c.S doesn't exist on Windows; these mode bits are identical
