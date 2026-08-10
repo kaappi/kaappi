@@ -7,7 +7,8 @@
         (srfi 64)
         (srfi 271)                         ; alias for randomized
         (prefix (srfi 271 randomized) r:)
-        (prefix (srfi 271 determinized) d:))
+        (prefix (srfi 271 determinized) d:)
+        (kaappi primitives))               ; the raw %random-port-* helpers
 
 (test-begin "srfi-271")
 
@@ -132,6 +133,22 @@
 (test-assert (not (d:random-port-initialization-error? 'nope)))
 (test-assert (not (d:random-port-initialization-error?
                    (guard (e (#t e)) (error "unrelated")))))
+
+;;; --- #1913: the raw seed entry point rejects an all-zero seed -------------
+
+;; The library layer already rejects an all-zero seed (seed-from-port raises
+;; random-port-initialization-error); the raw %random-port-make-from-seed
+;; primitive must not silently build the degenerate generator either — an
+;; all-zero xoshiro256** state is a fixed point that emits only zero bytes.
+(test-assert
+ (guard (e (#t #t))
+   (%random-port-make-from-seed (make-bytevector 32 0))
+   #f))
+;; A nonzero seed still builds a working port, and its first byte is nonzero.
+(test-assert
+ (let ((p (%random-port-make-from-seed (make-bytevector 32 1))))
+   (let ((b (read-u8 p)))
+     (and (exact-integer? b) (not (= b 0))))))
 
 (let ((runner (test-runner-current)))
   (test-end "srfi-271")

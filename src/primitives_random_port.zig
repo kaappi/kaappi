@@ -59,6 +59,16 @@ fn makeFromSeedFn(args: []const Value) PrimitiveError!Value {
     if (!types.isBytevector(args[0])) return primitives.typeError("%random-port-make-from-seed", "bytevector", args[0]);
     const bv = types.toBytevector(args[0]);
     if (bv.data.len < seed_len) return primitives.typeError("%random-port-make-from-seed", "bytevector of length >= 32", args[0]);
+    // An all-zero seed puts the xoshiro256** state at its degenerate fixed
+    // point, which emits only zero bytes forever. The sibling entry points
+    // already reject it (isStateBytevector above; bytevector-all-zero? in
+    // determinized.sld); without the same guard here the raw primitive
+    // silently built the broken generator (#1913).
+    for (bv.data[0..seed_len]) |b| {
+        if (b != 0) break;
+    } else {
+        return primitives.argError("%random-port-make-from-seed", "seed must contain at least one nonzero byte", .{});
+    }
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var gen = types.RandomGen{ .kind = .determinized };
     for (&gen.s, 0..) |*word, i| {

@@ -801,10 +801,13 @@
         b))
 
     (define (set->bag! b s)
+      ;; "The set->bag! procedure returns a bag containing the elements of
+      ;; both bag and set" -- every element of the set is ADDED to whatever
+      ;; count the bag already holds; a set contributes exactly 1 per
+      ;; element (#2086).
       (hash-table-walk (%set-ht s)
         (lambda (k v)
-          (if (not (hash-table-exists? (%bag-ht b) k))
-              (hash-table-set! (%bag-ht b) k 1))))
+          (bag-increment! b k 1)))
       b)
 
     (define (bag->alist b)

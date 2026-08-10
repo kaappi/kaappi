@@ -114,3 +114,28 @@ test "stale default random source reseeds in place on next draw (fork child, #at
     // `advanced`; a fresh OS-entropy seed collides only with ~2^-64 odds.
     try testing.expect(!std.meta.eql(rs.prng, advanced));
 }
+
+test "all-zero seed rejected by %random-port-make-from-seed (#1913)" {
+    const th = @import("testing_helpers.zig");
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // The raw seed entry point must reject an all-zero seed, matching
+    // isStateBytevector and determinized.sld: an all-zero xoshiro256** state
+    // is a fixed point that emits only zero bytes (#1913).
+    const result = try ctx.vm.eval(
+        \\(guard (e (#t 'error-signaled))
+        \\  (%random-port-make-from-seed (make-bytevector 32 0)))
+    );
+    try testing.expect(types.isSymbol(result));
+    try testing.expectEqualStrings("error-signaled", types.symbolName(result));
+
+    // A nonzero seed still builds a working port whose first byte is nonzero.
+    const byte = try ctx.vm.eval(
+        \\(let ((p (%random-port-make-from-seed (make-bytevector 32 1))))
+        \\  (read-u8 p))
+    );
+    try testing.expect(types.isFixnum(byte));
+    try testing.expect(types.toFixnum(byte) != 0);
+}

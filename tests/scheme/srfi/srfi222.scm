@@ -5,11 +5,11 @@
 ;; section; chibi-scheme 0.12.0 does not ship SRFI 222, so there is no
 ;; cross-implementation oracle for this one.
 ;;
-;; What this file pins is #2072: (srfi 222) exports 5 of the spec's 10
-;; procedures, `make-compound' does not flatten nested compound objects, and
-;; `compound-subobjects' raises on a non-compound instead of returning a
+;; What this file pins is #2072: (srfi 222) used to export 5 of the spec's
+;; 10 procedures, `make-compound' did not flatten nested compound objects,
+;; and `compound-subobjects' raised on a non-compound instead of returning a
 ;; one-element list. `(cond-expand (srfi-222 ...))' answers #t regardless, so
-;; nothing else in the tree can detect the shortfall.
+;; nothing else in the tree could detect the shortfall.
 ;;
 ;; Run directly: zig-out/bin/kaappi tests/scheme/srfi/srfi222.scm
 
@@ -129,82 +129,76 @@
 ;;; --------------------------------------------------------------------
 ;;; #2072 -- three defects, one root cause (an incomplete port).
 ;;;
-;;; (1) make-compound does not flatten nested compound objects, though the
+;;; (1) make-compound did not flatten nested compound objects, though the
 ;;;     spec says "If any object in objs is itself a compound object, it is
 ;;;     flattened into its subobjects, which are then added to the compound
 ;;;     object in sequence."
 ;;; --------------------------------------------------------------------
 
-;; FAIL: #2072 (make-compound does not flatten nested compound objects)
-;; (test-equal "make-compound flattens a nested compound (length)" 4
-;;             (compound-length (make-compound 1 2 (make-compound 3 4))))
-;; (test-equal "make-compound flattens a nested compound (subobjects)" '(1 2 3 4)
-;;             (compound-subobjects (make-compound 1 2 (make-compound 3 4))))
-;; (test-equal "make-compound flattens a leading nested compound" '(1 2 3)
-;;             (compound-subobjects (make-compound (make-compound 1 2) 3)))
-;; (test-equal "make-compound flattens an empty nested compound away" '(1 2)
-;;             (compound-subobjects (make-compound 1 (make-compound) 2)))
-;; (test-equal "make-compound flattens two nested compounds" '(1 2 3 4)
-;;             (compound-subobjects
-;;              (make-compound (make-compound 1 2) (make-compound 3 4))))
-;; (test-equal "flattening is one level deep per argument, applied recursively" '(1 2 3)
-;;             (compound-subobjects
-;;              (make-compound (make-compound 1 (make-compound 2)) 3)))
+(test-equal "make-compound flattens a nested compound (length)" 4
+            (compound-length (make-compound 1 2 (make-compound 3 4))))
+(test-equal "make-compound flattens a nested compound (subobjects)" '(1 2 3 4)
+            (compound-subobjects (make-compound 1 2 (make-compound 3 4))))
+(test-equal "make-compound flattens a leading nested compound" '(1 2 3)
+            (compound-subobjects (make-compound (make-compound 1 2) 3)))
+(test-equal "make-compound flattens an empty nested compound away" '(1 2)
+            (compound-subobjects (make-compound 1 (make-compound) 2)))
+(test-equal "make-compound flattens two nested compounds" '(1 2 3 4)
+            (compound-subobjects
+             (make-compound (make-compound 1 2) (make-compound 3 4))))
+(test-equal "flattening is one level deep per argument, applied recursively" '(1 2 3)
+            (compound-subobjects
+             (make-compound (make-compound 1 (make-compound 2)) 3)))
 
-;;; (2) compound-subobjects raises on a non-compound; the spec says
+;;; (2) compound-subobjects raised on a non-compound; the spec says
 ;;;     "otherwise, returns a list containing only obj".
 
-;; FAIL: #2072 (compound-subobjects raises on a non-compound)
-;; (test-equal "compound-subobjects of a non-compound is a one-element list" '(plain)
-;;             (compound-subobjects 'plain))
-;; (test-equal "compound-subobjects of a number" '(42) (compound-subobjects 42))
-;; (test-equal "compound-subobjects of a list is the list in a list" '((1 2))
-;;             (compound-subobjects (list 1 2)))
+(test-equal "compound-subobjects of a non-compound is a one-element list" '(plain)
+            (compound-subobjects 'plain))
+(test-equal "compound-subobjects of a number" '(42) (compound-subobjects 42))
+(test-equal "compound-subobjects of a list is the list in a list" '((1 2))
+            (compound-subobjects (list 1 2)))
 
-;;; (3) Five of the ten specified procedures are not exported at all:
+;;; (3) Five of the ten specified procedures were not exported at all:
 ;;;     compound-map, compound-map->list, compound-filter,
 ;;;     compound-predicate, compound-access. The assertions below are
-;;;     written against the spec's own examples and will not even compile
-;;;     until the names exist, so they stay commented out rather than
-;;;     guarded -- an `(environment ...)' probe would pin the absence but
-;;;     not the behaviour the fix has to deliver.
+;;;     written against the spec's own examples.
 
-;; FAIL: #2072 (compound-map/-map->list/-filter/-predicate/-access are not exported)
-;; (test-equal "compound-map over a compound" '(-1 -2 -3 -4 -5)
-;;             (compound-subobjects (compound-map - (make-compound 1 2 3 4 5))))
-;; (test-equal "compound-map wraps a non-compound in a compound" '(-1)
-;;             (compound-subobjects (compound-map - 1)))
-;; (test-equal "compound-map flattens compound results" '(1 2 3 4)
-;;             (compound-subobjects
-;;              (compound-map (lambda (x) (make-compound x (+ x 1)))
-;;                            (make-compound 1 3))))
-;; (test-equal "compound-map->list over a compound" '(-1 -2 -3 -4 -5)
-;;             (compound-map->list - (make-compound 1 2 3 4 5)))
-;; (test-equal "compound-map->list of a non-compound is a one-element list" '(-1)
-;;             (compound-map->list - 1))
-;; (test-equal "compound-filter keeps the matching subobjects" '(2 4)
-;;             (compound-subobjects (compound-filter even? (make-compound 1 2 3 4))))
-;; (test-equal "compound-filter on a matching non-compound" '(2)
-;;             (compound-subobjects (compound-filter even? 2)))
-;; (test-equal "compound-filter on a non-matching non-compound" '()
-;;             (compound-subobjects (compound-filter even? 1)))
-;; (test-equal "compound-predicate on a matching subobject" #t
-;;             (compound-predicate student? george))
-;; (test-equal "compound-predicate on a matching non-compound" #t
-;;             (compound-predicate student? alyssa))
-;; ;; The two #f-expecting cases are wrapped in a list: an undefined-variable
-;; ;; raise inside test-equal yields #f, which would satisfy a bare `#f'
-;; ;; expectation and pin nothing at all (checked by mutation test).
-;; (test-equal "compound-predicate on a non-matching compound" '(#f ran)
-;;             (list (compound-predicate string? george) 'ran))
-;; (test-equal "compound-predicate on a non-matching non-compound" '(#f ran)
-;;             (list (compound-predicate teacher? alyssa) 'ran))
-;; (test-equal "compound-access finds the first matching subobject" 1983
-;;             (compound-access teacher? teacher-hire-year #f george))
-;; (test-equal "compound-access on a matching non-compound" 1979
-;;             (compound-access student? student-year #f alyssa))
-;; (test-equal "compound-access falls back to the default" 'none
-;;             (compound-access teacher? teacher-hire-year 'none alyssa))
+(test-equal "compound-map over a compound" '(-1 -2 -3 -4 -5)
+            (compound-subobjects (compound-map - (make-compound 1 2 3 4 5))))
+(test-equal "compound-map wraps a non-compound in a compound" '(-1)
+            (compound-subobjects (compound-map - 1)))
+(test-equal "compound-map flattens compound results" '(1 2 3 4)
+            (compound-subobjects
+             (compound-map (lambda (x) (make-compound x (+ x 1)))
+                           (make-compound 1 3))))
+(test-equal "compound-map->list over a compound" '(-1 -2 -3 -4 -5)
+            (compound-map->list - (make-compound 1 2 3 4 5)))
+(test-equal "compound-map->list of a non-compound is a one-element list" '(-1)
+            (compound-map->list - 1))
+(test-equal "compound-filter keeps the matching subobjects" '(2 4)
+            (compound-subobjects (compound-filter even? (make-compound 1 2 3 4))))
+(test-equal "compound-filter on a matching non-compound" '(2)
+            (compound-subobjects (compound-filter even? 2)))
+(test-equal "compound-filter on a non-matching non-compound" '()
+            (compound-subobjects (compound-filter even? 1)))
+(test-equal "compound-predicate on a matching subobject" #t
+            (compound-predicate student? george))
+(test-equal "compound-predicate on a matching non-compound" #t
+            (compound-predicate student? alyssa))
+;; The two #f-expecting cases are wrapped in a list: an undefined-variable
+;; raise inside test-equal yields #f, which would satisfy a bare `#f'
+;; expectation and pin nothing at all (checked by mutation test).
+(test-equal "compound-predicate on a non-matching compound" '(#f ran)
+            (list (compound-predicate string? george) 'ran))
+(test-equal "compound-predicate on a non-matching non-compound" '(#f ran)
+            (list (compound-predicate teacher? alyssa) 'ran))
+(test-equal "compound-access finds the first matching subobject" 1983
+            (compound-access teacher? teacher-hire-year #f george))
+(test-equal "compound-access on a matching non-compound" 1979
+            (compound-access student? student-year #f alyssa))
+(test-equal "compound-access falls back to the default" 'none
+            (compound-access teacher? teacher-hire-year 'none alyssa))
 
 (let ((runner (test-runner-current)))
   (test-end "srfi-222")
