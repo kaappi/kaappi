@@ -39,18 +39,25 @@
       ;; The table must be keyed by the comparator's equality/hash pair, not
       ;; the native equal? default, or 1 and 1.0 stay distinct keys under a
       ;; comparator whose equality is = (#2044).
+      ;; The spec: "Earlier associations with equal keys take precedence over
+      ;; later arguments" -- first-wins, matching hashmap-adjoin (#2045).
       (let ((ht (make-hash-table comparator)))
         (let loop ((args args))
           (if (null? args) (%make-hashmap comparator ht)
-              (begin (hash-table-set! ht (car args) (cadr args))
-                     (loop (cddr args)))))))
+              (begin
+                (if (not (hash-table-exists? ht (car args)))
+                    (hash-table-set! ht (car args) (cadr args)))
+                (loop (cddr args)))))))
 
     (define (hashmap-unfold stop? mapper successor seed comparator)
+      ;; The spec: "Associations earlier in the list take precedence over those
+      ;; that come later" -- first-wins, matching hashmap (#2045).
       (let ((ht (make-hash-table comparator)))
         (let loop ((seed seed))
           (if (stop? seed) (%make-hashmap comparator ht)
               (let-values (((key val) (mapper seed)))
-                (hash-table-set! ht key val)
+                (if (not (hash-table-exists? ht key))
+                    (hash-table-set! ht key val))
                 (loop (successor seed)))))))
 
     (define (hashmap-contains? m key) (hash-table-exists? (%hm-ht m) key))
@@ -73,7 +80,12 @@
              (success (hash-table-ref (%hm-ht m) key)) (failure)))))
 
     (define (hashmap-ref/default m key default)
-      (hash-table-ref (%hm-ht m) key default))
+      ;; hash-table-ref's third argument is a failure THUNK, so forwarding the
+      ;; plain default there would invoke a procedural default and return its
+      ;; result in place of the procedure the caller asked for.  The spec
+      ;; means "may be more efficient than (hashmap-ref m key (lambda ()
+      ;; default))", exactly like mapping-ref/default (#2049).
+      (hash-table-ref/default (%hm-ht m) key default))
 
     (define (hashmap-key-comparator m) (%hm-comparator m))
 
@@ -258,15 +270,19 @@
                 (loop (cdr al)))))))
 
     (define (%hm=? vcmp m1 m2)
-      (let ((veq (comparator-equality-predicate vcmp)))
-        (and (= (hashmap-size m1) (hashmap-size m2))
-             (let ((all #t))
-               (hash-table-walk (%hm-ht m1)
-                 (lambda (k v1)
-                   (if (not (and (hash-table-exists? (%hm-ht m2) k)
-                                 (veq v1 (hash-table-ref (%hm-ht m2) k))))
-                       (set! all #f))))
-               all))))
+      ;; The spec: it is "explicitly not an error" to compare hashmaps with
+      ;; different key comparators -- in that case #f is returned.  "Share the
+      ;; same comparator" means object identity, so this is eq? (#2047).
+      (and (eq? (%hm-comparator m1) (%hm-comparator m2))
+           (let ((veq (comparator-equality-predicate vcmp)))
+             (and (= (hashmap-size m1) (hashmap-size m2))
+                  (let ((all #t))
+                    (hash-table-walk (%hm-ht m1)
+                      (lambda (k v1)
+                        (if (not (and (hash-table-exists? (%hm-ht m2) k)
+                                      (veq v1 (hash-table-ref (%hm-ht m2) k))))
+                            (set! all #f))))
+                    all)))))
 
     (define (%hm<=? vcmp m1 m2)
       (let ((veq (comparator-equality-predicate vcmp)))
@@ -280,22 +296,33 @@
 
     (define hashmap=?
       (case-lambda
+        ((vcmp m1) #t)               ; one hashmap: vacuously true (#2052)
         ((vcmp m1 m2) (%hm=? vcmp m1 m2))
         ((vcmp m1 m2 . rest) (and (%hm=? vcmp m1 m2) (apply hashmap=? vcmp m2 rest)))))
     (define hashmap<?
       (case-lambda
-        ((vcmp m1 m2) (and (%hm<=? vcmp m1 m2) (not (%hm=? vcmp m1 m2))))
+        ((vcmp m1) #t)
+        ((vcmp m1 m2)
+         ;; Mirror of the ordered side: %hm<=? is structural, so without this
+         ;; guard two same-content hashmaps with different comparator objects
+         ;; would compare < in both directions (see mapping<?).
+         (and (eq? (%hm-comparator m1) (%hm-comparator m2))
+              (%hm<=? vcmp m1 m2)
+              (not (%hm=? vcmp m1 m2))))
         ((vcmp m1 m2 . rest) (and (hashmap<? vcmp m1 m2) (apply hashmap<? vcmp m2 rest)))))
     (define hashmap>?
       (case-lambda
+        ((vcmp m1) #t)
         ((vcmp m1 m2) (hashmap<? vcmp m2 m1))
         ((vcmp m1 m2 . rest) (and (hashmap>? vcmp m1 m2) (apply hashmap>? vcmp m2 rest)))))
     (define hashmap<=?
       (case-lambda
+        ((vcmp m1) #t)
         ((vcmp m1 m2) (%hm<=? vcmp m1 m2))
         ((vcmp m1 m2 . rest) (and (%hm<=? vcmp m1 m2) (apply hashmap<=? vcmp m2 rest)))))
     (define hashmap>=?
       (case-lambda
+        ((vcmp m1) #t)
         ((vcmp m1 m2) (%hm<=? vcmp m2 m1))
         ((vcmp m1 m2 . rest) (and (hashmap>=? vcmp m1 m2) (apply hashmap>=? vcmp m2 rest)))))
 
@@ -348,7 +375,13 @@
     (define hashmap-xor! hashmap-xor)
 
     (define (make-hashmap-comparator vcmp)
-      (make-comparator hashmap? (lambda (m1 m2) (%hm=? vcmp m1 m2)) #f #f))
+      ;; The hash function is what the reference implementation ships: a
+      ;; constant.  The spec only requires an implementation-dependent hash
+      ;; consistent with the equality, and the reference leaves a real hash
+      ;; as a TODO (srfi/146/hash.scm:689).  A constant keeps every
+      ;; hashmap-keyed table a linear scan but is always consistent (#2048).
+      (make-comparator hashmap? (lambda (m1 m2) (%hm=? vcmp m1 m2)) #f
+                       (lambda (hashmap) 0)))
 
     (define hashmap-comparator
       (make-hashmap-comparator (make-default-comparator)))

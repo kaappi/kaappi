@@ -366,9 +366,8 @@
           (test-assert "mapping=?: unequal mappings"
             (not (mapping=? comparator mapping1 mapping4)))
 
-          ;; FAIL: #2047 (mapping=? omits the key-comparator identity check)
-          ;; (test-assert "mapping=?: different comparators"
-          ;;   (not (mapping=? comparator mapping1 mapping6)))
+          (test-assert "mapping=?: different comparators"
+            (not (mapping=? comparator mapping1 mapping6)))
 
           (test-assert "mapping<?: proper subset"
             (mapping<? comparator mapping3 mapping1))
@@ -527,16 +526,13 @@
           (test-assert "mapping-comparator"
             (comparator? mapping-comparator))
 
-          ;; FAIL: #2048 (mapping-comparator supplies no ordering predicate, so the outer
-          ;;              mapping is built with an inconsistent one) and #2045 (once that
-          ;;              is fixed, the constructor keeps the LAST of two equal keys)
-          ;; (test-equal "mapping-keyed mapping"
-          ;;   (list "a" "a" "c" "d" "e")
-          ;;   (list (mapping-ref mapping0 mapping1)
-          ;;         (mapping-ref mapping0 mapping2)
-          ;;         (mapping-ref mapping0 mapping3)
-          ;;         (mapping-ref mapping0 mapping4)
-          ;;         (mapping-ref mapping0 mapping5)))
+          (test-equal "mapping-keyed mapping"
+            (list "a" "a" "c" "d" "e")
+            (list (mapping-ref mapping0 mapping1)
+                  (mapping-ref mapping0 mapping2)
+                  (mapping-ref mapping0 mapping3)
+                  (mapping-ref mapping0 mapping4)
+                  (mapping-ref mapping0 mapping5)))
 
           (test-group "Ordering comparators"
             (test-assert "=?: equal mappings"
@@ -545,17 +541,14 @@
             (test-assert "=?: unequal mappings"
               (not (=? comparator mapping1 mapping4)))
 
-            ;; FAIL: #2048 (make-mapping-comparator supplies no ordering predicate)
-            ;; (test-assert "<?: case 1"
-            ;;   (<? comparator mapping3 mapping4))
+            (test-assert "<?: case 1"
+              (<? comparator mapping3 mapping4))
 
-            ;; FAIL: #2048 (make-mapping-comparator supplies no ordering predicate)
-            ;; (test-assert "<?: case 2"
-            ;;   (<? comparator mapping1 mapping4))
+            (test-assert "<?: case 2"
+              (<? comparator mapping1 mapping4))
 
-            ;; FAIL: #2048 (make-mapping-comparator supplies no ordering predicate)
-            ;; (test-assert "<?: case 3"
-            ;;   (<? comparator mapping1 mapping5))
+            (test-assert "<?: case 3"
+              (<? comparator mapping1 mapping5))
             )))
 
       
@@ -870,9 +863,8 @@
           (test-assert "hashmap=?: unequal hashmaps"
             (not (hashmap=? comparator hashmap1 hashmap4)))
 
-          ;; FAIL: #2047 (hashmap=? omits the key-comparator identity check)
-          ;; (test-assert "hashmap=?: different comparators"
-          ;;   (not (hashmap=? comparator hashmap1 hashmap6)))
+          (test-assert "hashmap=?: different comparators"
+            (not (hashmap=? comparator hashmap1 hashmap6)))
 
           (test-assert "hashmap<?: proper subset"
             (hashmap<? comparator hashmap3 hashmap1))
@@ -953,16 +945,14 @@
           (test-assert "hashmap-comparator"
             (comparator? hashmap-comparator))
 
-          ;; FAIL: #2044 ((srfi 146 hash) discards its comparator, so hashmap-comparator
-          ;;              never decides key identity)
-          ;; (test-equal "hashmap-keyed hashmap"
-          ;;   (list "a" "a" "c" "d" "e")
-          ;;   (list (hashmap-ref hashmap0 hashmap1)
-          ;;         (hashmap-ref hashmap0 hashmap2)
-          ;;         (hashmap-ref hashmap0 hashmap3)
-          ;;         (hashmap-ref hashmap0 hashmap4)
-          ;;         (hashmap-ref hashmap0 hashmap5)
-          ;;         ))
+          (test-equal "hashmap-keyed hashmap"
+            (list "a" "a" "c" "d" "e")
+            (list (hashmap-ref hashmap0 hashmap1)
+                  (hashmap-ref hashmap0 hashmap2)
+                  (hashmap-ref hashmap0 hashmap3)
+                  (hashmap-ref hashmap0 hashmap4)
+                  (hashmap-ref hashmap0 hashmap5)
+                  ))
 
           (test-group "Ordering comparators"
             (test-assert "=?: equal hashmaps"

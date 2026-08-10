@@ -541,40 +541,57 @@
   ;; The two libraries currently disagree here.  Each disagreement is a filed
   ;; defect; the fix PR re-enables the assertion.
 
-  ;; FAIL: #2050 (mapping-any?/mapping-every? return the predicate's value
-  ;;              rather than #t/#f; the hashmap twins return a boolean)
-  ;; (agree "any? returns a boolean"
-  ;;        (lambda (op) ((op 'any?) (lambda (k v) v) ((op 'make) c 1 'a 2 'b))))
-  ;; FAIL: #2050
-  ;; (agree "every? returns a boolean"
-  ;;        (lambda (op) ((op 'every?) (lambda (k v) v) ((op 'make) c 1 'a 2 'b))))
+  (agree "any? returns a boolean"
+         (lambda (op) ((op 'any?) (lambda (k v) v) ((op 'make) c 1 'a 2 'b))))
+  (agree "every? returns a boolean"
+         (lambda (op) ((op 'every?) (lambda (k v) v) ((op 'make) c 1 'a 2 'b))))
 
-  ;; FAIL: #2049 (hashmap-ref/default calls a procedural default as a thunk)
-  ;; (agree "ref/default returns a procedural default unchanged"
-  ;;        (lambda (op) (procedure? ((op 'ref/default) ((op 'make) c 1 'a) 99
-  ;;                                                    (lambda () 'called)))))
+  (agree "ref/default returns a procedural default unchanged"
+         (lambda (op) (procedure? ((op 'ref/default) ((op 'make) c 1 'a) 99
+                                                     (lambda () 'called)))))
 
-  ;; FAIL: #2053 (mapping-map runs its whole fold twice; hashmap-map does not)
-  ;; (agree "map applies proc once per association"
-  ;;        (lambda (op)
-  ;;          (let ((n 0))
-  ;;            ((op 'map) (lambda (k v) (set! n (+ n 1)) (values k v)) c
-  ;;                       ((op 'make) c 1 'a 2 'b 3 'c 4 'd 5 'e))
-  ;;            n)))
+  (agree "map applies proc once per association"
+         (lambda (op)
+           (let ((n 0))
+             ((op 'map) (lambda (k v) (set! n (+ n 1)) (values k v)) c
+                        ((op 'make) c 1 'a 2 'b 3 'c 4 'd 5 'e))
+             n)))
 
-  ;; FAIL: #2052 (the comparison predicates reject the single-mapping form
-  ;;              the signature allows; guard keeps a re-enabled run reporting
-  ;;              a failed assertion rather than aborting on the raise)
-  ;; (test-assert "mapping=? accepts a single mapping"
-  ;;   (guard (e (#t #f)) (mapping=? c (mapping c 1 'a))))
-  ;; FAIL: #2052
-  ;; (test-assert "mapping<=? accepts a single mapping"
-  ;;   (guard (e (#t #f)) (mapping<=? c (mapping c 1 'a))))
-  ;; FAIL: #2052
-  ;; (test-assert "hashmap=? accepts a single hashmap"
-  ;;   (guard (e (#t #f)) (hashmap=? c (hashmap c 1 'a))))
-  (test-assert "pins #2052: the single-mapping comparison form still raises"
-    (guard (e (#t #t)) (mapping=? c (mapping c 1 'a)) #f)))
+  ;; The agree() checks above use the sibling library as the oracle; these
+  ;; direct assertions pin the spec value on the side that carried each
+  ;; defect, so they fail even if both libraries were to regress together.
+  (test-assert "mapping-any? returns exactly #t for a truthy predicate value"
+    (eq? #t (mapping-any? (lambda (k v) v) (mapping c 1 'a 2 'b))))
+  (test-assert "mapping-every? returns exactly #t for a truthy predicate value"
+    (eq? #t (mapping-every? (lambda (k v) v) (mapping c 1 'a 2 'b))))
+  (test-assert "hashmap-ref/default returns a procedural default unchanged"
+    (procedure? (hashmap-ref/default (hashmap c 1 'a) 99 (lambda () 'called))))
+  (test-equal "mapping-map applies proc exactly once per association" 5
+    (let ((n 0))
+      (mapping-map (lambda (k v) (set! n (+ n 1)) (values k v)) c
+                   (mapping c 1 'a 2 'b 3 'c 4 'd 5 'e))
+      n))
+
+  (test-assert "mapping=? accepts a single mapping"
+    (guard (e (#t #f)) (mapping=? c (mapping c 1 'a))))
+  (test-assert "mapping<? accepts a single mapping"
+    (guard (e (#t #f)) (mapping<? c (mapping c 1 'a))))
+  (test-assert "mapping>? accepts a single mapping"
+    (guard (e (#t #f)) (mapping>? c (mapping c 1 'a))))
+  (test-assert "mapping<=? accepts a single mapping"
+    (guard (e (#t #f)) (mapping<=? c (mapping c 1 'a))))
+  (test-assert "mapping>=? accepts a single mapping"
+    (guard (e (#t #f)) (mapping>=? c (mapping c 1 'a))))
+  (test-assert "hashmap=? accepts a single hashmap"
+    (guard (e (#t #f)) (hashmap=? c (hashmap c 1 'a))))
+  (test-assert "hashmap<? accepts a single hashmap"
+    (guard (e (#t #f)) (hashmap<? c (hashmap c 1 'a))))
+  (test-assert "hashmap>? accepts a single hashmap"
+    (guard (e (#t #f)) (hashmap>? c (hashmap c 1 'a))))
+  (test-assert "hashmap<=? accepts a single hashmap"
+    (guard (e (#t #f)) (hashmap<=? c (hashmap c 1 'a))))
+  (test-assert "hashmap>=? accepts a single hashmap"
+    (guard (e (#t #f)) (hashmap>=? c (hashmap c 1 'a)))))
 
 ;;; ------------------------------------------------- duplicate-key precedence
 
@@ -594,33 +611,21 @@
   (test-equal "control: alist-> keeps the earlier association (hash)"
     'a (hashmap-ref (alist->hashmap c '((1 . a) (1 . b))) 1))
 
-  ;; FAIL: #2045 (the constructors and unfolds keep the LAST duplicate key)
-  ;; (test-equal "mapping keeps the earlier of two equal keys"
-  ;;   'a (mapping-ref (mapping c 1 'a 1 'b) 1))
-  ;; FAIL: #2045
-  ;; (test-equal "hashmap keeps the earlier of two equal keys"
-  ;;   'a (hashmap-ref (hashmap c 1 'a 1 'b) 1))
-  ;; FAIL: #2045
-  ;; (test-equal "mapping/ordered keeps the earlier of two equal keys"
-  ;;   'a (mapping-ref (mapping/ordered c 1 'a 1 'b) 1))
-  ;; FAIL: #2045
-  ;; (test-equal "mapping-unfold keeps the earliest association"
-  ;;   1 (mapping-ref (mapping-unfold (lambda (s) (> s 2)) (lambda (s) (values 'k s))
-  ;;                                  (lambda (s) (+ s 1)) 1 c) 'k))
-  ;; FAIL: #2045
-  ;; (test-equal "mapping-unfold/ordered keeps the earliest association"
-  ;;   1 (mapping-ref (mapping-unfold/ordered (lambda (s) (> s 2)) (lambda (s) (values 'k s))
-  ;;                                          (lambda (s) (+ s 1)) 1 c) 'k))
-  ;; FAIL: #2045
-  ;; (test-equal "hashmap-unfold keeps the earliest association"
-  ;;   1 (hashmap-ref (hashmap-unfold (lambda (s) (> s 2)) (lambda (s) (values 'k s))
-  ;;                                  (lambda (s) (+ s 1)) 1 c) 'k))
-
-  ;; These pin the current, wrong answers so a change is never silent.
-  (test-equal "pins #2045: mapping currently keeps the later key"
-    'b (mapping-ref (mapping c 1 'a 1 'b) 1))
-  (test-equal "pins #2045: hashmap currently keeps the later key"
-    'b (hashmap-ref (hashmap c 1 'a 1 'b) 1)))
+  (test-equal "mapping keeps the earlier of two equal keys"
+    'a (mapping-ref (mapping c 1 'a 1 'b) 1))
+  (test-equal "hashmap keeps the earlier of two equal keys"
+    'a (hashmap-ref (hashmap c 1 'a 1 'b) 1))
+  (test-equal "mapping/ordered keeps the earlier of two equal keys"
+    'a (mapping-ref (mapping/ordered c 1 'a 1 'b) 1))
+  (test-equal "mapping-unfold keeps the earliest association"
+    1 (mapping-ref (mapping-unfold (lambda (s) (> s 2)) (lambda (s) (values 'k s))
+                                  (lambda (s) (+ s 1)) 1 c) 'k))
+  (test-equal "mapping-unfold/ordered keeps the earliest association"
+    1 (mapping-ref (mapping-unfold/ordered (lambda (s) (> s 2)) (lambda (s) (values 'k s))
+                                          (lambda (s) (+ s 1)) 1 c) 'k))
+  (test-equal "hashmap-unfold keeps the earliest association"
+    1 (hashmap-ref (hashmap-unfold (lambda (s) (> s 2)) (lambda (s) (values 'k s))
+                                  (lambda (s) (+ s 1)) 1 c) 'k)))
 
 ;;; --------------------------------------------------- comparator plumbing
 
@@ -722,23 +727,30 @@
   ;; make-mapping-comparator / make-hashmap-comparator.
   (test-assert "mapping-comparator is a comparator" (comparator? mapping-comparator))
   (test-assert "hashmap-comparator is a comparator" (comparator? hashmap-comparator))
-  ;; FAIL: #2048 (make-mapping-comparator supplies no ordering predicate)
-  ;; (test-assert "mapping-comparator is ordered" (comparator-ordered? mapping-comparator))
-  ;; FAIL: #2048 (make-hashmap-comparator supplies no hash function)
-  ;; (test-assert "hashmap-comparator is hashable" (comparator-hashable? hashmap-comparator))
-  (test-assert "pins #2048: mapping-comparator has no ordering yet"
-    (not (comparator-ordered? mapping-comparator)))
-  (test-assert "pins #2048: hashmap-comparator has no hash yet"
-    (not (comparator-hashable? hashmap-comparator)))
+  (test-assert "mapping-comparator is ordered" (comparator-ordered? mapping-comparator))
+  (test-assert "hashmap-comparator is hashable" (comparator-hashable? hashmap-comparator))
 
-  ;; FAIL: #2047 (=? omits the key-comparator identity check)
-  ;; (test-assert "mapping=? separates mappings with different comparators"
-  ;;   (not (mapping=? c (mapping (make-default-comparator) 1 'a)
-  ;;                     (mapping (make-default-comparator) 1 'a))))
-  ;; FAIL: #2047
-  ;; (test-assert "hashmap=? separates hashmaps with different comparators"
-  ;;   (not (hashmap=? c (hashmap (make-default-comparator) 1 'a)
-  ;;                     (hashmap (make-default-comparator) 1 'a))))
+  (test-assert "mapping=? separates mappings with different comparators"
+    (not (mapping=? c (mapping (make-default-comparator) 1 'a)
+                      (mapping (make-default-comparator) 1 'a))))
+  (test-assert "hashmap=? separates hashmaps with different comparators"
+    (not (hashmap=? c (hashmap (make-default-comparator) 1 'a)
+                      (hashmap (make-default-comparator) 1 'a))))
+  ;; #2047's identity guard must not leak into the strict predicates through
+  ;; =? only: with different (but structurally identical) comparator objects,
+  ;; %mapping<=? is structural while %mapping=? is #f, which would make both
+  ;; m1<m2 and m2<m1 hold.  The strict predicates carry their own guard.
+  (test-assert "mapping<? is antisymmetric across different comparators"
+    (let ((m1 (mapping (make-default-comparator) 1 'a))
+          (m2 (mapping (make-default-comparator) 1 'a)))
+      (and (not (mapping<? c m1 m2)) (not (mapping<? c m2 m1)))))
+  (test-assert "hashmap<? is antisymmetric across different comparators"
+    (let ((h1 (hashmap (make-default-comparator) 1 'a))
+          (h2 (hashmap (make-default-comparator) 1 'a)))
+      (and (not (hashmap<? c h1 h2)) (not (hashmap<? c h2 h1)))))
+  (test-assert "control: mapping<? stays a proper subset on a shared comparator"
+    (and (mapping<? c (mapping c 1 'a) (mapping c 1 'a 2 'b))
+         (not (mapping<? c (mapping c 1 'a 2 'b) (mapping c 1 'a)))))
   (test-assert "control: mapping=? on a shared comparator is #t"
     (mapping=? c (mapping c 1 'a) (mapping c 1 'a)))
   (test-assert "control: hashmap=? on a shared comparator is #t"
@@ -824,23 +836,16 @@
     (mapping-key-predecessor m 5/2 (lambda () 'NONE)))
   (test-equal "mapping-key-successor works for an absent obj" 3
     (mapping-key-successor m 5/2 (lambda () 'NONE)))
-  ;; FAIL: #2046 (the failure thunk is the fold's seed, so it runs unconditionally)
-  ;; (test-equal "mapping-key-predecessor does not run failure when a key exists"
-  ;;   '(2 0) (let ((n 0))
-  ;;            (let ((r (mapping-key-predecessor m 3 (lambda () (set! n (+ n 1)) 'NONE))))
-  ;;              (list r n))))
-  ;; FAIL: #2046
-  ;; (test-equal "mapping-key-successor does not run failure when a key exists"
-  ;;   '(4 0) (let ((n 0))
-  ;;            (let ((r (mapping-key-successor m 3 (lambda () (set! n (+ n 1)) 'NONE))))
-  ;;              (list r n))))
-  ;; FAIL: #2046
-  ;; (test-equal "mapping-key-predecessor tolerates a raising failure thunk"
-  ;;   2 (mapping-key-predecessor m 3 (lambda () (error "no predecessor"))))
-  (test-equal "pins #2046: failure runs once even on the success path" '(2 1)
-    (let ((n 0))
-      (let ((r (mapping-key-predecessor m 3 (lambda () (set! n (+ n 1)) 'NONE))))
-        (list r n))))
+  (test-equal "mapping-key-predecessor does not run failure when a key exists"
+    '(2 0) (let ((n 0))
+             (let ((r (mapping-key-predecessor m 3 (lambda () (set! n (+ n 1)) 'NONE))))
+               (list r n))))
+  (test-equal "mapping-key-successor does not run failure when a key exists"
+    '(4 0) (let ((n 0))
+             (let ((r (mapping-key-successor m 3 (lambda () (set! n (+ n 1)) 'NONE))))
+               (list r n))))
+  (test-equal "mapping-key-predecessor tolerates a raising failure thunk"
+    2 (mapping-key-predecessor m 3 (lambda () (error "no predecessor"))))
   (test-equal "control: failure runs exactly once when there is no answer" '(NONE 1)
     (let ((n 0))
       (let ((r (mapping-key-predecessor m 1 (lambda () (set! n (+ n 1)) 'NONE))))

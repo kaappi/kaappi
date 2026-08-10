@@ -172,21 +172,26 @@
     ;;; Constructors
 
     (define (mapping comparator . args)
+      ;; The spec: "Earlier associations with equal keys take precedence over
+      ;; later arguments" -- the same first-wins semantics as mapping-adjoin,
+      ;; deliberately different from mapping-set (#2045).
       (let ((lt (comparator-ordering-predicate comparator))
             (eq (comparator-equality-predicate comparator)))
         (let loop ((args args) (t %empty))
           (if (null? args) (%make-mapping comparator t)
-              (loop (cddr args) (%rbt-insert t (car args) (cadr args) lt eq))))))
+              (loop (cddr args) (%rbt-adjoin t (car args) (cadr args) lt eq))))))
 
     (define mapping/ordered mapping)
 
     (define (mapping-unfold stop? mapper successor seed comparator)
+      ;; The spec: "Associations earlier in the list take precedence over those
+      ;; that come later" -- first-wins, matching mapping (#2045).
       (let ((lt (comparator-ordering-predicate comparator))
             (eq (comparator-equality-predicate comparator)))
         (let loop ((seed seed) (t %empty))
           (if (stop? seed) (%make-mapping comparator t)
               (let-values (((key val) (mapper seed)))
-                (loop (successor seed) (%rbt-insert t key val lt eq)))))))
+                (loop (successor seed) (%rbt-adjoin t key val lt eq)))))))
 
     (define mapping-unfold/ordered mapping-unfold)
 
@@ -302,11 +307,6 @@
     (define (mapping-size m) (%rbt-size (%mapping-tree m)))
 
     (define (mapping-find pred m failure)
-      (%rbt-fold (lambda (k v acc)
-                   (if (eq? acc 'not-found)
-                       (if (pred k v) (cons k v) acc)
-                       acc))
-                 'not-found (%mapping-tree m))
       (let ((result (%rbt-fold (lambda (k v acc)
                                  (if (pair? acc) acc
                                      (if (pred k v) (cons k v) acc)))
@@ -317,10 +317,17 @@
       (%rbt-fold (lambda (k v acc) (if (pred k v) (+ acc 1) acc)) 0 (%mapping-tree m)))
 
     (define (mapping-any? pred m)
-      (%rbt-fold (lambda (k v acc) (or acc (pred k v))) #f (%mapping-tree m)))
+      ;; The spec returns #t/#f, not the predicate's own value; a predicate
+      ;; that returns a truthy non-#t leaks it out of the accumulating fold
+      ;; (#2050).  The hashmap twins accumulate into a boolean flag.
+      (let ((result (%rbt-fold (lambda (k v acc) (or acc (pred k v))) #f
+                               (%mapping-tree m))))
+        (if result #t #f)))
 
     (define (mapping-every? pred m)
-      (%rbt-fold (lambda (k v acc) (and acc (pred k v))) #t (%mapping-tree m)))
+      (let ((result (%rbt-fold (lambda (k v acc) (and acc (pred k v))) #t
+                               (%mapping-tree m))))
+        (if result #t #f)))
 
     (define (mapping-keys m) (%rbt-fold-right (lambda (k v acc) (cons k acc)) '() (%mapping-tree m)))
     (define (mapping-values m) (%rbt-fold-right (lambda (k v acc) (cons v acc)) '() (%mapping-tree m)))
@@ -330,12 +337,12 @@
     ;;; Mapping and folding
 
     (define (mapping-map proc comparator m)
+      ;; The spec deliberately gives mapping-map no "no guarantees how many
+      ;; times proc is invoked" licence, unlike its neighbours -- the first
+      ;; copy of this fold was dead work, and applying a side-effecting proc
+      ;; twice per association is observable (#2053).
       (let ((lt (comparator-ordering-predicate comparator))
             (eq (comparator-equality-predicate comparator)))
-        (%rbt-fold (lambda (k v acc)
-                     (let-values (((nk nv) (proc k v)))
-                       (%rbt-insert acc nk nv lt eq)))
-                   %empty (%mapping-tree m))
         (%make-mapping comparator
           (%rbt-fold (lambda (k v acc)
                        (let-values (((nk nv) (proc k v)))
@@ -392,14 +399,18 @@
     ;;; Comparisons
 
     (define (%mapping=? vcmp m1 m2)
-      (let ((veq (comparator-equality-predicate vcmp))
-            (a1 (mapping->alist m1)) (a2 (mapping->alist m2)))
-        (and (= (length a1) (length a2))
-             (let loop ((a a1) (b a2))
-               (or (null? a)
-                   (and ((%cmp= m1) (caar a) (caar b))
-                        (veq (cdar a) (cdar b))
-                        (loop (cdr a) (cdr b))))))))
+      ;; The spec: it is "explicitly not an error" to compare mappings with
+      ;; different key comparators -- in that case #f is returned.  "Share the
+      ;; same comparator" means object identity, so this is eq? (#2047).
+      (and (eq? (%mapping-comparator m1) (%mapping-comparator m2))
+           (let ((veq (comparator-equality-predicate vcmp))
+                 (a1 (mapping->alist m1)) (a2 (mapping->alist m2)))
+             (and (= (length a1) (length a2))
+                  (let loop ((a a1) (b a2))
+                    (or (null? a)
+                        (and ((%cmp= m1) (caar a) (caar b))
+                             (veq (cdar a) (cdar b))
+                             (loop (cdr a) (cdr b)))))))))
 
     (define (%mapping<=? vcmp m1 m2)
       (let ((veq (comparator-equality-predicate vcmp))
@@ -412,26 +423,40 @@
 
     (define mapping=?
       (case-lambda
+        ((vcmp m1) #t)               ; one mapping: vacuously true (#2052)
         ((vcmp m1 m2) (%mapping=? vcmp m1 m2))
         ((vcmp m1 m2 . rest) (and (%mapping=? vcmp m1 m2) (apply mapping=? vcmp m2 rest)))))
 
     (define mapping<?
       (case-lambda
-        ((vcmp m1 m2) (and (%mapping<=? vcmp m1 m2) (not (%mapping=? vcmp m1 m2))))
+        ((vcmp m1) #t)
+        ((vcmp m1 m2)
+         ;; The strict predicates must not inherit #2047's identity guard
+         ;; through =? only: %mapping<=? is structural, so with different
+         ;; (but structurally identical) comparator objects both m1<m2 and
+         ;; m2<m1 would hold.  Guard the strict comparison on identity too,
+         ;; keeping the mixed-comparator path antisymmetric like the
+         ;; reference (whose <? is defined without consulting =?).
+         (and (eq? (%mapping-comparator m1) (%mapping-comparator m2))
+              (%mapping<=? vcmp m1 m2)
+              (not (%mapping=? vcmp m1 m2))))
         ((vcmp m1 m2 . rest) (and (mapping<? vcmp m1 m2) (apply mapping<? vcmp m2 rest)))))
 
     (define mapping>?
       (case-lambda
+        ((vcmp m1) #t)
         ((vcmp m1 m2) (mapping<? vcmp m2 m1))
         ((vcmp m1 m2 . rest) (and (mapping>? vcmp m1 m2) (apply mapping>? vcmp m2 rest)))))
 
     (define mapping<=?
       (case-lambda
+        ((vcmp m1) #t)
         ((vcmp m1 m2) (%mapping<=? vcmp m1 m2))
         ((vcmp m1 m2 . rest) (and (%mapping<=? vcmp m1 m2) (apply mapping<=? vcmp m2 rest)))))
 
     (define mapping>=?
       (case-lambda
+        ((vcmp m1) #t)
         ((vcmp m1 m2) (%mapping<=? vcmp m2 m1))
         ((vcmp m1 m2 . rest) (and (mapping>=? vcmp m1 m2) (apply mapping>=? vcmp m2 rest)))))
 
@@ -504,16 +529,22 @@
           (let ((e (%rbt-max (%mapping-tree m)))) (values (car e) (cdr e)))))
 
     (define (mapping-key-predecessor m obj failure)
+      ;; The spec tail-calls `failure` only when no preceding key is contained
+      ;; in the mapping.  It is not a fold seed, so it must not run when the
+      ;; answer exists (#2046).
       (let ((lt (%cmp< m)))
-        (%rbt-fold (lambda (k v acc)
-                     (if (lt k obj) k acc))
-                   (failure) (%mapping-tree m))))
+        (let ((result (%rbt-fold (lambda (k v acc)
+                                   (if (lt k obj) (cons #t k) acc))
+                                 (cons #f #f) (%mapping-tree m))))
+          (if (car result) (cdr result) (failure)))))
 
     (define (mapping-key-successor m obj failure)
+      ;; Same discipline as mapping-key-predecessor (#2046).
       (let ((lt (%cmp< m)))
-        (%rbt-fold-right (lambda (k v acc)
-                           (if (lt obj k) k acc))
-                         (failure) (%mapping-tree m))))
+        (let ((result (%rbt-fold-right (lambda (k v acc)
+                                         (if (lt obj k) (cons #t k) acc))
+                                       (cons #f #f) (%mapping-tree m))))
+          (if (car result) (cdr result) (failure)))))
 
     (define (mapping-range= m obj)
       (let ((eq (%cmp= m)) (lt (%cmp< m)))
@@ -579,8 +610,30 @@
 
     ;;; Comparator
 
+    ;; The spec's ordering for mapping-comparator: "the lexicographic ordering
+    ;; with respect to the keys (and, in case a tiebreak is necessary, with
+    ;; respect to the ordering of the values)", for pairs of mappings sharing
+    ;; the same key comparator.  The reference implements it by walking two
+    ;; tree generators in parallel; the sorted alists are the same walk (#2048).
+    (define (mapping-ordering vcmp)
+      (let ((veq (comparator-equality-predicate vcmp))
+            (vlt (comparator-ordering-predicate vcmp)))
+        (lambda (m1 m2)
+          (let ((eq (%cmp= m1))
+                (lt (%cmp< m1)))
+            (let loop ((a1 (mapping->alist m1)) (a2 (mapping->alist m2)))
+              (cond
+                ((null? a1) (not (null? a2)))
+                ((null? a2) #f)
+                ((eq (caar a1) (caar a2))
+                 (if (veq (cdar a1) (cdar a2))
+                     (loop (cdr a1) (cdr a2))
+                     (vlt (cdar a1) (cdar a2))))
+                (else (lt (caar a1) (caar a2)))))))))
+
     (define (make-mapping-comparator vcmp)
-      (make-comparator mapping? (lambda (m1 m2) (%mapping=? vcmp m1 m2)) #f #f))
+      (make-comparator mapping? (lambda (m1 m2) (%mapping=? vcmp m1 m2))
+                       (mapping-ordering vcmp) #f))
 
     (define mapping-comparator (make-mapping-comparator (make-default-comparator)))
 
