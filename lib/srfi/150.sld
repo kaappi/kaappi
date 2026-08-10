@@ -163,7 +163,11 @@
   ;; below. They used to arrive with (scheme base), which reserved their
   ;; names against every user library (kaappi#1856).
   (import (scheme base) (srfi 211 explicit-renaming) (srfi 213)
-          (srfi 237) (srfi 237 primitives) (kaappi primitives))
+          (srfi 237) (srfi 237 primitives) (kaappi primitives)
+          ;; string-prefix?/string-index are (srfi 13) exports; imported
+          ;; explicitly rather than relying on the vm.globals fallback
+          ;; (the #1831 hazard this file's header documents below).
+          (only (srfi 13) string-prefix? string-index))
   (export define-record-type)
   (begin
 
@@ -246,14 +250,20 @@
     ;; Per-own-field expansion-time data, walked once. Returns three
     ;; values: the runtime names (one per field, deduped), the own alist
     ;; keyed by FULL spelling (for in-form, bound-identifier=-style
-    ;; matching; field-name key before accessor-name key per SRFI 150's
-    ;; precedence rule), and the property alist keyed by STRIPPED
-    ;; spelling (for a child's cross-form matching). `base` is the number
-    ;; of inherited fields, so own field i sits at absolute index base+i.
+    ;; matching), and the property alist keyed by STRIPPED spelling (for a
+    ;; child's cross-form matching). In both alists every field-name key
+    ;; precedes every accessor-name key (SRFI 150: a label that is both a
+    ;; field name and an accessor name resolves to the field, whatever the
+    ;; two fields' relative order), preserving field order within each
+    ;; group. `base` is the number of inherited fields, so own field i
+    ;; sits at absolute index base+i.
     (define (own-field-data specs base)
-      (let loop ((specs specs) (i 0) (used '()) (rnames '()) (okeys '()) (oprops '()))
+      (let loop ((specs specs) (i 0) (used '()) (rnames '())
+                 (fkeys '()) (akeys '()) (fprops '()) (aprops '()))
         (if (null? specs)
-            (values (reverse rnames) (reverse okeys) (reverse oprops))
+            (values (reverse rnames)
+                    (append (reverse fkeys) (reverse akeys))
+                    (append (reverse fprops) (reverse aprops)))
             (let* ((fs (car specs))
                    (abs (+ base i))
                    (cand (if (symbol? (car fs))
@@ -267,17 +277,18 @@
                     (+ i 1)
                     (cons nm used)
                     (cons nm rnames)
-                    (cons (cons field-key abs) (cons (cons acc-key abs) okeys))
-                    (cons (cons (hygiene-strip-key field-key) abs)
-                          (cons (cons (hygiene-strip-key acc-key) abs) oprops)))))))
+                    (cons (cons field-key abs) fkeys)
+                    (cons (cons acc-key abs) akeys)
+                    (cons (cons (hygiene-strip-key field-key) abs) fprops)
+                    (cons (cons (hygiene-strip-key acc-key) abs) aprops))))))
 
     ;; Resolve one constructor-spec entry to its absolute index: own
     ;; fields first (full spelling), then inherited fields (stripped
     ;; spelling against the parent's stored property). The precedence
     ;; rule -- a name that is both a field name and an accessor name
-    ;; resolves to the FIELD -- falls out of the alists' ordering:
-    ;; within each field's pair of keys the field name comes first, and
-    ;; the entries are in field order.
+    ;; resolves to the FIELD -- falls out of the alists' ordering: every
+    ;; field-name key precedes every accessor-name key, in field order
+    ;; (see own-field-data).
     (define (field-alist-ref key alist)
       (cond
         ((null? alist) #f)

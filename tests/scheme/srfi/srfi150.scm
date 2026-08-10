@@ -235,20 +235,24 @@
 
 ;;; --- kaappi#2051 regression controls ----------------------------------------
 
-;; C5 from the issue: the exact Hygiene 1 shape with NO top-level `a` at
-;; all. It failed identically to the reference shape before the fix --
-;; proving a pre-existing binding of the colliding spelling was never
-;; required -- and must pass now.
+;; C5 from the issue: the exact Hygiene 1 shape with NO top-level binding
+;; of the colliding spelling at all. `nb` is never defined at top level in
+;; this file -- unlike `a`, which the reference suite's Hygiene 1 binds
+;; above -- so this genuinely tests the "no pre-existing binding" control:
+;; the template's own field-name literal `nb` (renamed __hyg_N_nb) and the
+;; use-site identifier `nb` collide in spelling with no global behind
+;; either. It failed identically to the reference shape before the fix and
+;; must pass now.
 (define-syntax def-no-binding
   (syntax-rules ()
     ((def-no-binding b make-record get-a get-b)
      (define-record-type <r-no-binding>
-       (make-record a b)
+       (make-record nb b)
        r-no-binding?
-       (a get-a)
+       (nb get-a)
        (b get-b)))))
 
-(def-no-binding a make-record get-a get-b)
+(def-no-binding nb make-record get-a get-b)
 
 (test-equal "issue C5: no pre-existing binding of the colliding spelling"
   '(1 2) (list (get-a (make-record 1 2)) (get-b (make-record 1 2))))
@@ -324,6 +328,23 @@
 (test-equal "constant field names: inherited, set through child constructor"
   '(10 20) (list (get-parent-one (make-const-child 10 20))
                  (get-child-two (make-const-child 10 20))))
+
+;; SRFI 150 precedence: "if a field name is considered equal to an
+;; identifier naming a field name and an identifier naming an accessor,
+;; the field name takes precedence" -- even when the coinciding field sits
+;; at a HIGHER index than the accessor. Here `y` is field 1's field name
+;; AND field 0's accessor name; `(mk-prec y)` must address field 1. The
+;; reference suite's field-referral case only exercises the opposite
+;; direction, so this is the discriminating one (before the fix, 99 lands
+;; in field 0 and get-y reads the unfilled field 1).
+(define-record-type <prec>
+  (mk-prec y)
+  prec?
+  (a y)
+  (y get-y))
+
+(test-eqv "precedence: field name beats earlier field's accessor name"
+  99 (get-y (mk-prec 99)))
 
 ;; The `__hyg_` note from the issue: the strip is by spelling, not by
 ;; provenance -- a symbol a user literally types as `'__hyg_2_a` also
