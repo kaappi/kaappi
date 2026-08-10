@@ -1383,7 +1383,7 @@ test "gc tracing: heap-struct field inventory is unchanged" {
         "let_syntax_peer_vals", "bound_free_refs", "def_site_local_refs",
     });
     expectFields(types.ErrorObject, &.{
-        "header", "message", "irritants", "error_type", "uncaught_reason", "code",
+        "header", "message", "irritants", "error_type", "uncaught_reason", "code", "posix_errno",
     });
     expectFields(types.RecordInstance, &.{ "header", "record_type", "fields" });
     expectFields(types.Continuation, &.{

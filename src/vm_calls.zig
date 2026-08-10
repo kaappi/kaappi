@@ -627,7 +627,7 @@ pub fn callClosure(vm: *VM, closure: *types.Closure, base: u32, nargs: u8) VMErr
 /// ReleaseSafe build that is a panic, i.e. a process abort out of ordinary
 /// Scheme (`(call-with-values cons list)` was enough), not the catchable
 /// ArityMismatch the closure path produces.
-fn checkNativeArity(vm: *VM, native: *types.NativeFn, nargs: usize) VMError!void {
+pub fn checkNativeArity(vm: *VM, native: *types.NativeFn, nargs: usize) VMError!void {
     switch (native.arity) {
         .exact => |expected| {
             if (nargs != expected) {
@@ -638,6 +638,16 @@ fn checkNativeArity(vm: *VM, native: *types.NativeFn, nargs: usize) VMError!void
         .variadic => |min| {
             if (nargs < min) {
                 vm.setErrorDetail("'{s}': expected at least {d} arguments, got {d}", .{ native.name, min, nargs });
+                return VMError.ArityMismatch;
+            }
+        },
+        .range => |r| {
+            if (nargs < r.min) {
+                vm.setErrorDetail("'{s}': expected at least {d} arguments, got {d}", .{ native.name, r.min, nargs });
+                return VMError.ArityMismatch;
+            }
+            if (nargs > r.max) {
+                vm.setErrorDetail("'{s}': expected at most {d} arguments, got {d}", .{ native.name, r.max, nargs });
                 return VMError.ArityMismatch;
             }
         },

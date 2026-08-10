@@ -313,6 +313,7 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
             const new_e = types.toObject(new_val).as(types.ErrorObject);
             new_e.error_type = e.error_type;
             new_e.code = e.code;
+            new_e.posix_errno = e.posix_errno;
             new_e.message = try deepCopyValue(gc, e.message, visited);
             new_e.irritants = try deepCopyValue(gc, e.irritants, visited);
             new_e.uncaught_reason = try deepCopyValue(gc, e.uncaught_reason, visited);
@@ -524,6 +525,40 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
             const t = obj.as(types.Srfi18Time);
             return try gc.allocSrfi18Time(t.seconds, t.nanoseconds, t.time_type);
         },
+        // Pure value records — scalars plus owned string bytes, exactly like
+        // the copyable SchemeString. They were listed as UncopyableType
+        // beside `.port`/`.continuation`/`.fiber` until #1978, so a file-info
+        // or user-info could not cross a thread boundary even though nothing
+        // about them is thread-bound (a directory-object below *is*: it
+        // holds a live `DIR*`). No visited.put needed — no Value fields, so
+        // no cycles are possible.
+        .file_info => {
+            const fi = obj.as(types.FileInfo);
+            return try gc.allocFileInfo(.{
+                .size = fi.size,
+                .mtime = fi.mtime,
+                .atime = fi.atime,
+                .ctime = fi.ctime,
+                .dev = fi.dev,
+                .ino = fi.ino,
+                .nlinks = fi.nlinks,
+                .rdev = fi.rdev,
+                .blksize = fi.blksize,
+                .blocks = fi.blocks,
+                .mode = fi.mode,
+                .uid = fi.uid,
+                .gid = fi.gid,
+                .file_type = fi.file_type,
+            });
+        },
+        .user_info => {
+            const ui = obj.as(types.UserInfo);
+            return try gc.allocUserInfo(ui.name, ui.uid, ui.gid, ui.home_dir, ui.shell, ui.full_name);
+        },
+        .group_info => {
+            const gi = obj.as(types.GroupInfo);
+            return try gc.allocGroupInfo(gi.name, gi.gid);
+        },
         .random_source => {
             const rs = obj.as(types.RandomSource);
             const new_val = try gc.allocRandomSource(0);
@@ -603,8 +638,8 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
         // This list governs the *copy* route only -- the thread-start!
         // thunk closure, the thread-join! result, a channel message. A
         // value reached through the shared globals map is never copied and
-        // never reaches this switch, and thirteen of the fourteen tags
-        // below are freely usable that way. For .mutex and
+        // never reaches this switch, and ten of the eleven
+        // tags below are freely usable that way. For .mutex and
         // .condition_variable a global is in fact the *only* supported way
         // to share one, so the refusal here is the opposite of the rule --
         // exactly inverted from .channel above, whose capture is the
@@ -615,15 +650,17 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
         // was not simply extended to cover globals:
         // docs/dev/thread-value-sharing.md, pinned by
         // tests/scheme/srfi/srfi18-sharing-model.scm.
+        //
+        // file-info/user-info/group-info used to sit here too; they are pure
+        // value records and now copy like SchemeString does (#1978). Only
+        // .directory_object among the SRFI-170 types is genuinely
+        // uncopyable -- it owns a live `DIR*`.
         .port,
         .continuation,
         .fiber,
         .mutex,
         .condition_variable,
         .ffi_callback,
-        .file_info,
-        .user_info,
-        .group_info,
         .directory_object,
         .scheme_environment,
         // SRFI-254 weak references are tied to one GC's collection cycle.

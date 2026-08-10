@@ -40,6 +40,45 @@ randomized), (srfi 271 determinized), (srfi 248 primitives).
 
 ## Per-SRFI notes
 
+### SRFI 170 — POSIX API
+
+SRFI 170 is one of the 12 built-in SRFIs: all its procedures are Zig
+primitives in `src/primitives_filesystem.zig` and export directly from the
+`(srfi 170)` library (there is no `lib/srfi/170.sld`). Three things about
+this implementation are worth knowing when editing it:
+
+- **The posix-error protocol is errno-on-the-condition** (#1978).
+  `posix-error?`, `posix-error-name` and `posix-error-message` read a
+  `posix_errno` field on the `ErrorObject`. The raise helper `raiseFileError`
+  snapshots `std.c._errno()` on entry — before any allocation or further
+  libc call can clobber it — and every SRFI-170 syscall-failure site funnels
+  through it, so ENOENT/ENOTDIR/EACCES/ELOOP/ENAMETOOLONG are all
+  distinguishable from Scheme. Raise sites that never ran a syscall (the
+  embedded-NUL pre-check, "symlink target too long", Windows-unsupported
+  stubs) pass errno 0 explicitly via `raiseFileErrorCode`, so
+  `posix-error?` stays false for them. `posix-error-name` derives the symbol
+  by scanning `std.c.E`, which exists as an enum on every target we build
+  (darwin, linux, the BSDs, windows, wasi) but is `void` on the switch's
+  `else` platforms — guard that case. `posix-error-message` calls
+  strerror(3). The errno survives a thread-boundary copy: the
+  `gc_deep_copy.zig` `.error_object` arm carries `posix_errno`.
+
+- **Argument-range validation is KP3007, not a file error** (#1978). The
+  mode/uid-gid/nice/prefix range checks validate an argument of acceptable
+  type, so they raise through `raiseArgError` — a `.general` condition
+  stamped `.invalid_argument` — and answer `#f` to `file-error?`. The
+  message text is unchanged from the old file-error wording.
+
+- **Every variadic signature declares its upper bound.** The SRFI-170
+  procedures use the `.range` arity (`create-temp-file` 0..1, `file-info`
+  1..2, `set-file-times` 1..3, …) rather than unbounded `.variadic`, so
+  surplus arguments are an arity mismatch instead of being silently
+  ignored (#1977). `set-file-times` also enforces the spec's
+  "exactly one time is an error" rule in the body. `file-info`,
+  `user-info` and `group-info` are pure value records and are copied by
+  value across the SRFI-18 thread boundary; only `directory-object` among
+  the SRFI-170 types is genuinely uncopyable (it owns a live `DIR*`).
+
 ### SRFI 226 — Control Features
 
 SRFI 226 (Control Features) is a 12-sub-library spec with no default/main

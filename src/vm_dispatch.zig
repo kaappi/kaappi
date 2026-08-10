@@ -524,20 +524,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 } else if (types.isNativeFn(callee)) {
                     const native = types.toObject(callee).as(types.NativeFn);
                     if (self.profile_mode) native.profile_calls += 1;
-                    switch (native.arity) {
-                        .exact => |expected| {
-                            if (nargs != expected) {
-                                self.setErrorDetail("'{s}': expected {d} arguments, got {d}", .{ native.name, expected, nargs });
-                                return VMError.ArityMismatch;
-                            }
-                        },
-                        .variadic => |min| {
-                            if (nargs < min) {
-                                self.setErrorDetail("'{s}': expected at least {d} arguments, got {d}", .{ native.name, min, nargs });
-                                return VMError.ArityMismatch;
-                            }
-                        },
-                    }
+                    try vm_calls.checkNativeArity(self, native, nargs);
                     const saved_alloc_target = self.gc.profile_alloc_target;
                     if (self.profile_mode) {
                         vm_calls.profileCreditSelf(self);
@@ -736,20 +723,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     frame.ip = 0;
                 } else if (types.isNativeFn(proc)) {
                     const native = types.toObject(proc).as(types.NativeFn);
-                    switch (native.arity) {
-                        .exact => |expected| {
-                            if (count != expected) {
-                                self.setErrorDetail("'{s}': expected {d} arguments, got {d}", .{ native.name, expected, count });
-                                return VMError.ArityMismatch;
-                            }
-                        },
-                        .variadic => |min| {
-                            if (count < min) {
-                                self.setErrorDetail("'{s}': expected at least {d} arguments, got {d}", .{ native.name, min, count });
-                                return VMError.ArityMismatch;
-                            }
-                        },
-                    }
+                    try vm_calls.checkNativeArity(self, native, count);
                     // native.func may re-enter the VM and grow self.frames,
                     // invalidating `frame` — read dst before the call.
                     const return_dst = frame.dst;
@@ -1026,6 +1000,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     const arity_ok = switch (native.arity) {
                         .exact => |expected| nargs == expected,
                         .variadic => |min| nargs >= min,
+                        .range => |r| nargs >= r.min and nargs <= r.max,
                     };
                     if (arity_ok and base + @as(u16, nargs) + 1 < self.registers.len) {
                         const args = self.registers[base + 1 .. base + 1 + nargs];

@@ -239,11 +239,11 @@ test "ffi-open: bare name hitting an unloadable file under KAAPPI_HOME/lib repor
         @memcpy(old_buf[0..s.len], s);
         break :blk old_buf[0..s.len];
     } else null;
-    try platform.setEnv(std.testing.allocator, "KAAPPI_HOME", dir_path);
+    _ = try platform.setEnv(std.testing.allocator, "KAAPPI_HOME", dir_path);
     defer if (old_home) |v| {
-        platform.setEnv(std.testing.allocator, "KAAPPI_HOME", v) catch {};
+        _ = platform.setEnv(std.testing.allocator, "KAAPPI_HOME", v) catch {};
     } else {
-        platform.unsetEnv(std.testing.allocator, "KAAPPI_HOME") catch {};
+        _ = platform.unsetEnv(std.testing.allocator, "KAAPPI_HOME") catch {};
     };
 
     const msg = try ffiOpenErrorMessage(&ctx, "kaappi-test-home-garbage");

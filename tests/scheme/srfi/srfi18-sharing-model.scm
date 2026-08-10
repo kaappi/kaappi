@@ -5,7 +5,7 @@
 ;; closure at thread-start!, the result at thread-join!, a channel message)
 ;; or by being reached through the shared globals map, by pointer, with no
 ;; copy at all. The two routes have separate, unrelated enforcement:
-;; gc_deep_copy.zig's fourteen-tag uncopyable list governs the copy route
+;; gc_deep_copy.zig's eleven-tag uncopyable list governs the copy route
 ;; only, and the globals route is checked by individual primitives for
 ;; exactly four types (channels, thread handles, fibers and guardians —
 ;; the last two added by #2001 and #2008), plus — since #1924 — a general
@@ -47,7 +47,7 @@
 (define (refused? r) (and (pair? r) (eq? (car r) 'raised)))
 
 ;; ---------------------------------------------------------------------------
-;; The copy route: fourteen tags are refused when captured lexically.
+;; The copy route: eleven tags are refused when captured lexically.
 ;; ---------------------------------------------------------------------------
 ;; Each `let` binding below is a genuine lexical capture, so the value is
 ;; part of the closure gc_deep_copy walks at thread-start!.
