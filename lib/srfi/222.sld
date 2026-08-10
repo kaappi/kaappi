@@ -10,6 +10,25 @@
       compound?
       (subobjects %compound-subobjects))
 
+    ;; Local helpers: `filter' and `append-map' are not (scheme base)
+    ;; bindings in R7RS — kaappi resolves them only through its vm.globals
+    ;; fallback for library bodies, and other R7RS implementations would not
+    ;; load the library at all. The SRFI 222 reference implementation defines
+    ;; its own `filter', as does lib/srfi/217.sld, so this library stays
+    ;; loadable by any R7RS implementation.
+    (define (filter pred lst)
+      (let loop ((in lst) (out '()))
+        (cond ((null? in) (reverse out))
+              ((pred (car in)) (loop (cdr in) (cons (car in) out)))
+              (else (loop (cdr in) out)))))
+
+    ;; Apply f to every element and append the results, one level deep.
+    (define (append-map f lst)
+      (let loop ((in lst) (out '()))
+        (if (null? in)
+            (reverse out)
+            (loop (cdr in) (append (reverse (f (car in))) out)))))
+
     ;; "If obj is a compound object, returns a list of its subobjects;
     ;; otherwise, returns a list containing only obj." (#2072: the bare
     ;; record accessor used to raise on a non-compound.)
@@ -21,17 +40,13 @@
     ;; Subobjects are never compounds: make-compound (and compound-map, which
     ;; builds through it) flattens nested compound objects, so a compound's
     ;; subobject list is always flat (#2072).
-    (define (flatten objs)
-      (let loop ((in objs) (out '()))
-        (if (null? in)
-            (reverse out)
-            (loop (cdr in)
-                  (if (compound? (car in))
-                      (append (reverse (compound-subobjects (car in))) out)
-                      (cons (car in) out))))))
-
     (define (make-compound . objs)
-      (make-compound-record (flatten objs)))
+      (make-compound-record
+       (append-map (lambda (o)
+                     (if (compound? o)
+                         (compound-subobjects o)
+                         (list o)))
+                   objs)))
 
     (define (compound-length obj)
       (if (compound? obj)
