@@ -84,6 +84,25 @@ test "stepper: a long form pauses, resumes, and yields the batch result" {
     try testing.expectEqual(loop_n, types.toFixnum(n));
 }
 
+test "stepper: a zero budget still makes progress" {
+    var gc = memory.GC.init(testing.allocator);
+    defer gc.deinit();
+    const vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // budget 0 must not spin forever returning .running without reading a form.
+    var stepper: Stepper = undefined;
+    stepper.init(vm, "(define z (+ 2 3))", "<test>");
+    defer stepper.deinit();
+
+    var steps: usize = 0;
+    while (steps < 1000) : (steps += 1) {
+        if (stepper.step(0) == .done) break;
+    } else return error.DidNotFinish;
+    try testing.expect(!stepper.had_error);
+    try testing.expectEqual(@as(i64, 5), types.toFixnum(try vm.eval("z")));
+}
+
 test "stepper: constant-space infinite program never completes but keeps stepping" {
     var gc = memory.GC.init(testing.allocator);
     defer gc.deinit();
@@ -151,6 +170,37 @@ test "stepper: a form error is reported but the program still finishes" {
     try testing.expectEqual(@as(i64, 7), types.toFixnum(after));
 }
 
+test "stepper: a form that pauses then raises unwinds roots cleanly" {
+    var gc = memory.GC.init(testing.allocator);
+    defer gc.deinit();
+    const vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // The loop runs long enough to pause mid-form under the small budget; when
+    // it finally exits it raises. The error therefore unwinds a *resumed* form,
+    // exercising resumeStep's root-boundary truncation (kaappi#2283). A stale
+    // boundary would leave a bogus root the GC later marks — caught here under
+    // -Dgc-stress by the next form's allocations and eval.
+    const src = try std.fmt.allocPrint(testing.allocator,
+        \\(do ((i 0 (+ i 1))) ((= i {d}) (car 5)))
+        \\(define recovered (list 1 2 3))
+    , .{loop_n});
+    defer testing.allocator.free(src);
+    var stepper: Stepper = undefined;
+    stepper.init(vm, src, "<test>");
+    defer stepper.deinit();
+
+    var steps: usize = 0;
+    while (steps < 1_000_000) : (steps += 1) {
+        if (stepper.step(1024) == .done) break;
+    } else return error.DidNotFinish;
+
+    try testing.expect(stepper.had_error);
+    // The next form ran on an uncorrupted root stack and built a live list.
+    const len = try vm.eval("(length recovered)");
+    try testing.expectEqual(@as(i64, 3), types.toFixnum(len));
+}
+
 test "beginStep/resumeStep: direct VM API pauses and resumes" {
     var gc = memory.GC.init(testing.allocator);
     defer gc.deinit();
@@ -165,12 +215,10 @@ test "beginStep/resumeStep: direct VM API pauses and resumes" {
     defer r.deinit();
     var expr = try r.readDatum();
     gc.pushRoot(&expr);
+    // compileExpressionWithMacros leaves `func` rooted in gc.extra_roots on
+    // success, so no separate root is needed to keep it alive across beginStep.
     const func = try compiler.compileExpressionWithMacros(&gc, expr, &vm.macros, vm.globals);
     gc.popRoot();
-
-    var func_val = types.makePointer(&func.header);
-    gc.pushRoot(&func_val);
-    defer gc.popRoot();
 
     var out: types.Value = types.VOID;
     var status = try vm.beginStep(func, vm.instruction_counter + 2048, &out);

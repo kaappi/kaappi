@@ -103,6 +103,10 @@ pub export fn kaappi_step_setup(ptr: [*]const u8, len: usize) callconv(.c) i32 {
     };
 
     const stepper = allocator.create(Stepper) catch {
+        // `ownedSource` already took ownership of `src` (and cleared the
+        // incoming slot), so this path must free it or the program's linear
+        // memory is lost until the module is torn down.
+        allocator.free(src);
         vm.deinit();
         gc.deinit();
         allocator.destroy(gc);

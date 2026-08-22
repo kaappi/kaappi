@@ -101,7 +101,11 @@ pub const Stepper = struct {
     pub fn step(self: *Stepper, budget: u64) StepOutcome {
         const vm = self.vm;
         if (self.finished) return .done;
-        const deadline = vm.instruction_counter +| budget;
+        // The safepoint only tests the deadline every 1024 instructions, so a
+        // smaller budget cannot pause any earlier — and a zero budget would
+        // otherwise make `step` return .running without reading a single form,
+        // leaving a host that pumps `kaappi_step_run(0)` spinning forever.
+        const deadline = vm.instruction_counter +| @max(budget, 1024);
 
         // 1. Resume a form paused by a prior step, if any.
         if (self.in_progress) {
@@ -170,15 +174,15 @@ pub const Stepper = struct {
                 self.had_error = true;
                 continue;
             };
-            vm.gc.popRoot(); // expr; the compiled func is rooted below
+            vm.gc.popRoot(); // expr
 
-            // Root the func across beginStep: prepareTopLevelFrame's allocClosure
-            // may collect before the frame that will root it exists.
-            var func_val = types.makePointer(&func.header);
-            vm.gc.pushRoot(&func_val);
+            // `func` stays alive across beginStep's allocClosure without a
+            // manual root: compileExpressionWithMacrosAt leaves it in
+            // gc.extra_roots on success (Compiler.init). Pushing a second root
+            // here would also inflate the root-stack depth beginStep records as
+            // the form's base, corrupting a later resumeStep's error unwind.
             var out: Value = types.VOID;
             const begin = vm.beginStep(func, deadline, &out);
-            vm.gc.popRoot();
 
             const status = begin catch |err| {
                 if (self.reportRunError(err)) return .done;
