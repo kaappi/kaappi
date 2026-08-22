@@ -128,12 +128,16 @@ pub const Reader = struct {
     /// and every refill re-parses the buffer from scratch with a fresh
     /// Reader, so the directive's bytes have to stay in the buffer.
     saw_directive: bool = false,
-    /// GC root slots for the component Values of a just-scanned complex
-    /// token (kaappi#2166). The scanner builds exact components digit-exactly
-    /// and the datum constructor converts the token after dispatch, so the
-    /// components must stay reachable across that gap. Registered as GC
-    /// roots once, lazily — after `init`'s caller has copied the Reader
-    /// into its final location — and popped by `deinit`.
+    /// GC root slots for the component Values of a complex number being
+    /// scanned (kaappi#2166): the scanner builds the exact real and imaginary
+    /// parts digit-exactly one after the other, so the first must stay
+    /// reachable across the second's allocation. Rooted only for the duration
+    /// of one number's tokenization by `beginComplexRootScope`/
+    /// `endComplexRootScope` (reader_tokens.zig) — pushed at the tokenizer
+    /// entry and popped on its exit, strictly nested within the balanced
+    /// list/datum roots the reader stacks around each element (kaappi#2283).
+    /// `complex_roots_pushed` marks the scope open, so the nested
+    /// readNumberPrefixed→readNumber pair opens it exactly once.
     complex_root: [2]Value = .{ types.NIL, types.NIL },
     complex_roots_pushed: bool = false,
 
@@ -213,10 +217,9 @@ pub const Reader = struct {
     }
 
     pub fn deinit(self: *Reader) void {
-        if (self.complex_roots_pushed) {
-            self.gc.popRoot();
-            self.gc.popRoot();
-        }
+        // The complex-component roots are scoped to a single number's
+        // tokenization now (kaappi#2283, beginComplexRootScope), so they are
+        // always balanced by the time deinit runs — no root to pop here.
         self.token_buf.deinit(self.gc.allocator);
     }
 

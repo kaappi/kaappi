@@ -87,30 +87,49 @@ fn bigRationalToken(self: *Reader, num_str: []const u8, den_str: []const u8, rad
 }
 
 /// Root a complex token's component Values before any further allocation.
-/// The two root slots are registered once — lazily, after `init`'s caller
-/// copied the Reader into its final location — and popped by
-/// `Reader.deinit`, so the components stay reachable from the token dispatch
-/// through the datum constructor (kaappi#2166). Both setters perform the
-/// registration, because the radix-prefixed paths store the imaginary part
-/// first (tryComplexTail runs before the real part is built); an unrooted
-/// heap imaginary across the caller's real-part allocation is a
-/// use-after-free under gc-stress.
+/// Open the complex-component root scope for one number's tokenization: root
+/// both `complex_root` slots (NIL until a component is stored) so a heap
+/// component — the imaginary part is built first on the radix-prefixed paths
+/// (tryComplexTail runs before the real part) — survives the *other*
+/// component's allocation, the use-after-free kaappi#2166 fixed.
+///
+/// The scope is bounded by the tokenizer call, NOT the Reader's lifetime
+/// (kaappi#2283). Registering the roots once and popping them only at
+/// `Reader.deinit` put a persistent entry into the LIFO root stack *between*
+/// the balanced `pushRoot`/`popRoot` pairs `readList`/`readDatum` wrap around
+/// every element: those `defer popRoot`s then popped this slot instead of
+/// their own, orphaning a live list root that dangled until a later
+/// collection marked it — a crash whose timing depended on GC scheduling and
+/// stack contents (it surfaced only on riscv64/QEMU). Pushing at the
+/// tokenizer entry and popping on its exit keeps the stack strictly nested.
+///
+/// Returns true when this call opened the scope. `readNumberPrefixed` calls
+/// `readNumber`, so only the outer of that pair opens (and closes) it.
+fn beginComplexRootScope(self: *Reader) bool {
+    if (self.complex_roots_pushed) return false;
+    self.complex_root = .{ types.NIL, types.NIL };
+    self.complex_roots_pushed = true;
+    self.gc.pushRoot(&self.complex_root[0]);
+    self.gc.pushRoot(&self.complex_root[1]);
+    return true;
+}
+
+fn endComplexRootScope(self: *Reader) void {
+    self.gc.popRoot();
+    self.gc.popRoot();
+    self.complex_root = .{ types.NIL, types.NIL };
+    self.complex_roots_pushed = false;
+}
+
+/// Store a complex number's real/imaginary component in the tokenizer's root
+/// scope (opened by `beginComplexRootScope`), keeping it marked across the
+/// other component's allocation.
 fn rootComplexReal(self: *Reader, real: Value) void {
     self.complex_root[0] = real;
-    if (!self.complex_roots_pushed) {
-        self.complex_roots_pushed = true;
-        self.gc.pushRoot(&self.complex_root[0]);
-        self.gc.pushRoot(&self.complex_root[1]);
-    }
 }
 
 fn rootComplexImag(self: *Reader, imag: Value) void {
     self.complex_root[1] = imag;
-    if (!self.complex_roots_pushed) {
-        self.complex_roots_pushed = true;
-        self.gc.pushRoot(&self.complex_root[0]);
-        self.gc.pushRoot(&self.complex_root[1]);
-    }
 }
 
 /// Parse a signed radix-R integer or rational component text into an exact
@@ -323,6 +342,8 @@ fn numberTailTruncated(self: *Reader) bool {
 }
 
 pub fn readNumber(self: *Reader) ReadError!Token {
+    const opened_scope = beginComplexRootScope(self);
+    defer if (opened_scope) endComplexRootScope(self);
     if (self.pos >= self.source.len) return invalidNumberOrEof(self);
     const start = self.pos;
     if (self.source[self.pos] == '+' or self.source[self.pos] == '-') {
@@ -689,6 +710,8 @@ fn tryReadInfNan(self: *Reader) ?f64 {
 /// The tokenizer still runs first so token-boundary and incremental-input
 /// (`incomplete_input`) behavior is exactly what unprefixed numbers get.
 fn readNumberPrefixed(self: *Reader, radix0: u8, exact0: ?bool) ReadError!Token {
+    const opened_scope = beginComplexRootScope(self);
+    defer if (opened_scope) endComplexRootScope(self);
     var radix = radix0;
     var exact = exact0;
     if (self.pos < self.source.len and self.source[self.pos] == '#') {
