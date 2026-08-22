@@ -220,3 +220,40 @@ test "truncateRoots never grows the root stack" {
     try std.testing.expectEqual(@as(u32, 1), gc.root_count);
     gc.popRoot();
 }
+
+// The reader's complex-number tokenizer rooted its two component slots on the
+// LIFO root stack and left them there until Reader.deinit (kaappi#2166). When
+// a complex/rational number was an element of a list, that persistent push
+// landed *between* the balanced pushRoot/popRoot pairs readList wraps around
+// each element, so a later `defer popRoot()` popped the reader's slot instead
+// of the list's — orphaning a live list root that dangled until a collection
+// marked it. It surfaced as a crash only under specific GC timing (riscv64),
+// but the invariant it violates is platform-independent and checkable here:
+// reading one datum must leave the root stack exactly as deep as it found it
+// (kaappi#2283). Pre-fix, each complex/rational read grew root_count by 2.
+test "reader does not leak roots across a complex-number datum" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    memory.setGCInstance(&gc);
+
+    const sources = [_][]const u8{
+        "1+2i",
+        "3/4-5/6i",
+        "#xa/b+c/di",
+        "(list 1/2 3+4i 5)", // the list-element case that broke LIFO
+        "(+ 1+2i (* 3/4 5-6i))",
+    };
+    for (sources) |src| {
+        var r = reader_mod.Reader.init(&gc, src);
+        defer r.deinit();
+        const before = gc.root_count;
+        var expr = try r.readDatum();
+        gc.pushRoot(&expr);
+        // A forced collection here dereferences every rooted slot; a leaked,
+        // now-dangling reader slot would be marked (and crash under the UAF
+        // detector) instead of staying balanced.
+        gc.collect();
+        gc.popRoot();
+        try std.testing.expectEqual(before, gc.root_count);
+    }
+}

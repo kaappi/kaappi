@@ -293,6 +293,11 @@ pub fn build(b: *std.Build) void {
     // before any depth guard calibrated for the native stack could fire
     // (kaappi#2107).
     wasm_exe.stack_size = 64 * 1024 * 1024;
+    // Export the bounded-step C-ABI (kaappi_step_*, kaappi#2283) from the
+    // module alongside `_start`, so the playground host can call them. A WASI
+    // executable otherwise exports only `_start` and `memory`; `rdynamic`
+    // tells wasm-ld to keep every `export fn` symbol.
+    wasm_exe.rdynamic = true;
     const wasm_install = b.addInstallArtifact(wasm_exe, .{});
     wasm_step.dependOn(&wasm_install.step);
 

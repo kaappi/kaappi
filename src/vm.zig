@@ -547,6 +547,39 @@ pub const VM = struct {
     /// calling instruction so the primitive re-executes when the fiber is
     /// rescheduled, instead of resuming with an unwritten result register.
     yield_retry: bool = false,
+    // ----- Bounded-step execution (kaappi#2283) -----------------------------
+    // A resumable, safepoint-driven entry point (vm_step.zig) so a host — the
+    // browser playground foremost — can run Scheme code in instruction-budgeted
+    // chunks, handing control back between chunks, instead of blocking until the
+    // program completes. Reuses the machinery the SRFI-18 scheduler and GC
+    // already need: the dispatch-loop safepoint, error.Yielded, and frames that
+    // live in the VM struct rather than on the host C stack across a yield.
+    //
+    /// Instruction-counter value at which the safepoint pauses. Null disables
+    /// bounded stepping (every ordinary run). Consulted only while `step_active`.
+    step_deadline: ?u64 = null,
+    /// True only inside the outermost, driver-entered runUntil — the one loop
+    /// where no re-entrant native Zig frame sits between the safepoint and the
+    /// stepper, so returning error.Yielded cannot strand a half-finished native
+    /// primitive. runUntil consumes `step_dispatch_pending` into this and
+    /// save/restores it, exactly as it does `dispatched_from_scheduler`, so a
+    /// nested runUntil (eval, a native higher-order driver's callback, a
+    /// scheduler fiber slice, a file-backed library load) never pauses.
+    step_active: bool = false,
+    /// Set by beginStep/resumeStep immediately before their run() call and
+    /// consumed by the next runUntil into `step_active`. Only set when no
+    /// scheduler exists, so a fibered program's scheduler slices run to
+    /// completion within a step rather than pausing mid-fiber.
+    step_dispatch_pending: bool = false,
+    /// Set by the safepoint when it pauses for the step budget; distinguishes a
+    /// bounded-step pause from a fiber park (both surface as error.Yielded). A
+    /// step pause needs no ip rewind (it happens between instructions, not mid
+    /// native call) and must not be routed through the scheduler as a yield.
+    step_paused: bool = false,
+    /// Root-stack depth captured by beginStep so a resumeStep whose form raises
+    /// can truncate the root stack back to where the form began — the #1855
+    /// boundary a single execute() captures at entry, persisted across the pause.
+    step_root_depth: u32 = 0,
     /// Set by a scheduler loop immediately before its runUntil(0, 0) call;
     /// consumed by runUntil on entry into dispatched_from_scheduler.
     sched_dispatch_pending: bool = false,
@@ -1299,6 +1332,20 @@ pub const VM = struct {
         return vm_calls.run(self);
     }
 
+    /// Bounded-step execution (kaappi#2283). Begin running a compiled top-level
+    /// form, stopping at the safepoint once `instruction_counter` reaches
+    /// `deadline` and returning `.paused` with all VM state left intact for a
+    /// later `resumeStep`; `.done` (result in `out`) means the form completed.
+    pub fn beginStep(self: *VM, func: *types.Function, deadline: u64, out: *Value) VMError!vm_calls.StepStatus {
+        return vm_calls.beginStep(self, func, deadline, out);
+    }
+
+    /// Resume the form a prior `beginStep`/`resumeStep` left paused, under a new
+    /// `deadline`. Same return contract as `beginStep`.
+    pub fn resumeStep(self: *VM, deadline: u64, out: *Value) VMError!vm_calls.StepStatus {
+        return vm_calls.resumeStep(self, deadline, out);
+    }
+
     pub fn restoreContinuation(self: *VM, cont: *types.Continuation, value: Value) VMError!void {
         try vm_continuations.restoreContinuation(self, cont, value);
     }
@@ -1353,4 +1400,5 @@ test {
     _ = vm_library;
     _ = vm_records;
     _ = vm_continuations;
+    _ = @import("vm_step.zig");
 }
