@@ -30,6 +30,7 @@ investigation produced analysis worth keeping.
 | [porting.md](porting.md) | Porting to a new OS or CPU architecture: the support matrix, where portability lives, the degradation ladder, staged checklists, what "supported" means |
 | [adding-features.md](adding-features.md) | Step-by-step guides for the most common extension tasks |
 | [fibers-and-reactor.md](fibers-and-reactor.md) | KEP-0001: the per-thread reactor, parking vs. driving in place, lazy non-blocking mode as the platform probe, write buffering |
+| [bounded-step.md](bounded-step.md) | kaappi#2283: the resumable, instruction-budgeted step entry point — the safepoint mechanism, the outermost-loop invariant, the `beginStep`/`resumeStep` and `kaappi_step_*` WASM APIs |
 | [srfi-implementation-notes.md](srfi-implementation-notes.md) | How each non-trivial SRFI is implemented: what needed engine changes, resolved spec ambiguities, bugs each port surfaced |
 | [thottam.md](thottam.md) | The package manager: commands, `kaappi.pkg`, auto-discovery, the ecosystem library layout |
 | [testing.md](testing.md) | The four test layers, how to run them, where new tests go |

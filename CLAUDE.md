@@ -382,6 +382,15 @@ library and vendored code are excluded).
   lexically** — exactly inverted. Mutating shared state through a global is a
   live hazard (kaappi#1924), not a supported idiom.
 
+- **Bounded-step execution (kaappi#2283)** — `docs/dev/bounded-step.md`. A
+  resumable, instruction-budgeted entry point (`VM.beginStep`/`resumeStep`,
+  driven by `vm_step.Stepper`; exported to WASM as `kaappi_step_*`) so a host —
+  the browser playground — runs Scheme in chunks instead of blocking until it
+  completes. Reuses the same dispatch-loop safepoint and `error.Yielded` the
+  scheduler and GC need; a pause fires only in the outermost stepped `runUntil`
+  (guarded by `step_active`, save/restored like `dispatched_from_scheduler`), so
+  it never strands a nested native frame.
+
 ## Dependencies
 
 **isocline** (vendored in `vendor/isocline/`): MIT-licensed C library for REPL
