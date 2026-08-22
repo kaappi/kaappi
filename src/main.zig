@@ -34,6 +34,24 @@ pub const library = @import("library.zig");
 // import block is what makes a module's own tests reachable, and a stale
 // exclusion here would silently drop them if any were ever added.
 pub const ic = if (is_wasm) struct {} else @import("isocline.zig");
+
+// Bounded-step execution (kaappi#2283): the wasm32-wasi build additionally
+// exports a C-ABI stepping surface (kaappi_step_*) the browser playground drives
+// instead of the blocking `_start`. Referencing the module here keeps its
+// `export fn`s in the wasm binary; on every other target the branch is
+// comptime-dead, so no native symbols are emitted.
+comptime {
+    if (is_wasm) {
+        // `export fn`s in a non-root imported file are only analyzed (and thus
+        // emitted/exported) when referenced, so name each one explicitly.
+        const ws = @import("wasm_step.zig");
+        _ = &ws.kaappi_step_alloc;
+        _ = &ws.kaappi_step_setup;
+        _ = &ws.kaappi_step_run;
+        _ = &ws.kaappi_step_stop;
+        _ = &ws.kaappi_step_reset;
+    }
+}
 pub const ffi = @import("ffi.zig");
 pub const primitives_ffi = @import("primitives_ffi.zig");
 pub const primitives_srfi1 = @import("primitives_srfi1.zig");

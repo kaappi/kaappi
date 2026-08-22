@@ -178,6 +178,19 @@ pub fn execute(vm: *VM, func: *types.Function) VMError!Value {
     // covers the other error returns out of this function.
     const root_depth = vm.gc.root_count;
     errdefer vm.gc.truncateRoots(root_depth);
+    try prepareTopLevelFrame(vm, func);
+    const run_result = run(vm);
+    if (run_result) |result| {
+        return finishRunValue(vm, result);
+    } else |err| {
+        return finishRunError(vm, root_depth, err);
+    }
+}
+
+/// Reset per-form VM state and push the initial frame for a top-level `func`.
+/// Shared by `execute` and `beginStep`. `func` must already be GC-rooted by the
+/// caller — `allocClosure` may collect before the frame that roots it exists.
+fn prepareTopLevelFrame(vm: *VM, func: *types.Function) VMError!void {
     vm.resetExecutionState();
     // Clear the diagnostic code at entry (not in resetExecutionState, which also
     // runs on the error-exit path *after* noteUncaughtException has recorded the
@@ -220,33 +233,11 @@ pub fn execute(vm: *VM, func: *types.Function) VMError!Value {
         vm.profile_last_ns = vm.profile_time_stack[0].entry_ns;
         vm.gc.profile_alloc_target = &func.profile_alloc_bytes;
     }
+}
 
-    const result = run(vm) catch |err| {
-        vm.gc.truncateRoots(root_depth);
-        vm.last_stack_trace_len = vm.getStackTrace(&vm.last_stack_trace);
-        if (vm.profile_mode) {
-            vm.profile_time_depth = 0;
-            vm.gc.profile_alloc_target = null;
-        }
-        vm.noteUncaughtException(err);
-        // Unwind any pending dynamic-wind after-thunks so that
-        // (dynamic-wind before thunk after) calls after even when
-        // thunk raises an uncaught exception that escapes execute().
-        // Preserve the error detail: after-thunks that make native
-        // calls (e.g. display) clear last_error_detail as a side
-        // effect, which would lose the real exception message.
-        const saved_detail_len = vm.last_error_detail_len;
-        var saved_detail: [256]u8 = undefined;
-        @memcpy(saved_detail[0..saved_detail_len], vm.last_error_detail[0..saved_detail_len]);
-        while (vm.wind_count > 0) {
-            vm.wind_count -= 1;
-            _ = vm.callThunk(vm.wind_stack[vm.wind_count].after) catch {};
-        }
-        @memcpy(vm.last_error_detail[0..saved_detail_len], saved_detail[0..saved_detail_len]);
-        vm.last_error_detail_len = saved_detail_len;
-        vm.resetExecutionState();
-        return err;
-    };
+/// Success tail shared by `execute` and the stepper: credit profiling, clear
+/// the stack trace, reset per-form state, hand back the result.
+fn finishRunValue(vm: *VM, result: Value) Value {
     if (vm.profile_mode) {
         profileCreditSelf(vm);
         vm.profile_time_depth = 0;
@@ -257,12 +248,101 @@ pub fn execute(vm: *VM, func: *types.Function) VMError!Value {
     return result;
 }
 
+/// Error tail shared by `execute` and the stepper: unwind the root stack to the
+/// form's entry depth, capture the stack trace, run pending dynamic-wind
+/// after-thunks, then reset. Always returns the error it was given.
+fn finishRunError(vm: *VM, root_depth: u32, err: VMError) VMError {
+    vm.gc.truncateRoots(root_depth);
+    vm.last_stack_trace_len = vm.getStackTrace(&vm.last_stack_trace);
+    if (vm.profile_mode) {
+        vm.profile_time_depth = 0;
+        vm.gc.profile_alloc_target = null;
+    }
+    vm.noteUncaughtException(err);
+    // Unwind any pending dynamic-wind after-thunks so that
+    // (dynamic-wind before thunk after) calls after even when
+    // thunk raises an uncaught exception that escapes execute().
+    // Preserve the error detail: after-thunks that make native
+    // calls (e.g. display) clear last_error_detail as a side
+    // effect, which would lose the real exception message.
+    const saved_detail_len = vm.last_error_detail_len;
+    var saved_detail: [256]u8 = undefined;
+    @memcpy(saved_detail[0..saved_detail_len], vm.last_error_detail[0..saved_detail_len]);
+    while (vm.wind_count > 0) {
+        vm.wind_count -= 1;
+        _ = vm.callThunk(vm.wind_stack[vm.wind_count].after) catch {};
+    }
+    @memcpy(vm.last_error_detail[0..saved_detail_len], saved_detail[0..saved_detail_len]);
+    vm.last_error_detail_len = saved_detail_len;
+    vm.resetExecutionState();
+    return err;
+}
+
+/// Outcome of one bounded step (kaappi#2283).
+pub const StepStatus = enum {
+    /// The form ran to completion; the result is in the caller's `out`.
+    done,
+    /// The instruction budget was exhausted mid-form; all VM state is intact
+    /// for a `resumeStep`.
+    paused,
+};
+
+/// Begin a top-level form under a step budget. See `VM.beginStep`.
+pub fn beginStep(vm: *VM, func: *types.Function, deadline: u64, out: *Value) VMError!StepStatus {
+    vm_mod.setVMInstance(vm);
+    const root_depth = vm.gc.root_count;
+    errdefer vm.gc.truncateRoots(root_depth);
+    // Persist the entry depth so a resumeStep whose form raises unwinds the
+    // root stack back to here, not to wherever the resume happened to start.
+    vm.step_root_depth = root_depth;
+    try prepareTopLevelFrame(vm, func);
+    return stepRun(vm, root_depth, deadline, out);
+}
+
+/// Resume the form a prior step left paused. See `VM.resumeStep`.
+pub fn resumeStep(vm: *VM, deadline: u64, out: *Value) VMError!StepStatus {
+    vm_mod.setVMInstance(vm);
+    const root_depth = vm.step_root_depth;
+    errdefer vm.gc.truncateRoots(root_depth);
+    return stepRun(vm, root_depth, deadline, out);
+}
+
+/// Arm the step budget, run to the next boundary, and classify the outcome. A
+/// step pause is intercepted *before* the error/reset tails so frames, the wind
+/// and handler stacks, and the root stack all survive for the next resume.
+fn stepRun(vm: *VM, root_depth: u32, deadline: u64, out: *Value) VMError!StepStatus {
+    vm.step_deadline = deadline;
+    vm.step_paused = false;
+    // Only arm stepping when no scheduler exists: run() routes to
+    // runWithScheduler whenever one does, and its fiber slices must run to
+    // completion within a step rather than pause mid-fiber (see the field docs).
+    vm.step_dispatch_pending = (vm.scheduler == null);
+    const run_result = run(vm);
+    if (run_result) |result| {
+        vm.step_deadline = null;
+        out.* = finishRunValue(vm, result);
+        return .done;
+    } else |err| {
+        if (err == VMError.Yielded and vm.step_paused) {
+            // Bounded-step pause — leave every stack intact for resumeStep.
+            vm.step_paused = false;
+            return .paused;
+        }
+        vm.step_deadline = null;
+        return finishRunError(vm, root_depth, err);
+    }
+}
+
 pub fn run(vm: *VM) VMError!Value {
     if (vm.scheduler) |sched| {
         return runWithScheduler(vm, sched);
     }
     return vm.runUntil(0, 0) catch |err| {
         if (err == VMError.Yielded) {
+            // Bounded-step pause (kaappi#2283): propagate to the stepper with
+            // frames intact — this is not a fiber yield and must not be routed
+            // through (or consumed by) the scheduler.
+            if (vm.step_paused) return err;
             // A fiber primitive (spawn, mutex-lock!, ...) created the
             // scheduler during this run and the main fiber then yielded.
             // Route the yield through the scheduler instead of aborting

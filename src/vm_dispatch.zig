@@ -91,6 +91,15 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
     const saved_from_scheduler = self.dispatched_from_scheduler;
     self.dispatched_from_scheduler = from_scheduler;
     defer self.dispatched_from_scheduler = saved_from_scheduler;
+    // Bounded-step (kaappi#2283): only this loop honors the step deadline if it
+    // was the one the stepper dispatched into. A nested runUntil clears
+    // `step_active` for its own extent — its native Zig caller must not be
+    // unwound by a mid-form pause — exactly as with `dispatched_from_scheduler`.
+    const stepping = self.step_dispatch_pending;
+    self.step_dispatch_pending = false;
+    const saved_step_active = self.step_active;
+    self.step_active = stepping;
+    defer self.step_active = saved_step_active;
     while (self.frame_count > target_frame_count) {
         if (self.yielded) {
             self.yielded = false;
@@ -122,6 +131,18 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 if (self.instruction_counter >= limit) {
                     self.setErrorDetail("execution instruction limit exceeded", .{});
                     return VMError.ExecutionTimeout;
+                }
+            }
+            // Bounded-step pause (kaappi#2283). Between instructions in the
+            // outermost stepped loop, so frames/wind/handler stacks and ip are
+            // all consistent: return the resumable Yielded signal with
+            // `step_paused` set. `yield_retry` stays false — nothing to rewind.
+            if (self.step_active) {
+                if (self.step_deadline) |deadline| {
+                    if (self.instruction_counter >= deadline) {
+                        self.step_paused = true;
+                        return VMError.Yielded;
+                    }
                 }
             }
         }
