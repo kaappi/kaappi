@@ -401,16 +401,13 @@ check "verify names the mismatched package" "MISMATCH: kaappi-one" "$out"
 grep -v '^kaappi-one ' "$KAAPPI_HOME/thottam.lock" > "$KAAPPI_HOME/thottam.lock.new"
 mv "$KAAPPI_HOME/thottam.lock.new" "$KAAPPI_HOME/thottam.lock"
 out="$("$THOTTAM" verify 2>&1)" && ec=0 || ec=$?
-# FAIL: #2135 (verify iterates the lockfile, so dropping a line silently
-# removes that package from verification and the run reports success)
-# check_exit "verify fails when an installed package has no lockfile entry" 1 "$ec"
+check_exit "verify fails when an installed package has no lockfile entry" 1 "$ec"
 
 # An empty lockfile is the degenerate case of the same thing: nothing is
 # checked, and the command reports that everything is fine.
 : > "$KAAPPI_HOME/thottam.lock"
 out="$("$THOTTAM" verify 2>&1)" && ec=0 || ec=$?
-# FAIL: #2135
-# check_exit "verify fails on an empty lockfile with packages installed" 1 "$ec"
+check_exit "verify fails on an empty lockfile with packages installed" 1 "$ec"
 # Discriminating control: an ABSENT lockfile *is* caught, so the blind spot
 # is specific to a lockfile that exists and says nothing.
 rm -f "$KAAPPI_HOME/thottam.lock"
@@ -495,12 +492,8 @@ rm -rf "$KAAPPI_HOME/src" "$KAAPPI_HOME/lib"
 out="$("$THOTTAM" --locked install kaappi-alpha 2>&1)" && ec=0 || ec=$?
 check_exit "--locked restores a locked package" 0 "$ec"
 check "--locked checks out the locked SHA" "Checking out" "$out"
-# FAIL: #2137 (doInstall rewrites the lockfile from `parsed.source`, which is
-# null when no ::url was given, so restoring from the lockfile ERASES the
-# provenance column the lockfile exists to carry — the SHA survives, the URL
-# does not)
-# check "--locked restore leaves the lockfile byte-for-byte unchanged" \
-#     "$saved_lock" "$(cat "$KAAPPI_HOME/thottam.lock")"
+check "--locked restore leaves the lockfile byte-for-byte unchanged" \
+    "$saved_lock" "$(cat "$KAAPPI_HOME/thottam.lock")"
 # Discriminating control: the SHA half of the line does survive the restore.
 check "--locked restore preserves the locked SHA" \
     "$(printf '%s' "$saved_lock" | cut -d' ' -f2)" "$(cat "$KAAPPI_HOME/thottam.lock")"
@@ -522,12 +515,9 @@ fresh_home
 rm -rf "$KAAPPI_HOME/src" "$KAAPPI_HOME/lib"
 : > "$KAAPPI_HOME/installed.txt"
 out="$("$THOTTAM" --locked install "kaappi-alpha::$ORG/FORK-kaappi-alpha.git" 2>&1)" && ec=0 || ec=$?
-# FAIL: #2137 (--locked compares only the SHA; the clone comes from the URL
-# passed on this invocation and the lockfile's recorded source is then
-# overwritten with it)
-# check_exit "--locked refuses a source URL that differs from the lockfile" 1 "$ec"
-# check "--locked leaves the recorded provenance intact" \
-#     "$ORG/kaappi-alpha.git" "$(cat "$KAAPPI_HOME/thottam.lock")"
+check_exit "--locked refuses a source URL that differs from the lockfile" 1 "$ec"
+check "--locked leaves the recorded provenance intact" \
+    "$ORG/kaappi-alpha.git" "$(cat "$KAAPPI_HOME/thottam.lock")"
 
 # ---------------------------------------------------------------------------
 

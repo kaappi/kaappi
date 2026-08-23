@@ -41,7 +41,6 @@ const parsePkgManifest = state.parsePkgManifest;
 const isInstalled = state.isInstalled;
 const LockEntry = state.LockEntry;
 const getLockedEntry = state.getLockedEntry;
-const getLockedSha = state.getLockedSha;
 const appendLockEntry = state.appendLockEntry;
 const updateLockfile = state.updateLockfile;
 const removeFromLockfile = state.removeFromLockfile;
@@ -101,6 +100,19 @@ fn fatal(msg: []const u8) noreturn {
     if (use_color) writeStderr(Color.reset);
     writeStderr("\n");
     std.process.exit(1);
+}
+
+/// Strip a trailing carriage return from a line read out of a state file
+/// (`thottam.lock` / `installed.txt`). These files exist to be committed and
+/// shared between machines, so a checkout that a colleague's
+/// `core.autocrlf=true` (or a Windows editor) normalised to CRLF must read
+/// back the same values as the `\n` that thottam itself writes (#2133).
+///
+/// Only `\r` is stripped, not surrounding whitespace: a trailing space is
+/// load-bearing — it is the delimiter between a package name and an (empty)
+/// SHA in a truncated line.
+pub fn trimStateLine(line: []const u8) []const u8 {
+    return std.mem.trimEnd(u8, line, "\r");
 }
 
 pub fn readFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
@@ -400,6 +412,15 @@ fn doInstall(
     const pkg = parsed.name;
     var install_version = parsed.ver;
 
+    // --locked mode: the lockfile is authoritative for both the SHA and the
+    // clone URL. Both are read up front so the source is enforced before any
+    // clone happens, and the recorded provenance is never rewritten by the
+    // very operation that is checking it (#2137).
+    var locked_sha: ?[]const u8 = null;
+    var locked_source: ?[]const u8 = null;
+    defer if (locked_sha) |s| allocator.free(s);
+    defer if (locked_source) |s| allocator.free(s);
+
     if (!isValidPkgName(pkg)) {
         printErrColor(Color.red, "error: ");
         writeStderr("invalid package name '");
@@ -418,15 +439,33 @@ fn doInstall(
     }
 
     if (locked_mode) {
-        const locked_sha = getLockedSha(allocator, config.lockfile, pkg);
-        if (locked_sha == null) {
+        const entry = getLockedEntry(allocator, config.lockfile, pkg) orelse {
             var buf: [256]u8 = undefined;
             printErrColor(Color.red, "error: ");
             const msg = std.fmt.bufPrint(&buf, "{s} is not in the lockfile (running in --locked mode)\n", .{pkg}) catch "package not in lockfile\n";
             writeStderr(msg);
             std.process.exit(1);
+        };
+        locked_sha = entry.sha;
+        locked_source = entry.source;
+        install_version = entry.sha;
+
+        // A `::url` handed to a --locked install must agree with the source
+        // the lockfile recorded (or, absent one, the org default). Refuse
+        // before cloning so a fork or mirror that merely shares history
+        // cannot redirect a locked install (#2137).
+        if (parsed.source) |supplied| {
+            var url_buf: [512]u8 = undefined;
+            const expected = locked_source orelse
+                (std.fmt.bufPrint(&url_buf, "{s}/{s}.git", .{ config.org, pkg }) catch return error.OutOfMemory);
+            if (!std.mem.eql(u8, supplied, expected)) {
+                var msg_buf: [512]u8 = undefined;
+                printErrColor(Color.red, "error: ");
+                const msg = std.fmt.bufPrint(&msg_buf, "source URL mismatch for {s}: lockfile records '{s}', got '{s}' (running in --locked mode)\n", .{ pkg, expected, supplied }) catch "source URL mismatch\n";
+                writeStderr(msg);
+                std.process.exit(1);
+            }
         }
-        install_version = locked_sha;
     }
 
     if (install_version) |v| {
@@ -483,7 +522,14 @@ fn doInstall(
     const pkg_dir = try joinPath(allocator, config.src_dir, pkg);
     defer allocator.free(pkg_dir);
 
-    const clone_url = if (parsed.source) |s| s else blk: {
+    // In --locked mode the lockfile's recorded source is the clone URL (the
+    // org default when it recorded none); otherwise the URL handed to this
+    // invocation, or the org default.
+    const clone_url = if (locked_mode)
+        (locked_source orelse blk: {
+            break :blk std.fmt.bufPrint(&buf, "{s}/{s}.git", .{ config.org, pkg }) catch return error.OutOfMemory;
+        })
+    else if (parsed.source) |s| s else blk: {
         break :blk std.fmt.bufPrint(&buf, "{s}/{s}.git", .{ config.org, pkg }) catch return error.OutOfMemory;
     };
 
@@ -512,14 +558,11 @@ fn doInstall(
     printBuf(&buf, "  Resolved: {s}\n", .{resolved_sha});
 
     if (locked_mode) {
-        if (getLockedSha(allocator, config.lockfile, pkg)) |locked_sha| {
-            defer allocator.free(locked_sha);
-            if (!std.mem.eql(u8, resolved_sha, locked_sha)) {
-                printErrColor(Color.red, "error: ");
-                const msg = std.fmt.bufPrint(&buf, "SHA mismatch for {s} (locked: {s}, got: {s})\n", .{ pkg, locked_sha, resolved_sha }) catch "SHA mismatch\n";
-                writeStderr(msg);
-                std.process.exit(1);
-            }
+        if (!std.mem.eql(u8, resolved_sha, locked_sha.?)) {
+            printErrColor(Color.red, "error: ");
+            const msg = std.fmt.bufPrint(&buf, "SHA mismatch for {s} (locked: {s}, got: {s})\n", .{ pkg, locked_sha.?, resolved_sha }) catch "SHA mismatch\n";
+            writeStderr(msg);
+            std.process.exit(1);
         }
     }
 
@@ -552,7 +595,9 @@ fn doInstall(
     }
 
     try appendFile(allocator, config.installed, pkg);
-    try updateLockfile(allocator, config.lockfile, pkg, resolved_sha, parsed.source);
+    // A --locked install must not rewrite the lockfile's recorded source: the
+    // provenance it is checking must survive the check (#2137).
+    try updateLockfile(allocator, config.lockfile, pkg, resolved_sha, if (locked_mode) locked_source else parsed.source);
     writeStdout("  ");
     printColor(Color.green, pkg);
     printBuf(&buf, " installed (locked at {s})\n", .{resolved_sha});
@@ -611,7 +656,8 @@ fn doList(allocator: std.mem.Allocator, config: Config) !void {
     writeStdout("Installed packages:\n");
     var buf: [512]u8 = undefined;
     var lines = std.mem.splitScalar(u8, content, '\n');
-    while (lines.next()) |pkg| {
+    while (lines.next()) |line| {
+        const pkg = trimStateLine(line);
         if (pkg.len == 0) continue;
         const entry = getLockedEntry(allocator, config.lockfile, pkg);
         const sha_short = if (entry) |e| e.sha[0..@min(12, e.sha.len)] else "unknown";
@@ -718,8 +764,9 @@ fn doUpdate(allocator: std.mem.Allocator, config: Config, pkg: ?[]const u8) !voi
         defer packages.deinit(allocator);
         var lines = std.mem.splitScalar(u8, content, '\n');
         while (lines.next()) |line| {
-            if (line.len > 0) {
-                const copy = allocator.dupe(u8, line) catch continue;
+            const name = trimStateLine(line);
+            if (name.len > 0) {
+                const copy = allocator.dupe(u8, name) catch continue;
                 packages.append(allocator, copy) catch continue;
             }
         }
@@ -738,23 +785,73 @@ fn doUpdate(allocator: std.mem.Allocator, config: Config, pkg: ?[]const u8) !voi
 }
 
 fn doVerify(allocator: std.mem.Allocator, config: Config) !void {
-    const content = readFile(allocator, config.lockfile) catch {
+    const lock_content = readFile(allocator, config.lockfile) catch {
         writeStdout("No lockfile found\n");
         return error.NoLockfile;
     };
-    defer allocator.free(content);
+    defer allocator.free(lock_content);
 
     writeStdout("Verifying installed packages against lockfile...\n");
     var buf: [512]u8 = undefined;
     var ok = true;
-    var lines = std.mem.splitScalar(u8, content, '\n');
-    while (lines.next()) |line| {
-        if (line.len == 0) continue;
-        const space = std.mem.indexOfScalar(u8, line, ' ') orelse continue;
-        const pkg = line[0..space];
-        const rest = line[space + 1 ..];
-        const locked_sha = if (std.mem.indexOfScalar(u8, rest, ' ')) |sp2| rest[0..sp2] else rest;
 
+    // The lockfile is checked for structure first: a non-empty line with no
+    // SHA delimiter (binary garbage, a hand-edit) or with an empty name/SHA
+    // is corruption, not something to `continue` past (#2135).
+    {
+        var lines = std.mem.splitScalar(u8, lock_content, '\n');
+        while (lines.next()) |line| {
+            const l = trimStateLine(line);
+            if (l.len == 0) continue;
+            const malformed = if (std.mem.indexOfScalar(u8, l, ' ')) |sp|
+                sp == 0 or sp + 1 == l.len
+            else
+                true;
+            if (malformed) {
+                writeStdout("  ");
+                printColor(Color.red, "MALFORMED");
+                printBuf(&buf, ": {s}\n", .{l});
+                ok = false;
+            }
+        }
+    }
+
+    // Then walk the *installation*, not the lockfile: every installed package
+    // must have a lockfile entry, and be checked out at that entry's SHA.
+    // A package that is installed but absent from the lockfile is otherwise
+    // unverifiable by construction, and the run must not report success.
+    const inst_content = readFile(allocator, config.installed) catch {
+        // Nothing installed: the structure pass above is the whole check.
+        if (ok) {
+            printColor(Color.green, "All packages verified.\n");
+        } else {
+            printColor(Color.red, "Verification failed.\n");
+            return error.VerifyFailed;
+        }
+        return;
+    };
+    defer allocator.free(inst_content);
+
+    var lines = std.mem.splitScalar(u8, inst_content, '\n');
+    while (lines.next()) |line| {
+        const pkg = trimStateLine(line);
+        if (pkg.len == 0) continue;
+
+        const entry = getLockedEntry(allocator, config.lockfile, pkg);
+        defer if (entry) |e| {
+            allocator.free(e.sha);
+            if (e.source) |s| allocator.free(s);
+        };
+
+        if (entry == null) {
+            writeStdout("  ");
+            printColor(Color.red, "UNLOCKED");
+            printBuf(&buf, ": {s} (no lockfile entry)\n", .{pkg});
+            ok = false;
+            continue;
+        }
+
+        const locked_sha = entry.?.sha;
         const current_sha = getPkgSha(allocator, config.src_dir, pkg);
         if (current_sha == null) {
             writeStdout("  ");
@@ -762,11 +859,11 @@ fn doVerify(allocator: std.mem.Allocator, config: Config) !void {
             printBuf(&buf, ": {s} (not cloned)\n", .{pkg});
             ok = false;
         } else if (!std.mem.eql(u8, current_sha.?, locked_sha)) {
-            const cur_short = current_sha.?[0..@min(12, current_sha.?.len)];
-            const lock_short = locked_sha[0..@min(12, locked_sha.len)];
+            // Print the full SHAs: a 12-character truncation must never be
+            // able to render two different values identically (#2133).
             writeStdout("  ");
             printColor(Color.yellow, "MISMATCH");
-            printBuf(&buf, ": {s} (locked: {s}, actual: {s})\n", .{ pkg, lock_short, cur_short });
+            printBuf(&buf, ": {s} (locked: {s}, actual: {s})\n", .{ pkg, locked_sha, current_sha.? });
             ok = false;
         } else {
             const lock_short = locked_sha[0..@min(12, locked_sha.len)];
