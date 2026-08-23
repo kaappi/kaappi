@@ -233,11 +233,26 @@ check "constraint ^1.2.3 stays inside major 1"          "v1.9.0" "$(resolve kaap
 check "constraint ^0.2.0 stays inside minor 0.2"        "v0.2.5" "$(resolve kaappi-alpha '^0.2.0')"
 check "constraint ~1.2.3 stays inside minor 1.2"        "v1.2.3" "$(resolve kaappi-alpha '~1.2.3')"
 check "range >=1.0.0,<2.0.0 excludes the upper bound"   "v1.9.0" "$(resolve kaappi-alpha '>=1.0.0,<2.0.0')"
+# node-semver allows whitespace between the operator and its version; the
+# space used to make the whole range unparseable and was reported as "no
+# version matching" (#2132).
+check "constraint '>= 1.0.0' tolerates operator whitespace" "v2.0.0" "$(resolve kaappi-alpha '>= 1.0.0')"
 
 fresh_home
 out="$("$THOTTAM" install 'kaappi-alpha@>=9.0.0' 2>&1)" && ec=0 || ec=$?
 check_exit "an unsatisfiable constraint fails" 1 "$ec"
 check "an unsatisfiable constraint says so" "no version matching" "$out"
+
+# A constraint that does not PARSE is a different failure from one that
+# matches nothing: the old single message sent users hunting through the
+# remote's tags for a range that was never valid (#2132).
+for bad in '>=>1.0.0' '>=1.0.0,' '>=1.0.0-rc1'; do
+    fresh_home
+    out="$($THOTTAM install "kaappi-alpha@$bad" 2>&1)" && ec=0 || ec=$?
+    check_exit "a malformed constraint fails [$bad]" 1 "$ec"
+    check "a malformed constraint is reported as invalid [$bad]" "invalid version constraint" "$out"
+    check_not "a malformed constraint is not called unmatched [$bad]" "no version matching" "$out"
+done
 
 # A tag that is a SemVer pre-release must not satisfy a plain range
 # (node-semver: a range with no pre-release of its own excludes them).
@@ -246,12 +261,21 @@ check "a -rc1 pre-release tag does not satisfy >=1.0.0" \
 
 # ...but SemVer 2.0.0 s2 says a version is exactly three numeric components,
 # so a tag with a fourth is not a version at all and must not be a candidate.
-# FAIL: #2130 (Semver.parse reads three components and discards the rest, so
-# v2.0.0.nightly-UNRELEASED parses as 2.0.0 and wins this range; the fixture
-# is identical to kaappi-odd above except for that one tag, which is what
-# makes the pair discriminating)
-# check "a four-component tag is not treated as a release" \
-#     "v1.0.0" "$(resolve kaappi-nightly '>=1.0.0')"
+check "a four-component tag is not treated as a release" \
+    "v1.0.0" "$(resolve kaappi-nightly '>=1.0.0')"
+
+# Same property, sharper case: v1_0.0.0 used to parse as 10.0.0 via Zig's
+# integer-literal grammar ('_' digit separator) and so outranked v2.0.0,
+# REORDERING the release history (#2130).
+mkpkg kaappi-underscore "" v2.0.0
+(
+    cd "$WORK/kaappi-underscore"
+    git tag 'v1_0.0.0'
+)
+rm -rf "$ORG/kaappi-underscore.git"
+git clone -q --bare "$WORK/kaappi-underscore" "$ORG/kaappi-underscore.git"
+check "an underscore tag does not outrank a real release" \
+    "v2.0.0" "$(resolve kaappi-underscore '>=2.0.0')"
 
 # ---------------------------------------------------------------------------
 # 4. The package-name guard: nothing escapes KAAPPI_HOME

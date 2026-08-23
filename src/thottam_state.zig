@@ -34,7 +34,11 @@ pub fn parsePkgSpec(spec: []const u8) PkgSpec {
         }
     }
     if (std.mem.indexOfScalar(u8, name_ver, '@')) |at| {
-        return .{ .name = name_ver[0..at], .ver = name_ver[at + 1 ..], .source = source };
+        const ver = name_ver[at + 1 ..];
+        // `pkg@` (trailing @ with nothing after it) means "no version pinned",
+        // the same as omitting the @ entirely — an empty string here printed
+        // as `Installing pkg@` and then failed at checkout (kaappi#2132).
+        return .{ .name = name_ver[0..at], .ver = if (ver.len > 0) ver else null, .source = source };
     }
     return .{ .name = name_ver, .ver = null, .source = source };
 }
@@ -63,7 +67,10 @@ pub fn parsePkgManifest(content: []const u8) PkgManifest {
         } else if (parseField(line, "depends:")) |val| {
             result.depends = val;
         } else if (parseField(line, "build:")) |val| {
-            result.build_cmd = val;
+            // An empty `build:` is an absence, not a command — running
+            // `/bin/sh -c ""` behind a "Building <pkg>..." banner helped
+            // nobody (kaappi#2132).
+            if (val.len > 0) result.build_cmd = val;
         } else if (parseField(line, "source:")) |val| {
             if (val.len > 0 and val[0] != '-') result.source = val;
         }
