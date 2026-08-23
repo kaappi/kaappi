@@ -304,7 +304,7 @@ fn copyDylibsFromPkg(allocator: std.mem.Allocator, pkg_dir: []const u8, lib_dir:
 }
 
 fn removeInstalledFiles(allocator: std.mem.Allocator, config: Config, pkg: []const u8) !void {
-    var rels: std.ArrayList([]u8) = .empty;
+    var rels: std.ArrayList([]const u8) = .empty;
     defer {
         for (rels.items) |r| allocator.free(r);
         rels.deinit(allocator);
@@ -358,7 +358,7 @@ fn removeInstalledFiles(allocator: std.mem.Allocator, config: Config, pkg: []con
     }
 }
 
-fn addFileToList(allocator: std.mem.Allocator, rels: *std.ArrayList([]u8), rel: []const u8) !void {
+fn addFileToList(allocator: std.mem.Allocator, rels: *std.ArrayList([]const u8), rel: []const u8) !void {
     for (rels.items) |existing| {
         if (std.mem.eql(u8, existing, rel)) return;
     }
@@ -442,6 +442,86 @@ fn installLibTree(allocator: std.mem.Allocator, lib_src: []const u8, lib_dir: []
         printErrColor(Color.red, "  Failed to install library files\n");
         return error.CopyFailed;
     };
+}
+
+/// Copy the package's lib tree and native libraries into the shared lib
+/// dir, warn about files another installed package claims, unlink files
+/// this package previously owned that the new version dropped (unless
+/// another package still claims them), and record the current file set in
+/// `thottam.files`. Keeping the copy and the record in lockstep is what
+/// makes the ownership guarantee hold across installs, re-pins and
+/// updates — before this, `update` copied the pulled tree and recorded
+/// nothing, so the guarantee lapsed after any pull (issue #2136).
+///
+/// Returns the number of native libraries copied.
+fn syncInstalledFiles(allocator: std.mem.Allocator, config: Config, pkg: []const u8, pkg_dir: []const u8) !u32 {
+    const lib_src = try joinPath(allocator, pkg_dir, "lib");
+    defer allocator.free(lib_src);
+
+    var sld_files: std.ArrayList([]u8) = .empty;
+    defer tfs.freePathList(allocator, &sld_files);
+    if (dirExists(allocator, lib_src)) {
+        sld_files = try tfs.collectFilesWithSuffix(allocator, lib_src, ".sld", true);
+        for (sld_files.items) |rel| try warnIfClaimed(allocator, config, pkg, rel);
+        writeStdout("  Installing libraries...\n");
+        try installLibTree(allocator, lib_src, config.lib_dir);
+    }
+
+    var dylib_files = try tfs.collectFilesWithSuffix(allocator, pkg_dir, dylib_ext, false);
+    defer tfs.freePathList(allocator, &dylib_files);
+    for (dylib_files.items) |name| try warnIfClaimed(allocator, config, pkg, name);
+
+    const dylib_count = try copyDylibsFromPkg(allocator, pkg_dir, config.lib_dir);
+
+    // The file set this package now owns: what the new checkout ships.
+    var new_files: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (new_files.items) |r| allocator.free(r);
+        new_files.deinit(allocator);
+    }
+    for (sld_files.items) |rel| try addFileToList(allocator, &new_files, rel);
+    for (dylib_files.items) |name| try addFileToList(allocator, &new_files, name);
+
+    // Unlink files this package owned before that the new version dropped —
+    // unless another package still claims them. Without this, a re-pin or
+    // update that removes a lib file leaves a stale copy in lib_dir that
+    // the rewritten manifest no longer records and removal can never find.
+    if (readFile(allocator, config.files)) |content| {
+        defer allocator.free(content);
+        var lines = std.mem.splitScalar(u8, content, '\n');
+        while (lines.next()) |line| {
+            const l = trimStateLine(line);
+            if (l.len == 0) continue;
+            if (!(std.mem.startsWith(u8, l, pkg) and l.len > pkg.len and l[pkg.len] == ' ')) continue;
+            const old_rel = l[pkg.len + 1 ..];
+            if (old_rel.len == 0) continue;
+            if (isInNewSet(new_files.items, old_rel)) continue;
+            if (fileClaimedBy(allocator, config.files, old_rel, pkg)) |other| {
+                allocator.free(other);
+                continue;
+            }
+            const target = joinPath(allocator, config.lib_dir, old_rel) catch continue;
+            defer allocator.free(target);
+            const target_z = allocator.dupeZ(u8, target) catch continue;
+            defer allocator.free(target_z);
+            _ = platform.unlink(target_z);
+            pruneEmptyParents(allocator, config.lib_dir, old_rel);
+        }
+    } else |_| {}
+
+    // Record the current set. Rewrites this package's own lines, so the
+    // dropped-file cleanup above and a re-install at a new version cannot
+    // leave stale entries behind.
+    try updateFileManifest(allocator, config.files, pkg, new_files.items);
+
+    return dylib_count;
+}
+
+fn isInNewSet(new_files: []const []const u8, rel: []const u8) bool {
+    for (new_files) |r| {
+        if (std.mem.eql(u8, r, rel)) return true;
+    }
+    return false;
 }
 
 fn printColor(comptime color: []const u8, text: []const u8) void {
@@ -707,38 +787,10 @@ fn doInstall(
         }
     }
 
-    const lib_src = try joinPath(allocator, pkg_dir, "lib");
-    defer allocator.free(lib_src);
-
-    // Collect what will be copied so the install can warn about files that
-    // another installed package owns, and record what it installed for
-    // ownership-aware removal (#2136).
-    var sld_files: std.ArrayList([]u8) = .empty;
-    defer tfs.freePathList(allocator, &sld_files);
-    if (dirExists(allocator, lib_src)) {
-        sld_files = try tfs.collectFilesWithSuffix(allocator, lib_src, ".sld", true);
-        for (sld_files.items) |rel| try warnIfClaimed(allocator, config, pkg, rel);
-        writeStdout("  Installing libraries...\n");
-        try installLibTree(allocator, lib_src, config.lib_dir);
-    }
-
-    var dylib_files = try tfs.collectFilesWithSuffix(allocator, pkg_dir, dylib_ext, false);
-    defer tfs.freePathList(allocator, &dylib_files);
-    for (dylib_files.items) |name| try warnIfClaimed(allocator, config, pkg, name);
-
-    const dylib_count = try copyDylibsFromPkg(allocator, pkg_dir, config.lib_dir);
+    const dylib_count = try syncInstalledFiles(allocator, config, pkg, pkg_dir);
     if (dylib_count > 0) {
         printBuf(&buf, "  Installed {d} native library(s)\n", .{dylib_count});
     }
-
-    // Record the installed files so `remove` can tell what belongs to whom
-    // (issue #2136). Rewrites this package's own lines: a re-install at a
-    // different version must not leave stale entries behind.
-    var files_list: std.ArrayList([]const u8) = .empty;
-    defer files_list.deinit(allocator);
-    for (sld_files.items) |rel| files_list.append(allocator, rel) catch return error.OutOfMemory;
-    for (dylib_files.items) |name| files_list.append(allocator, name) catch return error.OutOfMemory;
-    try updateFileManifest(allocator, config.files, pkg, files_list.items);
 
     try addToInstalled(allocator, config.installed, pkg);
     // A --locked install must not rewrite the lockfile's recorded source: the
@@ -920,13 +972,10 @@ fn doUpdate(allocator: std.mem.Allocator, config: Config, pkg: ?[]const u8) !voi
             }
         }
 
-        const lib_src = try joinPath(allocator, pkg_dir, "lib");
-        defer allocator.free(lib_src);
-        if (dirExists(allocator, lib_src)) {
-            try installLibTree(allocator, lib_src, config.lib_dir);
-        }
-
-        _ = try copyDylibsFromPkg(allocator, pkg_dir, config.lib_dir);
+        // Copy the pulled tree and keep the ownership record in lockstep:
+        // update must warn about, record and clean up exactly what install
+        // does (issue #2136).
+        _ = try syncInstalledFiles(allocator, config, p, pkg_dir);
 
         const new_sha = getPkgSha(allocator, config.src_dir, p) orelse "unknown";
         try updateLockfile(allocator, config.lockfile, p, new_sha, expected_source);

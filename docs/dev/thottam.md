@@ -25,7 +25,10 @@ thottam remove kaappi-web                                        # uninstall
 - Copies `.dylib`/`.so` to `~/.kaappi/lib/`.
 - Records source URLs in the lockfile `~/.kaappi/thottam.lock`, for provenance.
 - Records each installed file in `~/.kaappi/thottam.files`, so `remove` only
-  unlinks files no other installed package still needs (kaappi#2136).
+  unlinks files no other installed package still needs (kaappi#2136). When an
+  install or update copies a file another package already owns, thottam
+  warns; the newest copy stays authoritative, and removing the package that
+  last copied it does not restore the earlier package's copy.
 
 **Auto-discovery.** `main.zig` automatically adds the script's own directory and
 `~/.kaappi/lib` to the library search path, after any `--lib-path` entries — so a

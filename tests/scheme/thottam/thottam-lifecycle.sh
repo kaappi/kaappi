@@ -545,6 +545,8 @@ check "update of an uninstalled package says so" "is not installed" "$out"
 # about a pinned package rather than surfacing git's own advice.
 fresh_home
 "$THOTTAM" install kaappi-alpha@v1.0.0 > /dev/null 2>&1
+check "a first install at the v1.0.0 pin records that pin's SHA" \
+    "$sha_v100" "$(cat "$KAAPPI_HOME/thottam.lock")"
 out="$("$THOTTAM" update kaappi-alpha 2>&1)" && ec=0 || ec=$?
 check_exit "updating a pinned package succeeds as a no-op" 0 "$ec"
 check_not "updating a pinned package does not leak raw git advice" \
@@ -561,6 +563,73 @@ out="$("$THOTTAM" update 2>&1)" && ec=0 || ec=$?
 check_exit "updating all packages with one pinned succeeds" 0 "$ec"
 check "updating all reports the pinned package" "pinned at" "$out"
 check "updating all still updates the unpinned package" "kaappi-one updated" "$out"
+
+# An upstream release that ADDS a file another package owns must record the
+# new ownership during `update` — otherwise removing the other claimant
+# later unlinks the file out from under the updated package (#2136 via the
+# update path). kaappi-grower ships only grower.sld at first; kaappi-two
+# already owns lib/kaappi/shared.sld.
+mkpkg kaappi-grower ""
+fresh_home
+"$THOTTAM" install kaappi-grower > /dev/null 2>&1
+"$THOTTAM" install kaappi-two > /dev/null 2>&1
+check_not "before the update, grower does not claim shared.sld" \
+    "kaappi-grower kaappi/shared.sld" "$(cat "$KAAPPI_HOME/thottam.files")"
+(
+    cd "$WORK/kaappi-grower"
+    printf '(define-library (kaappi shared) (export owner) (import (scheme base)) (begin (define owner "grower")))\n' \
+        > lib/kaappi/shared.sld
+    git add -A
+    git_q commit -q -m "add shared"
+)
+rm -rf "$ORG/kaappi-grower.git"
+git clone -q --bare "$WORK/kaappi-grower" "$ORG/kaappi-grower.git"
+out="$("$THOTTAM" update kaappi-grower 2>&1)" && ec=0 || ec=$?
+check_exit "update pulling a shared file succeeds" 0 "$ec"
+check "update warns it overwrites another package's file" "also provided by kaappi-two" "$out"
+check "update records the new ownership" \
+    "kaappi-grower kaappi/shared.sld" "$(cat "$KAAPPI_HOME/thottam.files")"
+"$THOTTAM" remove kaappi-two > /dev/null 2>&1
+check_file "removing the other claimant keeps the updated package's file" \
+    "$KAAPPI_HOME/lib/kaappi/shared.sld"
+
+# An upstream release that DROPS a file another package owns: update must
+# keep the other package's copy and drop the ownership record, so removing
+# the updated package cannot delete the file out from under the other one.
+mkpkg kaappi-shrinker ""
+(
+    cd "$WORK/kaappi-shrinker"
+    printf '(define-library (kaappi shared) (export owner) (import (scheme base)) (begin (define owner "shrinker")))\n' \
+        > lib/kaappi/shared.sld
+    git add -A
+    git_q commit -q -m "add shared"
+)
+rm -rf "$ORG/kaappi-shrinker.git"
+git clone -q --bare "$WORK/kaappi-shrinker" "$ORG/kaappi-shrinker.git"
+fresh_home
+"$THOTTAM" install kaappi-shrinker > /dev/null 2>&1
+"$THOTTAM" install kaappi-one > /dev/null 2>&1
+check "shrinker and one both claim shared.sld" \
+    "kaappi-shrinker kaappi/shared.sld" "$(cat "$KAAPPI_HOME/thottam.files")"
+(
+    cd "$WORK/kaappi-shrinker"
+    git rm -q lib/kaappi/shared.sld
+    git_q commit -q -m "drop shared"
+)
+rm -rf "$ORG/kaappi-shrinker.git"
+git clone -q --bare "$WORK/kaappi-shrinker" "$ORG/kaappi-shrinker.git"
+out="$("$THOTTAM" update kaappi-shrinker 2>&1)" && ec=0 || ec=$?
+check_exit "update dropping a shared file succeeds" 0 "$ec"
+check_not "update drops the ownership record" \
+    "kaappi-shrinker kaappi/shared.sld" "$(cat "$KAAPPI_HOME/thottam.files")"
+check_file "the other package's shared file survives the update" \
+    "$KAAPPI_HOME/lib/kaappi/shared.sld"
+"$THOTTAM" remove kaappi-shrinker > /dev/null 2>&1
+check_file "removing the updated package keeps the other's shared file" \
+    "$KAAPPI_HOME/lib/kaappi/shared.sld"
+"$THOTTAM" remove kaappi-one > /dev/null 2>&1
+check_not "removing the last claimant deletes the shared file" "yes" \
+    "$([[ -f "$KAAPPI_HOME/lib/kaappi/shared.sld" ]] && echo yes || echo no)"
 
 # ---------------------------------------------------------------------------
 # 9. --locked
