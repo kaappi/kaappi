@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787487000491,
+  "lastUpdate": 1787493825933,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "58a05751c562c5dfe7b3e5542f5a36b2c935c762",
-          "message": "Re-derive the bytecode and IR docs from source, and gate the counts at comptime (#2104)\n\n* Re-derive the bytecode and IR docs from source, and gate the counts at comptime\n\nBoth documents described an earlier design confidently enough that a careful\nreader would not think to check, and both document exactly the kind of detail\ntaken on faith: counts, operand widths, struct fields.\n\nbytecode.md said 29 opcodes (31), and called register operands u8 when the\ndispatch loop reads u16 for every one of them — so every byte count in its\ntable was wrong, and a reader computing instruction widths from it produced a\nstream validateCode rejects. Closure capture descriptors are 3 bytes\n(is_local:u8 + index:u16), not 2. The table is now re-derived from the OpCode\nenum and the fixed_operand_bytes switch, and the disassembly example is real\noutput rather than a hand-computed one (its offsets had the old widths baked\nin, it showed a \"; Bytecode (N bytes):\" header the disassembler never emits,\nand offsets are decimal, not hex).\n\nir.md said 33 node tags. NodeTag has 18: the doc predates the collapse of\ncond/case/guard/... into the single sexpr_form tag with its 18 FormKinds,\nwhich is the one thing a reader most needs from it — how lowered the IR\nalready is. Three documented Annotations fields, and the two analysis passes\nthat set them, do not exist; identifyPrimitives and markConstants were removed\nin v0.13.0 and markTailPositions is the only pass left. The standalone Emitter\nand its bytecode-parity tests went with them.\n\nThree findings the issue did not list, all the same defect:\n\n- architecture.md carried a second, undeclared copy of the opcode table\n  describing three opcodes that do not exist (get_local, set_local,\n  close_upvalue) while omitting three that do (self_tail_call, tail_call_cc,\n  tail_eval) — a wrong table whose row count happened to stay right at 31, so\n  counting it would not have caught it. Removed rather than corrected:\n  bytecode.md is the declared single source of truth, and duplicating it is\n  how this drifted.\n- adding-features.md instructed the reader to add a NodeTag variant, a Data\n  union variant, and switch arms in identifyPrimitives and markConstants —\n  the pre-sexpr_form procedure, contradicting .claude/rules/compiler-forms.md.\n  A reader following it would not have compiled.\n- The OpCode enum's own inline comments claimed u8 operands too, so the\n  source read as wrong as the doc.\n\nThe counts are now pinned at comptime, in the diagnostics.zig style: changing\nOpCode, NodeTag or FormKind fails the build with a message naming the files to\nupdate. Each gate was mutation-tested. This would have caught all of it —\nexcept architecture.md's table, which is why that one is gone instead.\n\nAlso swept README.md, CLAUDE.md, docs/dev/README.md, understanding-map.md,\nclaude-code-harness.md and the /bytecode-isa skill, which stated the same\ncounts a third and fourth way (the skill said 32 — doc 29, skill 32, enum 31).\nCHANGELOG entries are left alone as historical record.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Close the review's two stale sites, and four more the gate lists missed\n\nReview of #2104 found docs/dev/README.md:74 still saying 32 opcodes and\n.coderabbit.yaml:76 still saying 33 node types / 3 analysis passes. Both\nconfirmed against source. An exhaustive sweep across every file type — not\njust *.md and *.zig, which is what missed .coderabbit.yaml in the first place —\nshows these were the only two left.\n\nThe diagnosis was the useful part: docs/dev/README.md is named in the NodeTag\ngate's file list and absent from OpCode's, and correspondingly its node-type\nrow got fixed while its opcode row did not. The gap in the list and the miss\nare the same gap.\n\nChecking the rest of the lists against the sweep, they had four more gaps the\nreview did not reach: OpCode omitted docs/dev/claude-code-harness.md as well,\nand FormKind named only docs/dev/ir.md while CLAUDE.md and\ndocs/dev/architecture.md both state \"18 FormKinds\". Six gaps in three\nhand-written lists is the point: a list of filenames inside an error message\nis its own drift surface, which is the bug class the gate exists for. So each\nmessage now carries a search as well as the list, and says the list is the\nknown set rather than a guarantee.\n\nThe search greps the *noun*, not the number. Grepping the number does not\nwork in either direction: \"31-opcode\" and \"31 opcodes\" need different\npatterns — that separator variance is what hid README.md:74 from the original\nsweep — and a bare \"18\" collides with every SRFI number, 43 hits for \"31\"\nalone. Each search was verified to be a superset of its known sites.\n\n.coderabbit.yaml is the worst of the two stale copies, as the review argued:\nit is configuration for the automated reviewer, so it would carry the\ncorrected-away model into future PRs. Its instruction also contradicted its\nown sibling block for src/compiler*.zig, which already described the FormKind\npath correctly. Fixed less bluntly than suggested, though — the NodeTag /\nData union / freeNode list it carries is still correct for a genuinely\nstructured node, so it is kept and labelled as that path rather than deleted,\nwith the FormKind path named as the normal one.\n\nEvery count claim in the repo now matches the source. Gates re-mutation-tested.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T23:08:18+05:30",
-          "tree_id": "d401a9e2c8f3a5687694a264dedd4b98d208fd33",
-          "url": "https://github.com/kaappi/kaappi/commit/58a05751c562c5dfe7b3e5542f5a36b2c935c762"
-        },
-        "date": 1785611547693,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.937205,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.752373,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.561085,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.946049,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004852,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.044717,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.300907,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054764,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.295967,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.156094,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.514663,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.299873,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.686475,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.636992,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04503,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.036645,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "59a6552093a3005392b6a1ef5266c2dbf26bed52",
+          "message": "thottam: fix version re-pins, ownership-aware removal, and state-file name validation (#2289)\n\n* thottam: fix version re-pins, ownership-aware removal, and state-file name validation (#2134 #2136 #2138 #2144)\n\nFour audit findings in the package manager, each a place where thottam\nreported one thing and did another.\n\n#2134 — version pinning was a dead end. 'install pkg@ver' on an\nalready-installed package short-circuited on isInstalled before the\nrequested version was looked at, exiting 0 while leaving the old version\nin place — a provisioning script that pins and checks the exit status is\ntold it succeeded. And 'update' ran 'git pull' unconditionally, so a pin's\ndetached HEAD surfaced git's own unactionable advice and one pinned\npackage failed the whole-tree update. Install now resolves the requested\nversion before the already-installed check and re-checkouts (rebuild,\nre-copy, re-record) when the checkout differs; update detects the\ndetached HEAD and says plainly what the package is pinned to, skipping it\ninstead of failing the tree. 'install pkg@<version>' is the way to move a\npin, and it now works.\n\n#2136 — removal deleted library files by name with no ownership record.\nTwo packages shipping lib/kaappi/shared.sld: removing one unlinked the\nfile the other still relied on, leaving it reported as installed but\nbroken, and installs silently overwrote each other's copies. A new state\nfile, ~/.kaappi/thottam.files, records every installed file per package;\nremove unlinks only files no other installed package claims, and installs\nwarn when they overwrite a file another package owns. Empty directory\nskeletons left by removal are pruned.\n\n#2138 — kaappi.pkg's name: and source: fields were parsed, copied and\nnever read; version: was parsed by nothing. Since the manifest is only\nread after cloning, source: could never be the clone URL. The fields are\ndeleted from the parser and the documented grammar; only depends: and\nbuild: are read, and every other key (name:, version:, source: included)\nis ignored by construction. Third-party packages are sourced via ::url or\nKAAPPI_ORG.\n\n#2144 — list/verify/update built filesystem paths from unvalidated\npackage names read back from installed.txt and thottam.lock, while\ninstall and remove validated. A hand-edited or corrupted state file could\nsend git -C outside . Every consumer now inherits the guard:\nlist and update-all skip invalid names, update validates its argument at\nentry, and verify names invalid entries MALFORMED and fails.\n\nThe lifecycle suite's disabled FAIL: #NNNN checks are re-enabled and\nextended (pin re-install, pin move, pinned-update no-op, shared-file\nremoval, overwrite warning, empty-dir pruning, corrupted-state handling,\ninert-manifest installs): 133 assertions, all offline against local bare\nrepositories.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* thottam: keep the installed-file manifest authoritative across update (review)\n\nReview feedback on #2289 found one real gap: doUpdate copied the pulled\nlib tree but never refreshed thottam.files, so the #2136 ownership\nguarantee lapsed after any pull. If an upstream release of package A\nadded lib/kaappi/shared.sld (already owned by B), 'thottam update A'\ncopied the file and recorded nothing; a later 'thottam remove B' then\nsaw no other claimant and unlinked the file out from under A — exactly\nthe bug the manifest set out to close, reachable via the update path.\n\nThe copy+record block that install used is factored into a shared\nsyncInstalledFiles used by both install and update: collect the new file\nset, warn about files another package claims, copy, unlink files this\npackage previously owned that the new version dropped (unless another\npackage still claims them — the re-pin orphan case, where an upstream\ndeletion left a stale copy the rewritten manifest could no longer find),\nthen record the set. Install and update now keep on-disk state and the\nownership record in lockstep.\n\nAlso: document that the newest copy of a shared file stays authoritative\n(removal does not restore the previous contents), wire the previously\nunused sha_v100 into the v1.0.0 pin control assertion, and add two\nlifecycle regressions — an update that adds a shared file must record\nthe ownership so removing the other claimant keeps it, and an update\nthat drops a shared file must keep the other package's copy and drop the\nrecord so removing the updated package cannot delete it.\n\n145 lifecycle assertions (was 133), 1723 unit tests, all offline.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-23T13:25:38Z",
+          "tree_id": "18c56a33879f57abfb445c5828da76ca0ae5d0da",
+          "url": "https://github.com/kaappi/kaappi/commit/59a6552093a3005392b6a1ef5266c2dbf26bed52"
+        },
+        "date": 1787493823728,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.312801,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.698395,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.573317,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.018031,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004705,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04853,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.322289,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056045,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.816637,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.219325,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.665945,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.28032,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.788545,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.553425,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043395,
             "unit": "seconds"
           }
         ]
