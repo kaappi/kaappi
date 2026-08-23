@@ -248,11 +248,20 @@ check "an unsatisfiable constraint says so" "no version matching" "$out"
 # remote's tags for a range that was never valid (#2132).
 for bad in '>=>1.0.0' '>=1.0.0,' '>=1.0.0-rc1'; do
     fresh_home
-    out="$($THOTTAM install "kaappi-alpha@$bad" 2>&1)" && ec=0 || ec=$?
+    out="$("$THOTTAM" install "kaappi-alpha@$bad" 2>&1)" && ec=0 || ec=$?
     check_exit "a malformed constraint fails [$bad]" 1 "$ec"
     check "a malformed constraint is reported as invalid [$bad]" "invalid version constraint" "$out"
     check_not "a malformed constraint is not called unmatched [$bad]" "no version matching" "$out"
 done
+
+# A constraint whose repository cannot be listed (here: it does not exist)
+# is a fetch failure, not "no version matching" — the range is never even
+# evaluated, and saying otherwise sends the user hunting through tags (#2132).
+fresh_home
+out="$("$THOTTAM" install 'kaappi-missing@>=1.0.0' 2>&1)" && ec=0 || ec=$?
+check_exit "an unavailable repository fails" 1 "$ec"
+check "an unavailable repository is reported as a fetch error" "failed to list tags" "$out"
+check_not "an unavailable repository is not called unmatched" "no version matching" "$out"
 
 # A tag that is a SemVer pre-release must not satisfy a plain range
 # (node-semver: a range with no pre-release of its own excludes them).

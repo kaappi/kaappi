@@ -183,15 +183,19 @@ fn joinPath3(allocator: std.mem.Allocator, a: []const u8, b: []const u8, c: []co
     return result;
 }
 
-/// Outcome of constraint resolution. The three cases were collapsed into a
-/// single `null` before kaappi#2132, which reported "no version matching" for
-/// a malformed range — indistinguishable from an unsatisfiable one.
+/// Outcome of constraint resolution. The cases were collapsed into a single
+/// `null` before kaappi#2132, which reported "no version matching" for a
+/// malformed range and for a failed `git ls-remote` alike — indistinguishable
+/// from an unsatisfiable one.
 const ResolveOutcome = union(enum) {
     resolved: []const u8,
     /// The range parsed but no tag satisfies it.
     no_match,
     /// The range itself does not parse; carries where and why.
     invalid_constraint: semver.ConstraintParseError,
+    /// `git ls-remote --tags` itself failed (missing/private repo, no
+    /// network). Not the same as "no matching tag": the range may be fine.
+    git_failed,
 };
 
 fn resolveVersion(allocator: std.mem.Allocator, clone_url: []const u8, constraint_str: []const u8) ResolveOutcome {
@@ -199,7 +203,7 @@ fn resolveVersion(allocator: std.mem.Allocator, clone_url: []const u8, constrain
     const constraints = semver.parseConstraintsDiag(constraint_str, &diag) orelse
         return .{ .invalid_constraint = diag };
 
-    const output = runGitCapture(allocator, &.{ "ls-remote", "--tags", "--", clone_url }) catch return .no_match;
+    const output = runGitCapture(allocator, &.{ "ls-remote", "--tags", "--", clone_url }) catch return .git_failed;
     defer allocator.free(output);
 
     var best: ?Semver = null;
@@ -454,6 +458,13 @@ fn doInstall(
                         .too_many_parts => std.fmt.bufPrint(&buf, "invalid version constraint '{s}' for {s}: a comma-separated range has at most 4 parts\n", .{ v, pkg }) catch "invalid version constraint\n",
                     };
                     writeStderr(detail);
+                    return error.GitFailed;
+                },
+                .git_failed => {
+                    var buf: [320]u8 = undefined;
+                    printErrColor(Color.red, "error: ");
+                    const msg = std.fmt.bufPrint(&buf, "failed to list tags for {s} (cannot resolve {s})\n", .{ clone_url, v }) catch "failed to resolve version\n";
+                    writeStderr(msg);
                     return error.GitFailed;
                 },
             }

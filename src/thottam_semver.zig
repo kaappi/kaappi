@@ -135,10 +135,9 @@ pub fn parseConstraintsDiag(spec: []const u8, diag: *ConstraintParseError) ?[4]?
         };
         i += 1;
     }
-    if (i == 0) {
-        diag.* = .{ .kind = .bad_part, .part_index = 0 };
-        return null;
-    }
+    // No `i == 0` guard is needed: `splitScalar` always yields at least one
+    // token, so an empty or whitespace spec reaches `parseSingleConstraint("")`
+    // in the loop body and returns `bad_part`/index 0 there.
     return result;
 }
 

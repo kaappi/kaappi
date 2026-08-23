@@ -60,7 +60,9 @@ Every field except `name` is optional.
   Whitespace between an operator and its version is accepted (`>= 1.0.0`).
 
   A git tag only counts as a release candidate if it is a valid SemVer
-  2.0.0 version: exactly `X.Y.Z`, digits only, no leading zeroes. A tag like
+  2.0.0 version: one to three numeric components, digits only, no leading
+  zeroes (`v1` and `v1.2` are accepted, filling omitted components with 0;
+  a fourth component is not a version). A tag like
   `v2.0.0.nightly-UNRELEASED` or `v1_0.0.0` is not a version and is ignored,
   never outranking a real release.
 - `build` runs only if the package has native code (conventionally a `csrc/`
