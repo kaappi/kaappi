@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787451965834,
+  "lastUpdate": 1787467403397,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f0b105a64e9689640a5905ffc21cd9ef839eccd2",
-          "message": "Normalize kaappi fmt line endings to LF, and say so (#2093)\n\nCloses #1897. `fmt` already stripped every CR between lexemes — `\\r` is\nwhitespace to its lexer and the printer only ever emits `\\n` — but nothing\ndeclared that as policy, `docs/dev/fmt.md` never mentioned line endings at\nall, and the formatter leaked CRs of its own back into the files it wrote.\n\nThe policy is LF, matching `zig fmt` on this compiler's own Zig (verified:\n`zig fmt` normalizes both CRLF and lone CR). The rejected alternative is\nrustfmt's `newline_style = \"Auto\"`, which preserves a file's dominant ending\nso a Windows checkout is never rewritten wholesale. That cost is real and is\nbeing accepted rather than dismissed, for three reasons. `fmt.md` already\npromised that layout \"depends only on the program's content and its comments,\nnot on the input's own line breaks, so two files that differ only in\nwhitespace format identically\" — preserve makes that sentence false. `fmt`\nalready canonicalizes every other whitespace dimension unconditionally (tabs,\nruns of spaces, all indentation, a missing trailing newline), so preserving\nexactly one of them is the arbitrary position. And preserve has no defined\nanswer for a genuinely mixed file or for a file with no line break at all,\nwhere normalize has no undefined case.\n\nTwo real defects fixed underneath the declaration, both places `fmt` emitted\na CR itself:\n\n  * A line comment's trailing `\\r` survived. The comment scan runs to `\\n`,\n    so that CR is the terminating CRLF's — but `trimEnd` stripped only\n    \" \\t\", leaving every commented line in a CRLF file ending in a stray CR\n    while every other line got LF. The output was a fixed point, so this was\n    stable and wrong rather than noisy.\n  * Block-comment interiors kept their CRs, so a CRLF file with a block\n    comment formatted to a mixed-ending file. A block comment ends at `|#`\n    and its bytes reach no datum, so normalizing them cannot change the\n    program. Doing it at parse time rather than in the printer also keeps\n    `measure` honest: a CR-only block comment holds no `\\n` and would\n    otherwise be judged inline-able, putting a raw CR mid-line.\n\n`skipSpace` now counts a lone CR as a line ending (R7RS 7.1.1 says it is\none), so blank-line grouping and trailing-vs-leading comment placement no\nlonger collapse on a CR-only file.\n\nA `;` comment's *interior* CR is deliberately left alone: this reader ends a\ncomment only at `\\n` (#2079), so rewriting it would split the comment and\npromote its tail to real code. That deviation is pinned by a test and\ndocumented, both citing the issue.\n\nBytes inside a datum are never touched — string, SRFI 267 raw string,\n`|piped symbol|`, `#\\<CR>` — because there a CR is program data. That half\nwas already correct and is now asserted rather than assumed.\n\nWhy this needed its own tests: the `equal?` round-trip guard is structurally\nblind to it. `\\r` is whitespace to the reader, so a whole-file CRLF->LF\nrewrite is invariant under `equal?` — the guard proves the program did not\nchange and cannot prove the bytes did not.\n\nVerified a strict no-op on the existing tree: formatting all 942 tracked\n`.scm`/`.sld` files with the pre-change and post-change binaries produces\nbyte-identical output, and `fmt --check` flags the same 833 files before and\nafter (pre-existing; the repo has no `kaappi fmt` gate and no tracked source\nfile contains a CR).\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T21:07:05+05:30",
-          "tree_id": "8ea5fd42eee728c665d281028a0f91f710c21e54",
-          "url": "https://github.com/kaappi/kaappi/commit/f0b105a64e9689640a5905ffc21cd9ef839eccd2"
-        },
-        "date": 1785608021050,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.298622,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.2537,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.580213,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.090491,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004638,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046855,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.312277,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057108,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.78667,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.235053,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.588319,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.283676,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.798717,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.516495,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044657,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04994,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ba59191dc304886dd69e52e5d689aea085687029",
+          "message": "Bump vmactions/openbsd-vm in the github-actions group (#2282)\n\nBumps the github-actions group with 1 update: [vmactions/openbsd-vm](https://github.com/vmactions/openbsd-vm).\n\n\nUpdates `vmactions/openbsd-vm` from 1.4.5 to 1.4.6\n- [Release notes](https://github.com/vmactions/openbsd-vm/releases)\n- [Commits](https://github.com/vmactions/openbsd-vm/compare/c941015845c0f0c429676840963dc63b226d4f69...e6c68b637a12e83519688d115d57d5b0b53923cd)\n\n---\nupdated-dependencies:\n- dependency-name: vmactions/openbsd-vm\n  dependency-version: 1.4.6\n  dependency-type: direct:production\n  update-type: version-update:semver-patch\n  dependency-group: github-actions\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-23T11:39:48+05:30",
+          "tree_id": "095b671d249dd38b86facf916ef97b7f84397eea",
+          "url": "https://github.com/kaappi/kaappi/commit/ba59191dc304886dd69e52e5d689aea085687029"
+        },
+        "date": 1787467400809,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.312566,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.785646,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.569287,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.023455,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004781,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048028,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.308568,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056162,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.854656,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.207565,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.654809,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.286801,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.807513,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.639254,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045267,
             "unit": "seconds"
           }
         ]
