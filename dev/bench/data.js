@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787493825933,
+  "lastUpdate": 1787500149452,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e43f0f5b9b6186c8068d348df67f7c599540dbfd",
-          "message": "Record the wasm32 print-depth abort as the 14th critical (#2124)\n\nTriaging the 16 unlabelled open issues put kaappi#2107 at `priority:\ncritical` — an 848-deep print exhausts the wasm32 stack and traps the\nmodule, uncatchably, from a three-line program.\n\nThe rubric doc keeps a table of every critical specifically so future\ntriage has something to calibrate against, so an entry that is missing\nfrom it is worse than no table at all. Two things would have drifted:\nthe corpus count, which is stated in the doc and again in CLAUDE.md's\nsummary of it, and the table itself.\n\nThe new entry is worth more than a row. It is the first critical whose\nabort is confined to one tier, and the first that is stack exhaustion\nrather than a heap defect — so it forms a sharper reachability pair with\nkaappi#2084 than the existing #1939/#2000 one does: both are uncatchable\nstack exhaustion, leaving reachability as the only variable between them.\nThe line that decides it is that 848 sits below printer.zig's own\nMAX_PRINT_DEPTH of 1024, i.e. inside the envelope the implementation\nintends to support, while #2084 needs a 200,000-bit bitvector.\n\nState explicitly that tier does not discount an entry. Without it the\nnext reader sees twelve core-tier heap defects plus one WASM row and\ninfers a discount the rule does not contain.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T23:40:59+05:30",
-          "tree_id": "b130044f3c39ccda23409fe7c86bb9732b77c766",
-          "url": "https://github.com/kaappi/kaappi/commit/e43f0f5b9b6186c8068d348df67f7c599540dbfd"
-        },
-        "date": 1785612133181,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.28931,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.306088,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.583991,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.748606,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004756,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046029,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.31142,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057332,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.764952,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.227745,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.572355,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.28573,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.8096,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.676541,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04429,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043395,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "566b53549929f20bbfa796b336a5d9a8bd528ec5",
+          "message": "thottam: resolve git through PATH instead of hardcoding /usr/bin/git (Fixes #2152) (#2290)\n\n* thottam: resolve git through PATH instead of hardcoding /usr/bin/git (Fixes #2152)\n\nrunGit/runGitCapture hardcoded /usr/bin/git on every non-Windows platform.\nThat path exists on macOS and CI's Linux images but on none of the three\nsupported BSDs -- FreeBSD and OpenBSD install git in /usr/local/bin, NetBSD\nin /usr/pkg/bin -- so every git-backed operation (install, update, ls-remote\nversion resolution) failed there, leaving thottam non-functional on platforms\nKaappi ships binaries for.\n\nResolve the binary through PATH the same way `kaappi compile` discovers a C\ncompiler (native_compiler.zig) and test_selection locates its git: search\nPATH for the first readable `git` and hand the absolute path to execve, so\nthe child never depends on PATH resolution. A missing git is now a distinct\nerror.GitNotFound that install/update report with a cause, instead of the old\nsilent 127 that surfaced as \"Failed to clone repository\".\n\nStop swallowing the spawn failure too: runPassthrough's child now prints\n\"cannot execute <argv[0]>: <errno>\" before exiting 127, so a FileNotFound on\nthe git binary and a genuine clone failure are no longer indistinguishable in\nthe logs -- the second defect that hid the first across three CI runs.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* thottam: require executable git and route GitNotFound through every call site\n\nReview follow-up to #2152 (the PATH-resolution fix), closing the gaps the\nreviewers found in the diagnostic half:\n\n- findInPath now requires an executable regular file, not merely a readable\n  one. A non-executable file or a directory named git no longer shadows a\n  later real git and then fails at execve instead of falling through to the\n  next PATH entry. X_OK (not R_OK) keeps an execute-only git working; Windows,\n  which has no execute bit, accepts any regular (already .exe-suffixed) file.\n\n- The missing-git diagnostic is now wired through every call site that can\n  surface it, not just clone/pull. resolveVersion gains a git_not_found\n  outcome, checkoutVersion re-raises GitNotFound, and the update flow's\n  symbolic-ref probe distinguishes it from a detached HEAD. A shared\n  missingGit() helper prints the one message, so a git-less\n  `install pkg@\">=1.0.0\"`, `install pkg@tag` on an installed package, and\n  `update pkg` each say \"git not found in PATH\" instead of the old \"failed\n  to list tags\" / \"Failed to checkout version\" / bogus \"pinned\" misdiagnoses.\n\n- runCapture mirrors runPassthrough's execve diagnostic: it saves the real\n  stderr before /dev/null'ing it, so a git that resolves but will not exec\n  is no longer a silent 127 through ls-remote version resolution.\n\n- The findInPath test builds its PATH with platform.path_list_sep (fixing the\n  Windows unit-test failure) and asserts the executability requirement — a\n  non-executable fixture is skipped, the executable one resolves, and the\n  resolved path runs.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-23T15:13:30Z",
+          "tree_id": "95229bc36eea6b66e4995492a8922c3336dacf5c",
+          "url": "https://github.com/kaappi/kaappi/commit/566b53549929f20bbfa796b336a5d9a8bd528ec5"
+        },
+        "date": 1787500147404,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.068033,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.221544,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.552796,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.877137,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004872,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04647,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.28262,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053131,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.377341,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.151319,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.59671,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.30389,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.685234,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.909946,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046274,
             "unit": "seconds"
           }
         ]
