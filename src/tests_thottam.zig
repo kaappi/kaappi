@@ -725,6 +725,18 @@ test "installed-list membership is exact, never a prefix match" {
     try std.testing.expect(state.isInstalled(allocator, inst, "kaappi-net-extra"));
 }
 
+test "installed-list membership tolerates CRLF line endings (issue #2133)" {
+    const allocator = std.testing.allocator;
+    var buf: [512]u8 = undefined;
+    const inst = try tempPath(&buf, "inst2");
+    defer thottam.removeDir(allocator, inst) catch {};
+
+    try thottam.writeFile(allocator, inst, "kaappi-json\r\nkaappi-csv\n");
+    try std.testing.expect(state.isInstalled(allocator, inst, "kaappi-json"));
+    try std.testing.expect(state.isInstalled(allocator, inst, "kaappi-csv"));
+    try std.testing.expect(!state.isInstalled(allocator, inst, "kaappi"));
+}
+
 test "appendLockEntry emits the documented two- and three-column shapes" {
     const allocator = std.testing.allocator;
     var out: std.ArrayList(u8) = .empty;

@@ -795,18 +795,26 @@ fn doVerify(allocator: std.mem.Allocator, config: Config) !void {
     var buf: [512]u8 = undefined;
     var ok = true;
 
-    // The lockfile is checked for structure first: a non-empty line with no
-    // SHA delimiter (binary garbage, a hand-edit) or with an empty name/SHA
-    // is corruption, not something to `continue` past (#2135).
+    // The lockfile is checked for structure first: a well-formed line is
+    // `<name> <sha> [<source>]` with a non-empty name, a non-empty SHA, and,
+    // when a source separator is present, a non-empty source. Anything else
+    // (binary garbage, a hand-edit) is corruption, not something to
+    // `continue` past (#2135).
     {
         var lines = std.mem.splitScalar(u8, lock_content, '\n');
         while (lines.next()) |line| {
             const l = trimStateLine(line);
             if (l.len == 0) continue;
-            const malformed = if (std.mem.indexOfScalar(u8, l, ' ')) |sp|
-                sp == 0 or sp + 1 == l.len
-            else
-                true;
+            const malformed = blk: {
+                const sp = std.mem.indexOfScalar(u8, l, ' ') orelse break :blk true;
+                if (sp == 0) break :blk true; // empty name
+                const rest = l[sp + 1 ..];
+                if (rest.len == 0 or rest[0] == ' ') break :blk true; // empty SHA
+                if (std.mem.indexOfScalar(u8, rest, ' ')) |sp2| {
+                    if (sp2 + 1 == rest.len) break :blk true; // empty source
+                }
+                break :blk false;
+            };
             if (malformed) {
                 writeStdout("  ");
                 printColor(Color.red, "MALFORMED");

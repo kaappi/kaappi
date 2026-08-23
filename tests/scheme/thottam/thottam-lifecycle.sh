@@ -117,6 +117,18 @@ check_file() {
     fi
 }
 
+check_files_eq() {
+    local label="$1" expected="$2" actual="$3"
+    if cmp -s "$expected" "$actual"; then
+        echo "PASS: $label"
+        PASS=$((PASS + 1))
+    else
+        echo "FAIL: $label"
+        echo "  files differ: $expected vs $actual"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
 git_q() { git -c user.email=t@example.com -c user.name=Test -c commit.gpgsign=false "$@"; }
 
 # mkpkg <name> <extra-sld-basename-or-empty> <tag>...
@@ -402,12 +414,23 @@ grep -v '^kaappi-one ' "$KAAPPI_HOME/thottam.lock" > "$KAAPPI_HOME/thottam.lock.
 mv "$KAAPPI_HOME/thottam.lock.new" "$KAAPPI_HOME/thottam.lock"
 out="$("$THOTTAM" verify 2>&1)" && ec=0 || ec=$?
 check_exit "verify fails when an installed package has no lockfile entry" 1 "$ec"
+check "verify names the unlocked package" "UNLOCKED: kaappi-one" "$out"
 
 # An empty lockfile is the degenerate case of the same thing: nothing is
 # checked, and the command reports that everything is fine.
 : > "$KAAPPI_HOME/thottam.lock"
 out="$("$THOTTAM" verify 2>&1)" && ec=0 || ec=$?
 check_exit "verify fails on an empty lockfile with packages installed" 1 "$ec"
+
+# A lockfile line whose SHA field is empty is malformed, not an ordinary
+# mismatch: verify must name it MALFORMED rather than comparing a SHA it
+# never actually had.
+fresh_home
+"$THOTTAM" install kaappi-alpha > /dev/null 2>&1
+printf 'kaappi-alpha  %s/kaappi-alpha.git\n' "$ORG" > "$KAAPPI_HOME/thottam.lock"
+out="$("$THOTTAM" verify 2>&1)" && ec=0 || ec=$?
+check_exit "verify fails on a lockfile line with an empty SHA" 1 "$ec"
+check "verify names the malformed line" "MALFORMED: kaappi-alpha" "$out"
 # Discriminating control: an ABSENT lockfile *is* caught, so the blind spot
 # is specific to a lockfile that exists and says nothing.
 rm -f "$KAAPPI_HOME/thottam.lock"
@@ -479,6 +502,7 @@ out="$("$THOTTAM" update kaappi-alpha 2>&1)" && ec=0 || ec=$?
 fresh_home
 "$THOTTAM" install "kaappi-alpha::$ORG/kaappi-alpha.git" > /dev/null 2>&1
 saved_lock="$(cat "$KAAPPI_HOME/thottam.lock")"
+cp "$KAAPPI_HOME/thottam.lock" "$KAAPPI_HOME/thottam.lock.saved"
 
 out="$("$THOTTAM" --locked install kaappi-nosuch 2>&1)" && ec=0 || ec=$?
 check_exit "--locked refuses a package absent from the lockfile" 1 "$ec"
@@ -492,8 +516,8 @@ rm -rf "$KAAPPI_HOME/src" "$KAAPPI_HOME/lib"
 out="$("$THOTTAM" --locked install kaappi-alpha 2>&1)" && ec=0 || ec=$?
 check_exit "--locked restores a locked package" 0 "$ec"
 check "--locked checks out the locked SHA" "Checking out" "$out"
-check "--locked restore leaves the lockfile byte-for-byte unchanged" \
-    "$saved_lock" "$(cat "$KAAPPI_HOME/thottam.lock")"
+check_files_eq "--locked restore leaves the lockfile byte-for-byte unchanged" \
+    "$KAAPPI_HOME/thottam.lock.saved" "$KAAPPI_HOME/thottam.lock"
 # Discriminating control: the SHA half of the line does survive the restore.
 check "--locked restore preserves the locked SHA" \
     "$(printf '%s' "$saved_lock" | cut -d' ' -f2)" "$(cat "$KAAPPI_HOME/thottam.lock")"
@@ -516,7 +540,22 @@ rm -rf "$KAAPPI_HOME/src" "$KAAPPI_HOME/lib"
 : > "$KAAPPI_HOME/installed.txt"
 out="$("$THOTTAM" --locked install "kaappi-alpha::$ORG/FORK-kaappi-alpha.git" 2>&1)" && ec=0 || ec=$?
 check_exit "--locked refuses a source URL that differs from the lockfile" 1 "$ec"
+check "--locked names the source URL mismatch" "source URL mismatch" "$out"
+check_not "--locked refuses before cloning the fork" "yes" \
+    "$([[ -d "$KAAPPI_HOME/src/kaappi-alpha" ]] && echo yes || echo no)"
 check "--locked leaves the recorded provenance intact" \
+    "$ORG/kaappi-alpha.git" "$(cat "$KAAPPI_HOME/thottam.lock")"
+
+# Control for the reject path above: a ::url that MATCHES the recorded source
+# is accepted, so the enforcement is exact rather than a blanket refusal of
+# every explicit ::url.
+fresh_home
+"$THOTTAM" install "kaappi-alpha::$ORG/kaappi-alpha.git" > /dev/null 2>&1
+rm -rf "$KAAPPI_HOME/src" "$KAAPPI_HOME/lib"
+: > "$KAAPPI_HOME/installed.txt"
+out="$("$THOTTAM" --locked install "kaappi-alpha::$ORG/kaappi-alpha.git" 2>&1)" && ec=0 || ec=$?
+check_exit "--locked accepts a source URL that matches the lockfile" 0 "$ec"
+check "--locked matching-source restore records the same provenance" \
     "$ORG/kaappi-alpha.git" "$(cat "$KAAPPI_HOME/thottam.lock")"
 
 # ---------------------------------------------------------------------------

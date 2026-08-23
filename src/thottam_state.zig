@@ -116,12 +116,6 @@ pub fn getLockedEntry(allocator: std.mem.Allocator, lockfile_path: []const u8, p
     return null;
 }
 
-pub fn getLockedSha(allocator: std.mem.Allocator, lockfile_path: []const u8, pkg: []const u8) ?[]const u8 {
-    const entry = getLockedEntry(allocator, lockfile_path, pkg) orelse return null;
-    if (entry.source) |s| allocator.free(s);
-    return entry.sha;
-}
-
 pub fn appendLockEntry(output: *std.ArrayList(u8), allocator: std.mem.Allocator, pkg: []const u8, sha: []const u8, source: ?[]const u8) !void {
     output.appendSlice(allocator, pkg) catch return error.OutOfMemory;
     output.append(allocator, ' ') catch return error.OutOfMemory;
