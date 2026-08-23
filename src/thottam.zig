@@ -39,6 +39,10 @@ const parsePkgSpec = state.parsePkgSpec;
 const isValidPkgName = state.isValidPkgName;
 const parsePkgManifest = state.parsePkgManifest;
 const isInstalled = state.isInstalled;
+const addToInstalled = state.addToInstalled;
+const updateFileManifest = state.updateFileManifest;
+const removeFromFileManifest = state.removeFromFileManifest;
+const fileClaimedBy = state.fileClaimedBy;
 const LockEntry = state.LockEntry;
 const getLockedEntry = state.getLockedEntry;
 const appendLockEntry = state.appendLockEntry;
@@ -69,6 +73,7 @@ const Config = struct {
     src_dir: []const u8,
     installed: []const u8,
     lockfile: []const u8,
+    files: []const u8,
 };
 
 fn writeToFd(fd: platform.fd_t, bytes: []const u8) void {
@@ -149,7 +154,7 @@ pub fn writeFile(allocator: std.mem.Allocator, path: []const u8, content: []cons
     }
 }
 
-fn appendFile(allocator: std.mem.Allocator, path: []const u8, line: []const u8) !void {
+pub fn appendFile(allocator: std.mem.Allocator, path: []const u8, line: []const u8) !void {
     const path_z = try allocator.dupeZ(u8, path);
     defer allocator.free(path_z);
     const fd = platform.openAppend(path_z, 0o644) catch return error.CannotOpen;
@@ -267,10 +272,8 @@ fn getPkgManifest(allocator: std.mem.Allocator, src_dir: []const u8, pkg: []cons
     const content = readFile(allocator, pkg_file) catch return null;
     defer allocator.free(content);
     var m = parsePkgManifest(content);
-    m.name = if (m.name) |n| allocator.dupe(u8, n) catch null else null;
     m.depends = if (m.depends) |d| allocator.dupe(u8, d) catch null else null;
     m.build_cmd = if (m.build_cmd) |b| allocator.dupe(u8, b) catch null else null;
-    m.source = if (m.source) |s| allocator.dupe(u8, s) catch null else null;
     m.owned = true;
     return m;
 }
@@ -300,27 +303,106 @@ fn copyDylibsFromPkg(allocator: std.mem.Allocator, pkg_dir: []const u8, lib_dir:
     return count;
 }
 
-fn removeDylibsFromPkg(allocator: std.mem.Allocator, pkg_dir: []const u8, lib_dir: []const u8) !void {
-    var names = tfs.collectFilesWithSuffix(allocator, pkg_dir, dylib_ext, false) catch return;
-    defer tfs.freePathList(allocator, &names);
-    for (names.items) |basename| {
-        const target = joinPath(allocator, lib_dir, basename) catch continue;
+fn removeInstalledFiles(allocator: std.mem.Allocator, config: Config, pkg: []const u8) !void {
+    var rels: std.ArrayList([]u8) = .empty;
+    defer {
+        for (rels.items) |r| allocator.free(r);
+        rels.deinit(allocator);
+    }
+
+    // Own records first: what this package's installs actually placed.
+    // Entries are the source of truth for what removal unlinks, so a
+    // package that renamed a file upstream stops orphaning the old copy
+    // (the old code re-walked the source tree and never found it).
+    if (readFile(allocator, config.files)) |content| {
+        defer allocator.free(content);
+        var lines = std.mem.splitScalar(u8, content, '\n');
+        while (lines.next()) |line| {
+            const l = trimStateLine(line);
+            if (l.len == 0) continue;
+            if (std.mem.startsWith(u8, l, pkg) and l.len > pkg.len and l[pkg.len] == ' ') {
+                const rel = l[pkg.len + 1 ..];
+                if (rel.len > 0) try addFileToList(allocator, &rels, rel);
+            }
+        }
+    } else |_| {}
+
+    // Then the source tree, for packages installed before the manifest
+    // existed — the old discovery path, still claim-guarded.
+    const pkg_dir = try joinPath(allocator, config.src_dir, pkg);
+    defer allocator.free(pkg_dir);
+    const pkg_lib = try joinPath(allocator, pkg_dir, "lib");
+    defer allocator.free(pkg_lib);
+    if (dirExists(allocator, pkg_lib)) {
+        var found = try tfs.collectFilesWithSuffix(allocator, pkg_lib, ".sld", true);
+        defer tfs.freePathList(allocator, &found);
+        for (found.items) |rel| try addFileToList(allocator, &rels, rel);
+    }
+    var dylibs = try tfs.collectFilesWithSuffix(allocator, pkg_dir, dylib_ext, false);
+    defer tfs.freePathList(allocator, &dylibs);
+    for (dylibs.items) |name| try addFileToList(allocator, &rels, name);
+
+    for (rels.items) |rel| {
+        // Only unlink a file no other installed package claims: the whole
+        // point of the record (#2136).
+        if (fileClaimedBy(allocator, config.files, rel, pkg)) |other| {
+            allocator.free(other);
+            continue;
+        }
+        const target = joinPath(allocator, config.lib_dir, rel) catch continue;
         defer allocator.free(target);
         const target_z = allocator.dupeZ(u8, target) catch continue;
         defer allocator.free(target_z);
         _ = platform.unlink(target_z);
+        pruneEmptyParents(allocator, config.lib_dir, rel);
     }
 }
 
-fn removeSldFiles(allocator: std.mem.Allocator, pkg_lib_dir: []const u8, lib_dir: []const u8) !void {
-    var rels = tfs.collectFilesWithSuffix(allocator, pkg_lib_dir, ".sld", true) catch return;
-    defer tfs.freePathList(allocator, &rels);
-    for (rels.items) |rel| {
-        const target = joinPath(allocator, lib_dir, rel) catch continue;
-        defer allocator.free(target);
-        const target_z = allocator.dupeZ(u8, target) catch continue;
-        defer allocator.free(target_z);
-        _ = platform.unlink(target_z);
+fn addFileToList(allocator: std.mem.Allocator, rels: *std.ArrayList([]u8), rel: []const u8) !void {
+    for (rels.items) |existing| {
+        if (std.mem.eql(u8, existing, rel)) return;
+    }
+    const copy = try allocator.dupe(u8, rel);
+    rels.append(allocator, copy) catch |err| {
+        allocator.free(copy);
+        return err;
+    };
+}
+
+/// Warn when an install is about to overwrite a file another installed
+/// package's manifest claims (issue #2136). The collision is introduced
+/// here, at the point it can still be seen — the overwrite itself is the
+/// documented `cp -R lib/. dst/` merge, and the warning makes the running
+/// behaviour of an already-installed package changing as a side effect
+/// audible instead of silent.
+fn warnIfClaimed(allocator: std.mem.Allocator, config: Config, pkg: []const u8, rel: []const u8) !void {
+    if (fileClaimedBy(allocator, config.files, rel, pkg)) |other| {
+        defer allocator.free(other);
+        var buf: [512]u8 = undefined;
+        printErrColor(Color.yellow, "warning: ");
+        const msg = std.fmt.bufPrint(&buf, "{s} is also provided by {s}; overwriting its installed copy\n", .{ rel, other }) catch "overwriting a shared library file\n";
+        writeStderr(msg);
+    }
+}
+
+/// Remove directories that became empty after a file unlink, walking up from
+/// the file's parent to (but not including) `lib_dir`. rmdir fails on a
+/// non-empty directory, which ends the walk (issue #2136: removal used to
+/// leave empty directory skeletons behind).
+fn pruneEmptyParents(allocator: std.mem.Allocator, lib_dir: []const u8, rel: []const u8) void {
+    const full = std.mem.concat(allocator, u8, &.{ lib_dir, "/", rel }) catch return;
+    defer allocator.free(full);
+    var end = std.mem.lastIndexOfScalar(u8, full, '/');
+    while (end) |e| {
+        if (e <= lib_dir.len) break;
+        const parent = full[0..e];
+        const z = allocator.dupeZ(u8, parent) catch return;
+        if (platform.rmdir(z) != 0) {
+            allocator.free(z);
+            return;
+        }
+        allocator.free(z);
+        end = std.mem.lastIndexOfScalar(u8, parent, '/');
     }
 }
 
@@ -431,13 +513,6 @@ fn doInstall(
 
     if (!try markVisited(allocator, visited, pkg)) return;
 
-    if (isInstalled(allocator, config.installed, pkg)) {
-        writeStdout("  ");
-        printColor(Color.dim, pkg);
-        writeStdout(" already installed\n");
-        return;
-    }
-
     if (locked_mode) {
         const entry = getLockedEntry(allocator, config.lockfile, pkg) orelse {
             var buf: [256]u8 = undefined;
@@ -508,6 +583,56 @@ fn doInstall(
                 },
             }
         }
+    }
+
+    // #2134: "already installed" is only a correct no-op when no version was
+    // requested, or when the checkout already is at the requested version.
+    // Otherwise fall through and re-checkout: an install that names a version
+    // must leave the install at that version, not silently keep a different
+    // one — a provisioning script that pins and checks the exit status would
+    // be told it succeeded. In --locked mode the lockfile IS the requested
+    // version, so a locked install also re-checkouts when the installed SHA
+    // differs from the locked one.
+    if (isInstalled(allocator, config.installed, pkg)) {
+        if (install_version == null) {
+            writeStdout("  ");
+            printColor(Color.dim, pkg);
+            writeStdout(" already installed\n");
+            return;
+        }
+
+        const current_sha = getPkgSha(allocator, config.src_dir, pkg);
+        defer if (current_sha) |s| allocator.free(s);
+        var wanted_owned: ?[]const u8 = null;
+        defer if (wanted_owned) |s| allocator.free(s);
+        const wanted_sha: ?[]const u8 = if (locked_mode)
+            locked_sha
+        else blk: {
+            const v = install_version.?;
+            // Same option-injection guard as checkoutVersion: a version is
+            // a ref, never an option. Anything else falls through, where the
+            // checkout reports the failure.
+            if (v.len == 0 or v[0] == '-') break :blk null;
+            const pkg_dir_probe = joinPath(allocator, config.src_dir, pkg) catch break :blk null;
+            defer allocator.free(pkg_dir_probe);
+            if (!dirExists(allocator, pkg_dir_probe)) break :blk null;
+            const ref = std.fmt.allocPrint(allocator, "{s}^{{commit}}", .{v}) catch break :blk null;
+            defer allocator.free(ref);
+            const sha = runGitCapture(allocator, &.{ "-C", pkg_dir_probe, "rev-parse", ref }) catch null;
+            wanted_owned = sha;
+            break :blk sha;
+        };
+
+        if (current_sha != null and wanted_sha != null and std.mem.eql(u8, current_sha.?, wanted_sha.?)) {
+            var msg_buf: [256]u8 = undefined;
+            writeStdout("  ");
+            printColor(Color.dim, pkg);
+            const msg = std.fmt.bufPrint(&msg_buf, " already installed (at {s})\n", .{install_version.?}) catch " already installed\n";
+            writeStdout(msg);
+            return;
+        }
+        // Fall through: the requested version differs from the checkout —
+        // re-checkout, rebuild and re-record below.
     }
 
     var buf: [512]u8 = undefined;
@@ -584,17 +709,38 @@ fn doInstall(
 
     const lib_src = try joinPath(allocator, pkg_dir, "lib");
     defer allocator.free(lib_src);
+
+    // Collect what will be copied so the install can warn about files that
+    // another installed package owns, and record what it installed for
+    // ownership-aware removal (#2136).
+    var sld_files: std.ArrayList([]u8) = .empty;
+    defer tfs.freePathList(allocator, &sld_files);
     if (dirExists(allocator, lib_src)) {
+        sld_files = try tfs.collectFilesWithSuffix(allocator, lib_src, ".sld", true);
+        for (sld_files.items) |rel| try warnIfClaimed(allocator, config, pkg, rel);
         writeStdout("  Installing libraries...\n");
         try installLibTree(allocator, lib_src, config.lib_dir);
     }
+
+    var dylib_files = try tfs.collectFilesWithSuffix(allocator, pkg_dir, dylib_ext, false);
+    defer tfs.freePathList(allocator, &dylib_files);
+    for (dylib_files.items) |name| try warnIfClaimed(allocator, config, pkg, name);
 
     const dylib_count = try copyDylibsFromPkg(allocator, pkg_dir, config.lib_dir);
     if (dylib_count > 0) {
         printBuf(&buf, "  Installed {d} native library(s)\n", .{dylib_count});
     }
 
-    try appendFile(allocator, config.installed, pkg);
+    // Record the installed files so `remove` can tell what belongs to whom
+    // (issue #2136). Rewrites this package's own lines: a re-install at a
+    // different version must not leave stale entries behind.
+    var files_list: std.ArrayList([]const u8) = .empty;
+    defer files_list.deinit(allocator);
+    for (sld_files.items) |rel| files_list.append(allocator, rel) catch return error.OutOfMemory;
+    for (dylib_files.items) |name| files_list.append(allocator, name) catch return error.OutOfMemory;
+    try updateFileManifest(allocator, config.files, pkg, files_list.items);
+
+    try addToInstalled(allocator, config.installed, pkg);
     // A --locked install must not rewrite the lockfile's recorded source: the
     // provenance it is checking must survive the check (#2137).
     try updateLockfile(allocator, config.lockfile, pkg, resolved_sha, if (locked_mode) locked_source else parsed.source);
@@ -624,14 +770,11 @@ fn doRemove(allocator: std.mem.Allocator, config: Config, pkg: []const u8) !void
 
     const pkg_dir = try joinPath(allocator, config.src_dir, pkg);
     defer allocator.free(pkg_dir);
-    const pkg_lib = try joinPath(allocator, pkg_dir, "lib");
-    defer allocator.free(pkg_lib);
 
-    if (dirExists(allocator, pkg_lib)) {
-        try removeSldFiles(allocator, pkg_lib, config.lib_dir);
-    }
-
-    try removeDylibsFromPkg(allocator, pkg_dir, config.lib_dir);
+    // Unlink only the files this package installed (and no other installed
+    // package still needs), then drop its ownership record (#2136).
+    try removeInstalledFiles(allocator, config, pkg);
+    try removeFromFileManifest(allocator, config.files, pkg);
     try removeFromInstalled(allocator, config.installed, pkg);
     try removeFromLockfile(allocator, config.lockfile, pkg);
     try removeDir(allocator, pkg_dir);
@@ -659,6 +802,10 @@ fn doList(allocator: std.mem.Allocator, config: Config) !void {
     while (lines.next()) |line| {
         const pkg = trimStateLine(line);
         if (pkg.len == 0) continue;
+        // #2144: a corrupted installed.txt must never yield a filesystem
+        // path — joinPath(src_dir, pkg) and joinPath(lib_dir, pkg) below
+        // are only safe for names isValidPkgName accepts. Skip the line.
+        if (!isValidPkgName(pkg)) continue;
         const entry = getLockedEntry(allocator, config.lockfile, pkg);
         const sha_short = if (entry) |e| e.sha[0..@min(12, e.sha.len)] else "unknown";
         const source = if (entry) |e| e.source else null;
@@ -689,6 +836,16 @@ fn doList(allocator: std.mem.Allocator, config: Config) !void {
 
 fn doUpdate(allocator: std.mem.Allocator, config: Config, pkg: ?[]const u8) !void {
     if (pkg) |p| {
+        // #2144: the same entry guard as install/remove — a package name
+        // must never build a path outside $KAAPPI_HOME, however it arrives.
+        if (!isValidPkgName(p)) {
+            printErrColor(Color.red, "error: ");
+            writeStderr("invalid package name '");
+            writeStderr(p);
+            writeStderr("' (only alphanumeric, '-', '_' allowed)\n");
+            return error.InvalidPackageName;
+        }
+
         if (!isInstalled(allocator, config.installed, p)) {
             printErrColor(Color.red, p);
             writeStderr(" is not installed\n");
@@ -702,6 +859,10 @@ fn doUpdate(allocator: std.mem.Allocator, config: Config, pkg: ?[]const u8) !voi
 
         const pkg_dir = try joinPath(allocator, config.src_dir, p);
         defer allocator.free(pkg_dir);
+        if (!dirExists(allocator, pkg_dir)) {
+            printErrColor(Color.red, "  Failed to pull\n");
+            return error.GitFailed;
+        }
 
         const locked_entry = getLockedEntry(allocator, config.lockfile, p);
         const expected_source = if (locked_entry) |e| e.source else null;
@@ -722,6 +883,30 @@ fn doUpdate(allocator: std.mem.Allocator, config: Config, pkg: ?[]const u8) !voi
                 runGit(allocator, &.{ "-C", pkg_dir, "remote", "set-url", "origin", expected_url }) catch {};
             }
         } else |_| {}
+
+        // #2134: a pinned install checks out a tag, leaving a detached
+        // HEAD that `git pull` cannot advance — it fails with git's own
+        // "You are not currently on a branch" advice, which no thottam user
+        // can act on (the repo is thottam's, under $KAAPPI_HOME/src). Say
+        // plainly that the package is pinned, and to what, instead. The
+        // named form succeeds as a no-op and the all-packages form skips the
+        // package, so one pin no longer fails a whole-tree update. To move
+        // the pin, install at the new version — `thottam install pkg@<ver>`
+        // re-pins an installed package (issue #2134).
+        if (runGitCapture(allocator, &.{ "-C", pkg_dir, "symbolic-ref", "-q", "HEAD" })) |branch| {
+            defer allocator.free(branch);
+            // On a branch: ordinary update below.
+        } else |_| {
+            var ref_buf: [64]u8 = undefined;
+            const describe = runGitCapture(allocator, &.{ "-C", pkg_dir, "describe", "--tags", "--exact-match", "HEAD" }) catch null;
+            defer if (describe) |d| allocator.free(d);
+            const pinned_ref = if (describe) |d| d else blk: {
+                const sha = if (locked_entry) |e| e.sha else "unknown";
+                break :blk std.fmt.bufPrint(&ref_buf, "{s}", .{sha[0..@min(12, sha.len)]}) catch "unknown";
+            };
+            printBuf(&buf, "  {s} is pinned at {s}; skipping (install {s}@<version> to move the pin)\n", .{ p, pinned_ref, p });
+            return;
+        }
 
         runGit(allocator, &.{ "-C", pkg_dir, "pull", "--quiet" }) catch {
             printErrColor(Color.red, "  Failed to pull\n");
@@ -765,10 +950,12 @@ fn doUpdate(allocator: std.mem.Allocator, config: Config, pkg: ?[]const u8) !voi
         var lines = std.mem.splitScalar(u8, content, '\n');
         while (lines.next()) |line| {
             const name = trimStateLine(line);
-            if (name.len > 0) {
-                const copy = allocator.dupe(u8, name) catch continue;
-                packages.append(allocator, copy) catch continue;
-            }
+            if (name.len == 0) continue;
+            // #2144: never build a path from a name read back from a state
+            // file — skip lines whose name isValidPkgName rejects.
+            if (!isValidPkgName(name)) continue;
+            const copy = allocator.dupe(u8, name) catch continue;
+            packages.append(allocator, copy) catch continue;
         }
 
         var any_failed = false;
@@ -808,6 +995,10 @@ fn doVerify(allocator: std.mem.Allocator, config: Config) !void {
             const malformed = blk: {
                 const sp = std.mem.indexOfScalar(u8, l, ' ') orelse break :blk true;
                 if (sp == 0) break :blk true; // empty name
+                // #2144: a package name must satisfy isValidPkgName — a
+                // hand-edited or corrupted entry must not reach the path-
+                // building code below.
+                if (!isValidPkgName(l[0..sp])) break :blk true;
                 const rest = l[sp + 1 ..];
                 if (rest.len == 0 or rest[0] == ' ') break :blk true; // empty SHA
                 if (std.mem.indexOfScalar(u8, rest, ' ')) |sp2| {
@@ -844,6 +1035,17 @@ fn doVerify(allocator: std.mem.Allocator, config: Config) !void {
     while (lines.next()) |line| {
         const pkg = trimStateLine(line);
         if (pkg.len == 0) continue;
+
+        // #2144: an invalid name in installed.txt is corruption, not an
+        // entry to verify — name it and fail rather than build a path from
+        // it (getPkgSha below joins it onto src_dir).
+        if (!isValidPkgName(pkg)) {
+            writeStdout("  ");
+            printColor(Color.red, "MALFORMED");
+            printBuf(&buf, ": {s}\n", .{pkg});
+            ok = false;
+            continue;
+        }
 
         const entry = getLockedEntry(allocator, config.lockfile, pkg);
         defer if (entry) |e| {
@@ -939,6 +1141,7 @@ fn buildConfig(allocator: std.mem.Allocator) !Config {
         .src_dir = try std.mem.concat(allocator, u8, &.{ home, "/src" }),
         .installed = try std.mem.concat(allocator, u8, &.{ home, "/installed.txt" }),
         .lockfile = try std.mem.concat(allocator, u8, &.{ home, "/thottam.lock" }),
+        .files = try std.mem.concat(allocator, u8, &.{ home, "/thottam.files" }),
     };
 }
 
