@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787479143430,
+  "lastUpdate": 1787487000491,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f429bdf22e32ce032d3c51142e1c286745b8e57f",
-          "message": "Tick the twelve merged units; record two footguns and retire a stale reason (#2106)\n\nPhases 0, 1, 2 and 3 are complete — 38 of 53. The twelve units ticked here\n(3.4-3.10, 4A, 6A, 6B, 6C, 7A) were all told not to edit the tracker, since\nevery batch before them lost time to conflicts on this one file, so their\nentries are written here from their reports plus my own re-verification.\n\nWhere the two disagree, the entry says so. Three cases worth naming:\n\n- 3.6's #2055 and #2057 are reference-implementation defects chibi\n  reproduces identically, not Kaappi porting errors. That changes whether\n  fixing them is even desirable, so the entry records it.\n- 3.7's \"15 of 17 keywords\" is load-bearing: a spot-check using `if` and\n  `let` reproduces nothing and matches chibi, because those are among the\n  two unaffected.\n- 3.10 was handed two premises and both were false — the slow/ files run in\n  0.4s, and SRFI 150's failures are neither #1832 nor stale annotations.\n\nTwo new footguns, both paid for today:\n\n- Never assert that a bug is still PRESENT. Three such pins were written\n  after real bugs were found, and all three failed on a platform other than\n  their author's, because the symptom depends on the allocator. #2027's\n  reached main and left it red on five legs.\n- A rebase followed quickly by a merge can land on stale green: the checks\n  you read may belong to the previous push.\n\nAnd step 7's rationale is corrected rather than deleted. Preferring\n`;; FAIL:` markers over `test-expect-fail` is still right — an expected-fail\ncase that never returns wedges the suite — but it cited the F13 divergence,\nwhich 6B showed was never about `test-expect-fail` at all.",
-          "timestamp": "2026-08-01T22:55:26+05:30",
-          "tree_id": "bab2ee004b276761c8ea03659b27306c0a2ea0a1",
-          "url": "https://github.com/kaappi/kaappi/commit/f429bdf22e32ce032d3c51142e1c286745b8e57f"
-        },
-        "date": 1785609705880,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.421561,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.399748,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.472121,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.432565,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004785,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.040303,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.254047,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.047138,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.388259,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.023744,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.348202,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.27333,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.484838,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.864355,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.037487,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.0384,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7e8bc4e92c8c71c3de2d7f8bf7a2fe0085d8c921",
+          "message": "thottam: verify the installation, enforce --locked provenance, tolerate CRLF (#2288)\n\n* thottam: verify the installation, enforce --locked provenance, tolerate CRLF (#2133, #2135, #2137)\n\nThree audit findings in the package manager's state handling, fixed together\nbecause they share the same files and the same root cause class — thottam\ntreating a lockfile it did not write (CRLF-normalised, truncated, or\nhand-edited) as trustworthy, and reading the wrong half of the install state.\n\nverify (#2135): doVerify walked the lockfile and never consulted\ninstalled.txt, so a package that is installed but absent from the lockfile\nwas silently dropped from verification and the run still printed \"All\npackages verified\". An empty or binary-garbage lockfile did the same. It now\nwalks installed.txt instead: every installed package must have a lockfile\nentry at the SHA it is actually checked out at, a malformed lockfile line\nfails the run rather than being skipped, and a mismatching pair prints the\nfull SHAs so the message cannot render two different values identically.\n\n--locked (#2137): locked installs compared only the SHA and took the clone\nURL from the invocation, then overwrote the lockfile's recorded provenance\nwith it — so a fork sharing history passed the check and the lockfile came\nto attest to the fork. The lockfile entry is now read once: the recorded\nsource is the clone URL, an explicit ::url that disagrees is refused before\nany clone, and a --locked install never rewrites the recorded source.\n\nCRLF (#2133): a checkout normalised to CRLF left a trailing \\r in the\nrecorded SHA, so verify reported \"MISMATCH (locked: X, actual: X)\" and\n--locked handed \"<sha>\\r\" to git checkout. Every reader of thottam.lock and\ninstalled.txt now strips the trailing \\r.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* thottam: tighten malformed-lockfile validation, drop dead code, add coverage\n\nReview follow-up for the #2133/#2135/#2137 PR:\n\n- Delete getLockedSha, now unused — its only caller was the removed import\n  in thottam.zig, and the #2137 fix deliberately moved away from the\n  SHA-only accessor.\n- Reject empty name/SHA/source fields in doVerify's lockfile structure pass\n  (a line like \"pkg  source\" or \"pkg sha \" is now MALFORMED, not an\n  ordinary mismatch).\n- Add a CRLF regression test for isInstalled.\n- Strengthen the lifecycle suite: assert the UNLOCKED package name, a\n  MALFORMED line, the --locked source-URL-mismatch diagnostic and that the\n  fork is refused before any clone, a byte-for-byte lockfile restore check\n  via cmp, and a control that a matching ::url is accepted.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-23T11:35:21Z",
+          "tree_id": "d36b8d2adce2c32acdd7901d2873b3796ebeeec7",
+          "url": "https://github.com/kaappi/kaappi/commit/7e8bc4e92c8c71c3de2d7f8bf7a2fe0085d8c921"
+        },
+        "date": 1787486998509,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.051277,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.144695,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.430066,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.200171,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003785,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.036166,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.220165,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.042308,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.819705,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.872136,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.247357,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.241208,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.294362,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.416345,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.036645,
             "unit": "seconds"
           }
         ]
