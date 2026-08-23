@@ -1,6 +1,28 @@
 const std = @import("std");
 const platform = @import("platform.zig");
 
+/// execve in the forked child; the only "return" is failure, where it reports
+/// why to `err_fd` and exits 127. Shared by runPassthrough (err_fd = the
+/// inherited stderr) and runCapture (err_fd = the saved real stderr, since
+/// capture silences fd 2) so a missing or unexecutable git is distinguishable
+/// from a genuine failure in the logs (#2152).
+fn execveOrReport(argv_z: []?[*:0]const u8, err_fd: platform.fd_t) noreturn {
+    _ = std.posix.system.execve(
+        @ptrCast(argv_z[0].?),
+        @ptrCast(argv_z.ptr),
+        @ptrCast(std.c.environ),
+    );
+    // execve only returns on failure.
+    var exec_err: [256]u8 = undefined;
+    const exec_msg = std.fmt.bufPrint(&exec_err, "thottam: cannot execute {s}: {s}\n", .{ argv_z[0].?, @tagName(platform.errno(-1)) }) catch {
+        const fallback = "thottam: cannot execute child process\n";
+        _ = platform.write(err_fd, fallback.ptr, fallback.len);
+        std.process.exit(127);
+    };
+    _ = platform.write(err_fd, exec_msg.ptr, exec_msg.len);
+    std.process.exit(127);
+}
+
 pub fn runCapture(allocator: std.mem.Allocator, argv: []const []const u8, cwd: ?[]const u8) ![]u8 {
     if (comptime platform.is_windows) {
         const raw = platform.winSpawnCapture(allocator, argv, cwd) catch |err| switch (err) {
@@ -45,6 +67,10 @@ pub fn runCapture(allocator: std.mem.Allocator, argv: []const []const u8, cwd: ?
         _ = std.c.close(pipe[0]);
         _ = std.c.dup2(pipe[1], 1);
         _ = std.c.close(pipe[1]);
+        // Save the real stderr so an execve failure stays audible; the
+        // /dev/null dup2 silences only git's own stderr, which is the point
+        // of capture (#2152).
+        const real_stderr = std.c.dup(2);
         const devnull = std.c.open("/dev/null", .{ .ACCMODE = .WRONLY }, @as(c_uint, 0));
         if (devnull >= 0) {
             _ = std.c.dup2(devnull, 2);
@@ -54,12 +80,7 @@ pub fn runCapture(allocator: std.mem.Allocator, argv: []const []const u8, cwd: ?
         if (cwd_z) |c| {
             _ = std.posix.system.chdir(c);
         }
-        _ = std.posix.system.execve(
-            @ptrCast(argv_z[0].?),
-            @ptrCast(argv_z.ptr),
-            @ptrCast(std.c.environ),
-        );
-        std.process.exit(127);
+        execveOrReport(argv_z, real_stderr);
     }
 
     // Parent
@@ -125,12 +146,8 @@ pub fn runPassthrough(allocator: std.mem.Allocator, argv: []const []const u8, cw
         if (cwd_z) |c| {
             _ = std.posix.system.chdir(c);
         }
-        _ = std.posix.system.execve(
-            @ptrCast(argv_z[0].?),
-            @ptrCast(argv_z.ptr),
-            @ptrCast(std.c.environ),
-        );
-        std.process.exit(127);
+        // Passthrough inherits stderr, so the diagnostic goes there directly.
+        execveOrReport(argv_z, 2);
     }
 
     var status: c_int = 0;
@@ -141,11 +158,69 @@ pub fn runPassthrough(allocator: std.mem.Allocator, argv: []const []const u8, cw
     return @intCast((raw >> 8) & 0xff);
 }
 
+/// Resolve the `git` executable through PATH, like `kaappi compile` does for
+/// a C compiler (native_compiler.zig) and test_selection does for its git
+/// invocations. The old `/usr/bin/git` hardcode was false on every supported
+/// BSD — FreeBSD and OpenBSD install git in /usr/local/bin, NetBSD in
+/// /usr/pkg/bin — so every git-backed thottam operation failed there (#2152).
+/// Returns a caller-owned absolute path, or null when git is not on PATH.
+/// The path is dupeZ'd: free the `[:0]` slice with `allocator.free(path)`.
+fn findGit(allocator: std.mem.Allocator) ?[:0]const u8 {
+    const path_env = platform.getenv("PATH") orelse return null;
+    return findInPath(allocator, std.mem.span(path_env), "git");
+}
+
+/// Search `path_str` (a PATH-style list, `:` or `;` separated) for an
+/// executable named `name` (with the platform suffix, so `git.exe` on
+/// Windows, where the resolved absolute path is what CreateProcessW is
+/// handed). An explicit path containing '/' is returned as-is. Returns a
+/// caller-owned dupeZ'd absolute path, or null when not found — free the
+/// `[:0]` slice with `allocator.free(path)`.
+fn findInPath(allocator: std.mem.Allocator, path_str: []const u8, name: []const u8) ?[:0]const u8 {
+    if (std.mem.indexOfScalar(u8, name, '/') != null) {
+        return allocator.dupeZ(u8, name) catch null;
+    }
+    var iter = std.mem.splitScalar(u8, path_str, platform.path_list_sep);
+    while (iter.next()) |dir| {
+        if (dir.len == 0) continue;
+        const full = std.fmt.allocPrint(allocator, "{s}/{s}{s}", .{ dir, name, platform.exe_suffix }) catch continue;
+        const full_z = allocator.dupeZ(u8, full) catch {
+            allocator.free(full);
+            continue;
+        };
+        allocator.free(full);
+        if (!isExecutableFile(full_z)) {
+            allocator.free(full_z);
+            continue;
+        }
+        return full_z;
+    }
+    return null;
+}
+
+/// Is `path` an executable regular file? The pre-#2152 resolver checked only
+/// `openRead`, which accepts a non-executable file or a directory named `git` —
+/// either would shadow a later real git and then fail at execve instead of
+/// falling through to the next PATH entry the way execvp would. X_OK (not
+/// R_OK) also keeps an execute-only git, which openRead would reject. Windows
+/// has no execute bit: a regular file (already .exe-suffixed) is executable.
+fn isExecutableFile(path: [:0]const u8) bool {
+    if (comptime platform.is_windows) {
+        const st = platform.statPath(path) orelse return false;
+        return st.is_file;
+    }
+    if (std.c.access(path, std.posix.X_OK) != 0) return false;
+    const st = platform.statPath(path) orelse return false;
+    return st.is_file;
+}
+
 pub fn runGit(allocator: std.mem.Allocator, args: []const []const u8) !void {
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(allocator);
-    // Windows: no fixed install path; CreateProcessW searches PATH.
-    argv.append(allocator, if (platform.is_windows) "git" else "/usr/bin/git") catch return error.OutOfMemory;
+
+    const git = findGit(allocator) orelse return error.GitNotFound;
+    defer allocator.free(git);
+    argv.append(allocator, git) catch return error.OutOfMemory;
     for (args) |a| {
         argv.append(allocator, a) catch return error.OutOfMemory;
     }
@@ -156,7 +231,10 @@ pub fn runGit(allocator: std.mem.Allocator, args: []const []const u8) !void {
 pub fn runGitCapture(allocator: std.mem.Allocator, args: []const []const u8) ![]u8 {
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(allocator);
-    argv.append(allocator, if (platform.is_windows) "git" else "/usr/bin/git") catch return error.OutOfMemory;
+
+    const git = findGit(allocator) orelse return error.GitNotFound;
+    defer allocator.free(git);
+    argv.append(allocator, git) catch return error.OutOfMemory;
     for (args) |a| {
         argv.append(allocator, a) catch return error.OutOfMemory;
     }
@@ -182,7 +260,11 @@ test "checkoutVersion resolves a pinned tag as a ref, not a pathspec (issue #780
     const thottam = @import("thottam.zig");
     const allocator = std.testing.allocator;
 
-    if (!thottam.fileExists(allocator, "/usr/bin/git")) return error.SkipZigTest;
+    // The precondition probe is now PATH-based (was: /usr/bin/git), matching
+    // how runGit resolves the binary after #2152.
+    if (findGit(allocator)) |git_path| {
+        allocator.free(git_path);
+    } else return error.SkipZigTest;
 
     const repo = try std.fmt.allocPrint(allocator, "{s}/kaappi-thottam-780-{d}", .{ platform.tempDir(), platform.getPid() });
     defer allocator.free(repo);
@@ -210,6 +292,58 @@ test "checkoutVersion resolves a pinned tag as a ref, not a pathspec (issue #780
     const v11 = try runGitCapture(allocator, &.{ "-C", repo, "rev-parse", "v1.1.0^{commit}" });
     defer allocator.free(v11);
     try std.testing.expect(!std.mem.eql(u8, head, v11));
+}
+
+test "findInPath resolves an executable through PATH, not a fixed location (issue #2152)" {
+    const thottam = @import("thottam.zig");
+    const allocator = std.testing.allocator;
+    const dir = try std.fmt.allocPrint(allocator, "{s}/kaappi-thottam-2152-{d}", .{ platform.tempDir(), platform.getPid() });
+    defer allocator.free(dir);
+    defer thottam.removeDir(allocator, dir) catch {};
+    thottam.removeDir(allocator, dir) catch {};
+
+    const exe_name = try std.fmt.allocPrint(allocator, "git{s}", .{platform.exe_suffix});
+    defer allocator.free(exe_name);
+    const git_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ dir, exe_name });
+    defer allocator.free(git_path);
+    // writeFile does not create parent directories (and cannot run git init
+    // the way the #780 test does), so make the fixture dir by hand.
+    const dir_z = try allocator.dupeZ(u8, dir);
+    defer allocator.free(dir_z);
+    _ = platform.mkdir(dir_z, 0o755);
+    try thottam.writeFile(allocator, git_path, "#!/bin/sh\nexit 0\n");
+
+    // A readable-but-non-executable file is not a usable git: findInPath must
+    // skip it rather than hand execve a path it will reject. POSIX encodes
+    // this as the execute bit; Windows has no such bit, so the fresh fixture
+    // is already "executable" there. Probe with only the fixture dir on the
+    // path, so a real git elsewhere cannot satisfy the search.
+    if (!platform.is_windows) {
+        try std.testing.expect(findInPath(allocator, dir, "git") == null);
+    }
+
+    // Make it executable.
+    const git_path_z = try allocator.dupeZ(u8, git_path);
+    defer allocator.free(git_path_z);
+    platform.makeWritable(git_path_z);
+
+    // The fake git sits in a directory that precedes /usr/bin — the path the
+    // pre-#2152 code hardcoded. First match wins, so a resolver that looks in
+    // /usr/bin first (or at all) would find the real git or nothing; this
+    // resolver must find the fixture's, which is now executable.
+    const path_str = try std.fmt.allocPrint(allocator, "{s}{c}{s}{c}{s}", .{ dir, platform.path_list_sep, "/usr/bin", platform.path_list_sep, "/bin" });
+    defer allocator.free(path_str);
+
+    const resolved = findInPath(allocator, path_str, "git") orelse return error.TestUnexpectedResult;
+    defer allocator.free(resolved);
+    try std.testing.expectEqualStrings(git_path, resolved);
+    if (!platform.is_windows) {
+        const argv = [_][]const u8{resolved};
+        try std.testing.expectEqual(@as(u8, 0), try runPassthrough(allocator, &argv, null));
+    }
+
+    // A name that is nowhere on the path resolves to null.
+    try std.testing.expect(findInPath(allocator, path_str, "kaappi-definitely-not-a-real-tool") == null);
 }
 
 test "checkoutVersion rejects option-like versions (issue #736)" {
