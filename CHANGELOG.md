@@ -7,7 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-08-23
+
 ### Added
+
+- **Bounded-step, resumable execution entry point** (#2283). Hosts can now run
+  a program in instruction-budgeted chunks via `VM.beginStep`/`resumeStep`
+  (driven by `vm_step.Stepper`, exported to WASM as `kaappi_step_*`) instead of
+  a synchronous WASI `_start` that blocks until completion. It reuses the
+  machinery the SRFI-18 scheduler and GC already need — the dispatch-loop
+  safepoint, `error.Yielded`, and frames that live in the VM struct across a
+  yield: a step budget is one more thing the safepoint checks, and when the
+  outermost stepped loop reaches its deadline it returns `error.Yielded` with
+  `step_paused` set, between instructions, so every stack and the ip are
+  consistent. The pause fires only in the outermost stepped `runUntil` (guarded
+  by `step_active`), so a nested runUntil — an eval, a native higher-order
+  driver's callback, a scheduler fiber slice, a file-backed library load —
+  cannot pause and a mid-form pause never strands a half-finished native frame;
+  `beginStep`/`resumeStep` arm stepping only when no scheduler exists, so a
+  fibered program runs its scheduler slice to completion within a step. This
+  lets the browser playground guard runaway programs without a hard 5 s
+  `terminate()` that kills constant-space long-runners and discards output
+  already produced. `docs/dev/bounded-step.md`.
+
+- **The full SRFI 189 (Maybe and Either) spec surface: all 82 names** (#2087).
+  `(srfi 189)` exported only 24 names — 59 of the spec's 82 identifiers were
+  absent, four signatures were narrower than the spec requires, and `either`
+  was exported without ever being defined, so a program importing it failed at
+  the point of use. The library is now a port of the reference implementation
+  with all 82 identifiers at their spec signatures: `maybe-ref`/`either-ref`
+  take a required failure procedure and an optional success procedure,
+  `maybe-bind`/`either-bind` are variadic in the mprocs and short-circuit
+  Nothing/Left, `either-filter`/`either-remove` take the Left payload as
+  `obj ...`, and `values->maybe`/`values->either` invoke a producer thunk per
+  the spec's values protocol. The list-protocol conversions return a copy of
+  the payload, so mutating a result cannot corrupt an immutable container. A
+  Just/Right/Left may hold zero or more payload objects, so a payload-free Just
+  is not Nothing.
 
 - **SRFI 170's posix-error protocol: `posix-error?`, `posix-error-name` and
   `posix-error-message`** (#1978). Every SRFI-170 file error raised from a
@@ -29,6 +65,117 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   Windows console needs its own mouse-input path and is not yet supported.
 
 ### Fixed
+
+- **SRFI-18 cross-thread state: symbol interning, the mutex/terminate state
+  machine, and cross-thread continuation invocation** (#1935, #1984, #1936).
+  Symbol interning was one thread level deep — a grandchild thread interned
+  into a table nothing else consulted, so `(eq? 'alpha (string->symbol
+  "alpha"))` was `#f` at thread depth 2 (an R7RS 6.5 violation) and the
+  ownership stamping that makes symbols the one safe cross-heap write did not
+  reach depth 2; every descendant now chains to the *root*'s symbol table,
+  foreign symbols, and owner id. Four SRFI-18 state-machine defects are fixed:
+  `mutex-unlock!` now clears `abandoned` (a plain unlock of a mutex whose
+  previous owner died no longer raises a spurious abandoned-mutex-exception on
+  the next lock), `thread-terminate!` no longer retroactively erases a finished
+  thread's result, `mutex-lock!` no longer records a terminated thread as owner
+  (which permanently deadlocked every later lock), and self-termination joins
+  as `terminated-thread-exception` rather than a void-reason uncaught
+  exception. Invoking a continuation captured on another OS thread (reachable
+  through the shared-globals path) no longer overwrites the invoking VM with
+  the capturing thread's saved frames.
+
+- **SRFI 150 hygiene collapse: field identity is resolved at expansion time**
+  (#2051). `lib/srfi/150.sld` carried field names from macro-expansion time to
+  run time inside `quote`, where the compiler strips the `__hyg_N_` rename — so
+  a template's own field-name literal and a same-spelled identifier the use
+  site supplied collapsed into a single field, failing all four of the
+  reference suite's hygiene assertions (the attribution to #1832 was wrong; the
+  no-binding control fails identically). Field identity is now resolved
+  entirely at macro-expansion time to numeric absolute layout indices, with no
+  runtime by-name lookup; own fields get their stripped spelling (deduped with
+  a numeric suffix on collision), and constant field names get generated
+  `field-<index>` names, which also makes the SRFI's promised non-identifier
+  field names work.
+
+- **All eight SRFI 146 (mappings) audit findings** (#2045, #2046, #2047,
+  #2048, #2049, #2050, #2052, #2053). `mapping`/`mapping-unfold`/`hashmap`/
+  `hashmap-unfold` and their `/ordered` and hash twins now keep the *first*
+  duplicate key, as the spec's Constructors section requires and as their
+  sibling `mapping-adjoin`/`alist->mapping` procedures already did — they had
+  replace semantics, so the last duplicate won. `mapping-key-predecessor` and
+  `mapping-key-successor` now run their `failure` thunk only when no
+  preceding/succeeding key exists; it had been passed as the fold's seed and
+  ran on every call, so a thunk that raises (the natural "this is a bug"
+  spelling) raised on the success path and a logging thunk fired on every
+  lookup. Nine previously-pinned differential assertions are re-enabled.
+
+- **SRFI-178 `bitvector-logical-shift` shifted the wrong way** (#2083). Per the
+  spec `count >= 0` is a logical left shift (toward lower indices) and
+  `count < 0` a right shift, with vacated elements filled with `bit`, but both
+  sign branches were inverted relative to the reference implementation, so
+  every non-zero shift moved bits in the wrong direction (and the loop bounds
+  were coupled to the wrong formulas). 1024 differential cases now agree with
+  the reference; the four disabled audit assertions (two are the SRFI's own
+  test cases verbatim) are enabled.
+
+- **c64/c128 zero-imaginary decode and complex hashing** (#1950, #1951, #751).
+  A zero-imaginary (`+0.0`) c64/c128 element decoded to a `Complex` whose
+  `write` output read back as a different type; it now decodes to a plain real,
+  matching `make-rectangular` and the standalone complex printer, while `-0.0`
+  keeps its sign and stays `Complex`. `number-hash` — being abs-based — could
+  not hash any complex value, so a c64/c128 comparator could not hash its
+  elements; it now hashes a genuine complex by its components (with non-finite
+  components mapped to fixed NaN/±inf buckets so the `=` contract holds), and
+  default-hash handles standalone complex numbers. #751's `string->number`
+  complex-exactness repros are pinned in the smoke suite.
+
+- **A definition-context `begin` now splices in let-family bodies** (#2075). A
+  `begin`-wrapped internal define in a `let`-family body escaped to the global
+  environment (silently overwriting an unrelated top-level binding) unless an
+  enclosing procedure existed, so `(let ((g 'outer)) (begin (define g 'inner))
+  g)` answered `'outer` — the same text inside a `lambda` already answered
+  `'inner`. The body scan now unwraps spliceable `begin`s (recursively) before
+  its passes run, so definitions inside them join the letrec* region like
+  unwrapped ones, and the let-family bodies set `in_body_scope` so a
+  compile-time definition binds locally instead of becoming a global at top
+  level. The native tier inherits both halves via its existing interpreter
+  fallback.
+
+- **Top-level redefinitions of the five tail fast-path names are honored**
+  (#2033). `apply`, `eval`, `call/cc`, `call-with-current-continuation`, and
+  `call-with-values` in tail position dispatched to hand-written
+  superinstructions guarded only by local/upvalue resolution, so a program that
+  redefined one at top level got its own definition everywhere *except* in tail
+  position, where the builtin ran and the user's procedure was silently
+  discarded (R7RS 5.3.1 makes a top-level definition an assignment). Each fast
+  path now gates on the compile-time global binding; the compiler-synthesized
+  references in the `let-values`/`let*-values`/`define-values`/`case-lambda`/
+  `define-record-type` desugarings carry the base-binding prefix so they stay
+  bound to the pristine `(scheme base)` procedures, and the LLVM backend
+  mirrors the gate. The gate costs nothing at run time — it only decides which
+  bytecode the compiler emits.
+
+- **`#!fold-case` persists across `read` calls on the same port** (#2259,
+  #2175). R7RS 7.1.1 requires the directive to affect reading from the same
+  port from where it appears, but `readDatumFn` built a fresh `Reader` per
+  call, so the flag died with it — the first `(read p)` folded and the second
+  did not. The mode is now stored on the `Port` and seeded into each call's
+  reader, with the final flag written back after a successful parse;
+  `#!no-fold-case` resets the same field, and the within-call chunk-boundary
+  handling is untouched.
+
+- **The language server expands imported macros when computing diagnostics**
+  (#2253). The LSP compiled every top-level form in isolation without first
+  running the file's `import`/`define-library`/`include`/`define-record-type`
+  declarations, so an imported macro was never in scope for a later form — for
+  SRFI 42's comprehension macros (`list-ec`, `sum-ec`, …) whose `(if test)` is
+  a filter qualifier, that turned valid code into a phantom KP2001 red squiggle
+  under code that runs fine and that `kaappi check` accepts. `runDiagnostics`
+  now classifies each form through the same `TopLevelHead` machinery
+  `kaappi check` and the runtime share (running the environment-establishing
+  heads for effect so later forms see their bindings), and seeds `vm.lib_paths`
+  with `~/.kaappi/lib` and the exe-relative fallback so file-based `.sld`s
+  resolve.
 
 - **SRFI-170 no longer silently discards a mistyped argument** (#1977).
   `(nice "x")` used to be treated as "no argument supplied" and really
