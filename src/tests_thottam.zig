@@ -696,12 +696,8 @@ test "lockfile reader tolerates CRLF line endings (issue #2133)" {
     defer if (e.source) |s| allocator.free(s);
 
     // The lockfile is meant to be committed and shared between machines, so
-    // a checkout that normalised it to CRLF must still compare equal.
-    // FAIL: #2133 (the \r stays in the SHA, and `thottam verify` then prints
-    // "MISMATCH (locked: 75f253e118c0, actual: 75f253e118c0)" — the trailing
-    // \r is outside the 12-character display prefix, so the two reported
-    // values are identical and the message is unusable)
-    // try std.testing.expectEqualStrings(sha, e.sha);
+    // a checkout that normalised it to CRLF must still compare equal (#2133).
+    try std.testing.expectEqualStrings(sha, e.sha);
 
     // Discriminating control: with LF, the same line reads back exactly.
     try thottam.writeFile(allocator, lock, "kaappi-alpha " ++ "75f253e118c0976ac2caabec574af39394e7bc4e" ++ "\n");
@@ -727,6 +723,18 @@ test "installed-list membership is exact, never a prefix match" {
     try state.removeFromInstalled(allocator, inst, "kaappi-json");
     try std.testing.expect(!state.isInstalled(allocator, inst, "kaappi-json"));
     try std.testing.expect(state.isInstalled(allocator, inst, "kaappi-net-extra"));
+}
+
+test "installed-list membership tolerates CRLF line endings (issue #2133)" {
+    const allocator = std.testing.allocator;
+    var buf: [512]u8 = undefined;
+    const inst = try tempPath(&buf, "inst2");
+    defer thottam.removeDir(allocator, inst) catch {};
+
+    try thottam.writeFile(allocator, inst, "kaappi-json\r\nkaappi-csv\n");
+    try std.testing.expect(state.isInstalled(allocator, inst, "kaappi-json"));
+    try std.testing.expect(state.isInstalled(allocator, inst, "kaappi-csv"));
+    try std.testing.expect(!state.isInstalled(allocator, inst, "kaappi"));
 }
 
 test "appendLockEntry emits the documented two- and three-column shapes" {

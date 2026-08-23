@@ -83,7 +83,7 @@ pub fn isInstalled(allocator: std.mem.Allocator, installed_path: []const u8, pkg
     defer allocator.free(content);
     var lines = std.mem.splitScalar(u8, content, '\n');
     while (lines.next()) |line| {
-        if (std.mem.eql(u8, line, pkg)) return true;
+        if (std.mem.eql(u8, thottam.trimStateLine(line), pkg)) return true;
     }
     return false;
 }
@@ -98,8 +98,9 @@ pub fn getLockedEntry(allocator: std.mem.Allocator, lockfile_path: []const u8, p
     defer allocator.free(content);
     var lines = std.mem.splitScalar(u8, content, '\n');
     while (lines.next()) |line| {
-        if (std.mem.startsWith(u8, line, pkg) and line.len > pkg.len and line[pkg.len] == ' ') {
-            const rest = line[pkg.len + 1 ..];
+        const l = thottam.trimStateLine(line);
+        if (std.mem.startsWith(u8, l, pkg) and l.len > pkg.len and l[pkg.len] == ' ') {
+            const rest = l[pkg.len + 1 ..];
             if (std.mem.indexOfScalar(u8, rest, ' ')) |sp| {
                 return .{
                     .sha = allocator.dupe(u8, rest[0..sp]) catch return null,
@@ -113,12 +114,6 @@ pub fn getLockedEntry(allocator: std.mem.Allocator, lockfile_path: []const u8, p
         }
     }
     return null;
-}
-
-pub fn getLockedSha(allocator: std.mem.Allocator, lockfile_path: []const u8, pkg: []const u8) ?[]const u8 {
-    const entry = getLockedEntry(allocator, lockfile_path, pkg) orelse return null;
-    if (entry.source) |s| allocator.free(s);
-    return entry.sha;
 }
 
 pub fn appendLockEntry(output: *std.ArrayList(u8), allocator: std.mem.Allocator, pkg: []const u8, sha: []const u8, source: ?[]const u8) !void {
@@ -141,12 +136,13 @@ pub fn updateLockfile(allocator: std.mem.Allocator, lockfile_path: []const u8, p
         defer allocator.free(content);
         var lines = std.mem.splitScalar(u8, content, '\n');
         while (lines.next()) |line| {
-            if (line.len == 0) continue;
-            if (std.mem.startsWith(u8, line, pkg) and line.len > pkg.len and line[pkg.len] == ' ') {
+            const l = thottam.trimStateLine(line);
+            if (l.len == 0) continue;
+            if (std.mem.startsWith(u8, l, pkg) and l.len > pkg.len and l[pkg.len] == ' ') {
                 try appendLockEntry(&output, allocator, pkg, sha, source);
                 found = true;
             } else {
-                output.appendSlice(allocator, line) catch return error.OutOfMemory;
+                output.appendSlice(allocator, l) catch return error.OutOfMemory;
                 output.append(allocator, '\n') catch return error.OutOfMemory;
             }
         }
@@ -167,9 +163,10 @@ pub fn removeFromLockfile(allocator: std.mem.Allocator, lockfile_path: []const u
 
     var lines = std.mem.splitScalar(u8, content, '\n');
     while (lines.next()) |line| {
-        if (line.len == 0) continue;
-        if (std.mem.startsWith(u8, line, pkg) and line.len > pkg.len and line[pkg.len] == ' ') continue;
-        output.appendSlice(allocator, line) catch return error.OutOfMemory;
+        const l = thottam.trimStateLine(line);
+        if (l.len == 0) continue;
+        if (std.mem.startsWith(u8, l, pkg) and l.len > pkg.len and l[pkg.len] == ' ') continue;
+        output.appendSlice(allocator, l) catch return error.OutOfMemory;
         output.append(allocator, '\n') catch return error.OutOfMemory;
     }
 
@@ -184,9 +181,10 @@ pub fn removeFromInstalled(allocator: std.mem.Allocator, installed_path: []const
 
     var lines = std.mem.splitScalar(u8, content, '\n');
     while (lines.next()) |line| {
-        if (line.len == 0) continue;
-        if (std.mem.eql(u8, line, pkg)) continue;
-        output.appendSlice(allocator, line) catch return error.OutOfMemory;
+        const l = thottam.trimStateLine(line);
+        if (l.len == 0) continue;
+        if (std.mem.eql(u8, l, pkg)) continue;
+        output.appendSlice(allocator, l) catch return error.OutOfMemory;
         output.append(allocator, '\n') catch return error.OutOfMemory;
     }
 
