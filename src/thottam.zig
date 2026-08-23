@@ -25,7 +25,6 @@ const state = @import("thottam_state.zig");
 const tfs = @import("thottam_fs.zig");
 
 const Semver = semver.Semver;
-const parseConstraints = semver.parseConstraints;
 const matchesAllConstraints = semver.matchesAllConstraints;
 const isConstraintSpec = semver.isConstraintSpec;
 
@@ -184,10 +183,27 @@ fn joinPath3(allocator: std.mem.Allocator, a: []const u8, b: []const u8, c: []co
     return result;
 }
 
-fn resolveVersion(allocator: std.mem.Allocator, clone_url: []const u8, constraint_str: []const u8) ?[]const u8 {
-    const constraints = parseConstraints(constraint_str) orelse return null;
+/// Outcome of constraint resolution. The cases were collapsed into a single
+/// `null` before kaappi#2132, which reported "no version matching" for a
+/// malformed range and for a failed `git ls-remote` alike — indistinguishable
+/// from an unsatisfiable one.
+const ResolveOutcome = union(enum) {
+    resolved: []const u8,
+    /// The range parsed but no tag satisfies it.
+    no_match,
+    /// The range itself does not parse; carries where and why.
+    invalid_constraint: semver.ConstraintParseError,
+    /// `git ls-remote --tags` itself failed (missing/private repo, no
+    /// network). Not the same as "no matching tag": the range may be fine.
+    git_failed,
+};
 
-    const output = runGitCapture(allocator, &.{ "ls-remote", "--tags", "--", clone_url }) catch return null;
+fn resolveVersion(allocator: std.mem.Allocator, clone_url: []const u8, constraint_str: []const u8) ResolveOutcome {
+    var diag: semver.ConstraintParseError = undefined;
+    const constraints = semver.parseConstraintsDiag(constraint_str, &diag) orelse
+        return .{ .invalid_constraint = diag };
+
+    const output = runGitCapture(allocator, &.{ "ls-remote", "--tags", "--", clone_url }) catch return .git_failed;
     defer allocator.free(output);
 
     var best: ?Semver = null;
@@ -218,9 +234,10 @@ fn resolveVersion(allocator: std.mem.Allocator, clone_url: []const u8, constrain
     }
 
     if (best_tag) |bt| {
-        return allocator.dupe(u8, bt) catch return null;
+        const dup = allocator.dupe(u8, bt) catch return .no_match;
+        return .{ .resolved = dup };
     }
-    return null;
+    return .no_match;
 }
 
 fn getPkgSha(allocator: std.mem.Allocator, src_dir: []const u8, pkg: []const u8) ?[]const u8 {
@@ -417,19 +434,39 @@ fn doInstall(
             const clone_url = parsed.source orelse blk: {
                 break :blk std.fmt.allocPrint(allocator, "{s}/{s}.git", .{ config.org, pkg }) catch return error.OutOfMemory;
             };
-            if (resolveVersion(allocator, clone_url, v)) |resolved| {
-                writeStdout("  Resolved ");
-                writeStdout(v);
-                writeStdout(" -> ");
-                writeStdout(resolved);
-                writeStdout("\n");
-                install_version = resolved;
-            } else {
-                var buf: [256]u8 = undefined;
-                printErrColor(Color.red, "error: ");
-                const msg = std.fmt.bufPrint(&buf, "no version matching {s} for {s}\n", .{ v, pkg }) catch "no matching version\n";
-                writeStderr(msg);
-                return error.GitFailed;
+            switch (resolveVersion(allocator, clone_url, v)) {
+                .resolved => |resolved| {
+                    writeStdout("  Resolved ");
+                    writeStdout(v);
+                    writeStdout(" -> ");
+                    writeStdout(resolved);
+                    writeStdout("\n");
+                    install_version = resolved;
+                },
+                .no_match => {
+                    var buf: [256]u8 = undefined;
+                    printErrColor(Color.red, "error: ");
+                    const msg = std.fmt.bufPrint(&buf, "no version matching {s} for {s}\n", .{ v, pkg }) catch "no matching version\n";
+                    writeStderr(msg);
+                    return error.GitFailed;
+                },
+                .invalid_constraint => |diag| {
+                    var buf: [320]u8 = undefined;
+                    printErrColor(Color.red, "error: ");
+                    const detail = switch (diag.kind) {
+                        .bad_part => std.fmt.bufPrint(&buf, "invalid version constraint '{s}' for {s}: part {d} is not a valid constraint (<op><version>)\n", .{ v, pkg, diag.part_index + 1 }) catch "invalid version constraint\n",
+                        .too_many_parts => std.fmt.bufPrint(&buf, "invalid version constraint '{s}' for {s}: a comma-separated range has at most 4 parts\n", .{ v, pkg }) catch "invalid version constraint\n",
+                    };
+                    writeStderr(detail);
+                    return error.GitFailed;
+                },
+                .git_failed => {
+                    var buf: [320]u8 = undefined;
+                    printErrColor(Color.red, "error: ");
+                    const msg = std.fmt.bufPrint(&buf, "failed to list tags for {s} (cannot resolve {s})\n", .{ clone_url, v }) catch "failed to resolve version\n";
+                    writeStderr(msg);
+                    return error.GitFailed;
+                },
             }
         }
     }
@@ -878,7 +915,10 @@ pub fn main(init: std.process.Init.Minimal) !void {
         var visited = std.StringHashMap(void).init(allocator);
         defer freeVisited(allocator, &visited);
         doInstall(allocator, config, spec, locked_mode, &visited) catch |err| {
-            if (err == error.GitFailed or err == error.BuildFailed or err == error.CopyFailed) std.process.exit(1);
+            // InvalidPackageName already printed its own message; exiting here
+            // keeps Zig's default handler from printing the raw error name as a
+            // second line (kaappi#2132).
+            if (err == error.GitFailed or err == error.BuildFailed or err == error.CopyFailed or err == error.InvalidPackageName) std.process.exit(1);
             return err;
         };
     } else if (std.mem.eql(u8, cmd, "remove")) {
@@ -887,7 +927,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
             std.process.exit(1);
         };
         doRemove(allocator, config, pkg) catch |err| {
-            if (err == error.NotInstalled) std.process.exit(1);
+            if (err == error.NotInstalled or err == error.InvalidPackageName) std.process.exit(1);
             return err;
         };
     } else if (std.mem.eql(u8, cmd, "list")) {

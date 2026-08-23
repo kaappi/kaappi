@@ -54,9 +54,18 @@ test "Semver.parse accepts X.Y.Z with and without the conventional v prefix" {
 
 test "Semver.parse defaults omitted trailing components to zero" {
     // Deliberate leniency: git tags in this ecosystem are sometimes `v1.2`.
-    try std.testing.expectEqual(sv(1, 2, 0), Semver.parse("1.2").?);
-    try std.testing.expectEqual(sv(1, 0, 0), Semver.parse("1").?);
-    try std.testing.expectEqual(sv(1, 2, 0), Semver.parse("v1.2").?);
+    // The filled value is 0, but `written` records how much was written so
+    // `^`/`~` can tell `~1` from `~1.0.0` (#2131).
+    const one_two = Semver.parse("1.2").?;
+    try std.testing.expectEqual(sv(1, 2, 0).major, one_two.major);
+    try std.testing.expectEqual(sv(1, 2, 0).minor, one_two.minor);
+    try std.testing.expectEqual(sv(1, 2, 0).patch, one_two.patch);
+    try std.testing.expectEqual(@as(u8, 2), one_two.written);
+    const one = Semver.parse("1").?;
+    try std.testing.expectEqual(sv(1, 0, 0).major, one.major);
+    try std.testing.expectEqual(@as(u8, 1), one.written);
+    try std.testing.expectEqual(@as(u8, 2), Semver.parse("v1.2").?.written);
+    try std.testing.expectEqual(@as(u8, 3), Semver.parse("1.2.3").?.written);
 }
 
 test "Semver.parse rejects non-numeric, signed and empty components" {
@@ -105,25 +114,25 @@ test "Semver.parse rejects a tag that is not a version (issue #2130)" {
     // "at least three". A `git ls-remote --tags` sweep sees whatever the
     // repo tagged, so a tag that is not a version must not become a
     // candidate release.
-    //
-    // FAIL: #2130 (Semver.parse reads three components and discards the rest,
-    // so v2.0.0.nightly-UNRELEASED parses as 2.0.0 and >=1.0.0 installs it)
-    // try std.testing.expect(Semver.parse("2.0.0.nightly-UNRELEASED") == null);
-    // try std.testing.expect(Semver.parse("1.2.3.4") == null);
-    // try std.testing.expect(Semver.parse("1.2.3.") == null);
+    try std.testing.expect(Semver.parse("2.0.0.nightly-UNRELEASED") == null);
+    try std.testing.expect(Semver.parse("1.2.3.4") == null);
+    try std.testing.expect(Semver.parse("1.2.3.") == null);
 
     // SemVer 2.0.0 s2: "and MUST NOT contain leading zeroes".
-    // FAIL: #2130
-    // try std.testing.expect(Semver.parse("01.02.03") == null);
+    try std.testing.expect(Semver.parse("01.02.03") == null);
+    try std.testing.expect(Semver.parse("1.02.3") == null);
+    try std.testing.expect(Semver.parse("1.2.03") == null);
+    // A single 0 is not a leading zero.
+    try std.testing.expect(Semver.parse("0.0.0") != null);
 
-    // Each component goes to std.fmt.parseInt, which implements *Zig's*
+    // `std.fmt.parseInt` (the pre-fix parser) implements *Zig's*
     // integer-literal grammar — an explicit '+' sign and '_' digit
-    // separators are both legal there and neither is a SemVer digit.
-    // `v1_0.0.0` therefore parses as version 10.0.0.
-    // FAIL: #2130
-    // try std.testing.expect(Semver.parse("+1.2.3") == null);
-    // try std.testing.expect(Semver.parse("1.+2.3") == null);
-    // try std.testing.expect(Semver.parse("1_0.0.0") == null);
+    // separators are both legal there and neither is a SemVer digit, so
+    // `v1_0.0.0` parsed as version 10.0.0.
+    try std.testing.expect(Semver.parse("+1.2.3") == null);
+    try std.testing.expect(Semver.parse("1.+2.3") == null);
+    try std.testing.expect(Semver.parse("1_0.0.0") == null);
+    try std.testing.expect(Semver.parse("1.0.0_") == null);
 
     // Discriminating control — the adjacent malformed spellings ARE
     // rejected, so the leniency is specific to extra dot-separated
@@ -222,11 +231,10 @@ test "caret on an abbreviated range (issue #2131)" {
     try std.testing.expect(!try allows("^0.2", sv(0, 3, 0)));
 
     // node-semver: `^0.0` is `>=0.0.0 <0.1.0` — the whole 0.0.x line.
-    // FAIL: #2131 (an omitted component is filled with 0 and then treated as
-    // if it had been written, so ^0.0 collapses to ^0.0.0 = exactly 0.0.0)
-    // try std.testing.expect(try allows("^0.0", sv(0, 0, 5)));
+    try std.testing.expect(try allows("^0.0", sv(0, 0, 5)));
     try std.testing.expect(try allows("^0.0", sv(0, 0, 0)));
     try std.testing.expect(!try allows("^0.0", sv(0, 1, 0)));
+    try std.testing.expect(!try allows("^0.0", sv(1, 0, 0)));
 }
 
 test "tilde ~X.Y.Z is >=X.Y.Z <X.(Y+1).0 (node-semver Ranges)" {
@@ -246,14 +254,12 @@ test "tilde on an abbreviated range (issue #2131)" {
 
     // node-semver: `~1` is `>=1.0.0 <2.0.0` — "allows minor-level changes
     // when only the major version is specified".
-    // FAIL: #2131 (`~1` is filled to 1.0.0 and then pinned to minor 0, so it
-    // means `~1.0.0` = `>=1.0.0 <1.1.0` instead)
-    // try std.testing.expect(try allows("~1", sv(1, 9, 0)));
+    try std.testing.expect(try allows("~1", sv(1, 9, 0)));
     try std.testing.expect(try allows("~1", sv(1, 0, 0)));
     try std.testing.expect(!try allows("~1", sv(2, 0, 0)));
 
-    // Discriminating control: `~1.0.0` and `~1` are DIFFERENT ranges in
-    // node-semver but identical here — the fully-spelled form is correct.
+    // Discriminating control: `~1.0.0` and `~1` are DIFFERENT ranges — and
+    // now behave differently here too: the fully-spelled form pins minor 0.
     try std.testing.expect(try allows("~1.0.0", sv(1, 0, 9)));
     try std.testing.expect(!try allows("~1.0.0", sv(1, 1, 0)));
 }
@@ -302,16 +308,34 @@ test "parseConstraints rejects malformed ranges rather than matching loosely" {
 
 test "parseConstraints accepts a four-part range (issue #2132)" {
     try std.testing.expect(semver.parseConstraints(">=1.0.0,<2.0.0,>0.5.0,<=1.9.0") != null);
-    // Four is the ceiling (`[4]?Constraint`): a fifth part makes the whole
-    // range `null`, which reaches the user as "no version matching ...",
-    // indistinguishable from "no such tag". Not asserted either way — the
-    // limit is undocumented, and a fix may raise it or diagnose it.
+    // Four is the ceiling (`[4]?Constraint`): a fifth part is reported as a
+    // too_many_parts diagnostic rather than silently nulling the range.
+    var diag: semver.ConstraintParseError = undefined;
+    try std.testing.expect(semver.parseConstraintsDiag(">=1.0.0,<2.0.0,>0.5.0,<=1.9.0,>0.1.0", &diag) == null);
+    try std.testing.expectEqual(semver.ConstraintParseError{ .kind = .too_many_parts, .part_index = 4 }, diag);
+    _ = semver.parseConstraintsDiag(">=1.0.0,<2.0.0", &diag); // parses; leaves no error
 
     // node-semver allows whitespace between an operator and its version
     // (`>= 1.0.0` is the same range as `>=1.0.0`).
-    // FAIL: #2132 (the space is handed to Semver.parse, which rejects it, and
-    // the whole range is then reported as "no version matching")
-    // try std.testing.expect(semver.parseConstraints(">= 1.0.0") != null);
+    try std.testing.expect(semver.parseConstraints(">= 1.0.0") != null);
+    try std.testing.expect(semver.parseConstraints(">=1.0.0, < 2.0.0") != null);
+    try std.testing.expect(try allows(">= 1.0.0", sv(1, 0, 0)));
+    try std.testing.expect(!try allows(">= 1.0.0", sv(0, 9, 9)));
+}
+
+test "parseConstraintsDiag names the offending part (issue #2132)" {
+    var diag: semver.ConstraintParseError = undefined;
+    // The second part is the malformed one; the first part parses fine.
+    try std.testing.expect(semver.parseConstraintsDiag(">=1.0.0,>=>2.0.0", &diag) == null);
+    try std.testing.expectEqual(semver.ConstraintParseError{ .kind = .bad_part, .part_index = 1 }, diag);
+
+    // A pre-release in any part fails that part.
+    try std.testing.expect(semver.parseConstraintsDiag(">=1.0.0-rc1", &diag) == null);
+    try std.testing.expectEqual(@as(usize, 0), diag.part_index);
+
+    // An empty spec has no part to name beyond the first.
+    try std.testing.expect(semver.parseConstraintsDiag("", &diag) == null);
+    try std.testing.expectEqual(@as(usize, 0), diag.part_index);
 }
 
 test "isConstraintSpec routes the six operator-led forms and nothing else" {
@@ -384,9 +408,7 @@ test "parsePkgSpec on degenerate specs (issue #2132)" {
 
     // A trailing @ with nothing after it should mean "no version pinned",
     // the same as omitting the @ entirely.
-    // FAIL: #2132 (`pkg@` yields ver == "", which prints as `Installing pkg@`
-    // and then fails at checkout instead of installing the default branch)
-    // try std.testing.expect(state.parsePkgSpec("pkg@").ver == null);
+    try std.testing.expect(state.parsePkgSpec("pkg@").ver == null);
 
     // Discriminating control: omitting the @ does give null.
     try std.testing.expect(state.parsePkgSpec("pkg").ver == null);
@@ -508,9 +530,12 @@ test "parsePkgManifest on missing and empty values" {
     try std.testing.expect(state.parsePkgManifest("source: -evil\n").source == null);
 
     // An empty `build:` should mean "no build command", not "run the empty
-    // command" — thottam prints "Building <pkg>..." and runs `/bin/sh -c ""`.
-    // FAIL: #2132
-    // try std.testing.expect(state.parsePkgManifest("build:\n").build_cmd == null);
+    // command" — thottam used to print "Building <pkg>..." and run
+    // `/bin/sh -c ""`.
+    try std.testing.expect(state.parsePkgManifest("build:\n").build_cmd == null);
+    try std.testing.expect(state.parsePkgManifest("build: \n").build_cmd == null);
+    // A later non-empty build: still wins after an empty one.
+    try std.testing.expectEqualStrings("make", state.parsePkgManifest("build:\nbuild: make\n").build_cmd.?);
 
     // Discriminating control: a genuinely absent build: key is null.
     try std.testing.expect(state.parsePkgManifest("name: x\n").build_cmd == null);

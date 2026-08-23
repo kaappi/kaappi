@@ -53,8 +53,21 @@ Every field except `name` is optional.
   (patch-level), and comma-separated ranges (`>=1.0.0,<2.0.0`):
   `depends: kaappi-net@">=0.2.0"`. Constraints resolve against git tags via
   `git ls-remote --tags`.
+
+  `^` and `~` follow node-semver's range grammar, including its abbreviated
+  forms: `^1` is `>=1.0.0 <2.0.0`, `~1` is likewise `>=1.0.0 <2.0.0` (not
+  `~1.0.0`'s `>=1.0.0 <1.1.0`), and `^0.0` is the whole `0.0.x` line.
+  Whitespace between an operator and its version is accepted (`>= 1.0.0`).
+
+  A git tag only counts as a release candidate if it is a valid SemVer
+  2.0.0 version: one to three numeric components, digits only, no leading
+  zeroes (`v1` and `v1.2` are accepted, filling omitted components with 0;
+  a fourth component is not a version). A tag like
+  `v2.0.0.nightly-UNRELEASED` or `v1_0.0.0` is not a version and is ignored,
+  never outranking a real release.
 - `build` runs only if the package has native code (conventionally a `csrc/`
-  directory with a `Makefile` in the repo root).
+  directory with a `Makefile` in the repo root). An empty `build:` line is
+  treated as absent.
 
 ## Ecosystem library layout
 
