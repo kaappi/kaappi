@@ -413,78 +413,99 @@ fn handleDefineValues(vm: *VM, args: Value) VMError!Value {
     compiler_mod.Compiler.unrootFunction(vm.gc, func);
     const result = runTopLevelFunction(vm, func) catch |err| return err;
 
-    if (types.isMultipleValues(result)) {
-        const mv = types.toObject(result).as(types.MultipleValues);
-        if (types.isSymbol(formals)) {
-            // (define-values x (values 1 2 3)) → x = (1 2 3)
-            var result_root = result;
-            vm.gc.pushRoot(&result_root);
-            defer vm.gc.popRoot();
-            var list: Value = types.NIL;
-            vm.gc.pushRoot(&list);
-            defer vm.gc.popRoot();
-            const mv2 = types.toObject(result_root).as(types.MultipleValues);
-            var j: usize = mv2.values.len;
-            while (j > 0) {
-                j -= 1;
-                list = vm.gc.allocPair(mv2.values[j], list) catch return VMError.OutOfMemory;
-            }
-            vm.defineGlobal(types.symbolName(formals), list) catch return VMError.OutOfMemory;
-        } else {
-            var formal = formals;
-            var i: usize = 0;
-            var has_rest = false;
-            while (formal != types.NIL and i < mv.values.len) {
-                if (types.isSymbol(formal)) {
-                    // Rest parameter: (define-values (a b . rest) ...)
-                    has_rest = true;
-                    var result_root = result;
-                    vm.gc.pushRoot(&result_root);
-                    defer vm.gc.popRoot();
-                    var rest_list: Value = types.NIL;
-                    vm.gc.pushRoot(&rest_list);
-                    defer vm.gc.popRoot();
-                    const mv2 = types.toObject(result_root).as(types.MultipleValues);
-                    var j: usize = mv2.values.len;
-                    while (j > i) {
-                        j -= 1;
-                        rest_list = vm.gc.allocPair(mv2.values[j], rest_list) catch return VMError.OutOfMemory;
-                    }
-                    vm.defineGlobal(types.symbolName(formal), rest_list) catch return VMError.OutOfMemory;
-                    formal = types.NIL;
-                    i = mv.values.len;
-                    break;
-                }
-                if (!types.isPair(formal)) return VMError.CompileError;
-                const var_sym = types.car(formal);
-                if (!types.isSymbol(var_sym)) return VMError.CompileError;
-                vm.defineGlobal(types.symbolName(var_sym), mv.values[i]) catch return VMError.OutOfMemory;
-                formal = types.cdr(formal);
-                i += 1;
-            }
-            if (!has_rest) {
-                if (types.isPair(formal)) return VMError.CompileError;
-                if (i < mv.values.len and formal == types.NIL) return VMError.CompileError;
-            }
+    // Root the producer's result across the pair allocations below.
+    var result_root = result;
+    vm.gc.pushRoot(&result_root);
+    defer vm.gc.popRoot();
+
+    // Normalize the produced values into a count. A non-`MultipleValues`
+    // result is exactly one value (R7RS: an ordinary expression returns a
+    // single value); `mvValueAt` re-derives the values array from the rooted
+    // result each call so a collection during binding cannot leave it dangling.
+    const is_mv = types.isMultipleValues(result_root);
+    const value_count: usize = if (is_mv)
+        types.toObject(result_root).as(types.MultipleValues).values.len
+    else
+        1;
+
+    // A bare-identifier formals spec collects every produced value as a list,
+    // with no arity constraint: (define-values x (values 1 2 3)) → x = (1 2 3).
+    if (types.isSymbol(formals)) {
+        var list: Value = types.NIL;
+        vm.gc.pushRoot(&list);
+        defer vm.gc.popRoot();
+        var j: usize = value_count;
+        while (j > 0) {
+            j -= 1;
+            list = vm.gc.allocPair(mvValueAt(result_root, is_mv, j), list) catch return VMError.OutOfMemory;
         }
-    } else {
-        if (types.isSymbol(formals)) {
-            // (define-values x expr) → x = (result)
-            var result_root = result;
-            vm.gc.pushRoot(&result_root);
-            defer vm.gc.popRoot();
-            const list = vm.gc.allocPair(result_root, types.NIL) catch return VMError.OutOfMemory;
-            vm.defineGlobal(types.symbolName(formals), list) catch return VMError.OutOfMemory;
-        } else if (types.isPair(formals)) {
-            const var_sym = types.car(formals);
-            if (types.isSymbol(var_sym)) {
-                vm.defineGlobal(types.symbolName(var_sym), result) catch return VMError.OutOfMemory;
-                const next = types.cdr(formals);
-                if (types.isSymbol(next)) {
-                    vm.defineGlobal(types.symbolName(next), types.NIL) catch return VMError.OutOfMemory;
-                }
+        vm.defineGlobal(types.symbolName(formals), list) catch return VMError.OutOfMemory;
+        return types.VOID;
+    }
+
+    // Fixed/dotted formals. Parse into a fixed count plus an optional dotted
+    // rest, validating each position is a symbol (matching the compiler's
+    // parseDefineValuesFormals). R7RS 5.3.3 / SRFI 244: the values are matched
+    // to the formals exactly as a lambda matches call arguments — a fixed list
+    // requires an exact count, a dotted list a minimum. Until #550 this
+    // top-level handler bound a prefix and continued on a single-value
+    // mismatch, unlike the compiler desugaring one scope in; check arity
+    // *before* defining any global so a mismatch leaves no partial bindings and
+    // raises the same KP3003 the internal call-with-values consumer lambda does.
+    var fixed_count: usize = 0;
+    var has_rest = false;
+    {
+        var formal = formals;
+        while (formal != types.NIL) {
+            if (types.isSymbol(formal)) {
+                has_rest = true;
+                break;
             }
+            if (!types.isPair(formal)) return VMError.CompileError;
+            if (!types.isSymbol(types.car(formal))) return VMError.CompileError;
+            fixed_count += 1;
+            formal = types.cdr(formal);
         }
     }
+
+    if (has_rest) {
+        if (value_count < fixed_count) {
+            vm.setErrorDetail("expected at least {d} arguments, got {d}", .{ fixed_count, value_count });
+            return VMError.ArityMismatch;
+        }
+    } else if (value_count != fixed_count) {
+        vm.setErrorDetail("expected {d} arguments, got {d}", .{ fixed_count, value_count });
+        return VMError.ArityMismatch;
+    }
+
+    // Bind the fixed formals, then the dotted rest (if any) as a list of the
+    // leftover values.
+    var formal = formals;
+    var i: usize = 0;
+    while (i < fixed_count) : (i += 1) {
+        vm.defineGlobal(types.symbolName(types.car(formal)), mvValueAt(result_root, is_mv, i)) catch return VMError.OutOfMemory;
+        formal = types.cdr(formal);
+    }
+    if (has_rest) {
+        // `formal` now points at the dotted rest symbol.
+        var rest_list: Value = types.NIL;
+        vm.gc.pushRoot(&rest_list);
+        defer vm.gc.popRoot();
+        var j: usize = value_count;
+        while (j > fixed_count) {
+            j -= 1;
+            rest_list = vm.gc.allocPair(mvValueAt(result_root, is_mv, j), rest_list) catch return VMError.OutOfMemory;
+        }
+        vm.defineGlobal(types.symbolName(formal), rest_list) catch return VMError.OutOfMemory;
+    }
     return types.VOID;
+}
+
+/// The i-th produced value of a `define-values` result. Re-derives the
+/// `MultipleValues` array from `result` on every call so the read stays valid
+/// even if an intervening allocation collected — `result` must be GC-rooted by
+/// the caller. A non-`MultipleValues` result is the single value itself.
+inline fn mvValueAt(result: Value, is_mv: bool, i: usize) Value {
+    if (is_mv) return types.toObject(result).as(types.MultipleValues).values[i];
+    return result;
 }

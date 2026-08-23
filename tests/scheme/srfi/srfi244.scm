@@ -9,9 +9,9 @@
 ;; context (top level, let body, lambda body, nested), and the arity-matching
 ;; rule -- "the <formals> are matched to the return values in the same way
 ;; that the <formals> in a lambda expression are matched to the arguments in
-;; a procedure call".  Top level does not enforce that rule at all when the
-;; expression yields exactly one value (#550, reopened by this unit), while
-;; the identical definition one scope in does.
+;; a procedure call".  #550 was that top level did not enforce that rule when
+;; the expression yielded exactly one value, while the identical definition
+;; one scope in did; it now does (see the #550 note further down).
 
 (import (scheme base) (scheme process-context) (srfi 244) (srfi 64))
 
@@ -129,52 +129,21 @@
   (eval '((lambda () (define-values (p q) (values 1)) p))
         (environment '(scheme base) '(srfi 244))))
 
-;;; The three top-level cases below are #550's own reproductions. Each
-;;; produces exactly one value, which is the arm handleDefineValues never
-;;; grew a check for; they are silently accepted with exit 0.
+;;; #550 (fixed): a *top-level* define-values whose producer yields a
+;;; single value now enforces the same lambda-style arity as the internal
+;;; cases above -- `(define-values (a b) (values 1))`, `(define-values () 42)`
+;;; and `(define-values (a b) 1)` each raise KP3003 instead of binding a
+;;; prefix and continuing.
 ;;;
-;;; NOTE for whoever fixes #550: these three are top-level definitions, not
-;;; assertions, so once they raise this file will abort while loading rather
-;;; than report a failure. That is the signal to swap the disabled block
-;;; below for the enabled one and delete the three probes.
-
-(define dv-tf-reached #f)
-(define-values (dv-tf-a dv-tf-b) (values 1))
-(set! dv-tf-reached #t)
-
-(define dv-zf-reached #f)
-(define-values () 42)
-(set! dv-zf-reached #t)
-
-(define dv-bare-reached #f)
-(define-values (dv-bare-a dv-bare-b) 1)
-(set! dv-bare-reached #t)
-
-;; FAIL: #550 (top-level define-values does not check a one-value mismatch)
-;; (test-assert "top level: too few values must not silently continue"
-;;   (not dv-tf-reached))
-;; FAIL: #550 (zero formals against one value is silently accepted)
-;; (test-assert "top level: () formals against one value must not continue"
-;;   (not dv-zf-reached))
-;; FAIL: #550 (two formals against a bare single value is silently accepted)
-;; (test-assert "top level: (a b) against a bare single value must not continue"
-;;   (not dv-bare-reached))
-
-(test-assert "top level: too few values is silently accepted (see #550)"
-  dv-tf-reached)
-(test-equal "top level: the first formal is bound anyway (see #550)" 1 dv-tf-a)
-(test-assert "top level: () formals against one value is accepted (see #550)"
-  dv-zf-reached)
-(test-assert "top level: a bare single value is accepted (see #550)"
-  dv-bare-reached)
-(test-equal "top level: the bare single value lands in the first formal (see #550)"
-  1 dv-bare-a)
-
-;;; the boundary: a mismatch that DOES produce a MultipleValues object is
-;;; caught, which is what makes the single-value arm the discriminating half.
-(test-error "top level: a genuine multi-value mismatch is caught"
-  (eval '(define-values (mv-a mv-b mv-c) (values 1 2))
-        (environment '(scheme base) '(srfi 244))))
+;;; That path (handleDefineValues in vm_eval.zig) cannot be asserted from
+;;; here: it fires only for a *bare* top-level form, not for one wrapped in a
+;;; `let`/`lambda` body (compiler path) or handed to `eval` with an explicit
+;;; immutable `(environment ...)` (which raises KP3007 before arity is even
+;;; reached). And a bare top-level raise flips the whole file's exit code,
+;;; which run-all.sh reads as failure. So the top-level regression lives
+;;; out-of-process in tests/scheme/errors/define-values-toplevel-arity-550.sh,
+;;; which runs each snippet as its own program and checks the exit code and
+;;; the KP3003 message.
 
 ;;; --- the derived cond-expand feature id (#1649) ---
 (test-equal "cond-expand srfi-244" 'yes (cond-expand (srfi-244 'yes) (else 'no)))
