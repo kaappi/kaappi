@@ -744,9 +744,18 @@ fn doInstall(
         writeStdout("...\n");
         const url_copy = try allocator.dupe(u8, clone_url);
         defer allocator.free(url_copy);
-        runGit(allocator, &.{ "clone", "--quiet", "--", url_copy, pkg_dir }) catch {
-            printErrColor(Color.red, "  Failed to clone repository\n");
-            return error.GitFailed;
+        runGit(allocator, &.{ "clone", "--quiet", "--", url_copy, pkg_dir }) catch |err| switch (err) {
+            error.GitNotFound => {
+                // Distinguish a missing git binary from a clone failure: the
+                // old silent 127 made every /usr/bin/git-less platform report
+                // "Failed to clone repository" with no cause (#2152).
+                printErrColor(Color.red, "  git not found in PATH — thottam requires git to install packages\n");
+                return error.GitNotFound;
+            },
+            else => {
+                printErrColor(Color.red, "  Failed to clone repository\n");
+                return error.GitFailed;
+            },
         };
     }
 
@@ -960,9 +969,15 @@ fn doUpdate(allocator: std.mem.Allocator, config: Config, pkg: ?[]const u8) !voi
             return;
         }
 
-        runGit(allocator, &.{ "-C", pkg_dir, "pull", "--quiet" }) catch {
-            printErrColor(Color.red, "  Failed to pull\n");
-            return error.GitFailed;
+        runGit(allocator, &.{ "-C", pkg_dir, "pull", "--quiet" }) catch |err| switch (err) {
+            error.GitNotFound => {
+                printErrColor(Color.red, "  git not found in PATH — thottam requires git to update packages\n");
+                return error.GitNotFound;
+            },
+            else => {
+                printErrColor(Color.red, "  Failed to pull\n");
+                return error.GitFailed;
+            },
         };
 
         if (getPkgManifest(allocator, config.src_dir, p)) |manifest| {
@@ -1274,8 +1289,9 @@ pub fn main(init: std.process.Init.Minimal) !void {
         doInstall(allocator, config, spec, locked_mode, &visited) catch |err| {
             // InvalidPackageName already printed its own message; exiting here
             // keeps Zig's default handler from printing the raw error name as a
-            // second line (kaappi#2132).
-            if (err == error.GitFailed or err == error.BuildFailed or err == error.CopyFailed or err == error.InvalidPackageName) std.process.exit(1);
+            // second line (kaappi#2132). GitNotFound likewise prints its own
+            // message at the clone site (kaappi#2152).
+            if (err == error.GitFailed or err == error.BuildFailed or err == error.CopyFailed or err == error.InvalidPackageName or err == error.GitNotFound) std.process.exit(1);
             return err;
         };
     } else if (std.mem.eql(u8, cmd, "remove")) {
@@ -1291,7 +1307,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         try doList(allocator, config);
     } else if (std.mem.eql(u8, cmd, "update")) {
         doUpdate(allocator, config, sub_arg) catch |err| {
-            if (err == error.NotInstalled or err == error.GitFailed or err == error.CopyFailed) std.process.exit(1);
+            if (err == error.NotInstalled or err == error.GitFailed or err == error.CopyFailed or err == error.GitNotFound) std.process.exit(1);
             return err;
         };
     } else if (std.mem.eql(u8, cmd, "verify")) {

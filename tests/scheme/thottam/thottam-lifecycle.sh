@@ -39,26 +39,19 @@ if ! command -v git > /dev/null 2>&1; then
     exit 77
 fi
 
-# thottam invokes git as the absolute path /usr/bin/git (thottam_proc.zig:148),
-# not through PATH. That path exists on macOS and on CI's Linux images, and on
-# none of the three BSDs -- FreeBSD and OpenBSD put git in /usr/local/bin,
-# NetBSD in /usr/pkg/bin -- so every git-backed thottam operation fails there
-# (kaappi#2152). This suite is entirely git-backed, so it cannot run.
+# thottam used to invoke git as the absolute path /usr/bin/git
+# (thottam_proc.zig:148), not through PATH. That path exists on macOS and on
+# CI's Linux images, and on none of the three BSDs -- FreeBSD and OpenBSD put
+# git in /usr/local/bin, NetBSD in /usr/pkg/bin -- so every git-backed thottam
+# operation failed there (kaappi#2152). Fixed by resolving git through PATH,
+# so the only precondition left is the `command -v git` probe above. This
+# suite is itself the regression test: on a box without /usr/bin/git it used
+# to skip (or fail on the BSD legs), and now it runs.
 #
-# Probe for the exact precondition rather than listing platforms: when #2152 is
-# fixed to search PATH, this check should be replaced by `command -v git`,
-# which is already asserted above. Until then, testing for the very path
-# thottam will execute is the honest gate -- it skips exactly where thottam is
-# broken and nowhere else.
-#
-# An earlier version of this probe created a bare repo and cloned it, on the
-# hypothesis that local-bare-clone was unsupported there. It PASSED on OpenBSD
-# while the suite still failed, because the probe used PATH and thottam does
-# not. That falsified hypothesis is what located #2152.
-if [[ ! -x /usr/bin/git ]]; then
-    echo "SKIP: thottam hardcodes /usr/bin/git, which does not exist here (kaappi#2152)"
-    exit 77
-fi
+# The original probe created a bare repo and cloned it, on the hypothesis that
+# local-bare-clone was unsupported on the BSDs. It PASSED on OpenBSD while the
+# suite still failed, because the probe used PATH and thottam did not. That
+# falsified hypothesis is what located #2152.
 
 PASS=0
 FAIL=0
