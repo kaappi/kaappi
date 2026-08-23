@@ -242,7 +242,7 @@ const Lexer = struct {
         // SRFI 207 string-notated bytevector #u8"...": one verbatim lexeme,
         // like the ordinary string it contains-ish -- checked before the
         // plain "#u8(" case can't apply and before falling through to
-        // scanAtom, which would otherwise stop at the `"` (a delimiter)
+        // scanHashAtom, which would otherwise stop at the `"` (a delimiter)
         // and split this into two lexemes ("#u8" then a separate string).
         if (rest.len >= 4 and std.mem.eql(u8, rest[0..3], "#u8") and rest[3] == '"') {
             self.pos += 3;
@@ -572,12 +572,15 @@ pub fn formatSource(arena: std.mem.Allocator, source: []const u8) ParseError![]u
 /// Why the round-trip safety net declined. Only `mismatch` is an internal
 /// error; `original_unreadable` is the user's own syntax error — a file the CST
 /// lexer tolerated but the real reader rejects — and is reported with the
-/// reader's own `KP1xxx` diagnostic and position (kaappi#2080).
+/// reader's own `KP1xxx` diagnostic and position (kaappi#2080). `oom` is an
+/// allocator failure, which is neither.
 pub const RoundTrip = union(enum) {
     /// Both texts read to the same datum sequence — safe to write.
     ok,
     /// The original does not read.
     original_unreadable: ReadFailure,
+    /// Either text could not be read because the heap was exhausted.
+    oom,
     /// The original reads but the formatted text does not, or the two read to
     /// different datum sequences — a genuine formatter bug.
     mismatch,
@@ -603,14 +606,15 @@ pub fn verifyRoundTrip(gc: *memory.GC, original: []const u8, formatted: []const 
     switch (readAllRooted(gc, original, &orig_list)) {
         .ok => {},
         .read_error => |f| return .{ .original_unreadable = f },
-        .oom => return .mismatch,
+        .oom => return .oom,
     }
 
     var fmt_list: std.ArrayList(Value) = .empty;
     defer fmt_list.deinit(gc.allocator);
     switch (readAllRooted(gc, formatted, &fmt_list)) {
         .ok => {},
-        .read_error, .oom => return .mismatch,
+        .read_error => return .mismatch,
+        .oom => return .oom,
     }
 
     if (orig_list.items.len != fmt_list.items.len) return .mismatch;
@@ -704,6 +708,10 @@ fn formatFile(gc: *memory.GC, path: []const u8, check: bool) FileOutcome {
             toplevel_driver.reportReadError(path, f.line, f.col, f.err);
             return .failed;
         },
+        .oom => {
+            reportFileError(path, "out of memory");
+            return .failed;
+        },
         .mismatch => {
             reportFileError(path, "internal error: formatting would change the program; file left unchanged");
             return .failed;
@@ -748,6 +756,10 @@ fn runStdin(gc: *memory.GC, check: bool) u8 {
         .original_unreadable => |f| {
             // The user's own syntax error (kaappi#2080).
             toplevel_driver.reportReadError("<stdin>", f.line, f.col, f.err);
+            return 1;
+        },
+        .oom => {
+            writeStderr("kaappi fmt: out of memory\n");
             return 1;
         },
         .mismatch => {

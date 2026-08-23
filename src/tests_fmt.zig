@@ -267,6 +267,34 @@ test "verifyRoundTrip separates a user read error from a real mismatch" {
     }
 }
 
+test "original_unreadable reports the line after a lone CR" {
+    var gc = memory.GC.init(testing.allocator);
+    defer gc.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    // The `;` comment ends at the lone CR (kaappi#2079); the invalid `#\qqq` is
+    // on line 2, and `getLineCol` must count that CR as a line ending so the
+    // reported position says line 2, not line 1.
+    const bad = "; note\r#\\qqq\n";
+    const formatted = try fmt.formatSource(arena.allocator(), bad);
+    switch (fmt.verifyRoundTrip(&gc, bad, formatted)) {
+        .original_unreadable => |f| try testing.expectEqual(@as(u32, 2), f.line),
+        else => return error.ExpectedOriginalUnreadable,
+    }
+}
+
+test "columnCount never lets a bad lead byte swallow the next byte" {
+    // 0xC2 is a two-byte lead, but 'A' (0x41) is not a continuation byte: the
+    // malformed sequence must count as two columns, not one. A truncated
+    // multi-byte sequence at end-of-slice counts its lead byte alone, and valid
+    // scalars still count one column each (kaappi#2149 review).
+    try testing.expectEqual(@as(usize, 2), fmt_print.columnCount(&.{ 0xC2, 'A' }));
+    try testing.expectEqual(@as(usize, 1), fmt_print.columnCount(&.{0xC2}));
+    try testing.expectEqual(@as(usize, 1), fmt_print.columnCount("λ"));
+    try testing.expectEqual(@as(usize, 3), fmt_print.columnCount("aλb"));
+}
+
 // ── Generated programs: idempotence + round-trip ──────────────────────────────
 
 test "idempotent and semantics-preserving over generated programs" {

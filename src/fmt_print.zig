@@ -292,18 +292,43 @@ const Printer = struct {
 // ── Measurement ──────────────────────────────────────────────────────────────
 
 /// Display width of `s` in columns: the number of Unicode scalar values, with
-/// any invalid UTF-8 byte (possible only inside verbatim atom text) counting one
-/// column each. This is what "fits within `max_width` columns" means — an
-/// identifier's width is its character count, not its UTF-8 byte count
-/// (kaappi#2149). It deliberately does not model East Asian wide characters or
-/// combining marks, which would need wcwidth; see docs/dev/fmt.md.
-fn columnCount(s: []const u8) usize {
+/// any malformed UTF-8 byte counting one column each (a bad lead byte never
+/// swallows the bytes after it). This is what "fits within `max_width` columns"
+/// means — an identifier's width is its character count, not its UTF-8 byte
+/// count (kaappi#2149). It deliberately does not model East Asian wide
+/// characters or combining marks, which would need wcwidth; see docs/dev/fmt.md.
+pub fn columnCount(s: []const u8) usize {
     var n: usize = 0;
     var i: usize = 0;
     while (i < s.len) {
-        const seq: usize = if (s[i] < 0x80) 1 else @intCast(std.unicode.utf8ByteSequenceLength(s[i]) catch 1);
+        const c = s[i];
+        if (c < 0x80) {
+            n += 1;
+            i += 1;
+            continue;
+        }
+        const seq = std.unicode.utf8ByteSequenceLength(c) catch {
+            // A stray continuation byte or invalid lead: one column.
+            n += 1;
+            i += 1;
+            continue;
+        };
+        if (i + seq > s.len) {
+            // A multi-byte sequence truncated by end-of-slice: count the lead.
+            n += 1;
+            i += 1;
+            continue;
+        }
+        _ = std.unicode.utf8Decode(s[i .. i + seq]) catch {
+            // Malformed (bad continuation, overlong, surrogate, out of range):
+            // count only the leading byte so it never swallows a following
+            // ASCII byte as a bogus continuation.
+            n += 1;
+            i += 1;
+            continue;
+        };
         n += 1;
-        i += @min(seq, s.len - i);
+        i += seq;
     }
     return n;
 }
