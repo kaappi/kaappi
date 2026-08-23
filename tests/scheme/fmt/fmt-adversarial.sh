@@ -15,7 +15,7 @@
 #
 # The generator that found the failures below is `tools/fmt_fuzz.py` — it is
 # deliberately *not* run here (it takes minutes; this file takes ~2 seconds).
-# See kaappi#2141, kaappi#2142, kaappi#2143.
+# See kaappi#2141, kaappi#2142, kaappi#2143, kaappi#2149.
 
 set -uo pipefail
 
@@ -133,29 +133,22 @@ case_ "blank before the first argument, no comment"  '(f\n\n   a b)\n'
 case_ "blank one item after a head-line comment"     '(f #|c|# a\n\n   b)\n'
 case_ "blank after a head-line line comment"         '(f ; c\n\n   a b)\n'
 case_ "blank before a define body, not its name"     '(define #|c|# x\n\n  1)\n'
-
-# FAIL: #2142 (hasBodyBlank indexes children; the printer counts non-comments,
-# so a head-line-riding block comment shifts them out of step — pass 1 drops
-# the blank it forced a break for, pass 2 then collapses the form inline)
-# case_ "blank before an arg displaced by a comment"   '(f #|c|#\n\n   a b)\n'
-# case_ "blank before a name displaced by a comment"   '(define #|c|#\n\n  x 1)\n'
+case_ "blank before an arg displaced by a comment"   '(f #|c|#\n\n   a b)\n'
+case_ "blank before a name displaced by a comment"   '(define #|c|#\n\n  x 1)\n'
 
 # ── Lexeme boundaries the reader and fmt must agree on (kaappi#2143) ─────────
 #
-# Enabled: the space-separated spellings, which are the discriminating controls.
+# Both spellings — the space-separated controls and the glued forms that once
+# split differently between `Reader.readSymbol` and `fmt.Lexer.scanAtom`.
 
 case_ "block comment after an identifier, spaced"    '(a b #|c|# d)\n'
 case_ "datum comment after an identifier, spaced"    '(list a #;(b) c)\n'
 case_ "vector after an identifier, spaced"           '(a b #(1) d)\n'
+case_ "block comment glued to an identifier"         '(a b#|c|# d)\n'
+case_ "datum comment glued to an identifier"         '(list a#;(b) c)\n'
+case_ "vector glued to an identifier"                '(a b#(1) d)\n'
 
-# FAIL: #2143 (fmt.Lexer.scanAtom runs to the next delimiter; Reader.readSymbol
-# stops at the first non-subsequent, so a glued `#`-led lexeme splits
-# differently — `kaappi ast` reads all three of these without complaint)
-# case_ "block comment glued to an identifier"         '(a b#|c|# d)\n'
-# case_ "datum comment glued to an identifier"         '(list a#;(b) c)\n'
-# case_ "vector glued to an identifier"                '(a b#(1) d)\n'
-
-# ── Fit-to-width is measured in bytes, not columns (kaappi#2149) ────────────
+# ── Fit-to-width is measured in columns (Unicode code points) ────────────
 
 # assert_one_line <label> <source>
 #   fmt.md: "A form that fits within max_width (80) columns is put on one line."
@@ -179,10 +172,7 @@ for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
 done
 
 assert_one_line "width: a 75-column ASCII form stays on one line" "(f$ascii12)\n"
-
-# FAIL: #2149 (computeMeasure returns node.text.len, so every non-ASCII lexeme
-# counts double or triple against an 80-column budget)
-# assert_one_line "width: a 75-column Unicode form stays on one line" "(f$wide12)\n"
+assert_one_line "width: a 75-column Unicode form stays on one line" "(f$wide12)\n"
 
 # ── Parser depth: a deep input is rejected, never fatal (kaappi#2141) ────────
 

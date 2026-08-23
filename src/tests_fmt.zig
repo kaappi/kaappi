@@ -39,7 +39,7 @@ fn expectRoundTrips(src: []const u8) !void {
 
     var gc = memory.GC.init(testing.allocator);
     defer gc.deinit();
-    try testing.expect(fmt.verifyRoundTrip(&gc, src, formatted));
+    try testing.expect(fmt.verifyRoundTrip(&gc, src, formatted) == .ok);
 }
 
 // ── Spacing and gathering ─────────────────────────────────────────────────────
@@ -244,6 +244,57 @@ test "round-trips a spread of forms" {
     for (cases) |c| try expectRoundTrips(c);
 }
 
+test "verifyRoundTrip separates a user read error from a real mismatch" {
+    var gc = memory.GC.init(testing.allocator);
+    defer gc.deinit();
+
+    // A user syntax error in the original: the CST lexer tolerates `#\qqq` but
+    // the real reader rejects it, so it is the original_unreadable case — not a
+    // formatter mismatch (kaappi#2080).
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const bad = "(display #\\qqq)\n";
+    const formatted = try fmt.formatSource(arena.allocator(), bad);
+    switch (fmt.verifyRoundTrip(&gc, bad, formatted)) {
+        .original_unreadable => |f| try testing.expectEqual(@as(u32, 1), f.line),
+        else => return error.ExpectedOriginalUnreadable,
+    }
+
+    // Two texts that both read but to different datums is a real mismatch.
+    switch (fmt.verifyRoundTrip(&gc, "(a b)", "(a c)")) {
+        .mismatch => {},
+        else => return error.ExpectedMismatch,
+    }
+}
+
+test "original_unreadable reports the line after a lone CR" {
+    var gc = memory.GC.init(testing.allocator);
+    defer gc.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    // The `;` comment ends at the lone CR (kaappi#2079); the invalid `#\qqq` is
+    // on line 2, and `getLineCol` must count that CR as a line ending so the
+    // reported position says line 2, not line 1.
+    const bad = "; note\r#\\qqq\n";
+    const formatted = try fmt.formatSource(arena.allocator(), bad);
+    switch (fmt.verifyRoundTrip(&gc, bad, formatted)) {
+        .original_unreadable => |f| try testing.expectEqual(@as(u32, 2), f.line),
+        else => return error.ExpectedOriginalUnreadable,
+    }
+}
+
+test "columnCount never lets a bad lead byte swallow the next byte" {
+    // 0xC2 is a two-byte lead, but 'A' (0x41) is not a continuation byte: the
+    // malformed sequence must count as two columns, not one. A truncated
+    // multi-byte sequence at end-of-slice counts its lead byte alone, and valid
+    // scalars still count one column each (kaappi#2149 review).
+    try testing.expectEqual(@as(usize, 2), fmt_print.columnCount(&.{ 0xC2, 'A' }));
+    try testing.expectEqual(@as(usize, 1), fmt_print.columnCount(&.{0xC2}));
+    try testing.expectEqual(@as(usize, 1), fmt_print.columnCount("λ"));
+    try testing.expectEqual(@as(usize, 3), fmt_print.columnCount("aλb"));
+}
+
 // ── Generated programs: idempotence + round-trip ──────────────────────────────
 
 test "idempotent and semantics-preserving over generated programs" {
@@ -266,7 +317,7 @@ test "idempotent and semantics-preserving over generated programs" {
 
         var gc = memory.GC.init(testing.allocator);
         defer gc.deinit();
-        if (!fmt.verifyRoundTrip(&gc, program, once)) {
+        if (fmt.verifyRoundTrip(&gc, program, once) != .ok) {
             std.debug.print("round-trip drift on seed {d}:\n{s}\n---\n{s}\n", .{ seed, program, once });
             return error.RoundTripDrift;
         }
@@ -420,11 +471,8 @@ test "line endings never affect the output" {
         const crlf = try std.mem.replaceOwned(u8, a, lf, "\n", "\r\n");
         try testing.expectEqualStrings(try fmt.formatSource(a, lf), try fmt.formatSource(a, crlf));
 
-        // The CR-only twin is only a twin for a program with no `;` comment:
-        // this reader does not end one at a lone CR, so converting a commented
-        // program to CR endings genuinely changes what it means. See the
-        // "a lone CR does not end a line comment" test.
-        if (std.mem.indexOfScalar(u8, lf, ';') != null) continue;
+        // The CR-only twin is a twin for every program now that a lone CR ends
+        // a `;` comment too (kaappi#2079).
         const cr = try std.mem.replaceOwned(u8, a, lf, "\n", "\r");
         try testing.expectEqualStrings(try fmt.formatSource(a, lf), try fmt.formatSource(a, cr));
     }
@@ -446,9 +494,10 @@ test "a CR in a datum is program data and survives byte-for-byte" {
 }
 
 test "comment line endings normalise; comment interiors are handled per kind" {
-    // A line comment runs to the `\n`, so its trailing `\r` is that CRLF's
-    // carriage return — dropped, like the trailing spaces beside it. Before
-    // kaappi#1897 this was the one place fmt emitted a CR of its own.
+    // A line comment runs to its line ending — `\n` or a lone `\r` (kaappi#2079)
+    // — so the CR of a CRLF ends it and never reaches the comment text; the LF
+    // is ordinary whitespace. Before kaappi#1897 this was the one place fmt
+    // emitted a CR of its own.
     try expectFormat("(define x 1) ; note\r\n(define y 2)\r\n", "(define x 1) ; note\n(define y 2)\n");
     try expectFormat(";; header\r\n(define x 1)\r\n", ";; header\n(define x 1)\n");
     try expectNoCr("(define x 1) ; note\r\n;; own line\r\n(define y 2)\r\n");
@@ -460,14 +509,11 @@ test "comment line endings normalise; comment interiors are handled per kind" {
     try expectNoCr("#| a\r\nb |#\r\n(define x 1)\r\n");
 }
 
-test "a lone CR does not end a line comment — fmt mirrors the reader" {
-    // R7RS 7.1.1 makes a lone ⟨return⟩ a line ending, but this reader ends a
-    // `;` comment only at `\n` (kaappi#2079). fmt's lexer must carve the same
-    // lexemes the real reader does, so it inherits that: everything after the
-    // `;` is one comment to both, and its interior CR is preserved rather than
-    // normalised — rewriting it to `\n` would promote the tail to real code.
-    // Pinned so the day the reader is fixed, this test says so.
-    try expectFormat("(define x 1) ; note\r(define y 2)\r", "(define x 1) ; note\r(define y 2)\n");
+test "a lone CR ends a line comment — fmt mirrors the reader" {
+    // R7RS 7.1.1 makes a lone ⟨return⟩ a line ending, and the reader now ends a
+    // `;` comment at one (kaappi#2079). fmt's lexer carves the same lexeme, so
+    // the comment stops at the CR and the following datum is not swallowed.
+    try expectFormat("(define x 1) ; note\r(define y 2)\r", "(define x 1) ; note\n(define y 2)\n");
     try expectRoundTrips("(define x 1) ; note\r(define y 2)\r");
     try expectIdempotent("(define x 1) ; note\r(define y 2)\r");
 }

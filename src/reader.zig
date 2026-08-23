@@ -94,6 +94,37 @@ pub const Token = union(enum) {
     eof,
 };
 
+/// 1-based `(line, col)` position in a source buffer.
+pub const LineCol = struct { line: u32, col: u32 };
+
+/// 1-based `(line, col)` of `pos` in `source`, counting `\n`, a lone `\r`, and
+/// `\r\n` each as one line ending (R7RS 7.1.1 ⟨line ending⟩). A lone `\r` only
+/// started ending `;` comments in kaappi#2079, so position reports must agree
+/// with it or a CR-only file's error locations are off by one line.
+fn lineColAt(source: []const u8, pos: usize) LineCol {
+    var line: u32 = 1;
+    var col: u32 = 1;
+    var i: usize = 0;
+    const end = @min(pos, source.len);
+    while (i < end) : (i += 1) {
+        const c = source[i];
+        if (c == '\n') {
+            if (i > 0 and source[i - 1] == '\r') {
+                // The LF of a CRLF — the preceding `\r` already advanced line.
+            } else {
+                line += 1;
+                col = 1;
+            }
+        } else if (c == '\r') {
+            line += 1;
+            col = 1;
+        } else {
+            col += 1;
+        }
+    }
+    return .{ .line = line, .col = col };
+}
+
 pub const Reader = struct {
     source: []const u8,
     pos: usize = 0,
@@ -162,18 +193,8 @@ pub const Reader = struct {
     /// Compute line and column from the current position by scanning from the
     /// start of the source. O(n) per call but only used on error paths and
     /// datum boundaries, not every character advance.
-    pub fn getLineCol(self: *Reader) struct { line: u32, col: u32 } {
-        var line: u32 = 1;
-        var col: u32 = 1;
-        for (self.source[0..self.pos]) |c| {
-            if (c == '\n') {
-                line += 1;
-                col = 1;
-            } else {
-                col += 1;
-            }
-        }
-        return .{ .line = line, .col = col };
+    pub fn getLineCol(self: *Reader) LineCol {
+        return lineColAt(self.source, self.pos);
     }
 
     /// Record the source span of a just-read datum in the GC's span side-table,
@@ -181,38 +202,20 @@ pub const Reader = struct {
     /// (pairs, vectors) can be keyed — interned symbols and immediate atoms
     /// share representations and cannot. `start_pos` is the byte offset of the
     /// datum's first character (captured before reading); `self.pos` is one past
-    /// its last character. A single scan from source start to `self.pos` yields
-    /// both endpoints in 1-based `(line, col)` (kaappi#1506).
+    /// its last character. Both endpoints are 1-based `(line, col)` computed
+    /// with the same CR/LF/CRLF line-ending rules as `getLineCol` (kaappi#1506).
     pub fn recordSpan(self: *Reader, val: Value, start_pos: usize) void {
         if (!self.record_spans) return;
         if (!types.isPair(val) and !types.isVector(val)) return;
         const end_pos = self.pos;
-        var line: u32 = 1;
-        var col: u32 = 1;
-        var start_line: u32 = 1;
-        var start_col: u32 = 1;
-        var i: usize = 0;
-        while (i < end_pos and i < self.source.len) : (i += 1) {
-            if (i == start_pos) {
-                start_line = line;
-                start_col = col;
-            }
-            if (self.source[i] == '\n') {
-                line += 1;
-                col = 1;
-            } else {
-                col += 1;
-            }
-        }
-        if (start_pos >= end_pos) {
-            start_line = line;
-            start_col = col;
-        }
+        const end = lineColAt(self.source, end_pos);
+        // A start at or past the end (an empty span) collapses to the end point.
+        const start = if (start_pos >= end_pos) end else lineColAt(self.source, start_pos);
         self.gc.source_spans.put(val, .{
-            .line = start_line,
-            .col = start_col,
-            .end_line = line,
-            .end_col = col,
+            .line = start.line,
+            .col = start.col,
+            .end_line = end.line,
+            .end_col = end.col,
         }) catch {};
     }
 
@@ -264,7 +267,11 @@ pub const Reader = struct {
             if (c == ' ' or c == '\t' or c == '\n' or c == '\r') {
                 self.pos += 1;
             } else if (c == ';') {
-                while (self.pos < self.source.len and self.source[self.pos] != '\n') {
+                // R7RS 7.1.1: a line comment ends at a ⟨line ending⟩, which is
+                // a newline, a lone return, or return+newline. End at `\n` or
+                // `\r` so a classic-Mac-line-ending file does not swallow
+                // everything after the first `;` (kaappi#2079).
+                while (self.pos < self.source.len and self.source[self.pos] != '\n' and self.source[self.pos] != '\r') {
                     self.pos += 1;
                 }
                 // A line comment cut off by end-of-slice may continue in the
@@ -305,7 +312,7 @@ pub const Reader = struct {
         return unicode.inRanges(&unicode.alphabetic_ranges, cp);
     }
 
-    fn isUnicodeSubsequent(cp: u21) bool {
+    pub fn isUnicodeSubsequent(cp: u21) bool {
         if (cp <= 127) {
             const c: u8 = @intCast(cp);
             return isSubsequent(c);
@@ -329,7 +336,7 @@ pub const Reader = struct {
         };
     }
 
-    fn isSubsequent(c: u8) bool {
+    pub fn isSubsequent(c: u8) bool {
         return isInitial(c) or std.ascii.isDigit(c) or isSpecialSubsequent(c);
     }
 
@@ -975,6 +982,23 @@ test "skip line comment" {
     const s = try readAndPrint(&gc, "; this is a comment\n42");
     defer testing.allocator.free(s);
     try testing.expectEqualStrings("42", s);
+}
+
+test "a lone CR ends a line comment" {
+    var gc = memory.GC.init(testing.allocator);
+    defer gc.deinit();
+
+    // R7RS 7.1.1: ⟨line ending⟩ includes a lone ⟨return⟩, so the comment ends
+    // there and the next datum survives (kaappi#2079).
+    const s = try readAndPrint(&gc, "; comment\r42");
+    defer testing.allocator.free(s);
+    try testing.expectEqualStrings("42", s);
+
+    // Inside a list the swallowed text used to take the closing parens with it,
+    // turning valid code into "unexpected end of input".
+    const t = try readAndPrint(&gc, "(display (+ 1 ; c\r2))\r");
+    defer testing.allocator.free(t);
+    try testing.expectEqualStrings("(display (+ 1 2))", t);
 }
 
 test "fold-case directive lowercases symbols" {

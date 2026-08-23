@@ -29,9 +29,12 @@ kaappi fmt [--check]              # format stdin to stdout
   line — never dangling on a line of its own — unless a trailing line comment
   forces it down.
 * **Reflowed to width.** A form that fits within `max_width` (80) columns is put
-  on one line; one that does not breaks. Layout depends only on the program's
-  content and its comments, **not** on the input's own line breaks, so two files
-  that differ only in whitespace format identically.
+  on one line; one that does not breaks. A "column" is a Unicode code point, so
+  an identifier counts its characters, not its UTF-8 bytes (kaappi#2149). East
+  Asian wide characters and combining marks are not modelled — that would need
+  `wcwidth`; see `columnCount` in `src/fmt_print.zig`. Layout depends only on
+  the program's content and its comments, **not** on the input's own line
+  breaks, so two files that differ only in whitespace format identically.
 * **Verbatim atoms.** Symbol, number, string, and character spellings are never
   rewritten — `1.5e10`, `#xFF`, `#\newline`, `'x` vs `(quote x)` all pass
   through untouched. The formatter rearranges whitespace *between* lexemes; it
@@ -57,10 +60,11 @@ any other:
 | Piped symbol | `\|a<CR>b\|` |
 | Character literal | `#\<CR>` (and its `#\return` spelling) |
 
-Comments are not datums, so both kinds normalise. A line comment's trailing
-`\r` is the carriage return of the CRLF that ended it, and is dropped alongside
-the trailing spaces beside it; a block comment ends at `|#`, so its *interior*
-line endings normalise outright.
+Comments are not datums, so both kinds normalise. A line comment ends at its
+line ending — `\n` or a lone `\r` (R7RS 7.1.1, kaappi#2079) — so the carriage
+return of a CRLF is never part of the comment text; trailing spaces and tabs are
+the only invisible bytes stripped. A block comment ends at `|#`, so its
+*interior* line endings normalise outright.
 
 `--check` reports a file that differs only in line endings, because `fmt` would
 rewrite it. The two share one comparison in `formatFile`, so they can never
@@ -91,17 +95,6 @@ fix is the same one Go and Zig projects use — normalise the checkout:
 
 or `git config core.autocrlf input`. This repo needs neither: no tracked
 `.scm`/`.sld` contains a CR.
-
-### Known deviation: a lone CR does not end a `;` comment
-
-R7RS 7.1.1 defines `⟨line ending⟩ → ⟨newline⟩ | ⟨return⟩ ⟨newline⟩ | ⟨return⟩`
-and ends a `;` comment at one, but this **reader** ends it only at `\n`
-(kaappi#2079) — so in a classic-Mac-line-ending file everything after the first
-`;` is one comment. `fmt`'s lexer mirrors the real reader by design, so it
-inherits that: the comment's interior CR is preserved rather than normalised,
-since rewriting it to `\n` would split the comment and promote its tail to real
-code. Every other lone CR in such a file does become LF. `fmt` is faithful to
-what the program means today; fixing the reader is what changes it.
 
 ## Why it needs its own reader
 
@@ -161,10 +154,18 @@ Layout can only rearrange whitespace between lexemes, so the datums a program
 reads are invariant by construction. That invariant is *also checked at
 runtime*: before writing any file, `verifyRoundTrip` re-reads both the original
 and the formatted text **with the real reader** and compares the datum sequences
-with `equal?` (`primitives.deepEqual`). On any mismatch — or if either side
-fails to read — `fmt` refuses to write and reports an error. A bug in the
-lexer, parser, or printer can therefore never corrupt a source file; at worst a
-file is left unformatted.
+with `equal?` (`primitives.deepEqual`). The two failure modes are kept distinct
+(kaappi#2080):
+
+* If the **original** does not read — a user syntax error the CST lexer happened
+  to tolerate, such as `#\qqq` — `fmt` reports the reader's own `KP1xxx`
+  diagnostic with its line and column, exactly as `kaappi check` does.
+* If the original reads but the **formatted** text does not, or the two read to
+  different datum sequences, that is a genuine formatter bug and `fmt` refuses
+  to write with an "internal error" message.
+
+Either way a bug in the lexer, parser, or printer can never corrupt a source
+file; at worst a file is left unformatted.
 
 One consequence: a source whose datums cannot be compared this way — in
 practice, only a file containing a self-referential datum label the real reader

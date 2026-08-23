@@ -89,6 +89,17 @@ assert_exit "write: result is already formatted" 0 "$KAAPPI" fmt --check "$TMP/w
 printf '(a b c\n' > "$TMP/unterminated.scm"
 assert_exit "error: unterminated list exits 1" 1 "$KAAPPI" fmt --check "$TMP/unterminated.scm"
 
+# A user syntax error the CST lexer tolerates but the real reader rejects (e.g.
+# an invalid character name) must be reported as the reader's own KP1xxx
+# diagnostic with its position — not as an internal formatter fault (kaappi#2080).
+printf '(display #\\qqq)\n' > "$TMP/reader-error.scm"
+err="$("$KAAPPI" fmt --check "$TMP/reader-error.scm" 2>&1)" || true
+if [[ "$err" == *"read error[KP1005]"* && "$err" != *"internal error"* ]]; then
+    pass "error: reader diagnostic for a user syntax error (not internal)"
+else
+    fail "error: reader diagnostic for a user syntax error (not internal)" "stderr: [$err]"
+fi
+
 # ── Regression #1652: arguments past the 64th must not be dropped ────────────
 # The CLI once collected script args into a fixed [64] buffer and silently
 # discarded the rest, so a single fmt/--check invocation over a big file list

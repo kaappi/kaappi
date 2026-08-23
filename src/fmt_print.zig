@@ -50,7 +50,10 @@ pub fn print(arena: std.mem.Allocator, nodes: []Node) error{OutOfMemory}![]u8 {
 const Printer = struct {
     out: *std.ArrayList(u8),
     a: std.mem.Allocator,
-    /// Column (byte offset since the last newline) of the write cursor.
+    /// Column (Unicode scalar count since the last newline) of the write cursor.
+    /// Not a byte offset: `raw` advances it by the codepoint width of the text
+    /// it emits, so a wide identifier counts its characters, not its UTF-8 bytes
+    /// (kaappi#2149).
     col: usize = 0,
     /// The current line ends in a line comment, so nothing more may be appended
     /// to it — the next token, and any closing paren, must start a new line.
@@ -59,9 +62,9 @@ const Printer = struct {
     fn raw(self: *Printer, s: []const u8) error{OutOfMemory}!void {
         try self.out.appendSlice(self.a, s);
         if (std.mem.lastIndexOfScalar(u8, s, '\n')) |nl| {
-            self.col = s.len - nl - 1;
+            self.col = columnCount(s[nl + 1 ..]);
         } else {
-            self.col += s.len;
+            self.col += columnCount(s);
         }
         self.line_comment_open = false;
     }
@@ -288,8 +291,50 @@ const Printer = struct {
 
 // ── Measurement ──────────────────────────────────────────────────────────────
 
-/// Inline width of `node` in bytes, or null if it cannot be one line (contains a
-/// line comment, a multi-line block comment, or an atom with an embedded
+/// Display width of `s` in columns: the number of Unicode scalar values, with
+/// any malformed UTF-8 byte counting one column each (a bad lead byte never
+/// swallows the bytes after it). This is what "fits within `max_width` columns"
+/// means — an identifier's width is its character count, not its UTF-8 byte
+/// count (kaappi#2149). It deliberately does not model East Asian wide
+/// characters or combining marks, which would need wcwidth; see docs/dev/fmt.md.
+pub fn columnCount(s: []const u8) usize {
+    var n: usize = 0;
+    var i: usize = 0;
+    while (i < s.len) {
+        const c = s[i];
+        if (c < 0x80) {
+            n += 1;
+            i += 1;
+            continue;
+        }
+        const seq = std.unicode.utf8ByteSequenceLength(c) catch {
+            // A stray continuation byte or invalid lead: one column.
+            n += 1;
+            i += 1;
+            continue;
+        };
+        if (i + seq > s.len) {
+            // A multi-byte sequence truncated by end-of-slice: count the lead.
+            n += 1;
+            i += 1;
+            continue;
+        }
+        _ = std.unicode.utf8Decode(s[i .. i + seq]) catch {
+            // Malformed (bad continuation, overlong, surrogate, out of range):
+            // count only the leading byte so it never swallows a following
+            // ASCII byte as a bogus continuation.
+            n += 1;
+            i += 1;
+            continue;
+        };
+        n += 1;
+        i += seq;
+    }
+    return n;
+}
+
+/// Inline width of `node` in columns, or null if it cannot be one line (contains
+/// a line comment, a multi-line block comment, or an atom with an embedded
 /// newline). Memoised on the node so repeated fit checks stay linear.
 fn measure(node: *Node) ?usize {
     if (node.width_computed) return node.inline_width;
@@ -304,18 +349,18 @@ fn computeMeasure(node: *Node) ?usize {
         .line_comment => return null,
         .atom, .block_comment => {
             if (std.mem.indexOfScalar(u8, node.text, '\n') != null) return null;
-            return node.text.len;
+            return columnCount(node.text);
         },
         .prefix => {
             const child = measure(&node.children[0]) orelse return null;
-            return node.text.len + child;
+            return columnCount(node.text) + child;
         },
         .datum_comment => {
             const child = measure(&node.children[0]) orelse return null;
             return 2 + child; // "#;" glued to its datum
         },
         .list => {
-            var total: usize = node.text.len + 1; // open delimiter + ")"
+            var total: usize = columnCount(node.text) + 1; // open delimiter + ")"
             for (node.children, 0..) |*child, i| {
                 const w = measure(child) orelse return null;
                 total += w;
@@ -351,14 +396,30 @@ fn hasBodyBlank(node: *Node) bool {
     const first_body: usize = if (op_idx == null or op_idx.? != 0 or node.is_data)
         1 // vertical layout: only the first element shares the open line
     else switch (styleOf(node)) {
-        .body => |n| n + 1, // operator + n distinguished subforms on the head line
-        .call => 2, // operator + first argument on the head line
+        .body => |n| bodyStartByCodeCount(children, n + 1),
+        .call => bodyStartByCodeCount(children, 2),
     };
     if (first_body >= children.len) return false;
     for (children[first_body..]) |child| {
         if (child.newlines_before >= 2) return true;
     }
     return false;
+}
+
+/// Index of the first child past `head_code` code items. The printer's head-line
+/// count (`placed` in `emitBodyStyle` / the operator + first argument in
+/// `emitCallStyle`) counts *code* items; a same-line comment rides the head line
+/// without consuming a slot. Counting by index — as the old `n + 1` formula did
+/// — shifts the boundary one right for every head-line comment and makes
+/// `hasBodyBlank` read the blank of an item the printer is about to drop,
+/// breaking idempotence (kaappi#2142).
+fn bodyStartByCodeCount(children: []Node, head_code: usize) usize {
+    var code_seen: usize = 0;
+    var i: usize = 0;
+    while (i < children.len and code_seen < head_code) : (i += 1) {
+        if (!isComment(children[i].kind)) code_seen += 1;
+    }
+    return i;
 }
 
 fn styleOf(node: *Node) Style {

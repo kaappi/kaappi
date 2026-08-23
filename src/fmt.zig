@@ -22,9 +22,12 @@
 //! change them, so the datums a program reads are invariant. That invariant is
 //! also *checked at runtime*: before writing any file, `verifyRoundTrip` re-reads
 //! the original and the formatted text with the real reader and compares the
-//! datum sequences with `equal?`. On any mismatch — or if either side fails to
-//! read — `fmt` refuses to write and reports it, so a bug here can never corrupt
-//! a source file.
+//! datum sequences with `equal?`. The two failure modes are kept distinct
+//! (kaappi#2080): if the *original* does not read — a user syntax error the CST
+//! lexer tolerated — the reader's own `KP1xxx` diagnostic is reported; only a
+//! real mismatch between two successfully-read datum sequences (or a formatted
+//! text that fails to read) is reported as an internal error. Either way a bug
+//! here can never corrupt a source file.
 //!
 //! **Line endings are LF** (kaappi#1897), the same policy `zig fmt` applies to
 //! this compiler's own Zig. Every line break `fmt` emits is a bare `\n`; a CRLF
@@ -47,6 +50,7 @@ const memory = @import("memory.zig");
 const reader_mod = @import("reader.zig");
 const primitives = @import("primitives.zig");
 const reporting = @import("reporting.zig");
+const toplevel_driver = @import("toplevel_driver.zig");
 const file_utils = @import("file_utils.zig");
 const fmt_print = @import("fmt_print.zig");
 
@@ -192,7 +196,9 @@ const Lexer = struct {
                 break :blk .prefix;
             },
             ';' => blk: {
-                while (self.pos < self.src.len and self.src[self.pos] != '\n') self.pos += 1;
+                // R7RS 7.1.1 ends a `;` comment at any line ending, including a
+                // lone `\r` (kaappi#2079) — mirror the reader's scan.
+                while (self.pos < self.src.len and self.src[self.pos] != '\n' and self.src[self.pos] != '\r') self.pos += 1;
                 break :blk .line_comment;
             },
             '"' => blk: {
@@ -205,7 +211,7 @@ const Lexer = struct {
             },
             '#' => try self.scanHash(),
             else => blk: {
-                self.scanAtom();
+                self.scanIdentifier();
                 break :blk .atom;
             },
         };
@@ -236,7 +242,7 @@ const Lexer = struct {
         // SRFI 207 string-notated bytevector #u8"...": one verbatim lexeme,
         // like the ordinary string it contains-ish -- checked before the
         // plain "#u8(" case can't apply and before falling through to
-        // scanAtom, which would otherwise stop at the `"` (a delimiter)
+        // scanHashAtom, which would otherwise stop at the `"` (a delimiter)
         // and split this into two lexemes ("#u8" then a separate string).
         if (rest.len >= 4 and std.mem.eql(u8, rest[0..3], "#u8") and rest[3] == '"') {
             self.pos += 3;
@@ -262,7 +268,7 @@ const Lexer = struct {
                 return .prefix;
             }
         }
-        self.scanAtom();
+        self.scanHashAtom();
         return .atom;
     }
 
@@ -291,10 +297,52 @@ const Lexer = struct {
         return ParseError.UnterminatedString;
     }
 
-    fn scanAtom(self: *Lexer) void {
-        // `#` dispatches specially only at a token boundary (see `scanHash`), so
-        // as an interior constituent it is ordinary: this keeps `#0#` (a datum
-        // label reference) and `#e#xFF` (stacked prefixes) single atoms.
+    /// A non-`#` atom: an identifier, number, or the peculiar `+`/`-`/`.`
+    /// spellings. Ends the way `Reader.readSymbol` does — at the first byte that
+    /// is not an R7RS ⟨subsequent⟩ (ASCII) or a Unicode letter (non-ASCII) — so
+    /// a `#`-led lexeme glued to an identifier splits into the identifier plus
+    /// the `#` lexeme, exactly as the real reader carves it (kaappi#2143).
+    fn scanIdentifier(self: *Lexer) void {
+        // Consume the first byte — or whole codepoint for a multi-byte UTF-8
+        // lead — unconditionally: the caller only reaches this branch for a byte
+        // that can start an atom (mirroring `Reader.nextToken`'s dispatch), and
+        // consuming it guarantees progress even on a stray byte that is not a
+        // valid atom start (which the round-trip guard will then report).
+        const first = self.src[self.pos];
+        if (first < 0x80) {
+            self.pos += 1;
+        } else {
+            const seq_len = std.unicode.utf8ByteSequenceLength(first) catch 1;
+            self.pos += @min(seq_len, self.src.len - self.pos);
+        }
+        // Then consume ⟨subsequent⟩ bytes, exactly as `Reader.readSymbol` does.
+        while (self.pos < self.src.len) {
+            const c = self.src[self.pos];
+            if (c < 0x80) {
+                if (reader_mod.Reader.isSubsequent(c)) {
+                    self.pos += 1;
+                } else {
+                    break;
+                }
+            } else {
+                const seq_len = std.unicode.utf8ByteSequenceLength(c) catch break;
+                if (self.pos + seq_len > self.src.len) break;
+                const cp = std.unicode.utf8Decode(self.src[self.pos .. self.pos + seq_len]) catch break;
+                if (reader_mod.Reader.isUnicodeSubsequent(cp)) {
+                    self.pos += seq_len;
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    /// A `#`-led atom (booleans, radix/exactness numbers, datum-label
+    /// references `#0#`, stacked prefixes `#e#xFF`). Unlike `scanIdentifier`,
+    /// `#` is an interior constituent here — the carve-outs above this scan are
+    /// the only `#`-led lexemes that dispatch specially, and everything else
+    /// reaching `scanHash`'s fallthrough is a single verbatim atom.
+    fn scanHashAtom(self: *Lexer) void {
         self.pos += 1;
         while (self.pos < self.src.len and !isDelimiter(self.src[self.pos])) {
             self.pos += 1;
@@ -427,17 +475,14 @@ const Parser = struct {
                     else => .atom,
                 },
                 // Neither comment kind is a datum, so both get the LF policy
-                // (see the module header). A line comment runs to the `\n` that
-                // ends it, so a trailing `\r` is that CRLF's carriage return —
-                // dropping it is what keeps commented lines from being the one
-                // place `fmt` emits a CR. Interior bytes are *not* rewritten:
-                // this reader ends a `;` comment only at `\n` (kaappi#2079), so
-                // turning an interior CR into `\n` would split the comment and
-                // promote its tail to code. Block comments have no such hazard —
-                // they end at `|#` — so their line endings normalise outright.
-                // Atom text stays byte-for-byte: a CR in a string is program data.
+                // (see the module header). A line comment now runs to its line
+                // ending — `\n` or a lone `\r` (kaappi#2079) — so its text
+                // holds no newline; trailing spaces/tabs are the only invisible
+                // bytes to strip. Block comments end at `|#`, so their interior
+                // line endings normalise outright. Atom text stays byte-for-byte:
+                // a CR in a string is program data.
                 .text = switch (tok.kind) {
-                    .line_comment => std.mem.trimEnd(u8, tok.text, " \t\r"),
+                    .line_comment => std.mem.trimEnd(u8, tok.text, " \t"),
                     .block_comment => try normalizeEol(self.arena, tok.text),
                     else => tok.text,
                 },
@@ -524,41 +569,85 @@ pub fn formatSource(arena: std.mem.Allocator, source: []const u8) ParseError![]u
     return fmt_print.print(arena, nodes);
 }
 
+/// Why the round-trip safety net declined. Only `mismatch` is an internal
+/// error; `original_unreadable` is the user's own syntax error — a file the CST
+/// lexer tolerated but the real reader rejects — and is reported with the
+/// reader's own `KP1xxx` diagnostic and position (kaappi#2080). `oom` is an
+/// allocator failure, which is neither.
+pub const RoundTrip = union(enum) {
+    /// Both texts read to the same datum sequence — safe to write.
+    ok,
+    /// The original does not read.
+    original_unreadable: ReadFailure,
+    /// Either text could not be read because the heap was exhausted.
+    oom,
+    /// The original reads but the formatted text does not, or the two read to
+    /// different datum sequences — a genuine formatter bug.
+    mismatch,
+};
+
+pub const ReadFailure = struct {
+    line: u32,
+    col: u32,
+    err: anyerror,
+};
+
 /// True when `original` and `formatted` read to `equal?` datum sequences. This
-/// is the safety net: layout must never change the program a reader sees. Any
-/// read failure on either side (or a length/element mismatch) returns false, so
-/// the caller refuses to write.
-pub fn verifyRoundTrip(gc: *memory.GC, original: []const u8, formatted: []const u8) bool {
+/// is the safety net: layout must never change the program a reader sees. The
+/// failure mode distinguishes a user read error in `original` (which the caller
+/// reports with the reader's own diagnostic) from a real mismatch (an internal
+/// error).
+pub fn verifyRoundTrip(gc: *memory.GC, original: []const u8, formatted: []const u8) RoundTrip {
     const roots_base = gc.extra_roots.items.len;
     defer gc.extra_roots.shrinkRetainingCapacity(roots_base);
 
     var orig_list: std.ArrayList(Value) = .empty;
     defer orig_list.deinit(gc.allocator);
-    if (!readAllRooted(gc, original, &orig_list)) return false;
+    switch (readAllRooted(gc, original, &orig_list)) {
+        .ok => {},
+        .read_error => |f| return .{ .original_unreadable = f },
+        .oom => return .oom,
+    }
 
     var fmt_list: std.ArrayList(Value) = .empty;
     defer fmt_list.deinit(gc.allocator);
-    if (!readAllRooted(gc, formatted, &fmt_list)) return false;
-
-    if (orig_list.items.len != fmt_list.items.len) return false;
-    for (orig_list.items, fmt_list.items) |a, b| {
-        if (!primitives.deepEqual(a, b)) return false;
+    switch (readAllRooted(gc, formatted, &fmt_list)) {
+        .ok => {},
+        .read_error => return .mismatch,
+        .oom => return .oom,
     }
-    return true;
+
+    if (orig_list.items.len != fmt_list.items.len) return .mismatch;
+    for (orig_list.items, fmt_list.items) |a, b| {
+        if (!primitives.deepEqual(a, b)) return .mismatch;
+    }
+    return .ok;
 }
+
+const ReadOutcome = union(enum) {
+    ok,
+    read_error: ReadFailure,
+    oom,
+};
 
 /// Read every datum from `source`, appending to `out` and mirroring each into
 /// `gc.extra_roots` so a later read's allocations cannot collect earlier datums.
-/// Returns false on any read error.
-fn readAllRooted(gc: *memory.GC, source: []const u8, out: *std.ArrayList(Value)) bool {
+fn readAllRooted(gc: *memory.GC, source: []const u8, out: *std.ArrayList(Value)) ReadOutcome {
     var r = reader_mod.Reader.init(gc, source);
     defer r.deinit();
-    while (r.hasMore() catch return false) {
-        const datum = r.readDatum() catch return false;
-        out.append(gc.allocator, datum) catch return false;
-        gc.extra_roots.append(gc.allocator, datum) catch return false;
+    while (true) {
+        const more = r.hasMore() catch |err| {
+            const lc = r.getLineCol();
+            return .{ .read_error = .{ .line = lc.line, .col = lc.col, .err = err } };
+        };
+        if (!more) return .ok;
+        const datum = r.readDatum() catch |err| {
+            const lc = r.getLineCol();
+            return .{ .read_error = .{ .line = lc.line, .col = lc.col, .err = err } };
+        };
+        out.append(gc.allocator, datum) catch return .oom;
+        gc.extra_roots.append(gc.allocator, datum) catch return .oom;
     }
-    return true;
 }
 
 // ── CLI entry ────────────────────────────────────────────────────────────────
@@ -610,9 +699,23 @@ fn formatFile(gc: *memory.GC, path: []const u8, check: bool) FileOutcome {
         return .failed;
     };
 
-    if (!verifyRoundTrip(gc, source, formatted)) {
-        reportFileError(path, "internal error: formatting would change the program; file left unchanged");
-        return .failed;
+    switch (verifyRoundTrip(gc, source, formatted)) {
+        .ok => {},
+        .original_unreadable => |f| {
+            // The user's own syntax error: report it with the reader's KP1xxx
+            // diagnostic and position, not as an internal formatter fault
+            // (kaappi#2080).
+            toplevel_driver.reportReadError(path, f.line, f.col, f.err);
+            return .failed;
+        },
+        .oom => {
+            reportFileError(path, "out of memory");
+            return .failed;
+        },
+        .mismatch => {
+            reportFileError(path, "internal error: formatting would change the program; file left unchanged");
+            return .failed;
+        },
     }
 
     if (std.mem.eql(u8, formatted, source)) return .ok;
@@ -648,9 +751,21 @@ fn runStdin(gc: *memory.GC, check: bool) u8 {
         return 1;
     };
 
-    if (!verifyRoundTrip(gc, source, formatted)) {
-        writeStderr("kaappi fmt: internal error: formatting would change the program\n");
-        return 1;
+    switch (verifyRoundTrip(gc, source, formatted)) {
+        .ok => {},
+        .original_unreadable => |f| {
+            // The user's own syntax error (kaappi#2080).
+            toplevel_driver.reportReadError("<stdin>", f.line, f.col, f.err);
+            return 1;
+        },
+        .oom => {
+            writeStderr("kaappi fmt: out of memory\n");
+            return 1;
+        },
+        .mismatch => {
+            writeStderr("kaappi fmt: internal error: formatting would change the program\n");
+            return 1;
+        },
     }
 
     if (check) return if (std.mem.eql(u8, formatted, source)) 0 else 1;
