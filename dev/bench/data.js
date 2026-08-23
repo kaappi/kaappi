@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787467403397,
+  "lastUpdate": 1787473627006,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "23bbc49339cc66deadbee9e29e70c96486cdd2ab",
-          "message": "Phase 7A: unify port-satellite tracing behind one enumeration (#2098)\n\nFive sites hand-traced Port's Value-bearing satellites, and nothing checked\nthat they agreed. The premise was worth measuring before refactoring on it,\nso three mutations went in first and came back out:\n\n  Port.probe_proc: Value          -> missed by 3 of 5, use-after-free\n  CustomBacking.probe_cb: Value   -> missed by 3 of 5, use-after-free\n  Port.probe_state: ?*ProbeState  -> missed by 5 of 5, UAF + leak\n\nEvery one compiled clean under `zig build`, and every one made a rooted\nport's referent fail expectAlive -- a real reclaim, not a projected one.\n\nTwo corrections to the premise fell out. `zig build test` was never silent:\n7B's expectFields pin catches all three, so the gap is the product build,\nnot the test build. And the common case is 3 of 5, not 5 of 5 -- objectSize\nuses @sizeOf and freeObject uses destroy(), so both stay right when a field\nlands inside an existing satellite. Only a brand-new satellite misses all\nfive, which is why the fix gates that case specifically.\n\ntypes_port.forEachValue is now the single enumeration, with satelliteBytes\nand destroySatellites deriving the two sweep arms. It lives in types_port.zig\nfor the reason the old comment already gave: types.zig cannot import\nmemory.zig without a cycle. Expressing the enumeration there and letting each\ncaller pass its own action is what makes sharing possible -- and it preserves\nmarkValueInner's worklist append, which is precisely why that arm duplicated\nmarkPortValues instead of calling it. No arm changed what it does; they\nstopped disagreeing about which fields to do it to.\n\nTwo comptime gates move the satellite case into `zig build`: an unclassified\n?*T field on Port is an error, and a satellite declared value-free must be\nvalue-free. A Value added to Port or to an existing satellite now needs no\nGC edit at all.\n\nSeven cases extend src/tests_gc_tracing.zig. The mutation test proper counts\nits expectation from @typeInfo rather than from the walk it checks, over a\nport carrying both satellites at once -- a shape nothing previously covered.\n10 mutations, all killed, 7 by tests rather than incidental compile errors.\n\nPort is the only heap type owning a non-Object satellite struct that holds\nValues; the one analogue, Transformer.def_env, is already #1962. No new\nissues -- the arms were all correct, and the risk measured here is closed.\n\nAudit v2 Phase 7A (#1890).\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T21:18:48+05:30",
-          "tree_id": "922b5dfaaf6b161fb42e33e135d6ab56991ae2fd",
-          "url": "https://github.com/kaappi/kaappi/commit/23bbc49339cc66deadbee9e29e70c96486cdd2ab"
-        },
-        "date": 1785609290760,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 2.995059,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 5.434807,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.404384,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.10607,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004209,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.035899,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.220897,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.040749,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.092585,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.899501,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.182149,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.224822,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.304599,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.723058,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.034744,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045267,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a18a3b54508f2b2ac8a7ea222bb87ceb79e8ffa6",
+          "message": "Enforce lambda-style arity in top-level define-values (Fixes #550) (#2286)\n\nTop-level `(define-values <formals> <expr>)` is intercepted by\n`handleDefineValues` in vm_eval.zig rather than compiled through the normal\n`call-with-values`/consumer-lambda desugaring. Its handwritten binding logic\nmatched formals to values only up to whichever ran out first: it bound a\nprefix, ignored extras, left missing names uncreated, and continued. So every\nfixed-arity mismatch that produced a *single* value ran silently with exit 0 —\n`(define-values (a b) (values 1))`, `(define-values () 42)`,\n`(define-values (a b) 1)` — while the identical definition one scope in already\nraised, because the compiler desugaring enforces the arity through a lambda.\n\nRewrite the handler to match values to formals with lambda-style arity, exactly\nas R7RS 5.3.3 / SRFI 244 specify: a fixed list requires an exact count, a dotted\nlist a minimum, a bare identifier collects all values with no constraint. The\ncheck runs before any global is defined, so a mismatch leaves no partial\nbindings and raises the same KP3003 (`ArityMismatch`) the internal path does —\nreplacing the KP2001 the multi-value arm used to return for the same condition.\n\nThe genuine top-level path fires only for a bare top-level form (not one in a\nlet/lambda body, nor one handed to `eval` with an immutable `(environment ...)`,\nwhich raises KP3007 first), and a top-level raise flips the whole file's exit\ncode — so it cannot be asserted from a SRFI-64 file. Cover it out-of-process in\ntests/scheme/errors/define-values-toplevel-arity-550.sh (exit code + KP3003 for\nevery mismatch shape, exit 0 + output for every well-matched shape), add Zig\nunit tests exercising handleDefineValues directly, and retire srfi244.scm's\nnow-obsolete \"silently accepted\" probes.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-23T13:21:04+05:30",
+          "tree_id": "2c8ee64b784b1baa37aaa4b2f42f5f3636d53ccb",
+          "url": "https://github.com/kaappi/kaappi/commit/a18a3b54508f2b2ac8a7ea222bb87ceb79e8ffa6"
+        },
+        "date": 1787473625870,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.313996,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.282685,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.623772,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.018883,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005008,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048766,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.322366,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057088,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.934788,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.216192,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.704133,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.293289,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.805439,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.698439,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045888,
             "unit": "seconds"
           }
         ]
