@@ -636,6 +636,51 @@ test "define-values clause where one bound name calls another (#1719)" {
     , 42);
 }
 
+test "top-level define-values enforces lambda-style arity (#550)" {
+    // handleDefineValues (the top-level interception in vm_eval.zig) used to
+    // bind a prefix of the formals and continue whenever the producer yielded
+    // a single non-`values` result, so fixed-arity mismatches ran silently —
+    // unlike the internal-definition path, which desugars through
+    // call-with-values and a consumer lambda. Each shape below must now raise
+    // ArityMismatch (KP3003) at true top level, before defining any global.
+    const mismatches = [_][]const u8{
+        "(define-values (a b) (values 1))", // too few fixed values
+        "(define-values (a b) (values 1 2 3))", // too many fixed values
+        "(define-values () 42)", // zero formals against one value
+        "(define-values (a b) 1)", // a bare single value for two formals
+        "(define-values (a b . rest) (values 1))", // dotted: below the minimum
+        "(define-values (a b c) (values 1 2))", // multi-value below the count
+    };
+    for (mismatches) |src| {
+        var ctx: th.TestContext = undefined;
+        try ctx.init();
+        defer ctx.deinit();
+        try std.testing.expectError(vm_mod.VMError.ArityMismatch, ctx.vm.eval(src));
+    }
+}
+
+test "top-level define-values accepts every well-matched formals shape (#550)" {
+    // The arity check must not reject a correct match. A fresh VM per case
+    // keeps a raised binding from leaking into the next.
+    const Case = struct { src: []const u8, want: i64 };
+    const cases = [_]Case{
+        .{ .src = "(define-values (a b) (values 1 2)) (+ a b)", .want = 3 },
+        .{ .src = "(define-values (x) (+ 20 22)) x", .want = 42 },
+        .{ .src = "(define-values (h . t) (values 1 2 3)) (+ h (car t) (cadr t))", .want = 6 },
+        .{ .src = "(define-values (h . t) (values 9)) (if (null? t) h -1)", .want = 9 },
+        .{ .src = "(define-values xs (values 1 2 3)) (apply + xs)", .want = 6 },
+        .{ .src = "(define-values xs (values)) (length xs)", .want = 0 },
+        .{ .src = "(define-values () (values)) 7", .want = 7 },
+    };
+    for (cases) |c| {
+        var ctx: th.TestContext = undefined;
+        try ctx.init();
+        defer ctx.deinit();
+        const result = try ctx.vm.eval(c.src);
+        try std.testing.expectEqual(c.want, types.toFixnum(result));
+    }
+}
+
 test "begin-wrapped internal define stays local at top level (#2075)" {
     // R7RS 4.2.3: a definition-context `begin` behaves exactly as if the
     // wrapper were absent, so a define inside it must shadow an enclosing
