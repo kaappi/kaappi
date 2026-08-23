@@ -264,7 +264,11 @@ pub const Reader = struct {
             if (c == ' ' or c == '\t' or c == '\n' or c == '\r') {
                 self.pos += 1;
             } else if (c == ';') {
-                while (self.pos < self.source.len and self.source[self.pos] != '\n') {
+                // R7RS 7.1.1: a line comment ends at a ⟨line ending⟩, which is
+                // a newline, a lone return, or return+newline. End at `\n` or
+                // `\r` so a classic-Mac-line-ending file does not swallow
+                // everything after the first `;` (kaappi#2079).
+                while (self.pos < self.source.len and self.source[self.pos] != '\n' and self.source[self.pos] != '\r') {
                     self.pos += 1;
                 }
                 // A line comment cut off by end-of-slice may continue in the
@@ -305,7 +309,7 @@ pub const Reader = struct {
         return unicode.inRanges(&unicode.alphabetic_ranges, cp);
     }
 
-    fn isUnicodeSubsequent(cp: u21) bool {
+    pub fn isUnicodeSubsequent(cp: u21) bool {
         if (cp <= 127) {
             const c: u8 = @intCast(cp);
             return isSubsequent(c);
@@ -329,7 +333,7 @@ pub const Reader = struct {
         };
     }
 
-    fn isSubsequent(c: u8) bool {
+    pub fn isSubsequent(c: u8) bool {
         return isInitial(c) or std.ascii.isDigit(c) or isSpecialSubsequent(c);
     }
 
@@ -975,6 +979,23 @@ test "skip line comment" {
     const s = try readAndPrint(&gc, "; this is a comment\n42");
     defer testing.allocator.free(s);
     try testing.expectEqualStrings("42", s);
+}
+
+test "a lone CR ends a line comment" {
+    var gc = memory.GC.init(testing.allocator);
+    defer gc.deinit();
+
+    // R7RS 7.1.1: ⟨line ending⟩ includes a lone ⟨return⟩, so the comment ends
+    // there and the next datum survives (kaappi#2079).
+    const s = try readAndPrint(&gc, "; comment\r42");
+    defer testing.allocator.free(s);
+    try testing.expectEqualStrings("42", s);
+
+    // Inside a list the swallowed text used to take the closing parens with it,
+    // turning valid code into "unexpected end of input".
+    const t = try readAndPrint(&gc, "(display (+ 1 ; c\r2))\r");
+    defer testing.allocator.free(t);
+    try testing.expectEqualStrings("(display (+ 1 2))", t);
 }
 
 test "fold-case directive lowercases symbols" {
