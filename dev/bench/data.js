@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787500149452,
+  "lastUpdate": 1787514633479,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "04452d1ffdacacfe13b47aecead439048e86ba64",
-          "message": "Phase 4D: diff the corpus under wasmtime against the interpreter (#2122)\n\nThe WASM tier shipped in every release and backs the playground, and it\nwas checked by four hand-written programs asserting their own results\nplus an exit code. A build that ran but answered differently would pass.\n\nThis adds run-wasm-differential.sh, the sibling of the Phase 4B harness:\nthe interpreter is the oracle, and every corpus file must produce\nbyte-identical stdout, an identical exit status, and identical\nnormalised stderr under `wasmtime run --dir=.`. It exits 77 where there\nis no runtime or no module, so run-all.sh picks it up everywhere and\nonly actually runs it where it can.\n\n591 files swept. 184 agree byte-for-byte, 3 are documented degradations\nmatched on the engine's own message text, and 4 diverge:\n\n  #2107  write/display of an 848-deep car nest aborts the module with an\n         out-of-bounds memory access. MAX_PRINT_DEPTH's 1024 guard is\n         unreachable on wasm32 -- build.zig gives every native executable\n         a 64 MB stack and wasm_exe is the one with no stack_size at all.\n         Uncatchable: a `guard` with a #t clause never runs. The\n         regression test for closed #49 is itself one of the files that\n         aborts.\n  #2108  no file-backed .sld is importable even when the host mounts it,\n         because platform.openRead has no WASI branch and so\n         resolveLibraryPath's existence probe fails for every candidate.\n         This is why 401 of the 591 files cannot run on this tier at all.\n  #2109  (command-line) is '() and vm.lib_paths is empty -- main.zig's\n         WASM entry returns before both are set, leaving a now-dead\n         `if (!is_wasm)` inside the block it skips.\n  #1912  (pre-existing) index arguments truncate to u32 inside the bounds\n         check, so 2^32+1 aliases element 1 -- a silent wrong read and a\n         silent wrong write.\n\nThe 401 unrunnable files are reported as their own line rather than\nquietly excluded, so a green run cannot be mistaken for broad coverage:\nit covers 184 files, not 591. When #2108 is fixed that count collapses\nand the compared count jumps.\n\nTwo probes join the shared corpus. large-index-bounds-1912.scm pins\n#1912 with the control that attributes it to truncation rather than to a\nmissing bounds check. deep-nesting-print-tier-margin.scm is the positive\ncontrol for #2107 -- depth 500, a 40% margin under the measured 847\ncliff, so it stays green on both tiers and the harness watches the\nheadroom instead of only the known failure.\n\nKNOWN_DIFFS suppresses the four while they are open, and note_stale\nreports an entry that stops diverging -- from the agreeing, library and\nplatform buckets alike, since an entry that merely shifts bucket is\nequally stale and would otherwise keep suppressing a bucket nobody\nreviewed.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-02T00:32:20+05:30",
-          "tree_id": "35afde66877167fdef393b70547afa19f5c5a5be",
-          "url": "https://github.com/kaappi/kaappi/commit/04452d1ffdacacfe13b47aecead439048e86ba64"
-        },
-        "date": 1785614873202,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.806739,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.064286,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.524465,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.640263,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004815,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.044186,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.27265,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.052811,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.761354,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.079753,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.425781,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.255476,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.657415,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.873965,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041663,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046274,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e5bd7747e235ff10a1a7a8866eb695016165ab88",
+          "message": "Fix fmt round-trip, lexer, idempotence, and width audit findings (#2291)\n\n* Fix fmt round-trip, lexer, idempotence, and width audit findings\n\nFive defects from the systematic audit (Phase 6), all in the formatter\nand the reader it mirrors:\n\n- #2079: a lone CR now ends a `;` comment, per R7RS 7.1.1. The reader's\n  comment scan stopped only at `\\n`, so a classic-Mac-line-ending file\n  swallowed everything after the first `;`. fmt's CST lexer mirrors the\n  fix, and the pinned \"known deviation\" test and doc section are updated.\n\n- #2080: `kaappi fmt` no longer reports a user syntax error as \"internal\n  error\". `verifyRoundTrip` reads the original first and reports the\n  reader's own KP1xxx diagnostic with its position; the internal-error\n  wording is reserved for a genuine mismatch between two successfully-read\n  datum sequences.\n\n- #2142: `hasBodyBlank` counted head-line items by index while the printer\n  counted code items, so a same-line block comment shifted the body\n  boundary and broke idempotence. It now counts code items the same way.\n\n- #2143: fmt's atom scan ran to the next delimiter, so a `#`-led lexeme\n  glued to an identifier split differently than the reader's identifier\n  scan. Non-`#` atoms now end at the first non-<subsequent> byte, matching\n  readSymbol, while `#`-led atoms keep their interior-`#` carve-outs.\n\n- #2149: fmt measured line width in bytes, so Unicode identifiers counted\n  double/triple against the 80-column budget. Width is now measured in\n  Unicode code points, in both `measure` and the printer's column cursor.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review feedback: line/col for lone CR, UTF-8 width, OOM message\n\n- reader.getLineCol/recordSpan now count a lone CR and CRLF as one line\n  ending (R7RS 7.1.1), matching the #2079 comment change, so a user syntax\n  error in a CR-only file reports the right line. Both go through a shared\n  lineColAt helper.\n\n- fmt_print.columnCount validates each UTF-8 sequence with utf8Decode, so a\n  malformed lead byte (e.g. 0xC2 followed by an ASCII byte) counts as one\n  column rather than swallowing the following byte. Made pub for direct\n  testing.\n\n- verifyRoundTrip gains an `oom` variant so an allocator failure during the\n  check is reported as \"out of memory\", not as a formatter mismatch.\n\n- Fix a dangling scanAtom -> scanHashAtom reference in a scanHash comment.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-23T19:12:14Z",
+          "tree_id": "9d0faf8e1d0d889eb0bdc97e3f68498988ef4652",
+          "url": "https://github.com/kaappi/kaappi/commit/e5bd7747e235ff10a1a7a8866eb695016165ab88"
+        },
+        "date": 1787514631514,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.373326,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.857712,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.584848,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.9897,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004754,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.050729,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.307715,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.074399,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.925498,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.213091,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.684448,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.283001,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.87827,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.647286,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045126,
             "unit": "seconds"
           }
         ]
