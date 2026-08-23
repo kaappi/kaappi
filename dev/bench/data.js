@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787473627006,
+  "lastUpdate": 1787479143430,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "3c1a56beb44ed9e46d514b0e207b7de098cec218",
-          "message": "Stop pinning #2027's presence — whether a freed alias still works is luck (#2105)\n\n`(not (procedure? r))` asserted that the bug is still THERE: that a\nchild-created FFI handle, aliased across heaps and freed under the receiver,\narrives unusable. Whether a freed pointer still behaves like a live one is\nan accident of the allocator, not a property of the code. It held on macOS\nand failed on freebsd-test, where the handle arrives callable.\n\nThis is the third bug-presence pin in this campaign to fail on a platform\nother than the author's:\n\n  #2023  held on ReleaseSafe, failed on the Debug leg (94/200 deep keys\n         found under Debug vs 6/200 under ReleaseSafe)\n  #2027  this one — macOS vs freebsd\n  and both were written because a real bug was found and pinning it seemed\n  like the responsible thing to do.\n\nThe assertion directly above it is the stable half, and is the one the\nmatrix actually needs: ffi_function is in the ALIASED class, not the\nREFUSED class, and \"the join does not refuse it\" IS that classification.\nWhen #2027 is fixed that assertion flips, because a correct implementation\nmust refuse or copy rather than alias — so the row keeps a tripwire without\ndepending on how a freed pointer happens to behave.\n\n122 -> 121 assertions.\n\nNote on how this reached main: #2030 merged at 14:41 on checks that were\ngreen for an earlier push; the rebase-triggered run finished at 15:03-15:45\nand failed on five platform legs. Worth knowing that a rebase-and-merge in\nquick succession can merge on stale green.",
-          "timestamp": "2026-08-01T22:09:09+05:30",
-          "tree_id": "a04b10f334f375738c5ddf6573855f77de14848c",
-          "url": "https://github.com/kaappi/kaappi/commit/3c1a56beb44ed9e46d514b0e207b7de098cec218"
-        },
-        "date": 1785609580580,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.271602,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.018506,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.608864,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.988776,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004984,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046133,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.312628,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057541,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.799071,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.231056,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.593496,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.294442,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.812014,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.665437,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044684,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045888,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6a196dd9dbb5c0d9aef4ef1f57f44684baa1486c",
+          "message": "thottam: strict SemVer tag parsing, npm-style ^/~ ranges, and constraint diagnostics (#2287)\n\n* thottam: strict SemVer tag parsing, npm-style ^/~ ranges, and constraint diagnostics\n\nFix three thottam version-resolution defects from the Phase 6E audit.\n\nSemver.parse now rejects tags that are not SemVer 2.0.0 §2 versions:\na fourth dot-separated component (v2.0.0.nightly-UNRELEASED), leading\nzeroes (v01.02.03), and Zig integer-literal spellings such as the '+'\nsign and '_' digit separators (v1_0.0.0 parsing as 10.0.0). Components\nare parsed by a hand-rolled digit loop instead of std.fmt.parseInt\n(#2130).\n\nSemver.parse additionally records how many components were written, and\nthe caret/tilde matchers use it: ~1 is >=1.0.0 <2.0.0 (not ~1.0.0's\n>=1.0.0 <1.1.0), and ^0.0 is the whole 0.0.x line rather than exactly\n0.0.0 (#2131).\n\nresolveVersion now distinguishes a malformed constraint from an\nunsatisfiable one, naming the offending comma-separated part (and\ndiagnosing the undocumented four-part ceiling) instead of reporting\neverything as 'no version matching'. Operator/version whitespace\n(>= 1.0.0) is accepted per node-semver. InvalidPackageName is handled\nin main rather than leaking a raw Zig error name, a trailing pkg@ is an\nabsent version, and an empty build: line is an absence, not a command\n(#2132).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* thottam: distinguish git ls-remote failures and tighten docs/tests per review\n\nAddress review feedback on the #2130/#2131/#2132 PR:\n\n- resolveVersion gains a git_failed outcome so a failed 'git ls-remote'\n  (missing/private repo, no network) is reported as 'failed to list tags'\n  rather than folded into 'no version matching' — an IO failure should not\n  read as an unsatisfiable range. doInstall prints the distinct message.\n- Docs no longer claim a candidate tag must be exactly X.Y.Z: one- and\n  two-component tags (v1, v1.2) are accepted leniently, only extra\n  components and leading zeroes are rejected.\n- Drop the unreachable i == 0 guard in parseConstraintsDiag (splitScalar\n  always yields a token, so the empty-spec path returns via\n  parseSingleConstraint) and explain why.\n- Quote $THOTTAM in the malformed-constraint lifecycle loop, and add a\n  lifecycle check that an unavailable repository is a fetch error, not\n  'no version matching'.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-23T09:25:49Z",
+          "tree_id": "d8b504c5b8570a06a98c27038a4fd1a4c168472a",
+          "url": "https://github.com/kaappi/kaappi/commit/6a196dd9dbb5c0d9aef4ef1f57f44684baa1486c"
+        },
+        "date": 1787479140373,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.479917,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.931756,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.470757,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.447604,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004857,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.041888,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.255478,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.045999,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.490282,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.014418,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.407103,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.259239,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.509185,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.972557,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.0384,
             "unit": "seconds"
           }
         ]
