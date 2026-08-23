@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787443901884,
+  "lastUpdate": 1787451965834,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "32cb609c2b87abb5f025a65f626f6f3f1fc42db7",
-          "message": "Phase 6C: derive shell completions from the flag table (#2099)\n\nThe three `kaappi --completions` scripts were hand-written string literals\nparallel to the argument parsers, with nothing keeping them in step — the\nsame structural hazard as `isRejectedFormHead` and the `%`-prefix incident.\nThey had drifted in both directions.\n\nMissing from the completions but accepted by the CLI: `--no-ir-opt` (all\nthree scripts), and `kaappi test`'s five selection flags `-j`/`--jobs`,\n`--changed`, `--list-affected`, `--since`, `--seed` (none offered anywhere\nexcept `--seed` in bash). zsh additionally lacked `--json`, `--all`, the\nbare `--timings`, and `cache`'s `status`/`clear`; fish the same minus the\nlast two.\n\nOffered but rejected, the worse direction: `explain`, `features`, `test`,\n`doctor` and `cache` intercept argv in their own module before `cli.parse`\nruns and reject anything outside their own table with exit 2. zsh and fish\noffered the entire global flag set inside all five — 15 of 16 probed flags\nare rejected in each.\n\nThe fix is structural rather than a resync, which would have gone stale\nwithin a release. `src/cli_spec.zig` is now the one authoritative table:\nevery parse loop dispatches on an exhaustive `switch` over its `Id` enum,\n`printUsage`'s `Options:` block is generated from it (it was a fourth\nparallel list), and `completions.zig` generates all six shell scripts from\nit at comptime.\n\nClosing the last escape hatch mattered as much as the generation.\n`--diagnostics=` and `--timings[=fmt]` were matched by `startsWith` outside\nthe old table because it could not express GNU `=` syntax, and that is\nexactly how they — and later `--no-ir-opt` — drifted out. A `ValueSyntax`\nenum covers all four spellings, so nothing reaches a parser without a table\nrow. It also fixes the zsh specs: attached-only values now use `--opt=-`\nand `::` for optional, so zsh no longer completes the `--diagnostics json`\nform the parser rejects.\n\nThe gate was verified by mutation: adding an `Id` variant with no row, a\nrow the parser does not handle, deleting `--seed` from `test_flags`, and\ndropping `--no-ir-opt` from the top-level offer each fail the build or the\ntests.\n\n`completions.zig` had no tests. It now has 11, plus a 41-assertion shell\nsuite that drives the generated bash function and feeds every offered flag\nback to the real binary per context, with its own discriminating control so\na broken matcher cannot pass vacuously.\n\nFound while measuring, filed separately as #2096: `kaappi --check foo.scm`\nruns the program, because `--check` is `fmt`'s flag accepted by the global\nloop one hyphen-pair from the `check` subcommand that executes nothing.\n\nRefs #1890\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-01T21:17:26+05:30",
-          "tree_id": "2833ced270e6effbb1868d8df15b7c916b1bda12",
-          "url": "https://github.com/kaappi/kaappi/commit/32cb609c2b87abb5f025a65f626f6f3f1fc42db7"
-        },
-        "date": 1785607964543,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 2.473972,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 5.028285,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.342138,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 1.900298,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004006,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033092,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.182528,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.034387,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.682669,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.757121,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 0.957461,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.191347,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.067707,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.60286,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.029162,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.048379,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "4a6ba93151a81ca0d3681d83413482b4e20cd1e3",
+          "message": "Release v0.23.0\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-23T07:04:59+05:30",
+          "tree_id": "99df048dc2fdefd2a925a5de23acb8d2cfc5f48c",
+          "url": "https://github.com/kaappi/kaappi/commit/4a6ba93151a81ca0d3681d83413482b4e20cd1e3"
+        },
+        "date": 1787451962846,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.657807,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.483615,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.576732,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.087228,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004726,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.049033,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.314243,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.058221,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.916164,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.224279,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.701785,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.281271,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.836046,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.636878,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04994,
             "unit": "seconds"
           }
         ]
