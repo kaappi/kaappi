@@ -465,25 +465,26 @@ test "isValidPkgName accepts the shapes the ecosystem actually uses" {
 // kaappi.pkg manifest parsing
 // ---------------------------------------------------------------------------
 
-test "parsePkgManifest reads the four documented fields" {
+test "parsePkgManifest reads the two read fields and ignores the rest" {
+    // Only depends and build are read. name, source and version are
+    // documented as ignored — a manifest that lies about its identity or
+    // hosting must not change the install (issue #2138).
     const m = state.parsePkgManifest(
         \\name: kaappi-web
+        \\source: https://evil.example.com/not-this-repo
+        \\version: 99.99.99
         \\depends: kaappi-http kaappi-json
         \\build: make
-        \\source: https://github.com/alice/kaappi-web
         \\
     );
-    try std.testing.expectEqualStrings("kaappi-web", m.name.?);
     try std.testing.expectEqualStrings("kaappi-http kaappi-json", m.depends.?);
     try std.testing.expectEqualStrings("make", m.build_cmd.?);
-    try std.testing.expectEqualStrings("https://github.com/alice/kaappi-web", m.source.?);
 }
 
 test "parsePkgManifest tolerates CRLF line endings" {
     // thottam runs on Windows under Git Bash; a manifest checked out with
     // core.autocrlf=true has \r before every \n.
     const m = state.parsePkgManifest("name: kaappi-web\r\ndepends: kaappi-http\r\nbuild: make\r\n");
-    try std.testing.expectEqualStrings("kaappi-web", m.name.?);
     try std.testing.expectEqualStrings("kaappi-http", m.depends.?);
     try std.testing.expectEqualStrings("make", m.build_cmd.?);
 }
@@ -497,37 +498,32 @@ test "parsePkgManifest ignores unknown keys and near-miss key names" {
         \\dependency: not-the-depends
         \\version: 1.0.0
         \\name: real
+        \\source: https://h/real
+        \\depends: real-dep
         \\
     );
-    try std.testing.expectEqualStrings("real", m.name.?);
-    try std.testing.expect(m.depends == null);
+    try std.testing.expectEqualStrings("real-dep", m.depends.?);
     try std.testing.expect(m.build_cmd == null);
-    try std.testing.expect(m.source == null);
 }
 
 test "parsePkgManifest takes the last of duplicate keys" {
-    const m = state.parsePkgManifest("name: first\nname: second\nbuild: a\nbuild: b\n");
-    try std.testing.expectEqualStrings("second", m.name.?);
+    const m = state.parsePkgManifest("depends: a\ndepends: b\nbuild: a\nbuild: b\n");
+    try std.testing.expectEqualStrings("b", m.depends.?);
     try std.testing.expectEqualStrings("b", m.build_cmd.?);
 }
 
 test "parsePkgManifest requires the key at column 0" {
     // Strictness worth pinning: an indented key is silently dropped, so a
     // future whitespace-tolerant rewrite has to notice this test.
-    const m = state.parsePkgManifest("  name: indented\n\tbuild: tabbed\n");
-    try std.testing.expect(m.name == null);
+    const m = state.parsePkgManifest("  depends: indented\n\tbuild: tabbed\n");
+    try std.testing.expect(m.depends == null);
     try std.testing.expect(m.build_cmd == null);
 }
 
 test "parsePkgManifest on missing and empty values" {
     const none = state.parsePkgManifest("");
-    try std.testing.expect(none.name == null);
     try std.testing.expect(none.depends == null);
     try std.testing.expect(none.build_cmd == null);
-    try std.testing.expect(none.source == null);
-
-    // An option-shaped source is dropped, like the spec-level guard.
-    try std.testing.expect(state.parsePkgManifest("source: -evil\n").source == null);
 
     // An empty `build:` should mean "no build command", not "run the empty
     // command" — thottam used to print "Building <pkg>..." and run
@@ -538,7 +534,7 @@ test "parsePkgManifest on missing and empty values" {
     try std.testing.expectEqualStrings("make", state.parsePkgManifest("build:\nbuild: make\n").build_cmd.?);
 
     // Discriminating control: a genuinely absent build: key is null.
-    try std.testing.expect(state.parsePkgManifest("name: x\n").build_cmd == null);
+    try std.testing.expect(state.parsePkgManifest("depends: x\n").build_cmd == null);
 }
 
 test "parseField trims the value but not the key" {

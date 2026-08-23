@@ -24,6 +24,11 @@ thottam remove kaappi-web                                        # uninstall
 - Copies `.sld` files to `~/.kaappi/lib/`, preserving directory structure.
 - Copies `.dylib`/`.so` to `~/.kaappi/lib/`.
 - Records source URLs in the lockfile `~/.kaappi/thottam.lock`, for provenance.
+- Records each installed file in `~/.kaappi/thottam.files`, so `remove` only
+  unlinks files no other installed package still needs (kaappi#2136). When an
+  install or update copies a file another package already owns, thottam
+  warns; the newest copy stays authoritative, and removing the package that
+  last copied it does not restore the earlier package's copy.
 
 **Auto-discovery.** `main.zig` automatically adds the script's own directory and
 `~/.kaappi/lib` to the library search path, after any `--lib-path` entries — so a
@@ -38,15 +43,17 @@ directory. See the LLVM backend section of `CLAUDE.md`.
 ## The `kaappi.pkg` manifest
 
 ```text
-name: kaappi-web
 depends: kaappi-http kaappi-json
 build: make
-source: https://github.com/kaappi/kaappi-web
 ```
 
-Every field except `name` is optional.
+Only these two fields are read. `name:`, `version:`, `source:` and any other
+key are ignored — a package is identified by the name it is installed under,
+the version is whatever tag or SHA the install requested, and a third-party
+source is given on the command line (`thottam install pkg::url`) or in a
+`depends:` spec, never in the package's own manifest (which thottam can only
+read after it has already cloned the repo) (kaappi#2138).
 
-- `source` declares where this package is hosted (for third-party packages).
 - `depends` is space-separated, and may carry an inline custom URL:
   `depends: kaappi-net kaappi-auth::https://github.com/bob/kaappi-auth`.
 - Version constraints use `>=`, `>`, `<=`, `<`, `^` (compatible), `~`

@@ -319,14 +319,21 @@ fresh_home
 printf '../../../../../../tmp/kaappi-escape-probe\n' > "$KAAPPI_HOME/installed.txt"
 printf '../../../../../../tmp/kaappi-escape-probe deadbeef\n' > "$KAAPPI_HOME/thottam.lock"
 out="$("$THOTTAM" update '../../../../../../tmp/kaappi-escape-probe' 2>&1)" && ec=0 || ec=$?
-# FAIL: #2144 (isValidPkgName guards install and remove only; list, verify and
-# update take the name straight from installed.txt / thottam.lock, so `git -C
-# <escaped path>` runs outside KAAPPI_HOME)
-# check "update rejects a traversal name read back from installed.txt" \
-#     "invalid package name" "$out"
-# out="$("$THOTTAM" verify 2>&1)" && ec=0 || ec=$?
-# check "verify rejects a traversal name read back from the lockfile" \
-#     "invalid package name" "$out"
+check_exit "update rejects a traversal name from the command line" 1 "$ec"
+check "update names the rejected package" "invalid package name" "$out"
+out="$("$THOTTAM" verify 2>&1)" && ec=0 || ec=$?
+check_exit "verify fails on a traversal name read back from the lockfile" 1 "$ec"
+check "verify names the corrupted entry" "MALFORMED" "$out"
+# list must not even show a name it cannot act on — and must not touch the
+# filesystem for it either (the escaped repo outside KAAPPI_HOME stays intact).
+out="$("$THOTTAM" list 2>&1)" && ec=0 || ec=$?
+check_exit "list tolerates a corrupted installed.txt" 0 "$ec"
+check_not "list does not show the traversal name" "kaappi-escape-probe" "$out"
+# The all-packages update form skips the corrupted line instead of running
+# git outside KAAPPI_HOME.
+out="$("$THOTTAM" update 2>&1)" && ec=0 || ec=$?
+check_exit "update-all skips a corrupted installed.txt line" 0 "$ec"
+check_not "update-all does not run git on the traversal name" "kaappi-escape-probe" "$out"
 
 # Discriminating control: the destructive command does validate, so the
 # escaped path is never a removeTree target.
@@ -366,10 +373,12 @@ rm -rf /tmp/kaappi-ESCAPED
 # ---------------------------------------------------------------------------
 
 sha_v010="$(git -C "$WORK/kaappi-alpha" rev-parse 'v0.1.0^{commit}')"
+sha_v100="$(git -C "$WORK/kaappi-alpha" rev-parse 'v1.0.0^{commit}')"
+sha_v200="$(git -C "$WORK/kaappi-alpha" rev-parse 'v2.0.0^{commit}')"
 
 # Control: pinning on a FRESH home works. The pin machinery is fine, and this
 # assertion holds both before and after the fix below — it is what makes the
-# disabled one next to it about the *re*-install path specifically.
+# re-install checks next to it about the *re*-install path specifically.
 fresh_home
 "$THOTTAM" install kaappi-alpha@v0.1.0 > /dev/null 2>&1
 check "a first install at a pin records that pin's SHA" \
@@ -380,11 +389,29 @@ check "a first install at a pin records that pin's SHA" \
 # different version in place makes it unusable in a provisioning script.
 fresh_home
 "$THOTTAM" install kaappi-alpha > /dev/null 2>&1
-"$THOTTAM" install kaappi-alpha@v0.1.0 > /dev/null 2>&1 || true
-# FAIL: #2134 (the "already installed" short-circuit runs before the requested
-# version is looked at, so this exits 0 having done nothing)
-# check "re-installing at a pin records that pin's SHA" \
-#     "$sha_v010" "$(cat "$KAAPPI_HOME/thottam.lock")"
+out="$("$THOTTAM" install kaappi-alpha@v0.1.0 2>&1)" && ec=0 || ec=$?
+check_exit "re-installing at a pin succeeds" 0 "$ec"
+check "re-installing at a pin records that pin's SHA" \
+    "$sha_v010" "$(cat "$KAAPPI_HOME/thottam.lock")"
+check "re-installing at a pin copies the pinned lib" \
+    "v0.1.0" "$(sed -n 's/.*define tag "\([^"]*\)".*/\1/p' "$KAAPPI_HOME/lib/kaappi/alpha.sld")"
+
+# Installing again at the same version is a clean no-op.
+out="$("$THOTTAM" install kaappi-alpha@v0.1.0 2>&1)" && ec=0 || ec=$?
+check_exit "re-installing at the same pin is a clean no-op" 0 "$ec"
+check "re-installing at the same pin says already installed" "already installed (at v0.1.0)" "$out"
+
+# And installing at yet another version moves the pin again — this is the
+# workflow `update` points pinned users at.
+out="$("$THOTTAM" install kaappi-alpha@v2.0.0 2>&1)" && ec=0 || ec=$?
+check_exit "installing at a new version moves the pin" 0 "$ec"
+check "installing at a new version records the new SHA" \
+    "$sha_v200" "$(cat "$KAAPPI_HOME/thottam.lock")"
+
+# A versioned re-install must not duplicate the installed.txt line: the
+# record stays one line per package.
+check "re-installing does not duplicate the installed.txt line" \
+    "1" "$(grep -c '^kaappi-alpha$' "$KAAPPI_HOME/installed.txt")"
 
 # ---------------------------------------------------------------------------
 # 6. verify's coverage
@@ -442,6 +469,20 @@ check "verify says the lockfile is missing" "No lockfile found" "$out"
 # 7. remove, and the shared library namespace
 # ---------------------------------------------------------------------------
 
+# kaappi-deep ships a nested lib tree, so a full removal must prune the empty
+# directories it leaves behind (#2136).
+mkpkg kaappi-deep ""
+mkdir -p "$WORK/kaappi-deep/lib/kaappi/deep/deeper"
+printf '(define-library (kaappi deep) (export tag) (import (scheme base)) (begin (define tag "deep")))\n' \
+    > "$WORK/kaappi-deep/lib/kaappi/deep/deeper/x.sld"
+(
+    cd "$WORK/kaappi-deep"
+    git add -A
+    git_q commit -q -m deep
+)
+rm -rf "$ORG/kaappi-deep.git"
+git clone -q --bare "$WORK/kaappi-deep" "$ORG/kaappi-deep.git"
+
 fresh_home
 "$THOTTAM" install kaappi-one > /dev/null 2>&1
 out="$("$THOTTAM" remove kaappi-one 2>&1)" && ec=0 || ec=$?
@@ -459,15 +500,31 @@ check "removing an absent package says so" "is not installed" "$out"
 # must not take a file the other is still relying on.
 fresh_home
 "$THOTTAM" install kaappi-one > /dev/null 2>&1
-"$THOTTAM" install kaappi-two > /dev/null 2>&1
+out="$("$THOTTAM" install kaappi-two 2>&1)" && ec=0 || ec=$?
+# Installing kaappi-two overwrites a file kaappi-one's manifest claims; the
+# install still succeeds, but it must say so.
+check_exit "installing over another package's file still succeeds" 0 "$ec"
+check "installing over another package's file warns" "also provided by kaappi-one" "$out"
 check_file "both packages installed, shared.sld present" "$KAAPPI_HOME/lib/kaappi/shared.sld"
 "$THOTTAM" remove kaappi-two > /dev/null 2>&1
 check "kaappi-one is still listed as installed" "kaappi-one" "$("$THOTTAM" list)"
-# FAIL: #2136 (removal unlinks every .sld name the removed package ships, with
-# no record of which package a given installed file came from, so kaappi-one
-# loses lib/kaappi/shared.sld while still being reported as installed)
-# check_file "a still-installed package keeps its library file" \
-#     "$KAAPPI_HOME/lib/kaappi/shared.sld"
+check_file "a still-installed package keeps its library file" \
+    "$KAAPPI_HOME/lib/kaappi/shared.sld"
+check_file "removing one package keeps the other's .sld" "$KAAPPI_HOME/lib/kaappi/one.sld"
+check_not "removing one package deletes its own .sld" "yes" \
+    "$([[ -f "$KAAPPI_HOME/lib/kaappi/two.sld" ]] && echo yes || echo no)"
+# Removing the last claimant finally deletes the shared file.
+"$THOTTAM" remove kaappi-one > /dev/null 2>&1
+check_not "removing the last claimant deletes the shared file" "yes" \
+    "$([[ -f "$KAAPPI_HOME/lib/kaappi/shared.sld" ]] && echo yes || echo no)"
+
+# A full removal prunes the empty directories the files lived in.
+fresh_home
+"$THOTTAM" install kaappi-deep > /dev/null 2>&1
+check_file "nested library file lands in lib" "$KAAPPI_HOME/lib/kaappi/deep/deeper/x.sld"
+"$THOTTAM" remove kaappi-deep > /dev/null 2>&1
+check_not "removal prunes empty nested directories" "yes" \
+    "$([[ -d "$KAAPPI_HOME/lib/kaappi/deep" ]] && echo yes || echo no)"
 
 # ---------------------------------------------------------------------------
 # 8. update
@@ -488,12 +545,91 @@ check "update of an uninstalled package says so" "is not installed" "$out"
 # about a pinned package rather than surfacing git's own advice.
 fresh_home
 "$THOTTAM" install kaappi-alpha@v1.0.0 > /dev/null 2>&1
+check "a first install at the v1.0.0 pin records that pin's SHA" \
+    "$sha_v100" "$(cat "$KAAPPI_HOME/thottam.lock")"
 out="$("$THOTTAM" update kaappi-alpha 2>&1)" && ec=0 || ec=$?
-# FAIL: #2134 (update runs `git pull` unconditionally; on the detached HEAD a
-# pinned install leaves behind, it fails with git's "You are not currently on
-# a branch" and no thottam-level explanation)
-# check_not "updating a pinned package does not leak raw git advice" \
-#     "You are not currently on a branch" "$out"
+check_exit "updating a pinned package succeeds as a no-op" 0 "$ec"
+check_not "updating a pinned package does not leak raw git advice" \
+    "You are not currently on a branch" "$out"
+check "updating a pinned package says it is pinned" "pinned at v1.0.0" "$out"
+check "updating a pinned package names the way to move the pin" "to move the pin" "$out"
+
+# One pinned package must not fail a whole-tree update: the pin is reported
+# and skipped, everything else still updates.
+fresh_home
+"$THOTTAM" install kaappi-alpha@v1.0.0 > /dev/null 2>&1
+"$THOTTAM" install kaappi-one > /dev/null 2>&1
+out="$("$THOTTAM" update 2>&1)" && ec=0 || ec=$?
+check_exit "updating all packages with one pinned succeeds" 0 "$ec"
+check "updating all reports the pinned package" "pinned at" "$out"
+check "updating all still updates the unpinned package" "kaappi-one updated" "$out"
+
+# An upstream release that ADDS a file another package owns must record the
+# new ownership during `update` — otherwise removing the other claimant
+# later unlinks the file out from under the updated package (#2136 via the
+# update path). kaappi-grower ships only grower.sld at first; kaappi-two
+# already owns lib/kaappi/shared.sld.
+mkpkg kaappi-grower ""
+fresh_home
+"$THOTTAM" install kaappi-grower > /dev/null 2>&1
+"$THOTTAM" install kaappi-two > /dev/null 2>&1
+check_not "before the update, grower does not claim shared.sld" \
+    "kaappi-grower kaappi/shared.sld" "$(cat "$KAAPPI_HOME/thottam.files")"
+(
+    cd "$WORK/kaappi-grower"
+    printf '(define-library (kaappi shared) (export owner) (import (scheme base)) (begin (define owner "grower")))\n' \
+        > lib/kaappi/shared.sld
+    git add -A
+    git_q commit -q -m "add shared"
+)
+rm -rf "$ORG/kaappi-grower.git"
+git clone -q --bare "$WORK/kaappi-grower" "$ORG/kaappi-grower.git"
+out="$("$THOTTAM" update kaappi-grower 2>&1)" && ec=0 || ec=$?
+check_exit "update pulling a shared file succeeds" 0 "$ec"
+check "update warns it overwrites another package's file" "also provided by kaappi-two" "$out"
+check "update records the new ownership" \
+    "kaappi-grower kaappi/shared.sld" "$(cat "$KAAPPI_HOME/thottam.files")"
+"$THOTTAM" remove kaappi-two > /dev/null 2>&1
+check_file "removing the other claimant keeps the updated package's file" \
+    "$KAAPPI_HOME/lib/kaappi/shared.sld"
+
+# An upstream release that DROPS a file another package owns: update must
+# keep the other package's copy and drop the ownership record, so removing
+# the updated package cannot delete the file out from under the other one.
+mkpkg kaappi-shrinker ""
+(
+    cd "$WORK/kaappi-shrinker"
+    printf '(define-library (kaappi shared) (export owner) (import (scheme base)) (begin (define owner "shrinker")))\n' \
+        > lib/kaappi/shared.sld
+    git add -A
+    git_q commit -q -m "add shared"
+)
+rm -rf "$ORG/kaappi-shrinker.git"
+git clone -q --bare "$WORK/kaappi-shrinker" "$ORG/kaappi-shrinker.git"
+fresh_home
+"$THOTTAM" install kaappi-shrinker > /dev/null 2>&1
+"$THOTTAM" install kaappi-one > /dev/null 2>&1
+check "shrinker and one both claim shared.sld" \
+    "kaappi-shrinker kaappi/shared.sld" "$(cat "$KAAPPI_HOME/thottam.files")"
+(
+    cd "$WORK/kaappi-shrinker"
+    git rm -q lib/kaappi/shared.sld
+    git_q commit -q -m "drop shared"
+)
+rm -rf "$ORG/kaappi-shrinker.git"
+git clone -q --bare "$WORK/kaappi-shrinker" "$ORG/kaappi-shrinker.git"
+out="$("$THOTTAM" update kaappi-shrinker 2>&1)" && ec=0 || ec=$?
+check_exit "update dropping a shared file succeeds" 0 "$ec"
+check_not "update drops the ownership record" \
+    "kaappi-shrinker kaappi/shared.sld" "$(cat "$KAAPPI_HOME/thottam.files")"
+check_file "the other package's shared file survives the update" \
+    "$KAAPPI_HOME/lib/kaappi/shared.sld"
+"$THOTTAM" remove kaappi-shrinker > /dev/null 2>&1
+check_file "removing the updated package keeps the other's shared file" \
+    "$KAAPPI_HOME/lib/kaappi/shared.sld"
+"$THOTTAM" remove kaappi-one > /dev/null 2>&1
+check_not "removing the last claimant deletes the shared file" "yes" \
+    "$([[ -f "$KAAPPI_HOME/lib/kaappi/shared.sld" ]] && echo yes || echo no)"
 
 # ---------------------------------------------------------------------------
 # 9. --locked
@@ -557,6 +693,51 @@ out="$("$THOTTAM" --locked install "kaappi-alpha::$ORG/kaappi-alpha.git" 2>&1)" 
 check_exit "--locked accepts a source URL that matches the lockfile" 0 "$ec"
 check "--locked matching-source restore records the same provenance" \
     "$ORG/kaappi-alpha.git" "$(cat "$KAAPPI_HOME/thottam.lock")"
+
+# ---------------------------------------------------------------------------
+# 10. kaappi.pkg's name:/version:/source: fields are inert (issue #2138)
+# ---------------------------------------------------------------------------
+
+# A manifest that lies about its identity or hosting must not change the
+# install: only depends: and build: are read, and every other key is ignored
+# by construction — the parser no longer recognises them.
+mkdir -p "$WORK/kaappi-srcfield/lib/kaappi"
+(
+    cd "$WORK/kaappi-srcfield"
+    git init -q .
+    printf 'name: WRONG-NAME-ENTIRELY\nsource: https://evil.example.com/not-this-repo\nversion: 99.99.99\n' > kaappi.pkg
+    printf '(define-library (kaappi srcfield) (export tag) (import (scheme base)) (begin (define tag "srcfield")))\n' \
+        > lib/kaappi/srcfield.sld
+    git add -A
+    git_q commit -q -m base
+)
+git clone -q --bare "$WORK/kaappi-srcfield" "$ORG/kaappi-srcfield.git"
+fresh_home
+out="$("$THOTTAM" install kaappi-srcfield 2>&1)" && ec=0 || ec=$?
+check_exit "a manifest with an unrelated name and source installs" 0 "$ec"
+check_not "a manifest's source: never reaches the lockfile" \
+    "evil.example.com" "$(cat "$KAAPPI_HOME/thottam.lock")"
+check_not "a manifest's source: never shows in list" \
+    "evil.example.com" "$("$THOTTAM" list)"
+check "the installed package is verified under its real name" "OK: kaappi-srcfield" \
+    "$("$THOTTAM" verify)"
+
+# A manifest with only the two read fields installs cleanly too.
+mkdir -p "$WORK/kaappi-minimal/lib/kaappi"
+(
+    cd "$WORK/kaappi-minimal"
+    git init -q .
+    printf 'depends:\nbuild:\n' > kaappi.pkg
+    printf '(define-library (kaappi minimal) (export tag) (import (scheme base)) (begin (define tag "min")))\n' \
+        > lib/kaappi/minimal.sld
+    git add -A
+    git_q commit -q -m base
+)
+git clone -q --bare "$WORK/kaappi-minimal" "$ORG/kaappi-minimal.git"
+fresh_home
+out="$("$THOTTAM" install kaappi-minimal 2>&1)" && ec=0 || ec=$?
+check_exit "a manifest without name: installs cleanly" 0 "$ec"
+check "the manifest-less-name package installs" "installed (locked at" "$out"
 
 # ---------------------------------------------------------------------------
 
