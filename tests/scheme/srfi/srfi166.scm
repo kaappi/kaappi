@@ -64,7 +64,7 @@
 (check "tab-to" (show #f "ab" (tab-to 8) "x") "ab      x")
 
 ;; with pad-char
-(check "with pad-char" (show #f (with (list (list pad-char #\.)) (padded 10 "hi"))) "........hi")
+(check "with pad-char" (show #f (with (( pad-char #\.)) (padded 10 "hi"))) "........hi")
 
 ;; call-with-output
 (check "call-with-output"
@@ -72,7 +72,7 @@
   "[hello]")
 
 ;; escaped
-(check "escaped" (show #f (escaped "he\"llo")) "\"he\\\"llo\"")
+(check "escaped" (show #f (escaped "he\"llo")) "he\\\"llo")
 
 ;; show to #t (stdout) — just verify no error
 (show #t "")
