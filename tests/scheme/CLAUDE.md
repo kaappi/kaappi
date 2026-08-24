@@ -93,8 +93,10 @@ Two of the four (`deep-nesting-print-tier-margin.scm`,
 nothing else, so their verdict does not depend on Kaappi's ambient script-mode
 globals. That is safe because `(scheme process-context)` is a **built-in**
 library rather than a file-backed `.sld`, verified under wasmtime. The other
-two are `KNOWN_DIFFS` probes whose divergence is the measurement, so they are
-left exactly as they are.
+two are cross-tier probes: `deep-nesting-print.scm` is a `KNOWN_DIFFS` probe
+whose divergence is the measurement, while `large-index-bounds-1912.scm` is a
+regression probe whose tiers now agree (its `KNOWN_DIFFS` entry was deleted);
+both are left exactly as they are.
 
 ## Adding a test
 

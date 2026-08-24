@@ -289,7 +289,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
         var cmd_args: std.ArrayList([]const u8) = .empty;
         defer cmd_args.deinit(allocator);
         while (wasi_args.next()) |arg| {
-            cmd_args.append(allocator, arg) catch return;
+            try cmd_args.append(allocator, arg);
         }
         if (cmd_args.items.len == 0) {
             writeStderr("kaappi-wasm: no file specified\n");
