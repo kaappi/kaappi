@@ -4,6 +4,7 @@ const th = @import("testing_helpers.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
 const vm_mod = @import("vm.zig");
+const hashtable = @import("primitives_hashtable.zig");
 
 test "define-record-type basic" {
     var gc = memory.GC.init(std.testing.allocator);
@@ -460,4 +461,23 @@ test "equal? cyclic records terminate" {
     _ = try vm.eval("(set-node-v! y y)");
     // The VisitedMap must break the cycle and report the trees equal.
     try std.testing.expectEqual(types.TRUE, try vm.eval("(equal? x y)"));
+}
+
+test "equal? records hash alike; different record types hash apart" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define-record-type a (make-a x) a? (x a-x))");
+    _ = try vm.eval("(define-record-type b (make-b x) b? (x b-x))");
+    const a1 = try vm.eval("(make-a 1)");
+    const a2 = try vm.eval("(make-a 1)");
+    const b1 = try vm.eval("(make-b 1)");
+    // The hash/equality contract: deepEqual is structural on records, so
+    // valueHash must fold the same type identity + fields, not the address
+    // (kaappi#2293). Two equal? records hash alike; a different record type
+    // hashes apart even with identical field values.
+    try std.testing.expectEqual(hashtable.valueHash(a1), hashtable.valueHash(a2));
+    try std.testing.expect(hashtable.valueHash(a1) != hashtable.valueHash(b1));
 }

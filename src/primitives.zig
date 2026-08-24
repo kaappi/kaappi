@@ -975,6 +975,9 @@ fn deepEqualWithVisited(a: Value, b: Value, visited: *VisitedMap) bool {
         // cases" clause, so this structural choice is a permitted extension
         // that matches Gambit/Guile/Chibi (kaappi#2293).
         if (!types.sameRecordType(ra.record_type, rb.record_type)) return false;
+        // Defensive: sameRecordType already implies equal field counts (both
+        // instances are sized from record_type.num_fields), so this is a cheap
+        // belt-and-suspenders guard, not a load-bearing check.
         if (ra.fields.len != rb.fields.len) return false;
         const key = VisitedKey{ .a = a, .b = b };
         if (visited.get(key) != null) return true;
