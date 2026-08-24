@@ -63,7 +63,10 @@
 
     ;; Compute the resolved width of every column: fixed widths as-is, real
     ;; widths in (0,1) as a fraction of the available width, and unspecified
-    ;; columns as an even share of what is left over.
+    ;; columns as an even share of what is left over.  (The share is truncated,
+    ;; matching the reference implementation and the spec's own border example
+    ;; -- `(columnar "/* " A " | " B " */")` at width 16 renders A and B at
+    ;; three columns each rather than splitting the odd column left-to-right.)
     (define (%column-widths cells cols width)
       (let* ((border-total (%border-total cells))
              (fixed-total (fold (lambda (c n) (if (eq? 'fixed (%column-width-class c)) (+ n (column-cell-width c)) n)) 0 cols))
@@ -102,7 +105,7 @@
                          (w (car widths))
                          (is-last (null? (cdr cols)))
                          (line (if (list-ref col 4)
-                                   (show #f (cadr col))
+                                   (show #f (with ((width w)) (cadr col)))
                                    (let ((v (car ll)))
                                      (if (and v (< row (vector-length v))) (vector-ref v row) ""))))
                          (padded (if (or pad-last? (not is-last))
@@ -122,17 +125,18 @@
                         acc)))))
 
     (define (columnar . args)
-      (fn (width string-width pad-char)
+      (fn ((total-width width) string-width pad-char)
         (let* ((cells (%parse-columns args))
                (cols (filter (lambda (c) (eq? 'c (car c))) cells)))
           (if (null? cols)
               (displayed "\n")
-              (let* ((widths (%column-widths cells cols width))
-                     (lines-list (map (lambda (c)
+              (let* ((widths (%column-widths cells cols total-width))
+                     (lines-list (map (lambda (c w)
                                         (if (list-ref c 4)
                                             #f
-                                            (list->vector (%split-lines (show #f (cadr c))))))
-                                      cols))
+                                            (list->vector (%split-lines
+                                                            (show #f (with ((width w)) (cadr c)))))))
+                                      cols widths))
                      (num-lines (fold (lambda (v n) (if v (max n (vector-length v)) n)) 0 lines-list)))
                 (if (zero? num-lines)
                     (displayed "\n")
@@ -140,15 +144,19 @@
                                                pad-char #f string-width))))))))
 
     (define (tabular . args)
-      (fn (string-width pad-char)
+      (fn ((total-width width) string-width pad-char)
         (let* ((cells (%parse-columns args))
                (cols (filter (lambda (c) (eq? 'c (car c))) cells)))
           (if (null? cols)
               (displayed "\n")
               (let* ((lines-list (map (lambda (c)
-                                        (if (list-ref c 4)
-                                            #f
-                                            (list->vector (%split-lines (show #f (cadr c))))))
+                                        (let ((w (column-cell-width c)))
+                                          (if (list-ref c 4)
+                                              #f
+                                              (list->vector
+                                                (%split-lines
+                                                  (show #f (with ((width (if (and (number? w) (>= w 1)) w total-width)))
+                                                             (cadr c))))))))
                                       cols))
                      (widths (map (lambda (c v)
                                     (let ((mw (if v

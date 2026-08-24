@@ -268,16 +268,35 @@
                (substring/preserve substring-terminal-preserve))
           (apply each fmts))))
 
+    ;; Case-convert a string segment-by-segment, leaving ANSI control
+    ;; sequences unchanged (their letters are case-sensitive).
+    (define (%case-string str up?)
+      (let ((out (open-output-string)))
+        (let loop ((i 0) (start 0) (end (string-length str)))
+          (if (>= i end)
+              (begin
+                (if (> i start)
+                    (write-string ((if up? string-upcase string-downcase) (substring str start i)) out))
+                (get-output-string out))
+              (if (char=? (string-ref str i) (integer->char 27))
+                  (begin
+                    (if (> i start)
+                        (write-string ((if up? string-upcase string-downcase) (substring str start i)) out))
+                    (let ((j (%skip-ansi str i end)))
+                      (write-string (substring str i j) out)
+                      (loop j j end)))
+                  (loop (+ i 1) start end))))))
+
     ;; Run the formatters with the active state (so string-width and friends
     ;; reach nested formatters), then case-convert the captured output.
     (define (upcased . fmts)
       (call-with-output
         (apply each fmts)
-        (lambda (s) (displayed (string-upcase s)))))
+        (lambda (s) (displayed (%case-string s #t)))))
 
     (define (downcased . fmts)
       (call-with-output
         (apply each fmts)
-        (lambda (s) (displayed (string-downcase s)))))
+        (lambda (s) (displayed (%case-string s #f)))))
 
     ))

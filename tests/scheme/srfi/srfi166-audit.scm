@@ -887,6 +887,27 @@
   "\x202a;\x202c;"
   (substring-terminal-preserve "\x202a;x\x202c;"))
 
+;; A column formatter is run with its resolved width, so wrapped wraps at the
+;; column width rather than the default.
+(test-equal "columnar: a column formatter sees its resolved width"
+  "aaa bbb\nccc ddd\n"
+  (show #f (with ((width 10)) (columnar (wrapped "aaa bbb ccc ddd")))))
+
+;; upcased/downcased leave case-sensitive ANSI control sequences untouched.
+(test-equal "downcased: preserves the ANSI control sequence"
+  (string-append esc "[31mabc" esc "[39m")
+  (show #f (downcased (as-red "ABC"))))
+
+;; pretty breaks an acyclic shared datum (no labels to preserve) instead of
+;; leaving it as one overflowing line.
+(test-equal "pretty: an acyclic shared datum is broken, not flattened"
+  2
+  (let ((sub (make-list 8 'x)))
+    (let loop ((i 0) (n 1))
+      (let ((s (show #f (with ((width 20)) (pretty (list sub sub))))))
+        (if (= i (string-length s)) n
+            (loop (+ i 1) (if (char=? (string-ref s i) #\newline) (+ n 1) n)))))))
+
 ;;; ============================================ export inventory (D1-shaped)
 
 ;; The spec's index lists names beyond the historical 50; each assertion below

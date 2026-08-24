@@ -8,14 +8,16 @@
     ;; no line exceeds width.  Numbers are formatted with the current
     ;; radix/precision so the result matches `written` (modulo whitespace).
     ;;
-    ;; Shared or cyclic data is never broken: a manual break cannot preserve
-    ;; the datum labels, and iterating a cyclic pair would not terminate.  Such
-    ;; data is emitted flat (with its labels) even if it overflows the width.
+    ;; Data whose flat form carries datum labels (cyclic structure, or shared
+    ;; structure under pretty-shared) is never broken: a manual break cannot
+    ;; preserve those labels, and iterating a cyclic pair would not terminate.
+    ;; Acyclic unshared data -- and, under plain `pretty`, acyclic sharing
+    ;; (which renders with no labels) -- is broken normally.
     (define (%pp obj width sw radix precision shares)
       (let ((flat (%write-flat obj shares radix precision)))
         (if (<= (sw flat) width)
             flat
-            (if (positive? (hash-table-size (car (extract-shared-objects obj #f))))
+            (if (positive? (hash-table-size (car shares)))
                 flat
                 (%break obj width sw radix precision)))))
 
