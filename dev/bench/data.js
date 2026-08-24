@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787596087619,
+  "lastUpdate": 1787598699916,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "891933bd6d06cb53cb0617f48b687732c1b9132c",
-          "message": "Tick 4C, 4D, 4E and 5E — Phase 4 complete, 42 of 53 (#2128)\n\nEvery one of these four corrected the tracker's own description of the\nwork before doing it, which is worth more than the tick:\n\n- 4C: 23 scripts, not 22, and 8 already compared tiers, not 2 — the \"2\"\n  predates five tier-comparing scripts written since #1799.\n- 4D: \"import-free corpus\" was the wrong cut. Built-in registry libraries\n  import fine on WASM; file-backed .sld files never load at all, and that\n  is a bug (#2108), not a platform limit.\n- 4E: the cache is disabled by eight top-level heads, not just import.\n- 5E: \"76 wall-clock lines\" is not reproducible under any definition, at\n  HEAD or at the campaign baseline. The real count is 216.\n\nTwo results are worth reading past the issue numbers. 4E found the codec\nis correct for every value it can represent — every constant tag round-\ntrips clean — which makes its four divergences sharper, because all four\nare metadata a HIT drops rather than values it corrupts. And 4D's harness\nprints its 401 unrunnable files explicitly, so a green run reads as\ncovering 184 files rather than 591.\n\n5E closed a loop from yesterday: srfi120.scm blocked two unrelated PRs,\n#1870 was reopened, and 5E then reproduced all five racing blocks\ndeterministically by injecting delays — two fixed structurally rather\nthan by widening margins, because the periodic task's ticks were queuing\nin an unbounded channel and a wider margin would have made it worse. The\nnext PR to hit that leg (#2121) was cured by rebasing onto the fix.",
-          "timestamp": "2026-08-02T01:49:37+05:30",
-          "tree_id": "9a006cd5e78c074d07b7026984fbecaffc3f47e1",
-          "url": "https://github.com/kaappi/kaappi/commit/891933bd6d06cb53cb0617f48b687732c1b9132c"
-        },
-        "date": 1785622561530,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.288162,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.110941,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.572588,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.091271,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004847,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046275,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.31155,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057279,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.781121,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.231974,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.595936,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.278857,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.798347,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.64236,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043854,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.029723,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "998e4af3846cac15dd788f909866ddec4eff69b5",
+          "message": "Ignore .zig-global-cache directory (#2299)\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-24T23:29:58+05:30",
+          "tree_id": "38fe816c2b1d720b6625b043dacdcc2578326910",
+          "url": "https://github.com/kaappi/kaappi/commit/998e4af3846cac15dd788f909866ddec4eff69b5"
+        },
+        "date": 1787598696857,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.094888,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.35969,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.55422,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.851913,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004854,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04654,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.27992,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05402,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.43181,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.151616,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.600708,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.304828,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.699317,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.80735,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046402,
             "unit": "seconds"
           }
         ]
