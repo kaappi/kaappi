@@ -1,5 +1,5 @@
 (define-library (srfi 166 color)
-  (import (scheme base) (srfi 166))
+  (import (scheme base) (srfi 166 base))
   (export as-red as-blue as-green as-cyan as-yellow as-magenta as-white as-black
           as-bold as-italic as-underline as-color as-true-color
           on-red on-blue on-green on-cyan on-yellow on-magenta on-white on-black

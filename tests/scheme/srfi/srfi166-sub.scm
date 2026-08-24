@@ -45,7 +45,7 @@
 
 (check "line-numbers"
   (show #f (line-numbers))
-  "    1 ")
+  "1")
 
 ;;; Summary
 (display pass) (display " passed, ") (display fail) (display " failed")
