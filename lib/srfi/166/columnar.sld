@@ -54,8 +54,34 @@
     (define (column-cell-width c)
       (list-ref c 2))
 
-    (define (%pad-line line w align pad-char)
-      (let ((needed (- w (string-length line))))
+    (define (%column-width-class c)
+      (let ((w (column-cell-width c)))
+        (cond
+          ((and (number? w) (>= w 1)) 'fixed)
+          ((and (number? w) (> w 0) (< w 1)) 'fractional)
+          (else 'unspecified))))
+
+    ;; Compute the resolved width of every column: fixed widths as-is, real
+    ;; widths in (0,1) as a fraction of the available width, and unspecified
+    ;; columns as an even share of what is left over.
+    (define (%column-widths cells cols width)
+      (let* ((border-total (%border-total cells))
+             (fixed-total (fold (lambda (c n) (if (eq? 'fixed (%column-width-class c)) (+ n (column-cell-width c)) n)) 0 cols))
+             (frac-sum (fold (lambda (c n) (if (eq? 'fractional (%column-width-class c)) (+ n (column-cell-width c)) n)) 0 cols))
+             (num-unspec (fold (lambda (c n) (if (eq? 'unspecified (%column-width-class c)) (+ n 1) n)) 0 cols))
+             (available (- width border-total fixed-total))
+             (unspec-w (if (zero? num-unspec) 0
+                           (quotient (exact (truncate (* available (- 1 frac-sum)))) num-unspec))))
+        (map (lambda (c)
+               (let ((w (column-cell-width c)))
+                 (cond
+                   ((and (number? w) (>= w 1)) w)
+                   ((and (number? w) (> w 0) (< w 1)) (exact (truncate (* w available))))
+                   (else unspec-w))))
+             cols)))
+
+    (define (%pad-line line w align pad-char sw)
+      (let ((needed (- w (sw line))))
         (if (<= needed 0)
             line
             (case align
@@ -65,7 +91,7 @@
                                          (make-string (- needed left) pad-char))))
               (else (string-append line (make-string needed pad-char)))))))
 
-    (define (%render-row cells cols widths lines-list row pad-char pad-last?)
+    (define (%render-row cells cols widths lines-list row pad-char pad-last? sw)
       (let loop ((cells cells) (cols cols) (widths widths) (ll lines-list) (acc '()))
         (if (null? cells)
             (%join-strings (reverse acc) "")
@@ -77,21 +103,21 @@
                          (is-last (null? (cdr cols)))
                          (line (if (list-ref col 4)
                                    (show #f (cadr col))
-                                   (let ((ls (car ll)))
-                                     (if (and ls (< row (length ls))) (list-ref ls row) ""))))
+                                   (let ((v (car ll)))
+                                     (if (and v (< row (vector-length v))) (vector-ref v row) ""))))
                          (padded (if (or pad-last? (not is-last))
-                                     (%pad-line line w (list-ref col 3) pad-char)
+                                     (%pad-line line w (list-ref col 3) pad-char sw)
                                      line)))
                     (loop (cdr cells) (cdr cols) (cdr widths) (cdr ll)
                           (cons padded acc))))))))
 
-    (define (%render-string cells cols widths lines-list num-lines pad-char pad-last?)
+    (define (%render-string cells cols widths lines-list num-lines pad-char pad-last? sw)
       (let loop ((row 0) (acc '()))
         (if (= row num-lines)
             (%join-strings (reverse acc) "")
             (loop (+ row 1)
                   (cons (string-append
-                          (%render-row cells cols widths lines-list row pad-char pad-last?)
+                          (%render-row cells cols widths lines-list row pad-char pad-last? sw)
                           "\n")
                         acc)))))
 
@@ -101,33 +127,17 @@
                (cols (filter (lambda (c) (eq? 'c (car c))) cells)))
           (if (null? cols)
               (displayed "\n")
-              (let* ((border-total (%border-total cells))
-                     (fixed-total
-                       (fold (lambda (c n)
-                               (let ((w (column-cell-width c)))
-                                 (if (and (number? w) (>= w 1)) (+ n w) n)))
-                             0 cols))
-                     (num-unspec
-                       (fold (lambda (c n)
-                               (let ((w (column-cell-width c)))
-                                 (if (and (number? w) (>= w 1)) n (+ n 1))))
-                             0 cols))
-                     (unspec-w (if (zero? num-unspec) 0
-                                   (quotient (- width border-total fixed-total) num-unspec)))
-                     (widths (map (lambda (c)
-                                    (let ((w (column-cell-width c)))
-                                      (if (and (number? w) (>= w 1)) w unspec-w)))
-                                  cols))
+              (let* ((widths (%column-widths cells cols width))
                      (lines-list (map (lambda (c)
                                         (if (list-ref c 4)
                                             #f
-                                            (%split-lines (show #f (cadr c)))))
+                                            (list->vector (%split-lines (show #f (cadr c))))))
                                       cols))
-                     (num-lines (fold (lambda (ls n) (if ls (max n (length ls)) n)) 0 lines-list)))
+                     (num-lines (fold (lambda (v n) (if v (max n (vector-length v)) n)) 0 lines-list)))
                 (if (zero? num-lines)
                     (displayed "\n")
                     (displayed (%render-string cells cols widths lines-list num-lines
-                                               pad-char #f))))))))
+                                               pad-char #f string-width))))))))
 
     (define (tabular . args)
       (fn (string-width pad-char)
@@ -138,21 +148,21 @@
               (let* ((lines-list (map (lambda (c)
                                         (if (list-ref c 4)
                                             #f
-                                            (%split-lines (show #f (cadr c)))))
+                                            (list->vector (%split-lines (show #f (cadr c))))))
                                       cols))
-                     (widths (map (lambda (c ls)
-                                    (let ((mw (if ls
-                                                  (fold (lambda (line n) (max n (string-length line)))
-                                                        1 ls)
+                     (widths (map (lambda (c v)
+                                    (let ((mw (if v
+                                                  (fold (lambda (line n) (max n (string-width line)))
+                                                        1 (vector->list v))
                                                   1))
                                           (w (column-cell-width c)))
                                       (if (and (number? w) (>= w 1)) (max w mw) mw)))
                                   cols lines-list))
-                     (num-lines (fold (lambda (ls n) (if ls (max n (length ls)) n)) 0 lines-list)))
+                     (num-lines (fold (lambda (v n) (if v (max n (vector-length v)) n)) 0 lines-list)))
                 (if (zero? num-lines)
                     (displayed "\n")
                     (displayed (%render-string cells cols widths lines-list num-lines
-                                               pad-char #t))))))))
+                                               pad-char #t string-width))))))))
 
     ;;; ========================================================== wrapped
 
@@ -168,16 +178,24 @@
                  (loop ws '() 0 (cons (%join-strings (reverse line) " ") lines))
                  (loop (cdr ws) (cons (car ws) line) new-w lines)))))))
 
+    ;; Largest suffix of text starting at i whose width does not exceed width,
+    ;; but always at least one character (so a width smaller than a single
+    ;; character still makes progress and cannot loop).
     (define (%wrap-chars text width sw)
       (let ((len (string-length text)))
         (let loop ((i 0) (chunks '()))
           (if (>= i len)
               (reverse chunks)
-              (let find-j ((j i))
-                (cond
-                  ((>= j len) (loop len (cons (substring text i len) chunks)))
-                  ((> (sw (substring text i (+ j 1))) width) (loop j (cons (substring text i j) chunks)))
-                  (else (find-j (+ j 1)))))))))
+              (let ((end (%char-chunk-end text i width sw)))
+                (loop end (cons (substring text i end) chunks)))))))
+
+    (define (%char-chunk-end text i width sw)
+      (let ((len (string-length text)))
+        (let loop ((end (+ i 1)))
+          (cond
+            ((>= end len) len)
+            ((> (sw (substring text i (+ end 1))) width) end)
+            (else (loop (+ end 1)))))))
 
     (define (wrapped . fmts)
       (fn (width string-width word-separator?)
@@ -208,13 +226,15 @@
                         (loop (cdr ls) (cons (%justify-line (car ls) width string-width) acc)))))
               "\n")))))
 
+    ;; Full-justify a line to exactly `width` columns: the padding budget is
+    ;; what remains after the mandatory single space in each gap.
     (define (%justify-line line width sw)
       (let ((words (%split-words line char-whitespace?)))
         (if (or (null? words) (null? (cdr words)))
             line
             (let* ((total (fold (lambda (w n) (+ n (sw w))) 0 words))
                    (gaps (- (length words) 1))
-                   (extra (- width total))
+                   (extra (- width total gaps))
                    (base (if (positive? extra) (quotient extra gaps) 0))
                    (rem (if (positive? extra) (remainder extra gaps) 0)))
               (let loop ((ws words) (i 0) (acc (car words)))
@@ -227,22 +247,22 @@
 
     (define (from-file pathname)
       (lambda (st)
-        (let ((p (open-input-file pathname)))
-          (let loop ((st st))
-            (let ((line (read-line p)))
-              (if (eof-object? line)
-                  (begin (close-input-port p) st)
-                  (loop ((each (displayed line) nl) st))))))))
+        (call-with-input-file pathname
+          (lambda (p)
+            (let loop ((st st))
+              (let ((line (read-line p)))
+                (if (eof-object? line)
+                    st
+                    (loop ((each (displayed line) nl) st)))))))))
 
-    ;; One number per application, right-padded to a fixed width of 5.  In
-    ;; `columnar` an 'infinite column is applied once per line, so this streams
-    ;; the next number on each call.
+    ;; One number per application, formatted in the current radix.  The column
+    ;; width/alignment is handled by `columnar`, not baked in here.
     (define (line-numbers . rest)
       (let ((start (if (null? rest) 1 (car rest))))
         (let ((n start))
-          (lambda (st)
-            (let ((s (number->string n)))
+          (fn (radix)
+            (let ((s (number->string n radix)))
               (set! n (+ n 1))
-              ((padded 5 (displayed s)) st))))))
+              (displayed s))))))
 
     ))

@@ -614,7 +614,7 @@
 ;; (in the current radix) beginning with start".  The SRFI's own nl(1) example
 ;; is (columnar 4 'right 'infinite (line-numbers) " " (from-file f)).
 (test-equal "line-numbers: numbers every line of the file, not just the first"
-  "    1 alpha\n    2 beta\n    3 gamma\n"
+  "   1 alpha\n   2 beta\n   3 gamma\n"
   (show #f (columnar 4 'right 'infinite (line-numbers)
                      " " (from-file %fixture))))
 
@@ -627,9 +627,9 @@
 (test-assert "justified: is bound and produces output"
   (> (string-length (show #f (justified "abc"))) 0))
 (test-equal "line-numbers: the default start is 1"
-  "    1" (show #f (line-numbers)))
+  "1" (show #f (line-numbers)))
 (test-equal "line-numbers: an explicit start is honoured"
-  "    7" (show #f (line-numbers 7)))
+  "7" (show #f (line-numbers 7)))
 
 (test-equal "from-file: emits every line of the file"
   "alpha\nbeta\ngamma\n" (show #f (from-file %fixture)))
@@ -827,12 +827,70 @@
 (test-equal "as-red: with no body emits only the on/off pair"
   (string-append esc "[31m" esc "[39m") (show #f (as-red)))
 
+;;; ================================================ review regressions
+
+;; written uses the readable radices 2/8/10/16 and drops precision for a
+;; non-decimal radix (the spec applies fixed-point precision only at radix 10).
+(test-equal "written: radix 16 is kept when precision is also bound"
+  "#xff" (show #f (with ((radix 16) (precision 2)) (written 255))))
+(test-equal "written: an unsupported radix falls back to decimal"
+  "5" (show #f (with ((radix 3)) (written 5))))
+
+;; pretty agrees with written on number formatting (modulo whitespace).
+(test-equal "pretty: honours the radix state variable"
+  "#xff" (show #f (with ((radix 16)) (pretty 255))))
+;; pretty leaves cyclic data flat (labels intact) rather than looping when it
+;; cannot be broken into lines.
+(test-equal "pretty: a cyclic datum is left flat when it overflows width"
+  "#0=(1 2 3 4 5 . #0#)"
+  (let ((x (list 1 2 3 4 5))) (set-cdr! (list-tail x 4) x)
+    (show #f (with ((width 10)) (pretty x)))))
+
+;; line-numbers formats in the current radix and leaves width to columnar.
+(test-equal "line-numbers: honours the radix state variable"
+  "a" (show #f (with ((radix 16)) (line-numbers 10))))
+
+;; wrapped/char makes progress even when a single character exceeds the width.
+(test-equal "wrapped/char: a zero width emits one character per line"
+  "a\nb\nc" (show #f (with ((width 0)) (wrapped/char "abc"))))
+
+;; justified lines land exactly on the requested width.
+(test-equal "justified: a line is padded to the full width"
+  20 (let ((s (show #f (with ((width 20)) (justified "aaa bbb ccc ddd eee fff ggg")))))
+       (let loop ((i 0))
+         (if (or (= i (string-length s)) (char=? (string-ref s i) #\newline))
+             i
+             (loop (+ i 1))))))
+
+;; columnar/tabular measure and pad with the string-width state variable, so
+;; terminal-aware keeps wide cells aligned.
+(test-equal "columnar: honours the string-width state variable"
+  "日本語x\n"
+  (show #f (with ((width 8))
+             (terminal-aware (columnar (each cjk "\n") (each "x\n"))))))
+(test-equal "columnar: control pads by codepoint count without terminal-aware"
+  "日本語 x\n"
+  (show #f (with ((width 8))
+             (columnar (each cjk "\n") (each "x\n")))))
+(test-equal "tabular: honours the string-width state variable"
+  "|ab    |x|\n|日本語|y|\n"
+  (show #f (terminal-aware
+             (tabular "|" (each "ab\n" cjk "\n") "|" (each "x\ny\n") "|"))))
+
+;; upcased/downcased run their formatters under the active state.
+(test-equal "upcased: a nested formatter sees terminal-aware string-width"
+  cjk
+  (show #f (terminal-aware (upcased (padded/right 5 cjk)))))
+
+;; substring-terminal-preserve keeps directional formatting characters.
+(test-equal "substring-terminal-preserve: keeps bidi controls"
+  "\x202a;\x202c;"
+  (substring-terminal-preserve "\x202a;x\x202c;"))
+
 ;;; ============================================ export inventory (D1-shaped)
 
-;; The spec's index lists names this implementation does not export at all,
-;; while (cond-expand (srfi-166 ...)) answers yes and (import (srfi 166))
-;; succeeds — so portable code has no way to detect the gap.  Each assertion
-;; below PINS THE ABSENCE; the fix flips it.
+;; The spec's index lists names beyond the historical 50; each assertion below
+;; pins that a name is now reachable from a plain import.
 (test-assert "inventory: joined/dot is exported" (ok? (lambda () joined/dot)))
 (test-assert "inventory: numeric/fitted is exported" (ok? (lambda () numeric/fitted)))
 (test-assert "inventory: trimmed/lazy is exported" (ok? (lambda () trimmed/lazy)))

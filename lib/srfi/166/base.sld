@@ -11,6 +11,7 @@
 (define-library (srfi 166 base)
   (import (scheme base)
           (scheme char)
+          (scheme cxr)
           (scheme write)
           (scheme inexact)
           (scheme file)
@@ -26,6 +27,8 @@
           trimmed trimmed/right trimmed/both trimmed/lazy
           fitted fitted/right fitted/both output-default
           fn with with! forked call-with-output
+          ;; internal, shared with the sub-libraries
+          %write-flat extract-shared-objects
           make-state-variable
           port row col width output writer pad-char ellipsis
           string-width substring/width substring/preserve
@@ -735,11 +738,15 @@
     ;; Flatten obj to a string, labelling shared structure, with numbers
     ;; formatted according to radix/precision.
     (define (%write-flat obj shares radix precision)
+      ;; Per the spec, `written` uses the radix only for 2/8/10/16 (the
+      ;; readable radices), and fixed-point precision only when the radix is
+      ;; 10.  Precision must not disable the radix branch for non-decimal
+      ;; radices.
       (define (write-number n)
-        (let ((cell (and (not precision)
-                         (assv radix '((16 . "#x") (10 . "") (8 . "#o") (2 . "#b"))))))
+        (let ((cell (assv radix '((16 . "#x") (10 . "") (8 . "#o") (2 . "#b")))))
           (cond
-            ((and cell (eqv? radix 10)) (number->string n))
+            ((and cell (eqv? radix 10))
+             (if precision (%number->string n 10 precision #f #f #f #f #f) (number->string n)))
             ((and cell (exact? n)) (string-append (cdr cell) (number->string n (car cell))))
             (else (%number->string n 10 precision #f #f #f #f #f)))))
       (let wr ((obj obj))

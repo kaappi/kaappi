@@ -1,25 +1,30 @@
 (define-library (srfi 166 pretty)
-  (import (scheme base) (scheme write) (srfi 166 base))
+  (import (scheme base) (scheme write) (srfi 69) (srfi 166 base))
   (export pretty pretty-shared pretty-simply pretty-with-color)
   (begin
 
     ;; Pretty-print obj to a string: if the flat written form fits in `width`
     ;; columns, use it unchanged; otherwise break the structure across lines so
-    ;; no line exceeds width.  `writer` supplies the flat form (written /
-    ;; written-shared / written-simply), which also handles datum labels for
-    ;; shared and cyclic structure.
-    (define (%pp obj width sw writer)
-      (let ((flat (writer obj)))
+    ;; no line exceeds width.  Numbers are formatted with the current
+    ;; radix/precision so the result matches `written` (modulo whitespace).
+    ;;
+    ;; Shared or cyclic data is never broken: a manual break cannot preserve
+    ;; the datum labels, and iterating a cyclic pair would not terminate.  Such
+    ;; data is emitted flat (with its labels) even if it overflows the width.
+    (define (%pp obj width sw radix precision shares)
+      (let ((flat (%write-flat obj shares radix precision)))
         (if (<= (sw flat) width)
             flat
-            (%break obj width sw writer))))
+            (if (positive? (hash-table-size (car (extract-shared-objects obj #f))))
+                flat
+                (%break obj width sw radix precision)))))
 
-    (define (%break obj width sw writer)
+    (define (%break obj width sw radix precision)
       (let ((out (open-output-string)))
         (let loop ((obj obj) (indent 0))
           (cond
             ((pair? obj)
-             (let ((flat (writer obj)))
+             (let ((flat (%write-flat obj (extract-shared-objects #f #f) radix precision)))
                (if (<= (+ indent (sw flat)) width)
                    (display flat out)
                    (begin
@@ -42,7 +47,7 @@
                           (loop ls (+ indent 1)))))
                      (display ")" out)))))
             ((vector? obj)
-             (let ((flat (writer obj)))
+             (let ((flat (%write-flat obj (extract-shared-objects #f #f) radix precision)))
                (if (<= (+ indent (sw flat)) width)
                    (display flat out)
                    (begin
@@ -57,20 +62,23 @@
                          (loop (vector-ref obj i) (+ indent 2))))
                      (display ")" out)))))
             (else
-             (display (show #f (written obj)) out))))
+             (display (%write-flat obj (extract-shared-objects #f #f) radix precision) out))))
         (get-output-string out)))
 
     (define (pretty obj)
-      (fn (width string-width)
-        (displayed (%pp obj width string-width (lambda (o) (show #f (written o)))))))
+      (fn (width string-width radix precision)
+        (displayed (%pp obj width string-width radix precision
+                        (extract-shared-objects obj #t)))))
 
     (define (pretty-shared obj)
-      (fn (width string-width)
-        (displayed (%pp obj width string-width (lambda (o) (show #f (written-shared o)))))))
+      (fn (width string-width radix precision)
+        (displayed (%pp obj width string-width radix precision
+                        (extract-shared-objects obj #f)))))
 
     (define (pretty-simply obj)
-      (fn (width string-width)
-        (displayed (%pp obj width string-width (lambda (o) (show #f (written-simply o)))))))
+      (fn (width string-width radix precision)
+        (displayed (%pp obj width string-width radix precision
+                        (extract-shared-objects #f #f)))))
 
     ;; Syntax highlighting is optional per the spec; without it this is
     ;; equivalent to pretty.

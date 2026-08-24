@@ -235,16 +235,27 @@
 
     ;; Preserve only the zero-width ANSI control sequences and directional
     ;; formatting characters, which trimming must not discard.
+    (define (%bidi-control? cp)
+      (or (<= #x202a cp #x202e)      ; LRE..RLO
+          (<= #x2066 cp #x2069)      ; LRI..PDI
+          (= cp #x200e) (= cp #x200f)  ; LRM, RLM
+          (= cp #x061c)))            ; ALM
+
     (define (substring-terminal-preserve str)
       (let ((out (open-output-string)))
         (let loop ((i 0) (end (string-length str)))
           (if (>= i end)
               (get-output-string out)
-              (if (char=? (string-ref str i) (integer->char 27))
-                  (let ((j (%skip-ansi str i end)))
-                    (write-string (substring str i j) out)
-                    (loop j end))
-                  (loop (+ i 1) end))))))
+              (let ((c (string-ref str i)))
+                (cond
+                  ((char=? c (integer->char 27))
+                   (let ((j (%skip-ansi str i end)))
+                     (write-string (substring str i j) out)
+                     (loop j end)))
+                  ((%bidi-control? (char->integer c))
+                   (write-char c out)
+                   (loop (+ i 1) end))
+                  (else (loop (+ i 1) end))))))))
 
     (define (terminal-aware . fmts)
       (fn (ambiguous-is-wide?)
@@ -257,12 +268,16 @@
                (substring/preserve substring-terminal-preserve))
           (apply each fmts))))
 
+    ;; Run the formatters with the active state (so string-width and friends
+    ;; reach nested formatters), then case-convert the captured output.
     (define (upcased . fmts)
-      (lambda (st)
-        ((displayed (string-upcase (show #f (apply each fmts)))) st)))
+      (call-with-output
+        (apply each fmts)
+        (lambda (s) (displayed (string-upcase s)))))
 
     (define (downcased . fmts)
-      (lambda (st)
-        ((displayed (string-downcase (show #f (apply each fmts)))) st)))
+      (call-with-output
+        (apply each fmts)
+        (lambda (s) (displayed (string-downcase s)))))
 
     ))
