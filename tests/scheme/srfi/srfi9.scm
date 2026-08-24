@@ -60,12 +60,13 @@
 (test-equal #f (swap? (kons 1 2)))
 (test-equal #f (pare? (mk-swap 1 2)))
 
-;;; --- equivalence: records compare by identity ---
+;;; --- equivalence: equal? is structural, eq?/eqv? compare by identity ---
 (let ((r1 (kons 1 2)) (r2 (kons 1 2)))
   (test-equal #t (equal? r1 r1))
   (test-equal #t (eqv? r1 r1))
-  (test-equal #f (equal? r1 r2))
-  (test-equal #f (eqv? r1 r2)))
+  (test-equal #t (equal? r1 r2))   ; same type + equal fields => structural #t
+  (test-equal #f (eqv? r1 r2))     ; distinct instances stay identity-distinct
+  (test-equal #f (eq? r1 r2)))
 
 ;;; --- records nest and travel through data structures ---
 (let* ((inner (kons 'i1 'i2))

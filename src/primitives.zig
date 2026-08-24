@@ -966,6 +966,27 @@ fn deepEqualWithVisited(a: Value, b: Value, visited: *VisitedMap) bool {
         const nb = types.toNumericVector(b);
         return na.kind == nb.kind and std.mem.eql(u8, na.data, nb.data);
     }
+    if (types.isRecordInstance(a) and types.isRecordInstance(b)) {
+        const ra = types.toObject(a).as(types.RecordInstance);
+        const rb = types.toObject(b).as(types.RecordInstance);
+        // Same record type required (identity, not pointer -- a type
+        // survives an SRFI-18 thread hop at a new address, kaappi#1932), then
+        // fields compared pairwise. R7RS 6.1 leaves records in the "all other
+        // cases" clause, so this structural choice is a permitted extension
+        // that matches Gambit/Guile/Chibi (kaappi#2293).
+        if (!types.sameRecordType(ra.record_type, rb.record_type)) return false;
+        // Defensive: sameRecordType already implies equal field counts (both
+        // instances are sized from record_type.num_fields), so this is a cheap
+        // belt-and-suspenders guard, not a load-bearing check.
+        if (ra.fields.len != rb.fields.len) return false;
+        const key = VisitedKey{ .a = a, .b = b };
+        if (visited.get(key) != null) return true;
+        visited.put(key, {}) catch {};
+        for (ra.fields, rb.fields) |fa, fb| {
+            if (!deepEqualWithVisited(fa, fb, visited)) return false;
+        }
+        return true;
+    }
     return false;
 }
 

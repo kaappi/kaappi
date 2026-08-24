@@ -386,8 +386,24 @@ fn valueHashDepth(key: Value, depth: usize) usize {
         for (nv.data) |b| h = h *% 31 +% b;
         return h;
     }
-    // Everything left (procedures, ports, records, ...) is compared by identity
-    // by `deepEqual`, so hashing the address is consistent with equality.
+    if (types.isRecordInstance(key)) {
+        if (depth >= MAX_HASH_DEPTH) return DEEP_CUTOFF_HASH;
+        const rec = types.toObject(key).as(types.RecordInstance);
+        // Fold the type *identity*, never the pointer: a record type that
+        // crossed an SRFI-18 thread boundary keeps its `identity` but lands at
+        // a new address (kaappi#1932), and `sameRecordType` — the gate
+        // `deepEqual` uses — compares `identity`. Fields fold like the vector
+        // arm: capped, so a wide record still hashes in O(1). There is no
+        // visited set here, so a cyclic field is absorbed by the
+        // MAX_HASH_DEPTH sentinel (the same trade the pair arm already makes).
+        var h: usize = @truncate(rec.record_type.identity *% 2654435761);
+        const limit = @min(rec.fields.len, 4);
+        for (rec.fields[0..limit]) |v| h = h *% 31 +% valueHashDepth(v, depth + 1);
+        return h;
+    }
+    // Everything left (procedures, ports, threads, and other native handles)
+    // is compared by identity by `deepEqual`, so hashing the address is
+    // consistent with equality. Records are structural and handled above.
     return @truncate(key *% 2654435761);
 }
 

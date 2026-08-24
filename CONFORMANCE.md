@@ -24,6 +24,15 @@ Implemented: `cons*`, `xcons`, `list-tabulate`, `circular-list`, `iota`, `proper
 
 **Coverage: 100%.** `define-record-type` is implemented as R7RS compiler syntax.
 
+`equal?` recurses into record fields: two distinct instances of the same
+record type whose fields are pairwise `equal?` compare `#t`. R7RS §6.1 leaves
+records in the "all other cases" clause (the result is implementation-defined),
+so this is a permitted extension — matching Gambit, Guile, and Chibi — rather
+than a conformance requirement. Records of *different* types are never
+`equal?`, even with equal field values. `eq?`/`eqv?` remain identity-based on
+records, as §6.1 requires. Cyclic records terminate via the same visited-map
+used for pairs and vectors (kaappi#2293).
+
 ### SRFI 13 — String Library
 
 **Coverage: 97%** (30 of 31 non-mutating spec procedures)

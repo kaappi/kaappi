@@ -4,6 +4,7 @@ const th = @import("testing_helpers.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
 const vm_mod = @import("vm.zig");
+const hashtable = @import("primitives_hashtable.zig");
 
 test "define-record-type basic" {
     var gc = memory.GC.init(std.testing.allocator);
@@ -386,4 +387,97 @@ test "wide records: 27 and 255 fields instantiate; 256 fields error cleanly" {
         defer a.free(def);
         try std.testing.expectError(vm_mod.VMError.CompileError, vm.eval(def));
     }
+}
+
+// equal? recurses into record fields (kaappi#2293): two distinct instances of
+// the same record type with equal? fields are equal?, while eq?/eqv? stay
+// identity-based.
+test "equal? structural on records" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-record-type point
+        \\  (make-point x y)
+        \\  point?
+        \\  (x point-x)
+        \\  (y point-y))
+    );
+
+    // Distinct-but-equal instances compare equal? ...
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(equal? (make-point 1 2) (make-point 1 2))"));
+    // ... but eqv?/eq? remain identity-based (spec-required).
+    try std.testing.expectEqual(types.FALSE, try vm.eval("(eqv? (make-point 1 2) (make-point 1 2))"));
+    try std.testing.expectEqual(types.FALSE, try vm.eval("(eq? (make-point 1 2) (make-point 1 2))"));
+    // A record is still equal? to itself.
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(let ((p (make-point 1 2))) (equal? p p))"));
+    // Differing field values are not equal?.
+    try std.testing.expectEqual(types.FALSE, try vm.eval("(equal? (make-point 1 2) (make-point 1 9))"));
+    // Fields are compared recursively (nested equal? contents).
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(equal? (make-point '(1 2) \"ab\") (make-point '(1 2) \"ab\"))"));
+    try std.testing.expectEqual(types.FALSE, try vm.eval("(equal? (make-point '(1 2) \"ab\") (make-point '(1 2) \"ac\"))"));
+}
+
+test "equal? records of different types are not equal?" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Two structurally identical but distinct record types.
+    _ = try vm.eval("(define-record-type a (make-a x) a? (x a-x))");
+    _ = try vm.eval("(define-record-type b (make-b x) b? (x b-x))");
+    try std.testing.expectEqual(types.FALSE, try vm.eval("(equal? (make-a 1) (make-b 1))"));
+    // Same type, same field: sanity check the positive case still holds.
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(equal? (make-a 1) (make-a 1))"));
+}
+
+test "equal? record with procedure field" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define-record-type box (make-box p) box? (p box-p))");
+    // Same closure object in both records: equal? at the leaf (identity).
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(let ((f (lambda (x) x))) (equal? (make-box f) (make-box f)))"));
+    // Distinct closures are not equal?, so the records are not equal? either.
+    try std.testing.expectEqual(types.FALSE, try vm.eval("(equal? (make-box (lambda (x) x)) (make-box (lambda (x) x)))"));
+}
+
+test "equal? cyclic records terminate" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define-record-type node (make-node v) node? (v node-v set-node-v!))");
+    _ = try vm.eval("(define x (make-node 1))");
+    _ = try vm.eval("(define y (make-node 1))");
+    // Make each record point at itself -- two isomorphic cycles.
+    _ = try vm.eval("(set-node-v! x x)");
+    _ = try vm.eval("(set-node-v! y y)");
+    // The VisitedMap must break the cycle and report the trees equal.
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(equal? x y)"));
+}
+
+test "equal? records hash alike; different record types hash apart" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define-record-type a (make-a x) a? (x a-x))");
+    _ = try vm.eval("(define-record-type b (make-b x) b? (x b-x))");
+    const a1 = try vm.eval("(make-a 1)");
+    const a2 = try vm.eval("(make-a 1)");
+    const b1 = try vm.eval("(make-b 1)");
+    // The hash/equality contract: deepEqual is structural on records, so
+    // valueHash must fold the same type identity + fields, not the address
+    // (kaappi#2293). Two equal? records hash alike; a different record type
+    // hashes apart even with identical field values.
+    try std.testing.expectEqual(hashtable.valueHash(a1), hashtable.valueHash(a2));
+    try std.testing.expect(hashtable.valueHash(a1) != hashtable.valueHash(b1));
 }
