@@ -739,30 +739,32 @@
             (read-u8 p)
             (list a b c (port-position p))))))))
 
-;; FAIL: #1996 (port-position ignores port.read_buf: a burst read! over-reports)
-;; (test-equal "port-position subtracts the unconsumed remainder of a burst read!"
-;;   '(1 2 3)
-;;   (call-with-values (lambda () (byte-source (bytevector 10 20 30 40 50 60) 3))
-;;     (lambda (p src-pos)
-;;       (read-u8 p)
-;;       (let ((a (port-position p)))
-;;         (read-u8 p)
-;;         (let ((b (port-position p)))
-;;           (read-u8 p)
-;;           (list a b (port-position p)))))))
+;; #1996 (fixed): port-position subtracts the unconsumed remainder of a burst
+;; read! (port.read_buf) instead of returning the raw get-position result.
+(test-equal "port-position subtracts the unconsumed remainder of a burst read!"
+  '(1 2 3)
+  (call-with-values (lambda () (byte-source (bytevector 10 20 30 40 50 60) 3))
+    (lambda (p src-pos)
+      (read-u8 p)
+      (let ((a (port-position p)))
+        (read-u8 p)
+        (let ((b (port-position p)))
+          (read-u8 p)
+          (list a b (port-position p)))))))
 
 ;; SRFI 181 § Port positioning and peeking: "But if port-position is called
 ;; before the peeked character is read, the port must return its cached
 ;; position rather than calling the get-position procedure."
-;; FAIL: #1996 (peek is not position-cached: port-position reports the post-peek source position)
-;; (test-equal "port-position after a peek returns the cached pre-peek position"
-;;   '(0 1)
-;;   (call-with-values (lambda () (byte-source (bytevector 10 20 30) 1))
-;;     (lambda (p src-pos)
-;;       (peek-u8 p)
-;;       (let ((a (port-position p)))
-;;         (read-u8 p)
-;;         (list a (port-position p))))))
+;; #1996 (fixed): the peeked byte is unconsumed lookahead, so port-position
+;; subtracts it rather than reporting the post-peek source position.
+(test-equal "port-position after a peek returns the cached pre-peek position"
+  '(0 1)
+  (call-with-values (lambda () (byte-source (bytevector 10 20 30) 1))
+    (lambda (p src-pos)
+      (peek-u8 p)
+      (let ((a (port-position p)))
+        (read-u8 p)
+        (list a (port-position p))))))
 
 ;; #1942 (fixed): the setter predicate is its own function inspecting
 ;; set_position_proc, no longer an alias of the getter predicate.
