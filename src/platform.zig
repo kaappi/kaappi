@@ -218,6 +218,19 @@ fn winOpen(path: []const u8, oflag: c_int, pmode: c_int) OpenError!fd_t {
 
 pub fn openRead(path: [:0]const u8) OpenError!fd_t {
     if (comptime is_windows) return winOpen(path, win.O_RDONLY, 0);
+    if (comptime is_wasm) {
+        // WASI has no AT.FDCWD: paths resolve only relative to a preopened
+        // directory fd. fd 3 is the first preopened dir — the working
+        // directory that both wasmtime `--dir=.` and the browser shim mount —
+        // the same convention file_utils.readWholeFile already uses. Without
+        // this branch, resolveLibraryPath's existence probe failed for every
+        // candidate path and no file-backed .sld was importable on wasm32
+        // even when the host mounted the directory (kaappi#2108).
+        var result_fd: std.os.wasi.fd_t = undefined;
+        const rc = std.os.wasi.path_open(3, .{ .SYMLINK_FOLLOW = true }, path.ptr, path.len, .{}, .{ .FD_READ = true, .FD_SEEK = true }, .{ .FD_READ = true }, .{}, &result_fd);
+        if (rc != .SUCCESS) return error.OpenFailed;
+        return @as(fd_t, @intCast(result_fd));
+    }
     return std.posix.openatZ(std.posix.AT.FDCWD, path, .{}, 0) catch error.OpenFailed;
 }
 

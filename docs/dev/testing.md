@@ -276,12 +276,12 @@ above.
 **Four** files in the corpus are exempt and say so in their own headers —
 `smoke/large-index-bounds-1912.scm`, `smoke/deep-nesting-print.scm`,
 `smoke/deep-nesting-print-tier-margin.scm` and
-`continuations/coroutine-repl-echo.scm`. The first three must stay free of
-file-backed `.sld` imports because `(import (srfi 64))` fails at library load
-on WASM (kaappi#2108) and `run-wasm-differential.sh` would reclassify them as
-LIBDIFF; the fourth must leave its top-level forms bare because consuming their
-values is what hid the bug it exists to catch. All four carry a hand-rolled
-`(exit 1)` instead.
+`continuations/coroutine-repl-echo.scm`. The first three are cross-tier probes
+whose bare top-level forms are the measurement, so they stay import-free to run
+identically on every tier rather than being wrapped in a SRFI-64 suite; the
+fourth must leave its top-level forms bare because consuming their values is
+what hid the bug it exists to catch. All four carry a hand-rolled `(exit 1)`
+instead.
 
 `tests/scheme/CLAUDE.md` holds the single inventory table (56 verdictless
 files → 52 converted + 4 exempt, plus `fiber-error-handling.scm` = 53

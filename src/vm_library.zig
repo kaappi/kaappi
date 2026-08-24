@@ -339,8 +339,10 @@ pub fn libraryIsAvailable(vm: *VM, lib_name: []const u8, lib_name_list: Value) b
     // mount at a given relative path -- unlike a normal install, there's no
     // guarantee lib/ is reachable there. Preferring the embedded copy when
     // there is one sidesteps that packaging dependency for exactly this
-    // library; anything else still falls through to the normal disk check
-    // (unaffected -- a host that does mount lib/ still serves those fine).
+    // library; anything else still falls through to the normal disk check,
+    // which resolves against the preopened directory since platform.openRead
+    // grew its WASI branch (kaappi#2108) -- so a host that does mount lib/
+    // serves those fine.
     if (is_wasm) {
         var path_buf: [512]u8 = undefined;
         if (buildLibRelPath(lib_name_list, &path_buf) catch null) |rel_path| {

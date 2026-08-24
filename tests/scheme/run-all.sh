@@ -496,11 +496,10 @@ check_unreachable_tests() {
 # what let 55 accumulate.
 #
 # `test-begin` is deliberately not made mandatory: four files carry a bare
-# `(exit 1)` instead and say so in their own headers — three must stay free of
-# file-backed `.sld` imports to keep working on other execution tiers
-# (`(import (srfi 64))` fails at library load on WASM, kaappi#2108), and
-# coroutine-repl-echo.scm must leave its top-level forms bare. See the
-# inventory table in tests/scheme/CLAUDE.md.
+# `(exit 1)` instead and say so in their own headers — three are cross-tier
+# probes that must keep their top-level forms bare to run identically on every
+# tier, and coroutine-repl-echo.scm must leave its top-level forms bare. See
+# the inventory table in tests/scheme/CLAUDE.md.
 check_verdictless_tests() {
     echo "=== Verdict-channel check ==="
     local found=0 dir f

@@ -29,11 +29,9 @@
 ;;; Deliberately import-free so it runs on every tier — which is why this is
 ;;; the one file in the corpus that signals failure with a bare `(exit 1)`
 ;;; rather than the SRFI-64 epilogue every other file uses (kaappi#2116).
-;;; `(import (srfi 64))` would make the WASM leg fail at library load
-;;; (kaappi#2108, no .sld on WASM), and run-wasm-differential.sh classifies
-;;; that as LIBDIFF — dropping this file from the cross-tier comparison it
-;;; exists for. The printed lines are unchanged and remain the cross-tier
-;;; comparison channel; the exit status is the native verdict layered on top.
+;;; A SRFI-64 suite would consume the bare top-level forms that are the
+;;; cross-tier comparison channel. The printed lines are unchanged and remain
+;;; that channel; the exit status is the native verdict layered on top.
 
 (define v (vector 10 11 12 13))
 (define s (make-string 4 #\a))

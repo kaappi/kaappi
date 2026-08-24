@@ -24,26 +24,20 @@
 # ---------------------------------------------------------------------------
 # READ THIS BEFORE TRUSTING A GREEN RUN
 # ---------------------------------------------------------------------------
-# Most of the corpus cannot run on this tier at all, and the reason is a bug,
-# not a property of WASM.
+# As of kaappi#2108/#2109 the corpus runs on this tier: file-backed `.sld`
+# loading works (platform.openRead grew its WASI branch) and the WASM entry
+# populates vm.lib_paths / vm.command_line_args.  The compared count covers
+# the whole corpus minus the documented exclusions below.
 #
-# MEASURED 2026-08-01 over 591 corpus files (smoke, compliance, audit,
-# continuations, hygiene, srfi, probes): **401 of them fail on WASM with
-# nothing but `KP2001 library not found`**, because no file-backed `.sld` is
-# importable there even when the host mounts the directory (kaappi#2108 —
-# `platform.openRead` has no WASI branch, so `resolveLibraryPath`'s existence
-# probe fails for every candidate path).  Only registry built-ins and the two
-# `embedded_libraries` entries resolve.
-#
-# So the comparison is structurally narrow: ~184 of 591 files actually execute
-# on both tiers.  This script REPORTS that number rather than leaving it to be
-# assumed — the summary prints "excluded (no .sld on WASM)" — for the same
-# reason the sibling reports its optimiser-vacuity meter.  When kaappi#2108 is
-# fixed, that count should collapse and the compared count should jump; if it
-# does not, something else has broken.
-#
-# The honest reading of a green run today: the ~184 files that CAN run agree
-# byte-for-byte, and the other ~400 are untested on this tier.
+# LIBDIFF is still counted and reported, not because it is expected to be
+# zero, but because a library that cannot load is the first thing a WASM file
+# fails on: a regression in file-backed loading shows up there as a jump in
+# that count rather than as a pile of unrelated DIFFs.  Before #2108 it held
+# ~231 files; since the fix it holds only the libraries deliberately refused on
+# this tier — `(srfi 18)`, `(srfi 170)`, `(srfi 192)` and `(kaappi ffi)`,
+# which `Lib.wasmAvailable()` refuses to register (no OS threads, no
+# filesystem, no FFI).  That set is the baseline; a *growing* count is the
+# regression signal.
 #
 # ---------------------------------------------------------------------------
 # Exclusions
@@ -51,7 +45,9 @@
 # Three buckets, all measured rather than guessed, all reported:
 #
 # (a) LIBDIFF — the wasm run's only complaint is `library not found` and the
-#     native run has none.  kaappi#2108.  Counted, not a failure.
+#     native run has none.  Now holds only the `Lib.wasmAvailable()`-refused
+#     libraries above; anything beyond that set is a file-backed .sld
+#     regression.
 #
 # (b) PLATFORM — the wasm run hit a degradation the engine reports
 #     deliberately and CLAUDE.md documents: no filesystem access (the
@@ -71,25 +67,22 @@
 # WHY THE `agree` COUNT DROPPED IN kaappi#2116.  Converting the corpus's 56
 # verdictless files to the SRFI-64 exit-on-fail shape gave each of them an
 # `(import (srfi 64))`, and `(srfi 64)` is a file-backed `.sld`, which wasm32
-# cannot load (kaappi#2108).  Measured on macOS aarch64 at e62b90eb: `agree`
-# 176 -> 124 and LIBDIFF 179 -> 231, 52 files moving from compared to excluded.
-# That is a real, temporary reduction in this harness's reach, and it reverses
-# entirely when #2108 lands — it is not a sign that those files stopped
-# working.  Three files were deliberately left free of file-backed `.sld`
-# imports for exactly this reason and carry a hand-rolled `(exit 1)` instead,
-# because LIBDIFF would have destroyed what they exist to measure --
-# `deep-nesting-print.scm` and
-# `large-index-bounds-1912.scm` (the latter's KNOWN_DIFFS entry for #1912 was
-# deleted when the fix made the tiers agree again -- it remains the cross-tier
-# large-index probe) and `deep-nesting-print-tier-margin.scm` (the positive
-# control that keeps #2107's margin under watch).  Do not "tidy" those three
-# into SRFI-64.
+# could not load before kaappi#2108.  Measured on macOS aarch64 at e62b90eb:
+# `agree` 176 -> 124 and LIBDIFF 179 -> 231, 52 files moving from compared to
+# excluded.  That reduction reversed entirely when #2108 landed — it was never
+# a sign that those files stopped working.  Three files were left free of
+# file-backed `.sld` imports and carry a hand-rolled `(exit 1)` instead because
+# they are cross-tier probes whose bare top-level forms are the measurement:
+# `deep-nesting-print.scm` and `large-index-bounds-1912.scm` (the latter's
+# KNOWN_DIFFS entry for #1912 was deleted when the fix made the tiers agree
+# again — it remains the cross-tier large-index probe) and
+# `deep-nesting-print-tier-margin.scm` (the positive control that keeps
+# #2107's margin under watch).  Do not "tidy" those three into SRFI-64.
 # They are three of the FOUR hand-rolled-verdict files; the fourth,
 # `continuations/coroutine-repl-echo.scm`, is exempt for an unrelated reason and
 # is not a tier probe.  tests/scheme/CLAUDE.md holds the single inventory table.
 # `deep-nesting-print-tier-margin.scm` does import `(scheme process-context)`
-# for `exit` -- a BUILT-IN library, not a `.sld`, so it stays out of LIBDIFF;
-# verified under wasmtime that its output and exit status are unchanged.
+# for `exit` — a BUILT-IN library, not a `.sld`.
 #
 # Unrelated pre-existing observation from that measurement, recorded so it is
 # not re-derived: `deep-nesting-print.scm`'s KNOWN_DIFFS entry is reported
@@ -190,21 +183,16 @@ fi
 #   structure deeper than 847 aborts the module (shadow-stack underflow);
 #   MAX_PRINT_DEPTH's 1024 guard is unreachable on wasm32.  This file nests
 #   200000 deep, so it aborts where native truncates and passes.
-# command-line-o-flag.scm     kaappi#2109 — (command-line) is '() on WASM
-#   because main.zig's WASM entry returns before vm.command_line_args is set.
-# condexpand-include-lib-868-879.scm  kaappi#2108 — cond-expand (library …)
-#   over a file-backed .sld, the same resolver failure as the LIBDIFF bucket,
-#   but reported through cond-expand rather than a KP2001, so it does not
-#   match that bucket's signature.
 # large-index-bounds-1912.scm kaappi#1912 -- FIXED: index arguments are now
 #   bounds-checked in u64 before any narrowing to usize (usize = u32 on
 #   wasm32), so 2^32+1 raises instead of aliasing element 1.  The KNOWN_DIFFS
 #   entry was deleted when the tiers agreed; the file remains in the corpus as
 #   the cross-tier large-index regression probe.
+# command-line-o-flag.scm and condexpand-include-lib-868-879.scm were listed
+#   here for kaappi#2109 and kaappi#2108 respectively; both fixes landed, the
+#   entries were deleted when the tiers agreed again.
 KNOWN_DIFFS="
 deep-nesting-print.scm
-command-line-o-flag.scm
-condexpand-include-lib-868-879.scm
 "
 
 is_known_diff() {
@@ -369,7 +357,7 @@ check_file() {
     if wasm_only_match "$LIB_SIGNATURE" "$d/base.err" "$d/wasm.err"; then
         LIBDIFF=$((LIBDIFF + 1))
         note_stale "$f"
-        [ "$VERBOSE" = "1" ] && echo "  LIBDIFF  $f  (no .sld on WASM — kaappi#2108)"
+        [ "$VERBOSE" = "1" ] && echo "  LIBDIFF  $f  (no .sld on WASM)"
         return 0
     fi
     if wasm_only_match "$PLATFORM_SIGNATURE" "$d/base.err" "$d/wasm.err"; then
@@ -456,7 +444,7 @@ echo "  skipped (native timeout):        $BASE_TIMEOUT"
 echo "  compared:                        $COMPARED"
 echo ""
 echo "  agree (stdout+exit+stderr):      $AGREE"
-echo "  excluded, no .sld on WASM:       $LIBDIFF  (kaappi#2108)"
+echo "  excluded, no .sld on WASM:       $LIBDIFF  (wasmAvailable-refused libs; anything more is a regression)"
 echo "  excluded, documented degradation:$PLATFORM"
 echo "  nondeterministic (excluded):     $NONDET"
 echo "  known divergences hit:           $KNOWN (suppressed; see KNOWN_DIFFS)"
@@ -468,7 +456,8 @@ echo "  wasm hangs:                      $WASM_TIMEOUT"
 if [ "$COMPARED" -gt 0 ] && [ "$LIBDIFF" -gt $((COMPARED / 2)) ]; then
     echo ""
     echo "  NOTE: over half the corpus could not run on this tier at all"
-    echo "        (kaappi#2108).  A green result here covers $AGREE files, not $COMPARED."
+    echo "        (a file-backed .sld regression).  A green result here covers"
+    echo "        $AGREE files, not $COMPARED."
 fi
 if [ -n "$STALE" ]; then
     echo ""
