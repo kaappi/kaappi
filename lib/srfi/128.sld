@@ -97,7 +97,20 @@
                 (car cmps)
                 (loop (cdr cmps))))))
 
-    (define (default-hash obj)
+    ;; Structural hashing is depth-bounded so a *cyclic* key (which is "an
+    ;; error" under SRFI 128, but must not abort the process) folds in a fixed
+    ;; sentinel past the cutoff instead of recursing forever into the KP3008
+    ;; stack cap. This mirrors the native equal? hash's MAX_HASH_DEPTH /
+    ;; DEEP_CUTOFF_HASH (src/primitives_hashtable.zig): the cutoff is a fixed
+    ;; constant, never derived from the object, so two equal? keys still hash
+    ;; alike. Acyclic values nesting less than max-hash-depth deep are
+    ;; unaffected. (kaappi#2235)
+    (define max-hash-depth 8)
+    (define (hash-cutoff) (modulo 668265261 (hash-bound)))
+
+    (define (default-hash obj) (default-hash-at obj 0))
+
+    (define (default-hash-at obj depth)
       (let ((reg (find-registered-hash obj)))
         (if reg
             (comparator-hash reg obj)
@@ -109,15 +122,20 @@
               ((symbol? obj) (symbol-hash obj))
               ((null? obj) 0)
               ((pair? obj)
-               (modulo (+ (default-hash (car obj))
-                          (* 31 (default-hash (cdr obj))))
-                       (hash-bound)))
+               (if (>= depth max-hash-depth)
+                   (hash-cutoff)
+                   (modulo (+ (default-hash-at (car obj) (+ depth 1))
+                              (* 31 (default-hash-at (cdr obj) (+ depth 1))))
+                           (hash-bound))))
               ((vector? obj)
-               (let loop ((i 0) (h 0))
-                 (if (= i (vector-length obj))
-                     (modulo h (hash-bound))
-                     (loop (+ i 1)
-                           (+ (* h 31) (default-hash (vector-ref obj i)))))))
+               (if (>= depth max-hash-depth)
+                   (hash-cutoff)
+                   (let loop ((i 0) (h 0))
+                     (if (= i (vector-length obj))
+                         (modulo h (hash-bound))
+                         (loop (+ i 1)
+                               (+ (* h 31)
+                                  (default-hash-at (vector-ref obj i) (+ depth 1))))))))
               ((bytevector? obj)
                (let loop ((i 0) (h 0))
                  (if (= i (bytevector-length obj))
