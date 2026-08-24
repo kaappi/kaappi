@@ -868,7 +868,15 @@ pub fn compileDefineRecordType(self: *Compiler, args: Value, dst: u16) CompileEr
         forms = gc.allocPair(gc.makeList(&[_]Value{ define_sym, np, body }) catch return CompileError.OutOfMemory, forms) catch return CompileError.OutOfMemory;
     }
 
-    // Constructor
+    // Constructor.
+    //
+    // Collision note (kaappi#2294): the R7RS grammar lets <name> and
+    // <constructor name> be the same identifier, and this path accepts it —
+    // the constructor's define below wins the name (the record type is only
+    // ever bound under the internal __record_type_<name> alias, so there is
+    // no user-visible type-name binding for the constructor to shadow). R7RS
+    // §5.5 leaves the collision unspecified; Chibi and Guile reject it, so
+    // such code is not portable. See vm_records.handleDefineRecordType.
     {
         const mr = globals_mod.baseBindingSymbol(gc, "%make-record") catch return CompileError.OutOfMemory;
         const rt_ref = gc.allocSymbol(internal_name) catch return CompileError.OutOfMemory;

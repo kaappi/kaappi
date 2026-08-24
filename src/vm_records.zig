@@ -48,6 +48,15 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
     // does not retarget previously created constructors (#1203):
     // (define ctor (let (( __rt __record_type_X))
     //               (lambda (f1 f2) (%make-record  __rt f_for_0 ...))))
+    //
+    // Collision note (kaappi#2294): the R7RS grammar lets <name> and
+    // <constructor name> be the same identifier, and this desugarer accepts
+    // it — the constructor's define below wins the name, so after
+    // (define-record-type foo (foo x) foo? (x bar)) the identifier `foo`
+    // names the constructor and the record type is reachable only through
+    // the internal __record_type_foo alias (never bound under `foo` itself
+    // on this R7RS path). R7RS §5.5 leaves the collision unspecified; Chibi
+    // and Guile reject it, so such code is not portable.
     {
         vm.gc.no_collect += 1;
         defer vm.gc.no_collect -= 1;
@@ -642,6 +651,14 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
         // SRFI 237: "As an expression, this keyword evaluates to the
         // underlying record descriptor" -- the declared name itself, not
         // just the hidden redefinition-stable alias above, must be bound.
+        //
+        // Collision note (kaappi#2294): when <name> also names the
+        // constructor, the constructor's alias define below overwrites
+        // this name->descriptor binding, so the identifier ends up the
+        // constructor and SRFI 237's name-as-expression guarantee is lost
+        // for it -- a documented deviation (CONFORMANCE.md SRFI 9). The
+        // ordering is load-bearing: this binding must stay BEFORE the
+        // constructor defines, or the rtd would silently win instead.
         lib_env.put(spec.type_name, rt_val) catch return VMError.OutOfMemory;
     } else {
         vm.defineGlobal(internal_name, rt_val) catch return VMError.OutOfMemory;
@@ -1035,6 +1052,9 @@ pub fn expandRecordTypeDefines(
     }
 
     // 2. (define ctor (let (( __rt __record_type_X)) (lambda (f1 f2) (%make-record  __rt ...))))
+    // Collision note (kaappi#2294): a <name>/<constructor name> collision is
+    // accepted here too — the ctor define wins the name. See
+    // handleDefineRecordType's constructor block for the full discussion.
     {
         const rt_local = gc.allocSymbol(" __rt") catch return CompileError.OutOfMemory;
         const lambda_sym = gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
