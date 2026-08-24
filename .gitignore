@@ -1,4 +1,5 @@
 .zig-cache/
+.zig-global-cache/
 zig-out/
 
 # Interpreter copies kept in the repo root for A/B runs (build one, stash it
