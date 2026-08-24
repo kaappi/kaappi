@@ -83,9 +83,9 @@ to; the fourth is exempt for an unrelated reason:
 
 | File | Why it cannot use `(srfi 64)` |
 |------|-------------------------------|
-| `smoke/large-index-bounds-1912.scm` | Must stay import-free: it is the cross-tier large-index regression probe for #1912 (fixed), and `(import (srfi 64))` fails at library load on WASM (kaappi#2108), which `run-wasm-differential.sh` classifies as LIBDIFF — dropping the file from the comparison it exists for |
-| `smoke/deep-nesting-print.scm` | Same, for its own `KNOWN_DIFFS` entry against #2107 |
-| `smoke/deep-nesting-print-tier-margin.scm` | Same, and it is the cross-tier positive control for #2107 |
+| `smoke/large-index-bounds-1912.scm` | Cross-tier large-index regression probe for #1912 (fixed); stays import-free so its bare top-level forms run identically on every tier |
+| `smoke/deep-nesting-print.scm` | Cross-tier probe for its own `KNOWN_DIFFS` entry against #2107; the bare top-level display is the measurement |
+| `smoke/deep-nesting-print-tier-margin.scm` | Cross-tier positive control for #2107; the bare top-level display is the measurement |
 | `continuations/coroutine-repl-echo.scm` | Its top-level forms must stay **bare** so the value-echo path runs; consuming them in `test-equal` is what hid the original bug |
 
 Two of the four (`deep-nesting-print-tier-margin.scm`,
@@ -93,8 +93,10 @@ Two of the four (`deep-nesting-print-tier-margin.scm`,
 nothing else, so their verdict does not depend on Kaappi's ambient script-mode
 globals. That is safe because `(scheme process-context)` is a **built-in**
 library rather than a file-backed `.sld`, verified under wasmtime. The other
-two are `KNOWN_DIFFS` probes whose divergence is the measurement, so they are
-left exactly as they are.
+two are cross-tier probes: `deep-nesting-print.scm` is a `KNOWN_DIFFS` probe
+whose divergence is the measurement, while `large-index-bounds-1912.scm` is a
+regression probe whose tiers now agree (its `KNOWN_DIFFS` entry was deleted);
+both are left exactly as they are.
 
 ## Adding a test
 

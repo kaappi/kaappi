@@ -10,8 +10,7 @@
 ;; MAX_PRINT_DEPTH truncation cliff, and 20000 is far past both.
 ;;
 ;; No imports: (scheme base)/(scheme write) bindings are ambient in a main
-;; script, and this probe must stay runnable on the wasm tier, where
-;; file-backed .sld imports are unavailable (kaappi#2108).
+;; script, and this probe must stay runnable on every execution tier.
 
 (define (nest n acc) (if (= n 0) acc (nest (- n 1) (list acc))))
 

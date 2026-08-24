@@ -1232,7 +1232,13 @@ jobs:
       - name: Platform gate diagnostics (kaappi#1972)
         run: wasmtime run --dir=. zig-out/bin/kaappi.wasm tests/wasm/platform-gates.scm
 
-      # The four steps above are hand-written WASM-only programs that assert
+      - name: File-backed library loading (kaappi#2108, #2109)
+        run: wasmtime run --dir=. zig-out/bin/kaappi.wasm tests/wasm/library-load.scm
+
+      - name: (command-line) reports the script path (kaappi#2109)
+        run: wasmtime run --dir=. zig-out/bin/kaappi.wasm tests/wasm/command-line.scm
+
+      # The steps above are hand-written WASM-only programs that assert
       # their own results. The differential below instead runs the SHARED
       # corpus on both tiers and requires the WASM output to match the
       # interpreter's byte-for-byte, which is what catches a WASM build that

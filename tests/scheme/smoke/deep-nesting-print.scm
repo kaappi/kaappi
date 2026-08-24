@@ -6,11 +6,9 @@
 ;; file in the corpus uses (kaappi#2116). This file is listed in
 ;; run-wasm-differential.sh's KNOWN_DIFFS against kaappi#2107 — on wasm32 the
 ;; 200000-deep car nest was expected to exhaust the shadow stack and abort the
-;; module. `(import (srfi 64))` would make the WASM run fail earlier, at
-;; library load (kaappi#2108), which the harness classifies as LIBDIFF —
-;; excluding the file from comparison entirely and so retiring the probe.
-;; Measured at e62b90eb: converting it moved the harness's `agree` count from
-;; 124 to 123 and LIBDIFF from 231 to 232, i.e. this file specifically.
+;; module. The bare top-level `(display ...)`/`(write ...)` below is the
+;; measurement, so it stays free of a SRFI-64 suite that would consume those
+;; forms rather than let them run at top level.
 ;;
 ;; Separately, and NOT caused by that: its KNOWN_DIFFS entry is already
 ;; reported STALE at e62b90eb with this file unmodified — on the current

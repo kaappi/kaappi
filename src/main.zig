@@ -278,10 +278,34 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
         var wasi_args = try init.args.iterateAllocator(allocator);
         defer wasi_args.deinit();
         _ = wasi_args.skip(); // skip argv[0]
-        const file_path = wasi_args.next() orelse {
+
+        // The non-WASM path below populates vm.command_line_args (from
+        // opts.scriptArgs()) and vm.lib_paths (script dir + --lib-path +
+        // auto-discovered dirs), but this branch returns before either, so
+        // both keep their empty defaults. Repopulate them from the WASI argv
+        // the branch already iterates: (command-line) must report the script
+        // path (R7RS 6.14) and a sibling .sld must resolve via the script's
+        // own directory. (kaappi#2109)
+        var cmd_args: std.ArrayList([]const u8) = .empty;
+        defer cmd_args.deinit(allocator);
+        while (wasi_args.next()) |arg| {
+            try cmd_args.append(allocator, arg);
+        }
+        if (cmd_args.items.len == 0) {
             writeStderr("kaappi-wasm: no file specified\n");
             return;
-        };
+        }
+        const file_path = cmd_args.items[0];
+        vm.command_line_args = cmd_args.items;
+
+        var script_dir_buf: [1][]const u8 = undefined;
+        var script_dir_count: usize = 0;
+        if (std.mem.lastIndexOfScalar(u8, file_path, '/')) |pos| {
+            script_dir_buf[0] = if (pos == 0) file_path[0..1] else file_path[0..pos];
+            script_dir_count = 1;
+        }
+        vm.lib_paths = script_dir_buf[0..script_dir_count];
+
         try runFile(vm, file_path);
         return;
     }
