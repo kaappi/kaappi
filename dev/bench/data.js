@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787565382316,
+  "lastUpdate": 1787589565531,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "fbd92a14e3821a534eb02c20f1bd97c21ca3c193",
-          "message": "Document ir.isRedefined() shadowing guard, link KEP-0008 (#2126)\n\nfoldConstants, eliminateIdentity, and simplifyBooleans all guard against\nfolding a user-shadowed primitive via ir.isRedefined(), but docs/dev/ir.md\nnever mentioned it. Also links to KEP-0008, the new cross-repo IR contract\nshared with paal and chaaya.",
-          "timestamp": "2026-08-02T00:51:22+05:30",
-          "tree_id": "854d991c4b763128ca94c54eeb420102fb4dc4e8",
-          "url": "https://github.com/kaappi/kaappi/commit/fbd92a14e3821a534eb02c20f1bd97c21ca3c193"
-        },
-        "date": 1785618575921,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.329578,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.969168,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.570863,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.968826,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004733,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046348,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.311713,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.05739,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.834583,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.233841,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.569442,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.280226,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.802077,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.641921,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044001,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043887,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "57c686979558025883b31cfc757ff035a25170ec",
+          "message": "Fix LSP protocol/lifecycle and diagnostics drift (#2297)\n\n* Fix LSP protocol/lifecycle and diagnostics drift\n\nThe language server diverged from `kaappi check` on diagnostic values and\nbroke the LSP protocol in six independent ways, both surfaced by the\nPhase 6D audit. The two surfaces now share the analysis, not just the\nserializer, so they can no longer drift.\n\nProtocol and lifecycle (kaappi#1980):\n- a request with unusable params answers -32602 InvalidParams instead of\n  going silent and stranding the client on that id\n- a malformed/missing/zero Content-Length header no longer ends the whole\n  session; the frame is skipped and the next one resynchronised\n- shutdown before initialize errors -32002, and requests after shutdown\n  error -32600\n- exit without a prior shutdown exits with status 1\n- lineColToOffset clamps to the end of the requested line, not the end of\n  the document, so a column past end-of-line no longer resolves a symbol on\n  a later line\n- a null/float request id answers an Invalid Request with id null rather\n  than a fabricated id 0\n\nDiagnostics (kaappi#1981):\n- runDiagnostics drives the exact `kaappi check` analysis\n  (src/check.zig `analyzeSource`, extracted for this), so a whole-file read\n  error is reported, every failing form and every KP4xxx lint reaches the\n  editor, and ranges carry the real span instead of a whole-line 0..999\n  sentinel\n\nThe LSP driver (tests/scheme/lsp/lsp.sh) enables all previously disabled\n#1980/#1981 assertions and keeps a control beside each, and\ndocs/dev/diagnostics-json.md now notes the `check --diagnostics=json`\nstdout exception and the shared analysis.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Fix unbounded LSP diagnostic serialization and review nits\n\nThe fixed 1024-byte serializer in runDiagnostics silently dropped any\nfinding whose message exceeded the buffer — a legal ~1000-char identifier\nmakes KP4001 embed it verbatim — and, with two findings, left a `[,`/`,]`\nthat corrupted the publishDiagnostics array. Serialize through an\nallocating writer (the same shape check.zig's reportJson uses) and gate\nthe comma separator on the buffer rather than the index, so a finding that\nfails to serialize can never corrupt the array.\n\nAlso:\n- fold the finding sort into analyzeSource so no caller can forget it\n- unify the -32600 message on \"Invalid Request\"\n- don't fabricate id 0 for an initialize sent as a notification\n- soften the header-resync comment to \"best-effort\"\n- document that `kaappi check` adds severity-2 warnings (KP4001)\n\ntests/scheme/lsp/lsp.sh gains a long-message regression asserting both\nKP4001 findings are published and the diagnostics array is not corrupted.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Append the diagnostics comma only after a finding serializes\n\nReorder the separator so it is emitted after the finding has been written\nsuccessfully, not before. This closes the OOM-only `,]` path where the last\nfinding's serialization failed after its comma was already appended,\nleaving a trailing comma in the array. The comment now describes the\nguarantee accurately.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-24T21:22:47+05:30",
+          "tree_id": "5397629a48465bae234b549d31eef7361aaa47a3",
+          "url": "https://github.com/kaappi/kaappi/commit/57c686979558025883b31cfc757ff035a25170ec"
+        },
+        "date": 1787589562039,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.287452,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.168489,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.60036,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.991633,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004785,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048399,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.306413,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055965,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.858768,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.211235,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.683316,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.287453,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.801086,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.676227,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046093,
             "unit": "seconds"
           }
         ]
