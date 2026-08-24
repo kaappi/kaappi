@@ -42,6 +42,33 @@
   (test-eqv "digit-value #\\9" 9 (digit-value #\9))
   (test-eqv "digit-value #\\a" #f (digit-value #\a)))
 
+;; Supplementary-plane (and non-ASCII BMP) Nd digits — char-numeric? must
+;; consult the full Unicode General_Category=Nd set, not a BMP-only list
+;; (kaappi#1925). digit-value must stay in lockstep: R7RS requires it to
+;; return a value for every char that char-numeric? reports as #t.
+(test-group "char-numeric? supplementary plane"
+  ;; ASCII sanity
+  (test-assert "char-numeric? #\\7" (char-numeric? #\7))
+  ;; BMP fullwidth digit
+  (test-assert "char-numeric? U+FF10 FULLWIDTH DIGIT ZERO"
+    (char-numeric? (integer->char #xFF10)))
+  ;; Supplementary-plane Nd digits
+  (test-assert "char-numeric? U+1D7CE MATHEMATICAL BOLD DIGIT ZERO"
+    (char-numeric? (integer->char #x1D7CE)))
+  (test-assert "char-numeric? U+104A0 OSMANYA DIGIT ZERO"
+    (char-numeric? (integer->char #x104A0)))
+  ;; Supplementary-plane non-digit letter must NOT be numeric
+  (test-eqv "char-numeric? U+1D400 MATHEMATICAL BOLD CAPITAL A" #f
+    (char-numeric? (integer->char #x1D400)))
+  ;; digit-value agrees with char-numeric? across planes
+  (test-eqv "digit-value U+1D7CE" 0 (digit-value (integer->char #x1D7CE)))
+  (test-eqv "digit-value U+1D7D7 (bold digit nine)" 9
+    (digit-value (integer->char #x1D7D7)))
+  (test-eqv "digit-value U+104A5 (osmanya five)" 5
+    (digit-value (integer->char #x104A5)))
+  (test-eqv "digit-value U+1D400 (non-digit)" #f
+    (digit-value (integer->char #x1D400))))
+
 (test-group "case-insensitive char comparison"
   (test-assert "char-ci=? #\\A #\\a" (char-ci=? #\A #\a))
   (test-assert "char-ci<? #\\A #\\b" (char-ci<? #\A #\b))
