@@ -37,7 +37,7 @@ on diagnostic *values* as much as on the shape (kaappi#1981).
 | Field | Type | Notes |
 |-------|------|-------|
 | `range` | `{ start, end }` of `{ line, character }` | **Zero-based**, per LSP. See *Positions* below. |
-| `severity` | integer | LSP `DiagnosticSeverity`: `1` Error, `2` Warning, `3` Information, `4` Hint. Every diagnostic is `1` today. |
+| `severity` | integer | LSP `DiagnosticSeverity`: `1` Error, `2` Warning, `3` Information, `4` Hint. Comes from the diagnostic registry: run-mode diagnostics are all `1`, while `kaappi check` adds severity-`2` warnings (e.g. KP4001). |
 | `code` | string | The stable `KP` code from the [registry](diagnostics.md), e.g. `"KP3001"`. The machine handle; match on this, not on `message`. |
 | `source` | string | Always `"kaappi"`. |
 | `message` | string | Human-readable text. Free to be reworded release to release — do not match on it. |

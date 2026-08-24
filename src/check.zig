@@ -84,7 +84,6 @@ pub fn run(vm: *VM, path: []const u8, opts: Options) u8 {
 
     analyzeSource(vm, &ctx, source, path);
 
-    sortFindings(ctx.findings.items);
     report(arena, ctx.findings.items, opts);
 
     var errors: usize = 0;
@@ -116,7 +115,9 @@ pub fn analyzeForTest(vm: *VM, ctx: *check_lint.Context, source: []const u8) voi
 /// IR optimization off and the lint collector installed for the duration. Shared
 /// by `run`, `analyzeForTest`, and the language server (src/kaappi_lsp.zig), so
 /// the three surfaces diagnose identical source identically — the LSP must not
-/// drift from `kaappi check` (kaappi#1981).
+/// drift from `kaappi check` (kaappi#1981). Findings are left sorted by
+/// (line, col) so every caller gets a deterministic order without having to
+/// remember to sort.
 pub fn analyzeSource(vm: *VM, ctx: *check_lint.Context, source: []const u8, path: []const u8) void {
     // Optimization is off so folding never hides a call from the lint walk (no
     // `(car 5 6)` folded away before it is judged).
@@ -128,11 +129,7 @@ pub fn analyzeSource(vm: *VM, ctx: *check_lint.Context, source: []const u8, path
         ir_mod.optimize_enabled = saved_opt;
     }
     analyze(vm, ctx, ctx.arena, source, path);
-}
-
-/// Sort findings by (line, col) so every report surface agrees on ordering.
-pub fn sortFindings(items: []check_lint.Finding) void {
-    std.mem.sort(check_lint.Finding, items, {}, findingLess);
+    std.mem.sort(check_lint.Finding, ctx.findings.items, {}, findingLess);
 }
 
 fn analyze(vm: *VM, ctx: *check_lint.Context, arena: std.mem.Allocator, source: []const u8, path: []const u8) void {

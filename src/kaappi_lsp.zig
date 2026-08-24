@@ -166,8 +166,11 @@ fn readMessage(allocator: std.mem.Allocator) ?[]u8 {
                 while (cl_end < headers.len and headers[cl_end] >= '0' and headers[cl_end] <= '9') : (cl_end += 1) {}
                 // A non-numeric Content-Length corrupts only this frame's own
                 // framing. Return an empty (unparseable) body so the caller
-                // skips it and resynchronises on the next header instead of
-                // ending the whole session (kaappi#1980).
+                // skips it instead of ending the whole session; the next
+                // readMessage then re-reads the leftover bytes and best-effort
+                // resynchronises on the next `Content-Length` header (a body
+                // that itself contains that literal can still mislead the
+                // resync) (kaappi#1980).
                 content_length = std.fmt.parseInt(usize, headers[cl_start..cl_end], 10) catch {
                     return allocator.alloc(u8, 0) catch return null;
                 };
@@ -807,12 +810,29 @@ fn runDiagnostics(allocator: std.mem.Allocator, vm: *vm_mod.VM, uri: []const u8,
 
     var ctx: check_lint.Context = .{ .arena = arena, .user_defined = &user_defined };
     check.analyzeSource(vm, &ctx, text, uri);
-    check.sortFindings(ctx.findings.items);
+
+    // Serialize every finding through the shared LSP `Diagnostic` writer into an
+    // allocating writer (no fixed buffer), exactly as `check.zig`'s `reportJson`
+    // does, so an arbitrarily long finding message is emitted rather than
+    // silently dropped. The comma separator is gated on the buffer being past the
+    // opening `[`, so a finding that fails to serialize can never leave a `[,` or
+    // `,]` that would corrupt the whole array (kaappi#1981 review).
+    var aw: std.Io.Writer.Allocating = .init(arena);
+    defer aw.deinit();
 
     diag_buf.append(allocator, '[') catch return;
-    for (ctx.findings.items, 0..) |finding, i| {
-        if (i > 0) diag_buf.append(allocator, ',') catch {};
-        appendFinding(&diag_buf, allocator, finding);
+    for (ctx.findings.items) |finding| {
+        if (diag_buf.items.len > 1) diag_buf.append(allocator, ',') catch {};
+        aw.clearRetainingCapacity();
+        var cbuf: [diagnostics.Code.render_width]u8 = undefined;
+        const diag: lsp_diagnostic.Diagnostic = .{
+            .range = lsp_diagnostic.spanRange(finding.span),
+            .severity = lsp_diagnostic.severityOf(finding.code.info().severity),
+            .code = finding.code.render(&cbuf),
+            .message = finding.message,
+        };
+        diag.writeJson(&aw.writer) catch continue;
+        diag_buf.appendSlice(allocator, aw.written()) catch return;
     }
     diag_buf.append(allocator, ']') catch return;
 
@@ -935,26 +955,6 @@ fn endOutputRedirect(vm: *vm_mod.VM, rd: OutputRedirect) void {
     vm.stdout_port = rd.saved_stdout_port;
     if (rd.param != types.VOID)
         vm.setParameterValue(types.toParameter(rd.param), rd.saved_param_val) catch {};
-}
-
-// Serialize one `check_lint.Finding` through the shared LSP `Diagnostic` writer
-// (src/lsp_diagnostic.zig) — the same code path `--diagnostics=json` uses, so
-// the CLI and the server can never drift (kaappi#1505). The range is the
-// finding's real span, converted to LSP's zero-based coordinates via
-// `spanRange`, so a nested error is pinpointed to its characters rather than
-// painted as a whole-line 0..999 sentinel (kaappi#1981).
-fn appendFinding(buf: *std.ArrayList(u8), allocator: std.mem.Allocator, f: check_lint.Finding) void {
-    var cbuf: [diagnostics.Code.render_width]u8 = undefined;
-    const diag: lsp_diagnostic.Diagnostic = .{
-        .range = lsp_diagnostic.spanRange(f.span),
-        .severity = lsp_diagnostic.severityOf(f.code.info().severity),
-        .code = f.code.render(&cbuf),
-        .message = f.message,
-    };
-    var tmp: [1024]u8 = undefined;
-    var w: std.Io.Writer = .fixed(&tmp);
-    diag.writeJson(&w) catch return;
-    buf.appendSlice(allocator, w.buffered()) catch return;
 }
 
 // ---- Text position helpers ----
@@ -1141,9 +1141,11 @@ pub fn main(init: std.process.Init.Minimal) !void {
 
         if (std.mem.eql(u8, method, "initialize")) {
             if (shutdown_requested) {
-                if (id) |req_id| sendError(allocator, req_id, -32600, "InvalidRequest");
-            } else {
-                handleInitialize(allocator, id orelse "0");
+                if (id) |req_id| sendError(allocator, req_id, -32600, "Invalid Request");
+            } else if (id) |req_id| {
+                // An initialize sent as a notification (no id) gets no reply —
+                // never a fabricated id 0 — and does not complete the handshake.
+                handleInitialize(allocator, req_id);
                 initialized = true;
             }
         } else if (std.mem.eql(u8, method, "initialized")) {
@@ -1166,7 +1168,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         } else if (shutdown_requested) {
             // LSP 3.17: every request received after shutdown except `exit` is
             // an Invalid Request (-32600).
-            if (id) |req_id| sendError(allocator, req_id, -32600, "InvalidRequest");
+            if (id) |req_id| sendError(allocator, req_id, -32600, "Invalid Request");
         } else if (std.mem.eql(u8, method, "textDocument/didOpen") or
             std.mem.eql(u8, method, "textDocument/didChange"))
         {

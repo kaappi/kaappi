@@ -588,6 +588,23 @@ assert_has "range control: check pinpoints the inner (if)" "$NEST_CHK" \
 assert_has "range: lsp pinpoints the inner (if)" "$OUT" \
     '"start":\{"line":0,"character":12\},"end":\{"line":0,"character":16\}'
 
+# -- long diagnostic messages ----------------------------------------------
+# KP4001 embeds the identifier verbatim, so a ~1000-char name produces a
+# message longer than the old fixed 1024-byte serializer could hold. The
+# finding must still be emitted (with a second short one beside it), not
+# dropped or turned into a corrupt `[,`/`,]` array.
+LONGNAME="$(printf 'a%.0s' $(seq 1 1000))"
+stream_reset
+msg "$INIT"
+msg "$INITED"
+did_open "file:///lsp-audit/long.scm" "(display $LONGNAME)\n(display short-undef)\n"
+msg "$EXITN"
+lsp_run
+assert_eq "long-message: both KP4001 findings are published" \
+    "$(count "$OUT" '"code":"KP4001"')" "2"
+assert_lacks "long-message: the diagnostics array is not corrupted (lead)" "$OUT" '\[,'
+assert_lacks "long-message: the diagnostics array is not corrupted (tail)" "$OUT" ',\]'
+
 # ========================================================================
 # 5. protocol edges
 # ========================================================================
