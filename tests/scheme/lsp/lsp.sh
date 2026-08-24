@@ -17,8 +17,9 @@
 #   * protocol edges: pre-initialize requests, unknown methods, malformed
 #     framing, malformed bodies, unopened documents, non-Scheme content
 #
-# Assertions disabled with `# FAIL: #1980` are reproduced defects; each keeps an
-# enabled control beside it so the surrounding mechanism stays covered.
+# The assertions below pin the fixed behaviour from kaappi#1980 (protocol and
+# lifecycle defects) and kaappi#1981 (diagnostics divergence from `kaappi
+# check`), each beside a control that keeps the surrounding mechanism covered.
 
 set -uo pipefail
 
@@ -195,17 +196,18 @@ assert_lacks "capability: no codeActionProvider advertised" "$OUT" 'codeActionPr
 # ========================================================================
 # 2. framing — exact Content-Length, and one frame per request
 # ========================================================================
-# A lone `shutdown` produces exactly one 38-byte body; the header is 22 bytes,
-# so a correctly framed reply is exactly 60 bytes on the wire.
+# A lone `shutdown` before initialize is answered with the 76-byte -32002
+# "not initialized" error; the header is 22 bytes, so a correctly framed reply
+# is exactly 98 bytes on the wire.
 stream_reset
 msg '{"jsonrpc":"2.0","id":7,"method":"shutdown"}'
 lsp_run
 run_timeout 30 "$LSP" < "$TMP/in" 2> /dev/null > "$TMP/raw"
 assert_eq "framing: declared Content-Length is exact" \
-    "$(grep -oE 'Content-Length: [0-9]+' < "$TMP/raw" | head -1)" "Content-Length: 38"
+    "$(grep -oE 'Content-Length: [0-9]+' < "$TMP/raw" | head -1)" "Content-Length: 76"
 assert_eq "framing: header + body is the whole stdout" \
-    "$(wc -c < "$TMP/raw" | tr -d ' ')" "60"
-assert_has "framing: header terminated by CRLFCRLF" "$(cat "$TMP/raw")" 'Content-Length: 38'
+    "$(wc -c < "$TMP/raw" | tr -d ' ')" "98"
+assert_has "framing: header terminated by CRLFCRLF" "$(cat "$TMP/raw")" 'Content-Length: 76'
 
 stream_reset
 msg "$INIT"
@@ -527,9 +529,8 @@ lsp_run
 assert_has "globals-isolation control: the importing doc resolves its own import" "$OUT" \
     '"id":93,"result":\{"contents"'
 
-# -- multi-error divergence ------------------------------------------------
-# `runDiagnostics` breaks out of its loop on the first failing form, so a file
-# with two independent errors publishes one diagnostic where `check` reports two.
+# -- multi-error coverage --------------------------------------------------
+# A file with two independent errors publishes both, exactly matching `check`.
 printf '(if)\n(let)\n' > "$TMP/two.scm"
 stream_reset
 msg "$INIT"
@@ -538,15 +539,14 @@ did_open "file://$TMP/two.scm" '(if)\n(let)\n'
 msg "$EXITN"
 lsp_run
 TWO_CHK="$(run_timeout 30 "$KAAPPI" check --diagnostics=json "$TMP/two.scm" 2> /dev/null)"
-# Control: `check` really does see both errors, so the LSP's count is the outlier.
+# Control: `check` really does see both errors, and so does the LSP.
 assert_eq "multi-error control: check reports 2 diagnostics" "$(count "$TWO_CHK" '"severity":')" "2"
 assert_eq "multi-error control: lsp reports the first error's code" "$(first_code "$OUT")" "KP2001"
-# FAIL: #1980 (LSP stops at the first bad form; check reports every one)
-# assert_eq "multi-error: lsp reports both diagnostics" "$(count "$OUT" '"severity":')" "2"
+assert_eq "multi-error: lsp reports both diagnostics" "$(count "$OUT" '"severity":')" "2"
 
-# -- lint (KP4xxx) coverage divergence ------------------------------------
-# `check` adds a lint pass on top of read+compile; the LSP runs neither, so an
-# editor shows a clean file where `check` reports an error and exits 1.
+# -- lint (KP4xxx) coverage ------------------------------------------------
+# The LSP runs the same lint pass as `check`, so a built-in arity error that
+# `check` reports must also reach the editor.
 printf '(car 1 2 3)\n' > "$TMP/arity.scm"
 stream_reset
 msg "$INIT"
@@ -560,22 +560,19 @@ ARITY_CHK="$(run_timeout 30 "$KAAPPI" check --diagnostics=json "$TMP/arity.scm" 
 assert_eq "lint control: check reports KP4002 for (car 1 2 3)" "$(first_code "$ARITY_CHK")" "KP4002"
 assert_has "lint control: lsp did publish a diagnostics frame" "$OUT" \
     '"method":"textDocument/publishDiagnostics"'
-# FAIL: #1981 (LSP runs no KP4xxx lint pass; check's arity error is invisible in an editor)
-# assert_eq "lint: lsp reports KP4002 too" "$(first_code "$OUT")" "KP4002"
+assert_eq "lint: lsp reports KP4002 too" "$(first_code "$OUT")" "KP4002"
 
 printf '(display undefined-thing-xyz)\n' > "$TMP/warn.scm"
 WARN_CHK="$(run_timeout 30 "$KAAPPI" check --diagnostics=json "$TMP/warn.scm" 2> /dev/null)"
 assert_eq "lint control: check emits a severity-2 warning (KP4001)" "$(first_code "$WARN_CHK")" "KP4001"
 assert_has "lint control: that warning really is severity 2" "$WARN_CHK" '"severity":2'
-# FAIL: #1980 (LSP never emits severity 2 — only read/compile errors reach addDiagnostic)
-# stream_reset; msg "$INIT"; msg "$INITED"
-# did_open "file://$TMP/warn.scm" '(display undefined-thing-xyz)\n'; msg "$EXITN"; lsp_run
-# assert_has "lint: lsp emits the same warning" "$OUT" '"severity":2'
+stream_reset; msg "$INIT"; msg "$INITED"
+did_open "file://$TMP/warn.scm" '(display undefined-thing-xyz)\n'; msg "$EXITN"; lsp_run
+assert_has "lint: lsp emits the same warning" "$OUT" '"severity":2'
 
 # -- range fidelity --------------------------------------------------------
-# The LSP hardcodes character 0..999; `check` carries the real span. Same code,
-# same line, different columns — the shared serializer guarantees the shape, not
-# the values.
+# The LSP carries the same real span `check` does, so a nested error is
+# pinpointed to the same characters on both surfaces.
 printf '(define (f) (if))\n' > "$TMP/nest.scm"
 stream_reset
 msg "$INIT"
@@ -588,8 +585,25 @@ assert_eq "range control: code still agrees on a nested error" \
     "$(first_code "$OUT")" "$(first_code "$NEST_CHK")"
 assert_has "range control: check pinpoints the inner (if)" "$NEST_CHK" \
     '"start":\{"line":0,"character":12\},"end":\{"line":0,"character":16\}'
-assert_has "range: lsp uses a whole-line 0..999 sentinel" "$OUT" \
-    '"start":\{"line":0,"character":0\},"end":\{"line":0,"character":999\}'
+assert_has "range: lsp pinpoints the inner (if)" "$OUT" \
+    '"start":\{"line":0,"character":12\},"end":\{"line":0,"character":16\}'
+
+# -- long diagnostic messages ----------------------------------------------
+# KP4001 embeds the identifier verbatim, so a ~1000-char name produces a
+# message longer than the old fixed 1024-byte serializer could hold. The
+# finding must still be emitted (with a second short one beside it), not
+# dropped or turned into a corrupt `[,`/`,]` array.
+LONGNAME="$(printf 'a%.0s' $(seq 1 1000))"
+stream_reset
+msg "$INIT"
+msg "$INITED"
+did_open "file:///lsp-audit/long.scm" "(display $LONGNAME)\n(display short-undef)\n"
+msg "$EXITN"
+lsp_run
+assert_eq "long-message: both KP4001 findings are published" \
+    "$(count "$OUT" '"code":"KP4001"')" "2"
+assert_lacks "long-message: the diagnostics array is not corrupted (lead)" "$OUT" '\[,'
+assert_lacks "long-message: the diagnostics array is not corrupted (tail)" "$OUT" ',\]'
 
 # ========================================================================
 # 5. protocol edges
@@ -613,9 +627,8 @@ msg '{"jsonrpc":"2.0","id":31,"method":"shutdown"}'
 lsp_run
 # Control: the guard demonstrably works for other methods (asserted just above).
 assert_has "pre-init control: shutdown is answered at all" "$OUT" '"id":31'
-# FAIL: #1980 (shutdown before initialize returns success, not -32002)
-# assert_has "pre-init: shutdown before initialize errors -32002" "$OUT" \
-#     '"id":31,"error":\{"code":-32002'
+assert_has "pre-init: shutdown before initialize errors -32002" "$OUT" \
+    '"id":31,"error":\{"code":-32002'
 
 # -- unknown methods -------------------------------------------------------
 stream_reset
@@ -642,7 +655,6 @@ assert_eq "unknown notification: silently ignored, no extra frame" \
 assert_has "unknown notification: the following request still works" "$OUT" '"id":34,"result":null'
 
 # -- shutdown/exit lifecycle ----------------------------------------------
-# There is no shutdown state: a request after `shutdown` is served normally.
 # LSP 3.17 requires InvalidRequest (-32600) for requests received after shutdown.
 stream_reset
 msg "$INIT"
@@ -651,11 +663,10 @@ msg '{"jsonrpc":"2.0","id":35,"method":"shutdown"}'
 pos_req 36 "textDocument/hover" "file:///x.scm" 0 0
 msg "$EXITN"
 lsp_run
-# Control: the same request before shutdown behaves identically, which is the
-# point — the two are indistinguishable because no state is recorded.
+# Control: the request is answered either way (a normal result before shutdown,
+# -32600 after); the state is now recorded so the two are distinguishable.
 assert_has "post-shutdown control: the request is answered" "$OUT" '"id":36'
-# FAIL: #1980 (no shutdown state; post-shutdown requests should be -32600)
-# assert_has "post-shutdown: request errors -32600" "$OUT" '"id":36,"error":\{"code":-32600'
+assert_has "post-shutdown: request errors -32600" "$OUT" '"id":36,"error":\{"code":-32600'
 
 # LSP 3.17: exit after shutdown -> status 0, exit without shutdown -> status 1.
 stream_reset
@@ -672,8 +683,7 @@ msg "$EXITN"
 lsp_run
 # Control: with the handshake done the server is definitely alive and running.
 assert_eq "exit control: the server did terminate on exit" "$(count "$OUT" 'Content-Length:')" "1"
-# FAIL: #1980 (exit without a prior shutdown must be status 1; it is 0)
-# assert_eq "exit: exit without shutdown is status 1" "$RC" "1"
+assert_eq "exit: exit without shutdown is status 1" "$RC" "1"
 
 # EOF on stdin with no `exit` at all must terminate, not spin.
 stream_reset
@@ -729,28 +739,21 @@ raw 'Content-Length: abc\r\n\r\n{}'
 msg "$INIT"
 msg "$EXITN"
 lsp_run
-assert_eq "bad header: server produces no output at all" "$(count "$OUT" 'Content-Length:')" "0"
-# FAIL: #1980 (a non-numeric Content-Length should be resynchronised or reported,
-#            not silently end the session — every later message is lost)
-# assert_has "bad header: session survives a malformed Content-Length" "$OUT" '"id":1,"result":'
+assert_has "bad header: session survives a malformed Content-Length" "$OUT" '"id":1,"result":'
 
 stream_reset
 raw 'Content-Type: application/json\r\n\r\n'
 msg "$INIT"
 msg "$EXITN"
 lsp_run
-assert_eq "missing Content-Length: no output" "$(count "$OUT" 'Content-Length:')" "0"
-# FAIL: #1980 (a header block with no Content-Length ends the session silently)
-# assert_has "missing Content-Length: session survives" "$OUT" '"id":1,"result":'
+assert_has "missing Content-Length: session survives" "$OUT" '"id":1,"result":'
 
 stream_reset
 raw 'Content-Length: 0\r\n\r\n'
 msg "$INIT"
 msg "$EXITN"
 lsp_run
-assert_eq "zero Content-Length: no output" "$(count "$OUT" 'Content-Length:')" "0"
-# FAIL: #1980 (Content-Length: 0 is treated as a fatal read failure)
-# assert_has "zero Content-Length: session survives" "$OUT" '"id":1,"result":'
+assert_has "zero Content-Length: session survives" "$OUT" '"id":1,"result":'
 
 # A truncated body (declared length exceeds what arrives) must not hang or crash.
 stream_reset
@@ -788,15 +791,24 @@ msg "$INITED"
 msg '{"jsonrpc":"2.0","id":null,"method":"shutdown"}'
 msg "$EXITN"
 lsp_run
-# Control: integer and string ids do round-trip (asserted just above), so a
-# fabricated id is specific to the unrepresentable ones.
-assert_has "null id control: a reply is still produced" "$OUT" '"result":null'
-# FAIL: #1980 (an id the formatter cannot render becomes 0, matching no request)
-# assert_lacks "null id: server must not invent id 0" "$OUT" '"id":0'
+# Control: integer and string ids do round-trip (asserted just above), so an
+# invalid id must not be silently answered with a fabricated one.
+assert_has "null id: the invalid request is answered with id null" "$OUT" '"id":null,"error":\{"code":-32600'
+assert_lacks "null id: server must not invent id 0" "$OUT" '"id":0'
+
+# A float id is equally unrepresentable: it must error with id null, not id 0.
+stream_reset
+msg "$INIT"
+msg "$INITED"
+msg '{"jsonrpc":"2.0","id":1.5,"method":"shutdown"}'
+msg "$EXITN"
+lsp_run
+assert_has "id: a float id is answered as an invalid request" "$OUT" '"id":null,"error":\{"code":-32600'
+assert_lacks "id: a float id is not answered with id 0" "$OUT" '"id":0'
 
 # -- requests with missing or malformed params ----------------------------
-# Every position-taking handler bails with a bare `return` when a field is
-# absent, so the request is never answered and a client blocks on that id.
+# A request with unusable params must get a -32602 InvalidParams reply, never
+# silence — a client would otherwise wait on that id forever.
 stream_reset
 msg "$INIT"
 msg "$INITED"
@@ -807,17 +819,13 @@ msg '{"jsonrpc":"2.0","id":53,"method":"shutdown"}'
 msg "$EXITN"
 lsp_run
 # Control: the well-formed hover at id 50 IS answered, so the handler works and
-# only the malformed variants vanish.
+# only the malformed variants error.
 assert_has "missing params control: a well-formed hover is answered" "$OUT" '"id":50'
 assert_has "missing params control: a later request still works" "$OUT" '"id":53,"result":null'
-assert_eq "missing params: params={} produces no reply" "$(count "$OUT" '"id":51')" "0"
-assert_eq "missing params: absent params produces no reply" "$(count "$OUT" '"id":52')" "0"
-# FAIL: #1980 (a request with unusable params must get a response — -32602
-#            InvalidParams — not silence; the client waits on that id forever)
-# assert_has "missing params: params={} errors -32602" "$OUT" '"id":51,"error":'
-# assert_has "missing params: absent params errors -32602" "$OUT" '"id":52,"error":'
+assert_has "missing params: params={} errors -32602" "$OUT" '"id":51,"error":'
+assert_has "missing params: absent params errors -32602" "$OUT" '"id":52,"error":'
 
-# The same silence affects every position-taking method, not just hover.
+# The same -32602 reply covers every position-taking method, not just hover.
 stream_reset
 msg "$INIT"
 msg "$INITED"
@@ -829,9 +837,9 @@ msg '{"jsonrpc":"2.0","id":58,"method":"shutdown"}'
 msg "$EXITN"
 lsp_run
 assert_has "missing params control: session survives all four" "$OUT" '"id":58,"result":null'
-assert_eq "missing params: definition/references/completion/documentSymbol all silent" \
-    "$(count "$OUT" '"id":54')$(count "$OUT" '"id":55')$(count "$OUT" '"id":56')$(count "$OUT" '"id":57')" \
-    "0000"
+assert_eq "missing params: definition/references/completion/documentSymbol all error" \
+    "$(count "$OUT" '"id":54,"error":')$(count "$OUT" '"id":55,"error":')$(count "$OUT" '"id":56,"error":')$(count "$OUT" '"id":57,"error":')" \
+    "1111"
 
 # ========================================================================
 # 6. document-store edges
@@ -957,33 +965,27 @@ skipspace "line-comment-control" '(define x 1)\n;; fine\n' '(define x 1)\n;; fin
 assert_has "skipspace control: a good trailing comment is clean in the lsp" "$OUT" '"diagnostics":\[\]'
 assert_eq "skipspace control: and clean in check too" "$(count "$SKIP_CHK" '"severity":')" "0"
 
-# An unterminated block comment at the START swallows the entire file: the LSP
-# reports no diagnostic AND documentSymbol returns nothing, so a real error two
-# lines down is invisible in an editor.
+# An unterminated block comment at the START must still be reported: the LSP
+# surfaces the KP1001 reader error rather than swallowing it, while
+# documentSymbol (navigation, not diagnostics) rightly returns nothing.
 skipspace "leading-block-comment" '#| unterminated\n(if)\n' '#| unterminated\n(if)\n'
 assert_eq "skipspace: check reports KP1001 for a leading unterminated block comment" \
     "$(first_code "$SKIP_CHK")" "KP1001"
-assert_has "skipspace: the lsp reports nothing at all" "$OUT" '"diagnostics":\[\]'
 assert_has "skipspace: and documentSymbol returns an empty list" "$OUT" '"id":72,"result":\[\]'
-# FAIL: #1981 (`hasMore() catch false` discards every reader error raised while
-#            skipping intertoken space, so an unterminated block comment hides
-#            the whole file from diagnostics and documentSymbol)
-# assert_eq "skipspace: leading block comment is reported by the lsp too" \
-#     "$(first_code "$OUT")" "KP1001"
+assert_eq "skipspace: leading block comment is reported by the lsp too" \
+    "$(first_code "$OUT")" "KP1001"
 
 # The same at end-of-file, and for a dangling datum comment.
 skipspace "trailing-block-comment" '(define x 1)\n#| unterminated\n' '(define x 1)\n#| unterminated\n'
 assert_eq "skipspace: check reports KP1001 for a trailing unterminated block comment" \
     "$(first_code "$SKIP_CHK")" "KP1001"
 assert_has "skipspace control: the good datum before it is still found" "$OUT" '"name":"x"'
-# FAIL: #1980 (same mechanism at end of file)
-# assert_eq "skipspace: trailing block comment is reported by the lsp too" \
-#     "$(first_code "$OUT")" "KP1001"
+assert_eq "skipspace: trailing block comment is reported by the lsp too" \
+    "$(first_code "$OUT")" "KP1001"
 
 skipspace "dangling-datum-comment" '(define x 1)\n#;\n' '(define x 1)\n#;\n'
 assert_eq "skipspace: check reports KP1001 for a dangling #;" "$(first_code "$SKIP_CHK")" "KP1001"
-# FAIL: #1981 (same mechanism for a datum comment with nothing to comment out)
-# assert_eq "skipspace: dangling #; is reported by the lsp too" "$(first_code "$OUT")" "KP1001"
+assert_eq "skipspace: dangling #; is reported by the lsp too" "$(first_code "$OUT")" "KP1001"
 
 # Deeply nested input must be reported, not overflow the stack.
 DEEP="$(printf '(%.0s' $(seq 1 5000))1$(printf ')%.0s' $(seq 1 5000))"
@@ -1017,8 +1019,8 @@ assert_has "position: negative line/character clamps to null, no crash" "$OUT" '
 posq 99999 0 '(car x)\n(display abc)\n'
 assert_has "position: line past end of document returns null" "$OUT" '"id":80,"result":null'
 
-# A character past end-of-line is clamped to the end of the *document*, not the
-# end of the line, so it can resolve a symbol on a later line entirely.
+# A character past end-of-line must stop at the line end, not walk into a later
+# line and resolve a symbol there.
 posq 0 200 '(car x)\ndisplay'
 # Control: the byte-identical text with a trailing newline correctly returns
 # null, which isolates the overrun to the document-end clamp.
@@ -1027,10 +1029,7 @@ posq 0 200 '(car x)\ndisplay\n'
 CTRL_OUT="$OUT"
 assert_has "eol-overrun control: with a trailing newline the answer is null" "$CTRL_OUT" '"id":80,"result":null'
 posq 0 200 '(car x)\ndisplay'
-assert_has "eol-overrun: line 0 char 200 resolves a line-1 symbol" "$OUT" '\*\*procedure\*\* `display`'
-# FAIL: #1980 (lineColToOffset clamps to text.len, so a column past end-of-line
-#            walks into later lines instead of stopping at the line end)
-# assert_has "eol-overrun: character past end of line returns null" "$OUT" '"id":80,"result":null'
+assert_has "eol-overrun: character past end of line returns null" "$OUT" '"id":80,"result":null'
 
 # ========================================================================
 # 9. cross-document state leakage
@@ -1043,15 +1042,16 @@ BDOC="file:///lsp-audit/leak-b.scm"
 MACRO='(define-syntax my-if (syntax-rules () ((_ a) (if a 1 2))))\n'
 USE='(my-if)\n'
 
-# Control 1: B alone is clean — `(my-if)` with no macro in scope is just a call.
+# Control 1: B alone is just a KP4001 unknown-variable warning — `(my-if)` with
+# no macro in scope is a call to an undefined name, not a compile error.
 stream_reset
 msg "$INIT"
 msg "$INITED"
 did_open "$BDOC" "$USE"
 msg "$EXITN"
 lsp_run
-assert_has "leak control 1: B alone is diagnosed clean" "$OUT" \
-    '"uri":"'"$BDOC"'","diagnostics":\[\]'
+assert_has "leak control 1: B alone is a KP4001 warning" "$OUT" '"code":"KP4001"'
+assert_lacks "leak control 1: B alone has no KP2001 compile error" "$OUT" '"code":"KP2001"'
 
 # Control 2: macro and misuse in one document really is KP2001 — so KP2001 is
 # exactly the verdict a leaked macro would produce.
@@ -1087,9 +1087,10 @@ did_open "$BDOC" "$USE"
 msg "$EXITN"
 lsp_run
 # Control: closing A does publish its clearing notification, so didClose ran.
-# (With the leak fixed, B's own open is clean too, so all three frames are
-# empty arrays; the count was 2 under the bug because B carried A's macro.)
-assert_eq "leak control 3: didClose published its empty array" "$(count "$OUT" '"diagnostics":[]')" "3"
+# A's open and A's close are both empty (A defines its macro cleanly); B's own
+# open carries the KP4001 unknown-variable warning, so those are the only two
+# empty arrays.
+assert_eq "leak control 3: didClose published its empty array" "$(count "$OUT" '"diagnostics":[]')" "2"
 assert_eq "leak: closing A restores B's clean verdict" \
     "$(count "$OUT" '"code":"KP2001"')" "0"
 

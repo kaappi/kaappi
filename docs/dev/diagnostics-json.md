@@ -16,6 +16,10 @@ output on stdout is unaffected, so redirect the two apart:
 kaappi --diagnostics=json file.scm 2>diagnostics.jsonl
 ```
 
+> **Exception:** `kaappi check --diagnostics=json` writes its JSON Lines to
+> **stdout**, not stderr ([check.md](check.md)). `check` is a report rather than
+> a run, so it has no program output on stdout to keep apart from the JSON.
+
 `--diagnostics=text` is the explicit spelling of the default; any other value is
 a usage error.
 
@@ -26,12 +30,14 @@ We do **not** invent a schema. Each line is a Language Server Protocol
 object — the exact shape the Kaappi language server already publishes for
 `textDocument/publishDiagnostics`, and the shape editors and agents already
 understand. The CLI and the LSP share one serializer
-(`src/lsp_diagnostic.zig`), so the two can never drift.
+(`src/lsp_diagnostic.zig`) **and** one analysis (`src/check.zig`'s
+`analyzeSource`, driven from `src/kaappi_lsp.zig`), so the two can never drift —
+on diagnostic *values* as much as on the shape (kaappi#1981).
 
 | Field | Type | Notes |
 |-------|------|-------|
 | `range` | `{ start, end }` of `{ line, character }` | **Zero-based**, per LSP. See *Positions* below. |
-| `severity` | integer | LSP `DiagnosticSeverity`: `1` Error, `2` Warning, `3` Information, `4` Hint. Every diagnostic is `1` today. |
+| `severity` | integer | LSP `DiagnosticSeverity`: `1` Error, `2` Warning, `3` Information, `4` Hint. Comes from the diagnostic registry: run-mode diagnostics are all `1`, while `kaappi check` adds severity-`2` warnings (e.g. KP4001). |
 | `code` | string | The stable `KP` code from the [registry](diagnostics.md), e.g. `"KP3001"`. The machine handle; match on this, not on `message`. |
 | `source` | string | Always `"kaappi"`. |
 | `message` | string | Human-readable text. Free to be reworded release to release — do not match on it. |

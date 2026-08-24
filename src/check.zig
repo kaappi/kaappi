@@ -82,19 +82,8 @@ pub fn run(vm: *VM, path: []const u8, opts: Options) u8 {
 
     var ctx: check_lint.Context = .{ .arena = arena, .user_defined = &user_defined };
 
-    // `check` discards bytecode, so folding buys nothing — and disabling it keeps
-    // every call visible to the lint (no `(car 5 6)` folded away before the walk).
-    const saved_opt = ir_mod.optimize_enabled;
-    ir_mod.optimize_enabled = false;
-    check_lint.active = &ctx;
-    defer {
-        check_lint.active = null;
-        ir_mod.optimize_enabled = saved_opt;
-    }
+    analyzeSource(vm, &ctx, source, path);
 
-    analyze(vm, &ctx, arena, source, path);
-
-    std.mem.sort(check_lint.Finding, ctx.findings.items, {}, findingLess);
     report(arena, ctx.findings.items, opts);
 
     var errors: usize = 0;
@@ -119,6 +108,19 @@ fn isError(code: Code, deny_warnings: bool) bool {
 /// off, lint active, no file I/O or reporting). The caller owns `ctx.arena` and
 /// inspects `ctx.findings` directly.
 pub fn analyzeForTest(vm: *VM, ctx: *check_lint.Context, source: []const u8) void {
+    analyzeSource(vm, ctx, source, "<test>");
+}
+
+/// Analyse `source` (read + env-setup + compile + lint) into `ctx.findings`, with
+/// IR optimization off and the lint collector installed for the duration. Shared
+/// by `run`, `analyzeForTest`, and the language server (src/kaappi_lsp.zig), so
+/// the three surfaces diagnose identical source identically — the LSP must not
+/// drift from `kaappi check` (kaappi#1981). Findings are left sorted by
+/// (line, col) so every caller gets a deterministic order without having to
+/// remember to sort.
+pub fn analyzeSource(vm: *VM, ctx: *check_lint.Context, source: []const u8, path: []const u8) void {
+    // Optimization is off so folding never hides a call from the lint walk (no
+    // `(car 5 6)` folded away before it is judged).
     const saved_opt = ir_mod.optimize_enabled;
     ir_mod.optimize_enabled = false;
     check_lint.active = ctx;
@@ -126,7 +128,8 @@ pub fn analyzeForTest(vm: *VM, ctx: *check_lint.Context, source: []const u8) voi
         check_lint.active = null;
         ir_mod.optimize_enabled = saved_opt;
     }
-    analyze(vm, ctx, ctx.arena, source, "<test>");
+    analyze(vm, ctx, ctx.arena, source, path);
+    std.mem.sort(check_lint.Finding, ctx.findings.items, {}, findingLess);
 }
 
 fn analyze(vm: *VM, ctx: *check_lint.Context, arena: std.mem.Allocator, source: []const u8, path: []const u8) void {

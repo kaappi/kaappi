@@ -35,6 +35,8 @@ pub const fiber_mod = @import("fiber.zig");
 pub const primitives_fiber = @import("primitives_fiber.zig");
 pub const diagnostics = @import("diagnostics.zig");
 pub const lsp_diagnostic = @import("lsp_diagnostic.zig");
+pub const check = @import("check.zig");
+pub const check_lint = @import("check_lint.zig");
 
 const version = "0.1.0";
 const initialize_result =
@@ -116,6 +118,19 @@ fn clampToU32(val: i64) u32 {
     return @intCast(@as(u64, @bitCast(val)));
 }
 
+/// Validate that `params` is an object usable by a request method: it must carry
+/// a `textDocument` object with a string `uri`, and (when `needs_position`) a
+/// `position` object. Returns the params map on success, null otherwise — the
+/// caller answers null with `-32602` InvalidParams rather than silently dropping
+/// the request and leaving the client waiting on that id forever (kaappi#1980).
+fn requestParams(params: ?std.json.ObjectMap, needs_position: bool) ?std.json.ObjectMap {
+    const p = params orelse return null;
+    const td = getObjField(p, "textDocument") orelse return null;
+    if (getStrField(td, "uri") == null) return null;
+    if (needs_position and getObjField(p, "position") == null) return null;
+    return p;
+}
+
 // ---- LSP message I/O ----
 
 fn readMessage(allocator: std.mem.Allocator) ?[]u8 {
@@ -149,13 +164,24 @@ fn readMessage(allocator: std.mem.Allocator) ?[]u8 {
                 const cl_start = cl_pos + 16;
                 var cl_end = cl_start;
                 while (cl_end < headers.len and headers[cl_end] >= '0' and headers[cl_end] <= '9') : (cl_end += 1) {}
-                content_length = std.fmt.parseInt(usize, headers[cl_start..cl_end], 10) catch return null;
+                // A non-numeric Content-Length corrupts only this frame's own
+                // framing. Return an empty (unparseable) body so the caller
+                // skips it instead of ending the whole session; the next
+                // readMessage then re-reads the leftover bytes and best-effort
+                // resynchronises on the next `Content-Length` header (a body
+                // that itself contains that literal can still mislead the
+                // resync) (kaappi#1980).
+                content_length = std.fmt.parseInt(usize, headers[cl_start..cl_end], 10) catch {
+                    return allocator.alloc(u8, 0) catch return null;
+                };
             }
             break;
         }
     }
 
-    if (content_length == 0) return null;
+    // A missing or zero Content-Length frames no body; return an empty,
+    // unparseable body so the session continues rather than ending (kaappi#1980).
+    if (content_length == 0) return allocator.alloc(u8, 0) catch return null;
 
     // Read body
     const body = allocator.alloc(u8, content_length) catch return null;
@@ -698,8 +724,6 @@ fn handleDidOpenOrChange(allocator: std.mem.Allocator, vm: *vm_mod.VM, params: s
 fn runDiagnostics(allocator: std.mem.Allocator, vm: *vm_mod.VM, uri: []const u8, text: []const u8) void {
     var diag_buf: std.ArrayList(u8) = .empty;
     defer diag_buf.deinit(allocator);
-    diag_buf.append(allocator, '[') catch return;
-    var has_diag = false;
 
     // Reset the shared macro table to the pre-document baseline: each document
     // is diagnosed as if it were the only one open. The define-syntax forms
@@ -770,31 +794,48 @@ fn runDiagnostics(allocator: std.mem.Allocator, vm: *vm_mod.VM, uri: []const u8,
     const out_redirect = beginOutputRedirect(vm);
     defer endOutputRedirect(vm, out_redirect);
 
-    // Parse phase
-    var r = reader.Reader.initWithName(vm.gc, text, uri);
-    defer r.deinit();
+    // Diagnose the document by driving the exact analysis `kaappi check` runs —
+    // read + env-setup + compile + KP4xxx lint — into a `check_lint.Context`,
+    // then serialize every finding through the shared LSP `Diagnostic` writer.
+    // Sharing the analysis (not just the serializer) is what makes the LSP agree
+    // with `kaappi check --diagnostics=json` on codes, severities, and spans
+    // (kaappi#1981): a whole-file read error, every failing form, every KP4xxx
+    // lint, and the real character range all reach the editor.
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
 
-    while (r.hasMore() catch false) {
-        var expr = r.readDatum() catch |err| {
-            const lc = r.getLineCol();
-            if (has_diag) diag_buf.append(allocator, ',') catch {};
-            has_diag = true;
-            addDiagnostic(&diag_buf, allocator, lc.line -| 1, diagnostics.readErrorCode(err));
-            break;
+    var user_defined = std.StringHashMap(void).init(arena);
+    check.collectTopLevelDefines(&user_defined, arena, vm.gc, text);
+
+    var ctx: check_lint.Context = .{ .arena = arena, .user_defined = &user_defined };
+    check.analyzeSource(vm, &ctx, text, uri);
+
+    // Serialize every finding through the shared LSP `Diagnostic` writer into an
+    // allocating writer (no fixed buffer), exactly as `check.zig`'s `reportJson`
+    // does, so an arbitrarily long finding message is emitted rather than
+    // silently dropped. The comma separator is appended only after a finding has
+    // serialized successfully, so a finding that fails to serialize can never
+    // leave a `[,` or `,]` that would corrupt the whole array (kaappi#1981 review).
+    var aw: std.Io.Writer.Allocating = .init(arena);
+    defer aw.deinit();
+
+    diag_buf.append(allocator, '[') catch return;
+    var first = true;
+    for (ctx.findings.items) |finding| {
+        aw.clearRetainingCapacity();
+        var cbuf: [diagnostics.Code.render_width]u8 = undefined;
+        const diag: lsp_diagnostic.Diagnostic = .{
+            .range = lsp_diagnostic.spanRange(finding.span),
+            .severity = lsp_diagnostic.severityOf(finding.code.info().severity),
+            .code = finding.code.render(&cbuf),
+            .message = finding.message,
         };
-
-        // The reader sits just past the form now; this is the same line the
-        // original compile-only loop reported, so the cross-check against
-        // `kaappi check` (tests/scheme/lsp/lsp.sh §4) still agrees.
-        const line0 = r.getLineCol().line -| 1;
-        vm.gc.pushRoot(&expr);
-        const stop = diagnoseTopLevelForm(&diag_buf, allocator, vm, uri, expr, line0, &has_diag);
-        vm.gc.popRoot();
-        // The server publishes only the first failing form's diagnostic
-        // (kaappi#1980, deliberately covered in the LSP suite).
-        if (stop) break;
+        diag.writeJson(&aw.writer) catch continue;
+        if (!first) diag_buf.append(allocator, ',') catch return;
+        diag_buf.appendSlice(allocator, aw.written()) catch return;
+        first = false;
     }
-
     diag_buf.append(allocator, ']') catch return;
 
     // Build publishDiagnostics params
@@ -918,124 +959,6 @@ fn endOutputRedirect(vm: *vm_mod.VM, rd: OutputRedirect) void {
         vm.setParameterValue(types.toParameter(rd.param), rd.saved_param_val) catch {};
 }
 
-// Diagnose one top-level form, returning true when it recorded a diagnostic
-// (the caller then stops — the server publishes only the first, kaappi#1980).
-//
-// The classification mirrors `check.zig`'s `checkForm`, sharing the very
-// `TopLevelHead` machinery `kaappi check` and the runtime use so the three
-// cannot drift (kaappi#2114): a top-level `begin` and the selected `cond-expand`
-// clause splice into the top-level sequence and are recursed into, the
-// environment-establishing heads (`import`/`define-library`/`include`/
-// `define-record-type`) are *run* for their effect so later forms see the
-// bindings and macros they introduce, and everything else is compiled but not
-// executed. Running imports is what makes an imported macro like SRFI 42's
-// `list-ec` expand — without it, the compiler judges the `(if test)` filter
-// qualifier inside the comprehension as a malformed one-armed R7RS `if` and
-// flags valid code.
-fn diagnoseTopLevelForm(
-    diag_buf: *std.ArrayList(u8),
-    allocator: std.mem.Allocator,
-    vm: *vm_mod.VM,
-    uri: []const u8,
-    expr: types.Value,
-    line0: u32,
-    has_diag: *bool,
-) bool {
-    if (types.isPair(expr) and types.isSymbol(types.car(expr))) {
-        if (vm.topLevelHead(expr)) |head| {
-            switch (head) {
-                // R7RS 5.1: top-level `begin` splices its body as top-level
-                // forms — recurse so a nested import runs for its effect.
-                .begin => {
-                    var rest = types.cdr(expr);
-                    while (types.isPair(rest)) : (rest = types.cdr(rest)) {
-                        if (diagnoseTopLevelForm(diag_buf, allocator, vm, uri, types.car(rest), line0, has_diag)) return true;
-                    }
-                    return false;
-                },
-                // R7RS 4.2.1: a top-level `cond-expand` splices its selected
-                // clause's body as top-level forms. Clause selection uses the
-                // same evaluator the runtime does, so both pick the same clause.
-                .cond_expand => {
-                    var clauses = types.cdr(expr);
-                    while (types.isPair(clauses)) : (clauses = types.cdr(clauses)) {
-                        const clause = types.car(clauses);
-                        if (!types.isPair(clause)) break;
-                        const req = types.car(clause);
-                        const is_else = types.isSymbol(req) and std.mem.eql(u8, types.symbolName(req), "else");
-                        if (is_else or vm_library.evalLibFeatureReq(vm, req)) {
-                            var body = types.cdr(clause);
-                            while (types.isPair(body)) : (body = types.cdr(body)) {
-                                if (diagnoseTopLevelForm(diag_buf, allocator, vm, uri, types.car(body), line0, has_diag)) return true;
-                            }
-                            return false;
-                        }
-                    }
-                    // No clause matched: fall through and compile it as an
-                    // expression (the compiler folds a no-match to void), the
-                    // same fallback check.zig and the runtime compiler take.
-                },
-                else => {
-                    if (head.isEnvSetup()) {
-                        _ = vm.runTopLevelHead(head, expr) catch |err| {
-                            const code = if (vm.last_error_code != .uncategorized)
-                                vm.last_error_code
-                            else
-                                diagnostics.runtimeErrorCode(err);
-                            recordDiagnostic(diag_buf, allocator, line0, code, has_diag);
-                            vm.last_error_detail_len = 0;
-                            vm.last_error_code = .uncategorized;
-                            return true;
-                        };
-                        return false;
-                    }
-                    // define-values: only its names matter, never its producer's
-                    // effect — fall through to compile-not-run, like check.zig.
-                },
-            }
-        }
-    }
-
-    // Everything else — define, define-syntax, define-values, expressions — is
-    // compiled (registering any define-syntax macro and surfacing compile
-    // errors) but never executed. The compiled Function is discarded.
-    _ = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, 0, uri, false) catch |err| {
-        recordDiagnostic(diag_buf, allocator, line0, diagnostics.compileErrorCode(err), has_diag);
-        return true;
-    };
-    return false;
-}
-
-// Append one diagnostic to the array under construction, inserting the JSON
-// comma separator before all but the first.
-fn recordDiagnostic(buf: *std.ArrayList(u8), allocator: std.mem.Allocator, line0: u32, code: diagnostics.Code, has_diag: *bool) void {
-    if (has_diag.*) buf.append(allocator, ',') catch {};
-    has_diag.* = true;
-    addDiagnostic(buf, allocator, line0, code);
-}
-
-// Serialize one diagnostic through the shared LSP `Diagnostic` writer
-// (src/lsp_diagnostic.zig) — the same code path `--diagnostics=json` uses, so
-// the CLI and the server can never drift (kaappi#1505). The range spans the
-// whole line (character 0..999) to highlight it in an editor; the `code` is the
-// stable KP code and `message` its registry template.
-fn addDiagnostic(buf: *std.ArrayList(u8), allocator: std.mem.Allocator, line0: u32, code: diagnostics.Code) void {
-    var cbuf: [diagnostics.Code.render_width]u8 = undefined;
-    const diag: lsp_diagnostic.Diagnostic = .{
-        .range = .{
-            .start = .{ .line = line0, .character = 0 },
-            .end = .{ .line = line0, .character = 999 },
-        },
-        .severity = lsp_diagnostic.severityOf(code.info().severity),
-        .code = code.render(&cbuf),
-        .message = code.message(),
-    };
-    var tmp: [1024]u8 = undefined;
-    var w: std.Io.Writer = .fixed(&tmp);
-    diag.writeJson(&w) catch return;
-    buf.appendSlice(allocator, w.buffered()) catch return;
-}
-
 // ---- Text position helpers ----
 
 fn getSymbolAtPosition(text: []const u8, line: u32, col: u32) []const u8 {
@@ -1062,8 +985,13 @@ fn lineColToOffset(text: []const u8, line: u32, col: u32) usize {
     while (i < text.len and cur_line < line) : (i += 1) {
         if (text[i] == '\n') cur_line += 1;
     }
-    const target = i + @as(usize, col);
-    return @min(target, text.len);
+    // `i` is the start of the requested line (or `text.len` when the line is
+    // past the end). Clamp `col` to the line's own length — up to its newline —
+    // so a column past end-of-line stops at the line end rather than walking
+    // into a later line (kaappi#1980).
+    var line_end = i;
+    while (line_end < text.len and text[line_end] != '\n') : (line_end += 1) {}
+    return i + @min(col, line_end - i);
 }
 
 fn isSymbolChar(ch: u8) bool {
@@ -1169,6 +1097,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     if (diag_sink_port != types.VOID) gc.extra_roots.append(gc.allocator, diag_sink_port) catch {};
 
     var initialized = false;
+    var shutdown_requested = false;
 
     // Message loop
     while (true) {
@@ -1185,13 +1114,24 @@ pub fn main(init: std.process.Init.Minimal) !void {
 
         const method = getStrField(root, "method") orelse continue;
 
-        // Format id for response splicing (null for notifications)
+        // Format the request id for response splicing. JSON-RPC ids are integers
+        // or strings; anything else (null, a float, an array, an object) is an
+        // Invalid Request answered with id null — never a fabricated id
+        // (kaappi#1980).
         var id_buf: std.ArrayList(u8) = .empty;
         defer id_buf.deinit(allocator);
+        var id_valid = false;
         if (root.get("id")) |id_val| {
-            _ = formatIdValue(&id_buf, allocator, id_val);
+            id_valid = formatIdValue(&id_buf, allocator, id_val);
         }
-        const id: ?[]const u8 = if (id_buf.items.len > 0) id_buf.items else null;
+        const id: ?[]const u8 = if (id_valid) id_buf.items else null;
+
+        // A request whose id we cannot echo is answered immediately with an
+        // Invalid Request (id null) and never dispatched.
+        if (root.get("id") != null and !id_valid) {
+            sendError(allocator, "null", -32600, "Invalid Request");
+            continue;
+        }
 
         const params: ?std.json.ObjectMap = if (root.get("params")) |p|
             switch (p) {
@@ -1202,18 +1142,35 @@ pub fn main(init: std.process.Init.Minimal) !void {
             null;
 
         if (std.mem.eql(u8, method, "initialize")) {
-            handleInitialize(allocator, id orelse "0");
-            initialized = true;
+            if (shutdown_requested) {
+                if (id) |req_id| sendError(allocator, req_id, -32600, "Invalid Request");
+            } else if (id) |req_id| {
+                // An initialize sent as a notification (no id) gets no reply —
+                // never a fabricated id 0 — and does not complete the handshake.
+                handleInitialize(allocator, req_id);
+                initialized = true;
+            }
         } else if (std.mem.eql(u8, method, "initialized")) {
             // Notification, no response needed
         } else if (std.mem.eql(u8, method, "shutdown")) {
-            sendResponse(allocator, id orelse "0", "null");
-        } else if (std.mem.eql(u8, method, "exit")) {
-            break;
-        } else if (!initialized) {
-            if (id) |req_id| {
-                sendError(allocator, req_id, -32002, "not initialized");
+            if (!initialized) {
+                if (id) |req_id| sendError(allocator, req_id, -32002, "not initialized");
+            } else {
+                if (id) |req_id| sendResponse(allocator, req_id, "null");
+                shutdown_requested = true;
             }
+        } else if (std.mem.eql(u8, method, "exit")) {
+            // LSP 3.17: exit without a prior shutdown must be status 1, so a
+            // supervising client can tell a clean shutdown from a crash-exit.
+            if (shutdown_requested) break;
+            log("kaappi-lsp exiting without shutdown\n");
+            std.process.exit(1);
+        } else if (!initialized) {
+            if (id) |req_id| sendError(allocator, req_id, -32002, "not initialized");
+        } else if (shutdown_requested) {
+            // LSP 3.17: every request received after shutdown except `exit` is
+            // an Invalid Request (-32600).
+            if (id) |req_id| sendError(allocator, req_id, -32600, "Invalid Request");
         } else if (std.mem.eql(u8, method, "textDocument/didOpen") or
             std.mem.eql(u8, method, "textDocument/didChange"))
         {
@@ -1233,15 +1190,35 @@ pub fn main(init: std.process.Init.Minimal) !void {
                 }
             }
         } else if (std.mem.eql(u8, method, "textDocument/completion")) {
-            if (params) |p| handleCompletion(allocator, &vm, id orelse "0", p);
+            if (requestParams(params, true)) |p| {
+                if (id) |req_id| handleCompletion(allocator, &vm, req_id, p);
+            } else if (id) |req_id| {
+                sendError(allocator, req_id, -32602, "InvalidParams");
+            }
         } else if (std.mem.eql(u8, method, "textDocument/hover")) {
-            if (params) |p| handleHover(allocator, &vm, id orelse "0", p);
+            if (requestParams(params, true)) |p| {
+                if (id) |req_id| handleHover(allocator, &vm, req_id, p);
+            } else if (id) |req_id| {
+                sendError(allocator, req_id, -32602, "InvalidParams");
+            }
         } else if (std.mem.eql(u8, method, "textDocument/documentSymbol")) {
-            if (params) |p| handleDocumentSymbol(allocator, &vm, id orelse "0", p);
+            if (requestParams(params, false)) |p| {
+                if (id) |req_id| handleDocumentSymbol(allocator, &vm, req_id, p);
+            } else if (id) |req_id| {
+                sendError(allocator, req_id, -32602, "InvalidParams");
+            }
         } else if (std.mem.eql(u8, method, "textDocument/definition")) {
-            if (params) |p| handleDefinition(allocator, &vm, id orelse "0", p);
+            if (requestParams(params, true)) |p| {
+                if (id) |req_id| handleDefinition(allocator, &vm, req_id, p);
+            } else if (id) |req_id| {
+                sendError(allocator, req_id, -32602, "InvalidParams");
+            }
         } else if (std.mem.eql(u8, method, "textDocument/references")) {
-            if (params) |p| handleReferences(allocator, &vm, id orelse "0", p);
+            if (requestParams(params, true)) |p| {
+                if (id) |req_id| handleReferences(allocator, &vm, req_id, p);
+            } else if (id) |req_id| {
+                sendError(allocator, req_id, -32602, "InvalidParams");
+            }
         } else if (id != null) {
             sendError(allocator, id.?, -32601, "MethodNotFound");
         }
