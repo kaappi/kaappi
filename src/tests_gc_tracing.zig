@@ -1758,3 +1758,126 @@ test "gc tracing (remembered set): a port carrying both satellites" {
     // Test B: markObjectContents plus referencesYoung, via the remembered set.
     try expectRememberedTrace(&gc, port, &.{ ref(rd, 1), ref(wrapped, 2) });
 }
+
+// ---------------------------------------------------------------------------
+// #2196 — remembered-set deduplication
+//
+// A container mutated n times must appear in the remembered_set at most once,
+// or the minor mark phase marks it n times (and marking a large container is
+// O(capacity), making a fill quadratic in writes). These assert the count is
+// bounded by the number of *distinct* containers, not the number of writes,
+// while every distinct container still gets tracked.
+// ---------------------------------------------------------------------------
+
+test "gc remembered set (#2196): repeated writes to one container queue a single entry" {
+    var gc = newGc();
+    defer gc.deinit();
+    const c = try gc.allocVectorFill(4, types.NIL);
+    try promoteToOld(&gc, c);
+    const vec = types.toObject(c).as(types.Vector);
+
+    // Fire the barrier many times, as a container mutated in a loop does
+    // (hash-table-set! fires it twice per insert). Each iteration repoints a
+    // slot at a fresh young object. gc.enabled is false, so no collection --
+    // and no prune -- runs underneath the loop.
+    var i: usize = 0;
+    while (i < 500) : (i += 1) {
+        const a = try young(&gc, @intCast(i));
+        vec.data[i % 4] = a;
+        gc.writeBarrier(&vec.header, a);
+    }
+
+    // Pre-fix: 500 identical entries. Post-fix: exactly one.
+    try std.testing.expectEqual(@as(usize, 1), gc.remembered_set.items.len);
+    try std.testing.expect(inRemembered(&gc, &vec.header));
+    try std.testing.expect(vec.header.flags.in_remembered_set);
+}
+
+test "gc remembered set (#2196): writes to N distinct containers queue N entries" {
+    var gc = newGc();
+    defer gc.deinit();
+    const N = 16;
+    var containers: [N]*Object = undefined;
+    var i: usize = 0;
+    while (i < N) : (i += 1) {
+        const c = try gc.allocPair(types.NIL, types.NIL);
+        try promoteToOld(&gc, c);
+        containers[i] = types.toObject(c);
+    }
+
+    // One old->young write per distinct container. Dedup must never suppress a
+    // *different* container -- every reference still has to be tracked.
+    for (containers) |cobj| {
+        const a = try young(&gc, 0);
+        cobj.as(types.Pair).car = a;
+        gc.writeBarrier(cobj, a);
+    }
+
+    try std.testing.expectEqual(@as(usize, N), gc.remembered_set.items.len);
+    for (containers) |cobj| {
+        try std.testing.expect(inRemembered(&gc, cobj));
+        try std.testing.expect(cobj.flags.in_remembered_set);
+    }
+}
+
+test "gc remembered set (#2196): a container re-queues after the set drops it" {
+    var gc = newGc();
+    defer gc.deinit();
+    const c = try gc.allocVectorFill(1, types.NIL);
+    try promoteToOld(&gc, c);
+    const vec = types.toObject(c).as(types.Vector);
+
+    // First old->young write: one entry, dedup flag set.
+    const a = try young(&gc, 1);
+    vec.data[0] = a;
+    gc.writeBarrier(&vec.header, a);
+    try std.testing.expectEqual(@as(usize, 1), gc.remembered_set.items.len);
+    try std.testing.expect(vec.header.flags.in_remembered_set);
+
+    // Overwrite the slot with an immediate, then collect. The container no
+    // longer references young, so pruneRememberedSet drops it and must clear
+    // the dedup flag.
+    vec.data[0] = types.makeFixnum(0);
+    forceMinor(&gc);
+    try std.testing.expectEqual(@as(usize, 0), gc.remembered_set.items.len);
+    try std.testing.expect(!vec.header.flags.in_remembered_set);
+
+    // A fresh old->young write must re-queue exactly one entry -- proving the
+    // flag was reset, so no old->young reference is ever silently dropped.
+    const b = try young(&gc, 2);
+    vec.data[0] = b;
+    gc.writeBarrier(&vec.header, b);
+    try std.testing.expectEqual(@as(usize, 1), gc.remembered_set.items.len);
+    try std.testing.expect(vec.header.flags.in_remembered_set);
+}
+
+test "gc remembered set (#2196): a full collect drain resets every dedup flag" {
+    var gc = newGc();
+    defer gc.deinit();
+    const c = try gc.allocVectorFill(1, types.NIL);
+    try promoteToOld(&gc, c);
+    const vec = types.toObject(c).as(types.Vector);
+
+    const a = try young(&gc, 1);
+    vec.data[0] = a;
+    gc.writeBarrier(&vec.header, a);
+    try std.testing.expect(vec.header.flags.in_remembered_set);
+
+    // fullCollect drains the whole remembered_set. The flag must be cleared
+    // there too -- otherwise a surviving container that keeps its stale flag
+    // would refuse to re-queue, silently dropping a later old->young write.
+    // Root the container so the full collect keeps it.
+    var root = c;
+    gc.pushRoot(&root);
+    forceFull(&gc);
+    gc.popRoot();
+    try std.testing.expectEqual(@as(usize, 0), gc.remembered_set.items.len);
+    try std.testing.expect(!vec.header.flags.in_remembered_set);
+
+    // And it can be tracked again.
+    const b = try young(&gc, 2);
+    vec.data[0] = b;
+    gc.writeBarrier(&vec.header, b);
+    try std.testing.expectEqual(@as(usize, 1), gc.remembered_set.items.len);
+    try std.testing.expect(vec.header.flags.in_remembered_set);
+}

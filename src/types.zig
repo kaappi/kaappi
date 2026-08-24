@@ -234,7 +234,14 @@ pub const Object = struct {
         generation: u1 = 0,
         survive_count: u2 = 0,
         immutable: bool = false,
-        _pad: u3 = 0,
+        // #2196: set while this object is present in its owning GC's
+        // remembered_set, so writeBarrier can dedup and append each mutated
+        // old-gen container at most once per collection cycle. Cleared when
+        // the container leaves the set (pruneRememberedSet drops it, or a
+        // full collect drains the whole set). Keeps the barrier O(1) and the
+        // minor mark phase O(distinct containers) instead of O(writes).
+        in_remembered_set: bool = false,
+        _pad: u2 = 0,
     };
     const Align = if (@alignOf(?*Object) < 8) struct { _: u64 align(8) = 0 } else struct {};
 
