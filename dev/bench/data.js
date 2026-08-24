@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787589565531,
+  "lastUpdate": 1787596087619,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "94ebd5a0221d36bd35e2e545051b08efa9803420",
-          "message": "Phase 4E: .sbc cache coverage — eight probes, and three things a HIT changes (#2121)\n\nPhase 4B shipped the cold-vs-warm cache differential and found zero\ndivergence across 333 corpus files.  That was a coverage result, not a\ncorrectness one: only 40 of them populate the cache at all, and the six\ntoy forms in `sbc equiv:` are the entire round-trip surface the codec\nhas ever been asked about.\n\nEstablish the population rule first, since everything else depends on\nit.  A run writes an entry iff caching is on, at least one form compiled,\nand `has_imports` stayed false — and that flag is set by ANY of the eight\nhead symbols `vm_eval.handleTopLevelForm` claims, not just `import`.\nMeasured, one isolated KAAPPI_HOME per file: 40 of 345 cached; of the 305\nuncached, 303 have a top-level `import`, one is disabled by a top-level\n`begin` and one by a top-level `define-values`; zero cached files contain\nany of the eight.  `docs/dev/cache.md` documents only the `import` case\nand `--timings` blames `imports` for all eight (#2114).\n\nThen round-trip every constant tag through a real cold/warm run rather\nthan a unit fixture.  Fixnum at both ends of the 48-bit payload, flonum\nincluding -0.0 / +-inf.0 / NaN / 1e308 / 5e-324, bignum in both signs,\nrational with bignum parts, complex with its exactness bits, non-ASCII\nstrings, #\\x10FFFF, |weird sym|, bytevectors, nested and improper\nstructure, closures and upvalues, case-lambda, named let, call/cc,\ndynamic-wind, guard, parameterize: all clean.  That is the headline\nresult and it is a real one.\n\nThree things are not.  A HIT rebuilds constants through the ordinary\nallocators, so it drops `Object.flags.immutable` and `set-car!` on a\nliteral raises cold and succeeds warm, exit 1 becoming exit 0 (#2110).\n`writeConstant` has no visited-set, so datum-label sharing is emitted\nonce per reference and `eq?` flips #t to #f — with a shared DAG going\nexponential (241 source bytes, 4.7 MB of .sbc) and a cyclic literal\nnever loading at all (#2111).  And `define-syntax` registers its\ntransformer as a compile-time side effect that a HIT never replays, so a\ntop-level macro is invisible to a run-time `eval` (#2112).\n\nThe fourth is what hid the third symptom: the writer enforces almost none\nof the reader's limits, so a constant past MAX_CONSTANT_DEPTH or a vector\npast MAX_VECTOR_LEN writes an entry that can never be loaded.  The file\nrecompiles and rewrites the same .sbc forever, `cache status` calls the\nentry \"current\", and counting entries reads it as covered (#2113).  The\nharness now runs `--timings` once per cache-populating file and fails on\nan unexpected permanent miss; across all 599 files in the full corpus\nthere are none.\n\nProbes are written to stay cacheable — sbc-population.scm carries the\nrule and the control that the four non-library heads only disable it in\ntop-level head position.\n\nDefault corpus 345 -> 353 files, cache-exercising 40 -> 48, 118s.\nFull suite green: 663 Scheme files, 1395 R7RS assertions, 0 fail.\n\nRefs #1890\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-02T01:05:22+05:30",
-          "tree_id": "171cf8e97cbb787c07d86a6aae46cf9abb65eaee",
-          "url": "https://github.com/kaappi/kaappi/commit/94ebd5a0221d36bd35e2e545051b08efa9803420"
-        },
-        "date": 1785622240595,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.287617,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.092973,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.573069,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.987546,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004713,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046061,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.311168,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057369,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.785479,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.230107,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.569087,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.281043,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.80023,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.622473,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044055,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046093,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4634030c01f3903305f79eedfeecd1f0bbd59cbe",
+          "message": "Fix WASM file-backed .sld loading and command-line/lib-path setup (Fixes #2108, #2109) (#2298)\n\n* Fix WASM file-backed .sld loading and command-line/lib-path setup (Fixes #2108, #2109)\n\nTwo independent wasm32 tier divergences from the audit v2 Phase 4D sweep, fixed together:\n\n#2108: platform.openRead had no WASI branch, so resolveLibraryPath's\nexistence probe failed for every candidate path and no file-backed .sld\nwas importable on wasm32 even when the host mounted the directory. Give\nopenRead the same preopened-dir (fd 3) path_open branch that\nfile_utils.readWholeFile already uses.\n\n#2109: main.zig's WASM entry returned before vm.command_line_args and\nvm.lib_paths were populated, so (command-line) returned '() and a .sld\nbeside the program was invisible. Repopulate both from the WASI argv the\nbranch already iterates.\n\nAdd tests/wasm/library-load.scm and tests/wasm/command-line.scm (wired\ninto CI) as regression tests, and remove the two run-wasm-differential.sh\nKNOWN_DIFFS entries now that the tiers agree again.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Propagate WASI arg-append failure; fix stale KNOWN_DIFFS description\n\nCodeRabbit review: cmd_args.append used \"catch return\", which exits 0 when\nargument setup runs out of memory and the script never runs. Use \"try\" so\nthe error reaches mainInner's exit-1 path.\n\ntests/scheme/CLAUDE.md still described large-index-bounds-1912.scm as a\nKNOWN_DIFFS probe after its entry was deleted when #1912 was fixed; split\nthe description so only deep-nesting-print.scm is a known divergence.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-24T23:21:09+05:30",
+          "tree_id": "faa167818a75a1c7e25662ba842f34850a4053da",
+          "url": "https://github.com/kaappi/kaappi/commit/4634030c01f3903305f79eedfeecd1f0bbd59cbe"
+        },
+        "date": 1787596084107,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.665165,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 5.007186,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.355614,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 1.854209,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003659,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.030125,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.192585,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.034281,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.73562,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.771651,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.012254,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.192073,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.09946,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.755532,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.029723,
             "unit": "seconds"
           }
         ]
