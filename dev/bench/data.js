@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787514633479,
+  "lastUpdate": 1787556950152,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "23c16dc5c1f26562628d51999f369156239f3a16",
-          "message": "Phase 4C: give the compile suite an interpreter oracle (#2123)\n\nThe native backend's regression tests mostly asserted that a compiled\nprogram printed a hardcoded string. That checks the native tier against a\nhuman's belief about the program, not against the reference implementation,\nand it rots: when the golden value is wrong, the test pins the wrong answer\nforever. #2092 is the worked example — `define-property` inside a top-level\ncond/case/do evaluated at the wrong *time* natively, so the binary printed\n`BPC` where the interpreter printed `PBC`. A tier comparison catches that by\nconstruction; a golden string only if someone thought to write `PBC` down.\n\nThe survey found 23 scripts, not the tracker's 22 (#1896's landed with Phase\n4A today), and 8 already compared tiers rather than 2 — the \"2 of 22\" figure\npredates five scripts written since. 11 more now do, plus one upgraded from\na partial comparison, leaving 4 genuine exceptions.\n\n`shell-common.sh` grows `interp_stdout`/`assert_tiers_agree` and the block\nexplaining the three tier differences that are by design and must not be\ncompared (docs/dev/fuzzing.md): the VM echoes a bare top-level expression's\nvalue and a native binary does not, the VM continues past a top-level error\nwhile a native binary exits at the first, and a procedure prints as\n`#<procedure name>` vs `#<procedure>`. Every converted script keeps its\ngolden string as a second assertion — now against the *interpreter*, where\nit documents intent and still catches a bug both tiers share.\n\nset-define-lexical-scope-819.sh's own comment already claimed it matched the\ninterpreter's stdout and exit status. It never ran the interpreter. It does\nnow.\n\nThe exceptions, and why: assertions that compilation *fails* have no\ninterpreter counterpart because the interpreter runs the same program fine\n(native-external-library-import-1743.sh); assertions about emitted LLVM IR\nare about which tier ran, not what it answered; a native diagnostic's text\ncannot equal the VM's, which frames one with file:line and an excerpt; and\nnothing can execute a named .sbc — `kaappi out.sbc` reads it as source — so\ncompile-preamble-699.sh has no runnable second tier short of a ~180s\n-Dbundle rebuild. It now at least asserts --compile wrote a non-empty file.\n\nFour live divergences the golden strings had been silent about, filed not\nfixed: #2115 (a guard does not catch an error raised in a natively compiled\ncallee — 4 smoke files die where the interpreter recovers, and\nllvm-backend.md lists guard under \"stress-tested\"), #2117 (constant folding\nignores both a set! rebinding and an upvalue-shadowed primitive — #600 and\n#790 are live again in the LLVM emitter), #2118 (a parameter shadowing a\nsyntactic keyword is ignored — #788 likewise), and #2119 (re-invoking a\ntop-level continuation from a native callback silently keeps the stale\nvalue, against continuation-strategy.md's stated equivalence commitment).\nAll four were found by a throwaway tier-(c) sweep of smoke/compliance/audit;\n178 of 338 files compile, 25 differ, those four are real.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-02T00:45:46+05:30",
-          "tree_id": "39ca9f97edc7c3a2d63e52c2d031e0a2cfad876f",
-          "url": "https://github.com/kaappi/kaappi/commit/23c16dc5c1f26562628d51999f369156239f3a16"
-        },
-        "date": 1785615950573,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.306712,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.644855,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.605009,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.9893,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004744,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046507,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.312114,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057435,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.740554,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.232621,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.579074,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.293727,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.81173,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.676859,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044467,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045126,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0154fe845c490109b217d3ec8ea1c8ec9aecc4cd",
+          "message": "Rewrite SRFI 166 to fix the v2 audit findings (#2292)\n\n* Rewrite SRFI 166 to fix the v2 audit findings\n\nComplete reimplementation of the monadic formatting library against the\nSRFI 166 specification, replacing the fixed 13-slot state vector with\nfirst-class, extensible state variables and adding the missing\n(srfi 166 base) library.\n\nCore (lib/srfi/166/base.sld):\n- fn and with are now macros (fn binds state variables into a lexical\n  environment; with dynamically binds them and restores only the bound\n  variables, so col/row output position survives the form) (#2054, #2056)\n- add an output state variable slot; displayed returns a formatter\n  argument as-is instead of rendering it as #<procedure> (#2054, #2063)\n- numeric honours radix with precision, sign-rule, comma-rule,\n  comma-sep and decimal-sep, and consults their state-variable defaults;\n  numeric/comma inserts separators; numeric/si honours base/separator\n  and sub-unit prefixes (#2061)\n- escaped no longer adds delimiters, honours esc-ch (#f doubles the\n  quote) and renamer; maybe-escaped quotes on an embedded quote/escape\n  (#2059)\n- tab-to does nothing on a tab stop and does not divide by zero on a\n  zero tab width (#2058)\n- padded/trimmed/fitted measure with string-width and honour the\n  ellipsis state variable (#2062)\n- written-shared/pretty-shared label non-cyclic sharing via a shared\n  structure walker (#2064)\n\nSub-libraries:\n- (srfi 166 pretty): pretty breaks lines at width, pretty-shared labels\n  sharing (#2064)\n- (srfi 166 columnar): columnar/tabular align and pad, wrapped honours\n  width and word-separator?, wrapped/char splits at width, justified\n  full-justifies, line-numbers streams, zero columns produce a blank\n  line (#2065)\n- (srfi 166 unicode): real terminal-width model (wide=2, combining=0,\n  ANSI=0) with substring-terminal-width returning substrings and\n  terminal-aware overriding string-width/substring/width (#2066)\n\nMissing names now exported (joined/dot, numeric/fitted, trimmed/lazy,\nmake-state-variable, writer, substring/width, substring/preserve,\ndecimal-align, word-separator?, ambiguous-is-wide?, pretty-with-color,\nstring-terminal-width/wide, substring-terminal-width/wide,\nsubstring-terminal-preserve) (#2067)\n\nSigned-off-by: Baiju Muthukadan <baiju@muthukadan.net>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address SRFI 166 review findings\n\nFix the correctness and termination issues raised in review:\n\n- wrapped/char now consumes at least one character per line, so a width\n  smaller than a single character cannot loop (#2292 review)\n- columnar/tabular thread the string-width state variable into padding\n  and minimum-width measurement instead of measuring with string-length\n- columnar resolves real widths in (0,1) as a fraction of the available\n  width instead of treating them as unspecified\n- justified subtracts the mandatory single space per gap from the\n  padding budget, so lines land exactly on the requested width\n- line-numbers formats in the current radix and leaves width/alignment\n  to columnar instead of baking in a five-column pad\n- from-file closes its input port on every exit path via\n  call-with-input-file\n- pretty threads radix/precision through the flat and broken paths, and\n  leaves shared/cyclic data flat (with labels) rather than looping or\n  dropping labels\n- upcased/downcased run their formatters under the active state so\n  string-width and friends reach nested formatters\n- substring-terminal-preserve keeps Unicode bidi formatting characters\n- written keeps the readable radix when precision is also bound (the\n  spec applies precision only at radix 10)\n- import (scheme cxr) explicitly for the caddr accessor\n\nRow rendering now indexes into vectors instead of walking line lists on\nevery row.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address follow-up SRFI 166 review findings\n\n- columnar/tabular render each column formatter under its resolved\n  width (binding the width state variable), so a wrapped column wraps\n  at the column width rather than the default\n- upcased/downcased case-convert segment-by-segment, leaving ANSI\n  control sequences (whose letters are case-sensitive) untouched\n- pretty breaks an acyclic shared datum (which carries no datum labels\n  under plain pretty) instead of flattening it as one overflowing line\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju@muthukadan.net>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-24T06:57:37Z",
+          "tree_id": "d887e546bfe56ed3efc55597d305ff97aaf2110b",
+          "url": "https://github.com/kaappi/kaappi/commit/0154fe845c490109b217d3ec8ea1c8ec9aecc4cd"
+        },
+        "date": 1787556948656,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.495699,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.228775,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.337206,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 1.807843,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003684,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.030271,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.182768,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.033869,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.739274,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.720747,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.085546,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.197133,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.074789,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.710147,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.030517,
             "unit": "seconds"
           }
         ]
