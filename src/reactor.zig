@@ -1104,12 +1104,16 @@ const WindowsEventBackend = struct {
     }
 
     fn wait(self: *WindowsEventBackend, timeout_ns: ?u64) ![]const ReadyEvent {
-        var ms: u32 = if (timeout_ns) |ns| blk: {
-            // Ceil so a timer may fire slightly late but never early
-            // (resolved KEP-0001 question 2, epoll's msFromNs discipline).
-            const ceil_ms = (ns +| 999_999) / 1_000_000;
-            break :blk @intCast(@min(ceil_ms, platform.win.INFINITE - 1));
-        } else platform.win.INFINITE;
+        // One ceil-to-ms rule for every backend: call msFromNs (resolved
+        // KEP-0001 question 2 — a timer may fire slightly late but never
+        // early) and translate its i32/-1 convention into the Windows
+        // u32/INFINITE one. -1 ("no bound") becomes INFINITE; a positive
+        // result is clamped to INFINITE-1.
+        const ms_i32 = msFromNs(timeout_ns);
+        var ms: u32 = if (ms_i32 < 0)
+            platform.win.INFINITE
+        else
+            @min(@as(u32, @intCast(ms_i32)), platform.win.INFINITE - 1);
         // Armed pipe interest has no kernel wakeup — bound the block at
         // the poll quantum so the sweep below re-checks it (#1608 stage 2).
         if (self.pipes.count() > 0) ms = @min(ms, pipe_poll_quantum_ms);
