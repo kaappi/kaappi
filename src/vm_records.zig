@@ -651,6 +651,14 @@ pub fn handleDefineRecordTypeR6RS(vm: *VM, args: Value) VMError!Value {
         // SRFI 237: "As an expression, this keyword evaluates to the
         // underlying record descriptor" -- the declared name itself, not
         // just the hidden redefinition-stable alias above, must be bound.
+        //
+        // Collision note (kaappi#2294): when <name> also names the
+        // constructor, the constructor's alias define below overwrites
+        // this name->descriptor binding, so the identifier ends up the
+        // constructor and SRFI 237's name-as-expression guarantee is lost
+        // for it -- a documented deviation (CONFORMANCE.md SRFI 9). The
+        // ordering is load-bearing: this binding must stay BEFORE the
+        // constructor defines, or the rtd would silently win instead.
         lib_env.put(spec.type_name, rt_val) catch return VMError.OutOfMemory;
     } else {
         vm.defineGlobal(internal_name, rt_val) catch return VMError.OutOfMemory;
@@ -1044,6 +1052,9 @@ pub fn expandRecordTypeDefines(
     }
 
     // 2. (define ctor (let (( __rt __record_type_X)) (lambda (f1 f2) (%make-record  __rt ...))))
+    // Collision note (kaappi#2294): a <name>/<constructor name> collision is
+    // accepted here too — the ctor define wins the name. See
+    // handleDefineRecordType's constructor block for the full discussion.
     {
         const rt_local = gc.allocSymbol(" __rt") catch return CompileError.OutOfMemory;
         const lambda_sym = gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;

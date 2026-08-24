@@ -28,6 +28,11 @@
   (r6foo? (r6foo 7)))
 (test-equal "R6RS clause syntax: field accessor works"
   7 (r6foo-v (r6foo 7)))
+;; SRFI 237 specifies that the record name evaluates to the record
+;; descriptor; the collision means that binding does NOT survive — the name
+;; is the constructor, not the descriptor.
+(test-assert "R6RS clause syntax: colliding name is not the record descriptor"
+  (not (record-type-descriptor? r6foo)))
 
 (let ((runner (test-runner-current)))
   (test-end "record-name-ctor-collision-2294")
