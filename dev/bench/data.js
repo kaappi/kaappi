@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787556950152,
+  "lastUpdate": 1787565382316,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a6c2e8a2c1c714397140c0755a6d33244fe53380",
-          "message": "Phase 5E: de-flake the timing tests — five racing blocks in srfi120.scm, and a regression test that could not fail (#2120)\n\n* Phase 5E: de-flake the timing tests — five racing blocks in srfi120.scm, and a regression test that could not fail\n\nThe audit's timing unit. Every fix here removes a place where a test raced a\ndeadline it had chosen itself, or could not report a failure at all.\n\nsrfi120.scm is the flakiest file in the tree: red on windows-x64-test, then\ntwice in one day on netbsd-test (#2076, #2093) with different assertions each\ntime, on two structurally unrelated PRs. Five blocks were racing, not the two\nCI happened to catch. Reproduced deterministically by injecting a delay where\nan emulated leg is slow, rather than by hoping an idle laptop goes red:\n\n  timer-task-remove!  300 ms margin — exists?/remove! must beat the deadline\n  timer-reschedule!  1000 ms margin — already adequate, left alone, now pinned\n  period-0 reschedule  40 ms period — queued ticks answer the next receive\n  timer-cancel!        30 ms period — likewise; this is #2093's failure\n  no error-handler     30 ms margin — this is #2076's KP3000 at :156\n\nThe last two are fixed structurally rather than by widening a number. The\ncancel block now uses two one-shots, so there is nothing to queue. The\nno-handler block schedules the erroring task LAST, so nothing calls into the\ntimer after it may stop — the ordering removes the deadline instead of\noutrunning it. The other three get margins of several thousand times the work\nthat must fit inside them, and every negative wait now outlasts the deadline it\ndisproves, so widening did not weaken detection. Three rules are written into\nthe file header so the next edit does not reintroduce them.\n\nsrfi120-slow-setup.scm is new and is the evidence: it mirrors each block with\nthe delay injected. Against the old shapes 6 of its 10 assertions fail —\nincluding \"no further firings after a delayed cancellation\" and \"scheduling the\nerroring task last never raises\", i.e. both netbsd failures by name. Against the\nnew shapes, 12/12 pass.\n\nthread-sleep-876.scm had no exit path: it displayed the answer and exited 0.\nSubstituting (thread-sleep! 0) — the exact #876 regression — printed #f and\nstill passed. Now SRFI-64 with the exit-on-fail epilogue, and mutation-tested:\nthe substitution fails both assertions and exits 1. It is one of 54 such files;\nthe rest are #2116.\n\nfiber-sleep-does-not-stall-sibling.scm asserted the fast fiber finishes within\n150 ms of the start — an upper bound on how slow the machine may be. It now\ncompares two measured timestamps (fast-done-at < sleeper-woke-at), which is the\nproperty under test and carries no wall-clock bound. Mutation-tested: a sleeper\nthat busy-waits instead of parking fails it.\n\nsrfi18-cross-heap-abandoned-mutex.scm slept 100 ms to \"let it acquire mt\". It\nnow polls the mutex's own state, so it synchronises on the event; if the child\nnever gets there the retry budget reports it instead of testing the wrong thing.\n\nRefs #1870, #2116.\n\n* Address review: require a real owner in the mutex poll, and import (scheme process-context) explicitly\n\nCodeRabbit raised three points on #2120.\n\nDeclined one: converting srfi18-cross-heap-abandoned-mutex.scm to SRFI-64 is a\nrepo-wide style migration of a pre-existing manual-counter file, and that file\ndoes have a working exit path.\n\nDeclined the substance of a second while taking its intent. The suggestion was\nto have wait-until-held! return #t only when (mutex-state m) is eq? to the child\nthread. That would never be true: mutex-state answers with the child's own\nFIBER, not the thread make-thread returned, so the poll would spin to its retry\nbudget and the test would fail. Filed as #2125 with the probe. The underlying\nconcern — that \"not 'not-abandoned\" also accepts 'abandoned, i.e. a child that\ndied on the way — is real, so the predicate now requires an owner object and\nexcludes both unowned symbols.\n\nTook the third: (exit …) is R7RS's (scheme process-context), and although\nkaappi happens to provide it from (scheme base) alone, the documented template\nin tests/scheme/CLAUDE.md imports it. Added to both new/rewritten SRFI-64 files.\n\nRefs #2125.",
-          "timestamp": "2026-08-02T00:48:26+05:30",
-          "tree_id": "aa452e4d817b6da85e141f14c30bc6c3d1a9a2f6",
-          "url": "https://github.com/kaappi/kaappi/commit/a6c2e8a2c1c714397140c0755a6d33244fe53380"
-        },
-        "date": 1785616402868,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.280897,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.273057,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.576622,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.767128,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004756,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046171,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.311138,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057417,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.751656,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.229463,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.563158,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.277047,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.808897,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.621009,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045756,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.030517,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e96c185c7d71e0ec38d8bb198cb8f43bc45b7afa",
+          "message": "Make equal? recurse into record fields (structural record equality) (#2295)\n\n* Make equal? recurse into record fields (structural record equality)\n\nR7RS §6.1 leaves records in the \"all other cases\" clause for equal?,\nso the result is implementation-defined. Kaappi compared record\ninstances by identity only, which made it the lone holdout among\nnative-R7RS implementations: Gambit, Guile, and Chibi all recurse into\nfields, and the report's own (non-normative) \"print the same\" rule of\nthumb points the same way.\n\ndeepEqualWithVisited now has a record_instance arm: two instances are\nequal? only when they share the same record type (compared by identity,\nso a type that crossed an SRFI-18 thread boundary still matches,\nkaappi#1932) and their fields are pairwise deep-equal?. Records route\nthrough the same VisitedMap as pairs and vectors, so cyclic records\nterminate. eq?/eqv? stay identity-based, as §6.1 requires.\n\n- distinct-but-equal records => #t; different types or differing fields\n  => #f; nested and procedure-bearing fields recurse correctly\n- Zig unit tests in src/tests_records.zig and a Scheme smoke test under\n  tests/scheme/smoke/record-equal-2293.scm\n- CONFORMANCE.md SRFI 9 section records the decision and its §6.1 basis\n\nFixes #2293\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Update SRFI 9 test: equal? on records is now structural\n\nThe record arm in equal? makes two distinct instances of the same type\nwith equal fields compare #t, so the srfi9 equivalence block no longer\nholds for equal?. Keep the identity assertions for eqv?/eq?; assert\nequal? returns #t for the distinct-but-equal pair.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Hash records structurally, matching the new structural equal?\n\nMaking equal? recurse into record fields (kaappi#2293) broke the\nhash/equality contract: deepEqual became structural while valueHash\nstill hashed records by address, so a default SRFI 69 table\n(equal? + valueHash) silently lost every record entry once the table\ngrew past a tiny mask. Same bug class as the f64vector fix in #2023.\n\nAdd a record_instance arm to valueHashDepth that folds the record\ntype's identity (the discriminator sameRecordType gates on — a type\nthat crossed an SRFI-18 thread boundary keeps its identity at a new\naddress) with the first few field hashes, capped like the vector arm.\nCyclic fields are absorbed by the MAX_HASH_DEPTH sentinel. Flip the\nnow-stale identity-fallback comment.\n\nAlso pin that member/assoc find records structurally (they share the\ndeepEqual path), and that equal records hash alike.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-24T14:47:25+05:30",
+          "tree_id": "147027ee7c2dded320eb6f7551a668b6f9b9a857",
+          "url": "https://github.com/kaappi/kaappi/commit/e96c185c7d71e0ec38d8bb198cb8f43bc45b7afa"
+        },
+        "date": 1787565380893,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.364214,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.49406,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.561623,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.044966,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004945,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048175,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.308476,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056164,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.781897,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.22622,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.685079,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.279384,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.819363,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.440785,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043887,
             "unit": "seconds"
           }
         ]
