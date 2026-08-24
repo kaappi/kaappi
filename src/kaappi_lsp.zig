@@ -814,15 +814,15 @@ fn runDiagnostics(allocator: std.mem.Allocator, vm: *vm_mod.VM, uri: []const u8,
     // Serialize every finding through the shared LSP `Diagnostic` writer into an
     // allocating writer (no fixed buffer), exactly as `check.zig`'s `reportJson`
     // does, so an arbitrarily long finding message is emitted rather than
-    // silently dropped. The comma separator is gated on the buffer being past the
-    // opening `[`, so a finding that fails to serialize can never leave a `[,` or
-    // `,]` that would corrupt the whole array (kaappi#1981 review).
+    // silently dropped. The comma separator is appended only after a finding has
+    // serialized successfully, so a finding that fails to serialize can never
+    // leave a `[,` or `,]` that would corrupt the whole array (kaappi#1981 review).
     var aw: std.Io.Writer.Allocating = .init(arena);
     defer aw.deinit();
 
     diag_buf.append(allocator, '[') catch return;
+    var first = true;
     for (ctx.findings.items) |finding| {
-        if (diag_buf.items.len > 1) diag_buf.append(allocator, ',') catch {};
         aw.clearRetainingCapacity();
         var cbuf: [diagnostics.Code.render_width]u8 = undefined;
         const diag: lsp_diagnostic.Diagnostic = .{
@@ -832,7 +832,9 @@ fn runDiagnostics(allocator: std.mem.Allocator, vm: *vm_mod.VM, uri: []const u8,
             .message = finding.message,
         };
         diag.writeJson(&aw.writer) catch continue;
+        if (!first) diag_buf.append(allocator, ',') catch return;
         diag_buf.appendSlice(allocator, aw.written()) catch return;
+        first = false;
     }
     diag_buf.append(allocator, ']') catch return;
 
