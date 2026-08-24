@@ -33,6 +33,17 @@ than a conformance requirement. Records of *different* types are never
 records, as §6.1 requires. Cyclic records terminate via the same visited-map
 used for pairs and vectors (kaappi#2293).
 
+R7RS §5.5 is silent on whether `<name>` and `<constructor name>` may be the
+same identifier. Kaappi accepts the collision:
+`(define-record-type foo (foo x) foo? (x bar))` binds `foo` to the
+*constructor* — `(foo 1)` constructs a record, and the record type itself is
+not reachable under that name (it lives only behind the internal
+`__record_type_<name>` alias). Chibi and Guile reject the same form, so the
+outcome is implementation-dependent: code that reuses one identifier for both
+positions is not portable. Use distinct names —
+`(define-record-type foo (make-foo x) foo? (x bar))` — which every
+implementation accepts (kaappi#2294).
+
 ### SRFI 13 — String Library
 
 **Coverage: 97%** (30 of 31 non-mutating spec procedures)

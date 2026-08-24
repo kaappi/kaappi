@@ -48,6 +48,15 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
     // does not retarget previously created constructors (#1203):
     // (define ctor (let (( __rt __record_type_X))
     //               (lambda (f1 f2) (%make-record  __rt f_for_0 ...))))
+    //
+    // Collision note (kaappi#2294): the R7RS grammar lets <name> and
+    // <constructor name> be the same identifier, and this desugarer accepts
+    // it — the constructor's define below wins the name, so after
+    // (define-record-type foo (foo x) foo? (x bar)) the identifier `foo`
+    // names the constructor and the record type is reachable only through
+    // the internal __record_type_foo alias (never bound under `foo` itself
+    // on this R7RS path). R7RS §5.5 leaves the collision unspecified; Chibi
+    // and Guile reject it, so such code is not portable.
     {
         vm.gc.no_collect += 1;
         defer vm.gc.no_collect -= 1;
