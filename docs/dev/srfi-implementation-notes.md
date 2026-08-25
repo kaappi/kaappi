@@ -828,7 +828,10 @@ pre-materialized before the fill, a distinction observable only under
 multi-shot-continuation re-entry, which the spec itself declares undefined).
 `specialized-array-reshape` uses a deliberate packed-check-based
 affine-detection simplification instead of the reference's full multi-group
-algorithm, verified identical on the spec's own worked examples. `array-block`
+algorithm, verified identical on the spec's own worked examples. (`array-packed?`
+itself means consecutive-increasing from any body base — not a zero base —
+per #2314; an `array-extract` view with a non-zero offset is packed and
+reshapes in place through this same fast path, like the reference.) `array-block`
 needed a genuinely two-phase algorithm unlike everything else in the SRFI:
 full per-axis width-consistency validation (reusing
 `array-curry`+`array-permute`+`index-first`) followed by cheap

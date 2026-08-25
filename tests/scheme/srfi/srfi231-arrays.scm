@@ -126,6 +126,15 @@
   (test-equal 9 (array-ref zs))
   (test-equal #t (array-packed? zs)))
 
+;;; --- array-packed?: consecutive-from-any-base per spec -- the first
+;;; visited body position may have ANY offset; only stride-1 increasing
+;;; order matters (#2314). View-based cases (extract/translate/reverse/
+;;; sample) live in srfi231-views.scm, which imports the views module. ---
+(test-equal #t (array-packed? (make-specialized-array (make-interval (vector 2) (vector 4)))))
+(test-equal #t (array-packed? (make-specialized-array-from-data (vector 0 1 2 3))))
+;; vacuously packed: no elements at all
+(test-equal #t (array-packed? (make-specialized-array (make-interval (vector 0)))))
+
 ;;; --- empty-domain arrays (some axis has lower = upper): array-empty? is
 ;;; #t, and no multi-index can ever be valid since that axis's range is
 ;;; unsatisfiable, so any access is rejected -- via the explicit domain

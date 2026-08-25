@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`array-packed?` now follows the spec's definition: consecutive increasing
+  body indices from any base, not from zero** (#2314). It previously required
+  the lexicographic traversal to start at body index 0, so any view with a
+  non-zero offset — `(array-extract A interval)` being the common one —
+  wrongly reported `#f` (the spec says "increasing and consecutive indices";
+  the reference checks only stride-1 between neighbors). Side effect:
+  `specialized-array-reshape` now reshapes such offset views in place,
+  sharing the body like the reference, instead of erroring or copying.
+
 - **SRFI 231 argument validation now matches the reference implementation at
   six entry points** (#2312, #2313, #2315, #2316, #2317, #2318), found by
   running the reference test suite's 330 error-expectation tests against

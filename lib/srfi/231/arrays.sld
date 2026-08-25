@@ -188,22 +188,29 @@
                             (if safe? (%safe-setter interval (storage-class-checker storage-class) raw-setter) raw-setter))))
           (%make-array interval getter setter body indexer storage-class safe?))))
 
-    ;; #t iff lexicographic traversal order visits body positions
-    ;; 0,1,2,...,volume-1 consecutively -- always true immediately after
-    ;; make-specialized-array/make-specialized-array-from-data (their own
-    ;; indexer IS that exact lexicographic mapping); becomes meaningful
-    ;; once a later phase's view/share/reverse procedures install a
-    ;; different (non-consecutive) indexer over the same body. Escapes via
-    ;; call/cc on the first mismatch rather than scanning the full domain,
-    ;; since a later phase's non-packed arrays could otherwise pay a full
+    ;; #t iff lexicographic traversal order visits CONSECUTIVE, INCREASING
+    ;; body positions -- per spec, "the elements of array, taken in
+    ;; lexicographical order, are stored in (array-body array) with
+    ;; increasing and consecutive indices". The first visited position may
+    ;; be ANY base (a non-zero offset view such as array-extract's is still
+    ;; packed), matching the reference implementation, which checks only
+    ;; stride-1 differences between lexicographic neighbors and treats a
+    ;; length-1 axis as trivially packed. Always true immediately after
+    ;; make-specialized-array/make-specialized-array-from-data; becomes
+    ;; meaningful once a later phase's view/share/reverse procedures
+    ;; install a different indexer over the same body. Escapes via call/cc
+    ;; on the first mismatch rather than scanning the full domain, since a
+    ;; later phase's non-packed arrays could otherwise pay a full
     ;; interval-volume traversal just to report "not packed" at index 0.
     (define (array-packed? a)
       (unless (specialized-array? a) (error "array-packed?: not a specialized array" a))
       (call/cc
        (lambda (return)
-         (let ((expected 0) (indexer (array-indexer a)))
+         (let ((expected #f) (indexer (array-indexer a)))
            (interval-for-each (lambda multi-index
-                                 (unless (= (apply indexer multi-index) expected) (return #f))
-                                 (set! expected (+ expected 1)))
+                                (let ((idx (apply indexer multi-index)))
+                                  (cond ((not expected) (set! expected (+ idx 1)))
+                                        ((= idx expected) (set! expected (+ expected 1)))
+                                        (else (return #f)))))
                                (array-domain a))
            #t))))))
