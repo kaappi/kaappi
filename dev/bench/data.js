@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787665618984,
+  "lastUpdate": 1787668960113,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e77bbf7b264609de34831718c2dc56868263870d",
-          "message": "Route reader #e/#i through string->number's digit-exact parser (#2181)\n\nThe reader and string->number each had their own applyExactness with\nstructurally different strategies: string->number rebuilt exact values\nfrom the decimal digits (mantissa x 10^scale via bignum) while the\nreader parsed to f64 first and un-rounded it with an i64 continued\nfraction under an absolute 1e-15 tolerance. R7RS 6.2.7 requires the two\nto agree, and every past fix (#79, #419, #604, #751, #1891) had landed\nin one copy at a time.\n\nstringToNumber's body is now the pub parseNumberText, and an\nexactness-prefixed number body in the reader becomes a prefixed_real\ntoken whose span datum construction re-parses through it — the\ntokenizer still runs first, so token boundaries and incremental-input\nsemantics are untouched, and the two parsers cannot diverge on #e/#i\nagain by construction. The reader's f64-unrounding conversion is\ndeleted. Complex tokens are the one exception (readNumber's complex\ngrammar is wider than parseNumberText's): exactness there is exactly\nthe two flags, with #e refusing non-finite parts.\n\nFixes, one per issue: #1891 (#e dropped past i64), #1907 (panic at the\n2^63 guard's off-by-one, aborting check/fmt/ast), #1908 (#i radix\nbignums read as decimal), #1909 (sub-1e-15 collapse to exact 0), #1910\n(Complex arms on both applyExactness sides plus exact-component\nprinting at any magnitude, so #e1e19+1i round-trips instead of writing\n0/0), #1921 (string->number rejecting the unprefixed 2^63 decimal),\nand the #e+inf.0 parity gap (now a read error, matching #419's #f).\n\nThe tiny exact-complex round-trip gap surfaced in review is pinned in\nboth directions and sequenced as #2183 then #2182 — the reader grammar\nextension must wait for the scaled rational->f64 conversion or the\nprinted form would read back as a silent 0.0.\n\nCloses #1891, closes #1907, closes #1908, closes #1909, closes #1910,\ncloses #1911, closes #1921.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-02T14:01:18+05:30",
-          "tree_id": "761dfde96f16b91a8f28a8acc419740fcaf16ed0",
-          "url": "https://github.com/kaappi/kaappi/commit/e77bbf7b264609de34831718c2dc56868263870d"
-        },
-        "date": 1785661129212,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.300078,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.94211,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.56797,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.009793,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00468,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046769,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.314975,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056449,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.627618,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.222602,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.582356,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.276255,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.783741,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.610414,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043114,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045137,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dffd8510c5f2c3d0cc156aba75d5576d5e934a39",
+          "message": "Render offending value's identity in type errors (#1899) (#2310)\n\n* Render offending value's identity in type errors (#1899)\n\nprimitives.safeValueDescription printed symbol, string, vector, bytevector,\nrational and bignum as opaque #<tag>s, and characters (immediates) as #<char>\n-- dropping the one thing a type-error message needs: which value was wrong.\nIt now renders identifying content: a symbol's name, a bounded quoted string\nprefix, a vector/bytevector length summary, a rational's num/den, a small\nbignum's value, and a character's #\\ form.\n\nThe \"safe\" properties are preserved: no allocation or VM callback (bignums\nbeyond u128 fall back to #<bignum> rather than allocate scratch to stringify),\nbounded output (fixed 128-byte writer, plus string/symbol truncation), and no\nrecursion into heap structure (compound types get a one-level summary, so a\ncyclic value cannot loop).\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Update the two docs that stated the old opaque-rendering contract\n\nadding-features.md:75 still told contributors safeValueDescription\n'deliberately does not dereference heap payloads' and renders every symbol\nas #<symbol> -- both false after this PR. audit-strategy.md's D3 dimension\ndescribed the opaque rendering as live; F10 (the dated 2026-07-31 findings\ntable) is kept as history per its own preamble, so it stays.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-25T16:13:46+05:30",
+          "tree_id": "b2465b34b1c31c86b0db41b838a9d5f424627170",
+          "url": "https://github.com/kaappi/kaappi/commit/dffd8510c5f2c3d0cc156aba75d5576d5e934a39"
+        },
+        "date": 1787668952243,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.367815,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.447875,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.583743,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.980276,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004656,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047678,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.3068,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055789,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.817288,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.199194,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.655834,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.281,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.773599,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.637273,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044413,
             "unit": "seconds"
           }
         ]
