@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787672740714,
+  "lastUpdate": 1787683410412,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f7a960e7bbea70028f9c4fa412b67c9aa176d56d",
-          "message": "Stop two custom-port callback shapes from aborting the process (#2193)\n\n* Stop two custom-port callback shapes from aborting the process\n\nA SRFI 181 callback runs re-entrantly, under vm.callWithArgs with\ndispatched_from_scheduler forced false. Two things the port layer assumed\ncould not happen from there both could, and both killed the process\nuncatchably from ordinary Scheme.\n\nport.read_buf is a single slot, and the three fills that stash into it --\nthe fd burst, a custom read!'s result, a transcoded port's re-encoded\ncharacter -- each asserted it was empty first. A read! that reads from its\nown port runs a whole earlier read! to completion, so that slot already\nholds the earlier burst's leftovers when the outer invocation returns. At\n>= 2 bytes the assert fired: exit 134, and `guard` cannot catch it. At\nexactly 1 byte the assert did not fire and the later burst's byte was\nserved ahead of the earlier one's leftovers, so the stream was silently\nreordered instead. All three now go through takeFirstBufferingRest, which\nconcatenates in chronological order and hands out the front byte -- no\nabort, and bytes come out in the order read! produced them. Re-entrancy\nstays supported, as it already was for write!, flush and close, and the\nfd path keeps its allocation-free single-byte fast path.\n\nvm.in_custom_port_callback was read at exactly two sites, waitForFd and\nthread-sleep!. Every other blocking primitive -- channel-receive,\nchannel-send, fiber-join, thread-join!, mutex-lock!,\ncondition-variable-wait -- drove the scheduler recursively on the native\nstack instead, running whole sibling fibers to completion inside the\ncallback. Nesting grows one drive per level, so n fibers reading one such\nport died with SIGBUS at n = 2500 while n = 2400 was clean: far short of\ncallReentrant's max_native_depth = 3000, which is calibrated for a plain\nre-entrant call rather than a nested runUntil *plus* a drive. The check\nnow also sits in fiber.runSchedulerStep, the single shared body behind\nevery in-place drive, so a blocking primitive added later is covered\nwithout anyone having to list it. The two early checks stay, each having\nstate (a registered fd, an armed timer) it is cheaper never to arm.\n\nThe four assertions the two audit suites had disabled against these issues\nare re-enabled and corrected, and the deep-nesting case they deliberately\nleft out -- it took the runner down with it -- is now its own file, which\nstill aborts pre-fix and passes post-fix.\n\nCloses #1939\nCloses #2000\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Serve re-entrant leftovers before EOF, and test the two named D5 blockers\n\nReview follow-up on #1939/#2000.\n\nThe first commit routed every *non-empty* fill through\ntakeFirstBufferingRest but left all three EOF exits returning null\ndirectly, so it fixed two of the three sizes of the same bug and shipped\nthe third. When a nested read! leaves bytes in read_buf and the outer\ninvocation then returns 0, the custom-port path answered eof-object over\nthem and the *next* read produced the data: a spurious EOF mid-stream.\nConfirmed at f92df40 -- `(a #<eof>) (b 66)` where both should be 66.\n\nEvery EOF exit of all three fills now routes through the helper, which\nserves a pending byte before reporting EOF. The fd burst's and the\ntranscoded character's need re-entrancy on their own port to reach a\nnon-empty read_buf and no program was found that does; they are routed\nanyway, because three fills that look identical while one silently isn't\nis what produced this bug in the first place. The helper also handles the\npending-is-exactly-one, burst-is-empty case explicitly: alloc(u8, 0) would\notherwise leave read_buf non-null at read_buf_len 0, a state the drain\nfalls through into a spurious extra read! call.\n\nThe D5 doc comment named thread-join! and condition-variable-wait as\ncovered by the runSchedulerStep guard while testing neither. Both are\nreachable, so they are tested rather than the claim softened. Only\nthread-join!'s *fiber* path drives -- the OS-thread path joins the pthread\ndirectly, which is why primitives_srfi181-audit.scm's \"a read! that joins a\nshort-lived thread is NOT rejected\" control still passes; both directions\nare now pinned. The target must already have started: thread-join! on a\nspawn'd fiber still in .created spins in its own sleepNs poll without ever\ndriving the scheduler and hangs, which is unrelated to this guard and left\nalone.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-03T00:59:20Z",
-          "tree_id": "13a0a29381aa82b7522e2a76c0baa6f8548e7223",
-          "url": "https://github.com/kaappi/kaappi/commit/f7a960e7bbea70028f9c4fa412b67c9aa176d56d"
-        },
-        "date": 1785720495011,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.002101,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.846085,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.406451,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.105442,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004204,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.034203,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.217198,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.041212,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.05918,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.883177,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.120113,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.228902,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.259441,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.876078,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.033317,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045962,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "90c5bf90ae7c757c9f007648ce90189d27ef0769",
+          "message": "Report call_cc/call_ec as medians and widen the PR-gate noise floor (#2334)\n\nThe PR benchmark gate presented run-to-run noise with the same confidence\nas real results, in two distinct ways.\n\ncall_cc and call_ec were emitted as single-shot measurements with a\nhardcoded \"min 0, max 0, iterations 1\", while every other row is a median\nover 5 runs with real dispersion. A ~45ms unrepeated sample on a shared\nrunner is one scheduling hiccup away from tripping the 1.20x threshold,\nturning an unrelated PR red. zig build bench now repeats the depth-0\nmeasurement 5 times and reports the median with real min/max/iterations,\nmatching benchmarks/common.scm; run-benchmarks.sh parses those fields\ninstead of hardcoding the single-shot marker (kaappi#2101).\n\nSeparately, the gate's own base-vs-base spread reaches ~1.62x for the same\ncommit on a shared runner, yet the threshold was 120% — so a red check sat\nwell inside the measured noise and meant nothing. Raise it to 175%: above\nthe noise floor, still catches a genuine >=2x regression (kaappi#1906).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-25T23:31:13+05:30",
+          "tree_id": "62a0a06e2ba53745c202e6991aefb5c60aea9d7e",
+          "url": "https://github.com/kaappi/kaappi/commit/90c5bf90ae7c757c9f007648ce90189d27ef0769"
+        },
+        "date": 1787683408165,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.512192,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.892315,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.582851,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.174679,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004711,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048361,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.314901,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.058776,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.885468,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.255253,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.706023,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.287624,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.835933,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.767203,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.049871,
             "unit": "seconds"
           }
         ]
