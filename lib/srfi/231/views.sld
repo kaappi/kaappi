@@ -43,6 +43,13 @@
 ;;; ...). When no affine map exists the procedure behaves exactly as the
 ;;; spec allows: error, or a forced copy-then-retry when copy-on-failure?
 ;;; is #t (the copy is packed, so the retry always succeeds).
+;;;
+;;; The reshape matching loops (loop-1..loop-4 in %specialized-array-reshape)
+;;; are a line-by-line translation of NumPy's _attempt_nocopy_reshape
+;;; (numpy/core/src/multiarray/shape.c), by way of the SRFI 231 reference
+;;; implementation, which carries the same derivation note. NumPy is
+;;; distributed under the BSD 3-Clause License, Copyright (c) 2005-2024,
+;;; NumPy Developers.
 (define-library (srfi 231 views)
   (import (scheme base)
           (srfi 231 misc) (srfi 231 intervals) (srfi 231 storage-classes) (srfi 231 arrays))
@@ -328,9 +335,7 @@
     (define (array-copy! array . opts) (%array-copy-impl array opts))
 
     ;; --- specialized-array-reshape: see the file header for the
-    ;; documented conservative simplification (packed-check based rather
-    ;; than the reference implementation's full NumPy-derived multi-group
-    ;; stride-matching algorithm). ---
+    ;; algorithm description. ---
 
     ;; Returns all-lowers first, then one multi-index per axis with that
     ;; single axis incremented by 1 (staying in-domain if the axis width
@@ -403,6 +408,11 @@
                  (newdims (interval-widths new-domain))
                  (newnd (vector-length newdims))
                  (oldnd (vector-length olddims))
+                 ;; Any new axis not assigned a stride by the matching below
+                 ;; is a width-1 axis, whose (index - lower) term is always 0,
+                 ;; so its stride value is never observed -- leaving it 0 is
+                 ;; safe (the reference notes NumPy instead sets these to a
+                 ;; value; "we leave it zero").
                  (newstrides (make-vector newnd 0))
                  (fail (lambda ()
                          (if copy-on-failure?
