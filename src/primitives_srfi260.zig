@@ -5,12 +5,16 @@
 //! (SRFI 258), a generated symbol keeps write/read invariance and the classic
 //! rule that two symbols are identical iff their names are equal.
 //!
-//! Kaappi has no uninterned symbols — every symbol is interned by name in the
-//! one symbol table (`GC.allocSymbol`) — so those two properties fall out for
-//! free: any symbol we mint round-trips through `write`/`read` back to an `eq?`
-//! symbol (the printer bar-quotes names that need it). The whole SRFI therefore
-//! reduces to "intern a symbol under a fresh, unpredictable, collision-free
-//! name."
+//! Kaappi *does* have uninterned symbols (SRFI 258, `GC.allocUninternedSymbol`,
+//! which bypasses the intern table), so those two properties are a deliberate
+//! choice here, not a free consequence of the engine: `generate-symbol` mints
+//! its symbol through `GC.allocSymbol`, interning it by name in the one symbol
+//! table. That is what makes it round-trip through `write`/`read` back to an
+//! `eq?` symbol (the printer bar-quotes names that need it) — and it is why the
+//! primitive must *not* be "simplified" onto `GC.allocUninternedSymbol`, which
+//! would produce a symbol never `eq?` to its own re-read. The whole SRFI
+//! therefore reduces to "intern a symbol under a fresh, unpredictable,
+//! collision-free name."
 //!
 //! The generated name is `"<pretty>.<counter>.<128-bit-random-hex>"`:
 //!   * a process-global atomic counter gives a hard in-process uniqueness
