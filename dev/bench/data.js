@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787665451221,
+  "lastUpdate": 1787665618984,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "fed39ec857d9b4a3d50be3a34b1cc12c271ad02e",
-          "message": "Complete SRFI 42: generic ':' dispatch, :real-range, :char-range, :dispatched (#2180)\n\n* Complete SRFI 42: generic ':' dispatch, :real-range, :char-range, :dispatched (#2177)\n\n(list-ec (: i 5) i) — the first form in every SRFI 42 tutorial — was\nKP2001 invalid syntax: the port implemented eleven typed qualifiers but\nnot the generic ':', nor :real-range, :char-range, or :dispatched.\nInvestigating also showed three qualifiers the library already\nexported — :port, :do, and :parallel — had no %do-ec rules at all and\nfailed identically inside a comprehension; all three work now.\n\nThe port is direct-style (nested loops around the body with a stop\nflag), not the reference's CPS design, so ':' cannot dispatch by :do\nfusion. It instead uses the SRFI's own runtime protocol: a dispatcher\nmaps the evaluated argument list to a generator procedure g, stepped as\n(g empty) until it returns the eq?-unique sentinel. The initial\ndispatcher covers the spec's cases (lists, strings, vectors,\nexact-integer ranges, real ranges, char ranges, ports), and the\nextension surface is complete — :-dispatch-ref, :-dispatch-set!,\nmake-initial-:-dispatch, dispatch-union, :generator-proc — so user\ndispatchers compose per spec. :generator-proc compiles the standard\ntyped generators straight to closure constructors; any other form falls\nback to a call/cc coroutine over do-ec. Typed generators now also\naccept multiple arguments ((:list x '(1 2) '(3)) concatenates),\nmatching both the spec and the runtime dispatch path.\n\nDocumented deviations (library header): no (index i) form, and\n:parallel accepts only single-variable sub-generator forms — raw :do\nand :while/:until-wrapped generators are rejected at expansion time\nrather than merged. The reference implementation's\nmake-initial-:-dispatch tests (string? a1) twice where a2/a3 were\nmeant; corrected here.\n\nFixes #2177. The pre-existing eager termination gap in\nfirst-ec/any?-ec/every?-ec found during this work is tracked\nseparately as #2179.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Reject a zero step loudly in :range and :real-range (PR #2180 review)\n\nThe review's :range finding is real: %gen-range (new in this PR,\nreachable via (: i 5 3 0) and (:generator-proc (:range 5 3 0))) never\nadvances with a zero step, so from > to yielded the same value forever.\nThe macro arm predates the PR but behaves identically, and the reference\nimplementation rejects a zero step in :range explicitly — this port had\nsilently diverged. Both paths now raise the reference's exact message,\n\"step size must not be zero in :range\".\n\nThe :real-range findings were half right: an exact zero step already\nraised a loud, catchable division-by-zero at setup — byte-for-byte the\nreference's behavior, whose :real-range has no zero-step check — but the\nreview's own inexact example (: x 0.0 1.0 0.0) would not have \"failed at\nsetup\" at all: (/ 1.0 0.0) is +inf.0, so istop = +inf.0 and the loop\nnever terminates, in the reference too. That silent case is the one\nworth closing: %gen-real-range and the macro arm now reject a zero step\nexplicitly, documented in the library header as a deliberate deviation\nbeyond the reference.\n\nSeven regression tests pin the macro, generic-dispatch, and\n:generator-proc routes for both generators.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Scope :while/:until to the wrapped generator; add nested/begin (PR #2180 review)\n\nCodeRabbit's major finding is real and spec-verified: (:while (gen ...)\ntest) rewrote to (gen ...) (:while test), and the bare form sets the one\ncomprehension-wide stop flag — so a failing test ended every enclosing\nloop, where the spec scopes it to the wrapped generator only.\n(list-ec (:range j 2) (:while (:list x '(1 2 3)) (< x 2)) (cons j x))\nreturned ((0 . 1)) instead of ((0 . 1) (1 . 1)). The wrap rules now give\nthe wrapped generator a private stop flag, with translator qualifiers\n(%while-xlate/%until-xlate) that re-thread the enclosing flag for the\nrest of the chain and mirror an ambient stop into the private flag, so a\nbare :while/:until deeper in still ends the wrapped loop. The bare forms\n— this port's extension, absent from the spec's grammar — keep their\nstop-everything meaning, now documented in the header and pinned by\ntests.\n\nIts minor finding asked to document \":nested\"; the spec spells the\nqualifier (nested ...) — no colon — and has a sibling (begin ...)\ncommand qualifier the review missed. Both are one rule each in this\ndirect-style design, so they are implemented rather than documented\naway.\n\nThose four rules pushed %do-ec to 35 rules, over the engine's 32-rule\nsyntax-rules cap, which rejects the whole definition as a bare\nInvalidSyntax (filed as #2184). The qualifier processor is now split:\n%do-ec keeps the generators and forwards anything else to %do-ec-more\n(grouping, command, control, and guard qualifiers).\n\nTest-side findings, all accepted: upto-dispatcher now honours the\nzero-argument identification convention and a test observes it through\nthe failure path's error irritants; the stale \"keep last\" comment is\ntrue again (the dispatcher-mutating block moved to the end of the file,\nso every earlier ':' test hits the unmutated dispatcher);\ndispatch-union's conflict branch has a regression test; and the\n3-argument string/vector dispatch branches — the reference-typo\ncorrection — are pinned, including the mixed-type case that actually\ndiscriminates the fix (three well-typed strings pass under the typo\ntoo). Also adds the :generator-proc zero-step case for :real-range.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-02T07:55:53Z",
-          "tree_id": "e7e831e59f8295f888dfd98b1efb33d7046f9ef8",
-          "url": "https://github.com/kaappi/kaappi/commit/fed39ec857d9b4a3d50be3a34b1cc12c271ad02e"
-        },
-        "date": 1785658967105,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 2.248598,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 5.555884,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.282112,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 1.530214,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.002868,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.023785,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.144537,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.027852,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.259041,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.580577,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 0.804343,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.192101,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 0.909091,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.210062,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.024902,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.039861,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7a82c59384a4391cd8d03def81843a4b20dfa213",
+          "message": "Correct fuzz.yml gc-stress timeout and stale wall-time comment (#2307)\n\n* Correct fuzz.yml gc-stress timeout and stale wall-time comment\n\nThe gc-stress legs budgeted timeout: 300 minutes on the strength of a\ncomment claiming the pre-fuzz unit phase takes ~35 min locally and to\nbudget more on a hosted runner. Measured whole-leg wall time (checkout,\nZig install, build, full unit suite, and the bounded fuzz runs) is\n10-13 min on the hosted runner (#2164) — the ~35 min figure predates\n#1802/#1804/#1809, when ReleaseSafe stopped 0xAA-filling '= undefined'\nbuffers. A 300-minute budget is a five-hour non-bound: a livelocked\ncollector would sit for hours before the runner killed it. Lower both\nlegs to 45 min (generous headroom over 10-13 min without being absurd)\nand rewrite the comment to cite the real measurement. Run counts\nunchanged.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Set gc-stress timeout to 60 min over the 11-40 min observed range\n\nIssue #2164 measured the whole gc-stress leg at 10-13 min (Aug 1, 2026),\nbut the Aug 11-25 runs measure 11-40 min per leg (median ~20, worst 40.2\non Aug 20) as the suite and corpus grow. 45 min left only ~12% headroom\nover the worst observed leg; 60 restores ~50% while still cutting a\nlivelocked collector from 5 h to 1 h. Comment now cites both ranges.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-25T16:00:54+05:30",
+          "tree_id": "3683cfbab138feb618e446a4c353e4c5cde86aa8",
+          "url": "https://github.com/kaappi/kaappi/commit/7a82c59384a4391cd8d03def81843a4b20dfa213"
+        },
+        "date": 1787665616990,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.333128,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.002368,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.601614,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.114036,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004801,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048231,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.309203,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055504,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.725545,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.22227,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.687065,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.287048,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.82399,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.695063,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045137,
             "unit": "seconds"
           }
         ]
