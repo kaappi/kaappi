@@ -40,7 +40,7 @@
           ;; and later phases) to build genuinely specialized arrays with
           ;; custom indexers, the same way (srfi 160 base)'s %uvec-* helpers
           ;; exist only for that package's own per-tag files to consume.
-          %make-array %safe-getter %safe-setter %make-lex-indexer)
+          %make-array %safe-getter %safe-setter %make-lex-indexer %check-boolean!)
   (begin
 
     (define-record-type <array>

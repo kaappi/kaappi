@@ -64,6 +64,15 @@
 
     (define (%opt lst i default) (if (> (length lst) i) (list-ref lst i) default))
 
+    ;; The reference implementation validates the function argument of
+    ;; every combinator at call time -- without this, the lazy ones
+    ;; (array-map, array-outer-product) would defer the failure to the
+    ;; first element access (possibly never), and the eager ones would
+    ;; fail with a generic apply error -- or succeed silently over an
+    ;; empty domain, where f is never invoked at all.
+    (define (%check-procedure! x who)
+      (unless (procedure? x) (error (string-append who ": the function argument must be a procedure") x)))
+
     (define (%check-same-domain! all who)
       (let ((domain (array-domain (car all))))
         (for-each (lambda (a)
@@ -78,6 +87,7 @@
     ;; definition, which builds an ordinary (immutable, non-specialized)
     ;; make-array rather than a specialized/precomputed one.
     (define (array-map f array . arrays)
+      (%check-procedure! f "array-map")
       (let ((all (cons array arrays)))
         (%check-same-domain! all "array-map")
         (make-array (array-domain array)
@@ -85,12 +95,14 @@
                       (apply f (map (lambda (a) (apply (array-getter a) multi-index)) all))))))
 
     (define (array-for-each f array . arrays)
+      (%check-procedure! f "array-for-each")
       (let ((all (cons array arrays)))
         (%check-same-domain! all "array-for-each")
         (interval-for-each (lambda multi-index (apply f (map (lambda (a) (apply (array-getter a) multi-index)) all)))
                             (array-domain array))))
 
     (define (array-fold-left operator identity array . arrays)
+      (%check-procedure! operator "array-fold-left")
       (let ((all (cons array arrays)) (acc identity))
         (%check-same-domain! all "array-fold-left")
         (interval-for-each (lambda multi-index
@@ -104,6 +116,7 @@
     ;; plain left-walk applying (operator e0 e1 ... acc), matching
     ;; interval-fold-right's own already-verified technique.
     (define (array-fold-right operator identity array . arrays)
+      (%check-procedure! operator "array-fold-right")
       (let ((all (cons array arrays)) (results '()))
         (%check-same-domain! all "array-fold-right")
         (interval-for-each (lambda multi-index
@@ -135,6 +148,7 @@
     ;; that ACTUAL result (not just #t) -- matching the spec's own
     ;; "returns that result" wording, not a forced boolean.
     (define (array-any predicate array . arrays)
+      (%check-procedure! predicate "array-any")
       (let ((all (cons array arrays)))
         (%check-same-domain! all "array-any")
         (call/cc
@@ -148,6 +162,7 @@
     ;; Short-circuits (returning #f) on the first #f result; otherwise
     ;; returns the LAST nonfalse result, not just #t.
     (define (array-every predicate array . arrays)
+      (%check-procedure! predicate "array-every")
       (let ((all (cons array arrays)) (last-result #t))
         (%check-same-domain! all "array-every")
         (call/cc
@@ -161,6 +176,7 @@
     ;; --- products ---
 
     (define (array-outer-product operator array1 array2)
+      (%check-procedure! operator "array-outer-product")
       (let ((domain (interval-cartesian-product (array-domain array1) (array-domain array2)))
             (d1 (array-dimension array1)))
         (make-array domain
@@ -169,6 +185,8 @@
                                 (apply (array-getter array2) (drop multi-index d1)))))))
 
     (define (array-inner-product A f g B)
+      (%check-procedure! f "array-inner-product")
+      (%check-procedure! g "array-inner-product")
       (unless (and (>= (array-dimension A) 1) (>= (array-dimension B) 1))
         (error "array-inner-product: both arrays must have dimension at least 1" A B))
       (let ((a-last (- (array-dimension A) 1)))
