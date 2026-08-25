@@ -52,5 +52,12 @@ jobs:
           pr-benchmark-file-path: pr-results.json
           base-benchmark-file-path: base-results.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          alert-threshold: '120%'
+          # This gate re-measures both branches from scratch on a shared GitHub
+          # runner, and its own base-vs-base spread reaches ~1.62x for the same
+          # commit (kaappi#1906). A 120% threshold sat well inside that noise, so
+          # a red check meant nothing. 175% is above the measured noise floor yet
+          # still flags a genuine >=2x regression. Tightening it back toward 120%
+          # only makes sense once the comparison interleaves repeated A/B rounds
+          # (kaappi#1906 direction 3) rather than one PR block then one base block.
+          alert-threshold: '175%'
           comment-always: true

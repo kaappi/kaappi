@@ -76,14 +76,24 @@ run_callcc_bench() {
     cc_line=$(echo "$output" | grep "^name: call_cc," || true)
     ec_line=$(echo "$output" | grep "^name: call_ec," || true)
 
-    local cc_time cc_status ec_time ec_status
+    # zig build bench now reports a median over N runs with real min/max/
+    # iterations (kaappi#2101), so parse them like the general path instead of
+    # hardcoding the single-shot "0 0 1" that the PR gate treated as signal.
+    local cc_time cc_status cc_min cc_max cc_iters
+    local ec_time ec_status ec_min ec_max ec_iters
     cc_time=$(extract_field "$cc_line" "time")
     cc_status=$(extract_field "$cc_line" "status")
+    cc_min=$(extract_field "$cc_line" "min")
+    cc_max=$(extract_field "$cc_line" "max")
+    cc_iters=$(extract_field "$cc_line" "iterations")
     ec_time=$(extract_field "$ec_line" "time")
     ec_status=$(extract_field "$ec_line" "status")
+    ec_min=$(extract_field "$ec_line" "min")
+    ec_max=$(extract_field "$ec_line" "max")
+    ec_iters=$(extract_field "$ec_line" "iterations")
 
-    echo "call_cc ${cc_time:-0} ${cc_status:-fail} 0 0 1 0 0 0"
-    echo "call_ec ${ec_time:-0} ${ec_status:-fail} 0 0 1 0 0 0"
+    echo "call_cc ${cc_time:-0} ${cc_status:-fail} ${cc_min:-0} ${cc_max:-0} ${cc_iters:-0} 0 0 0"
+    echo "call_ec ${ec_time:-0} ${ec_status:-fail} ${ec_min:-0} ${ec_max:-0} ${ec_iters:-0} 0 0 0"
 }
 
 # Collect results
