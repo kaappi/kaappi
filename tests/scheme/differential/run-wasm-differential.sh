@@ -168,7 +168,13 @@ for p in src build.zig build.zig.zon vendor; do
 done
 if [ -n "$FRESH_INPUTS" ]; then
     # shellcheck disable=SC2086  # deliberate word splitting over the path list
-    NEWER_SRC="$(find $FRESH_INPUTS -type f -newer "$WASM" 2> /dev/null)"
+    # Fail closed: if the scan itself fails (an input vanished mid-scan or is
+    # unreadable), freshness cannot be established — SKIP rather than proceed
+    # on an empty NEWER_SRC and measure a module of unknown provenance.
+    if ! NEWER_SRC="$(find $FRESH_INPUTS -type f -newer "$WASM" 2> /dev/null)"; then
+        echo "SKIP: cannot verify freshness of wasm module $WASM"
+        exit 77
+    fi
     if [ -n "$NEWER_SRC" ]; then
         NEWER_ONE="$(printf '%s\n' "$NEWER_SRC" | head -1)"
         echo "SKIP: wasm module $WASM is stale — interpreter sources are newer"
@@ -461,7 +467,7 @@ echo "=== differential: WASM tier vs interpreter oracle ==="
 echo "native:  $KAAPPI ($("$KAAPPI" --version 2> /dev/null | head -1))"
 # Size is a cheap staleness tell in a transcript; the freshness gate above has
 # already refused to run against a module older than the sources (kaappi#2197).
-echo "wasm:    $WASM ($(wc -c < "$WASM" 2> /dev/null | tr -d ' ') bytes, verified newer than src/)"
+echo "wasm:    $WASM ($(wc -c < "$WASM" 2> /dev/null | tr -d ' ') bytes, verified newer than interpreter build inputs)"
 echo "runtime: $(wasmtime --version 2> /dev/null | head -1)"
 printf 'corpus: '
 # shellcheck disable=SC2086  # deliberate word splitting over the dir list
