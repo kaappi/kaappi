@@ -177,19 +177,27 @@ valid as `thottam --locked install pkg`.
 For a flag that belongs to one subcommand only, put it in that subcommand's
 table. For a global flag that is only *meaningful* under one subcommand — as
 `--no-opt` (ir) and `--check` (fmt) are — leave it in `global_flags`, set
-`top_level = false`, and name it in that subcommand's `globalSubset`: the
-parser keeps accepting it anywhere (unchanged behaviour), while `--help` and
-the top-level completion list stay uncluttered.
+`top_level = false`, and name it in that subcommand's `globalSubset`: `--help`
+and the top-level completion list stay uncluttered, and `cli.parse` will accept
+the flag only after its owning subcommand word and reject it at global scope
+(see below). `owningSubcommand` derives that owner from the same `globalSubset`
+membership, and a comptime check requires every `top_level = false` flag to
+belong to exactly one subcommand, so the reject path always has an owner to
+name.
 
-## Known limitations
+## Subcommand-scoped flags at global scope
 
-`--no-opt` and `--check` carry `top_level = false`, which scopes them for
-`--help` and the completions but **not** for the parser: the global loop still
-accepts them anywhere. For `--check` that is a live hazard, since it is one
-hyphen-pair from the `check` subcommand whose contract is that nothing
-executes — `kaappi --check foo.scm` runs the program. Tracked as
-[kaappi#2096](https://github.com/kaappi/kaappi/issues/2096); the scoping data
-this fix would need already lives in `subcommands`.
+`--no-opt` and `--check` carry `top_level = false`. They stay in `global_flags`
+(so the inline subcommands' shared loop still parses them), but the loop accepts
+them **only after their owning subcommand word** — `kaappi ir --no-opt`,
+`kaappi fmt --check`. At global scope each is a usage error (exit 2) that names
+the subcommand it belongs to, rather than being accepted silently. For
+`--check` that also points at the `check` subcommand, since the two differ only
+by the leading `--` and have opposite execution semantics: before this check,
+`kaappi --check foo.scm` *ran* the program the `check` subcommand promises never
+to execute (kaappi#2096). `cli_spec.owningSubcommand` supplies the owner, and a
+comptime check pins every scoped flag to exactly one subcommand so that lookup
+never comes up empty.
 
 fish has no way to express an optional attached value, so `--timings` is
 emitted without `-r`: the bare spelling — the common one — completes, and

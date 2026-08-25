@@ -356,6 +356,32 @@ pub fn isInlineSubcommand(arg: []const u8) bool {
     return false;
 }
 
+/// For a subcommand-scoped (`top_level = false`) global flag, the name of the
+/// subcommand that gives it meaning; `null` for a genuinely top-level flag.
+///
+/// Derived from `subcommands` membership — the same `globalSubset` lists that
+/// drive `--help` and the completions — so a scoped flag's owner cannot drift
+/// from where it is documented and offered. `cli.parse` uses this to reject a
+/// scoped flag seen at global scope and name the subcommand it belongs to
+/// (kaappi#2096). The comptime block below guarantees the lookup succeeds for
+/// every scoped flag, so a caller may safely `.?` the result.
+pub fn owningSubcommand(id: GlobalId) ?[]const u8 {
+    var flag_long: []const u8 = "";
+    for (global_flags) |g| {
+        if (g.id == id) {
+            if (g.top_level) return null; // a top-level flag has no owner
+            flag_long = g.long;
+        }
+    }
+    if (flag_long.len == 0) return null;
+    for (subcommands) |s| {
+        for (s.flags) |sf| {
+            if (std.mem.eql(u8, sf.long, flag_long)) return s.name;
+        }
+    }
+    return null;
+}
+
 // ── thottam ────────────────────────────────────────────────────────────
 
 pub const ThottamId = enum { locked, help, version_flag, completions_flag };
@@ -421,6 +447,24 @@ comptime {
     validateTable(CacheId, &cache_flags, "cache_flags");
     validateTable(ThottamId, &thottam_flags, "thottam_flags");
 
+    // Every subcommand-scoped flag (`top_level = false`) must belong to exactly
+    // one subcommand's `globalSubset`, so `owningSubcommand` can name its owner
+    // when `cli.parse` rejects it at global scope (kaappi#2096). Without this a
+    // scoped flag with no owner would return null and the reject path would have
+    // no subcommand to point at.
+    for (global_flags) |g| {
+        if (g.top_level) continue;
+        var owners = 0;
+        for (subcommands) |s| {
+            for (s.flags) |sf| {
+                if (std.mem.eql(u8, sf.long, g.long)) owners += 1;
+            }
+        }
+        if (owners != 1) {
+            @compileError("global_flags: subcommand-scoped " ++ g.long ++ " must belong to exactly one subcommand's globalSubset");
+        }
+    }
+
     // Every subcommand's own flags must be a *sound* offer: a flag a
     // subcommand's parser would reject must never be completed for it. For the
     // five out-of-line subcommands `flags` IS the parser's table, so soundness
@@ -481,4 +525,13 @@ test "isInlineSubcommand: exactly the ones cli.parse consumes" {
 
 test "subcommand table names every subcommand printUsage documents" {
     try std.testing.expectEqual(@as(usize, 11), subcommands.len);
+}
+
+test "owningSubcommand: scoped flags resolve to their subcommand, top-level to null" {
+    try std.testing.expectEqualStrings("fmt", owningSubcommand(.check).?);
+    try std.testing.expectEqualStrings("ir", owningSubcommand(.no_opt).?);
+    // A representative top-level flag has no owner.
+    try std.testing.expect(owningSubcommand(.sandbox) == null);
+    try std.testing.expect(owningSubcommand(.deny_warnings) == null);
+    try std.testing.expect(owningSubcommand(.help) == null);
 }
