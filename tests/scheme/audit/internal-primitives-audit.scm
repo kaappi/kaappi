@@ -681,8 +681,11 @@
 ;;; ==================================================================
 ;;; D3 -- diagnostic fidelity
 ;;; ==================================================================
-;;; #1899 (heap values render opaquely as `#<symbol>` etc.) is already
-;;; filed and is NOT re-asserted here. These two are distinct from it.
+;;; #1899 (heap values rendering opaquely as `#<symbol>` etc.) was fixed
+;;; separately; its regression coverage lives in
+;;; tests/scheme/audit/error-taxonomy-audit.scm and
+;;; tests/scheme/errors/type-error-value-identity-1899.sh, not here. These two
+;;; are distinct from it.
 ;;;
 ;;; All three defects below were found by this audit and fixed in #1916; the
 ;;; assertions are kept alongside their original controls, which is what makes

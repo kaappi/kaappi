@@ -601,16 +601,48 @@ pub fn parseOptionalRange(args: []const Value, arg_offset: usize, max_len: usize
     return .{ .start = start, .end = end };
 }
 
+/// Render `value` for a type-error message: enough of its identity that a user
+/// can tell *which* value was wrong (kaappi#1899), not just its type.
+///
+/// This is on the error path of ~700 type-error sites, potentially holding a
+/// half-constructed or foreign-owned value, so it stays deliberately
+/// conservative — the same properties the flonum note below relied on:
+///   (a) **No allocation and no VM callback.** Everything is read directly out
+///       of the value or its object header; nothing calls the GC or the
+///       interpreter. Bignum/rational rendering therefore only covers what
+///       fits in a stack `u128` (`writeExactInteger`); a larger magnitude,
+///       which would need heap scratch to stringify, falls back to `#<bignum>`
+///       / `#<rational>`.
+///   (b) **Bounded output.** Writing through a fixed 128-byte `Io.Writer`,
+///       every write is capped by the buffer; strings and symbols are
+///       additionally truncated with `...` before they get there, so a
+///       megabyte string or million-element vector can never be dumped into a
+///       diagnostic.
+///   (c) **No recursion into heap structure.** Compound types render a
+///       one-level summary (a vector/bytevector reports its length; a rational
+///       renders its two exact-integer components), never a recursive print —
+///       so a cyclic structure cannot make this loop.
 fn safeValueDescription(buf: *[128]u8, value: Value) []const u8 {
+    var w: std.Io.Writer = .fixed(buf);
+    describeValue(&w, value);
+    const out = w.buffered();
+    return if (out.len == 0) "?" else out;
+}
+
+/// Best-effort renderer for `safeValueDescription`. All writes are `catch {}`:
+/// a full buffer just truncates the description rather than propagating an
+/// error out of the error path.
+fn describeValue(w: *std.Io.Writer, value: Value) void {
     if (types.isFixnum(value)) {
-        return std.fmt.bufPrint(buf, "{d}", .{types.toFixnum(value)}) catch "?";
+        w.print("{d}", .{types.toFixnum(value)}) catch {};
+        return;
     }
-    if (value == types.NIL) return "()";
-    if (value == types.TRUE) return "#t";
-    if (value == types.FALSE) return "#f";
-    if (value == types.VOID) return "#<void>";
-    if (value == types.EOF) return "#<eof>";
-    if (types.isChar(value)) return "#<char>";
+    if (value == types.NIL) return w.writeAll("()") catch {};
+    if (value == types.TRUE) return w.writeAll("#t") catch {};
+    if (value == types.FALSE) return w.writeAll("#f") catch {};
+    if (value == types.VOID) return w.writeAll("#<void>") catch {};
+    if (value == types.EOF) return w.writeAll("#<eof>") catch {};
+    if (types.isChar(value)) return describeChar(w, types.toChar(value));
     if (types.isFlonum(value)) {
         // Via the printer, not a bare `{d}`, so an integral flonum keeps its
         // `.0`. Without it `(… 1.0)` reported "expected exact integer, got 1",
@@ -618,26 +650,141 @@ fn safeValueDescription(buf: *[128]u8, value: Value) []const u8 {
         // (kaappi#1916). Safe in this deliberately-defensive helper: a flonum
         // is inline under NaN-boxing, so `formatFlonum` reads no heap and
         // handles NaN/Inf itself.
-        return printer.formatFlonum(buf, types.toFlonum(value));
+        var fbuf: [64]u8 = undefined;
+        w.writeAll(printer.formatFlonum(&fbuf, types.toFlonum(value))) catch {};
+        return;
     }
     if (types.isPointer(value)) {
         const addr = @as(usize, @truncate(value));
-        if (addr == 0 or addr < 4096) return "#<invalid-pointer>";
+        if (addr == 0 or addr < 4096) return w.writeAll("#<invalid-pointer>") catch {};
         const obj = types.toObject(value);
         const tag = @intFromEnum(obj.tag);
         if (tag >= @typeInfo(types.ObjectTag).@"enum".fields.len)
-            return std.fmt.bufPrint(buf, "#<corrupt tag={d}>", .{tag}) catch "#<corrupt>";
-        return switch (obj.tag) {
-            .pair => "#<pair>",
-            .symbol => "#<symbol>",
-            .string => "#<string>",
-            .closure, .native_fn, .function, .native_closure => "#<procedure>",
-            .vector => "#<vector>",
-            .hash_table => "#<hash-table>",
-            else => std.fmt.bufPrint(buf, "#<{s}>", .{@tagName(obj.tag)}) catch "#<object>",
-        };
+            return w.print("#<corrupt tag={d}>", .{tag}) catch {};
+        switch (obj.tag) {
+            // Symbol name is inline in the object (interned, no allocation);
+            // print it so `(string-length 'foo)` says `got foo`, not `#<symbol>`.
+            .symbol => describeBounded(w, obj.as(types.Symbol).name, 96),
+            .string => {
+                const s = obj.as(types.SchemeString);
+                describeString(w, s.data[0..s.len]);
+            },
+            // Length, not contents: cheap, cycle-safe, and far more useful than
+            // a bare tag (kaappi#1899). A one-level element preview would have
+            // to guard against cyclic vectors; length needs no such guard.
+            .vector => w.print("#<vector length {d}>", .{obj.as(types.Vector).data.len}) catch {},
+            .bytevector => w.print("#<bytevector length {d}>", .{obj.as(types.Bytevector).data.len}) catch {},
+            .bignum => if (!writeExactInteger(w, value)) {
+                w.writeAll("#<bignum>") catch {};
+            },
+            .rational => {
+                const r = obj.as(types.Rational);
+                // Numerator and denominator are each a fixnum or bignum -- never
+                // a pointer to a compound, so this cannot recurse or cycle.
+                if (writeExactInteger(w, r.numerator)) {
+                    w.writeByte('/') catch {};
+                    if (!writeExactInteger(w, r.denominator)) w.writeAll("...") catch {};
+                } else {
+                    w.writeAll("#<rational>") catch {};
+                }
+            },
+            .pair => w.writeAll("#<pair>") catch {},
+            .closure, .native_fn, .function, .native_closure => w.writeAll("#<procedure>") catch {},
+            .hash_table => w.writeAll("#<hash-table>") catch {},
+            else => w.print("#<{s}>", .{@tagName(obj.tag)}) catch {},
+        }
+        return;
     }
-    return std.fmt.bufPrint(buf, "0x{x}", .{value}) catch "?";
+    w.print("0x{x}", .{value}) catch {};
+}
+
+/// Write an exact integer (fixnum or a bignum small enough to fit a `u128`)
+/// in decimal. Returns false, having written nothing, for a bignum too large
+/// to stringify without heap scratch -- the caller renders `#<bignum>` then.
+fn writeExactInteger(w: *std.Io.Writer, value: Value) bool {
+    if (types.isFixnum(value)) {
+        w.print("{d}", .{types.toFixnum(value)}) catch return false;
+        return true;
+    }
+    if (types.isPointer(value) and types.toObject(value).tag == .bignum) {
+        const bn = types.toObject(value).as(types.Bignum);
+        if (bn.len == 0) {
+            w.writeAll("0") catch return false;
+            return true;
+        }
+        if (bn.len > 2) return false; // magnitude exceeds u128 -- needs allocation
+        var mag: u128 = 0;
+        var i: usize = bn.len;
+        while (i > 0) {
+            i -= 1;
+            mag = (mag << 64) | bn.limbs[i];
+        }
+        if (!bn.positive) w.writeByte('-') catch return false;
+        w.print("{d}", .{mag}) catch return false;
+        return true;
+    }
+    return false;
+}
+
+/// Render a character in its `#\` external representation (kaappi#1899: chars
+/// are immediates and were rendering as the opaque `#<char>`). Mirrors the
+/// named/hex forms of `printer.printValueOnce`, but self-contained so it reads
+/// no heap.
+fn describeChar(w: *std.Io.Writer, cp: u21) void {
+    w.writeAll("#\\") catch {};
+    switch (cp) {
+        0x00 => return w.writeAll("null") catch {},
+        0x07 => return w.writeAll("alarm") catch {},
+        0x08 => return w.writeAll("backspace") catch {},
+        0x09 => return w.writeAll("tab") catch {},
+        0x0A => return w.writeAll("newline") catch {},
+        0x0D => return w.writeAll("return") catch {},
+        0x1B => return w.writeAll("escape") catch {},
+        0x20 => return w.writeAll("space") catch {},
+        0x7F => return w.writeAll("delete") catch {},
+        else => {},
+    }
+    if (cp < 0x20 or (cp >= 0x7F and cp <= 0x9F)) {
+        w.print("x{x}", .{cp}) catch {};
+    } else {
+        var cbuf: [4]u8 = undefined;
+        const len = std.unicode.utf8Encode(cp, &cbuf) catch 0;
+        w.writeAll(cbuf[0..len]) catch {};
+    }
+}
+
+/// Write `s` truncated to at most `cap` bytes, with a trailing `...` when cut.
+/// Truncation backs off to a UTF-8 boundary so a diagnostic never emits a
+/// split multibyte sequence.
+fn describeBounded(w: *std.Io.Writer, s: []const u8, cap: usize) void {
+    if (s.len <= cap) {
+        w.writeAll(s) catch {};
+        return;
+    }
+    var end = cap;
+    while (end > 0 and (s[end] & 0xC0) == 0x80) end -= 1; // don't split a codepoint
+    w.writeAll(s[0..end]) catch {};
+    w.writeAll("...") catch {};
+}
+
+/// Write a bounded, quoted, escaped prefix of a string value.
+fn describeString(w: *std.Io.Writer, s: []const u8) void {
+    const cap: usize = 32;
+    w.writeByte('"') catch {};
+    var n = @min(s.len, cap);
+    while (n > 0 and n < s.len and (s[n] & 0xC0) == 0x80) n -= 1; // don't split a codepoint
+    for (s[0..n]) |c| {
+        switch (c) {
+            '"' => w.writeAll("\\\"") catch {},
+            '\\' => w.writeAll("\\\\") catch {},
+            '\n' => w.writeAll("\\n") catch {},
+            '\t' => w.writeAll("\\t") catch {},
+            '\r' => w.writeAll("\\r") catch {},
+            else => w.writeByte(c) catch {},
+        }
+    }
+    w.writeByte('"') catch {};
+    if (n < s.len) w.writeAll("...") catch {};
 }
 
 // ---------------------------------------------------------------------------

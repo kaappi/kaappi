@@ -88,7 +88,7 @@
 
 (check "CONTROL: fd->port still type-checks its argument first"
        (equal? (classify (lambda () (fd->port 'not-a-fixnum)))
-               '(error "type error in 'fd->port': expected file descriptor, got #<symbol>" ())))
+               '(error "type error in 'fd->port': expected file descriptor, got not-a-fixnum" ())))
 
 ;; file-exists? is the one filesystem procedure with a value to degrade to, so
 ;; it answers #f rather than raising anything at all — deliberately unlike the
