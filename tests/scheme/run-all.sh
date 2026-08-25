@@ -562,6 +562,23 @@ if command -v zig > /dev/null 2>&1; then
         echo "  WARN  zig build lib failed; compile scripts will each retry it"
     fi
 fi
+
+# The WASM differential compares this tree's interpreter against
+# zig-out/bin/kaappi.wasm, but nothing else on this path rebuilds that module —
+# so without this step a local run-all.sh would measure today's interpreter
+# against whatever stale .wasm happens to be in zig-out/, producing confident
+# FALSE divergences (or, worse, a clean PASS that tested nothing) against a
+# module from another commit (kaappi#2197). CI's `wasm` job builds it first; do
+# the same here. Gated on wasmtime too, since without it the differential SKIPs
+# regardless and the build would be wasted. Best-effort: run-wasm-differential.sh
+# has its own freshness guard, so if this is skipped or fails the leg degrades to
+# a clear SKIP rather than a false FAIL.
+if command -v zig > /dev/null 2>&1 && command -v wasmtime > /dev/null 2>&1; then
+    echo "Building the WebAssembly module (zig build wasm) for the WASM differential."
+    if ! zig build wasm > /dev/null 2>&1; then
+        echo "  WARN  zig build wasm failed; the WASM differential will SKIP (stale/missing module)"
+    fi
+fi
 echo ""
 
 check_unreachable_tests

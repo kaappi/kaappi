@@ -18,8 +18,10 @@
 #   KAAPPI_WASM_DIFF_VERBOSE=1 print a line per file instead of only diffs
 #   KAAPPI_WASM_DIFF_KEEP=1    keep the temp tree of captured outputs
 #
-# Exits 77 (SKIP) when there is no WASM runtime or no module to run — most
-# dev boxes have neither, and CI's `wasm` job has both.
+# Exits 77 (SKIP) when there is no WASM runtime, no module to run, or the module
+# predates the interpreter sources (i.e. was not built from this tree — see the
+# freshness gate below, kaappi#2197). Most dev boxes have neither runtime nor a
+# fresh module; CI's `wasm` job has both.
 #
 # ---------------------------------------------------------------------------
 # READ THIS BEFORE TRUSTING A GREEN RUN
@@ -136,6 +138,52 @@ fi
 if [ ! -f "$WASM" ]; then
     echo "SKIP: no wasm module at $WASM (run 'zig build wasm' first)"
     exit 77
+fi
+
+# ---------------------------------------------------------------------------
+# Freshness — refuse to measure a module not built from this tree (kaappi#2197)
+# ---------------------------------------------------------------------------
+# This harness compares TODAY's interpreter against whatever `.wasm` is sitting
+# in zig-out/, and nothing on the run-all.sh path rebuilds it (that script has
+# no `zig build wasm` step).  A module from an earlier commit still runs, and
+# every message-text match then measures the OLD engine: the pre-#2016
+# file-error wording, a probe newer than the module, and so on all surface as
+# confident, specific FALSE divergences naming real corpus files, with nothing
+# in the output hinting the module is old.  The silent direction is worse — a
+# stale module that still agrees yields a clean PASS while testing nothing about
+# this tree, exactly the "green while testing nothing" class the v2 audit put
+# first.
+#
+# So establish that the module postdates the sources compiled INTO it before
+# comparing anything.  If any such source is newer than the module, the module
+# cannot reflect this tree: SKIP, never FAIL.  Only the binary's inputs are
+# checked (src/, build.zig{,.zon}, vendor/) — editing a test or a doc does not
+# trip it, since both tiers read those live from disk.  `find -newer` is plain
+# POSIX (no GNU-only predicate); the strict OpenBSD grep leg never sees a regex
+# here.  CI is unaffected: its `wasm` job builds the module before the native
+# oracle, so no source ever outdates it.
+FRESH_INPUTS=""
+for p in src build.zig build.zig.zon vendor; do
+    [ -e "$p" ] && FRESH_INPUTS="$FRESH_INPUTS $p"
+done
+if [ -n "$FRESH_INPUTS" ]; then
+    # shellcheck disable=SC2086  # deliberate word splitting over the path list
+    # Fail closed: if the scan itself fails (an input vanished mid-scan or is
+    # unreadable), freshness cannot be established — SKIP rather than proceed
+    # on an empty NEWER_SRC and measure a module of unknown provenance.
+    if ! NEWER_SRC="$(find $FRESH_INPUTS -type f -newer "$WASM" 2> /dev/null)"; then
+        echo "SKIP: cannot verify freshness of wasm module $WASM"
+        exit 77
+    fi
+    if [ -n "$NEWER_SRC" ]; then
+        NEWER_ONE="$(printf '%s\n' "$NEWER_SRC" | head -1)"
+        echo "SKIP: wasm module $WASM is stale — interpreter sources are newer"
+        echo "      than it (e.g. $NEWER_ONE), so it was not built from this tree."
+        echo "      Run 'zig build wasm' to refresh it.  Refusing to report WASM"
+        echo "      tier divergences against a module of unknown provenance"
+        echo "      (kaappi#2197)."
+        exit 77
+    fi
 fi
 
 TIMEOUT="${KAAPPI_WASM_DIFF_TIMEOUT:-60}"
@@ -417,7 +465,9 @@ check_file() {
 
 echo "=== differential: WASM tier vs interpreter oracle ==="
 echo "native:  $KAAPPI ($("$KAAPPI" --version 2> /dev/null | head -1))"
-echo "wasm:    $WASM"
+# Size is a cheap staleness tell in a transcript; the freshness gate above has
+# already refused to run against a module older than the sources (kaappi#2197).
+echo "wasm:    $WASM ($(wc -c < "$WASM" 2> /dev/null | tr -d ' ') bytes, verified newer than interpreter build inputs)"
 echo "runtime: $(wasmtime --version 2> /dev/null | head -1)"
 printf 'corpus: '
 # shellcheck disable=SC2086  # deliberate word splitting over the dir list
