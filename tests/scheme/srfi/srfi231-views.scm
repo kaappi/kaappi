@@ -182,6 +182,28 @@
   (let ((forced (specialized-array-reshape b (make-interval (vector 8)) #t)))
     (test-equal #t (interval= (array-domain forced) (make-interval (vector 8))))))
 
+;;; --- an offset view (non-zero body base) IS packed (#2314), so reshape
+;;; flattens it in place -- sharing the body, not copying ---
+(let* ((base (make-specialized-array (make-interval (vector 2) (vector 4))))
+       (view (array-extract base (make-interval (vector 3) (vector 4))))
+       (r (specialized-array-reshape view (make-interval (vector 1)))))
+  (array-set! base 'x 3)
+  (test-equal 'x (array-ref r 0))
+  (array-set! r 'y 0)  ;; write-through proves body sharing
+  (test-equal 'y (array-ref base 3)))
+
+;;; --- array-packed? on views: consecutive-from-any-base per spec (#2314);
+;;; the first visited body position may have ANY offset, only stride-1
+;;; increasing order matters ---
+(let* ((a (make-specialized-array (make-interval (vector 2) (vector 4))))
+       (A (make-specialized-array-from-data (vector 0 1 2 3))))
+  (test-equal #t (array-packed? (array-extract a (make-interval (vector 3) (vector 4)))))
+  (test-equal #t (array-packed? (array-extract a (make-interval (vector 2) (vector 4)))))
+  (test-equal #t (array-packed? (array-translate a (vector 1))))
+  ;; the spec's own example: decreasing order and stride-2 are not packed
+  (test-equal #f (array-packed? (array-reverse A)))
+  (test-equal #f (array-packed? (array-sample A (vector 2)))))
+
 (test-equal #t (guard (e (#t #t))
                   (specialized-array-reshape (make-array (make-interval (vector 3)) (lambda (i) i)) (make-interval (vector 3)))
                   #f))  ;; not specialized
