@@ -42,6 +42,24 @@ that name through the shared globals map at run time, so the value never
 enters the copy at all. This is the whole reason the two routes exist as
 separate things.
 
+The copy route's tag switch is not a two-way sort into *copied* or
+*refused*. It has a distinct middle class — **aliased** — where the arm
+returns the source object to the destination heap **by pointer** instead of
+duplicating it. Soundness in that class is not automatic: an aliased object
+outlives its source heap's collector only if the arm first promotes it to a
+shared, refcounted representation and checks that the running thread is
+entitled to share it. Exactly one tag earns the class — `channel` — and its
+arm does all three. An arm that aliases *without* them hands the receiver a
+pointer neither collector accounts for; that was the FFI bug #2027 removed by
+moving `ffi-library`/`ffi-function` out of the aliased class and into the
+*copied* one (below). So the switch has three outcomes, not two:
+
+| class | what the arm returns | members |
+|---|---|---|
+| **copied** | a fresh object in the destination heap | pairs, vectors, strings, records, `native-fn`, `ffi-library`, `ffi-function`, `file-info`/`user-info`/`group-info`, `srfi18-time`, `random-source`, … |
+| **aliased** | the source object, by pointer, after promotion + refcount + an ownership check | `channel` only |
+| **refused** | `error.UncopyableType` | the eleven below |
+
 `gc_deep_copy.zig` refuses eleven tags outright:
 
 ```text
@@ -55,9 +73,12 @@ and have copied by value since kaappi#1978, so a `file-info` can be the
 join result of a child thread. `directory_object` among the SRFI-170 types
 is still genuinely uncopyable — it owns a live `DIR*`.
 
-Channels are **not** on that list. Their arm promotes the channel to a
-shared representation and aliases it, which is what makes a lexically
-captured channel the supported way to share one (KEP-0002 §2).
+Channels are the sole **aliased** tag, and so **not** on that refusal list.
+Their arm promotes the channel to a shared, refcounted representation and
+aliases it — the promotion, the refcount, and the ownership check (next
+paragraph) together are what make aliasing sound here, and what make a
+lexically captured channel the supported way to share one (KEP-0002 §2). No
+other tag may alias, because no other arm carries those three safeguards.
 
 That arm carries the globals-route check too, in the one direction where
 it means something. A copy **out of** the running thread's heap — into
@@ -71,8 +92,9 @@ its unpromoted twin failed, so a thread that read one out of a shared
 global could still hand it down to a child, and that child got a working
 stub for a channel nobody gave it.
 
-FFI handles are not on that list either — `ffi-library` and `ffi-function`
-are **copied**, and only the callback is refused. The dlopen handle and the
+FFI handles are not on that list either, and — since #2027 — no longer in
+the aliased class: `ffi-library` and `ffi-function` are **copied**, and only
+the callback is refused. The dlopen handle and the
 symbol address are process-global and are shared by value; it is the
 wrapper object that gets duplicated into the receiving heap, exactly as
 `native-fn` duplicates the object around a static function pointer. Until
@@ -164,7 +186,7 @@ with a top-level `define` and named by the thunk.
 | guardian | refused | refused (kaappi#2008) | **coherent** — the raw-container mutation made a check mandatory |
 | ephemeron | refused | works | unchecked — bound to one GC's collection cycle, but nothing mutates a raw container through it |
 | transport cell | refused | — | unreachable from Scheme: on this non-moving collector a transport-cell guardian always yields `#f` |
-| ffi-callback | refused | not probed | needs a loaded FFI library to construct |
+| ffi-callback | refused | works | unchecked — the copy refusal is now pinned both directions (`srfi18-deepcopy-matrix-audit.scm`, two-pointer signature); a global runs the parent-heap closure, like a custom port |
 
 Two rows deserve their own note.
 
@@ -333,8 +355,11 @@ enforcement shape the nine already cover. (The three *copyable* ones —
 `file-info`, `user-info`, `group-info` — have their own cross-boundary
 coverage in `tests/scheme/audit/srfi18-deepcopy-matrix-audit.scm` and
 `tests/scheme/audit/primitives_filesystem-audit.scm` section H since
-kaappi#1978.) `ffi-callback` needs a loaded
-FFI library; the transport cell is unreachable, as above.
+kaappi#1978.) `ffi-callback` is exercised instead in
+`tests/scheme/audit/srfi18-deepcopy-matrix-audit.scm` — a *callback* needs no
+loaded library, only a supported signature (the two-pointer shape from
+`callback-error.scm`), and that suite pins both copy-route directions as
+refused; the transport cell is unreachable, as above.
 
 Two smaller checks live elsewhere and are worth knowing about rather than
 duplicating: `src/tests_deepcopy.zig` asserts the port and continuation
