@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787669073472,
+  "lastUpdate": 1787669711772,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "aa4f8887e9bb8a32ae73ace6a22bf39972622202",
-          "message": "Split vm_dispatch.zig and fiber.zig under the 1500-line policy (#2189)\n\nBoth had crossed the 1500-line file-size limit (1531 and 1530), the\nfirst non-exempt files to do so since the 2026-07-30 sweep. Each is cut\nalong the seam its own structure suggests, as pure code motion:\n\n- vm_dispatch.zig keeps runUntil (the hot dispatch loop) and its\n  loop-control helpers; the support layer the opcode arms call —\n  operand/bytecode readers, register-window validation, the shared\n  global-resolution helper (kaappi#1831/#1860), the noinline error\n  raisers, buildRestList — moves to vm_dispatch_helpers.zig.\n- fiber.zig keeps the Fiber/FiberScheduler structs and scheduling\n  core; the blocking-wait machinery — waitForFd, wakeIoWaitersOnFd,\n  IoWait, parkOnReactor, and the shared in-place scheduler drive\n  runSchedulerStep — moves to fiber_wait.zig.\n\nSame-name re-exports keep every unqualified call site and external\nvm_dispatch.X / fiber.X reference resolving; visibility widens only\nwhere the file boundary requires it. The one non-motion change: the\ntwo debug-pause wrappers are dropped in favor of calling vm_debug\ndirectly at their single call site. tests_gc_tracing.zig (1720) is\ndeliberately not split — a flat list of independent per-type test\nblocks is the breadth the policy exempts.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-02T12:06:29Z",
-          "tree_id": "dd3e53691bb0018203b94d3468fdbf40c5f56bf0",
-          "url": "https://github.com/kaappi/kaappi/commit/aa4f8887e9bb8a32ae73ace6a22bf39972622202"
-        },
-        "date": 1785674217981,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.949649,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.218807,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.57374,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.882515,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004892,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.044709,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.292572,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.05533,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.394153,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.153756,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.534883,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.30769,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.727792,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.786498,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045682,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045863,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "296c198166026a768feefd0e58c10e9b5f1ee5e7",
+          "message": "Run top-level call/cc forms wholly in the VM natively (#2119) (#2332)\n\nA top-level form whose own evaluation captures a full continuation was\nlowered with its outer structure native and only the call/cc\nsubexpression eval-fallbacked to the VM. The captured continuation then\nspanned only that subexpression, so invoking it from a later top-level\nform (e.g. a for-each callback) re-ran just the subexpression and\ndelivered its value into a native context that had already completed and\ncould not re-run -- the enclosing set!/define store never fired again,\nsilently keeping the pre-capture value: (set! result (+ 100 (call/cc ...)))\nkept 100 where the interpreter gives 142.\n\nForce any top-level form that may capture a full continuation onto\nwhole-form VM evaluation (a single passthrough), so the captured\ncontinuation spans the entire form and a later resume re-runs its tail,\nmatching the pure-VM tier per the continuation-strategy doc's behavioral\nequivalence guarantee.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-25T18:50:04+05:30",
+          "tree_id": "91f030418270f5c9f10b4959e047b88663f25b6a",
+          "url": "https://github.com/kaappi/kaappi/commit/296c198166026a768feefd0e58c10e9b5f1ee5e7"
+        },
+        "date": 1787669709547,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.961877,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.827201,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.558015,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.836149,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004883,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046703,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.282416,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053322,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.332261,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.127767,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.600052,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.300374,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.680094,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.792118,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046174,
             "unit": "seconds"
           }
         ]
