@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787598699916,
+  "lastUpdate": 1787620848008,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "46e637039e30eba5c1a12562ff2131b7207b237c",
-          "message": "Retire the SRFI 120 corruption claim, and pin why it cannot come back (#2140)\n\nThe most alarming statement in the tree was that a second thread calling\ninto a timer produced nondeterministic memory corruption, \"not\nroot-caused\". It does not reproduce -- not on ReleaseSafe and not under\n-Dgc-stress=true, which stamps freed headers and quarantines freed slots\nso a dangling value panics deterministically rather than corrupting by\nluck. A claim retired without a test is a claim that comes back, so the\nrewrite ships with 18 assertions pinning every way a <timer> can reach\nanother thread and which guard refuses it.\n\nThe earlier re-check reached the right verdict for a partly wrong reason,\nand that mattered: it credited gc_deep_copy's .fiber rejection with\nclosing both entry paths. A value reached through a top-level binding is\nnever deep-copied, so that list has no bearing on it at all -- what\nrefuses there is the control channel's Object.owner check. Two\nindependent guards, and a change to either one alone would have left a\nhole nobody was watching.\n\nThree further entry paths that neither earlier check enumerated turn out\nto be refused too, and are pinned as well: a timer sent as a channel\nmessage payload, a task thunk closing over a second timer (timer-schedule!\nships the thunk over the control channel, so that is a copy boundary with\nno thread-start! in sight), and a timer reached through a top-level\ncontainer rather than a binding of its own.\n\nTwo other header claims were measured and were wrong. A thunk calling back\ninto its own timer was documented as deadlocking; it cannot -- it has no\nway to name the timer at all, and both spellings fail immediately with a\ncatchable error. And the reason given for not fixing that gap cited the\ncorruption claim being retired here, so it no longer applies.\n\nWhat did turn up is a real crash, filed as #2129 and not fixed here:\nthread-join! frees the joined thread's GC/VM while a thread it spawned is\nstill in its startup prologue. make-timer inside a SRFI-18 thread returns\nat exactly that moment, so it dies 24/30 runs. That is an engine bug --\nreproducible with no timers involved -- and the header now says so\ninstead of gesturing at unlocated corruption.\n\nRefs #1890, #2129.",
-          "timestamp": "2026-08-02T02:18:05+05:30",
-          "tree_id": "44fda5edabc10dcec3e3b9ff7adf22963b647557",
-          "url": "https://github.com/kaappi/kaappi/commit/46e637039e30eba5c1a12562ff2131b7207b237c"
-        },
-        "date": 1785623232979,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.291694,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.451056,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.590639,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.97412,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004765,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046436,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.311242,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057596,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.741387,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.231008,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.567025,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.286835,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.799114,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.647719,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043816,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046402,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cb00facfce05b3080b4936dd0c6b83fcf53d6a6e",
+          "message": "Rewrite SRFI 28 format to walk the format string linearly (#2300)\n\nformat walked the format string with a string-ref index loop. Kaappi\nstores strings as UTF-8 and indexes by codepoint, so string-ref s i is\nO(i), making format O(n^2) in the format-string length -- a 200 KB\nformat string took ~36 seconds.\n\nRead characters from an open-input-string port instead, which advances\nthrough the bytes once (O(n)). Every directive (~a, ~s, ~%, ~~, unknown\n~x pass-through, and a trailing lone ~) is preserved byte-for-byte;\nverified identical output against the previous implementation.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-25T06:02:33+05:30",
+          "tree_id": "f4bcc8cc3a8f94df798fbeff2fa1a1991c5ba79a",
+          "url": "https://github.com/kaappi/kaappi/commit/cb00facfce05b3080b4936dd0c6b83fcf53d6a6e"
+        },
+        "date": 1787620846763,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.076635,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.305994,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.548375,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.846182,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004877,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046552,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.279993,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053877,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.45428,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.150014,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.606064,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.304087,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.703635,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.792206,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045498,
             "unit": "seconds"
           }
         ]
