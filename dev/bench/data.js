@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787620848008,
+  "lastUpdate": 1787626542885,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e6b428d75810412e192dc7b9771cb8322276d8c8",
-          "message": "Tick 5F, and correct a 30x-stale time estimate it exposed (#2147)\n\n5F is clean on both halves, run on a c5-4vcpu-8gb droplet at 94ebd5a0 and\ndestroyed after ~37 minutes for ~USD 0.09:\n\n  unit suite,  -Dgc-stress=true    1570 pass, 0 fail\n  Scheme suite against that binary 2061 pass, 0 fail, 0 timeout\n\nThe Scheme suite has never run against a gc-stress build on x86-64 Linux\nbefore. With a collection attempted on every allocation, that is the\nstrongest evidence available that yesterday's twelve merged units\nintroduced no rooting bugs.\n\nThe finding, though, is the timing. The run reported EXIT:0 with a 7-byte\nresults file after 8 minutes, against a documented 1.5-3 hour budget — the\nsignature of a build flag that silently failed to apply, and this campaign\nhas already found three tests that passed without exercising anything. The\ncontrol settled it:\n\n  plain       1567 pass, 3 skip     50s\n  gc-stress   1570 pass             5m07s\n\nSix times slower with a different skip count, so the flag is active and the\nestimate was ~30x stale — on a droplet vCPU slower than the M-series Mac it\nwas compared against. Almost certainly since #1802/#1804 and #1809 stopped\nReleaseSafe 0xAA-filling `= undefined` buffers.\n\nThe skill now carries the measured numbers, keeps the detached-poll pattern\n(it costs nothing when the run is short), and warns that `zig build test`\nprints nothing on success — so a fast finish must be checked against the\ncontrol, not the clock.",
-          "timestamp": "2026-08-02T03:00:18+05:30",
-          "tree_id": "29b12ecbb1a54a42141b8f0e36acc78b52a7044e",
-          "url": "https://github.com/kaappi/kaappi/commit/e6b428d75810412e192dc7b9771cb8322276d8c8"
-        },
-        "date": 1785623807295,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.081096,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.460524,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.43863,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.209412,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.003784,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.034676,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.231501,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.042846,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.841963,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.905424,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.172623,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.232813,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.314396,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.315967,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.035092,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045498,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8e378e1c4c4790a5bdaef7d5948e861d99ac3091",
+          "message": "Bound default-hash recursion depth in SRFI 128 (#2301)\n\ndefault-hash recursed over pairs/vectors with no depth limit. Since #2044\nthreaded the comparator through (srfi 146 hash), a make-default-comparator\nhashmap keys its table via default-hash, so a cyclic key ran the recursion\ninto the KP3008 stack cap — an uncatchable process abort (regressed from the\nnative equal? hash, whose MAX_HASH_DEPTH=8 cap silently absorbed the cycle).\n\nThread a depth argument through the pair/vector recursion and, past a cutoff\nmirroring the native precedent (MAX_HASH_DEPTH=8, a fixed DEEP_CUTOFF_HASH),\nfold in a constant sentinel instead of recursing. The cutoff is a fixed\nconstant, never derived from the object, so two equal? keys still hash alike;\nacyclic values nesting less than the cutoff deep hash exactly as before.\n\nCyclic keys remain \"an error\" under the spec, but the failure mode is now a\nbounded, terminating hash instead of a process abort.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-25T06:03:08+05:30",
+          "tree_id": "a98489401bf36daf262b262d1651cd11811b6afb",
+          "url": "https://github.com/kaappi/kaappi/commit/8e378e1c4c4790a5bdaef7d5948e861d99ac3091"
+        },
+        "date": 1787626540466,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.647623,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.896179,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.360355,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 1.852499,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003595,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.030829,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.192983,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.034853,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.710985,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.786682,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.032593,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.209593,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.138852,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.769389,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.031605,
             "unit": "seconds"
           }
         ]
