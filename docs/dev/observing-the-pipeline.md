@@ -105,11 +105,26 @@ expanded again when the program is compiled:
 
 - **`quote` / `quasiquote` data** is never touched — a macro-named list inside
   `'(...)` stays literal.
-- **`let-syntax` / `letrec-syntax` local macros** are not built; uses of a
-  locally-bound syntax are left in place (the transformer spec is still shown).
+- **`let-syntax` / `letrec-syntax` forms** are left entirely unexpanded —
+  bindings *and* body. Their local transformers are never built here, so the
+  body is not walked at all; the whole form is printed as read and re-expanded
+  on a real compile. Expanding the body would be unsound: a use of a shadowed
+  keyword would resolve against the *outer* binding of that name, not the local
+  one (kaappi#1894). Leaving the form intact round-trips because re-reading
+  re-establishes the inner binding.
 - **Macros that capture use-site locals** (only reachable inside a `lambda` /
   `let` body) may not expand identically to a real compile — the dump uses the
   same best-effort expansion the compiler's own pre-scan does.
+
+A subtlety behind the round-trip guarantee: leaving a *use* of a locally-bound
+keyword in place is only sound if the **binder keeps the same spelling**, so the
+use still matches it after re-reading. When a macro expands *into* a
+`let-syntax` (a SRFI 139 syntax parameter does exactly this), hygiene would
+rename the binder and leave the body's use bare, severing them. The dump avoids
+that by registering every `define-syntax` a top-level macro expands into — just
+as a real compile does after evaluating it — so the shared keyword is known, and
+therefore kept bare rather than renamed, when the later macro's template
+mentions it (kaappi#1894, second shape).
 
 Environment forms (`import`, `define-syntax`, `define-record-type`, …) are shown
 unchanged; their effect is applied so later forms expand against it.

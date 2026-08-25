@@ -124,15 +124,24 @@ fn expandTopLevel(vm: *VM, expr: Value, path: []const u8) void {
     var rooted = expanded;
     vm.gc.pushRoot(&rooted);
     printDatum(vm.gc.allocator, rooted);
+    // Register from the EXPANDED form, not the original: a `define-syntax`
+    // produced by expanding a macro (a SRFI 139 syntax parameter's
+    // `define-syntax-parameter`, say) must register its transformer just as a
+    // real compile does after evaluating it — otherwise the shared keyword is
+    // unknown when a later macro's template mentions it, and hygiene renames a
+    // `let-syntax` binder away from the body's use of it (kaappi#1894, second
+    // shape). `import`/`define-library`/`define-syntax` are opaque to the
+    // expander, so for them the expanded form equals the original.
+    registerEnvForExpand(vm, rooted, path);
     vm.gc.popRoot();
-
-    registerEnvForExpand(vm, expr, path);
 }
 
 /// Establish the environment effects `expand` needs from a top-level form so
 /// later forms expand correctly: run macro-importing forms, and register a
 /// `define-syntax` transformer by compiling (never executing) the form. Ordinary
 /// `define`s / expressions and value-defining forms are deliberately left alone.
+/// Called with the form AFTER macro expansion so a macro-generated
+/// `define-syntax` (SRFI 139 syntax parameters) is registered too (kaappi#1894).
 fn registerEnvForExpand(vm: *VM, expr: Value, path: []const u8) void {
     if (!types.isPair(expr) or !types.isSymbol(types.car(expr))) return;
     const name = types.symbolName(types.car(expr));
@@ -277,14 +286,25 @@ fn expandLet(vm: *VM, expr: Value, depth: u16) error{OutOfMemory}!Value {
     return cons3Tail(vm, types.car(expr), bindings, body);
 }
 
-/// `let-syntax` / `letrec-syntax`: the transformer bindings are left in place
-/// (they are `syntax-rules` specs), and the body is expanded against the global
-/// macro set — uses of the locally-bound syntax stay unexpanded and round-trip.
+/// `let-syntax` / `letrec-syntax`: left entirely unexpanded — form, bindings
+/// and body. The local transformers are never built here, so expanding the body
+/// would resolve a use of a locally-bound keyword against the OUTER binding of
+/// that name, silently changing the program (kaappi#1894: a shadowed
+/// `(let-syntax ((c ...)) (c))` came out as the outer `c`'s expansion with the
+/// inner binding re-emitted but never applied). Leaving the whole form intact is
+/// sound — the compiler builds the local macros and expands the body on a real
+/// run — and round-trips, because re-reading re-establishes the inner binding.
+///
+/// Round-trip fidelity depends on the binder keeping its spelling so a use left
+/// in the body still matches it. That holds because a shared keyword introduced
+/// by a `define-syntax` — including one a macro generated, e.g. a SRFI 139
+/// syntax parameter — is registered by `registerEnvForExpand`, so a later macro
+/// whose template mentions it keeps it bare rather than hygiene-renaming the
+/// binder away from the body's use of it.
 fn expandSyntaxLet(vm: *VM, expr: Value, depth: u16) error{OutOfMemory}!Value {
-    const rest = types.cdr(expr);
-    if (!types.isPair(rest)) return expr;
-    const body = try mapExpand(vm, types.cdr(rest), depth);
-    return cons3Tail(vm, types.car(expr), types.car(rest), body);
+    _ = vm;
+    _ = depth;
+    return expr;
 }
 
 /// `(define x init)` or `(define (f . args) body...)` — keep the target, expand
