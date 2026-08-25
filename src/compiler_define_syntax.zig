@@ -64,6 +64,7 @@ pub fn compileDefineSyntax(self: *Compiler, args: Value, dst: u16) CompileError!
     if (self.lib_env) |env| {
         tx.def_env = env;
         tx.def_env_val = self.lib_env_val;
+        globals_mod.assertEnvMapInvariant(env, self.lib_env_val); // #1962
         // #1812: pairs with def_env so renameForHygiene can build a
         // def_env_binding_prefix-marked reference that survives being
         // imported anywhere, instead of resolving by bare name against
@@ -648,6 +649,7 @@ fn resolveTransformerSpecRec(self: *Compiler, spec_in: Value, merged_macros: *st
                     const def_tx = types.toObject(def_transformer).as(types.Transformer);
                     def_tx.def_env = env;
                     def_tx.def_env_val = self.lib_env_val;
+                    globals_mod.assertEnvMapInvariant(env, self.lib_env_val); // #1962
                 }
                 try finalizeTransformer(self, def_transformer);
                 try self.recordBodyMacro(def_name);

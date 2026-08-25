@@ -59,6 +59,8 @@ const std = @import("std");
 const memory = @import("memory.zig");
 const types = @import("types.zig");
 const fiber_mod = @import("fiber.zig");
+const globals_mod = @import("globals.zig");
+const th = @import("testing_helpers.zig");
 
 const Value = types.Value;
 const Object = types.Object;
@@ -1880,4 +1882,88 @@ test "gc remembered set (#2196): a full collect drain resets every dedup flag" {
     gc.writeBarrier(&vec.header, b);
     try std.testing.expectEqual(@as(usize, 1), gc.remembered_set.items.len);
     try std.testing.expect(vec.header.flags.in_remembered_set);
+}
+
+// ---------------------------------------------------------------------------
+// #1962: the untraced env-map invariant (Function.env / Transformer.def_env)
+//
+// No GC switch traces these raw *StringHashMap pointers. They are safe only
+// through their paired env_val/def_env_val, OR because the map is one of the
+// VM-rooted library registries markVmRoots traces. `globals.assertEnvMapInvariant`
+// makes that unwritten rule checkable at every construction site; these tests
+// exercise the predicate it asserts on directly (an assertion firing panics,
+// which a Zig test cannot catch, so the check is factored as a bool predicate).
+// ---------------------------------------------------------------------------
+
+test "gc tracing (#1962): env-map invariant predicate distinguishes the three routes" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
+
+    // A genuinely private map: allocated here, never handed to any VM registry.
+    // This is the shape a future unsafe call site would produce.
+    var private = std.StringHashMap(Value).init(vm.gc.allocator);
+    defer private.deinit();
+
+    const non_nil = types.makeFixnum(7); // stands in for a real paired env_val
+
+    // Route 1 -- paired with a non-NIL (traced) value: always sound, private or
+    // not. This is the restricted-environment / (eval expr env) case.
+    try std.testing.expect(globals_mod.envMapInvariantHolds(&private, non_nil));
+
+    // The hazard #1962 is about: a private map with a NIL paired value is
+    // reachable by nothing once collected. The predicate must reject it, which
+    // is what turns `assertEnvMapInvariant` into a deterministic trip wire.
+    try std.testing.expect(!globals_mod.envMapInvariantHolds(&private, types.NIL));
+
+    // Route 2 -- the same NIL pairing is sound once the map is a VM-rooted
+    // registry. Register `private` as an in-flight pending_lib_env exactly as
+    // handleDefineLibrary does; markVmRoots now traces it, so NIL is fine.
+    vm.pending_lib_envs[vm.pending_lib_env_count] = &private;
+    vm.pending_lib_env_count += 1;
+    defer vm.pending_lib_env_count -= 1;
+    try std.testing.expect(vm.isGcRootedEnvMap(&private));
+    try std.testing.expect(globals_mod.envMapInvariantHolds(&private, types.NIL));
+}
+
+test "gc tracing (#1962): current_lib_env and a registered library both count as rooted" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
+
+    var map = std.StringHashMap(Value).init(vm.gc.allocator);
+    defer map.deinit();
+
+    // current_lib_env is the library env actively being compiled -- one of the
+    // maps markVmRoots traces, so a Function/Transformer minted against it may
+    // carry a NIL paired value (the five known-safe library sites).
+    try std.testing.expect(!vm.isGcRootedEnvMap(&map));
+    const saved = vm.current_lib_env;
+    vm.current_lib_env = &map;
+    defer vm.current_lib_env = saved;
+    try std.testing.expect(vm.isGcRootedEnvMap(&map));
+
+    // A retired env of a replaced library is likewise traced (#820), so it too
+    // is accepted with a NIL pairing.
+    vm.current_lib_env = saved;
+    try std.testing.expect(!vm.isGcRootedEnvMap(&map));
+    try vm.libraries.retired_envs.append(vm.gc.allocator, &map);
+    try std.testing.expect(vm.isGcRootedEnvMap(&map));
+    _ = vm.libraries.retired_envs.pop();
+}
+
+test "gc tracing (#1962): with no VM registered the invariant holds vacuously" {
+    // A bare-GC context (this file's own default) has no vm_instance, so the
+    // rooted-map callback is unregistered. envMapInvariantHolds must not treat
+    // that as a violation -- without a VM no collection observes the field.
+    const prev = globals_mod.env_map_rooted_lookup;
+    globals_mod.env_map_rooted_lookup = null;
+    defer globals_mod.env_map_rooted_lookup = prev;
+
+    var map = std.StringHashMap(Value).init(std.testing.allocator);
+    defer map.deinit();
+    try std.testing.expect(globals_mod.envMapInvariantHolds(&map, types.NIL));
+    try std.testing.expect(globals_mod.envMapInvariantHolds(&map, types.makeFixnum(1)));
 }

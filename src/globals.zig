@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const types = @import("types.zig");
 const Value = types.Value;
 
@@ -270,6 +271,43 @@ pub var def_env_binding_set: ?DefEnvBindingSetFn = null;
 pub fn setDefEnvBinding(libname: []const u8, origname: []const u8, val: Value) bool {
     if (def_env_binding_set) |setter| return setter(libname, origname, val);
     return false;
+}
+
+/// Callback reporting whether a `*StringHashMap(Value)` is one of the VM's
+/// GC-rooted environment registries -- the maps `vm.markVmRoots` traces
+/// unconditionally on every collection (each registered library's `lib_env`,
+/// a `retired_env` of a replaced library, an in-flight `pending_lib_env`, or
+/// the library env currently being compiled, `current_lib_env`). Registered by
+/// the VM so the compiler can enforce the `Function.env` / `Transformer.def_env`
+/// invariant without importing vm.zig -- the same indirection #1812's
+/// `current_lib_name_lookup` uses (#1962).
+pub const EnvMapRootedFn = *const fn (map: *std.StringHashMap(Value)) bool;
+pub var env_map_rooted_lookup: ?EnvMapRootedFn = null;
+
+/// The invariant every `Function.env` / `Transformer.def_env` must satisfy:
+/// the raw map pointer is GC-reachable ONLY through its paired traced Value
+/// (`env_val` / `def_env_val`) -- EXCEPT when the map is one of the VM-rooted
+/// library registries (see `env_map_rooted_lookup`), in which case the paired
+/// value is allowed to be NIL because the registry keeps every binding alive
+/// independently. Returns true when the pairing is sound. Holds vacuously when
+/// no VM has registered the callback (a bare-GC unit test), since then no
+/// collection can observe the field either (#1962).
+pub fn envMapInvariantHolds(map: *std.StringHashMap(Value), paired_val: Value) bool {
+    if (paired_val != types.NIL) return true; // route 1: paired, traced value
+    const lookup = env_map_rooted_lookup orelse return true;
+    return lookup(map); // route 2: a VM-rooted registry map
+}
+
+/// Debug/test-only guard for `envMapInvariantHolds`. Compiled out entirely in
+/// release builds (ReleaseSafe/ReleaseFast), so it never changes shipped
+/// behavior or costs a registry scan there; in Debug and test builds it fires
+/// deterministically the moment a future call site mints a `Function`/
+/// `Transformer` holding a private map with a NIL paired value -- the exact
+/// latent hazard #1962 was filed for, which would otherwise silently lose
+/// every binding at the next collection and look identical to the safe sites.
+pub fn assertEnvMapInvariant(map: *std.StringHashMap(Value), paired_val: Value) void {
+    if (comptime !(builtin.mode == .Debug or builtin.is_test)) return;
+    std.debug.assert(envMapInvariantHolds(map, paired_val));
 }
 
 pub const def_env_binding_prefix = types.def_env_binding_prefix;
