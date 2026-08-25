@@ -66,11 +66,19 @@
 
 
 ;; make-range-generator
+;; "The sequence begins with start": coerce an exact start to inexact with
+;; exact->inexact when step is inexact, never with the reference
+;; implementation's (- (+ start step) step) round trip.  The round trip
+;; achieves the exactness contagion but does not leave an already-inexact
+;; start alone — it perturbs it by a rounding error, and when step dwarfs
+;; start it annihilates it to 0.0 entirely (#2055; chibi-scheme, which
+;; carries the reference code, reproduces both).
 (define make-range-generator
   (case-lambda ((start end) (make-range-generator start end 1))
                ((start) (make-infinite-range-generator start))
                ((start end step)
-                (set! start (- (+ start step) step))
+                (unless (and (exact? start) (exact? step))
+                  (set! start (exact->inexact start)))
                 (lambda () (if (< start end)
                              (let ((v start))
                               (set! start (+ start step))
@@ -195,15 +203,24 @@
                   v)))))
 
 ;; gflatten
+;; The refill loops until state holds a non-empty list (#2057): the
+;; reference implementation refills exactly once, so an empty list from the
+;; source reaches car and raises (chibi-scheme reproduces this).  The spec —
+;; "yields the elements of the lists produced by the given generator" —
+;; means a list with no elements contributes no elements.
 (define (gflatten gen)
   (let ((state '()))
     (lambda ()
-      (if (null? state) (set! state (gen)))
-      (if (eof-object? state)
-        state
-        (let ((obj (car state)))
-          (set! state (cdr state))
-          obj)))))
+      (let refill ()
+        (cond ((null? state)
+               (set! state (gen))
+               (refill))
+              ((eof-object? state)
+               state)
+              (else
+                (let ((obj (car state)))
+                  (set! state (cdr state))
+                  obj)))))))
 
 ;; ggroup
 (define ggroup
