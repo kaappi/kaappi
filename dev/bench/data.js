@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787626686953,
+  "lastUpdate": 1787626710184,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c241e8e7938bd514461d7bac6e830b8b6b20f527",
-          "message": "Phase 6F: fmt adversarial comments and mutation fuzzing — 51,000 inputs, three root causes, and a formatter that reports a syntax error in a file that has none (#2148)\n\n* Phase 6F: fmt adversarial comments and mutation fuzzing\n\nFuzz `kaappi fmt` where its round-trip guard cannot see: comments are not\ndatums, so a comment that moves or vanishes passes `equal?` unnoticed, and\nidempotence is a separate property the guard says nothing about.\n\nAdds `tests/scheme/fmt/fmt-adversarial.sh` (61 fast assertions: 53 comment\nplacements where the layout engine must decide, the blank-line controls, and\nthe parser-depth property) and `tools/fmt_fuzz.py`, the on-demand fuzzer the\nfindings came from — four modes over the repo's own corpus, none of which can\nwrite to a corpus file.\n\nFound kaappi#2141 (stack overflow on a long reader-prefix chain; max_nesting\nguards lists only), kaappi#2142 (non-idempotent when a head-line block comment\ndisplaces a blank-preceded item past hasBodyBlank's index), and kaappi#2143\n(a `#`-led lexeme glued to an identifier splits differently in fmt's lexer\nthan in the reader). Their repros are committed disabled with FAIL markers.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Phase 6F: pin fit-to-width, and file the byte-vs-column gap\n\n`fmt.md` promises \"a form that fits within max_width (80) columns is put on\none line\"; `computeMeasure` returns `node.text.len`, so every non-ASCII lexeme\ncounts double or triple. A 75-column form of twelve five-character Unicode\nidentifiers breaks into 12 lines; the same shape in ASCII stays on one.\n\nCosmetic — measure and the inline emitter are both byte-based, so the fit\npredicate stays consistent and the result is idempotent. Filed as kaappi#2149.\nThe ASCII control is enabled; the Unicode case is committed disabled.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* head -c is not POSIX — OpenBSD generated an empty file and passed it\n\n`repeat() { head -c \"$2\" /dev/zero | tr '\\0' \"$1\"; }` builds the deep-nesting\ninputs. `head -c` is a GNU/FreeBSD extension; OpenBSD answers\n\n    head: unknown option -- c\n    usage: head [-count | -n count] [file ...]\n\nand prints nothing. The 300,000-paren file came out empty, `fmt` accepted it,\nand `expected exit 1, got 0` failed on openbsd-test alone.\n\nSame shape as the no-GNU-regex rule already in tests/scheme/CLAUDE.md: it\npasses on macOS, Linux and FreeBSD, and only the strict leg disagrees. The\nreason it presented as a *depth-limit* disagreement rather than a missing\nutility is that an empty file is valid input, so the failure looked like a\nplatform-dependent nesting cap.\n\n`printf '%*s'` is POSIX, needs no external file, and is faster. 62 passed,\n0 failed locally.\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-02T05:03:47+05:30",
-          "tree_id": "ef9fc9c05c7d49995c616e0418b752ba6d659d42",
-          "url": "https://github.com/kaappi/kaappi/commit/c241e8e7938bd514461d7bac6e830b8b6b20f527"
-        },
-        "date": 1785630773842,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.074527,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.663753,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.441839,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.231727,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.003814,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03495,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.233357,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.04269,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.826905,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.932382,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.166055,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.235279,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.307668,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.360511,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.037114,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.035408,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6c31408d522321a1ba737e0a4bad27171289142d",
+          "message": "Route top-level import through load's evaluator and attribute errors to the loaded file (#2303)\n\nload compiled each form of the loaded file as an ordinary expression, so a\ntop-level (import ...) was evaluated as an application: (scheme base) was\napplied and base looked up as a variable, failing with KP3001. The error\nwas also attributed to the loader's file and line, because the loaded thunk\ncarried no source name of its own.\n\nRoute each form (default global-env case) through vm.handleTopLevelForm\nfirst — the same dispatch a script or the REPL uses — so import,\ndefine-library, begin, cond-expand and the rest are handled by the\nimport/library machinery, and fall through to compilation only for plain\nexpressions. Compile those with compileExpressionWithMacrosAt, naming the\nreader and thunk with the loaded file's path so captureErrorLocation\nattributes any raised diagnostic to the loaded file:line, and run via\nrunTopLevelFunction so a load nested under a suspended caller frame stays\nre-entrant.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-25T06:03:55+05:30",
+          "tree_id": "515b23b929b4f678702e7f272e47ffbc182f00a4",
+          "url": "https://github.com/kaappi/kaappi/commit/6c31408d522321a1ba737e0a4bad27171289142d"
+        },
+        "date": 1787626707623,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.091945,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.477698,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.578019,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.911838,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00524,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046923,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.283117,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053559,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.40551,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.157797,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.627662,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.3067,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.716921,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.87317,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046505,
             "unit": "seconds"
           }
         ]
