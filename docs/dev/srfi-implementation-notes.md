@@ -194,12 +194,14 @@ preserves uninterned-ness across SRFI-18 thread boundaries.
 ### SRFI 260 — generated symbols
 
 SRFI 260 (generated symbols) is built-in but needs no engine integration
-beyond one primitive (`generate-symbol` in `primitives_srfi260.zig`): because
-Kaappi interns every symbol by name (no uninterned symbols), write/read
-invariance is automatic, so the primitive just interns a fresh
-`"<pretty>.<counter>.<128-bit-OS-entropy-hex>"` name — a process-global atomic
-counter guarantees in-process uniqueness and `platform.osRandomBytes` supplies
-the unpredictability.
+beyond one primitive (`generate-symbol` in `primitives_srfi260.zig`).
+Kaappi *does* have uninterned symbols (SRFI 258, above), so write/read
+invariance is not automatic: `generate-symbol` gets it by deliberately
+interning through `GC.allocSymbol` — the opposite choice from SRFI 258's
+`generate-uninterned-symbol`, which uses `GC.allocUninternedSymbol`. The
+primitive interns a fresh `"<pretty>.<counter>.<128-bit-OS-entropy-hex>"`
+name — a process-global atomic counter guarantees in-process uniqueness and
+`platform.osRandomBytes` supplies the unpredictability.
 
 ### SRFI 120 — Timer APIs
 
