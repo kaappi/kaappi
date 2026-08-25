@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787663849173,
+  "lastUpdate": 1787664061586,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ad53bc2a886065a0b1ad021b40125466cbaed8d2",
-          "message": "Phase 8: synthesis — 170 issues are 35 root causes, and the most repeated one is a check that tests nothing (#2171)\n\n* Phase 8: synthesis — 170 issues are 35 root causes, and the most repeated one is a check that tests nothing\n\nThe campaign filed 188 issues across 53 units. A pile that size is raw\nmaterial, not a result, so this adds a `## Findings` section recording what\nit concluded: every open issue assigned to one of 35 root-cause groups, a\nprioritisation with its reasoning visible, the deduplication recommendations,\nand the `;; FAIL:` marker inventory.\n\nThree hypotheses carried into the unit were disproved, which is the more\nuseful half. SRFI 166's 11 issues do not share a root cause: routing the\nthree the tracker names as derived through the working procedural mechanism\nstill gives the wrong answer, so the failures are consumer-side and there are\n11 separate procedures to write. The arity issues are four unrelated\nmechanisms, though a real structural finding survives them — three sites\nhand-roll frame setup instead of routing through callClosure, and each\ninherits none of its validation.\n\nThe open count is 170, not 168: two issues had fallen out of both tracking\nqueries and were recoverable only through the disabled-test markers.\n\nTwo findings are new here. The segment-at-n=0 class has four members, not\ntwo — string-segment and range-segment hang identically and are unfiled,\nwith SRFI 171's tsegment as the control proving it is a missing precondition\nrather than an inherent shape. And isSpecialTopLevelForm is a fourth\nhand-maintained parallel list, which disappears if the top-level dispatcher\nis split into classify and run.\n\nTracking issue: #1890\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Correct two counts in the Findings section\n\nReview caught both. The marker inventory said 435 lines in 35 files; the\ndefensible count over .scm files, matching the documented `;;+ FAIL: #NNNN`\nconvention, is 434 in 36 — the earlier figure came from a looser grep, and\nthe file count had dropped the one file whose three markers use `;;;`. Both\nspellings are now counted and stated.\n\nAnd \"two issues were reachable only through the disabled-test markers\" was\nwrong about which: 2129 is found by the `audit` label query, and only 1920\nneeds the markers. 1870 is the third case — footer, no label — so the honest\nstatement is that no single query finds every campaign issue.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-02T08:38:42+05:30",
-          "tree_id": "91afe839c3094c612c21e47203f9b98a50794f10",
-          "url": "https://github.com/kaappi/kaappi/commit/ad53bc2a886065a0b1ad021b40125466cbaed8d2"
-        },
-        "date": 1785642465143,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.261677,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.175552,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.576768,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.93471,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004799,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046593,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.311144,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056336,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.605735,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.233148,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.578445,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.281905,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.791596,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.537989,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044209,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041367,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c1b2abdff2e7f065ad96f7625cf4d311b5c39747",
+          "message": "Track macro-expanded set! of a primitive at native top level (#2325)\n\nkaappi compile tracks top-level rebindings so folding does not inline a\nprimitive whose name will be reassigned (#822), but collectRedefinedNames\nmatched only a literal define/set!/begin head. A top-level macro use that\nexpands to (set! + -) matched none, so a later (+ ...) folded against the\nstale primitive and the native binary printed 7 where the interpreter\nprinted 3.\n\nAdd collectRedefinedNamesMacroAware: in the native read loop, expand a\nhead-position syntax-rules macro (bounded depth, no_collect-guarded,\nprocedural SRFI-211 transformers excluded) and scan its expansion for the\ndefine/set! targets it introduces, recording them stripped of any hygiene\nprefix. llvm_emit's inline-primitive dispatch now also consults the\nwhole-program set_targets map (isReboundGlobal), matching how IR.isRedefined\nalready gates constant folding.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-25T16:00:31+05:30",
+          "tree_id": "1abdfb552e9620dfedebd8d66b6f53132f558e3e",
+          "url": "https://github.com/kaappi/kaappi/commit/c1b2abdff2e7f065ad96f7625cf4d311b5c39747"
+        },
+        "date": 1787664059247,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.388944,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.680808,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.578412,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.046947,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004708,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047932,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.309888,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055615,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.839688,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.21687,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.658667,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.280371,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.801807,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.660702,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045166,
             "unit": "seconds"
           }
         ]
