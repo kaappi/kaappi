@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787634719902,
+  "lastUpdate": 1787640783999,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "03ccf6c53c705004b2b9c9190839c9616d282f7e",
-          "message": "Phase 7E: gate PRs on gc-stress — 7 min for the unit suite, 12 for the Scheme corpus (#2165)\n\n`-Dgc-stress=true` appeared 0 times in ci.yml (#1898, reconnaissance finding\nF9). It was not absent from CI — fuzz.yml's two gc-stress legs run the same\nunit suite as their pre-fuzz phase — but daily at 02:47 UTC against whatever\nlanded that day, not against the diff that introduced it.\n\nThe premise that kept it out is stale. Measured here, macOS aarch64 under\nload average 4-6 from two concurrent audit units:\n\n  plain       1579 pass, 3 skip     4m\n  gc-stress   1582 pass, 0 skip     7m\n\n1.75x, not the 30x the estimates assumed. The differing skip count is the\ncontrol that the flag applied; `zig build test` prints nothing on success, so\n`--summary all` is now on every unit-test step, including the five existing\nones, where the counts are the only thing distinguishing a passing run from a\nrun that executed nothing.\n\nTwo jobs, both hanging off `format` and running concurrently with everything\nelse: `gc-stress` (unit suite) and `gc-stress-scheme` (the 605-file .scm\ncorpus plus the R7RS suite, through a new tools/run-gc-stress-suite.sh in the\nshape of #2145's run-endian-suite.sh). Two rather than one because the\ncritical path is the 19-minute Debug leg; serialised they would exceed it, in\nparallel each sits inside its shadow.\n\nThree things make it a gate rather than a decoration: `kaappi features --json`\nmust report gc_stress:true before anything runs, the corpus glob has a floor\nso matching nothing cannot read as finding nothing, and the R7RS suite's\ncounts are parsed rather than its exit status -- which is a bug in five other\nlegs (#2157).\n\nMutation-tested: dropping the pushRoot around reader_datum.zig's datum-label\nplaceholder gives `1579 pass, 3 crash` / `test transitive failure` under\ngc-stress and `1579 pass, 3 skip` / `test success` plain, same tree, one flag\napart. An earlier attempt at the textbook #1414 shape was caught by neither --\ngc-stress detects a lost root when the freed object is later marked, not\nmerely read.\n\nThe gate found two real bugs on its first run, both excluded by name until\nfixed: #2160 (primitives_srfi1 buildList reads freed values from its unrooted\nitems slice -- three files abort, including one written to exercise SRFI-1\nunder GC pressure) and #2161 (record_uid_registry keys are borrowed slices\ninto GC-owned strings, so a nongenerative uid stops resolving -- 19\nassertions). Also filed #2162, #2163, #2164.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-02T06:50:11+05:30",
-          "tree_id": "5efa950ea939a53f247413aec8c35d25c92d9d20",
-          "url": "https://github.com/kaappi/kaappi/commit/03ccf6c53c705004b2b9c9190839c9616d282f7e"
-        },
-        "date": 1785636397676,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.263199,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.319449,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.579696,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.981557,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00473,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046123,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.311191,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057383,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.755735,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.23095,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.569749,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.284689,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.799555,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.64892,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044017,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044234,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dbc3bfdc868af73a16d028b4a49d73bbc305eab6",
+          "message": "Fix array-packed?: consecutive increasing indices from any body base (#2322)\n\nThe spec defines array-packed? as #t when the elements, in lexicographic\norder, are stored in the body with increasing and consecutive indices --\nthe first visited index may have ANY base. The port demanded a zero base,\nso every non-zero-offset view (array-extract being the common case)\nwrongly reported #f; the reference checks only stride-1 between\nlexicographic neighbors and treats length-1 axes as trivially packed.\n\nConsequence beyond the predicate: specialized-array-reshape's fast path\nalready computed its base from the first indexer value, so offset views\nnow reshape in place, sharing the body like the reference, instead of\nerroring or copying.\n\nTests: packed-on/offset extract/translate/reverse/sample/empty cases\n(views suite, which owns the view constructors), plus an in-place\nreshape write-through proof. Docs: the reshape simplification note in\nsrfi-implementation-notes.md now records the corrected packed semantics.\n\nVerified: all seven tests/scheme/srfi/srfi231-*.scm suites pass, the\nspec document's own worked examples still pass (66 automated checks),\nand the reference test suite's 330 error-expectation tests stay 330/330.\n\nCloses #2314\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-25T05:50:04Z",
+          "tree_id": "804f1d6cf7dd584858f897e8233babbd866f7437",
+          "url": "https://github.com/kaappi/kaappi/commit/dbc3bfdc868af73a16d028b4a49d73bbc305eab6"
+        },
+        "date": 1787640782189,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.346118,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.595758,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.580975,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.002882,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005295,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048486,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.30936,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056306,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.721023,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.216163,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.682364,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.28603,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.806964,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.671263,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045155,
             "unit": "seconds"
           }
         ]
