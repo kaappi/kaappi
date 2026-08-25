@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787627711631,
+  "lastUpdate": 1787628240983,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "b8003c2401ed3aeddc6c7d68cee48c7e57573bd5",
-          "message": "Phase 5G: reactor backend parity — kqueue and epoll agree on all 1593 unit tests, and WASI is executed by nothing (#2153, #2154) (#2158)\n\nThe reactor has four backends behind one API and they must be\nbehaviourally interchangeable. The tracker assumed nothing asserted\nthat; the measurement corrects it. `tests_reactor.zig`'s 23 tests and\n5B's `tests_waitforfd.zig` already run on whichever backend the target\nhas, and CI executes them on three of the four — so parity *is*\nasserted for what they cover. What was missing is a set of contracts\nthat `reactor.zig`'s own doc comments state and nothing checked.\n\n`tests_reactor_parity.zig` adds 15, written against the\nbackend-independent `Reactor` surface and naming no backend, so a\nproperty that holds on one leg and fails on another is a parity defect\nby construction: deadline-ordered timer firing, an already-due deadline\nflooring `effectiveTimeout` at 0, `popExpiredTimers` standalone (the\nscheduler's per-tick path), `isEmpty` with only a timer pending,\n`removeTimer`'s sibling isolation, `poll`'s documented duplicate wake,\na hangup waking *both* directions rather than only the read one, both\ndirections of one ready fd in a single poll, `removeWaiter` actually\nsilencing the removed fiber, a zero timeout probing rather than\nblocking, and a cross-thread notify interrupting a wait without\nconsuming the timer or the fd arming underneath it.\n\n`msFromNs` becomes `pub`: epoll's nanoseconds-to-milliseconds ceil is\nthe one backend-specific rule that is a pure function, so a kqueue host\ncan verify epoll's arithmetic directly — never rounds down, both\nsentinels, and saturation instead of an overflow into a negative\n\"block forever\".\n\nEvery assertion was mutation-tested individually; all 15 mutations were\nkilled. Both backends were executed, not inferred: macOS aarch64\n(kqueue) and aarch64 Linux (epoll) via a cross-compiled test binary in\na container, full suite green on both — 1594/1597 macOS, 1593/1597\nLinux, zero failures. Two findings, neither a live divergence:\n\n- #2153: `zig build test -Dtarget=wasm32-wasi` does not compile (20\n  errors, the 32-bit-usize class of #1912), so `WasiPollBackend` is not\n  even a compile gate, and the one CI step named \"reactor poll_oneoff\n  backend\" covers only the CLOCK path — `arm`, `disarmAll`, `subFd`,\n  the fd branch of `wait` and the whole userspace ONESHOT emulation in\n  `clearInterest` are executed by nothing anywhere. `porting.md`\n  Stage 3 makes \"the fd-readiness unit suites pass\" the acceptance\n  criterion for a backend, so it lists one this backend cannot meet.\n- #2154: the ceil-to-milliseconds rule is written twice by hand, and\n  the Windows copy cites `msFromNs` by name while restating its\n  arithmetic. They agree on every reachable input — the only\n  disagreement is a clamp at 24.9 vs 49.7 days, where an early return\n  is always safe — but only the epoll copy is reachable from a test.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-02T06:06:14+05:30",
-          "tree_id": "06ec0e19ac4713b2638917c9b5ff0e25c4692a00",
-          "url": "https://github.com/kaappi/kaappi/commit/b8003c2401ed3aeddc6c7d68cee48c7e57573bd5"
-        },
-        "date": 1785632733066,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.164388,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.637416,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.435841,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.206107,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00382,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.034726,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.231543,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.042687,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.812556,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.905984,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.167241,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.233661,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.314637,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.399086,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.035064,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045457,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bb1082a7d9c5ec33728c7eefc4fd04a63f415969",
+          "message": "Make char-numeric? cover all Unicode Nd digits (#2306)\n\nisUnicodeNumeric used a hand-written list of 36 BMP \"digit zero\" bases,\nmissing all 310 supplementary-plane Nd (decimal digit) code points across\n27 ranges — so char-numeric? answered #f for e.g. U+1D7CE MATHEMATICAL\nBOLD DIGIT ZERO and U+104A0 OSMANYA DIGIT ZERO, disagreeing with the\ntable-driven neighbours and with SRFI 14's char-set:digit.\n\nAdd a numeric_ranges table (General_Category=Nd, all planes) to the\ngenerated unicode_tables.zig via gen_unicode_tables.py, and have both\nchar-numeric? and digit-value consult it. digit-value is kept in lockstep\nbecause R7RS requires it to return a value for every char char-numeric?\nreports as #t; each Nd range is a contiguous 0..9 run, so the value is the\noffset from the range base.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-25T06:05:03+05:30",
+          "tree_id": "7af4493280e72b83c9bd896a9538c19d6a01534d",
+          "url": "https://github.com/kaappi/kaappi/commit/bb1082a7d9c5ec33728c7eefc4fd04a63f415969"
+        },
+        "date": 1787628239668,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.05734,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.69631,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.548432,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.86433,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004939,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046576,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.28301,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053427,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.370435,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.15188,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.592445,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.3025,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.687081,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.77297,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04561,
             "unit": "seconds"
           }
         ]
