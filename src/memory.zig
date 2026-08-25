@@ -534,6 +534,17 @@ pub const GC = struct {
         gc_collect.collect(self);
     }
 
+    /// Force a full (both-generation) collection regardless of the
+    /// minor-cycle schedule. Used to reclaim OS descriptors held by
+    /// unreachable objects — abandoned file ports and directory streams —
+    /// before reporting descriptor exhaustion to a program (kaappi#1993).
+    /// A plain `collect()` usually runs a minor sweep, which misses any
+    /// fd-holder already promoted to the old generation.
+    pub fn collectFull(self: *GC) void {
+        self.stats.collections += 1;
+        gc_collect.fullCollect(self);
+    }
+
     pub fn markValue(self: *GC, v: Value) void {
         gc_collect.markValue(self, v);
     }

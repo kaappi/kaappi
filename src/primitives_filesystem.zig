@@ -287,6 +287,35 @@ fn raiseFileError(gc: *GC, msg_text: []const u8, irritant: Value) PrimitiveError
     return raiseFileErrorCode(gc, msg_text, irritant, std.c._errno().*);
 }
 
+/// Open a directory iterator, forcing a full GC and retrying once on
+/// descriptor exhaustion (EMFILE/ENFILE). Directory streams hold an fd that
+/// their finalizer closes, so when the process is out of descriptors but the
+/// stream objects are unreachable a collection frees table slots the retry can
+/// reuse — the SRFI-170 `open-directory` no longer spuriously fails at a
+/// normal `ulimit -n` (kaappi#1993). Any other failure propagates unchanged so
+/// the caller still raises the correct file error.
+fn openDirWithFdRetry(gc: *GC, path_z: [:0]const u8) platform.OpenError!*platform.DirIter {
+    return platform.dirIterCreate(path_z) catch |e| switch (e) {
+        error.FdExhausted => blk: {
+            gc.collectFull();
+            break :blk platform.dirIterCreate(path_z);
+        },
+        else => e,
+    };
+}
+
+/// `DirIter.open` counterpart of `openDirWithFdRetry` for the `directory-files`
+/// path, which opens and immediately closes an iterator rather than handing it
+/// to a GC-managed stream. Reads errno straight after the failing `opendir`
+/// (before any other libc call) to distinguish EMFILE/ENFILE from a real
+/// failure worth raising (kaappi#1993).
+fn openDirIterWithFdRetry(gc: *GC, path_z: [:0]const u8) ?platform.DirIter {
+    if (platform.DirIter.open(path_z)) |d| return d;
+    if (!platform.errnoIsFdExhausted()) return null;
+    gc.collectFull();
+    return platform.DirIter.open(path_z);
+}
+
 /// `raiseFileError` with an explicit errno — 0 for an error that did not
 /// come from a syscall (a pre-check like the embedded-NUL guard, or a
 /// semantic failure like "symlink target too long"), so `posix-error?`
@@ -408,7 +437,7 @@ fn directoryFiles(args: []const Value) PrimitiveError!Value {
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
-    var dir = platform.DirIter.open(path_z) orelse {
+    var dir = openDirIterWithFdRetry(gc, path_z) orelse {
         return raiseFileError(gc, "cannot open directory", args[0]);
     };
     defer dir.close();
@@ -1155,7 +1184,7 @@ fn openDirectoryFn(args: []const Value) PrimitiveError!Value {
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
-    const dir = platform.dirIterCreate(path_z) orelse {
+    const dir = openDirWithFdRetry(gc, path_z) catch {
         return raiseFileError(gc, "cannot open directory", args[0]);
     };
 

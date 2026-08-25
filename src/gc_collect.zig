@@ -328,7 +328,7 @@ fn isYoungPointer(gc: *GC, val: Value) bool {
     return obj.flags.generation == 0;
 }
 
-fn fullCollect(gc: *GC) void {
+pub fn fullCollect(gc: *GC) void {
     // #2196: drain the remembered_set up front. A full collect marks from
     // roots over both generations, so it never consults the set — and doing
     // this before sweepOld frees any old object means every entry is still
