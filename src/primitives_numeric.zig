@@ -270,7 +270,7 @@ fn exactIntegerP(args: []const Value) PrimitiveError!Value {
 /// Digit-exact conversion of a flonum to its exact value, using an explicit
 /// GC (gc_instance may be unset in reader-only contexts, kaappi#2166).
 fn exactFlonumGc(gc: *memory.GC, f: f64) PrimitiveError!Value {
-    if (std.math.isNan(f) or std.math.isInf(f)) return primitives.typeError("exact", "finite number", types.makeFlonum(f));
+    if (std.math.isNan(f) or std.math.isInf(f)) return primitives.argError("exact", "+inf.0, -inf.0 and +nan.0 have no exact representation", .{});
     if (f == 0.0) return types.makeFixnum(0);
     if (f == @trunc(f)) return try safeFloatToExactIntGc(gc, f);
     const positive = f >= 0;
@@ -429,18 +429,18 @@ fn exptFn(args: []const Value) PrimitiveError!Value {
         var wi: f64 = undefined;
         if (types.isComplex(args[0])) {
             const c = types.toComplex(args[0]);
-            zr = try toF64Ext(c.real);
-            zi = try toF64Ext(c.imag);
+            zr = try toF64Ext("expt", c.real);
+            zi = try toF64Ext("expt", c.imag);
         } else {
-            zr = toF64Ext(args[0]) catch return primitives.typeError("expt", "number", args[0]);
+            zr = toF64Ext("expt", args[0]) catch return primitives.typeError("expt", "number", args[0]);
             zi = 0.0;
         }
         if (types.isComplex(args[1])) {
             const c = types.toComplex(args[1]);
-            wr = try toF64Ext(c.real);
-            wi = try toF64Ext(c.imag);
+            wr = try toF64Ext("expt", c.real);
+            wi = try toF64Ext("expt", c.imag);
         } else {
-            wr = toF64Ext(args[1]) catch return primitives.typeError("expt", "number", args[1]);
+            wr = toF64Ext("expt", args[1]) catch return primitives.typeError("expt", "number", args[1]);
             wi = 0.0;
         }
         // Special case: integer exponent with complex base — use repeated multiplication
@@ -468,8 +468,8 @@ fn exptFn(args: []const Value) PrimitiveError!Value {
         // General: z^w = e^(w * ln(z))
         return complexPowGeneral(zr, zi, wr, wi);
     }
-    const base_f = try toF64Ext(args[0]);
-    const exp_f = try toF64Ext(args[1]);
+    const base_f = try toF64Ext("expt", args[0]);
+    const exp_f = try toF64Ext("expt", args[1]);
     // A negative real base raised to a non-integer real exponent has no real
     // result (e.g. (-8)^(1/3)) — promote to complex, matching sqrt's handling
     // of negative reals. Integer exponents are excluded since std.math.pow
@@ -562,8 +562,8 @@ fn squareFn(args: []const Value) PrimitiveError!Value {
 fn sqrtFn(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
         const c = types.toComplex(args[0]);
-        const re = try toF64Ext(c.real);
-        const im = try toF64Ext(c.imag);
+        const re = try toF64Ext("sqrt", c.real);
+        const im = try toF64Ext("sqrt", c.imag);
         const mag = @sqrt(re * re + im * im);
         const r = @sqrt((mag + re) / 2.0);
         const i_sign: f64 = if (im < 0.0) -1.0 else 1.0;
@@ -719,8 +719,8 @@ fn exactIntegerSqrt(args: []const Value) PrimitiveError!Value {
 fn sinFn(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
         const c = types.toComplex(args[0]);
-        const re_c = try toF64Ext(c.real);
-        const im_c = try toF64Ext(c.imag);
+        const re_c = try toF64Ext("sin", c.real);
+        const im_c = try toF64Ext("sin", c.imag);
         const re = @sin(re_c) * std.math.cosh(im_c);
         const im = @cos(re_c) * std.math.sinh(im_c);
         return makeComplexOrReal(re, im);
@@ -732,8 +732,8 @@ fn sinFn(args: []const Value) PrimitiveError!Value {
 fn cosFn(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
         const c = types.toComplex(args[0]);
-        const re_c = try toF64Ext(c.real);
-        const im_c = try toF64Ext(c.imag);
+        const re_c = try toF64Ext("cos", c.real);
+        const im_c = try toF64Ext("cos", c.imag);
         const re = @cos(re_c) * std.math.cosh(im_c);
         const im = -@sin(re_c) * std.math.sinh(im_c);
         return makeComplexOrReal(re, im);
@@ -745,8 +745,8 @@ fn cosFn(args: []const Value) PrimitiveError!Value {
 fn tanFn(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
         const c = types.toComplex(args[0]);
-        const re_c = try toF64Ext(c.real);
-        const im_c = try toF64Ext(c.imag);
+        const re_c = try toF64Ext("tan", c.real);
+        const im_c = try toF64Ext("tan", c.imag);
         const sin_re = @sin(re_c) * std.math.cosh(im_c);
         const sin_im = @cos(re_c) * std.math.sinh(im_c);
         const cos_re = @cos(re_c) * std.math.cosh(im_c);
@@ -781,7 +781,7 @@ fn complexAsin(re: f64, im: f64) PrimitiveError!Value {
 fn asinFn(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
         const c = types.toComplex(args[0]);
-        return complexAsin(try toF64Ext(c.real), try toF64Ext(c.imag));
+        return complexAsin(try toF64Ext("asin", c.real), try toF64Ext("asin", c.imag));
     }
     const f = try toF64(args[0]);
     if (f < -1.0 or f > 1.0) {
@@ -793,12 +793,12 @@ fn asinFn(args: []const Value) PrimitiveError!Value {
 fn acosFn(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
         const c = types.toComplex(args[0]);
-        const asin_val = try complexAsin(try toF64Ext(c.real), try toF64Ext(c.imag));
+        const asin_val = try complexAsin(try toF64Ext("acos", c.real), try toF64Ext("acos", c.imag));
         const pi_half = std.math.pi / 2.0;
         if (types.isFlonum(asin_val)) return makeFlonumVal(pi_half - types.toFlonum(asin_val));
         const ac = types.toComplex(asin_val);
-        const re = pi_half - (try toF64Ext(ac.real));
-        const im = -(try toF64Ext(ac.imag));
+        const re = pi_half - (try toF64Ext("acos", ac.real));
+        const im = -(try toF64Ext("acos", ac.imag));
         if (@abs(im) < 1e-15) return makeFlonumVal(re);
         return makeComplexOrReal(re, im);
     }
@@ -808,8 +808,8 @@ fn acosFn(args: []const Value) PrimitiveError!Value {
         const pi_half = std.math.pi / 2.0;
         if (types.isFlonum(asin_val)) return makeFlonumVal(pi_half - types.toFlonum(asin_val));
         const ac = types.toComplex(asin_val);
-        const re = pi_half - (try toF64Ext(ac.real));
-        const im = -(try toF64Ext(ac.imag));
+        const re = pi_half - (try toF64Ext("acos", ac.real));
+        const im = -(try toF64Ext("acos", ac.imag));
         if (@abs(im) < 1e-15) return makeFlonumVal(re);
         return makeComplexOrReal(re, im);
     }
@@ -834,9 +834,9 @@ fn atanFn(args: []const Value) PrimitiveError!Value {
 fn expFn(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
         const c = types.toComplex(args[0]);
-        const exp_r = @exp(try toF64Ext(c.real));
-        const re = exp_r * @cos(try toF64Ext(c.imag));
-        const im = exp_r * @sin(try toF64Ext(c.imag));
+        const exp_r = @exp(try toF64Ext("exp", c.real));
+        const re = exp_r * @cos(try toF64Ext("exp", c.imag));
+        const im = exp_r * @sin(try toF64Ext("exp", c.imag));
         if (@abs(im) < 1e-15) return makeFlonumVal(re);
         return makeComplexOrReal(re, im);
     }
@@ -856,7 +856,7 @@ fn logFn(args: []const Value) PrimitiveError!Value {
     if (args.len == 1) {
         if (types.isComplex(args[0])) {
             const c = types.toComplex(args[0]);
-            return complexLog(try toF64Ext(c.real), try toF64Ext(c.imag));
+            return complexLog(try toF64Ext("log", c.real), try toF64Ext("log", c.imag));
         }
         const f = try toF64(args[0]);
         if (f < 0.0) {
@@ -935,7 +935,7 @@ fn numberToString(args: []const Value) PrimitiveError!Value {
     if (args.len > 1) {
         if (!types.isFixnum(args[1])) return primitives.typeError("number->string", "integer", args[1]);
         const r = types.toFixnum(args[1]);
-        if (r < 2 or r > 36) return primitives.typeError("number->string", "radix between 2 and 36", args[1]);
+        if (r < 2 or r > 36) return primitives.argError("number->string", "radix must be between 2 and 36, got {d}", .{r});
         radix = @intCast(@as(u64, @bitCast(r)));
     }
     if (types.isFixnum(args[0])) {
@@ -1634,8 +1634,8 @@ fn imagPart(args: []const Value) PrimitiveError!Value {
 fn magnitudeFn(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
         const c = types.toComplex(args[0]);
-        const re = try toF64Ext(c.real);
-        const im = try toF64Ext(c.imag);
+        const re = try toF64Ext("magnitude", c.real);
+        const im = try toF64Ext("magnitude", c.imag);
         return makeFlonumVal(@sqrt(re * re + im * im));
     }
     if (types.isFixnum(args[0])) {
@@ -1662,7 +1662,7 @@ fn magnitudeFn(args: []const Value) PrimitiveError!Value {
 fn angleFn(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
         const c = types.toComplex(args[0]);
-        return makeFlonumVal(std.math.atan2(try toF64Ext(c.imag), try toF64Ext(c.real)));
+        return makeFlonumVal(std.math.atan2(try toF64Ext("angle", c.imag), try toF64Ext("angle", c.real)));
     }
     if (types.isFixnum(args[0])) {
         const n = types.toFixnum(args[0]);
@@ -1676,7 +1676,7 @@ fn angleFn(args: []const Value) PrimitiveError!Value {
         return makeFlonumVal(if (bignum_mod.isNegative(args[0])) std.math.pi else 0.0);
     }
     if (types.isRationalObj(args[0])) {
-        const f = try toF64Ext(args[0]);
+        const f = try toF64Ext("angle", args[0]);
         return makeFlonumVal(if (f >= 0.0) 0.0 else std.math.pi);
     }
     return primitives.typeError("angle", "number", args[0]);
@@ -1848,9 +1848,9 @@ fn numeratorFn(args: []const Value) PrimitiveError!Value {
         const exact_val = try exactFn(args);
         if (types.isRationalObj(exact_val)) {
             const r = types.toRational(exact_val);
-            return makeFlonumVal(try toF64Ext(r.numerator));
+            return makeFlonumVal(try toF64Ext("numerator", r.numerator));
         }
-        return makeFlonumVal(try toF64Ext(exact_val));
+        return makeFlonumVal(try toF64Ext("numerator", exact_val));
     }
     return primitives.typeError("numerator", "number", args[0]);
 }
@@ -1869,7 +1869,7 @@ fn denominatorFn(args: []const Value) PrimitiveError!Value {
         const exact_val = try exactFn(args);
         if (types.isRationalObj(exact_val)) {
             const r = types.toRational(exact_val);
-            return makeFlonumVal(try toF64Ext(r.denominator));
+            return makeFlonumVal(try toF64Ext("denominator", r.denominator));
         }
         return makeFlonumVal(1.0);
     }

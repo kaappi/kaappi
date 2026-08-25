@@ -665,7 +665,7 @@ fn hashTableRefFn(args: []const Value) PrimitiveError!Value {
         }
         return args[2]; // non-procedure default (for backwards compat)
     }
-    return primitives.typeError("hash-table-ref", "key to be present or default", args[1]); // no default, error
+    return primitives.argError("hash-table-ref", "key not present and no default was given", .{});
 }
 
 // (hash-table-set! ht key value)
@@ -862,7 +862,7 @@ fn hashTableUpdateFn(args: []const Value) PrimitiveError!Value {
             return err;
         };
     } else {
-        return primitives.typeError("hash-table-update!", "key to be present or thunk", key);
+        return primitives.argError("hash-table-update!", "key not present and no failure thunk was given", .{});
     };
 
     const call_args = [1]Value{old_val};
@@ -942,7 +942,7 @@ fn hashFn(args: []const Value) PrimitiveError!Value {
     if (args.len > 1) {
         if (!types.isFixnum(args[1])) return primitives.typeError("hash", "integer", args[1]);
         const bound = types.toFixnum(args[1]);
-        if (bound <= 0) return primitives.typeError("hash", "positive integer", args[1]);
+        if (bound <= 0) return primitives.argError("hash", "bound must be a positive integer, got {d}", .{bound});
         return types.makeFixnum(@intCast(@mod(h, @as(u64, @intCast(bound)))));
     }
     return unboundedHash(h);
@@ -1004,7 +1004,7 @@ fn hashByIdentityFn(args: []const Value) PrimitiveError!Value {
     if (args.len > 1) {
         if (!types.isFixnum(args[1])) return primitives.typeError("hash-by-identity", "integer", args[1]);
         const bound = types.toFixnum(args[1]);
-        if (bound <= 0) return primitives.typeError("hash-by-identity", "positive integer", args[1]);
+        if (bound <= 0) return primitives.argError("hash-by-identity", "bound must be a positive integer, got {d}", .{bound});
         return types.makeFixnum(@intCast(@mod(h, @as(u64, @intCast(bound)))));
     }
     return unboundedHash(h);

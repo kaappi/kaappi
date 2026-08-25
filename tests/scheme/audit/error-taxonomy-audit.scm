@@ -22,8 +22,12 @@
 ;;;             shape the procedure allows -- for example a start index greater
 ;;;             than an end index, or a value a procedure explicitly rejects."
 ;;;
-;;; Note that KP3006's own explanation names `bytevector-u8-ref` as an example,
-;;; and KP3007's names a start-index-past-end. Both currently report KP3002.
+;;; #2020/#2021/#2022 are FIXED: bounds failures now report KP3006, rejections
+;;; of well-typed values report KP3007, and shared helpers thread the real
+;;; procedure name. The assertions that used to be disabled `;; FAIL:` pins of
+;;; the bugs are now live; the `TODAY:` pins of the old behaviour are gone.
+;;; Each fixed group keeps its "clean:" guards so a future change cannot
+;;; quietly regress the type branches that were always correct.
 ;;;
 ;;; Every assertion below checks the *code* (and, where it is the point, the
 ;;; message text). `raises?`-only assertions pin nothing -- a documented lesson
@@ -31,6 +35,7 @@
 ;;;
 ;;; Related, already filed -- not re-tested here:
 ;;;   #1899 primitives.safeValueDescription renders heap values opaquely (F10)
+;;;        (fixed; its assertions remain live in PART 5)
 ;;;   #1914 internal `%` primitives return bare TypeError on range failures
 ;;;   #1944 / #1972 primitives_io.zig taxonomy
 ;;;   #1978 SRFI-170 errno / filesystem range errors
@@ -92,9 +97,9 @@
 ;; PART 1 -- bounds failures that ARE reported as KP3006 (the controls)
 ;;
 ;; These are the discriminating controls for Part 2. Each is a procedure whose
-;; sibling, listed in Part 2, gets the same kind of failure wrong. They are
-;; asserted here so that a future change which "fixes" Part 2 by regressing
-;; these instead is caught.
+;; sibling, listed in Part 2, used to get the same kind of failure wrong. They
+;; are asserted here so that a future change which "fixes" Part 2 by
+;; regressing these instead is caught.
 ;; ===========================================================================
 
 (test-equal "KP3006 control: vector-ref past the end"
@@ -128,257 +133,225 @@
              (contains? (msg-of (lambda () (vector-ref (vector 1 2) 5))) "vector-ref"))
 
 ;; ===========================================================================
-;; PART 2 -- bounds failures reported as KP3002        [FAIL: #2020]
+;; PART 2 -- bounds failures reported as KP3002                 [FIXED: #2020]
 ;;
-;; Root cause: primitives.parseOptionalRange (src/primitives.zig:543) reports
-;; an out-of-range [start end] through `typeError`, plus ~15 direct sites in
-;; primitives_bytevector / _vector / _srfi1 / _string / _string_ext / _srfi160.
-;;
-;; The sharpest control is `substring` vs `string-copy`: R7RS defines
-;; `(substring s start end)` as `(string-copy s start end)` -- the SAME
-;; operation under two names -- and they disagree on the code.
+;; Root cause was primitives.parseOptionalRange (src/primitives.zig) reporting
+;; an out-of-range [start end] through `typeError`, plus direct sites in
+;; primitives_bytevector / _vector / _srfi1 / _string / _string_ext / _srfi160
+;; and the list-walk family (list-tail / take / drop / take-right /
+;; drop-right). All now report KP3006; `start > end` reports KP3007, the case
+;; `kaappi explain KP3007` names verbatim.
 ;; ===========================================================================
 
-;; -- What is asserted TODAY (the bug, pinned so the fix flips it) ------------
-;; These pin current behaviour so #2020's fix is a visible, deliberate change.
-;; Each has a matching disabled assertion below stating the correct answer.
-
-(test-equal "TODAY (#2020): string-copy end-past-length is KP3002, not KP3006"
-            'KP3002 (code-of (lambda () (string-copy "ab" 0 99))))
-(test-equal "TODAY (#2020): bytevector-u8-ref past the end is KP3002"
-            'KP3002 (code-of (lambda () (bytevector-u8-ref (bytevector 1 2) 5))))
-
-;; -- The divergence itself, stated as one assertion -------------------------
-;; This is the finding in a single line: two spellings of one operation.
-;;
-;; FAIL: #2020 (substring and string-copy are the same operation and disagree)
-;; (test-equal "substring and string-copy agree on the code for an out-of-range end"
-;;             (code-of (lambda () (substring "ab" 0 99)))
-;;             (code-of (lambda () (string-copy "ab" 0 99))))
+;; The sharpest control, now in agreement: R7RS defines
+;; `(substring s start end)` as `(string-copy s start end)` -- the SAME
+;; operation under two names, and now the same code.
+(test-equal "substring and string-copy agree on the code for an out-of-range end"
+            (code-of (lambda () (substring "ab" 0 99)))
+            (code-of (lambda () (string-copy "ab" 0 99))))
 
 ;; -- parseOptionalRange sites: end index past the length --------------------
-;; FAIL: #2020 (parseOptionalRange reports an out-of-range bound as KP3002)
-;; (test-equal "vector-copy end past length is KP3006"
-;;             'KP3006 (code-of (lambda () (vector-copy (vector 1 2) 0 99))))
-;; (test-equal "vector->list end past length is KP3006"
-;;             'KP3006 (code-of (lambda () (vector->list (vector 1 2) 0 99))))
-;; (test-equal "vector-fill! end past length is KP3006"
-;;             'KP3006 (code-of (lambda () (vector-fill! (vector 1 2) 0 0 99))))
-;; (test-equal "vector->string end past length is KP3006"
-;;             'KP3006 (code-of (lambda () (vector->string (vector #\a) 0 99))))
-;; (test-equal "string-copy end past length is KP3006"
-;;             'KP3006 (code-of (lambda () (string-copy "ab" 0 99))))
-;; (test-equal "string->list end past length is KP3006"
-;;             'KP3006 (code-of (lambda () (string->list "ab" 0 99))))
-;; (test-equal "string->vector end past length is KP3006"
-;;             'KP3006 (code-of (lambda () (string->vector "ab" 0 99))))
-;; (test-equal "string-fill! end past length is KP3006"
-;;             'KP3006 (code-of (lambda () (string-fill! (string-copy "ab") #\x 0 99))))
-;; (test-equal "bytevector-copy end past length is KP3006"
-;;             'KP3006 (code-of (lambda () (bytevector-copy (bytevector 1 2) 0 99))))
-;; (test-equal "utf8->string end past length is KP3006"
-;;             'KP3006 (code-of (lambda () (utf8->string (bytevector 97 98) 0 99))))
-;; (test-equal "string->utf8 end past length is KP3006"
-;;             'KP3006 (code-of (lambda () (string->utf8 "ab" 0 99))))
-;; (test-equal "vector-copy! end past length is KP3006"
-;;             'KP3006 (code-of (lambda () (vector-copy! (vector 1 2) 0 (vector 1 2 3) 0 99))))
-;; (test-equal "string-copy! end past length is KP3006"
-;;             'KP3006 (code-of (lambda () (string-copy! (string-copy "ab") 0 "abc" 0 99))))
-;; (test-equal "bytevector-copy! end past length is KP3006"
-;;             'KP3006 (code-of (lambda () (bytevector-copy! (bytevector 1 2) 0 (bytevector 1 2 3) 0 99))))
+(test-equal "vector-copy end past length is KP3006"
+            'KP3006 (code-of (lambda () (vector-copy (vector 1 2) 0 99))))
+(test-equal "vector->list end past length is KP3006"
+            'KP3006 (code-of (lambda () (vector->list (vector 1 2) 0 99))))
+(test-equal "vector-fill! end past length is KP3006"
+            'KP3006 (code-of (lambda () (vector-fill! (vector 1 2) 0 0 99))))
+(test-equal "vector->string end past length is KP3006"
+            'KP3006 (code-of (lambda () (vector->string (vector #\a) 0 99))))
+(test-equal "string-copy end past length is KP3006"
+            'KP3006 (code-of (lambda () (string-copy "ab" 0 99))))
+(test-equal "string->list end past length is KP3006"
+            'KP3006 (code-of (lambda () (string->list "ab" 0 99))))
+(test-equal "string->vector end past length is KP3006"
+            'KP3006 (code-of (lambda () (string->vector "ab" 0 99))))
+(test-equal "string-fill! end past length is KP3006"
+            'KP3006 (code-of (lambda () (string-fill! (string-copy "ab") #\x 0 99))))
+(test-equal "bytevector-copy end past length is KP3006"
+            'KP3006 (code-of (lambda () (bytevector-copy (bytevector 1 2) 0 99))))
+(test-equal "utf8->string end past length is KP3006"
+            'KP3006 (code-of (lambda () (utf8->string (bytevector 97 98) 0 99))))
+(test-equal "string->utf8 end past length is KP3006"
+            'KP3006 (code-of (lambda () (string->utf8 "ab" 0 99))))
+(test-equal "vector-copy! end past length is KP3006"
+            'KP3006 (code-of (lambda () (vector-copy! (vector 1 2) 0 (vector 1 2 3) 0 99))))
+(test-equal "string-copy! end past length is KP3006"
+            'KP3006 (code-of (lambda () (string-copy! (string-copy "ab") 0 "abc" 0 99))))
+(test-equal "bytevector-copy! end past length is KP3006"
+            'KP3006 (code-of (lambda () (bytevector-copy! (bytevector 1 2) 0 (bytevector 1 2 3) 0 99))))
+
+;; The message keeps the indexError shape: procedure, index, length.
+(test-assert "string-copy's message names the index"
+             (contains? (msg-of (lambda () (string-copy "ab" 0 99))) "99"))
+(test-assert "string-copy's message names the length"
+             (contains? (msg-of (lambda () (string-copy "ab" 0 99))) "2"))
 
 ;; -- parseOptionalRange: start greater than end -----------------------------
 ;; KP3007's own `explain` text names this case verbatim: "a start index greater
-;; than an end index". `substring` reports KP3006; these report KP3002; nothing
-;; reports the KP3007 the documentation promises.
-;;
-;; FAIL: #2020 (start > end reports KP3002; explain KP3007 names this case)
-;; (test-assert "vector-copy start>end is a range code, not KP3002"
-;;              (memq (code-of (lambda () (vector-copy (vector 1 2 3) 2 1)))
-;;                    '(KP3006 KP3007)))
-;; (test-assert "string-copy start>end is a range code, not KP3002"
-;;              (memq (code-of (lambda () (string-copy "abc" 2 1)))
-;;                    '(KP3006 KP3007)))
-;; (test-assert "bytevector-copy start>end is a range code, not KP3002"
-;;              (memq (code-of (lambda () (bytevector-copy (bytevector 1 2 3) 2 1)))
-;;                    '(KP3006 KP3007)))
+;; than an end index". parseOptionalRange now routes it through argError.
+(test-assert "vector-copy start>end is a range code, not KP3002"
+             (memq (code-of (lambda () (vector-copy (vector 1 2 3) 2 1)))
+                   '(KP3006 KP3007)))
+(test-assert "string-copy start>end is a range code, not KP3002"
+             (memq (code-of (lambda () (string-copy "abc" 2 1)))
+                   '(KP3006 KP3007)))
+(test-assert "bytevector-copy start>end is a range code, not KP3002"
+             (memq (code-of (lambda () (bytevector-copy (bytevector 1 2 3) 2 1)))
+                   '(KP3006 KP3007)))
+(test-equal "string-copy start>end is exactly KP3007"
+            'KP3007 (code-of (lambda () (string-copy "abc" 2 1))))
+(test-assert "string-copy's start>end message names both bounds"
+             (contains? (msg-of (lambda () (string-copy "abc" 2 1))) "greater than end"))
 
 ;; -- Direct bytevector accessors --------------------------------------------
 ;; KP3006's own `explain` text names `bytevector-u8-ref` as an example of the
-;; code, which makes this the one case the documentation contradicts directly.
-;;
-;; FAIL: #2020 (KP3006's explain text names bytevector-u8-ref as its example)
-;; (test-equal "bytevector-u8-ref past the end is KP3006"
-;;             'KP3006 (code-of (lambda () (bytevector-u8-ref (bytevector 1 2) 5))))
-;; (test-equal "bytevector-u8-ref with a negative index is KP3006"
-;;             'KP3006 (code-of (lambda () (bytevector-u8-ref (bytevector 1 2) -1))))
-;; (test-equal "bytevector-u8-set! past the end is KP3006"
-;;             'KP3006 (code-of (lambda () (bytevector-u8-set! (bytevector 1 2) 5 0))))
+;; code; it now actually produces it.
+(test-equal "bytevector-u8-ref past the end is KP3006"
+            'KP3006 (code-of (lambda () (bytevector-u8-ref (bytevector 1 2) 5))))
+(test-equal "bytevector-u8-ref with a negative index is KP3006"
+            'KP3006 (code-of (lambda () (bytevector-u8-ref (bytevector 1 2) -1))))
+(test-equal "bytevector-u8-set! past the end is KP3006"
+            'KP3006 (code-of (lambda () (bytevector-u8-set! (bytevector 1 2) 5 0))))
 
-;; -- The SRFI 160 u8 seam: one SRFI, two codes for one operation ------------
+;; -- The SRFI 160 u8 seam: one SRFI, one code for one operation -------------
 ;; `u8vector` is a plain bytevector (SRFI 160's own recommendation), so
 ;; `u8vector-ref` routes to `bytevector-u8-ref` while every other element kind
-;; routes to `%numeric-vector-ref`. Unit 2.4 verified the seam's *values* agree
-;; across all 12 kinds; the diagnostic codes do not. This is the same finding
-;; as the bytevector accessors above, reached from inside a single SRFI.
-(test-equal "TODAY (#2020): s8vector-ref out of range is KP3006"
+;; routes to `%numeric-vector-ref`. The codes now agree across the seam.
+(test-equal "s8vector-ref out of range is KP3006"
             'KP3006 (code-of (lambda () (s8vector-ref (s8vector 1 2) 9))))
-(test-equal "TODAY (#2020): u8vector-ref out of range is KP3002 — same SRFI, other code"
-            'KP3002 (code-of (lambda () (u8vector-ref (u8vector 1 2) 9))))
+(test-equal "u8vector-ref out of range is KP3006 — same SRFI, same code"
+            'KP3006 (code-of (lambda () (u8vector-ref (u8vector 1 2) 9))))
 (test-assert "control: a u8vector really is a bytevector, which is why it diverges"
              (bytevector? (u8vector 1 2)))
-
-;; FAIL: #2020 (the SRFI 160 u8 seam returns a different code from every other kind)
-;; (test-equal "every SRFI 160 element kind agrees on the out-of-range code"
-;;             (code-of (lambda () (s8vector-ref (s8vector 1 2) 9)))
-;;             (code-of (lambda () (u8vector-ref (u8vector 1 2) 9))))
+(test-equal "every SRFI 160 element kind agrees on the out-of-range code"
+            (code-of (lambda () (s8vector-ref (s8vector 1 2) 9)))
+            (code-of (lambda () (u8vector-ref (u8vector 1 2) 9))))
 
 ;; -- SRFI 133 / SRFI 1 -------------------------------------------------------
-;; FAIL: #2020 (SRFI 133 and SRFI 1 range sites report KP3002)
-;; (test-equal "vector-swap! out-of-range index is KP3006"
-;;             'KP3006 (code-of (lambda () (vector-swap! (vector 1 2) 0 9))))
-;; (test-assert "vector-unfold! end<start is a range code, not KP3002"
-;;              (memq (code-of (lambda () (vector-unfold! (lambda (i) i) (vector 1 2 3) 2 1)))
-;;                    '(KP3006 KP3007)))
-;; (test-equal "take-right with k past the length is KP3006"
-;;             'KP3006 (code-of (lambda () (take-right (list 1 2) 5))))
-;; (test-equal "drop-right with k past the length is KP3006"
-;;             'KP3006 (code-of (lambda () (drop-right (list 1 2) 5))))
+(test-equal "vector-swap! out-of-range index is KP3006"
+            'KP3006 (code-of (lambda () (vector-swap! (vector 1 2) 0 9))))
+(test-assert "vector-unfold! end<start is a range code, not KP3002"
+             (memq (code-of (lambda () (vector-unfold! (lambda (i) i) (vector 1 2 3) 2 1)))
+                   '(KP3006 KP3007)))
+(test-equal "take-right with k past the length is KP3006"
+            'KP3006 (code-of (lambda () (take-right (list 1 2) 5))))
+(test-equal "drop-right with k past the length is KP3006"
+            'KP3006 (code-of (lambda () (drop-right (list 1 2) 5))))
 
-;; -- list-tail / take / drop: a range failure surfacing as "expected pair" ---
-;; `list-ref` reports KP3006 for exactly this input (asserted in Part 1), so
-;; the walk-until-not-a-pair spelling is a choice, not a constraint.
-(test-equal "TODAY (#2020): list-tail past the end blames the type of ()"
-            'KP3002 (code-of (lambda () (list-tail (list 1 2) 5))))
-(test-assert "TODAY (#2020): list-tail's message says 'expected pair'"
-             (contains? (msg-of (lambda () (list-tail (list 1 2) 5))) "expected pair"))
-
-;; FAIL: #2020 (list-tail/take/drop report a range failure as a type error)
-;; (test-equal "list-tail past the end is KP3006, like list-ref"
-;;             'KP3006 (code-of (lambda () (list-tail (list 1 2) 5))))
-;; (test-equal "take past the end is KP3006"
-;;             'KP3006 (code-of (lambda () (take (list 1 2) 5))))
-;; (test-equal "drop past the end is KP3006"
-;;             'KP3006 (code-of (lambda () (drop (list 1 2) 5))))
+;; -- list-tail / take / drop: the walk spelling now matches list-ref ---------
+;; Walking off the end of a proper list reports the range failure (KP3006,
+;; with the walk length); a non-pair element is still a type failure.
+(test-equal "list-tail past the end is KP3006, like list-ref"
+            'KP3006 (code-of (lambda () (list-tail (list 1 2) 5))))
+(test-equal "take past the end is KP3006"
+            'KP3006 (code-of (lambda () (take (list 1 2) 5))))
+(test-equal "drop past the end is KP3006"
+            'KP3006 (code-of (lambda () (drop (list 1 2) 5))))
+(test-equal "list-tail on a non-list stays KP3002"
+            'KP3002 (code-of (lambda () (list-tail 42 1))))
 
 ;; ===========================================================================
-;; PART 3 -- domain failures on a well-typed value      [FAIL: #2021]
+;; PART 3 -- domain failures on a well-typed value               [FIXED: #2021]
 ;;
-;; These are KP3007's own definition: "an argument was of an acceptable type
-;; but outside the range or shape the procedure allows". Every one reports
-;; KP3002 instead, and in most cases the TYPE branch and the RANGE branch of
-;; the same check share one message string, so a caller cannot tell a symbol
-;; from a 256.
+;; KP3007's own definition: "an argument was of an acceptable type but outside
+;; the range or shape the procedure allows". The type branch and the range
+;; branch of each check no longer share one message and one code.
 ;; ===========================================================================
 
-;; -- The conflation, demonstrated -------------------------------------------
-;; Same procedure, same argument position: one is a real type error, the other
-;; is a well-typed value out of range. Identical code, near-identical message.
-(test-equal "TODAY (#2021): bytevector with a non-integer is KP3002 (correct)"
+;; -- The conflation, resolved ------------------------------------------------
+;; Same procedure, same argument position: a symbol is KP3002, an
+;; out-of-range byte is KP3007. Different codes, different prose.
+(test-equal "bytevector with a non-integer is KP3002 (the type branch)"
             'KP3002 (code-of (lambda () (bytevector 'x))))
-(test-equal "TODAY (#2021): bytevector with 256 is ALSO KP3002 (should be KP3007)"
-            'KP3002 (code-of (lambda () (bytevector 256))))
-(test-assert "TODAY (#2021): both branches emit the same 'expected' text"
-             (and (contains? (msg-of (lambda () (bytevector 'x)))
-                             "exact integer 0-255")
-                  (contains? (msg-of (lambda () (bytevector 256)))
-                             "exact integer 0-255")))
-
-;; FAIL: #2021 (the type branch and the range branch share one code)
-;; (test-assert "bytevector distinguishes a wrong type from an out-of-range byte"
-;;              (not (eq? (code-of (lambda () (bytevector 'x)))
-;;                        (code-of (lambda () (bytevector 256))))))
+(test-equal "bytevector with 256 is KP3007 (the range branch)"
+            'KP3007 (code-of (lambda () (bytevector 256))))
+(test-assert "bytevector distinguishes a wrong type from an out-of-range byte"
+             (not (eq? (code-of (lambda () (bytevector 'x)))
+                       (code-of (lambda () (bytevector 256))))))
+(test-assert "the range branch no longer claims a type"
+             (not (contains? (msg-of (lambda () (bytevector 256)))
+                             "type error")))
 
 ;; -- Byte-range sites --------------------------------------------------------
-;; FAIL: #2021 (0-255 range failures report KP3002)
-;; (test-equal "bytevector with an out-of-range byte is KP3007"
-;;             'KP3007 (code-of (lambda () (bytevector 256))))
-;; (test-equal "bytevector-u8-set! with an out-of-range byte is KP3007"
-;;             'KP3007 (code-of (lambda () (bytevector-u8-set! (bytevector 1) 0 256))))
-;; (test-equal "make-bytevector with an out-of-range fill is KP3007"
-;;             'KP3007 (code-of (lambda () (make-bytevector 1 256))))
+(test-equal "bytevector with an out-of-range byte is KP3007"
+            'KP3007 (code-of (lambda () (bytevector 256))))
+(test-equal "bytevector-u8-set! with an out-of-range byte is KP3007"
+            'KP3007 (code-of (lambda () (bytevector-u8-set! (bytevector 1) 0 256))))
+(test-equal "make-bytevector with an out-of-range fill is KP3007"
+            'KP3007 (code-of (lambda () (make-bytevector 1 256))))
+(test-equal "write-u8 with an out-of-range byte is KP3007"
+            'KP3007 (code-of (lambda () (write-u8 256))))
 
 ;; -- Negative lengths --------------------------------------------------------
-;; FAIL: #2021 (negative length reports KP3002)
-;; (test-equal "make-vector with a negative length is KP3007"
-;;             'KP3007 (code-of (lambda () (make-vector -1))))
-;; (test-equal "make-string with a negative length is KP3007"
-;;             'KP3007 (code-of (lambda () (make-string -1))))
-;; (test-equal "make-bytevector with a negative length is KP3007"
-;;             'KP3007 (code-of (lambda () (make-bytevector -1))))
-;; (test-equal "make-list with a negative length is KP3007"
-;;             'KP3007 (code-of (lambda () (make-list -1))))
-;; (test-equal "make-s8vector with a negative length is KP3007"
-;;             'KP3007 (code-of (lambda () (make-s8vector -1))))
+(test-equal "make-vector with a negative length is KP3007"
+            'KP3007 (code-of (lambda () (make-vector -1))))
+(test-equal "make-string with a negative length is KP3007"
+            'KP3007 (code-of (lambda () (make-string -1))))
+(test-equal "make-bytevector with a negative length is KP3007"
+            'KP3007 (code-of (lambda () (make-bytevector -1))))
+(test-equal "make-list with a negative length is KP3007"
+            'KP3007 (code-of (lambda () (make-list -1))))
+(test-equal "make-s8vector with a negative length is KP3007"
+            'KP3007 (code-of (lambda () (make-s8vector -1))))
 
 ;; -- integer->char: a Unicode domain rule, not a type rule -------------------
 ;; R7RS 6.6: "It is an error if n is not a Unicode scalar value." The argument
 ;; is an exact integer in every case below -- exactly what the procedure wants.
-(test-equal "TODAY (#2021): integer->char past #x10FFFF is KP3002"
-            'KP3002 (code-of (lambda () (integer->char #x110000))))
-(test-assert "TODAY (#2021): the message describes a range, not a type"
+(test-equal "integer->char past #x10FFFF is KP3007"
+            'KP3007 (code-of (lambda () (integer->char #x110000))))
+(test-equal "integer->char on a surrogate is KP3007"
+            'KP3007 (code-of (lambda () (integer->char #xD800))))
+(test-equal "integer->char on a negative value is KP3007"
+            'KP3007 (code-of (lambda () (integer->char -1))))
+(test-assert "integer->char's message describes the range"
              (contains? (msg-of (lambda () (integer->char #x110000)))
                         "Unicode scalar value"))
-
-;; FAIL: #2021 (integer->char domain failures report KP3002)
-;; (test-equal "integer->char past #x10FFFF is KP3007"
-;;             'KP3007 (code-of (lambda () (integer->char #x110000))))
-;; (test-equal "integer->char on a surrogate is KP3007"
-;;             'KP3007 (code-of (lambda () (integer->char #xD800))))
-;; (test-equal "integer->char on a negative value is KP3007"
-;;             'KP3007 (code-of (lambda () (integer->char -1))))
+(test-equal "integer->char on a non-integer stays KP3002"
+            'KP3002 (code-of (lambda () (integer->char 'x))))
 
 ;; -- Enumerated-value rejections ---------------------------------------------
-;; FAIL: #2021 (a value outside an accepted set reports KP3002)
-;; (test-equal "number->string with radix 1 is KP3007"
-;;             'KP3007 (code-of (lambda () (number->string 10 1))))
-;; (test-equal "number->string with radix 37 is KP3007"
-;;             'KP3007 (code-of (lambda () (number->string 10 37))))
-;; (test-equal "null-environment with a version other than 5 or 7 is KP3007"
-;;             'KP3007 (code-of (lambda () (null-environment 6))))
-;; (test-equal "hash with a non-positive bound is KP3007"
-;;             'KP3007 (code-of (lambda () (hash 'k 0))))
-;; (test-equal "s8vector with an out-of-range element is KP3007"
-;;             'KP3007 (code-of (lambda () (s8vector 200))))
+(test-equal "number->string with radix 1 is KP3007"
+            'KP3007 (code-of (lambda () (number->string 10 1))))
+(test-equal "number->string with radix 37 is KP3007"
+            'KP3007 (code-of (lambda () (number->string 10 37))))
+(test-equal "null-environment with a version other than 5 or 7 is KP3007"
+            'KP3007 (code-of (lambda () (null-environment 6))))
+(test-equal "hash with a non-positive bound is KP3007"
+            'KP3007 (code-of (lambda () (hash 'k 0))))
+(test-equal "s8vector with an out-of-range element is KP3007"
+            'KP3007 (code-of (lambda () (s8vector 200))))
+(test-equal "exact on +inf.0 is KP3007 (no exact representation)"
+            'KP3007 (code-of (lambda () (exact +inf.0))))
 
 ;; -- Immutability: a property of the object, not its type --------------------
 ;; The value IS a pair / string / vector. `read-char` on a closed port already
-;; reports this class as KP3007 (asserted in Part 0), so the house style exists.
-(test-equal "TODAY (#2021): set-car! on a literal is KP3002"
-            'KP3002 (code-of (lambda () (set-car! '(1 2) 9))))
-(test-equal "TODAY (#2021): string-set! on a literal is KP3002"
-            'KP3002 (code-of (lambda () (string-set! "ab" 0 #\x))))
-(test-equal "TODAY (#2021): vector-set! on a literal is KP3002"
-            'KP3002 (code-of (lambda () (vector-set! '#(1 2) 0 9))))
-
-;; FAIL: #2021 (immutability rejections report KP3002)
-;; (test-equal "set-car! on an immutable pair is KP3007"
-;;             'KP3007 (code-of (lambda () (set-car! '(1 2) 9))))
-;; (test-equal "string-set! on an immutable string is KP3007"
-;;             'KP3007 (code-of (lambda () (string-set! "ab" 0 #\x))))
-;; (test-equal "vector-set! on an immutable vector is KP3007"
-;;             'KP3007 (code-of (lambda () (vector-set! '#(1 2) 0 9))))
+;; reported this class as KP3007 (Part 0), so the house style existed.
+(test-equal "set-car! on an immutable pair is KP3007"
+            'KP3007 (code-of (lambda () (set-car! '(1 2) 9))))
+(test-equal "string-set! on an immutable string is KP3007"
+            'KP3007 (code-of (lambda () (string-set! "ab" 0 #\x))))
+(test-equal "vector-set! on an immutable vector is KP3007"
+            'KP3007 (code-of (lambda () (vector-set! '#(1 2) 0 9))))
 
 ;; -- A lookup miss is not a type error ---------------------------------------
 ;; SRFI 69: hash-table-ref "signals an error" when the key is absent and no
 ;; thunk was supplied. The key is a perfectly good key; it is simply not there.
-(test-equal "TODAY (#2021): hash-table-ref on a missing key is KP3002"
-            'KP3002 (code-of (lambda () (hash-table-ref (make-hash-table) 'nope))))
-
-;; FAIL: #2021 (an absent key is reported as a type error)
-;; (test-equal "hash-table-ref on a missing key is not a type error"
-;;             'KP3007 (code-of (lambda () (hash-table-ref (make-hash-table) 'nope))))
+(test-equal "hash-table-ref on a missing key is not a type error"
+            'KP3007 (code-of (lambda () (hash-table-ref (make-hash-table) 'nope))))
 
 ;; ===========================================================================
-;; PART 4 -- the procedure name in the message          [FAIL: #2022]
+;; PART 4 -- the procedure name in the message                  [FIXED: #2022]
 ;;
-;; primitives_string_ext.zig's shared `parseStartEnd` helper (:137) passes the
+;; primitives_string_ext.zig's shared `parseStartEnd` helper used to pass the
 ;; literal "string" as the procedure name to parseOptionalRange, so 20 SRFI-13
-;; procedures report their range failure as coming from `string` -- a real,
-;; unrelated, working (scheme base) procedure.
+;; procedures reported their range failure as coming from `string` -- a real,
+;; unrelated, working (scheme base) procedure. The helper (and
+;; callPredOrCharset's "string operation" site, and arithmetic's
+;; numberTypeError "arithmetic") now thread the real name from every call
+;; site.
 ;; ===========================================================================
 
-;; The control: `string` exists and works, so the name in the message is not a
+;; The control: `string` exists and works, so a message naming it is not a
 ;; placeholder the reader can recognise as such.
 (test-equal "control: `string` is a real working procedure"
             "ab" (string #\a #\b))
@@ -388,36 +361,60 @@
 (test-assert "control: string-take names itself in its message"
              (contains? (msg-of (lambda () (string-take "ab" 9))) "string-take"))
 
-(test-assert "TODAY (#2022): string-index blames 'string'"
-             (contains? (msg-of (lambda () (string-index "ab" #\a 0 9))) "'string'"))
-(test-assert "TODAY (#2022): string-contains blames 'string'"
-             (contains? (msg-of (lambda () (string-contains "ab" "a" 0 9))) "'string'"))
-(test-assert "TODAY (#2022): string-count blames 'string'"
-             (contains? (msg-of (lambda () (string-count "ab" #\a 0 9))) "'string'"))
-(test-assert "TODAY (#2022): string-trim blames 'string'"
-             (contains? (msg-of (lambda () (string-trim "ab" #\a 0 9))) "'string'"))
-(test-assert "TODAY (#2022): string-prefix? blames 'string'"
-             (contains? (msg-of (lambda () (string-prefix? "a" "ab" 0 9))) "'string'"))
-(test-assert "TODAY (#2022): string-every blames 'string'"
-             (contains? (msg-of (lambda () (string-every char? "ab" 0 9))) "'string'"))
-(test-assert "TODAY (#2022): string-filter blames 'string'"
-             (contains? (msg-of (lambda () (string-filter char? "ab" 0 9))) "'string'"))
-(test-assert "TODAY (#2022): string-reverse blames 'string'"
-             (contains? (msg-of (lambda () (string-reverse "ab" 0 9))) "'string'"))
-(test-assert "TODAY (#2022): string-titlecase blames 'string'"
-             (contains? (msg-of (lambda () (string-titlecase "ab" 0 9))) "'string'"))
-(test-assert "TODAY (#2022): string-skip blames 'string'"
-             (contains? (msg-of (lambda () (string-skip "ab" char? 0 9))) "'string'"))
+;; -- Every parseStartEnd caller names itself in its own message --------------
+;; This is the cheap guard against recurrence: a shared helper that hardcodes
+;; a placeholder breaks one of these 20 lines by name.
+(test-assert "string-index names itself in its message"
+             (contains? (msg-of (lambda () (string-index "ab" #\a 0 9))) "string-index"))
+(test-assert "string-index-right names itself in its message"
+             (contains? (msg-of (lambda () (string-index-right "ab" #\a 0 9))) "string-index-right"))
+(test-assert "string-contains names itself in its message"
+             (contains? (msg-of (lambda () (string-contains "ab" "a" 0 9))) "string-contains"))
+(test-assert "string-count names itself in its message"
+             (contains? (msg-of (lambda () (string-count "ab" #\a 0 9))) "string-count"))
+(test-assert "string-trim names itself in its message"
+             (contains? (msg-of (lambda () (string-trim "ab" #\a 0 9))) "string-trim"))
+(test-assert "string-trim-right names itself in its message"
+             (contains? (msg-of (lambda () (string-trim-right "ab" #\a 0 9))) "string-trim-right"))
+(test-assert "string-trim-both names itself in its message"
+             (contains? (msg-of (lambda () (string-trim-both "ab" #\a 0 9))) "string-trim-both"))
+(test-assert "string-prefix? names itself in its message"
+             (contains? (msg-of (lambda () (string-prefix? "a" "ab" 0 9))) "string-prefix?"))
+(test-assert "string-suffix? names itself in its message"
+             (contains? (msg-of (lambda () (string-suffix? "a" "ab" 0 9))) "string-suffix?"))
+(test-assert "string-every names itself in its message"
+             (contains? (msg-of (lambda () (string-every char? "ab" 0 9))) "string-every"))
+(test-assert "string-any names itself in its message"
+             (contains? (msg-of (lambda () (string-any char? "ab" 0 9))) "string-any"))
+(test-assert "string-filter names itself in its message"
+             (contains? (msg-of (lambda () (string-filter char? "ab" 0 9))) "string-filter"))
+(test-assert "string-delete names itself in its message"
+             (contains? (msg-of (lambda () (string-delete char? "ab" 0 9))) "string-delete"))
+(test-assert "string-reverse names itself in its message"
+             (contains? (msg-of (lambda () (string-reverse "ab" 0 9))) "string-reverse"))
+(test-assert "string-titlecase names itself in its message"
+             (contains? (msg-of (lambda () (string-titlecase "ab" 0 9))) "string-titlecase"))
+(test-assert "string-skip names itself in its message"
+             (contains? (msg-of (lambda () (string-skip "ab" char? 0 9))) "string-skip"))
+(test-assert "string-skip-right names itself in its message"
+             (contains? (msg-of (lambda () (string-skip-right "ab" char? 0 9))) "string-skip-right"))
+(test-assert "string-pad names itself in its message"
+             (contains? (msg-of (lambda () (string-pad "ab" 3 #\space 0 9))) "string-pad"))
+(test-assert "string-pad-right names itself in its message"
+             (contains? (msg-of (lambda () (string-pad-right "ab" 3 #\space 0 9))) "string-pad-right"))
+(test-assert "string-replace names itself in its message"
+             (contains? (msg-of (lambda () (string-replace "abc" "xy" 0 1 0 9))) "string-replace"))
 
-;; A second wrong name in the same file: not a procedure at all.
-(test-assert "TODAY (#2022): a bad predicate blames 'string operation'"
-             (contains? (msg-of (lambda () (string-index "ab" 42))) "string operation"))
+;; None of them blame the real, unrelated procedure `string` any more.
+(test-assert "string-index no longer blames 'string'"
+             (not (contains? (msg-of (lambda () (string-index "ab" #\a 0 9))) "'string'")))
+(test-assert "a bad predicate no longer blames 'string operation'"
+             (contains? (msg-of (lambda () (string-index "ab" 42))) "string-index"))
 
-;; -- The same root cause in primitives_arithmetic.zig: 'arithmetic' ---------
-;; `numberTypeError` (:40) hardcodes "arithmetic" across 20 call sites.
-;; Unlike `string`, `arithmetic` is not a bound name -- but `+` is the most
-;; called procedure in the language and its type error names nothing the user
-;; wrote. The controls are in the same two files.
+;; -- arithmetic: numberTypeError threads the real name -----------------------
+;; `numberTypeError` used to hardcode "arithmetic" across its call sites (and
+;; `ratPartsVal` "arithmetic" for rationals, `toF64Ext` for the flonum path).
+;; The controls are in the same two files.
 (test-assert "control: / names itself in its message"
              (contains? (msg-of (lambda () (/ 1 'x))) "'/'"))
 (test-assert "control: gcd names itself in its message"
@@ -429,46 +426,31 @@
 (test-assert "control: truncate names itself in its message"
              (contains? (msg-of (lambda () (truncate 'x))) "truncate"))
 
-(test-assert "TODAY (#2022): + blames 'arithmetic'"
-             (contains? (msg-of (lambda () (+ 1 'x))) "'arithmetic'"))
-(test-assert "TODAY (#2022): - blames 'arithmetic'"
-             (contains? (msg-of (lambda () (- 1 'x))) "'arithmetic'"))
-(test-assert "TODAY (#2022): * blames 'arithmetic'"
-             (contains? (msg-of (lambda () (* 1 'x))) "'arithmetic'"))
-(test-assert "TODAY (#2022): < blames 'arithmetic'"
-             (contains? (msg-of (lambda () (< 1 'x))) "'arithmetic'"))
-(test-assert "TODAY (#2022): = blames 'arithmetic'"
-             (contains? (msg-of (lambda () (= 1 'x))) "'arithmetic'"))
-(test-assert "TODAY (#2022): max blames 'arithmetic'"
-             (contains? (msg-of (lambda () (max 1 'x))) "'arithmetic'"))
-(test-assert "TODAY (#2022): abs blames 'arithmetic'"
-             (contains? (msg-of (lambda () (abs 'x))) "'arithmetic'"))
-(test-assert "TODAY (#2022): expt blames 'arithmetic'"
-             (contains? (msg-of (lambda () (expt 'x 2))) "'arithmetic'"))
-
-;; The pair that makes it a defect rather than a convention: adjacent entries
-;; in one specs table, one names itself and one does not.
-;; FAIL: #2022 (+ and / disagree on whether to name themselves)
-;; (test-assert "+ names itself, like its neighbour /"
-;;              (contains? (msg-of (lambda () (+ 1 'x))) "'+'"))
-;; (test-assert "* names itself"
-;;              (contains? (msg-of (lambda () (* 1 'x))) "'*'"))
-;; (test-assert "max names itself"
-;;              (contains? (msg-of (lambda () (max 1 'x))) "max"))
-;; (test-assert "abs names itself"
-;;              (contains? (msg-of (lambda () (abs 'x))) "abs"))
-
-;; FAIL: #2022 (parseStartEnd hardcodes "string" as the procedure name)
-;; (test-assert "string-index names itself in its message"
-;;              (contains? (msg-of (lambda () (string-index "ab" #\a 0 9))) "string-index"))
-;; (test-assert "string-contains names itself in its message"
-;;              (contains? (msg-of (lambda () (string-contains "ab" "a" 0 9))) "string-contains"))
-;; (test-assert "string-count names itself in its message"
-;;              (contains? (msg-of (lambda () (string-count "ab" #\a 0 9))) "string-count"))
-;; (test-assert "string-trim names itself in its message"
-;;              (contains? (msg-of (lambda () (string-trim "ab" #\a 0 9))) "string-trim"))
-;; (test-assert "string-prefix? names itself in its message"
-;;              (contains? (msg-of (lambda () (string-prefix? "a" "ab" 0 9))) "string-prefix?"))
+;; The pair that made it a defect rather than a convention: adjacent entries
+;; in one specs table, both now name themselves.
+(test-assert "+ names itself, like its neighbour /"
+             (contains? (msg-of (lambda () (+ 1 'x))) "'+'"))
+(test-assert "- names itself"
+             (contains? (msg-of (lambda () (- 1 'x))) "'-'"))
+(test-assert "* names itself"
+             (contains? (msg-of (lambda () (* 1 'x))) "'*'"))
+(test-assert "< names itself"
+             (contains? (msg-of (lambda () (< 1 'x))) "'<'"))
+(test-assert "= names itself"
+             (contains? (msg-of (lambda () (= 1 'x))) "'='"))
+(test-assert "max names itself"
+             (contains? (msg-of (lambda () (max 1 'x))) "max"))
+(test-assert "min names itself"
+             (contains? (msg-of (lambda () (min 1 'x))) "min"))
+(test-assert "abs names itself"
+             (contains? (msg-of (lambda () (abs 'x))) "abs"))
+(test-assert "expt names itself"
+             (contains? (msg-of (lambda () (expt 'x 2))) "expt"))
+;; The flonum path goes through toF64Ext, which also used to say 'arithmetic'.
+(test-assert "+ names itself on the flonum path too"
+             (contains? (msg-of (lambda () (+ 1.0 'x))) "'+'"))
+(test-assert "no arithmetic site still blames 'arithmetic'"
+             (not (contains? (msg-of (lambda () (+ 1 'x))) "'arithmetic'")))
 
 ;; ===========================================================================
 ;; PART 5 -- diagnostic fidelity (F10, extends #1899)
@@ -548,39 +530,33 @@
 (test-assert "#1899 FIXED: magnitude (typeError path) also renders the name"
              (contains? (msg-of (lambda () (magnitude 'the-key))) "the-key"))
 
-;; FAIL: #1899 (the helper path is less informative than the fallback path)
-;; (test-assert "the typeError path is at least as informative as the fallback"
-;;              (contains? (msg-of (lambda () (magnitude 'the-key))) "the-key"))
-
-;; FAIL: #1899 (heap values render opaquely)
-;; (test-assert "a symbol's name appears in the message"
-;;              (contains? (msg-of (lambda () (vector-ref (vector 1) 'the-key))) "the-key"))
-;; (test-assert "a character renders as itself"
-;;              (contains? (msg-of (lambda () (vector-ref (vector 1) #\a))) "#\\a"))
-;; (test-assert "a bignum renders its value, not #<bignum>"
-;;              (contains? (msg-of (lambda () (vector-ref (vector 1 2) 99999999999999999999)))
-;;                         "99999999999999999999"))
-;; (test-assert "a bignum index is not described as a wrong type"
-;;              (not (contains? (msg-of (lambda () (vector-ref (vector 1 2) 99999999999999999999)))
-;;                              "expected exact integer")))
-
 ;; ===========================================================================
-;; PART 6 -- message quality where the code is already right
+;; PART 6 -- primitives_string_ext.zig bounds sites            [FIXED with #2020]
 ;;
-;; primitives_string_ext.zig returns ~19 BARE PrimitiveError.IndexOutOfBounds.
-;; The tag is right, so the code is right, but no detail is set and the message
-;; loses the index and the length that the indexError helper would have given.
-;; Not filed separately -- recorded here so the contrast is measured.
+;; This file used to return ~19 BARE PrimitiveError.IndexOutOfBounds -- the
+;; code was right but no detail was set, so the message lost the index and the
+;; length that the indexError helper gives. Fixed alongside #2020 (the CI
+;; bare-error gate's baseline dropped accordingly); asserted here so the
+;; contrast stays measured.
 ;; ===========================================================================
 
-(test-equal "bare IndexOutOfBounds still yields the right code"
+(test-equal "string-take bounds failure yields KP3006"
             'KP3006 (code-of (lambda () (string-take "ab" 99))))
-(test-assert "bare IndexOutOfBounds still names the procedure"
+(test-assert "string-take names the procedure"
              (contains? (msg-of (lambda () (string-take "ab" 99))) "string-take"))
-(test-assert "bare IndexOutOfBounds loses the index (helper sites keep it)"
-             (not (contains? (msg-of (lambda () (string-take "ab" 99))) "99")))
+(test-assert "string-take now keeps the index in the message"
+             (contains? (msg-of (lambda () (string-take "ab" 99))) "99"))
+(test-assert "string-take now keeps the length in the message"
+             (contains? (msg-of (lambda () (string-take "ab" 99))) "2"))
 (test-assert "control: an indexError site keeps the index"
              (contains? (msg-of (lambda () (string-ref "ab" 99))) "99"))
+(test-assert "string-drop names the procedure and the index"
+             (and (contains? (msg-of (lambda () (string-drop "ab" 99))) "string-drop")
+                  (contains? (msg-of (lambda () (string-drop "ab" 99))) "99")))
+(test-assert "string-replace start>end is KP3007 with both bounds"
+             (and (eq? (code-of (lambda () (string-replace "abc" "xy" 2 1 0 1))) 'KP3007)
+                  (contains? (msg-of (lambda () (string-replace "abc" "xy" 2 1 0 1)))
+                             "greater than end")))
 
 ;; ===========================================================================
 ;; PART 7 -- files whose taxonomy is already exact
@@ -619,7 +595,7 @@
                                               (environment '(scheme base))))))
 
 ;; Genuine type errors across a spread of files stay KP3002 -- the fixes for
-;; #2020/#2021 must not over-reach into these.
+;; #2020/#2021/#2022 must not over-reach into these.
 (test-equal "clean: car on a non-pair stays KP3002"
             'KP3002 (code-of (lambda () (car 42))))
 (test-equal "clean: vector-ref on a non-vector stays KP3002"

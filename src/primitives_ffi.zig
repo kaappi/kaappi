@@ -105,7 +105,7 @@ fn ffiOpen(args: []const Value) PrimitiveError!Value {
 
     if (args[0] == types.FALSE) {
         // Open default process (all linked symbols including libc)
-        const handle = platform.dlOpen(null) orelse return primitives.typeError("ffi-open", "openable library", args[0]);
+        const handle = platform.dlOpen(null) orelse return primitives.argError("ffi-open", "could not open the default process library", .{});
         return gc.allocFfiLibrary(handle, "default") catch return PrimitiveError.OutOfMemory;
     }
 
@@ -115,7 +115,7 @@ fn ffiOpen(args: []const Value) PrimitiveError!Value {
 
     // Build null-terminated name
     var buf: [256]u8 = undefined;
-    if (str.len >= buf.len) return primitives.typeError("ffi-open", "string shorter than 256 bytes", args[0]);
+    if (str.len >= buf.len) return primitives.argError("ffi-open", "library name must be shorter than 256 bytes", .{});
     @memcpy(buf[0..str.len], name);
     buf[str.len] = 0;
     const cname: [*:0]const u8 = @ptrCast(buf[0..str.len :0]);
@@ -224,7 +224,7 @@ fn ffiFn(args: []const Value) PrimitiveError!Value {
     // arg0: library
     if (!types.isFfiLibrary(args[0])) return primitives.typeError("ffi-fn", "ffi-library", args[0]);
     const lib = types.toObject(args[0]).as(types.FfiLibrary);
-    const handle = lib.handle orelse return primitives.typeError("ffi-fn", "open ffi-library", args[0]);
+    const handle = lib.handle orelse return primitives.argError("ffi-fn", "library is not open", .{});
 
     // arg1: symbol name (string)
     if (!types.isString(args[1])) return primitives.typeError("ffi-fn", "string", args[1]);
@@ -232,7 +232,7 @@ fn ffiFn(args: []const Value) PrimitiveError!Value {
 
     // Build null-terminated name for dlsym
     var name_buf: [256]u8 = undefined;
-    if (name_str.len >= name_buf.len) return primitives.typeError("ffi-fn", "string shorter than 256 bytes", args[1]);
+    if (name_str.len >= name_buf.len) return primitives.argError("ffi-fn", "symbol name must be shorter than 256 bytes", .{});
     @memcpy(name_buf[0..name_str.len], name_str.data[0..name_str.len]);
     name_buf[name_str.len] = 0;
     const cname: [*:0]const u8 = @ptrCast(name_buf[0..name_str.len :0]);
@@ -304,7 +304,7 @@ fn ffiCallbackFn(args: []const Value) PrimitiveError!Value {
     var param_list = args[1];
     while (param_list != types.NIL) {
         if (!types.isPair(param_list)) return primitives.typeError("ffi-callback", "proper list of types", args[1]);
-        if (param_count >= 8) return primitives.typeError("ffi-callback", "at most 8 parameter types", args[1]);
+        if (param_count >= 8) return primitives.argError("ffi-callback", "at most 8 parameter types are supported", .{});
         param_types[param_count] = parseType(types.car(param_list)) orelse return primitives.typeError("ffi-callback", "valid FFI type symbol", types.car(param_list));
         param_count += 1;
         param_list = types.cdr(param_list);

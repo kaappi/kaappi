@@ -56,8 +56,8 @@ pub const specs = [_]primitives.PrimSpec{
 fn stringContainsFn(args: []const Value) PrimitiveError!Value {
     const full_s1 = try getStringSlice("string-contains", args[0]);
     const full_s2 = try getStringSlice("string-contains", args[1]);
-    const range = try parseStartEnd(full_s1, args, 2);
-    const s2_range = try parseStartEnd(full_s2, args, 4);
+    const range = try parseStartEnd("string-contains", full_s1, args, 2);
+    const s2_range = try parseStartEnd("string-contains", full_s2, args, 4);
     const s1 = range.data;
     const s2 = s2_range.data;
     if (s2.len == 0) return types.makeFixnum(@intCast(range.cp_offset));
@@ -80,8 +80,8 @@ fn stringContainsFn(args: []const Value) PrimitiveError!Value {
 fn stringPrefixPFn(args: []const Value) PrimitiveError!Value {
     const full_s1 = try getStringSlice("string-prefix?", args[0]);
     const full_s2 = try getStringSlice("string-prefix?", args[1]);
-    const s1_range = try parseStartEnd(full_s1, args, 2);
-    const s2_range = try parseStartEnd(full_s2, args, 4);
+    const s1_range = try parseStartEnd("string-prefix?", full_s1, args, 2);
+    const s2_range = try parseStartEnd("string-prefix?", full_s2, args, 4);
     return if (std.mem.startsWith(u8, s2_range.data, s1_range.data)) types.TRUE else types.FALSE;
 }
 
@@ -89,14 +89,14 @@ fn stringPrefixPFn(args: []const Value) PrimitiveError!Value {
 fn stringSuffixPFn(args: []const Value) PrimitiveError!Value {
     const full_s1 = try getStringSlice("string-suffix?", args[0]);
     const full_s2 = try getStringSlice("string-suffix?", args[1]);
-    const s1_range = try parseStartEnd(full_s1, args, 2);
-    const s2_range = try parseStartEnd(full_s2, args, 4);
+    const s1_range = try parseStartEnd("string-suffix?", full_s1, args, 2);
+    const s2_range = try parseStartEnd("string-suffix?", full_s2, args, 4);
     return if (std.mem.endsWith(u8, s2_range.data, s1_range.data)) types.TRUE else types.FALSE;
 }
 
 /// Call a predicate or char-set-contains? with a character.
 /// Handles both procedure arguments and SRFI-14 char-set record arguments.
-fn callPredOrCharset(pred: Value, cp: u21) PrimitiveError!bool {
+fn callPredOrCharset(proc: []const u8, pred: Value, cp: u21) PrimitiveError!bool {
     if (types.isChar(pred)) {
         return types.toChar(pred) == cp;
     }
@@ -124,7 +124,7 @@ fn callPredOrCharset(pred: Value, cp: u21) PrimitiveError!bool {
         return types.isTruthy(result);
     }
 
-    return primitives.typeError("string operation", "procedure or char-set", pred);
+    return primitives.typeError(proc, "procedure or char-set", pred);
 }
 
 const Range = struct {
@@ -134,11 +134,13 @@ const Range = struct {
     cp_offset: usize,
 };
 
-fn parseStartEnd(data: []const u8, args: []const Value, start_arg_idx: usize) PrimitiveError!Range {
+fn parseStartEnd(proc: []const u8, data: []const u8, args: []const Value, start_arg_idx: usize) PrimitiveError!Range {
     const cp_count = utf8CodepointCount(data);
-    const range = try primitives.parseOptionalRange(args, start_arg_idx, cp_count, "string");
-    const byte_start = pstr.utf8IndexToByteOffset(data, range.start) orelse return PrimitiveError.IndexOutOfBounds;
-    const byte_end = pstr.utf8IndexToByteOffset(data, range.end) orelse return PrimitiveError.IndexOutOfBounds;
+    const range = try primitives.parseOptionalRange(args, start_arg_idx, cp_count, proc);
+    const byte_start = pstr.utf8IndexToByteOffset(data, range.start) orelse
+        return primitives.indexError(proc, @intCast(range.start), cp_count);
+    const byte_end = pstr.utf8IndexToByteOffset(data, range.end) orelse
+        return primitives.indexError(proc, @intCast(range.end), cp_count);
     return .{ .data = data[byte_start..byte_end], .byte_start = byte_start, .byte_end = byte_end, .cp_offset = range.start };
 }
 
@@ -173,13 +175,13 @@ fn stringTrimFn(args: []const Value) PrimitiveError!Value {
         return gc.allocString(full_data[start..]) catch return PrimitiveError.OutOfMemory;
     }
     const pred = args[1];
-    const range = try parseStartEnd(full_data, args, 2);
+    const range = try parseStartEnd("string-trim", full_data, args, 2);
     const data = range.data;
     var start: usize = 0;
     while (start < data.len) {
         const d = decodeForward(data, start);
         if (d.len == 0) break;
-        if (!try callPredOrCharset(pred, d.cp)) break;
+        if (!try callPredOrCharset("string-trim", pred, d.cp)) break;
         start += d.len;
     }
     return gc.allocString(data[start..]) catch return PrimitiveError.OutOfMemory;
@@ -200,14 +202,14 @@ fn stringTrimRightFn(args: []const Value) PrimitiveError!Value {
         return gc.allocString(full_data[0..end]) catch return PrimitiveError.OutOfMemory;
     }
     const pred = args[1];
-    const range = try parseStartEnd(full_data, args, 2);
+    const range = try parseStartEnd("string-trim-right", full_data, args, 2);
     const data = range.data;
     var end: usize = data.len;
     while (end > 0) {
         const cp_start = findPrevCpStart(data, end);
         const d = decodeForward(data, cp_start);
         if (d.len == 0) break;
-        if (!try callPredOrCharset(pred, d.cp)) break;
+        if (!try callPredOrCharset("string-trim-right", pred, d.cp)) break;
         end = cp_start;
     }
     return gc.allocString(data[0..end]) catch return PrimitiveError.OutOfMemory;
@@ -234,13 +236,13 @@ fn stringTrimBothFn(args: []const Value) PrimitiveError!Value {
         return gc.allocString(full_data[start..end]) catch return PrimitiveError.OutOfMemory;
     }
     const pred = args[1];
-    const range = try parseStartEnd(full_data, args, 2);
+    const range = try parseStartEnd("string-trim-both", full_data, args, 2);
     const data = range.data;
     var start: usize = 0;
     while (start < data.len) {
         const d = decodeForward(data, start);
         if (d.len == 0) break;
-        if (!try callPredOrCharset(pred, d.cp)) break;
+        if (!try callPredOrCharset("string-trim-both", pred, d.cp)) break;
         start += d.len;
     }
     var end: usize = data.len;
@@ -248,7 +250,7 @@ fn stringTrimBothFn(args: []const Value) PrimitiveError!Value {
         const cp_start = findPrevCpStart(data, end);
         const d = decodeForward(data, cp_start);
         if (d.len == 0) break;
-        if (!try callPredOrCharset(pred, d.cp)) break;
+        if (!try callPredOrCharset("string-trim-both", pred, d.cp)) break;
         end = cp_start;
     }
     return gc.allocString(data[start..end]) catch return PrimitiveError.OutOfMemory;
@@ -258,13 +260,13 @@ fn stringTrimBothFn(args: []const Value) PrimitiveError!Value {
 fn stringIndexFn(args: []const Value) PrimitiveError!Value {
     const full_data = try getStringSlice("string-index", args[0]);
     const pred = args[1];
-    const range = try parseStartEnd(full_data, args, 2);
+    const range = try parseStartEnd("string-index", full_data, args, 2);
 
     var byte_i: usize = 0;
     var cp_idx: usize = range.cp_offset;
     while (byte_i < range.data.len) {
         const cp = utf8DecodeAt(range.data, byte_i) orelse return primitives.typeError("string-index", "valid UTF-8 string", args[0]);
-        if (try callPredOrCharset(pred, cp)) return types.makeFixnum(@intCast(cp_idx));
+        if (try callPredOrCharset("string-index", pred, cp)) return types.makeFixnum(@intCast(cp_idx));
         byte_i += utf8ByteLenAt(range.data, byte_i);
         cp_idx += 1;
     }
@@ -275,13 +277,13 @@ fn stringIndexFn(args: []const Value) PrimitiveError!Value {
 fn stringCountFn(args: []const Value) PrimitiveError!Value {
     const full_data = try getStringSlice("string-count", args[0]);
     const pred = args[1];
-    const range = try parseStartEnd(full_data, args, 2);
+    const range = try parseStartEnd("string-count", full_data, args, 2);
 
     var byte_i: usize = 0;
     var count: i64 = 0;
     while (byte_i < range.data.len) {
         const cp = utf8DecodeAt(range.data, byte_i) orelse return primitives.typeError("string-count", "valid UTF-8 string", args[0]);
-        if (try callPredOrCharset(pred, cp)) count += 1;
+        if (try callPredOrCharset("string-count", pred, cp)) count += 1;
         byte_i += utf8ByteLenAt(range.data, byte_i);
     }
     return types.makeFixnum(count);
@@ -384,9 +386,7 @@ fn stringJoinFn(args: []const Value) PrimitiveError!Value {
 
     if (count == 0) {
         if (grammar == .strict_infix) {
-            const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidArgument;
-            vm.setErrorDetail("string-join: strict-infix grammar requires a non-empty list", .{});
-            return PrimitiveError.InvalidArgument;
+            return primitives.argError("string-join", "strict-infix grammar requires a non-empty list", .{});
         }
         return gc.allocString("") catch return PrimitiveError.OutOfMemory;
     }
@@ -465,9 +465,11 @@ fn stringTakeFn(args: []const Value) PrimitiveError!Value {
     if (nv < 0) return primitives.typeError("string-take", "non-negative integer", args[1]);
     // u64 comparison before narrowing (kaappi#1912): on wasm32 a fixnum-range
     // count would truncate and silently take fewer chars.
-    if (!primitives.fixnumIndexInBoundsInclusive(nv, utf8CodepointCount(data))) return PrimitiveError.IndexOutOfBounds;
+    const cp_count = utf8CodepointCount(data);
+    if (!primitives.fixnumIndexInBoundsInclusive(nv, cp_count)) return primitives.indexError("string-take", nv, cp_count);
     const n: usize = @intCast(nv);
-    const byte_end = pstr.utf8IndexToByteOffset(data, n) orelse return PrimitiveError.IndexOutOfBounds;
+    const byte_end = pstr.utf8IndexToByteOffset(data, n) orelse
+        return primitives.indexError("string-take", nv, cp_count);
     return gc.allocString(data[0..byte_end]) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -479,9 +481,11 @@ fn stringDropFn(args: []const Value) PrimitiveError!Value {
     if (nv < 0) return primitives.typeError("string-drop", "non-negative integer", args[1]);
     // u64 comparison before narrowing (kaappi#1912): on wasm32 a fixnum-range
     // count would truncate and silently drop fewer chars.
-    if (!primitives.fixnumIndexInBoundsInclusive(nv, utf8CodepointCount(data))) return PrimitiveError.IndexOutOfBounds;
+    const cp_count = utf8CodepointCount(data);
+    if (!primitives.fixnumIndexInBoundsInclusive(nv, cp_count)) return primitives.indexError("string-drop", nv, cp_count);
     const n: usize = @intCast(nv);
-    const byte_start = pstr.utf8IndexToByteOffset(data, n) orelse return PrimitiveError.IndexOutOfBounds;
+    const byte_start = pstr.utf8IndexToByteOffset(data, n) orelse
+        return primitives.indexError("string-drop", nv, cp_count);
     return gc.allocString(data[byte_start..]) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -494,10 +498,11 @@ fn stringTakeRightFn(args: []const Value) PrimitiveError!Value {
     const total_cp = utf8CodepointCount(data);
     // u64 comparison before narrowing (kaappi#1912): on wasm32 a fixnum-range
     // count would truncate and pass the n > total_cp check below.
-    if (!primitives.fixnumIndexInBoundsInclusive(nv, total_cp)) return PrimitiveError.IndexOutOfBounds;
+    if (!primitives.fixnumIndexInBoundsInclusive(nv, total_cp)) return primitives.indexError("string-take-right", nv, total_cp);
     const n: usize = @intCast(nv);
     if (n == total_cp) return gc.allocString(data) catch return PrimitiveError.OutOfMemory;
-    const byte_start = pstr.utf8IndexToByteOffset(data, total_cp - n) orelse return PrimitiveError.IndexOutOfBounds;
+    const byte_start = pstr.utf8IndexToByteOffset(data, total_cp - n) orelse
+        return primitives.indexError("string-take-right", nv, total_cp);
     return gc.allocString(data[byte_start..]) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -510,10 +515,11 @@ fn stringDropRightFn(args: []const Value) PrimitiveError!Value {
     const total_cp = utf8CodepointCount(data);
     // u64 comparison before narrowing (kaappi#1912): on wasm32 a fixnum-range
     // count would truncate and pass the n > total_cp check below.
-    if (!primitives.fixnumIndexInBoundsInclusive(nv, total_cp)) return PrimitiveError.IndexOutOfBounds;
+    if (!primitives.fixnumIndexInBoundsInclusive(nv, total_cp)) return primitives.indexError("string-drop-right", nv, total_cp);
     const n: usize = @intCast(nv);
     if (n == total_cp) return gc.allocString("") catch return PrimitiveError.OutOfMemory;
-    const byte_end = pstr.utf8IndexToByteOffset(data, total_cp - n) orelse return PrimitiveError.IndexOutOfBounds;
+    const byte_end = pstr.utf8IndexToByteOffset(data, total_cp - n) orelse
+        return primitives.indexError("string-drop-right", nv, total_cp);
     return gc.allocString(data[0..byte_end]) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -530,12 +536,13 @@ fn stringPadFn(args: []const Value) PrimitiveError!Value {
         break :blk types.toChar(args[2]);
     } else ' ';
     const pad_len = std.unicode.utf8Encode(pad_cp, &pad_buf) catch
-        return primitives.typeError("string-pad", "valid character", args[2]);
-    const range = try parseStartEnd(full_data, args, 3);
+        return primitives.argError("string-pad", "pad character is not a Unicode scalar value", .{});
+    const range = try parseStartEnd("string-pad", full_data, args, 3);
     const data = range.data;
     const current_len = utf8CodepointCount(data);
     if (current_len >= target_len) {
-        const byte_start = pstr.utf8IndexToByteOffset(data, current_len - target_len) orelse return PrimitiveError.IndexOutOfBounds;
+        const byte_start = pstr.utf8IndexToByteOffset(data, current_len - target_len) orelse
+            return primitives.indexError("string-pad", @intCast(current_len - target_len), current_len);
         return gc.allocString(data[byte_start..]) catch return PrimitiveError.OutOfMemory;
     }
     const pad_count = target_len - current_len;
@@ -561,12 +568,13 @@ fn stringPadRightFn(args: []const Value) PrimitiveError!Value {
         break :blk types.toChar(args[2]);
     } else ' ';
     const pad_len = std.unicode.utf8Encode(pad_cp, &pad_buf) catch
-        return primitives.typeError("string-pad-right", "valid character", args[2]);
-    const range = try parseStartEnd(full_data, args, 3);
+        return primitives.argError("string-pad-right", "pad character is not a Unicode scalar value", .{});
+    const range = try parseStartEnd("string-pad-right", full_data, args, 3);
     const data = range.data;
     const current_len = utf8CodepointCount(data);
     if (current_len >= target_len) {
-        const byte_end = pstr.utf8IndexToByteOffset(data, target_len) orelse return PrimitiveError.IndexOutOfBounds;
+        const byte_end = pstr.utf8IndexToByteOffset(data, target_len) orelse
+            return primitives.indexError("string-pad-right", @intCast(target_len), current_len);
         return gc.allocString(data[0..byte_end]) catch return PrimitiveError.OutOfMemory;
     }
     const pad_count = target_len - current_len;
@@ -583,7 +591,7 @@ fn stringPadRightFn(args: []const Value) PrimitiveError!Value {
 fn stringReverseFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const full_data = try getStringSlice("string-reverse", args[0]);
-    const r = try parseStartEnd(full_data, args, 1);
+    const r = try parseStartEnd("string-reverse", full_data, args, 1);
     const data = r.data;
     if (data.len == 0) return gc.allocString("") catch return PrimitiveError.OutOfMemory;
     var offsets: std.ArrayList([2]usize) = .empty;
@@ -613,7 +621,7 @@ fn stringFilterFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     const full_data = try getStringSlice("string-filter", args[1]);
-    const range = try parseStartEnd(full_data, args, 2);
+    const range = try parseStartEnd("string-filter", full_data, args, 2);
     var result: std.ArrayList(u8) = .empty;
     defer result.deinit(gc.allocator);
     var i: usize = 0;
@@ -623,7 +631,7 @@ fn stringFilterFn(args: []const Value) PrimitiveError!Value {
             i += len;
             continue;
         };
-        const r_cs = try callPredOrCharset(pred, cp);
+        const r_cs = try callPredOrCharset("string-filter", pred, cp);
         if (r_cs) result.appendSlice(gc.allocator, range.data[i .. i + len]) catch return PrimitiveError.OutOfMemory;
         i += len;
     }
@@ -635,7 +643,7 @@ fn stringDeleteFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     const full_data = try getStringSlice("string-delete", args[1]);
-    const range = try parseStartEnd(full_data, args, 2);
+    const range = try parseStartEnd("string-delete", full_data, args, 2);
     var result: std.ArrayList(u8) = .empty;
     defer result.deinit(gc.allocator);
     var i: usize = 0;
@@ -645,7 +653,7 @@ fn stringDeleteFn(args: []const Value) PrimitiveError!Value {
             i += len;
             continue;
         };
-        const r_cs = try callPredOrCharset(pred, cp);
+        const r_cs = try callPredOrCharset("string-delete", pred, cp);
         if (!r_cs) result.appendSlice(gc.allocator, range.data[i .. i + len]) catch return PrimitiveError.OutOfMemory;
         i += len;
     }
@@ -666,14 +674,16 @@ fn stringReplaceFn(args: []const Value) PrimitiveError!Value {
     // index would truncate and alias an in-range codepoint.  Order preserved
     // from the pre-fix code so the reported fault is unchanged on 64-bit.
     const cp_count1 = utf8CodepointCount(data1);
-    if (@as(u64, @intCast(sv)) > @as(u64, @intCast(ev))) return primitives.typeError("string-replace", "valid index range (start <= end)", args[2]);
-    if (!primitives.fixnumIndexInBoundsInclusive(sv, cp_count1)) return PrimitiveError.IndexOutOfBounds;
-    if (!primitives.fixnumIndexInBoundsInclusive(ev, cp_count1)) return PrimitiveError.IndexOutOfBounds;
+    if (@as(u64, @intCast(sv)) > @as(u64, @intCast(ev))) return primitives.argError("string-replace", "start {d} is greater than end {d}", .{ sv, ev });
+    if (!primitives.fixnumIndexInBoundsInclusive(sv, cp_count1)) return primitives.indexError("string-replace", sv, cp_count1);
+    if (!primitives.fixnumIndexInBoundsInclusive(ev, cp_count1)) return primitives.indexError("string-replace", ev, cp_count1);
     const start: usize = @intCast(sv);
     const end: usize = @intCast(ev);
-    const byte_start = pstr.utf8IndexToByteOffset(data1, start) orelse return PrimitiveError.IndexOutOfBounds;
-    const byte_end = pstr.utf8IndexToByteOffset(data1, end) orelse return PrimitiveError.IndexOutOfBounds;
-    const s2_range = try parseStartEnd(full_data2, args, 4);
+    const byte_start = pstr.utf8IndexToByteOffset(data1, start) orelse
+        return primitives.indexError("string-replace", sv, cp_count1);
+    const byte_end = pstr.utf8IndexToByteOffset(data1, end) orelse
+        return primitives.indexError("string-replace", ev, cp_count1);
+    const s2_range = try parseStartEnd("string-replace", full_data2, args, 4);
     const data2 = s2_range.data;
     const new_len = byte_start + data2.len + (data1.len - byte_end);
     const alloc_buf = memory.allocSliceNoFill(gc.allocator, u8, new_len) catch return PrimitiveError.OutOfMemory;
@@ -688,7 +698,7 @@ fn stringReplaceFn(args: []const Value) PrimitiveError!Value {
 fn stringTitlecaseFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const full_data = try getStringSlice("string-titlecase", args[0]);
-    const range = try parseStartEnd(full_data, args, 1);
+    const range = try parseStartEnd("string-titlecase", full_data, args, 1);
     const data = range.data;
     if (data.len == 0) return gc.allocString("") catch return PrimitiveError.OutOfMemory;
 
@@ -797,7 +807,7 @@ fn stringTitlecaseFn(args: []const Value) PrimitiveError!Value {
 fn stringEveryFn(args: []const Value) PrimitiveError!Value {
     const pred = args[0];
     const full_data = try getStringSlice("string-every", args[1]);
-    const range = try parseStartEnd(full_data, args, 2);
+    const range = try parseStartEnd("string-every", full_data, args, 2);
     var last: Value = types.TRUE;
     var i: usize = 0;
     while (i < range.data.len) {
@@ -809,7 +819,7 @@ fn stringEveryFn(args: []const Value) PrimitiveError!Value {
         if (types.isChar(pred)) {
             if (types.toChar(pred) != cp) return types.FALSE;
         } else if (types.isRecordInstance(pred)) {
-            if (!try callPredOrCharset(pred, cp)) return types.FALSE;
+            if (!try callPredOrCharset("string-every", pred, cp)) return types.FALSE;
         } else {
             const r = try callVM(pred, &[1]Value{types.makeChar(cp)});
             if (!types.isTruthy(r)) return types.FALSE;
@@ -824,7 +834,7 @@ fn stringEveryFn(args: []const Value) PrimitiveError!Value {
 fn stringAnyFn(args: []const Value) PrimitiveError!Value {
     const pred = args[0];
     const full_data = try getStringSlice("string-any", args[1]);
-    const range = try parseStartEnd(full_data, args, 2);
+    const range = try parseStartEnd("string-any", full_data, args, 2);
     var i: usize = 0;
     while (i < range.data.len) {
         const len = std.unicode.utf8ByteSequenceLength(range.data[i]) catch 1;
@@ -835,7 +845,7 @@ fn stringAnyFn(args: []const Value) PrimitiveError!Value {
         if (types.isChar(pred)) {
             if (types.toChar(pred) == cp) return types.TRUE;
         } else if (types.isRecordInstance(pred)) {
-            if (try callPredOrCharset(pred, cp)) return types.TRUE;
+            if (try callPredOrCharset("string-any", pred, cp)) return types.TRUE;
         } else {
             const r = try callVM(pred, &[1]Value{types.makeChar(cp)});
             if (types.isTruthy(r)) return r;
@@ -858,7 +868,7 @@ fn stringTabulateFn(args: []const Value) PrimitiveError!Value {
         const r = try callVM(proc, &[1]Value{types.makeFixnum(@intCast(i))});
         if (!types.isChar(r)) return primitives.typeError("string-tabulate", "char", r);
         var tmp: [4]u8 = undefined;
-        const n = std.unicode.utf8Encode(types.toChar(r), &tmp) catch return primitives.typeError("string-tabulate", "valid character", r);
+        const n = std.unicode.utf8Encode(types.toChar(r), &tmp) catch return primitives.argError("string-tabulate", "character is not a Unicode scalar value", .{});
         result.appendSlice(gc.allocator, tmp[0..n]) catch return PrimitiveError.OutOfMemory;
     }
     return gc.allocString(result.items) catch return PrimitiveError.OutOfMemory;
@@ -893,7 +903,7 @@ fn stringUnfoldFn(args: []const Value) PrimitiveError!Value {
         const ch = try callVM(f, &[1]Value{seed});
         if (!types.isChar(ch)) return primitives.typeError("string-unfold", "char", ch);
         var tmp: [4]u8 = undefined;
-        const n = std.unicode.utf8Encode(types.toChar(ch), &tmp) catch return primitives.typeError("string-unfold", "valid character", ch);
+        const n = std.unicode.utf8Encode(types.toChar(ch), &tmp) catch return primitives.argError("string-unfold", "character is not a Unicode scalar value", .{});
         result.appendSlice(gc.allocator, tmp[0..n]) catch return PrimitiveError.OutOfMemory;
         seed = try callVM(g, &[1]Value{seed});
     }
@@ -960,7 +970,7 @@ fn stringUnfoldRightFn(args: []const Value) PrimitiveError!Value {
 fn stringIndexRightFn(args: []const Value) PrimitiveError!Value {
     const full_data = try getStringSlice("string-index-right", args[0]);
     const pred = args[1];
-    const range = try parseStartEnd(full_data, args, 2);
+    const range = try parseStartEnd("string-index-right", full_data, args, 2);
     var last_match: ?usize = null;
     var byte_i: usize = 0;
     var cp_idx: usize = range.cp_offset;
@@ -972,7 +982,7 @@ fn stringIndexRightFn(args: []const Value) PrimitiveError!Value {
             cp_idx += 1;
             continue;
         };
-        const r_cs = try callPredOrCharset(pred, cp);
+        const r_cs = try callPredOrCharset("string-index-right", pred, cp);
         if (r_cs) last_match = cp_idx;
         byte_i += seq_len;
         cp_idx += 1;
@@ -984,7 +994,7 @@ fn stringIndexRightFn(args: []const Value) PrimitiveError!Value {
 fn stringSkipFn(args: []const Value) PrimitiveError!Value {
     const full_data = try getStringSlice("string-skip", args[0]);
     const pred = args[1];
-    const range = try parseStartEnd(full_data, args, 2);
+    const range = try parseStartEnd("string-skip", full_data, args, 2);
     var byte_i: usize = 0;
     var cp_idx: usize = range.cp_offset;
     while (byte_i < range.data.len) {
@@ -995,7 +1005,7 @@ fn stringSkipFn(args: []const Value) PrimitiveError!Value {
             cp_idx += 1;
             continue;
         };
-        const r_cs = try callPredOrCharset(pred, cp);
+        const r_cs = try callPredOrCharset("string-skip", pred, cp);
         if (!r_cs) return types.makeFixnum(@intCast(cp_idx));
         byte_i += seq_len;
         cp_idx += 1;
@@ -1007,7 +1017,7 @@ fn stringSkipFn(args: []const Value) PrimitiveError!Value {
 fn stringSkipRightFn(args: []const Value) PrimitiveError!Value {
     const full_data = try getStringSlice("string-skip-right", args[0]);
     const pred = args[1];
-    const range = try parseStartEnd(full_data, args, 2);
+    const range = try parseStartEnd("string-skip-right", full_data, args, 2);
     var last_match: ?usize = null;
     var byte_i: usize = 0;
     var cp_idx: usize = range.cp_offset;
@@ -1019,7 +1029,7 @@ fn stringSkipRightFn(args: []const Value) PrimitiveError!Value {
             cp_idx += 1;
             continue;
         };
-        const r_cs = try callPredOrCharset(pred, cp);
+        const r_cs = try callPredOrCharset("string-skip-right", pred, cp);
         if (!r_cs) last_match = cp_idx;
         byte_i += seq_len;
         cp_idx += 1;

@@ -597,10 +597,9 @@
 ;; An out-of-range INDEX is KP3006 (indexError, carrying index and length).
 (test-assert "index failure is an error object"
              (guard (e (#t (error-object? e))) (s8vector-ref (s8vector 1 2) 9)))
-;; An out-of-range VALUE of an acceptable type is reported as KP3002
-;; typeError with a synthesized pseudo-type ("in-range signed integer")
-;; rather than KP3007 argError. Pinning the current behaviour; see the
-;; audit report — argError is what the D2 taxonomy describes for this case.
+;; An out-of-range VALUE of an acceptable type is reported as KP3007
+;; argError ("integer does not fit a signed 8-bit element") since the
+;; #2021 taxonomy sweep — the type is fine, the value is rejected anyway.
 (test-assert "value-range failure is an error object"
              (guard (e (#t (error-object? e))) (s8vector-set! (s8vector 1 2) 0 999)))
 

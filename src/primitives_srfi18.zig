@@ -590,7 +590,7 @@ fn threadStartImpl(args: []const Value) PrimitiveError!Value {
     const fiber = types.toObject(args[0]).as(fiber_mod.Fiber);
 
     if (fiber.status != .created)
-        return primitives.typeError("thread-start!", "new thread", args[0]);
+        return primitives.argError("thread-start!", "thread has already been started", .{});
 
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant

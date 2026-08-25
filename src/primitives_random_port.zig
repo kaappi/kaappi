@@ -45,8 +45,11 @@ fn getDeterminizedPort(proc: []const u8, v: Value) PrimitiveError!*types.RandomG
         if (port.random_gen) |g| {
             if (g.kind == .determinized) return g;
         }
+        // The port is a port -- the wrong *kind* of port is a value
+        // rejection, not a type failure (kaappi#2021).
+        return primitives.argError(proc, "port is not a determinized random port", .{});
     }
-    return primitives.typeError(proc, "determinized random port", v);
+    return primitives.typeError(proc, "random port", v);
 }
 
 fn makeRandomizedFn(args: []const Value) PrimitiveError!Value {
@@ -58,7 +61,7 @@ fn makeRandomizedFn(args: []const Value) PrimitiveError!Value {
 fn makeFromSeedFn(args: []const Value) PrimitiveError!Value {
     if (!types.isBytevector(args[0])) return primitives.typeError("%random-port-make-from-seed", "bytevector", args[0]);
     const bv = types.toBytevector(args[0]);
-    if (bv.data.len < seed_len) return primitives.typeError("%random-port-make-from-seed", "bytevector of length >= 32", args[0]);
+    if (bv.data.len < seed_len) return primitives.argError("%random-port-make-from-seed", "seed bytevector of length {d} is too short (minimum 32)", .{bv.data.len});
     // An all-zero seed puts the xoshiro256** state at its degenerate fixed
     // point, which emits only zero bytes forever. The sibling entry points
     // already reject it (isStateBytevector above; bytevector-all-zero? in

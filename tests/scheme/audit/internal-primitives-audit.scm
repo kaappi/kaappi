@@ -705,28 +705,29 @@
              (has-substring? (raised-message (%make-record-type "T" 1.0)) "got 1.0"))
 
 ;; A multi-limb bignum out of an element kind's range must be reported as out
-;; of RANGE, not as the wrong TYPE -- it is an exact integer. Control: a
-;; single-limb out-of-range value already got the "in-range" wording.
-(test-assert "diagnostic control: 65536 for u16 says in-range"
+;; of RANGE, not as the wrong TYPE -- it is an exact integer. Since the #2021
+;; taxonomy sweep these are KP3007 argErrors ("integer does not fit ...").
+;; Control: a single-limb out-of-range value gets the "does not fit" wording.
+(test-assert "diagnostic control: 65536 for u16 says does-not-fit"
              (has-substring? (raised-message (%make-numeric-vector 'u16 1 65536))
-                             "in-range"))
-(test-assert "diagnostic: 2^64 for u16 also says in-range"
+                             "does not fit"))
+(test-assert "diagnostic: 2^64 for u16 also says does-not-fit"
              (has-substring? (raised-message (%make-numeric-vector 'u16 1 (expt 2 64)))
-                             "in-range"))
-(test-assert "diagnostic: 2^64 for s8 says in-range"
+                             "does not fit"))
+(test-assert "diagnostic: 2^64 for s8 says does-not-fit"
              (has-substring? (raised-message (%make-numeric-vector 's8 1 (expt 2 64)))
-                             "in-range"))
+                             "does not fit"))
 ;; A NEGATIVE multi-limb bignum into an unsigned kind is rejected for its sign,
 ;; not its width -- the same wording a negative fixnum gets, which is the
 ;; control here.
-(test-assert "diagnostic control: -1 for u16 says non-negative"
+(test-assert "diagnostic control: -1 for u16 says negative"
              (has-substring? (raised-message (%make-numeric-vector 'u16 1 -1))
-                             "non-negative"))
-(test-assert "diagnostic: -2^64 for u16 also says non-negative"
+                             "negative integer"))
+(test-assert "diagnostic: -2^64 for u16 also says negative"
              (has-substring? (raised-message (%make-numeric-vector 'u16 1 (- (expt 2 64))))
-                             "non-negative"))
+                             "negative integer"))
 ;; The distinction only means something if a genuine non-integer still reports
-;; as one -- otherwise "in-range" everywhere would pass the assertions above.
+;; as one -- otherwise "does not fit" everywhere would pass the assertions above.
 (test-assert "diagnostic: a string still says exact integer"
              (has-substring? (raised-message (%make-numeric-vector 'u16 1 "x"))
                              "exact integer"))

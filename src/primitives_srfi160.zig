@@ -42,6 +42,7 @@ const NumericElementKind = types.NumericElementKind;
 const PrimitiveError = primitives.PrimitiveError;
 const typeError = primitives.typeError;
 const indexError = primitives.indexError;
+const argError = primitives.argError;
 const LS = primitives.LibSet;
 
 const SRFI160 = LS.initOne(.srfi_160_primitives);
@@ -104,17 +105,17 @@ fn magnitudeAndSign(val: Value) ExactMag {
 fn expectSignedInRange(proc: []const u8, val: Value, comptime bits: u7) PrimitiveError!i64 {
     const ms = switch (magnitudeAndSign(val)) {
         .fits => |m| m,
-        .too_wide => return typeError(proc, "in-range signed integer", val),
+        .too_wide => return argError(proc, "integer does not fit a signed {d}-bit element", .{bits}),
         .not_exact => return typeError(proc, "exact integer", val),
     };
     const shift: u6 = bits - 1;
     const max_mag_pos: u64 = (@as(u64, 1) << shift) - 1;
     const max_mag_neg: u64 = @as(u64, 1) << shift;
     if (ms.positive) {
-        if (ms.mag > max_mag_pos) return typeError(proc, "in-range signed integer", val);
+        if (ms.mag > max_mag_pos) return argError(proc, "integer does not fit a signed {d}-bit element", .{bits});
         return @intCast(ms.mag);
     }
-    if (ms.mag > max_mag_neg) return typeError(proc, "in-range signed integer", val);
+    if (ms.mag > max_mag_neg) return argError(proc, "integer does not fit a signed {d}-bit element", .{bits});
     if (ms.mag == max_mag_neg) {
         // Only reachable when bits == 64 and mag == 2^63 (i64::MIN) -- for
         // bits < 64, max_mag_neg fits comfortably in a positive i64 already,
@@ -130,15 +131,18 @@ fn expectUnsignedInRange(proc: []const u8, val: Value, comptime bits: u7) Primit
         .fits => |m| m,
         // A negative one is rejected for being negative, not for being wide --
         // the same reason, and the same message, a negative fixnum gets below.
-        .too_wide => |w| return typeError(proc, if (w.positive) "in-range unsigned integer" else "non-negative integer", val),
+        .too_wide => |w| return if (w.positive)
+            argError(proc, "integer does not fit an unsigned {d}-bit element", .{bits})
+        else
+            argError(proc, "negative integer for an unsigned {d}-bit element", .{bits}),
         .not_exact => return typeError(proc, "exact integer", val),
     };
-    if (!ms.positive and ms.mag != 0) return typeError(proc, "non-negative integer", val);
+    if (!ms.positive and ms.mag != 0) return argError(proc, "negative integer for an unsigned {d}-bit element", .{bits});
     const max_mag: u64 = if (bits == 64) std.math.maxInt(u64) else blk: {
         const shift: u6 = bits;
         break :blk (@as(u64, 1) << shift) - 1;
     };
-    if (ms.mag > max_mag) return typeError(proc, "in-range unsigned integer", val);
+    if (ms.mag > max_mag) return argError(proc, "integer does not fit an unsigned {d}-bit element", .{bits});
     return ms.mag;
 }
 
@@ -245,10 +249,10 @@ fn decodeElement(gc: *memory.GC, kind: NumericElementKind, bytes: []const u8) Pr
 fn makeNumericVectorFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (!types.isSymbol(args[0])) return typeError("%make-numeric-vector", "symbol", args[0]);
-    const kind = parseKind(types.symbolName(args[0])) orelse return typeError("%make-numeric-vector", "known element kind", args[0]);
+    const kind = parseKind(types.symbolName(args[0])) orelse return argError("%make-numeric-vector", "unknown element kind", .{});
     if (!types.isFixnum(args[1])) return typeError("%make-numeric-vector", "exact integer", args[1]);
     const raw_len = types.toFixnum(args[1]);
-    if (raw_len < 0) return typeError("%make-numeric-vector", "non-negative length", args[1]);
+    if (raw_len < 0) return argError("%make-numeric-vector", "negative length {d}", .{raw_len});
     const width = kind.elementWidth();
     // Compare in u64 (wide enough for any raw_len/usize combination) before
     // narrowing to usize -- on wasm32 (usize = u32) a fixnum-range length
@@ -256,7 +260,7 @@ fn makeNumericVectorFn(args: []const Value) PrimitiveError!Value {
     // catchable error.
     const max_elements: u64 = @as(u64, memory.GC.max_payload_bytes) / @as(u64, width);
     if (@as(u64, @intCast(raw_len)) > max_elements) {
-        return typeError("%make-numeric-vector", "in-range length", args[1]);
+        return argError("%make-numeric-vector", "length {d} exceeds the maximum of {d} elements", .{ raw_len, max_elements });
     }
     const len: usize = @intCast(raw_len);
 

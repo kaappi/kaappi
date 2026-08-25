@@ -461,7 +461,7 @@ fn interactionEnvironmentFn(args: []const Value) PrimitiveError!Value {
 fn nullEnvironmentFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[0])) return primitives.typeError("null-environment", "integer", args[0]);
     const version = types.toFixnum(args[0]);
-    if (version != 5 and version != 7) return primitives.typeError("null-environment", "5 or 7", args[0]);
+    if (version != 5 and version != 7) return primitives.argError("null-environment", "version must be 5 or 7, got {d}", .{version});
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     const env_map = gc.allocator.create(std.StringHashMap(Value)) catch return PrimitiveError.OutOfMemory;
@@ -472,7 +472,7 @@ fn nullEnvironmentFn(args: []const Value) PrimitiveError!Value {
 fn schemeReportEnvironmentFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[0])) return primitives.typeError("scheme-report-environment", "integer", args[0]);
     const version = types.toFixnum(args[0]);
-    if (version != 5 and version != 7) return primitives.typeError("scheme-report-environment", "5 or 7", args[0]);
+    if (version != 5 and version != 7) return primitives.argError("scheme-report-environment", "version must be 5 or 7, got {d}", .{version});
     const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
@@ -502,12 +502,12 @@ fn makeTimeFn(args: []const Value) PrimitiveError!Value {
     if (!types.isSymbol(args[0]))
         return primitives.typeError("make-time", "symbol", args[0]);
     const time_type = parseTimeType(types.symbolName(args[0])) orelse
-        return primitives.typeError("make-time", "time type symbol (time-utc, time-tai, time-monotonic, time-duration)", args[0]);
+        return primitives.argError("make-time", "time type must be one of time-utc, time-tai, time-monotonic, time-duration", .{});
     if (!types.isFixnum(args[1]))
         return primitives.typeError("make-time", "integer", args[1]);
     const ns = types.toFixnum(args[1]);
     if (ns < 0 or ns >= 1_000_000_000)
-        return primitives.typeError("make-time", "nanosecond in [0, 999999999]", args[1]);
+        return primitives.argError("make-time", "nanosecond {d} is not in [0, 999999999]", .{ns});
     if (!types.isFixnum(args[2]))
         return primitives.typeError("make-time", "integer", args[2]);
     return gc.allocSrfi18Time(types.toFixnum(args[2]), ns, time_type) catch return PrimitiveError.OutOfMemory;

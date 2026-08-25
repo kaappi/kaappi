@@ -104,7 +104,7 @@ fn stringFn(args: []const Value) PrimitiveError!Value {
     for (args) |a| {
         if (!types.isChar(a)) return primitives.typeError("string", "character", a);
         const cp = types.toChar(a);
-        total += std.unicode.utf8CodepointSequenceLength(cp) catch return primitives.typeError("string", "valid character", a);
+        total += std.unicode.utf8CodepointSequenceLength(cp) catch return primitives.argError("string", "character is not a Unicode scalar value", .{});
     }
     const buf = memory.allocSliceNoFill(gc.allocator, u8, total) catch return PrimitiveError.OutOfMemory;
     defer memory.freeSliceNoFill(gc.allocator, u8, buf);
@@ -112,7 +112,7 @@ fn stringFn(args: []const Value) PrimitiveError!Value {
     for (args) |a| {
         const cp = types.toChar(a);
         var tmp: [4]u8 = undefined;
-        const n = std.unicode.utf8Encode(cp, &tmp) catch return primitives.typeError("string", "valid character", a);
+        const n = std.unicode.utf8Encode(cp, &tmp) catch return primitives.argError("string", "character is not a Unicode scalar value", .{});
         @memcpy(buf[pos .. pos + n], tmp[0..n]);
         pos += n;
     }
@@ -127,7 +127,7 @@ fn makeStringFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (!types.isFixnum(args[0])) return primitives.typeError("make-string", "exact integer", args[0]);
     const k = types.toFixnum(args[0]);
-    if (k < 0) return primitives.typeError("make-string", "non-negative integer", args[0]);
+    if (k < 0) return primitives.argError("make-string", "negative length {d}", .{k});
     if (!primitives.fixnumFitsUsize(k)) return PrimitiveError.OutOfMemory; // wasm32: would truncate (kaappi#2153)
     const count: usize = @intCast(k);
     const fill_cp: u21 = if (args.len > 1) blk: {
@@ -136,7 +136,7 @@ fn makeStringFn(args: []const Value) PrimitiveError!Value {
     } else ' ';
     // Encode the fill character to UTF-8
     var fill_buf: [4]u8 = undefined;
-    const fill_len = std.unicode.utf8Encode(fill_cp, &fill_buf) catch return primitives.typeError("make-string", "valid character", args[1]);
+    const fill_len = std.unicode.utf8Encode(fill_cp, &fill_buf) catch return primitives.argError("make-string", "fill character is not a Unicode scalar value", .{});
     const total_bytes = count * fill_len;
     if (total_bytes > memory.GC.max_payload_bytes) return PrimitiveError.OutOfMemory;
     const buf = memory.allocSliceNoFill(gc.allocator, u8, total_bytes) catch return PrimitiveError.OutOfMemory;
@@ -173,7 +173,7 @@ fn stringSetFn(args: []const Value) PrimitiveError!Value {
     if (!types.isChar(args[2])) return primitives.typeError("string-set!", "character", args[2]);
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
-    if (str.header.flags.immutable) return primitives.typeError("string-set!", "mutable string", args[0]);
+    if (str.header.flags.immutable) return primitives.argError("string-set!", "cannot mutate an immutable string", .{});
     const data = str.data[0..str.len];
     const k = types.toFixnum(args[1]);
     const str_len = utf8CodepointCount(data);
@@ -187,7 +187,7 @@ fn stringSetFn(args: []const Value) PrimitiveError!Value {
 
     const new_cp = types.toChar(args[2]);
     var new_cp_buf: [4]u8 = undefined;
-    const new_cp_len = std.unicode.utf8Encode(new_cp, &new_cp_buf) catch return primitives.typeError("string-set!", "valid character", args[2]);
+    const new_cp_len = std.unicode.utf8Encode(new_cp, &new_cp_buf) catch return primitives.argError("string-set!", "character is not a Unicode scalar value", .{});
 
     if (new_cp_len == old_cp_len) {
         // Same byte width: replace in-place
@@ -244,8 +244,10 @@ fn stringCopyFn(args: []const Value) PrimitiveError!Value {
     const range = try primitives.parseOptionalRange(args, 1, cp_count, "string-copy");
     const start_cp = range.start;
     const end_cp = range.end;
-    const byte_start = utf8IndexToByteOffset(data, start_cp) orelse return primitives.typeError("string-copy", "valid index", args[1]);
-    const byte_end = utf8IndexToByteOffset(data, end_cp) orelse return primitives.typeError("string-copy", "valid index", args[2]);
+    const byte_start = utf8IndexToByteOffset(data, start_cp) orelse
+        return primitives.indexError("string-copy", @intCast(start_cp), cp_count);
+    const byte_end = utf8IndexToByteOffset(data, end_cp) orelse
+        return primitives.indexError("string-copy", @intCast(end_cp), cp_count);
     return gc.allocString(data[byte_start..byte_end]) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -258,15 +260,15 @@ fn stringCopyBangFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[1])) return primitives.typeError("string-copy!", "exact integer", args[1]);
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const to_str = types.toObject(args[0]).as(types.SchemeString);
-    if (to_str.header.flags.immutable) return primitives.typeError("string-copy!", "mutable string", args[0]);
+    if (to_str.header.flags.immutable) return primitives.argError("string-copy!", "cannot mutate an immutable string", .{});
     const to_data = to_str.data[0..to_str.len];
     const to_cp_count = utf8CodepointCount(to_data);
     const at_val = types.toFixnum(args[1]);
-    if (at_val < 0) return primitives.typeError("string-copy!", "non-negative integer", args[1]);
+    if (at_val < 0) return primitives.indexError("string-copy!", at_val, to_cp_count);
     // u64 comparison before narrowing (kaappi#1912): on wasm32 a fixnum-range
     // at would truncate and pass the at_cp+count check, writing to the wrong
     // codepoint.
-    if (!primitives.fixnumIndexInBoundsInclusive(at_val, to_cp_count)) return primitives.typeError("string-copy!", "valid range", args[1]);
+    if (!primitives.fixnumIndexInBoundsInclusive(at_val, to_cp_count)) return primitives.indexError("string-copy!", at_val, to_cp_count);
     const at_cp: usize = @intCast(at_val);
     const from_data = try getStringSlice("string-copy!", args[2]);
     const from_cp_count = utf8CodepointCount(from_data);
@@ -275,13 +277,17 @@ fn stringCopyBangFn(args: []const Value) PrimitiveError!Value {
     const start_cp = range.start;
     const end_cp = range.end;
     const copy_cp_count = end_cp - start_cp;
-    if (at_cp + copy_cp_count > to_cp_count) return primitives.typeError("string-copy!", "valid range", args[1]);
+    if (at_cp + copy_cp_count > to_cp_count) return primitives.indexError("string-copy!", at_val + @as(i64, @intCast(copy_cp_count)), to_cp_count);
 
     // Convert codepoint indices to byte offsets
-    const from_byte_start = utf8IndexToByteOffset(from_data, start_cp) orelse return primitives.typeError("string-copy!", "valid index", args[2]);
-    const from_byte_end = utf8IndexToByteOffset(from_data, end_cp) orelse return primitives.typeError("string-copy!", "valid index", args[2]);
-    const to_byte_start = utf8IndexToByteOffset(to_data, at_cp) orelse return primitives.typeError("string-copy!", "valid index", args[1]);
-    const to_byte_end = utf8IndexToByteOffset(to_data, at_cp + copy_cp_count) orelse return primitives.typeError("string-copy!", "valid index", args[1]);
+    const from_byte_start = utf8IndexToByteOffset(from_data, start_cp) orelse
+        return primitives.indexError("string-copy!", @intCast(start_cp), from_cp_count);
+    const from_byte_end = utf8IndexToByteOffset(from_data, end_cp) orelse
+        return primitives.indexError("string-copy!", @intCast(end_cp), from_cp_count);
+    const to_byte_start = utf8IndexToByteOffset(to_data, at_cp) orelse
+        return primitives.indexError("string-copy!", at_val, to_cp_count);
+    const to_byte_end = utf8IndexToByteOffset(to_data, at_cp + copy_cp_count) orelse
+        return primitives.indexError("string-copy!", at_val + @as(i64, @intCast(copy_cp_count)), to_cp_count);
 
     const src_bytes = from_data[from_byte_start..from_byte_end];
     const dst_old_len = to_byte_end - to_byte_start;
@@ -319,7 +325,7 @@ fn stringFillFn(args: []const Value) PrimitiveError!Value {
     if (!types.isChar(args[1])) return primitives.typeError("string-fill!", "character", args[1]);
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
-    if (str.header.flags.immutable) return primitives.typeError("string-fill!", "mutable string", args[0]);
+    if (str.header.flags.immutable) return primitives.argError("string-fill!", "cannot mutate an immutable string", .{});
     const data = str.data[0..str.len];
     const cp = types.toChar(args[1]);
     const char_count = utf8CodepointCount(data);
@@ -327,7 +333,7 @@ fn stringFillFn(args: []const Value) PrimitiveError!Value {
     const start = range.start;
     const end = range.end;
     var fill_buf: [4]u8 = undefined;
-    const fill_len = std.unicode.utf8Encode(cp, &fill_buf) catch return primitives.typeError("string-fill!", "valid character", args[1]);
+    const fill_len = std.unicode.utf8Encode(cp, &fill_buf) catch return primitives.argError("string-fill!", "fill character is not a Unicode scalar value", .{});
     // Build new string: [0..start] unchanged, [start..end] filled, [end..] unchanged
     var result: std.ArrayList(u8) = .empty;
     defer result.deinit(gc.allocator);
@@ -362,7 +368,8 @@ fn stringToListFn(args: []const Value) PrimitiveError!Value {
     const start_cp = range.start;
     const end_cp = range.end;
     // Collect codepoints in the range
-    const byte_start = utf8IndexToByteOffset(data, start_cp) orelse return primitives.typeError("string->list", "valid index", args[1]);
+    const byte_start = utf8IndexToByteOffset(data, start_cp) orelse
+        return primitives.indexError("string->list", @intCast(start_cp), cp_count);
     const range_count = end_cp - start_cp;
     // Build list from back to front; first collect codepoints
     var cps_buf: [4096]u21 = undefined;
@@ -399,7 +406,7 @@ fn listToStringFn(args: []const Value) PrimitiveError!Value {
         const elem = types.car(current);
         if (!types.isChar(elem)) return primitives.typeError("list->string", "character", elem);
         const cp = types.toChar(elem);
-        total += std.unicode.utf8CodepointSequenceLength(cp) catch return primitives.typeError("list->string", "valid character", elem);
+        total += std.unicode.utf8CodepointSequenceLength(cp) catch return primitives.argError("list->string", "character is not a Unicode scalar value", .{});
         current = types.cdr(current);
     }
     const buf = memory.allocSliceNoFill(gc.allocator, u8, total) catch return PrimitiveError.OutOfMemory;
@@ -409,7 +416,7 @@ fn listToStringFn(args: []const Value) PrimitiveError!Value {
     while (current != types.NIL) {
         const cp = types.toChar(types.car(current));
         var tmp: [4]u8 = undefined;
-        const n = std.unicode.utf8Encode(cp, &tmp) catch return primitives.typeError("list->string", "valid character", types.car(current));
+        const n = std.unicode.utf8Encode(cp, &tmp) catch return primitives.argError("list->string", "character is not a Unicode scalar value", .{});
         @memcpy(buf[pos .. pos + n], tmp[0..n]);
         pos += n;
         current = types.cdr(current);
@@ -431,7 +438,8 @@ fn stringToVectorFn(args: []const Value) PrimitiveError!Value {
     const start_cp = range.start;
     const end_cp = range.end;
     const range_count = end_cp - start_cp;
-    const byte_start = utf8IndexToByteOffset(data, start_cp) orelse return primitives.typeError("string->vector", "valid index", args[1]);
+    const byte_start = utf8IndexToByteOffset(data, start_cp) orelse
+        return primitives.indexError("string->vector", @intCast(start_cp), cp_count);
     const vec_data = memory.allocSliceNoFill(gc.allocator, Value, range_count) catch return PrimitiveError.OutOfMemory;
     defer memory.freeSliceNoFill(gc.allocator, Value, vec_data);
     var byte_i = byte_start;
@@ -553,7 +561,7 @@ fn charToIntegerFn(args: []const Value) PrimitiveError!Value {
 fn integerToCharFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[0])) return primitives.typeError("integer->char", "exact integer", args[0]);
     const n = types.toFixnum(args[0]);
-    if (n < 0 or n > 0x10FFFF or (n >= 0xD800 and n <= 0xDFFF)) return primitives.typeError("integer->char", "valid Unicode scalar value (0..#xD7FF, #xE000..#x10FFFF)", args[0]);
+    if (n < 0 or n > 0x10FFFF or (n >= 0xD800 and n <= 0xDFFF)) return primitives.argError("integer->char", "{d} is not a Unicode scalar value (0..#xD7FF, #xE000..#x10FFFF)", .{n});
     return types.makeChar(@intCast(n));
 }
 
