@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787653811123,
+  "lastUpdate": 1787663849173,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d2b4e01aa6de212a988405dd56341f3ea0af93aa",
-          "message": "Make eqv? respect complex exactness flags and keep negation exact (#2170)\n\nR7RS 6.1 requires (eqv? a b) => #f when one number is exact and the\nother inexact, but all four eqv?-semantics comparators (eqv?, equal?,\nmemv/assv, SRFI-69 eqv tables; case rides on eqv?) bit-compared a\ncomplex's f64 components and ignored exact_real/exact_imag, so\n(eqv? (make-rectangular -3/2 -1) -1.5-1.0i) was #t. They now share\none types.complexEqv so the copies cannot drift apart again; the\nbitwise component rule (NaN, signed zero) is unchanged.\n\nNegation lost exactness the same way: (- z) went through the\nflag-less f64 rebuild and returned inexact where R7RS — and the\nadvertised exact-closed/exact-complex features — require exact.\nUnary (- z) and (- 0 z) are the two rounding-free cases, so they now\npreserve the flags, normalizing an exact zero component to +0.0. The\nrest of complex arithmetic still collapses to inexact: that is the\nf64-backed representation problem #2166 tracks, and preserving flags\nthere would relabel rounded results as exact.\n\nTwo audit-suite expectations ((+ 1+2i 2+2i) => 3+4i and\n(* 1+2i 3+4i) => -5+10i) had passed only because the broken equal?\nequated their inexact actuals with the exact expected values; they\nare now named and test-expect-fail pending #2166.\n\nFixes #2167. Interim slice of #2166.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-02T02:28:07Z",
-          "tree_id": "9c34105444d15ddc1d7c7eb3ab5f9fc0c3927876",
-          "url": "https://github.com/kaappi/kaappi/commit/d2b4e01aa6de212a988405dd56341f3ea0af93aa"
-        },
-        "date": 1785640483449,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.273095,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.10558,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.567934,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.941909,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004759,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046272,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.312712,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056177,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.656389,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.262808,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.571103,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.276048,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.767748,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.625116,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043076,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044768,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6f9e508b70e1747f251e0d45939c41c27e590c35",
+          "message": "Preserve local-macro forms in expand so the dump round-trips (#2327)\n\nkaappi expand claimed a round-trip guarantee (feeding its output back\npreserves behavior) but broke it for let-syntax/letrec-syntax. It expanded\nthe body against the global macro set, resolving a use of a locally-bound\nkeyword against the OUTER binding, then re-emitted the inner binding it\nnever applied — so a shadowed (let-syntax ((c ...)) (c)) dumped as the outer\nc's expansion and round-tripped to a different answer.\n\nLeave let-syntax/letrec-syntax entirely unexpanded (the local transformers\nare never built in the expand path); the compiler builds them on a real run,\nand re-reading re-establishes the inner binding. Round-trip fidelity of the\nbinder's spelling also requires that a macro-generated define-syntax (a SRFI\n139 syntax parameter) be registered, so registerEnvForExpand now runs on the\nEXPANDED form rather than the original.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-25T16:00:20+05:30",
+          "tree_id": "7877b9490319c5d5e8f03ca28c740dd37be97291",
+          "url": "https://github.com/kaappi/kaappi/commit/6f9e508b70e1747f251e0d45939c41c27e590c35"
+        },
+        "date": 1787663843645,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.034574,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.746393,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.552942,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.770217,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00498,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046476,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.283332,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054145,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.906735,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.150966,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.517665,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.258228,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.786022,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.9096,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041367,
             "unit": "seconds"
           }
         ]
