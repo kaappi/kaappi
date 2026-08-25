@@ -5,7 +5,8 @@
 ;; Run directly: zig-out/bin/kaappi tests/scheme/srfi/srfi231-views.scm
 
 (import (scheme base) (scheme process-context) (srfi 64)
-        (srfi 231 intervals) (srfi 231 storage-classes) (srfi 231 arrays) (srfi 231 views))
+        (srfi 231 intervals) (srfi 231 storage-classes) (srfi 231 arrays) (srfi 231 views)
+        (srfi 231 combinators))
 
 (test-begin "srfi-231-views")
 
@@ -222,6 +223,78 @@
                   (specialized-array-reshape (array-copy (make-array (make-interval (vector 4)) (lambda (i) i)))
                                               (make-interval (vector 5)))
                   #f))  ;; volume mismatch
+
+;;; --- reshape of a NEGATIVELY-STRIDED (reversed) view: the elements are
+;;; still affinely reachable (just stepping the body backwards), so the
+;;; reshape must succeed and preserve the reversed logical order. The old
+;;; packed-only port wrongly rejected these (gambiteer, SRFI 231 anomalies
+;;; thread). These mirror the reference test suite. ---
+(let ((array (array-copy (make-array (make-interval (vector 2 1 3 1)) list))))
+  (test-equal "reshape packed 4d->1d" (array->list array)
+    (array->list (specialized-array-reshape array (make-interval (vector 6)))))
+  (test-equal "reshape packed 4d->2d" (array->list array)
+    (array->list (specialized-array-reshape array (make-interval (vector 3 2))))))
+
+(let ((array (array-reverse (array-copy (make-array (make-interval (vector 2 1 3 1)) list)))))
+  (test-equal "reshape reversed 4d->1d" (array->list array)
+    (array->list (specialized-array-reshape array (make-interval (vector 6)))))
+  (test-equal "reshape reversed 4d->2d" (array->list array)
+    (array->list (specialized-array-reshape array (make-interval (vector 3 2))))))
+
+(let ((array (array-reverse (array-copy (make-array (make-interval (vector 2 1 3 1)) list))
+                            (vector #f #f #f #t))))
+  (test-equal "reshape last-axis-reversed ->2d" (array->list array)
+    (array->list (specialized-array-reshape array (make-interval (vector 3 2)))))
+  (test-equal "reshape last-axis-reversed ->3d" (array->list array)
+    (array->list (specialized-array-reshape array (make-interval (vector 3 1 2)))))
+  (test-equal "reshape last-axis-reversed ->5d-a" (array->list array)
+    (array->list (specialized-array-reshape array (make-interval (vector 1 1 1 3 2)))))
+  (test-equal "reshape last-axis-reversed ->5d-b" (array->list array)
+    (array->list (specialized-array-reshape array (make-interval (vector 3 2 1 1 1)))))
+  (test-equal "reshape last-axis-reversed ->4d" (array->list array)
+    (array->list (specialized-array-reshape array (make-interval (vector 3 1 1 2)))))
+  (test-equal "reshape last-axis-reversed ->4d-b" (array->list array)
+    (array->list (specialized-array-reshape array (make-interval (vector 3 1 2 1))))))
+
+(let ((array (array-sample (array-reverse (array-copy (make-array (make-interval (vector 2 1 4 1)) list))
+                                          (vector #f #f #f #t))
+                           (vector 1 1 2 1))))
+  (test-equal "reshape sampled+reversed ->1d" (array->list array)
+    (array->list (specialized-array-reshape array (make-interval (vector 4))))))
+
+(let ((array (array-sample (array-reverse (array-copy (make-array (make-interval (vector 2 1 4 1)) list))
+                                          (vector #t #f #t #t))
+                           (vector 1 1 2 1))))
+  (test-equal "reshape sampled+multi-reversed ->1d" (array->list array)
+    (array->list (specialized-array-reshape array (make-interval (vector 4))))))
+
+;;; genuinely non-affine reshapes still fail (no false positives) ---
+(test-equal "reshape non-affine 1 errors" #t
+  (guard (e (#t #t))
+    (specialized-array-reshape
+     (array-reverse (array-copy (make-array (make-interval (vector 2 1 3 1)) list)) (vector #t #f #f #f))
+     (make-interval (vector 6)))
+    #f))
+(test-equal "reshape non-affine 2 errors" #t
+  (guard (e (#t #t))
+    (specialized-array-reshape
+     (array-reverse (array-copy (make-array (make-interval (vector 2 1 3 1)) list)) (vector #t #f #f #f))
+     (make-interval (vector 3 2)))
+    #f))
+(test-equal "reshape non-affine 3 errors" #t
+  (guard (e (#t #t))
+    (specialized-array-reshape
+     (array-sample (array-reverse (array-copy (make-array (make-interval (vector 2 1 3 1)) list)) (vector #f #f #f #t))
+                   (vector 1 1 2 1))
+     (make-interval (vector 4)))
+    #f))
+
+;;; copy-on-failure? must be a boolean (gambiteer's 'a case) ---
+(test-equal "reshape rejects non-boolean copy-on-failure?" #t
+  (guard (e (#t #t))
+    (specialized-array-reshape (array-copy (make-array (make-interval (vector 2 3)) list))
+                               (make-interval (vector 6)) 'a)
+    #f))
 
 ;;; --- reference-parity argument validation: the sharing mapper must be a
 ;;; procedure (checked even for empty new-domains, where it would never be

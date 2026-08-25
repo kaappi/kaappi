@@ -103,6 +103,25 @@
   (test-equal 4 (array-ref a 1 1)))
 (test-equal #t (guard (e (#t #t)) (vector->array (make-interval (vector 2 2)) (vector 1 2 3)) #f))
 
+;;; the mutable?/safe? options must be booleans -- a non-boolean silently
+;;; flipped a mode before (gambiteer, SRFI 231 anomalies thread) ---
+(test-equal "list->array rejects non-boolean mutable?" #t
+  (guard (e (#t #t))
+    (list->array (make-interval (vector 0) (vector 1)) (list 1000) generic-storage-class 'a)
+    #f))
+(test-equal "list->array rejects non-boolean safe?" #t
+  (guard (e (#t #t))
+    (list->array (make-interval (vector 0) (vector 1)) (list 1000) generic-storage-class #t 'a)
+    #f))
+(test-equal "vector->array rejects non-boolean mutable?" #t
+  (guard (e (#t #t))
+    (vector->array (make-interval (vector 0) (vector 1)) (vector 1000) generic-storage-class 'a)
+    #f))
+(test-equal "vector->array rejects non-boolean safe?" #t
+  (guard (e (#t #t))
+    (vector->array (make-interval (vector 0) (vector 1)) (vector 1000) generic-storage-class #t 'a)
+    #f))
+
 ;;; --- nested conversions: basic round trip ---
 (let ((a (list*->array 2 (list (list 1 2) (list 3 4)))))
   (test-equal '(2 2) (interval-upper-bounds->list (array-domain a)))
