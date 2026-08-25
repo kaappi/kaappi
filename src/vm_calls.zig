@@ -448,7 +448,7 @@ fn mainFiberResult(sched: *fiber_mod.FiberScheduler) Value {
 }
 
 /// `mapNativeError`'s counterpart for `ffi.callFfi`, which reports through an
-/// inline `error{TypeError}` set of its own rather than the VM's.
+/// inline error set of its own rather than the VM's.
 ///
 /// `callFfi` guarantees a detail on every path it can currently fail through
 /// (`validateArgsDetailed` covers every user-reachable argument problem, and
@@ -468,7 +468,14 @@ pub fn mapFfiError(vm: *VM, err: anyerror, ffi_fn: *types.FfiFunction) VMError {
     if (err == error.ExceptionRaised) return VMError.ExceptionRaised;
     if (vm.last_error_detail_len == 0)
         vm.setErrorDetail("'{s}': unsupported FFI signature", .{ffi_fn.name});
-    return VMError.TypeError; // bare-ok: this is mapFfiError itself
+    // Preserve the argument-fault taxonomy `validateArgsDetailed` assigns: an
+    // out-of-range marshalling argument is KP3007 (InvalidArgument), not KP3002
+    // (TypeError) — a wrong magnitude is not a wrong type (kaappi#2026).
+    return switch (err) {
+        error.InvalidArgument => VMError.InvalidArgument,
+        error.IndexOutOfBounds => VMError.IndexOutOfBounds,
+        else => VMError.TypeError, // bare-ok: this is mapFfiError itself
+    };
 }
 
 pub fn mapNativeError(vm: *VM, err: anyerror, name: []const u8, args: []const Value) VMError {

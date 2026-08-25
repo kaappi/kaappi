@@ -521,9 +521,9 @@ pub fn expectPort(proc: []const u8, v: Value) PrimitiveError!*types.Port {
 }
 
 pub fn indexError(proc: []const u8, index: i64, len: usize) PrimitiveError {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.IndexOutOfBounds;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.IndexOutOfBounds; // bare-ok: no VM
     vm.setErrorDetail("{s}: index {d} out of range for length {d}", .{ proc, index, len });
-    return PrimitiveError.IndexOutOfBounds;
+    return PrimitiveError.IndexOutOfBounds; // bare-ok: this is indexError itself
 }
 
 /// The `typeError`/`indexError` sibling for a constraint that is about neither
@@ -531,9 +531,9 @@ pub fn indexError(proc: []const u8, index: i64, len: usize) PrimitiveError {
 /// rejects it (R6RS's "parent is sealed", a uid whose field specs disagree).
 /// `explanation` says what the procedure requires, in the caller's own words.
 pub fn argError(proc: []const u8, comptime explanation: []const u8, fmt_args: anytype) PrimitiveError {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidArgument;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidArgument; // bare-ok: no VM
     vm.setErrorDetail("{s}: " ++ explanation, .{proc} ++ fmt_args);
-    return PrimitiveError.InvalidArgument;
+    return PrimitiveError.InvalidArgument; // bare-ok: this is argError itself
 }
 
 /// The catchable error a rejected cross-heap store raises (kaappi#1924).

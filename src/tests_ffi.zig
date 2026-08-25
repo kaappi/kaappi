@@ -331,6 +331,25 @@ test "mapFfiError never overwrites a detail callFfi already set (#1880)" {
     );
 }
 
+test "mapFfiError preserves an out-of-range argument as InvalidArgument (#2026)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    var ptypes = [_]types.FfiType{.int32};
+    var ffi_fn = makeBoolFn(ptypes[0..], .int);
+
+    // A wrong *magnitude* is KP3007 (InvalidArgument), not KP3002 (TypeError):
+    // mapFfiError must carry the tag validateArgsDetailed assigned rather than
+    // flattening every FFI failure to TypeError, or a caller cannot tell a
+    // wrong type from a wrong magnitude.
+    ctx.vm.setErrorDetail("'{s}': argument 1 out of range for int32", .{ffi_fn.name});
+    try std.testing.expectEqual(
+        vm_mod.VMError.InvalidArgument,
+        vm_calls.mapFfiError(ctx.vm, error.InvalidArgument, &ffi_fn),
+    );
+}
+
 test "mapFfiError passes a raised Scheme exception through untouched (#1880)" {
     var ctx: th.TestContext = undefined;
     try ctx.init();
