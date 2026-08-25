@@ -94,6 +94,43 @@ assert_roundtrip "roundtrip: quoted data untouched" '
 (display (quote (dbl 1 2))) (newline)
 (display (dbl 4)) (newline)'
 
+# kaappi#1894: expand expanded a let-syntax/letrec-syntax body with the OUTER
+# binding of a shadowed keyword, then re-emitted the never-applied inner
+# binding — so the dump printed 42 where the program yields 99. The body of a
+# local-macro form is now left unexpanded (its local transformers are never
+# built here), so re-reading re-establishes the inner binding and round-trips.
+assert_roundtrip "roundtrip: let-syntax shadowing an outer keyword (#1894)" '
+(import (scheme base) (scheme write))
+(define-syntax c (syntax-rules () ((c) 42)))
+(display (let-syntax ((c (syntax-rules () ((c) 99)))) (c))) (newline)'
+
+assert_roundtrip "roundtrip: letrec-syntax shadowing an outer keyword (#1894)" '
+(import (scheme base) (scheme write))
+(define-syntax c (syntax-rules () ((c) 42)))
+(display (letrec-syntax ((c (syntax-rules () ((c) 99)))) (c))) (newline)'
+
+# kaappi#1894 second shape: a macro (here a SRFI 139 syntax parameter) expands
+# into a let-syntax whose binder is hygiene-renamed while the body use keeps its
+# original spelling — severing the link, so the re-read dump raised
+# "abort used outside of a loop" instead of yielding 4. registerEnvForExpand now
+# registers the macro-generated define-syntax, so the shared keyword stays bare
+# through the later expansion.
+assert_roundtrip "roundtrip: syntax-parameter through let-syntax (#1894)" '
+(import (scheme base) (scheme write) (srfi 139))
+(define-syntax-parameter abort
+  (syntax-rules () ((_ . _) (syntax-error "abort used outside of a loop"))))
+(define-syntax forever
+  (syntax-rules ()
+    ((forever body1 body2 ...)
+     (call-with-current-continuation
+      (lambda (escape)
+        (syntax-parameterize
+            ((abort (syntax-rules () ((abort v (... ...)) (escape v (... ...))))))
+          (let loop () body1 body2 ... (loop))))))))
+(display
+  (let ((n 0))
+    (forever (set! n (+ n 1)) (when (> n 3) (abort n))))) (newline)'
+
 # ── ast: the reader view ────────────────────────────────────────────────────
 
 printf "%s\n" "'(a b c)" > "$TMP/ast.scm"
