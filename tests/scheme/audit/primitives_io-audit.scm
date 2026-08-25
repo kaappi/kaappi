@@ -719,7 +719,7 @@
 ;; CONTROL: a genuinely wrong type — and a right-type/wrong-direction port —
 ;; must still be a type error, or the fix above would have flattened the
 ;; distinction instead of drawing it.
-(test-equal "type error in 'write-string': expected output port, got #<symbol>"
+(test-equal "type error in 'write-string': expected output port, got not-a-port"
   (err-message (lambda () (write-string "x" 'not-a-port))))
 (test-equal "type error in 'write-string': expected output port, got #<port>"
   (err-message (lambda () (write-string "x" (open-input-string "y")))))
@@ -766,7 +766,7 @@
   (err-message (lambda () (fd->port 999999999999))))
 ;; CONTROL: a genuinely wrong type is still a type error, so the fix drew the
 ;; distinction rather than flattening every rejection into one kind.
-(test-equal "type error in 'fd->port': expected file descriptor, got #<symbol>"
+(test-equal "type error in 'fd->port': expected file descriptor, got nope"
   (err-message (lambda () (fd->port 'nope))))
 (test-equal "type error in 'fd->port': expected file descriptor, got 3.0"
   (err-message (lambda () (fd->port 3.0))))

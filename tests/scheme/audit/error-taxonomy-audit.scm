@@ -488,59 +488,65 @@
 (test-assert "fidelity: the empty list renders as ()"
              (contains? (msg-of (lambda () (car '()))) "()"))
 
-;; -- Values that do NOT render (the finding) ---------------------------------
-(test-assert "TODAY (#1899): a symbol renders as an opaque #<symbol>"
-             (contains? (msg-of (lambda () (vector-ref (vector 1) 'the-key))) "#<symbol>"))
-(test-assert "TODAY (#1899): the symbol's name is absent from the message"
+;; -- Values that now render their identity (#1899 fixed) ---------------------
+;; safeValueDescription renders identifying content for heap types while
+;; staying no-allocation, bounded, and cycle-safe (a compound value gets a
+;; one-level summary, never a recursive print).
+(test-assert "#1899 FIXED: a symbol renders its name"
+             (contains? (msg-of (lambda () (vector-ref (vector 1) 'the-key))) "the-key"))
+(test-assert "#1899 FIXED: the opaque #<symbol> tag is gone"
              (not (contains? (msg-of (lambda () (vector-ref (vector 1) 'the-key)))
-                             "the-key")))
-(test-assert "TODAY (#1899): a string renders as an opaque #<string>"
-             (contains? (msg-of (lambda () (vector-ref (vector 1) "needle"))) "#<string>"))
-(test-assert "TODAY (#1899): a vector renders as an opaque #<vector>"
-             (contains? (msg-of (lambda () (vector-ref (vector 1) (vector 9)))) "#<vector>"))
-(test-assert "TODAY (#1899): a pair renders as an opaque #<pair>"
+                             "#<symbol>")))
+(test-assert "#1899 FIXED: a string renders a quoted prefix"
+             (contains? (msg-of (lambda () (vector-ref (vector 1) "needle"))) "\"needle\""))
+;; Compound types get a one-level length summary -- cheap, and cycle-safe by
+;; construction (no recursion into the contents).
+(test-assert "#1899 FIXED: a vector renders its length, not #<vector>"
+             (contains? (msg-of (lambda () (vector-ref (vector 1) (vector 9))))
+                        "#<vector length 1>"))
+(test-assert "#1899 FIXED: a bytevector renders its length"
+             (contains? (msg-of (lambda () (vector-ref (vector 1) (bytevector 1 2 3))))
+                        "#<bytevector length 3>"))
+(test-assert "#1899 FIXED: a rational renders as num/den"
+             (contains? (msg-of (lambda () (vector-ref (vector 1) 3/2))) "3/2"))
+;; A pair stays a summary (rendering its spine would need cycle detection).
+(test-assert "a pair still renders conservatively as #<pair>"
              (contains? (msg-of (lambda () (vector-ref (vector 1) (list 9)))) "#<pair>"))
-(test-assert "TODAY (#1899): a bytevector renders as an opaque #<bytevector>"
-             (contains? (msg-of (lambda () (vector-ref (vector 1) (bytevector 1))))
-                        "#<bytevector>"))
-(test-assert "TODAY (#1899): a rational renders as an opaque #<rational>"
-             (contains? (msg-of (lambda () (vector-ref (vector 1) 3/2))) "#<rational>"))
 
-;; A character is an IMMEDIATE under NaN-boxing -- rendering it needs no heap
-;; access at all, so the documented "does not dereference heap payloads"
-;; rationale cannot apply. #1899 says this could not be reproduced; it does.
-(test-assert "TODAY (#1899): a character renders as #<char> despite being immediate"
-             (contains? (msg-of (lambda () (vector-ref (vector 1) #\a))) "#<char>"))
-(test-assert "TODAY (#1899): the character's own value is absent"
-             (not (contains? (msg-of (lambda () (vector-ref (vector 1) #\a))) "#\\a")))
+;; A character is an IMMEDIATE under NaN-boxing -- #1899 noted an unverified
+;; report that it rendered as #<char>; that was real, and it now renders in its
+;; #\ external form.
+(test-assert "#1899 FIXED: a character renders in its #\\ form"
+             (contains? (msg-of (lambda () (vector-ref (vector 1) #\a))) "#\\a"))
+(test-assert "#1899 FIXED: the opaque #<char> tag is gone"
+             (not (contains? (msg-of (lambda () (vector-ref (vector 1) #\a))) "#<char>")))
 
-;; -- The self-contradiction: a bignum IS an exact integer --------------------
-;; This is #1916's exact shape ("expected exact integer, got 1", where 1 is an
-;; exact integer), still live for bignums and rationals. It is also a Part 2
-;; instance: the value satisfies the claimed type and is merely out of range.
-(test-assert "TODAY (#1899): a bignum index says 'expected exact integer'"
+;; -- A bignum in u128 range now renders its exact value ----------------------
+;; #1916's shape ("expected exact integer, got <the integer>") no longer argues
+;; against itself for bignums that fit a u128; the value is shown in full.
+(test-assert "#1899 FIXED: a bignum index says 'expected exact integer'"
              (contains? (msg-of (lambda () (vector-ref (vector 1 2) 99999999999999999999)))
                         "expected exact integer"))
-(test-assert "TODAY (#1899): ...and reports the value as #<bignum>"
+(test-assert "#1899 FIXED: ...and reports the bignum's value"
              (contains? (msg-of (lambda () (vector-ref (vector 1 2) 99999999999999999999)))
-                        "#<bignum>"))
-(test-assert "control: the value really is an exact integer, so the message is self-contradictory"
+                        "99999999999999999999"))
+(test-assert "control: the value really is an exact integer"
              (exact-integer? 99999999999999999999))
+;; A magnitude beyond u128 needs heap scratch to stringify, which the error
+;; path must not allocate, so it falls back to a bounded #<bignum>.
+(test-assert "a bignum past u128 falls back conservatively to #<bignum>"
+             (contains? (msg-of (lambda () (vector-ref (vector 1 2)
+                                                       999999999999999999999999999999999999999999)))
+                        "#<bignum>"))
 
-;; -- The decisive control: the "unsafe" path renders BETTER ------------------
-;; `vm_calls.mapNativeError:383` runs the FULL allocating printer
-;; (printer.valueToString) when a primitive returns a bare TypeError with no
-;; detail set. So the path CI's gate exists to eliminate produces a strictly
-;; more informative value than primitives.typeError does -- same error class,
-;; same VM state, same file. This is why the documented rationale for the
-;; opacity ("deliberately does not dereference heap payloads",
-;; docs/dev/adding-features.md:75-77) cannot be the real constraint.
+;; -- Parity with the "unsafe" bare-return path -------------------------------
+;; `vm_calls.mapNativeError` runs the full allocating printer for a primitive
+;; that returns a bare TypeError with no detail. The typeError path used to
+;; render strictly worse than that; now both name the value.
 (test-assert "control: sqrt (bare-return path) renders the symbol's name"
              (contains? (msg-of (lambda () (sqrt 'the-key))) "the-key"))
-(test-assert "TODAY (#1899): magnitude (typeError path) renders #<symbol> instead"
-             (contains? (msg-of (lambda () (magnitude 'the-key))) "#<symbol>"))
-(test-assert "TODAY (#1899): ...and loses the name the other path kept"
-             (not (contains? (msg-of (lambda () (magnitude 'the-key))) "the-key")))
+(test-assert "#1899 FIXED: magnitude (typeError path) also renders the name"
+             (contains? (msg-of (lambda () (magnitude 'the-key))) "the-key"))
 
 ;; FAIL: #1899 (the helper path is less informative than the fallback path)
 ;; (test-assert "the typeError path is at least as informative as the fallback"

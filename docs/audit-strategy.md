@@ -553,7 +553,7 @@ Phase 2 session:
 |---|---|---|
 | D1 | **Internal-primitive direct-call surface** | The `%`-prefix convention and the `INTERNAL`/`INTERNAL_PUBLIC` split postdate v1 (#1856). ~53 procedures are callable from a plain script with no import and have zero test mention |
 | D2 | **Error-taxonomy correctness** | `typeError`/`indexError`/`argError` now carry distinct codes (KP3002/3006/3007). `indexError` appears in 6 files, `argError` in 3 — bounds failures are likely still reported as type errors elsewhere |
-| D3 | **Diagnostic fidelity** | `safeValueDescription` renders symbols, strings, vectors, bytevectors, rationals and bignums opaquely — see F10 |
+| D3 | **Diagnostic fidelity** | F10's opaque rendering was fixed (#1899): `safeValueDescription` now names a symbol/string/char/rational/small-bignum value. The dimension stays live — the `else` arm still renders unlisted tags opaquely, and every new heap type must decide what its `got` field says |
 | D4 | **Registration-table invariants** | `specs` arity vs. what the body indexes; `libs` tags vs. the SRFI's export list; the comptime `%`-vs-`scheme.*` check. Pure table-vs-body audit, no runtime needed |
 | D5 | **Re-entrancy and parking discipline** | Fibers, the reactor, custom-port callbacks and guardian invocation are all post-v1. Which callbacks may block, and does the rejection stay catchable? |
 | D6 | **Cross-heap deep-copy closure** | Every new heap type must round-trip both SRFI-18 boundaries or fail cleanly |

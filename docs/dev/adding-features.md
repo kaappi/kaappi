@@ -73,8 +73,10 @@ procedure name itself: `argError("%make-record-type-descriptor", "record type
 "expected X, got Y" would misdescribe the failure -- a symbol that is not one of
 three accepted symbols, an rtd that refuses to be extended, a uid already
 claimed. It also sidesteps a limit of `typeError`: `safeValueDescription`
-deliberately does not dereference heap payloads, so `got` renders every symbol
-as a bare `#<symbol>`, and `argError`'s own format string can name it.
+renders a bounded, non-recursive summary by contract (kaappi#1899) — a pair
+stays `#<pair>`, a vector reports only its length, a bignum past u128 stays
+`#<bignum>` — so when the diagnostic needs more than that summary,
+`argError`'s own format string can name the value.
 
 ### 2. Register the procedure and its libraries
 
