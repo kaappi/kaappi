@@ -24,6 +24,7 @@ const platform = @import("platform.zig");
 const thottam = @import("thottam.zig");
 const semver = @import("thottam_semver.zig");
 const state = @import("thottam_state.zig");
+const tfs = @import("thottam_fs.zig");
 
 const Semver = semver.Semver;
 
@@ -741,4 +742,251 @@ test "appendLockEntry emits the documented two- and three-column shapes" {
     try state.appendLockEntry(&out, allocator, "a", "sha-a", null);
     try state.appendLockEntry(&out, allocator, "b", "sha-b", "https://h/b");
     try std.testing.expectEqualStrings("a sha-a\nb sha-b https://h/b\n", out.items);
+}
+
+// ---------------------------------------------------------------------------
+// Issue #2144 — list/verify/update must not build paths from names read back
+// out of installed.txt / thottam.lock
+// ---------------------------------------------------------------------------
+//
+// isValidPkgName guards install and remove; the fix (landed with #2289) added
+// the same guard to every read path that hands a state-file name to
+// joinPath. These tests drive the three commands against a throwaway
+// $KAAPPI_HOME whose state files contain a traversal-shaped name, and assert
+// on what the commands print and return. The commands write their reports
+// straight to fd 1/fd 2, so the descriptor swap below is the observation
+// point; before the guard, each of these printed the hostile name (having
+// joined it onto src_dir/lib_dir) or exited clean.
+
+const Captured = struct {
+    out: []const u8,
+    err: ?anyerror,
+};
+
+/// Run `func(args)` with fd 1 (and fd 2 when `stderr_too`) pointed at a pipe,
+/// and return everything it wrote plus the error it returned, if any. Both
+/// descriptors are restored before the pipe is drained, so read() sees EOF
+/// instead of blocking on a descriptor that still aliases the write end.
+/// pipe/dup/dup2 are CRT calls on Windows too, so the swap is portable.
+fn captureOutput(comptime stderr_too: bool, comptime func: anytype, args: anytype) !Captured {
+    const allocator = std.testing.allocator;
+
+    var fds: [2]platform.fd_t = undefined;
+    if (platform.pipe(&fds) != 0) return error.PipeFailed;
+
+    const saved_out = platform.dup(1);
+    if (saved_out < 0) {
+        platform.close(fds[0]);
+        platform.close(fds[1]);
+        return error.DupFailed;
+    }
+    const saved_err: platform.fd_t = if (stderr_too) platform.dup(2) else -1;
+    if (stderr_too and saved_err < 0) {
+        platform.close(fds[0]);
+        platform.close(fds[1]);
+        platform.close(saved_out);
+        return error.DupFailed;
+    }
+
+    var cap: Captured = .{ .out = "", .err = null };
+
+    _ = platform.dup2(fds[1], 1);
+    if (stderr_too) _ = platform.dup2(fds[1], 2);
+    platform.close(fds[1]);
+
+    if (@call(.auto, func, args)) |_| {} else |err| {
+        cap.err = err;
+    }
+
+    _ = platform.dup2(saved_out, 1);
+    if (stderr_too) _ = platform.dup2(saved_err, 2);
+    platform.close(saved_out);
+    if (stderr_too) platform.close(saved_err);
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(allocator);
+    var chunk: [1024]u8 = undefined;
+    while (true) {
+        const n = platform.read(fds[0], &chunk, chunk.len);
+        if (n <= 0) break;
+        try buf.appendSlice(allocator, chunk[0..@intCast(n)]);
+    }
+    platform.close(fds[0]);
+    cap.out = try buf.toOwnedSlice(allocator);
+    return cap;
+}
+
+/// A throwaway `$KAAPPI_HOME` plus the Config thottam's main() derives from
+/// it. `outside` is a directory next to `home`: the hostile names in these
+/// tests are `../..` traversals out of `<home>/src` and resolve onto it. It
+/// is created up front (with `src` and `lib` inside home, as main()'s
+/// ensureDirs would have) so a regression that does follow a hostile name
+/// finds a plain non-repo directory and returns quietly rather than a lucky
+/// ENOENT — the assertions are on what the commands print, and a
+/// process-killing failure path would wreck the rest of the test run.
+const TmpHome = struct {
+    home: []u8,
+    outside: []u8,
+    config: thottam.Config,
+
+    fn init(allocator: std.mem.Allocator, tag: []const u8) !TmpHome {
+        const home = try std.fmt.allocPrint(allocator, "{s}/kaappi-thottam-2144-home-{d}-{s}", .{ platform.tempDir(), platform.getPid(), tag });
+        errdefer allocator.free(home);
+        try tfs.makeDirRecursive(allocator, home);
+
+        const outside = try std.fmt.allocPrint(allocator, "{s}/kaappi-thottam-2144-outside-{d}-{s}", .{ platform.tempDir(), platform.getPid(), tag });
+        errdefer allocator.free(outside);
+        try tfs.makeDirRecursive(allocator, outside);
+
+        const lib_dir = try std.mem.concat(allocator, u8, &.{ home, "/lib" });
+        errdefer allocator.free(lib_dir);
+        const src_dir = try std.mem.concat(allocator, u8, &.{ home, "/src" });
+        errdefer allocator.free(src_dir);
+        // The kernel resolves ".." against the real tree, so a traversal out
+        // of src only names `outside` if src itself exists.
+        try tfs.makeDirRecursive(allocator, src_dir);
+        try tfs.makeDirRecursive(allocator, lib_dir);
+        const installed = try std.mem.concat(allocator, u8, &.{ home, "/installed.txt" });
+        errdefer allocator.free(installed);
+        const lockfile = try std.mem.concat(allocator, u8, &.{ home, "/thottam.lock" });
+        errdefer allocator.free(lockfile);
+        const files = try std.mem.concat(allocator, u8, &.{ home, "/thottam.files" });
+
+        return .{
+            .home = home,
+            .outside = outside,
+            .config = .{
+                .home = home,
+                .org = "https://github.com/kaappi",
+                .lib_dir = lib_dir,
+                .src_dir = src_dir,
+                .installed = installed,
+                .lockfile = lockfile,
+                .files = files,
+            },
+        };
+    }
+
+    /// The hostile name: a traversal out of `config.src_dir` that lands on
+    /// `outside`. joinPath is literal concatenation, so this is exactly the
+    /// shape that escaped $KAAPPI_HOME before the read paths were guarded.
+    fn hostileName(self: TmpHome, allocator: std.mem.Allocator) ![]u8 {
+        return std.fmt.allocPrint(allocator, "../../{s}", .{std.fs.path.basename(self.outside)});
+    }
+
+    fn deinit(self: *TmpHome, allocator: std.mem.Allocator) void {
+        thottam.removeDir(allocator, self.home) catch {};
+        thottam.removeDir(allocator, self.outside) catch {};
+        allocator.free(self.config.lib_dir);
+        allocator.free(self.config.src_dir);
+        allocator.free(self.config.installed);
+        allocator.free(self.config.lockfile);
+        allocator.free(self.config.files);
+        allocator.free(self.home);
+        allocator.free(self.outside);
+    }
+};
+
+test "doList omits a state-file name that escapes $KAAPPI_HOME (issue #2144)" {
+    const allocator = std.testing.allocator;
+    var env = try TmpHome.init(allocator, "list");
+    defer env.deinit(allocator);
+    const evil = try env.hostileName(allocator);
+    defer allocator.free(evil);
+
+    // A hand-edited installed.txt: one real package, one traversal.
+    const content = try std.fmt.allocPrint(allocator, "kaappi-good\n{s}\n", .{evil});
+    defer allocator.free(content);
+    try thottam.writeFile(allocator, env.config.installed, content);
+
+    const cap = try captureOutput(false, thottam.doList, .{ allocator, env.config });
+    defer allocator.free(cap.out);
+    try std.testing.expect(cap.err == null);
+    // The good name is listed; the hostile line never reaches the output —
+    // nor joinPath, which for that name points outside $KAAPPI_HOME.
+    try std.testing.expect(std.mem.indexOf(u8, cap.out, "kaappi-good") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.out, "../") == null);
+}
+
+test "doVerify reports a hostile lockfile name as corruption and fails (issue #2144)" {
+    const allocator = std.testing.allocator;
+    var env = try TmpHome.init(allocator, "vlock");
+    defer env.deinit(allocator);
+    const evil = try env.hostileName(allocator);
+    defer allocator.free(evil);
+
+    // A hostile lockfile line and nothing installed: before the name check
+    // this line was structurally sound (non-empty name, non-empty SHA) and
+    // verify exited clean without ever noticing the name.
+    const line = try std.fmt.allocPrint(allocator, "{s} deadbeef\n", .{evil});
+    defer allocator.free(line);
+    try thottam.writeFile(allocator, env.config.lockfile, line);
+
+    const cap = try captureOutput(false, thottam.doVerify, .{ allocator, env.config });
+    defer allocator.free(cap.out);
+    try std.testing.expectEqual(@as(?anyerror, error.VerifyFailed), cap.err);
+    // Rejected loudly, naming the offending line.
+    try std.testing.expect(std.mem.indexOf(u8, cap.out, "MALFORMED") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.out, evil) != null);
+}
+
+test "doVerify reports a hostile installed.txt name as corruption, not a lockfile finding (issue #2144)" {
+    const allocator = std.testing.allocator;
+    var env = try TmpHome.init(allocator, "vinst");
+    defer env.deinit(allocator);
+    const evil = try env.hostileName(allocator);
+    defer allocator.free(evil);
+
+    // Structurally sound lockfile; the hostile name arrives via installed.txt.
+    try thottam.writeFile(allocator, env.config.lockfile, "kaappi-good abc123def456\n");
+    const content = try std.fmt.allocPrint(allocator, "{s}\n", .{evil});
+    defer allocator.free(content);
+    try thottam.writeFile(allocator, env.config.installed, content);
+
+    const cap = try captureOutput(false, thottam.doVerify, .{ allocator, env.config });
+    defer allocator.free(cap.out);
+    try std.testing.expectEqual(@as(?anyerror, error.VerifyFailed), cap.err);
+    // Before the guard the name was joined onto src_dir for getPkgSha and
+    // the line reported as a missing lockfile entry; now it is named as
+    // corruption before any path is built from it.
+    try std.testing.expect(std.mem.indexOf(u8, cap.out, "MALFORMED") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.out, evil) != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.out, "no lockfile entry") == null);
+}
+
+test "doUpdate rejects a hostile name given on the command line (issue #2144)" {
+    const allocator = std.testing.allocator;
+    var env = try TmpHome.init(allocator, "uarg");
+    defer env.deinit(allocator);
+    const evil = try env.hostileName(allocator);
+    defer allocator.free(evil);
+
+    const cap = try captureOutput(true, thottam.doUpdate, .{ allocator, env.config, evil });
+    defer allocator.free(cap.out);
+    // The same entry guard as install/remove: loud, naming the package.
+    try std.testing.expectEqual(@as(?anyerror, error.InvalidPackageName), cap.err);
+    try std.testing.expect(std.mem.indexOf(u8, cap.out, "invalid package name") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.out, evil) != null);
+}
+
+test "doUpdate of every package skips hostile names read back from installed.txt (issue #2144)" {
+    const allocator = std.testing.allocator;
+    var env = try TmpHome.init(allocator, "uall");
+    defer env.deinit(allocator);
+    const evil = try env.hostileName(allocator);
+    defer allocator.free(evil);
+
+    const content = try std.fmt.allocPrint(allocator, "{s}\n", .{evil});
+    defer allocator.free(content);
+    try thottam.writeFile(allocator, env.config.installed, content);
+
+    const no_pkg: ?[]const u8 = null;
+    const cap = try captureOutput(true, thottam.doUpdate, .{ allocator, env.config, no_pkg });
+    defer allocator.free(cap.out);
+    try std.testing.expect(cap.err == null);
+    // The escaped directory exists (TmpHome creates it as a plain non-repo),
+    // so pre-guard code announced the package and ran git in that directory;
+    // the guard skips the line instead. Nothing is announced, nothing runs.
+    try std.testing.expect(std.mem.indexOf(u8, cap.out, evil) == null);
+    try std.testing.expect(std.mem.indexOf(u8, cap.out, "../") == null);
 }

@@ -66,7 +66,10 @@ fn initColor() void {
     use_color = platform.isatty(1);
 }
 
-const Config = struct {
+// pub so tests_thottam.zig can drive the commands against a throwaway
+// $KAAPPI_HOME — the #2144 regression tests assert on what list/update/verify
+// do with names read back from installed.txt and thottam.lock.
+pub const Config = struct {
     home: []const u8,
     org: []const u8,
     lib_dir: []const u8,
@@ -861,7 +864,7 @@ fn doRemove(allocator: std.mem.Allocator, config: Config, pkg: []const u8) !void
     writeStdout(" removed\n");
 }
 
-fn doList(allocator: std.mem.Allocator, config: Config) !void {
+pub fn doList(allocator: std.mem.Allocator, config: Config) !void {
     const content = readFile(allocator, config.installed) catch {
         writeStdout("No packages installed\n");
         return;
@@ -911,7 +914,7 @@ fn doList(allocator: std.mem.Allocator, config: Config) !void {
     }
 }
 
-fn doUpdate(allocator: std.mem.Allocator, config: Config, pkg: ?[]const u8) !void {
+pub fn doUpdate(allocator: std.mem.Allocator, config: Config, pkg: ?[]const u8) !void {
     if (pkg) |p| {
         // #2144: the same entry guard as install/remove — a package name
         // must never build a path outside $KAAPPI_HOME, however it arrives.
@@ -1052,7 +1055,7 @@ fn doUpdate(allocator: std.mem.Allocator, config: Config, pkg: ?[]const u8) !voi
     }
 }
 
-fn doVerify(allocator: std.mem.Allocator, config: Config) !void {
+pub fn doVerify(allocator: std.mem.Allocator, config: Config) !void {
     const lock_content = readFile(allocator, config.lockfile) catch {
         writeStdout("No lockfile found\n");
         return error.NoLockfile;
@@ -1324,7 +1327,11 @@ pub fn main(init: std.process.Init.Minimal) !void {
         try doList(allocator, config);
     } else if (std.mem.eql(u8, cmd, "update")) {
         doUpdate(allocator, config, sub_arg) catch |err| {
-            if (err == error.NotInstalled or err == error.GitFailed or err == error.CopyFailed or err == error.GitNotFound) std.process.exit(1);
+            // InvalidPackageName prints its own message (the #2144 entry
+            // guard); exiting here keeps Zig's handler from adding the raw
+            // error name as a second line — the same reason install/remove
+            // list it (kaappi#2132).
+            if (err == error.NotInstalled or err == error.GitFailed or err == error.CopyFailed or err == error.GitNotFound or err == error.InvalidPackageName) std.process.exit(1);
             return err;
         };
     } else if (std.mem.eql(u8, cmd, "verify")) {
