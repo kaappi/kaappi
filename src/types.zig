@@ -415,6 +415,13 @@ pub const Function = struct {
     line_table: std.ArrayList(LineEntry) = .empty,
     global_cache: ?[]Value = null,
     cache_version: u32 = 0,
+    // A restricted environment's binding map, or a library's lib_env. INVARIANT
+    // (#1962): no GC switch traces this raw pointer -- it is GC-reachable ONLY
+    // through the paired `env_val` below, EXCEPT when it is one of the VM-rooted
+    // library registries (`markVmRoots`: every library's lib_env, retired_envs,
+    // pending_lib_envs, current_lib_env), in which case `env_val` may be NIL and
+    // the registry keeps the bindings alive. Construction sites must satisfy
+    // this; `globals.assertEnvMapInvariant` checks it in debug/test builds.
     env: ?*std.StringHashMap(Value) = null,
     env_val: Value = NIL,
     // `env` is authoritative: a name missing from it must not fall back to

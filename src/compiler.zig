@@ -1389,6 +1389,9 @@ pub fn compileExpressionInEnv(gc: *memory.GC, expr: Value, vm_macros: *std.Strin
     try c.compile(expr, is_tail);
     c.func.env = env;
     c.func.env_val = env_val;
+    // #1962: env is untraced -- assert it is reachable via env_val, or is a
+    // VM-rooted registry map when env_val is NIL (the five library sites).
+    globals_mod.assertEnvMapInvariant(env, env_val);
     var out_it = c.macros.iterator();
     while (out_it.next()) |entry| {
         vm_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return CompileError.OutOfMemory;

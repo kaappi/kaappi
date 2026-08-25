@@ -50,6 +50,13 @@ pub const Transformer = struct {
     // snapshot rather than just wasting an allocation.
     peers_computed: bool = false,
     captured_locals: []CapturedLocal = &.{},
+    // The defining library's lib_env (or a restricted env), for def-env-scoped
+    // free-reference resolution. INVARIANT (#1962), identical to `Function.env`:
+    // no GC switch traces this raw pointer -- it is GC-reachable ONLY through
+    // the paired `def_env_val` below, EXCEPT when it is one of the VM-rooted
+    // library registries (`markVmRoots`), in which case `def_env_val` may be NIL
+    // because the registry keeps the bindings alive. Construction sites must
+    // satisfy this; `globals.assertEnvMapInvariant` checks it in debug/test.
     def_env: ?*std.StringHashMap(Value) = null,
     def_env_val: Value = NIL,
     /// Canonical name (e.g. "demo.srmac") of the library def_env belongs to,

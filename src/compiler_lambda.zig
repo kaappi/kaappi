@@ -595,6 +595,7 @@ pub fn scanBodyDefs(compiler: *Compiler, body: Value, handle_define_syntax: bool
             if (compiler.lib_env) |env| {
                 tx.def_env = env;
                 tx.def_env_val = compiler.lib_env_val;
+                globals_mod.assertEnvMapInvariant(env, compiler.lib_env_val); // #1962
             }
             try macro.captureLocalsOnTransformer(compiler, transformer);
             compiler.macros.put(name, transformer) catch return CompileError.OutOfMemory;

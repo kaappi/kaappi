@@ -46,6 +46,17 @@ pub fn setVMInstance(vm: *VM) void {
     globals_mod.error_detail_for_macro = &errorDetailForMacro;
     globals_mod.syntax_property_set = &syntaxPropertySet;
     globals_mod.syntax_property_get = &syntaxPropertyGet;
+    globals_mod.env_map_rooted_lookup = &envMapIsGcRooted;
+}
+
+/// #1962: whether `map` is one of the environment maps `markVmRoots` traces
+/// unconditionally, exposed to the compiler through
+/// `globals.env_map_rooted_lookup` so it can enforce the untraced-env-map
+/// invariant (see `VM.isGcRootedEnvMap`). Returns false when no VM is live,
+/// which is safe: without a VM no collection can observe the field.
+fn envMapIsGcRooted(map: *std.StringHashMap(Value)) bool {
+    const vm = vm_instance orelse return false;
+    return vm.isGcRootedEnvMap(map);
 }
 
 /// SRFI 211: evaluate a datum at macro-expansion time in the global
@@ -1042,6 +1053,38 @@ pub const VM = struct {
 
     pub fn getErrorDetail(self: *VM) []const u8 {
         return self.last_error_detail[0..self.last_error_detail_len];
+    }
+
+    /// #1962: whether `map` is one of the environment maps `markVmRoots`
+    /// traces unconditionally each collection -- every registered library's
+    /// `lib_env`, a `retired_env` of a replaced library, an in-flight
+    /// `pending_lib_env`, or the library env currently being compiled
+    /// (`current_lib_env`, which becomes one of the former once its
+    /// `define-library` finishes registering). A `Function.env` /
+    /// `Transformer.def_env` pointing at such a map stays reachable with a NIL
+    /// paired `env_val` / `def_env_val`; any other map must carry a non-NIL,
+    /// GC-traced paired value or its bindings are lost at the next collection.
+    /// Pointer-identity match; runs only from the debug/test assertion guard,
+    /// so the O(libraries) scan never costs a release build anything.
+    pub fn isGcRootedEnvMap(self: *VM, map: *std.StringHashMap(Value)) bool {
+        if (self.current_lib_env) |e| {
+            if (e == map) return true;
+        }
+        var lit = self.libraries.libraries.valueIterator();
+        while (lit.next()) |lib| {
+            if (lib.lib_env) |e| {
+                if (e == map) return true;
+            }
+        }
+        for (self.libraries.retired_envs.items) |e| {
+            if (e == map) return true;
+        }
+        for (self.pending_lib_envs[0..self.pending_lib_env_count]) |maybe| {
+            if (maybe) |e| {
+                if (e == map) return true;
+            }
+        }
+        return false;
     }
 
     /// Writes `eo`'s own `message` + `irritants` (display mode for the
