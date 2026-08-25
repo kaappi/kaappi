@@ -168,7 +168,12 @@ pub fn raiseContinuable(vm: *vm_mod.VM, obj: Value) PrimitiveError!Value {
 /// two error-coding boundaries cannot drift apart.
 ///
 /// The returned object is *unrooted* — root it before allocating again.
-fn nativeErrorToErrorObject(vm: *vm_mod.VM, gc: *memory.GC, err: anyerror) PrimitiveError!Value {
+///
+/// `pub` since #2204: the fiber dispatch loop's error arm (fiber_wait.zig)
+/// runs the same conversion so a VM-level fault inside a fiber keeps its
+/// code and message across the fiber boundary — the fourth error-coding
+/// boundary, deliberately the same function so none of them can drift.
+pub fn nativeErrorToErrorObject(vm: *vm_mod.VM, gc: *memory.GC, err: anyerror) PrimitiveError!Value {
     const detail = vm.getErrorDetail();
     var msg_str = if (detail.len > 0)
         gc.allocString(detail) catch return PrimitiveError.OutOfMemory

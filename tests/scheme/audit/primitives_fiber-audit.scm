@@ -126,6 +126,29 @@
     (raises? (lambda () (make-channel 100000000000000000000000))))
 (test-assert "make-channel's rejection names make-channel"
     (msg-has? (lambda () (make-channel -1)) "make-channel"))
+;; #2002: the capacity is stored as a u32, so a value that IS an exact
+;; integer outside [0, 2^32-1] is a range rejection — an argument error
+;; (KP3007) naming the real bound — never a type error. The old one-size
+;; typeError read "expected non-negative exact integer, got 4294967296",
+;; which argues against itself (4294967296 is exactly that) and hides the
+;; actual constraint. A bignum is always a range case: a fixnum already
+;; spans ±2^47, so anything bignum-sized dwarfs u32. Only a genuinely
+;; non-integer argument (1.0, 'x) stays a type error.
+(test-equal "an above-u32 capacity is an argument error, not a type error (#2002)"
+    'KP3007 (guard (e (#t (error-object-code e))) (make-channel 4294967296)))
+(test-assert "the above-u32 rejection names the real bound (#2002)"
+    (msg-has? (lambda () (make-channel 4294967296)) "4294967295"))
+(test-equal "a negative capacity is an argument error, not a type error (#2002)"
+    'KP3007 (guard (e (#t (error-object-code e))) (make-channel -1)))
+(test-assert "the negative rejection names the real bound too (#2002)"
+    (msg-has? (lambda () (make-channel -1)) "4294967295"))
+(test-equal "a bignum capacity is a range rejection, not a type error (#2002)"
+    'KP3007 (guard (e (#t (error-object-code e)))
+               (make-channel 100000000000000000000000)))
+(test-equal "an inexact capacity stays a type error (#2002)"
+    'KP3002 (guard (e (#t (error-object-code e))) (make-channel 1.0)))
+(test-equal "a symbol capacity stays a type error (#2002)"
+    'KP3002 (guard (e (#t (error-object-code e))) (make-channel 'x)))
 ;; Surplus arguments are silently ignored — matches the codebase-wide
 ;; convention for variadic primitives (string->number, make-vector,
 ;; thread-join!, make-mutex all do the same), so this pins the convention
@@ -239,6 +262,19 @@
 (test-equal "a timeout never discards an already-admitted send"
     'sent (let ((ch (make-channel 1)))
             (if (eq? (channel-send ch 'v 0 'TO) 'TO) 'timed-out 'sent)))
+;; #2002: a bad timeout argument used to be blamed on a procedure named
+;; 'thread' — the shared SRFI-18 helper's hardcoded name, which does not
+;; exist in (kaappi fibers) and is not imported by a program using only
+;; this library. Each caller now passes its own name through. A symbol
+;; timeout is still a type error (KP3002) — only the name was wrong.
+(test-assert "a bad channel-receive timeout names channel-receive, not 'thread' (#2002)"
+    (msg-has? (lambda () (channel-receive (make-channel) 'bad)) "channel-receive"))
+(test-assert "a bad channel-send timeout names channel-send, not 'thread' (#2002)"
+    (msg-has? (lambda () (channel-send (make-channel) 1 'bad)) "channel-send"))
+(test-equal "a bad timeout is still a type error (#2002)"
+    'KP3002 (guard (e (#t (error-object-code e))) (channel-receive (make-channel) 'bad)))
+(test-assert "a bad thread-join! timeout names thread-join!, not 'thread' (#2002)"
+    (msg-has? (lambda () (thread-join! (make-thread (lambda () 1)) 'bad)) "thread-join!"))
 
 ;;; --- spawn / fiber-join ---
 ;; native procedures are now accepted as spawn thunks (#1155)
@@ -338,6 +374,49 @@
 ;; a guard inside the fiber handles its own error normally
 (test-equal "a guard inside a fiber handles the fiber's own error"
     'handled (fiber-join (spawn (lambda () (guard (e (#t 'handled)) (error "x"))))))
+;; a guard inside the fiber catches a VM fault the same way it would
+;; outside one — the conversion the join path got in #2204 must not change
+;; what the fiber's own guard sees.
+(define five 5)
+(test-equal "a guard inside the fiber catches the fiber's own VM fault"
+    'handled (fiber-join (spawn (lambda () (guard (e (#t 'handled)) (car five))))))
+
+;;; --- #2204: a VM-level fault keeps its code and message across the fiber ---
+;; A fault that travels as a bare VMError (type error, unbound variable,
+;; bad index, arity mismatch) used to lose both its code and its message at
+;; the fiber boundary: the dispatch loop dropped the error tag, the detail
+;; in vm.last_error_detail was never copied into the fiber's saved state,
+;; and fiber-join re-raised a substituted KP3007 "fiber error (no
+;; exception value)" — a *different condition*, so a clause discriminating
+;; on the code could never match. The dispatch loop now converts the fault
+;; into the same coded error object a guard sees outside a fiber.
+(test-equal "CONTROL: the same fault outside a fiber is KP3002"
+    'KP3002 (guard (e (#t (error-object-code e))) (car five)))
+(test-equal "a fiber's type fault keeps its code (#2204)"
+    'KP3002 (guard (e (#t (error-object-code e)))
+               (fiber-join (spawn (lambda () (car five))))))
+(test-assert "a fiber's type fault keeps its message (#2204)"
+    (msg-has? (lambda () (fiber-join (spawn (lambda () (car five)))))
+              "type error in 'car': expected pair, got 5"))
+(test-equal "a fiber's unbound-variable fault keeps its code (#2204)"
+    'KP3001 (guard (e (#t (error-object-code e)))
+               (fiber-join (spawn (lambda () no-such-binding-2204)))))
+(test-equal "a fiber's index fault keeps its code (#2204)"
+    'KP3006 (guard (e (#t (error-object-code e)))
+               (fiber-join (spawn (lambda () (vector-ref (vector 1) 9))))))
+(test-equal "a fiber's call-arity fault keeps its code (#2204)"
+    'KP3003 (guard (e (#t (error-object-code e)))
+               (fiber-join (spawn (lambda () ((lambda (x) x)))))))
+;; an interposed yield makes no difference (dispatch vs. driven in place)
+(test-equal "a fault after a yield keeps its identity too (#2204)"
+    'KP3002 (guard (e (#t (error-object-code e)))
+               (fiber-join (spawn (lambda () (yield) (car five))))))
+;; like Scheme-level raises, re-raised identically on every join
+(test-equal "a fiber's VM fault is re-raised identically on every join (#2204)"
+    '(KP3002 KP3002)
+    (let ((f (spawn (lambda () (car five)))))
+      (list (guard (e (#t (error-object-code e))) (fiber-join f))
+            (guard (e (#t (error-object-code e))) (fiber-join f)))))
 
 ;;; --- D5: parking discipline (KEP-0001) ---
 ;; #1959: map/for-each and dynamic-wind are bootstrapped Scheme, not native

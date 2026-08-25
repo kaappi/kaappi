@@ -622,7 +622,10 @@ pub fn parseOptionalRange(args: []const Value, arg_offset: usize, max_len: usize
 ///       one-level summary (a vector/bytevector reports its length; a rational
 ///       renders its two exact-integer components), never a recursive print —
 ///       so a cyclic structure cannot make this loop.
-fn safeValueDescription(buf: *[128]u8, value: Value) []const u8 {
+/// `pub` since #2002: primitives_fiber.makeChannelFn's range rejection needs
+/// the offending value in its argError message ("…between 0 and 4294967295,
+/// got <value>") without duplicating this deliberately-defensive renderer.
+pub fn safeValueDescription(buf: *[128]u8, value: Value) []const u8 {
     var w: std.Io.Writer = .fixed(buf);
     describeValue(&w, value);
     const out = w.buffered();

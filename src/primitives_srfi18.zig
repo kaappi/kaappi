@@ -420,7 +420,12 @@ fn saturatedNsFromSeconds(secs: f64) u64 {
 /// `pub` since KEP-0002 Phase 4 (#1469): primitives_fiber.zig's
 /// channel-send/channel-receive timeouts reuse this exact SRFI-18-shaped
 /// number-or-time-object-or-#f parsing rather than duplicating it.
-pub fn timeoutToDeadlineNs(timeout: Value) PrimitiveError!?u64 {
+///
+/// `proc` is the calling procedure's name, used verbatim in the timeout's
+/// type error (#2002). It used to be hardcoded 'thread', so
+/// `(channel-receive ch 'bad)` reported `type error in 'thread'` — a
+/// procedure that does not exist, in a library the caller never imported.
+pub fn timeoutToDeadlineNs(proc: []const u8, timeout: Value) PrimitiveError!?u64 {
     if (timeout == types.FALSE) return null;
     if (types.isSrfi18Time(timeout)) {
         const t = types.toSrfi18Time(timeout);
@@ -441,7 +446,7 @@ pub fn timeoutToDeadlineNs(timeout: Value) PrimitiveError!?u64 {
         return mono_now +| (sec_ns - now_ns);
     }
     const secs = primitives.toF64(timeout) catch
-        return primitives.typeError("thread", "time object or number", timeout);
+        return primitives.typeError(proc, "time object or number", timeout);
     const mono_now = fiber_mod.clockNs();
     // The saturating add keeps a saturated delta pinned at "never" instead
     // of wrapping around into the past (#1983).
@@ -1123,7 +1128,7 @@ fn threadJoinFn(args: []const Value) PrimitiveError!Value {
     var has_timeout_val = false;
     var timeout_val: Value = types.VOID;
     if (args.len > 1) {
-        deadline_ns = try timeoutToDeadlineNs(args[1]);
+        deadline_ns = try timeoutToDeadlineNs("thread-join!", args[1]);
         if (args.len > 2) {
             has_timeout_val = true;
             timeout_val = args[2];
@@ -1606,7 +1611,7 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
 
     var deadline: ?u64 = null;
     if (args.len > 1) {
-        deadline = try timeoutToDeadlineNs(args[1]);
+        deadline = try timeoutToDeadlineNs("mutex-lock!", args[1]);
         if (deadline != null and deadline.? == 0) return types.FALSE;
     }
 
@@ -1787,7 +1792,7 @@ fn mutexUnlockFn(args: []const Value) PrimitiveError!Value {
     if (cv) |c| {
         var deadline: ?u64 = null;
         if (args.len > 2) {
-            deadline = try timeoutToDeadlineNs(args[2]);
+            deadline = try timeoutToDeadlineNs("mutex-unlock!", args[2]);
         }
 
         const me = ctx.vm.current_fiber orelse return PrimitiveError.OutOfMemory;
