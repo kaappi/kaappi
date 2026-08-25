@@ -907,12 +907,28 @@ pub fn compileDefineRecordType(self: *Compiler, args: Value, dst: u16) CompileEr
         forms = gc.allocPair(gc.makeList(&[_]Value{ define_sym, np, body }) catch return CompileError.OutOfMemory, forms) catch return CompileError.OutOfMemory;
     }
 
-    // Internal record type: (define __rt (%make-record-type "name" n))
+    // Internal record type: (define __rt (%make-record-type "name" n
+    //   (quote (("fname" . mutable?) ...)))) -- the quoted field-specs list
+    // carries the per-field metadata (#2088) in the same (name-string .
+    // mutable?) shape %make-record-type-descriptor uses, so the SRFI 237/240
+    // inspection layer sees this type's field names. Mutable iff the field's
+    // clause names a mutator (R7RS 5.5.1).
     {
         const mrt = globals_mod.baseBindingSymbol(gc, "%make-record-type") catch return CompileError.OutOfMemory;
         const ns = gc.allocString(spec.type_name) catch return CompileError.OutOfMemory;
         const nf = types.makeFixnum(@intCast(spec.field_count));
-        const init = gc.makeList(&[_]Value{ mrt, ns, nf }) catch return CompileError.OutOfMemory;
+
+        var spec_elems: [256]Value = undefined;
+        for (0..spec.field_count) |fi| {
+            const fname_str = gc.allocString(spec.field_names[fi]) catch return CompileError.OutOfMemory;
+            const fmut = if (spec.mutator_names[fi] != null) types.TRUE else types.FALSE;
+            spec_elems[fi] = gc.allocPair(fname_str, fmut) catch return CompileError.OutOfMemory;
+        }
+        const specs_list = gc.makeList(spec_elems[0..spec.field_count]) catch return CompileError.OutOfMemory;
+        const quote_sym = gc.allocSymbol("quote") catch return CompileError.OutOfMemory;
+        const quoted_specs = gc.makeList(&[_]Value{ quote_sym, specs_list }) catch return CompileError.OutOfMemory;
+
+        const init = gc.makeList(&[_]Value{ mrt, ns, nf, quoted_specs }) catch return CompileError.OutOfMemory;
         const rt_sym = gc.allocSymbol(internal_name) catch return CompileError.OutOfMemory;
         forms = gc.allocPair(gc.makeList(&[_]Value{ define_sym, rt_sym, init }) catch return CompileError.OutOfMemory, forms) catch return CompileError.OutOfMemory;
     }

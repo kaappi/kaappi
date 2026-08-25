@@ -7,12 +7,13 @@
 ;;; record types", with everything else inherited from SRFI 237.
 ;;;
 ;;; That interoperability claim is what this file tests, and it is where the
-;;; finding is: a record type created by R7RS positional `define-record-type`
-;;; reports ZERO field names to the SRFI 237/240 inspection layer, so
-;;; record-type-field-names lies (#() rather than the fields the type has) and
-;;; record-accessor / record-mutator / record-field-mutable? are unusable on
-;;; it. The R6RS-clause and procedural paths are both correct, which is the
-;;; discriminating control. Filed as #2088.
+;;; finding was: a record type created by R7RS positional `define-record-type`
+;;; reported ZERO field names to the SRFI 237/240 inspection layer, so
+;;; record-type-field-names lied (#() rather than the fields the type has) and
+;;; record-accessor / record-mutator / record-field-mutable? were unusable on
+;;; it. The R6RS-clause and procedural paths were both correct, which is the
+;;; discriminating control. Filed as #2088, fixed by populating the rtd's
+;;; field metadata on the R7RS path.
 ;;;
 ;;; The pre-existing tests/scheme/srfi/srfi240.scm has 12 assertions and never
 ;;; touches 17 of the 23 exports.
@@ -153,8 +154,8 @@
 
 ;;; ------------------------------------------------------------------
 ;;; R7RS positional syntax. `record?`, `record-rtd`, `record-type-name` and a
-;;; derived `record-constructor` all work, so the type IS visible to the
-;;; inspection layer — but its field metadata is empty.
+;;; derived `record-constructor` all work; since #2088's fix the rtd also
+;;; carries its field metadata, so the whole inspection layer works too.
 ;;; ------------------------------------------------------------------
 
 (define-record-type <r7> (make-r7 x y) r7? (x r7-x) (y r7-y set-r7-y!))
@@ -177,29 +178,44 @@
              (r7? ((record-constructor
                     (make-record-constructor-descriptor (record-rtd r7) #f #f)) 1 2)))
 
-;; FAIL: #2088 (an R7RS define-record-type produces an rtd with zero own field
-;;              names, so the SRFI 237/240 inspection layer cannot see its fields)
-;; (test-equal "an R7RS record reports its field names"
-;;             '#(x y) (record-type-field-names (record-rtd r7)))
-;; FAIL: #2088
-;; (test-equal "record-accessor works on an R7RS record"
-;;             1 ((record-accessor (record-rtd r7) 0) r7))
-;; FAIL: #2088
-;; (test-assert "record-field-mutable? works on an R7RS record"
-;;              (not (record-field-mutable? (record-rtd r7) 0)))
-;; FAIL: #2088
-;; (test-assert "record-mutator works on an R7RS record's mutable field"
-;;              (procedure? (record-mutator (record-rtd r7) 1)))
+;; #2088 (fixed): an R7RS define-record-type's rtd carries its field
+;; names/mutability, so the SRFI 237/240 inspection layer sees its fields.
+(test-equal "an R7RS record reports its field names"
+            '#(x y) (record-type-field-names (record-rtd r7)))
+(test-equal "record-accessor works on an R7RS record"
+            1 ((record-accessor (record-rtd r7) 0) r7))
+(test-equal "record-accessor reaches the second field of an R7RS record"
+            2 ((record-accessor (record-rtd r7) 1) r7))
+(test-assert "record-field-mutable? works on an R7RS record"
+             (not (record-field-mutable? (record-rtd r7) 0)))
+(test-assert "record-field-mutable? sees the mutable field of an R7RS record"
+             (record-field-mutable? (record-rtd r7) 1))
+(test-equal "record-mutator works on an R7RS record's mutable field"
+            9 (let ((m (record-mutator (record-rtd r7) 1))) (m r7 9) (r7-y r7)))
+(test-assert "record-mutator on an R7RS record's immutable field is rejected"
+             (raises? (lambda () (record-mutator (record-rtd r7) 0))))
+(test-assert "record-accessor by name works on an R7RS record"
+             (= 1 ((record-accessor (record-rtd r7) 'x) r7)))
+(test-assert "record-accessor with an out-of-range index is still rejected"
+             (raises? (lambda () (record-accessor (record-rtd r7) 5))))
 
-;; The observed behaviour, pinned so the fix flips these too.
-(test-equal "an R7RS record's rtd currently reports zero field names"
-            '#() (record-type-field-names (record-rtd r7)))
-(test-assert "record-accessor on an R7RS record's rtd currently raises"
-             (raises? (lambda () (record-accessor (record-rtd r7) 0))))
-(test-assert "record-field-mutable? on an R7RS record's rtd currently raises"
-             (raises? (lambda () (record-field-mutable? (record-rtd r7) 0))))
-(test-assert "record-mutator on an R7RS record's rtd currently raises"
-             (raises? (lambda () (record-mutator (record-rtd r7) 1))))
+;; A record type with zero fields legitimately reports zero names -- the
+;; fix must not invent any, and an empty #() stays empty for the right
+;; reason (there are no fields), not the wrong one (metadata was dropped).
+(define-record-type <empty> (make-empty) empty?)
+(test-equal "a zero-field R7RS record reports zero field names"
+            '#() (record-type-field-names (record-rtd (make-empty))))
+
+;; A body-local R7RS define-record-type (compiled through the body-scanning
+;; desugarer rather than the top-level handler) carries its field names too.
+(define (make-local-pair a b)
+  (define-record-type <lp> (mk-lp u v) lp? (u lp-u) (v lp-v))
+  (mk-lp a b))
+(define lp (make-local-pair 4 5))
+(test-equal "a body-local R7RS record reports its field names"
+            '#(u v) (record-type-field-names (record-rtd lp)))
+(test-equal "record-accessor works on a body-local R7RS record"
+            5 ((record-accessor (record-rtd lp) 1) lp))
 
 ;; Discriminating control: the same two-field, one-mutable shape built the two
 ;; other ways is fully introspectable, so the defect is specific to the R7RS

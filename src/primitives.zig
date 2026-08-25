@@ -304,8 +304,10 @@ const core_specs = [_]PrimSpec{
     .{ .name = "symbol->string", .func = &symbolToString, .arity = .{ .exact = 1 }, .libs = BR },
     // The record substrate `define-record-type`'s desugarer emits and the
     // portable record SRFIs (57/131/136/150/237) call directly. Internal,
-    // not `(scheme base)` exports (kaappi#1856).
-    .{ .name = "%make-record-type", .func = &makeRecordTypeFn, .arity = .{ .exact = 2 }, .libs = INTERNAL_PUBLIC },
+    // not `(scheme base)` exports (kaappi#1856). %make-record-type's third
+    // argument (per-field metadata, #2088) is optional so count-only
+    // callers keep working.
+    .{ .name = "%make-record-type", .func = &makeRecordTypeFn, .arity = .{ .range = .{ .min = 2, .max = 3 } }, .libs = INTERNAL_PUBLIC },
     .{ .name = "%make-record", .func = &makeRecordFn, .arity = .{ .variadic = 1 }, .libs = INTERNAL_PUBLIC },
     .{ .name = RECORD_CHECK, .func = &recordCheckFn, .arity = .{ .exact = 2 }, .libs = INTERNAL_PUBLIC },
     .{ .name = "%record-ref", .func = &recordRefFn, .arity = .{ .exact = 3 }, .libs = INTERNAL_PUBLIC },
@@ -1249,12 +1251,57 @@ fn applyFn(args: []const Value) PrimitiveError!Value {
 
 fn makeRecordTypeFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    // args[0] = name (string), args[1] = num_fields (fixnum)
+    // args[0] = name (string), args[1] = num_fields (fixnum), and optionally
+    // args[2] = per-field metadata: a list of (name-string . mutable?) pairs,
+    // the same shape %make-record-type-descriptor's field-specs argument
+    // uses. Present exactly when the emitting define-record-type desugarer
+    // knows the field names (#2088 -- the R7RS paths joined the R6RS and
+    // procedural ones); absent for count-only callers.
     const name_data = try expectString("%make-record-type", args[0]);
     const nf = try expectFixnum("%make-record-type", args[1]);
     if (nf < 0 or nf > 255) return PrimitiveError.TypeError; // bare-ok: internal record primitive
     const num_fields: u8 = @intCast(nf);
-    return gc.allocRecordType(name_data, num_fields) catch return PrimitiveError.OutOfMemory;
+
+    if (args.len == 2) {
+        return gc.allocRecordType(name_data, num_fields) catch return PrimitiveError.OutOfMemory;
+    }
+
+    var field_names_buf: [256][]const u8 = undefined;
+    var field_mutable_buf: [256]bool = undefined;
+    var field_count: usize = 0;
+    var specs_cur = args[2];
+    while (specs_cur != types.NIL) {
+        if (!types.isPair(specs_cur)) return typeError("%make-record-type", "list", args[2]);
+        const entry = types.car(specs_cur);
+        if (!types.isPair(entry)) return typeError("%make-record-type", "(name . mutable?) pair", entry);
+        if (field_count >= 255) return PrimitiveError.TypeError; // bare-ok: internal record primitive
+        field_names_buf[field_count] = try expectString("%make-record-type", types.car(entry));
+        field_mutable_buf[field_count] = types.cdr(entry) != types.FALSE;
+        field_count += 1;
+        specs_cur = types.cdr(specs_cur);
+    }
+    // The count and the specs describe one type; disagreeing is an invalid
+    // argument combination, not a type error.
+    if (field_count != nf) {
+        return argError(
+            "%make-record-type",
+            "field-specs list has {d} entries but the declared field count is {d}",
+            .{ field_count, nf },
+        );
+    }
+
+    // A parentless, generative, transparent type: %make-record-type has no
+    // way to ask for anything else, so TooManyFields is unreachable here
+    // (both the count and the specs list are capped at 255 above).
+    return gc.allocRecordTypeExtended(
+        name_data,
+        null,
+        field_names_buf[0..field_count],
+        field_mutable_buf[0..field_count],
+        null,
+        false,
+        false,
+    ) catch return PrimitiveError.OutOfMemory;
 }
 
 fn makeRecordFn(args: []const Value) PrimitiveError!Value {

@@ -481,3 +481,65 @@ test "equal? records hash alike; different record types hash apart" {
     try std.testing.expectEqual(hashtable.valueHash(a1), hashtable.valueHash(a2));
     try std.testing.expect(hashtable.valueHash(a1) != hashtable.valueHash(b1));
 }
+
+// #2088: the R7RS positional define-record-type path populated no field
+// metadata, so record-type-field-names (SRFI 237/240 inspection) returned #()
+// and record-accessor/record-mutator/record-field-mutable? were unusable on
+// such rtds. The desugarer now records each field's name and mutability
+// (mutable iff the field's clause names a mutator, R7RS 5.5.1) on the rtd --
+// for the top-level handler AND the body-context desugarer below.
+test "R7RS define-record-type records field names and mutability on the rtd" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-record-type <pt> (mk-pt x y) pt?
+        \\  (x pt-x) (y pt-y set-pt-y!))
+    );
+
+    const rt_val = vm.globals.get(" __record_type_<pt>") orelse
+        return error.TestUnexpectedResult;
+    const rt = types.toObject(rt_val).as(types.RecordType);
+    try std.testing.expectEqual(@as(usize, 2), rt.own_field_names.len);
+    try std.testing.expectEqualStrings("x", rt.own_field_names[0]);
+    try std.testing.expectEqualStrings("y", rt.own_field_names[1]);
+    try std.testing.expectEqual(@as(usize, 2), rt.own_field_mutable.len);
+    try std.testing.expect(!rt.own_field_mutable[0]);
+    try std.testing.expect(rt.own_field_mutable[1]);
+}
+
+test "body-local R7RS define-record-type records field names too" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // The lambda body's leading define-record-type goes through the
+    // body-scanning desugarer (expandRecordTypeDefines), whose generated
+    // %make-record-type call must carry the field specs as well. The
+    // accessors it defines are locals of the body, so the rtd is reached
+    // through an instance (the same route the SRFI 237 inspection layer
+    // takes).
+    _ = try vm.eval(
+        \\(define (make-lp a b)
+        \\  (define-record-type <lp> (mk-lp u v) lp? (u lp-u) (v lp-v))
+        \\  (mk-lp a b))
+    );
+    const result = try vm.eval(
+        \\(let ((rtd (%record-rtd (make-lp 1 2))))
+        \\  (list (%record-type-field-names rtd)
+        \\        (%record-field-mutable? rtd 0)
+        \\        (%record-field-mutable? rtd 1)))
+    );
+    try std.testing.expect(types.isPair(result));
+    const names = types.car(result);
+    try std.testing.expect(types.isSymbol(types.car(names)));
+    try std.testing.expectEqualStrings("u", types.symbolName(types.car(names)));
+    try std.testing.expect(types.isSymbol(types.car(types.cdr(names))));
+    try std.testing.expectEqualStrings("v", types.symbolName(types.car(types.cdr(names))));
+    try std.testing.expect(types.isNil(types.cdr(types.cdr(names))));
+    try std.testing.expectEqual(types.FALSE, types.car(types.cdr(result)));
+    try std.testing.expectEqual(types.FALSE, types.car(types.cdr(types.cdr(result))));
+}
