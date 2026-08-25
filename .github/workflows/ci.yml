@@ -41,8 +41,15 @@ jobs:
       #
       # Workflow-level `paths:` cannot be used for the same reason in reverse:
       # a workflow that does not run never reports, and the required checks
-      # sit "Expected -- Waiting for status to be reported" forever. Only
-      # job-level `if:` both skips the work and satisfies the check.
+      # sit "Expected -- Waiting for status to be reported" forever. Job-level
+      # `if:` both skips the work and satisfies the check -- BUT ONLY FOR A
+      # STANDALONE JOB, whose required context is the job name itself (wasm,
+      # riscv64-test, ...). A skipped MATRIX job does not expand into its per-leg
+      # names, so the five required `test (os, optimize)` contexts were never
+      # reported and every docs-only PR was unmergeable (kaappi#2337). The `test`
+      # job below therefore does NOT carry a job-level `if:` -- it always runs and
+      # short-circuits per-step on `env.DOCS_ONLY`. Do not "simplify" it back to a
+      # job-level skip.
       #
       # Allowlist, never denylist: a path nobody anticipated must fall through
       # to running everything. `.github/workflows/**` is the thing under test
@@ -170,7 +177,22 @@ jobs:
   # change is fresh and its author is present to write it.
   test:
     needs: format
-    if: needs.format.outputs.docs_only != 'true'
+    # Deliberately NOT gated `if: docs_only != 'true'` at the job level, unlike
+    # every other build job below. This job's matrix legs ARE the required
+    # status checks in branch protection (`test (ubuntu-latest, ReleaseSafe)`
+    # etc.). A skipped matrix job does not expand into its per-leg check names --
+    # GitHub reports one check under the raw template `test (${{ matrix.os }},
+    # ${{ matrix.optimize }})`, so the five required names sit "Expected --
+    # Waiting for status" forever and every docs-only PR is unmergeable
+    # (kaappi#2337; same symptom as the PR #1728 rename footgun below, different
+    # cause). The other jobs skip cleanly only because their required context is
+    # the job name itself. So this job always runs and the matrix always expands;
+    # the docs-only short-circuit is per-step via `env.DOCS_ONLY` instead, so
+    # each leg still reports success on a docs-only PR without doing the work.
+    # ANY NEW STEP below must carry `if: env.DOCS_ONLY != 'true'` (ANDed with its
+    # own condition), or it will run on docs-only PRs.
+    env:
+      DOCS_ONLY: ${{ needs.format.outputs.docs_only }}
     # Explicit name, deliberately NOT including matrix.timeout: this job's
     # auto-generated name would otherwise fold in every matrix property
     # present for a given combination (including include-only ones like
@@ -216,12 +238,14 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
+        if: env.DOCS_ONLY != 'true'
         uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
         with:
           version: 0.16.0
           cache-key: ${{ matrix.optimize }}
 
       - name: Build
+        if: env.DOCS_ONLY != 'true'
         run: zig build -Doptimize=${{ matrix.optimize }}
 
       # Kaappi ships only final SRFIs. Fail if the binary reports a SRFI whose
@@ -229,7 +253,7 @@ jobs:
       # binary; the enumeration comes from `kaappi features --json`). Exit 77 =
       # SKIP (registry unreachable) so a network blip never reds the leg.
       - name: SRFI final-status guard
-        if: matrix.os == 'ubuntu-latest' && matrix.optimize == 'ReleaseSafe'
+        if: matrix.os == 'ubuntu-latest' && matrix.optimize == 'ReleaseSafe' && env.DOCS_ONLY != 'true'
         run: |
           set +e
           bash tools/check-srfi-status.sh zig-out/bin/kaappi
@@ -247,9 +271,11 @@ jobs:
       # N pass` line is the only thing that tells them apart, and it is what
       # the gc-stress job below is read against (its skip count differs).
       - name: Unit tests (leak detection via std.testing.allocator)
+        if: env.DOCS_ONLY != 'true'
         run: zig build test -Doptimize=${{ matrix.optimize }} --summary all
 
       - name: Scheme suites
+        if: env.DOCS_ONLY != 'true'
         run: bash tests/scheme/run-all.sh
         env:
           KAAPPI_TEST_SKIP: ${{ matrix.optimize == 'Debug' && 'callcc-bench.scm r7rs-tail-procedures-gaps.scm r7rs-thin-forms-gaps.scm' || '' }}
@@ -269,25 +295,29 @@ jobs:
           KAAPPI_SHELL_TEST_TIMEOUT: '600'
 
       - name: Sandbox escape tests
+        if: env.DOCS_ONLY != 'true'
         run: bash tests/scheme/sandbox/sandbox-escape.sh
 
       - name: Parallel pool sandbox degradation tests
+        if: env.DOCS_ONLY != 'true'
         run: bash tests/scheme/sandbox/parallel-degrades.sh
 
       - name: Sysinfo sandbox degradation tests
+        if: env.DOCS_ONLY != 'true'
         run: bash tests/scheme/sandbox/sysinfo-degrades.sh
 
       - name: Robustness tests
+        if: env.DOCS_ONLY != 'true'
         run: bash tests/scheme/robustness/robustness.sh
 
       - name: E2E tests (LLVM native backend)
-        if: matrix.optimize == 'ReleaseSafe'
+        if: matrix.optimize == 'ReleaseSafe' && env.DOCS_ONLY != 'true'
         run: |
           git clone --depth 1 https://github.com/kaappi/kaappi-bdd.git ../kaappi-bdd
           bash tests/e2e/run-e2e.sh
 
       - name: thottam integration test
-        if: matrix.optimize == 'ReleaseSafe'
+        if: matrix.optimize == 'ReleaseSafe' && env.DOCS_ONLY != 'true'
         run: |
           export KAAPPI_HOME=$(mktemp -d)
           zig-out/bin/thottam list
