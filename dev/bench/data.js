@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787626673692,
+  "lastUpdate": 1787626686953,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c16b1a331404b5f220f344c6d5132182442df825",
-          "message": "Make the priority rubric generic — the tracker is the precedent source (#2151)\n\ngithub-issues.md is a top-level docs/dev/ guide, which docs/dev/CLAUDE.md\nclasses as evergreen. It had accumulated a hand-maintained second copy of\ntracker state: a 14-row table of every issue ever labelled critical, four\nworked reachability/silence comparisons, and a sample command naming a real\nissue. All of it goes stale on the next triage pass, and a label that moves\nsilently falsifies the doc.\n\nEvery citation is converted into the rule it encoded rather than dropped.\nThe generalised forms are the more portable rules anyway — \"compare the\ntrigger against the limit that path documents; inside the envelope is\ncritical, far past the cap is high\" applies to a subsystem that has never\nhad an issue filed against it, which four worked examples did not.\n\nWith the examples gone, \"Calibrate before labeling\" is the only remaining\nroute to precedent, so it now says so and gains two cautions: the rubric\ntext is the authority and neighbours are only a contradiction check, and\nmatch on failure shape rather than subsystem.\n\nThe four-bullet condensation in the core CLAUDE.md is kept in step; it\ncarried the same count and issue reference, and described the doc as\nholding \"worked boundary cases\".\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-02T04:58:57+05:30",
-          "tree_id": "0d74dd9cc06d56304b18dddba405c06db6a18386",
-          "url": "https://github.com/kaappi/kaappi/commit/c16b1a331404b5f220f344c6d5132182442df825"
-        },
-        "date": 1785629989592,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.24778,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.097699,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.572798,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.035514,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004689,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.045965,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.311144,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057288,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.797897,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.23864,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.568936,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.283573,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.790441,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.574804,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043565,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045037,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dc08a626c96adebd8088bfb551701bd19e0a5bb9",
+          "message": "Dedup reactor ceil-to-ms rule: Windows backend calls msFromNs (#2304)\n\nThe nanoseconds-to-milliseconds ceil was written twice by hand in\nreactor.zig. Only the epoll copy (msFromNs) was named, reachable from a\ntest, and compiled on every target; the Windows backend restated the same\narithmetic inline, with a comment citing msFromNs as the authority.\n\nHave WindowsEventBackend.wait call msFromNs and translate its i32/-1\nconvention to the Windows u32/INFINITE one at the call site (-1 becomes\nINFINITE; a positive result is clamped to INFINITE-1). msFromNs was\nalready at platform-neutral file scope, so no move was needed. Behavior\nis unchanged on every reachable input.\n\nAdd an exact-mapping unit test pinning the rows from the issue table\n(null, 0, 1 ns, 1 ms, 1.5 ms ceil, u64 max clamp) so the shared rule is\nasserted directly. Cross-compiled for x86_64-windows to exercise the\ngated branch.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-25T06:04:21+05:30",
+          "tree_id": "e1439580e5d450603600818fd35306c1c2a38440",
+          "url": "https://github.com/kaappi/kaappi/commit/dc08a626c96adebd8088bfb551701bd19e0a5bb9"
+        },
+        "date": 1787626685431,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.089154,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 5.257068,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.422093,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.276447,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004194,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.037946,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.22922,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.040169,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.09353,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.943138,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.257552,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.221125,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.331013,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.698166,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.035408,
             "unit": "seconds"
           }
         ]
