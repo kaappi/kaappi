@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787664061586,
+  "lastUpdate": 1787664078426,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "72c8e472a068d417700dede1daa9bc7b8a36f1c8",
-          "message": "Close the campaign at 53 of 53, and correct the claim Phase 8 disproved (#2173)\n\n* Close the campaign at 53 of 53, and correct the claim Phase 8 disproved\n\nEvery unit is done. 186 issues filed, grouped into 35 root causes.\n\nPhase 8 was asked to refute the leads it was handed rather than confirm\nthem, and it refuted three — including one that was mine and had landed in\na merged tracker entry. I claimed SRFI 166's 11 issues shared close to one\nroot cause. Phase 8 disproved that by experiment, not argument: routing the\nsupposedly-derived issues through the working procedural mechanism still\ngives wrong answers, so the failures are consumer-side. Eleven distinct\ncauses. The 3.5 entry now carries the correction above the original reading\nrather than quietly replacing it.\n\nThe synthesis's priority argument is worth repeating because it is the\ncampaign's central finding stated as an action: fix the\ngreen-but-tests-nothing class FIRST, because until failure is detectable\nevery other fix's regression test is of unknown value. Five structurally\ndifferent mechanisms, including 1,395 R7RS assertions gating nothing on\nfive CI legs.\n\nIt also found two structural items nobody had filed: isSpecialTopLevelForm\nis a fourth hand-maintained parallel list, and the segment-at-n=0 class has\nfour members, not two (#2172, verified — string-segment and range-segment\nhang while SRFI 171's tsegment raises correctly, which is what proves a\nmissing precondition rather than an inherent shape).\n\nThe marker convention held: 101 distinct numbers and none cites a closed\nissue. Two blind spots worth knowing — one marker cites a merged PR rather\nthan an issue, which a mechanical audit reads as done, and three use ;;;\nso a grep for the documented convention misses them.\n\n* Reconcile the counts CodeRabbit flagged — both were real\n\nTwo inconsistencies, both genuine, and checking them turned up the actual\nreason rather than just making the numbers agree.\n\n186 vs 188. The campaign filed 188 issues; 186 carry the footer. The three\nthat do not — #2129, #1870, #1920 — are exactly the ones Phase 8 flagged as\nrecoverable only by label or by the ;; FAIL: markers, so the discrepancy was\ncarrying real information. The status line now states both and names them.\nLast updated moved to 2026-08-02 to match.\n\nR25's \"8 issues\" vs 3.5's \"11 distinct causes\". Both correct, different\npopulations, and the doc said neither. Verified against the synthesis\ncomment's own group lists: Phase 3.5 filed 11 SRFI 166 issues; R25 holds 8,\nbecause #2062 and #2066 regroup into R21 (byte vs codepoint vs column) and\n#2067 into R11. That is the regrouping doing its job — three issues filed\nunder one library turned out to belong to cross-cutting themes — so the two\ncounts are now stated with what each measures.\n\nmarkdownlint clean.",
-          "timestamp": "2026-08-02T08:46:50+05:30",
-          "tree_id": "410dd999a710ca0204709b96229521aa9f1b9745",
-          "url": "https://github.com/kaappi/kaappi/commit/72c8e472a068d417700dede1daa9bc7b8a36f1c8"
-        },
-        "date": 1785642764992,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.2513,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.492285,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.597672,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.934456,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004696,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047018,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.309653,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056302,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.657127,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.215179,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.599123,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.283662,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.78777,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.685903,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04422,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045166,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aaa44b01a6afe8a815c9841ebb7947eac56261b8",
+          "message": "Reclaim descriptors on EMFILE before failing an open (#2324)\n\nopen-input-file, open-output-file and open-directory raised as soon as\nthe OS reported EMFILE/ENFILE, even though the fd-holding ports and\ndirectory streams were unreachable and reclaimable. A legal program that\nabandons fd-holders faster than the GC allocation-count threshold trips\nthen failed at a normal ulimit -n and succeeded at a larger one.\n\nAdd platform.OpenError.FdExhausted to single out EMFILE/ENFILE, and force\na full collection (GC.collectFull) and retry the open once before raising.\nOnly FdExhausted triggers the retry; every other errno still raises the\ncorrect file error immediately.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-25T16:00:35+05:30",
+          "tree_id": "74057000d9e340a85949c05d64f77fd21a6ca9db",
+          "url": "https://github.com/kaappi/kaappi/commit/aaa44b01a6afe8a815c9841ebb7947eac56261b8"
+        },
+        "date": 1787664076306,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.335448,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.259879,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.566094,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.018597,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004699,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048424,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.309711,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055996,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.746742,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.219847,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.707137,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.275053,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.809494,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.602399,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044431,
             "unit": "seconds"
           }
         ]
