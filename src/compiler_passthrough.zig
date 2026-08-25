@@ -266,7 +266,18 @@ fn compileSelfTailCall(self: *Compiler, expr: Value, dst: u16, nargs: u8) Compil
 
 pub fn compileApplyTail(self: *Compiler, expr: Value, dst: u16) CompileError!void {
     var arg_list = types.cdr(expr);
-    if (arg_list == types.NIL) return CompileError.InvalidSyntax;
+    // A *proper* operand list of the wrong length (< 2) is an arity question,
+    // not a syntax question: route the form through the ordinary call path so
+    // the native apply's runtime arity check reports KP3003 exactly as the
+    // same form one position away does (#2036). Only an improper list is
+    // malformed syntax.
+    {
+        var count: usize = 0;
+        var cur = arg_list;
+        while (types.isPair(cur)) : (cur = types.cdr(cur)) count += 1;
+        if (cur != types.NIL) return CompileError.InvalidSyntax;
+        if (count < 2) return compileCall(self, expr, dst, true);
+    }
 
     const needs_rebase = (dst + 1 != self.next_register);
     const base = if (needs_rebase) try self.allocReg() else dst;
@@ -276,14 +287,12 @@ pub fn compileApplyTail(self: *Compiler, expr: Value, dst: u16) CompileError!voi
 
     var nargs_count: usize = 0;
     while (arg_list != types.NIL) {
-        if (!types.isPair(arg_list)) return CompileError.InvalidSyntax;
         const arg_reg = try self.allocReg();
         try self.compileExprViaIR(types.car(arg_list), arg_reg, false);
         nargs_count += 1;
         arg_list = types.cdr(arg_list);
     }
 
-    if (nargs_count < 1) return CompileError.InvalidSyntax;
     if (nargs_count > 255) return CompileError.InternalLimit;
     const nargs: u8 = @intCast(nargs_count);
 
@@ -311,13 +320,21 @@ pub fn compileCallWithValuesTail(self: *Compiler, expr: Value, dst: u16) Compile
     // top-level redefinition of either name can affect this call (#1715;
     // the previous plain get_global/call_global-by-name approach only
     // ever protected against the former).
+    // A *proper* argument list of the wrong length is an arity question, not a
+    // syntax question: route the form through the ordinary call path so the
+    // runtime arity check reports KP3003 exactly as the same form one position
+    // away does (#2036). Only an improper list is malformed syntax.
+    {
+        var count: usize = 0;
+        var cur = types.cdr(expr);
+        while (types.isPair(cur)) : (cur = types.cdr(cur)) count += 1;
+        if (cur != types.NIL) return CompileError.InvalidSyntax;
+        if (count != 2) return compileCall(self, expr, dst, true);
+    }
     const args = types.cdr(expr);
-    if (args == types.NIL or !types.isPair(args)) return CompileError.InvalidSyntax;
     const producer = types.car(args);
     const rest = types.cdr(args);
-    if (rest == types.NIL or !types.isPair(rest)) return CompileError.InvalidSyntax;
     const consumer = types.car(rest);
-    if (types.cdr(rest) != types.NIL) return CompileError.InvalidSyntax;
 
     const needs_rebase = (dst + 1 != self.next_register);
     const base = if (needs_rebase) try self.allocReg() else dst;
@@ -348,10 +365,18 @@ pub fn compileCallWithValuesTail(self: *Compiler, expr: Value, dst: u16) Compile
 }
 
 pub fn compileCallCCTail(self: *Compiler, expr: Value, dst: u16) CompileError!void {
-    const args = types.cdr(expr);
-    if (args == types.NIL or !types.isPair(args)) return CompileError.InvalidSyntax;
-    const receiver = types.car(args);
-    if (types.cdr(args) != types.NIL) return CompileError.InvalidSyntax;
+    // A *proper* argument list of the wrong length is an arity question, not a
+    // syntax question: route the form through the ordinary call path so the
+    // runtime arity check reports KP3003 exactly as the same form one position
+    // away does (#2036). Only an improper list is malformed syntax.
+    {
+        var count: usize = 0;
+        var cur = types.cdr(expr);
+        while (types.isPair(cur)) : (cur = types.cdr(cur)) count += 1;
+        if (cur != types.NIL) return CompileError.InvalidSyntax;
+        if (count != 1) return compileCall(self, expr, dst, true);
+    }
+    const receiver = types.car(types.cdr(expr));
 
     const needs_rebase = (dst + 1 != self.next_register);
     const base = if (needs_rebase) try self.allocReg() else dst;

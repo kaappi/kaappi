@@ -1359,7 +1359,15 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     if (resumesHere(self, target_frame_count, scope_root_seq)) continue;
                     return VMError.ContinuationInvoked;
                 } else {
-                    return VMError.NotAProcedure;
+                    // Match the non-tail path (callWithCurrentContinuation's
+                    // primitives.typeError): KP3002 naming call/cc and the
+                    // offending value. A detail-less NotAProcedure surfaced as
+                    // KP3005 with the literal message "error" (#2036).
+                    const p = @import("printer.zig");
+                    const s = p.valueToString(self.gc.allocator, receiver, .write) catch "";
+                    defer if (s.len > 0) self.gc.allocator.free(s);
+                    self.setErrorDetail("type error in 'call/cc': expected procedure, got {s}", .{if (s.len > 0) s else "?"});
+                    return VMError.TypeError; // bare-ok: detail set above
                 }
             },
             .tail_eval => {

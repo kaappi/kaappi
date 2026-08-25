@@ -1016,13 +1016,14 @@ pub fn emitPassthrough(self: *LLVMEmitter, expr: Value, is_tail: bool) EmitError
 //     define/set! of `apply` in this module marks it rebound and routes the
 //     form through an ordinary indirect call instead.
 //   - tail + unshadowed + unrebound + <2 operands → the interpreter's
-//     compileApplyTail raises InvalidSyntax at compile time; abandoning
-//     native compilation routes the enclosing form to that exact error. A
-//     REBOUND `apply` with too few operands is not this case: the
-//     interpreter routes it through the ordinary call path (its #2033
-//     gate), so the generic indirect call below is the matching behavior,
-//     and the user's own procedure (or the built-in arity check) raises at
-//     run time.
+//     compileApplyTail routes the form through the ordinary call path
+//     (#2036), so the built-in arity check raises at run time. Abandoning
+//     native compilation here stays the safe mirror: the eval fallback
+//     recompiles the enclosing form through that same ordinary path and
+//     produces the identical runtime error, so only the executing tier
+//     differs, never the diagnostic. A REBOUND `apply` with too few
+//     operands is the same story through the #2033 gate and the generic
+//     indirect call below.
 //   - everything else — lexically shadowed `apply` (any shape), a rebound
 //     `apply` (tail or non-tail), or a non-tail form with <2 operands — is
 //     an ordinary indirect call through whatever `apply` resolves to in
