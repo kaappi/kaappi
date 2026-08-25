@@ -136,6 +136,47 @@ assert_exit "unshadowed define-record-type still establishes accessors" 0 \
     '(define-record-type <pt> (mk x) pt? (x pt-x))
      (display (pt-x (mk 1)))'
 
+echo "== SRFI 211 runtime transformer-spec is not a false positive (kaappi#2007) =="
+# `check` executes nothing, so a Transformer that only exists at run time
+# cannot be resolved statically. It must still accept the (valid, running)
+# program rather than emit KP2001. Both shapes below print "ok" when run.
+#
+# Shape 1: a runtime-bound Transformer value used as a transformer-spec alias.
+assert_exit "runtime-bound transformer alias is clean" 0 \
+    '(import (scheme base) (scheme write) (srfi 211 explicit-renaming))
+     (define tx (er-macro-transformer (lambda (f r c) (list (r (quote quote)) (quote ok)))))
+     (define-syntax m tx)
+     (display (m)) (newline)'
+# Shape 2: an er-macro-transformer expression that references a global (SRFI
+# 211 evaluates the expression at macro-definition time in the global env).
+assert_exit "transformer expr referencing a global is clean" 0 \
+    '(import (scheme base) (scheme write) (srfi 211 explicit-renaming))
+     (define w (quote ok))
+     (define-syntax m
+       (er-macro-transformer (let ((v w)) (lambda (f r c) (list (r (quote quote)) v)))))
+     (display (m)) (newline)'
+# The control literal-lambda spec (resolvable without executing) stays clean too.
+assert_exit "literal-lambda transformer spec is clean" 0 \
+    '(import (scheme base) (scheme write) (srfi 211 explicit-renaming))
+     (define-syntax m (er-macro-transformer (lambda (f r c) (list (r (quote quote)) (quote ok)))))
+     (display (m)) (newline)'
+
+echo "== genuinely-invalid transformer-specs are STILL reported (kaappi#2007) =="
+# A non-symbol, non-pair literal can never be a transformer — reject as before.
+assert_exit "a literal transformer-spec is an error"       1 '(define-syntax m 42)'
+assert_out  "...and reports KP2001"                        'error\[KP2001\]' '(define-syntax m 42)'
+# A bare alias that resolves to a bound, NON-transformer value (a procedure) is
+# statically wrong at run time too, so analysis keeps rejecting it — the
+# placeholder fallback is only for names that are genuinely unresolvable.
+assert_exit "alias to a non-transformer global is an error" 1 \
+    '(import (scheme base))
+     (define-syntax m car)
+     (display (m))'
+# A structurally malformed er-macro-transformer (wrong arity) is still rejected.
+assert_exit "er-macro-transformer with no argument is an error" 1 \
+    '(import (scheme base) (srfi 211 explicit-renaming))
+     (define-syntax m (er-macro-transformer))'
+
 echo "== --diagnostics=json parity =="
 printf '(car 5)\n' > "$TMP/j.scm"
 JSON="$("$KAAPPI" check --diagnostics=json "$TMP/j.scm" 2>&1 || true)"
