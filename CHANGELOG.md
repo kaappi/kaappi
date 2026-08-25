@@ -7,7 +7,184 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-08-25
+
+### Added
+
+- **SRFI 166 (Monadic Formatting) reimplemented against the specification**
+  (#2054–#2067, #2292), replacing the fixed 13-slot state vector with
+  first-class, extensible state variables and adding the missing
+  `(srfi 166 base)` library. `fn` and `with` are now macros (`with` restores
+  only the bound variables, so `col`/`row` output position survives the form);
+  `displayed` returns a formatter argument as-is; `numeric`/`numeric/comma`/
+  `numeric/si` honour radix, precision, sign/comma rules and separators;
+  `escaped`/`maybe-escaped` honour `esc-ch` and a renamer; `padded`/`trimmed`/
+  `fitted` measure with `string-width` and honour the `ellipsis` variable; and
+  the `pretty`, `columnar`, and `unicode` sub-libraries gain line-breaking,
+  column alignment/wrapping/justification, and a real terminal-width model
+  (wide=2, combining=0, ANSI=0). Many previously-absent names are now exported
+  (`joined/dot`, `numeric/fitted`, `make-state-variable`, `substring/width`,
+  `decimal-align`, `word-separator?`, the terminal-width helpers, and more).
+
+### Changed
+
+- **`equal?` on records is now structural** (#2293): two record instances are
+  `equal?` when they share the same record type and their fields are pairwise
+  `equal?`, matching Gambit, Guile, and Chibi (R7RS §6.1 leaves records
+  implementation-defined). `eq?`/`eqv?` stay identity-based. Records route
+  through the same cycle-detection map as pairs and vectors, and now **hash
+  structurally** too (#2295) — a default SRFI 69 `equal?` table no longer loses
+  record entries once it grows past a tiny mask.
+
+- **`char-numeric?` and `digit-value` cover every Unicode `Nd` (decimal digit)
+  code point** (#2306), including the 310 supplementary-plane digits across 27
+  ranges the previous hand-written 36-base list missed (e.g. U+1D7CE
+  MATHEMATICAL BOLD DIGIT ZERO). The two stay in lockstep as R7RS requires.
+
+- **Top-level `define-values` enforces lambda-style arity** (#550): a
+  fixed-arity mismatch that produced a single value — `(define-values (a b)
+  (values 1))`, `(define-values () 42)`, `(define-values (a b) 1)` — used to
+  bind a prefix and exit 0; it now raises `KP3003` (`ArityMismatch`), matching
+  the internal-scope path and R7RS 5.3.3 / SRFI 244. No partial bindings are
+  left behind.
+
+- **Subcommand-scoped CLI flags are rejected at global scope** (#2330): the
+  global flag loop accepted `--check` and `--no-opt` in any position, so
+  `kaappi --check foo.scm` silently *ran* the file it meant only to analyse.
+  Such a flag is now a usage error (exit 2) naming its owning subcommand;
+  `kaappi fmt --check` and `kaappi ir --no-opt` still work.
+
+- **`--lib-path` now shadows a bundled `(srfi N)`** (#2323): the resolver
+  probed the cwd-relative `./` and `./lib/` prefixes before any `--lib-path`
+  entry, so a bundled copy silently beat a `--lib-path` override — making A/B
+  comparisons of two SRFI implementations vacuous. `--lib-path` now takes
+  precedence, as `kaappi --help` and the docs already documented.
+
+- **Type-error messages render the offending value's identity** (#1899):
+  symbols, strings, vectors, bytevectors, rationals, small bignums, and
+  characters were printed as opaque `#<tag>`s; they now show identifying
+  content (bounded and allocation-free) so the message names *which* value was
+  wrong.
+
 ### Fixed
+
+- **Top-level `call/cc` forms run wholly in the VM on the native tier** (#2119):
+  a top-level form whose evaluation captured a full continuation was lowered
+  with its outer structure native and only the `call/cc` subexpression
+  eval-fallbacked, so invoking the continuation from a later form re-ran only
+  the subexpression and the enclosing `set!`/`define` store never fired again
+  (`(set! result (+ 100 (call/cc …)))` kept 100 where the interpreter gives
+  142). Such forms now evaluate whole-form in the VM.
+
+- **Native top level: macro-expanded `set!` of a primitive is tracked** (#2325):
+  a top-level macro expanding to `(set! + -)` matched none of the literal
+  `define`/`set!`/`begin` heads the rebinding scan looked for, so a later
+  `(+ …)` folded against the stale primitive and the native binary printed `7`
+  where the interpreter printed `3`.
+
+- **Native top level: `define-values` compiled in program order** (#2200): the
+  `--compile` path hoisted every claimed top-level form into the `.sbc`
+  preamble, replaying `define-values` before ordinary code so a producer
+  depending on an earlier form failed (`(define x 1)(define-values (a b)
+  (values x 2))`). Only the five environment-setup declarations are hoisted now.
+
+- **Reclaim descriptors on `EMFILE`/`ENFILE` before failing an open** (#2324):
+  `open-input-file`, `open-output-file`, and `open-directory` raised as soon as
+  the OS reported descriptor exhaustion, even though unreachable fd-holders were
+  reclaimable. They now force a full collection and retry the open once; every
+  other errno still raises immediately.
+
+- **Top-level `import` routed through `load`'s evaluator** (#2303): `load`
+  compiled each form as an ordinary expression, so a top-level `(import …)` was
+  evaluated as an application and failed with `KP3001`, and the error was
+  attributed to the loader's file. Each form now goes through the same
+  top-level dispatch a script or the REPL uses, and diagnostics are attributed
+  to the loaded file:line.
+
+- **`port-position` subtracts custom-port read-ahead** (#1996): a custom port's
+  unconsumed lookahead (the tail of the last `read!` burst, a pushed-back peek)
+  was not subtracted, so `port-position` over-reported after a burst read or any
+  peek. It now applies the same adjustment the fd-backed branch uses, satisfying
+  SRFI 181's pre-peek position requirement.
+
+- **SRFI 128 `default-hash` recursion depth is bounded** (#2301): since #2044
+  threaded the comparator through `(srfi 146 hash)`, a `make-default-comparator`
+  hashmap keyed a cyclic key via `default-hash`, whose unbounded recursion hit
+  the `KP3008` stack cap — an uncatchable process abort. It now folds a constant
+  sentinel past a fixed cutoff; equal keys still hash alike.
+
+- **`kaappi fmt` round-trip, lexer, idempotence, and width fixes** (#2079,
+  #2080, #2142, #2143, #2149): a lone CR ends a `;` comment per R7RS 7.1.1 (the
+  reader is fixed to match); a user syntax error is no longer reported as
+  "internal error"; a same-line block comment no longer shifts the body
+  boundary and breaks idempotence; a `#`-led atom glued to an identifier splits
+  as the reader would; and line width is measured in Unicode code points, not
+  bytes.
+
+- **LSP protocol/lifecycle and diagnostics drift** (#1980, #1981): the language
+  server now answers `-32602`/`-32002`/`-32600` for unusable params, pre-init
+  shutdown, and post-shutdown requests; resynchronises after a malformed
+  `Content-Length` frame instead of ending the session; clamps columns to the
+  requested line; and drives the exact `kaappi check` analysis so every failing
+  form and `KP4xxx` lint reaches the editor with real spans. The two surfaces
+  now share the analysis, not just the serializer.
+
+- **WASM: file-backed `.sld` loading and command-line/`--lib-path` setup**
+  (#2108, #2109): `openRead` had no WASI branch, so no file-backed `.sld` was
+  importable on wasm32; and the WASM entry returned before `command-line` and
+  `lib-paths` were populated, so `(command-line)` was empty and a `.sld` beside
+  the program was invisible. Both tiers agree again.
+
+- **SRFI 28 `format` rewritten to walk the format string linearly** (#2300):
+  the previous `string-ref` index loop was O(n²) on Kaappi's UTF-8,
+  codepoint-indexed strings (a 200 KB format string took ~36 s). It now reads
+  from a string port in O(n); output is byte-for-byte identical.
+
+- **GC remembered set deduplicated to keep minor collections linear** (#2305):
+  `writeBarrier` appended a mutated old-gen container on every write with no
+  membership check, so filling a 150k-entry hash table queued ~300k entries and
+  stalled the mark phase for seconds. A flag bit keeps the barrier O(1) and the
+  minor mark phase O(distinct containers); filling now scales linearly (~180ms).
+
+- **`kaappi expand` preserves local-macro forms** (#2327): `let-syntax`/
+  `letrec-syntax` bodies were expanded against the global macro set, resolving a
+  shadowed keyword against the outer binding and breaking the documented
+  round-trip guarantee. They are now left unexpanded so re-reading re-establishes
+  the inner binding.
+
+- **`kaappi check` accepts unresolvable SRFI 211 transformer-specs** (#2329):
+  compile-only analysis executes nothing, so a runtime-bound transformer alias
+  or an `er/lisp-macro-transformer` referencing a run-time global was wrongly
+  reported as `KP2001`. Under analysis these are accepted as benign
+  placeholders; genuine invalid forms are still reported, and a normal run is
+  unaffected.
+
+- **thottam: resolve `git` through `PATH`** (#2152): `runGit` hardcoded
+  `/usr/bin/git`, which exists on none of the three supported BSDs, so every
+  git-backed operation failed there. It now searches `PATH` for an executable
+  `git` and reports a distinct `GitNotFound` (with a named cause) instead of a
+  silent 127.
+
+- **thottam: version re-pins, ownership-aware removal, and state validation**
+  (#2134, #2136, #2138, #2144): `install pkg@ver` on an installed package now
+  resolves and re-checkouts the requested version instead of exiting 0 in
+  place; `update` skips a pinned package's detached HEAD instead of failing the
+  tree; a per-package installed-file manifest means `remove` unlinks only files
+  no other package claims (kept in lockstep across `update`); and every consumer
+  validates package names read back from state files.
+
+- **thottam: verify the installation, enforce `--locked` provenance, tolerate
+  CRLF** (#2133, #2135, #2137): `verify` walks `installed.txt` (not just the
+  lockfile), so an installed-but-unlocked package can no longer pass silently; a
+  `--locked` install reads the recorded source once and refuses a disagreeing
+  `::url` before cloning, instead of overwriting the lockfile's provenance; and
+  every reader strips a trailing `\r` from CRLF-normalised state.
+
+- **thottam: strict SemVer tag parsing, npm-style `^`/`~` ranges, and constraint
+  diagnostics** (#2130, #2131, #2132): `Semver.parse` rejects four-component
+  tags, leading zeroes, and Zig integer-literal spellings; `~1` and `^0.0` match
+  the whole line node-semver specifies; and a malformed constraint is named and
+  distinguished from an unsatisfiable one and from a `git ls-remote` failure.
 
 - **`array-copy`/`array-copy!` reject non-boolean `mutable?`/`safe?` options, and
   every SRFI 231 combinator rejects a non-procedure function argument**
