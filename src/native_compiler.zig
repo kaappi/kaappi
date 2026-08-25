@@ -256,7 +256,30 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
             return err;
         };
 
-        try ir_nodes.append(allocator, root);
+        // #2119: a top-level form whose own evaluation may capture a full
+        // (re-entrant) continuation must run entirely in the VM, as one
+        // eval unit. The native backend otherwise lowers the form's outer
+        // structure — a `set!`, a `define`'s value store, a plain call — to
+        // straight-line native code and eval-fallbacks *only* the call/cc
+        // subexpression. The continuation captured inside that subexpression
+        // then spans just it, so invoking the continuation after the form
+        // returned (from a later top-level form) re-runs only the
+        // subexpression and delivers its value to a native context that has
+        // already completed and cannot re-run: the enclosing `set!`/`define`
+        // store never fires again, silently keeping the pre-capture value
+        // (`(set! result (+ 100 (call/cc …)))` kept 100 instead of 142).
+        // Emitting the whole raw form as a single passthrough — evaluated by
+        // the interpreter, which owns continuation capture/restore — makes the
+        // captured continuation span the whole form, so a later resume re-runs
+        // its tail exactly as the pure-VM tier does. A form that already
+        // lowered to a whole-form passthrough (root.tag == .passthrough, e.g.
+        // a bare `(call/cc …)` or a `(define (f …) …)` whose body reaches one)
+        // needs no change — it is already one VM eval unit.
+        const node_to_emit: *ir_mod.Node = if (root.tag != .passthrough and exprMayCaptureContinuation(expr))
+            (ir_instance.makePassthrough(expr) catch return error.OutOfMemory)
+        else
+            root;
+        try ir_nodes.append(allocator, node_to_emit);
 
         // Record any define/set! target from this form so that the next
         // form's constant folding does not assume the primitive is unmodified.
@@ -438,6 +461,37 @@ fn getExeRelativeLibDir(allocator: std.mem.Allocator) ?[]const u8 {
     const dir = kaappi_paths.getExeRelativeLibDir(&buf) orelse return null;
     if (!checkLibDir(allocator, dir)) return null;
     return allocator.dupe(u8, dir) catch null;
+}
+
+/// True when evaluating `expr` may itself capture a full (re-entrant)
+/// continuation — i.e. `call/cc` / `call-with-current-continuation` appears
+/// somewhere in `expr` outside quoted data. Drives the #2119 whole-form VM
+/// fallback in the read loop above; see the comment there for why a top-level
+/// form matching this must not have its outer structure lowered natively.
+///
+/// Conservative by construction: it descends into every non-`quote` sub-list,
+/// including lambda and define bodies, so it over-matches a `call/cc` that is
+/// only reached by a *later* call rather than by the form's own evaluation
+/// (e.g. `(define f (lambda () (call/cc …)))`). Over-matching is safe — it
+/// only forces one more top-level form onto the (correct, slower) interpreter
+/// path, never changes a result — while under-matching would reintroduce the
+/// silent-wrong-value bug. Macro-hidden uses are not expanded here; the direct
+/// uses this catches cover the divergence the issue documents.
+fn exprMayCaptureContinuation(expr: types.Value) bool {
+    if (!types.isPair(expr)) return false;
+    const head = types.car(expr);
+    if (types.isSymbol(head)) {
+        const name = types.stripHygienicPrefix(types.symbolName(head));
+        // Quoted data is inert — a `call/cc` symbol inside it is never called.
+        if (std.mem.eql(u8, name, "quote")) return false;
+        if (std.mem.eql(u8, name, "call/cc") or
+            std.mem.eql(u8, name, "call-with-current-continuation")) return true;
+    }
+    var cur = expr;
+    while (types.isPair(cur)) : (cur = types.cdr(cur)) {
+        if (exprMayCaptureContinuation(types.car(cur))) return true;
+    }
+    return false;
 }
 
 fn collectRedefinedNames(expr: types.Value, map: *std.StringHashMap(void)) void {
