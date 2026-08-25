@@ -335,8 +335,11 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
         contents.appendSlice(gc.allocator, tmp[0..n]) catch return PrimitiveError.OutOfMemory;
     }
 
-    // Parse and eval each expression
-    var reader = reader_mod.Reader.init(gc, contents.items);
+    // Parse and eval each expression. Name the reader with the loaded file's
+    // path so a diagnostic raised while evaluating a loaded form cites that
+    // file, not the loader (#2005): the compiled thunk carries `path` as its
+    // source_name, and `captureErrorLocation` reads it off the raising frame.
+    var reader = reader_mod.Reader.initWithName(gc, contents.items, path);
     defer reader.deinit();
 
     // Custom environments get an isolated macro table so define-syntax
@@ -356,7 +359,16 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
 
     var last_result: Value = types.VOID;
     while (reader.hasMore() catch return PrimitiveError.TypeError) { // bare-ok: reader error in load
-        const expr = reader.readDatum() catch return primitives.typeError("load", "valid datum", args[0]);
+        // The datum's start line, so the compiled thunk (and thus any
+        // diagnostic raised from it) is attributed to the right line of the
+        // loaded file (#2005).
+        const datum_line = reader.getLineCol().line;
+        var expr = reader.readDatum() catch return primitives.typeError("load", "valid datum", args[0]);
+        // Root the form: evaluating it (e.g. an import that loads a library, or
+        // a compile that collects) can trigger GC, which would otherwise
+        // reclaim the AST mid-walk.
+        gc.pushRoot(&expr);
+        defer gc.popRoot();
 
         if (env) |e| {
             const func = compiler_mod.compileExpressionInEnv(gc, expr, macro_target, e, env_val, false, .restricted) catch return primitives.typeError("load", "valid expression", args[0]);
@@ -368,12 +380,24 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
                 return err;
             };
         } else {
-            const func = compiler_mod.compileExpressionWithMacros(gc, expr, &vm.macros, vm.globals) catch return primitives.typeError("load", "valid expression", args[0]);
-            var closure_val = gc.allocClosure(func) catch return PrimitiveError.OutOfMemory;
-            compiler_mod.Compiler.unrootFunction(gc, func);
-            gc.pushRoot(&closure_val);
+            // Route top-level declarations (import/define-library/begin/…)
+            // through the same machinery a file/REPL uses, so an `import` in a
+            // loaded file is handled instead of being evaluated as an ordinary
+            // application (#2005). handleTopLevelForm returns null for plain
+            // expressions, which fall through to compilation below.
+            if (vm.handleTopLevelForm(expr)) |top_result| {
+                last_result = top_result catch |err| return err;
+                continue;
+            }
+            const func = compiler_mod.compileExpressionWithMacrosAt(gc, expr, &vm.macros, vm.globals, datum_line, path, false) catch return primitives.typeError("load", "valid expression", args[0]);
+            var func_val = types.makePointer(&func.header);
+            gc.pushRoot(&func_val);
             defer gc.popRoot();
-            last_result = vm.callWithArgs(closure_val, &[_]Value{}) catch |err| {
+            compiler_mod.Compiler.unrootFunction(gc, func);
+            // runTopLevelFunction, not vm.execute (#2012): `load` runs
+            // re-entrantly under the caller's still-suspended frame; a bare
+            // vm.execute would resetExecutionState and abandon it.
+            last_result = vm.runTopLevelFunction(func) catch |err| {
                 return err;
             };
         }
