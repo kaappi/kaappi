@@ -26,6 +26,22 @@ fn nowNs() u64 {
 
 const Result = struct { ns_per: f64, heap_mb: usize };
 
+const Stats = struct { median: f64, min: f64, max: f64 };
+
+/// Median / min / max over `samples`, sorted in place. Mirrors the median-of-N
+/// reporting the general benchmark path uses in benchmarks/common.scm, so
+/// call_cc / call_ec land in the PR-gate JSON with the same dispersion columns
+/// as every other row instead of a single-shot `min 0, max 0, iterations 1`
+/// (kaappi#2101).
+fn summarize(samples: []f64) Stats {
+    std.mem.sort(f64, samples, {}, std.sort.asc(f64));
+    return .{
+        .median = samples[samples.len / 2],
+        .min = samples[0],
+        .max = samples[samples.len - 1],
+    };
+}
+
 /// Time `iters` immediately-escaping captures of `prim` (call/cc or call/ec) at
 /// stack depth `depth`. Each run uses a fresh VM with GC disabled.
 fn measure(allocator: std.mem.Allocator, prim: []const u8, depth: u32, iters: u32) !Result {
@@ -79,23 +95,31 @@ pub fn main() !void {
     std.debug.print("capture benchmark: {d} immediately-escaping captures, GC off\n", .{iters});
     std.debug.print("{s:>6} | {s:>22} | {s:>22} | {s:>8}\n", .{ "depth", "call/cc (full)", "call/ec (escape)", "speedup" });
     std.debug.print("-------+------------------------+------------------------+---------\n", .{});
-    var cc_d0: Result = undefined;
-    var ec_d0: Result = undefined;
     for (depths) |d| {
         const cc = try measure(allocator, "call/cc", d, iters);
         const ec = try measure(allocator, "call/ec", d, iters);
-        if (d == 0) {
-            cc_d0 = cc;
-            ec_d0 = ec;
-        }
         std.debug.print(
             "{d:>6} | {d:>9.0} ns  {d:>4} MB | {d:>9.0} ns  {d:>4} MB | {d:>6.1}x\n",
             .{ d, cc.ns_per, cc.heap_mb, ec.ns_per, ec.heap_mb, cc.ns_per / ec.ns_per },
         );
     }
 
-    const cc_secs = cc_d0.ns_per * @as(f64, @floatFromInt(iters)) / 1e9;
-    const ec_secs = ec_d0.ns_per * @as(f64, @floatFromInt(iters)) / 1e9;
-    std.debug.print("name: call_cc, time: {d:.6}, status: ok, min: {d:.6}, max: {d:.6}, iterations: {d}\n", .{ cc_secs, cc_secs, cc_secs, iters });
-    std.debug.print("name: call_ec, time: {d:.6}, status: ok, min: {d:.6}, max: {d:.6}, iterations: {d}\n", .{ ec_secs, ec_secs, ec_secs, iters });
+    // Machine-readable summary for the PR benchmark gate. Repeat the depth-0
+    // measurement `bench_runs` times and report the median with real min/max,
+    // matching the median-over-*bench-runs* the general path emits. A single
+    // ~45ms sample was noise the gate treated as signal (kaappi#2101).
+    const bench_runs: u32 = 5;
+    var cc_secs: [bench_runs]f64 = undefined;
+    var ec_secs: [bench_runs]f64 = undefined;
+    for (0..bench_runs) |i| {
+        const cc = try measure(allocator, "call/cc", 0, iters);
+        const ec = try measure(allocator, "call/ec", 0, iters);
+        const scale = @as(f64, @floatFromInt(iters)) / 1e9;
+        cc_secs[i] = cc.ns_per * scale;
+        ec_secs[i] = ec.ns_per * scale;
+    }
+    const cc = summarize(&cc_secs);
+    const ec = summarize(&ec_secs);
+    std.debug.print("name: call_cc, time: {d:.6}, status: ok, min: {d:.6}, max: {d:.6}, iterations: {d}\n", .{ cc.median, cc.min, cc.max, bench_runs });
+    std.debug.print("name: call_ec, time: {d:.6}, status: ok, min: {d:.6}, max: {d:.6}, iterations: {d}\n", .{ ec.median, ec.min, ec.max, bench_runs });
 }
