@@ -181,3 +181,63 @@ Wave 2: NNN, NNN, NNN
 
 Waves come from the order in step 7 — every group in a wave touches files no
 other group in that wave touches, so their PRs can merge in any order.
+
+## 9. Working the PRs — one git worktree per group
+
+The plan is the deliverable. But when the user says to *start* a wave — "start
+wave 1", "launch these", "go" — each group becomes a PR, and **every PR is built
+on its own git worktree**. Never work two groups in the shared checkout, and
+never commit a group's fix onto `main`: a worktree gives each session an
+isolated copy of the repo on its own branch, so concurrent sessions cannot
+collide on files or on the working tree, and a stalled or abandoned group leaves
+nothing to clean up in the others.
+
+Every branch is cut from a **freshly-fetched `origin/main`**, not from whatever
+the local checkout happens to sit at — the checkout you are running in can be
+behind (a session branched from a stale local `main` builds on old code and
+rebases painfully later, or conflicts on a file the tip already changed). So the
+first act of any session is `git fetch origin`, and the branch is `origin/main`.
+
+Launch one session per group in the wave, each in a worktree:
+
+- **Preferred: the `Agent` tool with `isolation: "worktree"`**, one call per
+  group, all groups of a wave in a single message so they run concurrently. The
+  worktree is created at the parent checkout's current commit, which may be
+  stale — so the brief must tell the session to `git fetch origin` and reset its
+  branch onto `origin/main` before it starts (`git checkout -b <branch>
+  origin/main`, or `git reset --hard origin/main` on the worktree branch). The
+  agent starts fresh, so the prompt must also be self-contained — name the issue
+  numbers, tell it to `gh issue view` each body in full (the plan's file/line
+  claims are stale often enough to re-check), and state the deliverable below.
+- **Or, driving it yourself:** `git fetch origin` then
+  `git worktree add ../wt-<group> -b <branch> origin/main`, do the work there,
+  and `git worktree remove` when the PR is up.
+
+Give every session the same wrap-up contract, and hold it to finishing — a
+session that stops with the fix uncommitted has produced nothing:
+
+- Branch from the freshly-fetched `origin/main` (above); implement the fix **and
+  its regression test** (this repo requires one per bug fix).
+- Commit with a DCO sign-off — `git commit -s`; do not hand-write the
+  `Signed-off-by` trailer, and follow the repo's `Co-Authored-By` convention.
+- Push the branch and open the PR with `gh pr create`. The body repeats the
+  closing keyword **per issue** (`Closes #NNN` on its own line for each —
+  "Closes #A, #B" closes only #A).
+
+Two operational gotchas, both of which cost a session in practice:
+
+- **Run `zig build test` in the foreground**, as one blocking call with a long
+  timeout — never backgrounded waiting on a completion notification the session
+  will not receive. A session that backgrounds its tests and stops "to wait"
+  stalls indefinitely.
+- **Concurrent builds serialize on the Zig cache lock.** A second worktree's
+  `zig build` blocks until the first finishes and looks hung for minutes — it is
+  not. Do not interrupt it, and do not run your own build against the shared
+  checkout while wave sessions are building.
+
+After a wave lands, verify the merge base rather than trusting each session's
+"tests pass": a green run inside one worktree does not prove `main` is green, and
+a *pre-existing* red (a flaky or already-broken test on `main`) will be reported
+by every session as if it were theirs — confirm it against a clean checkout
+before treating it as a wave regression. A real pre-existing red is itself a
+signal-before-work item (step 7) for the next wave.
