@@ -20,6 +20,7 @@ def parse_unicode_data(path):
     lowercase_letters = set()
     upcase_map = {}    # lowercase cp -> uppercase cp
     downcase_map = {}  # uppercase cp -> lowercase cp
+    numeric_digits = []  # code points with General_Category == Nd (decimal digit)
 
     with open(path) as f:
         for line in f:
@@ -36,12 +37,26 @@ def parse_unicode_data(path):
             elif category == 'Ll':
                 lowercase_letters.add(cp)
 
+            if category == 'Nd':
+                numeric_digits.append(cp)
+
             if simple_upper:
                 upcase_map[cp] = int(simple_upper, 16)
             if simple_lower:
                 downcase_map[cp] = int(simple_lower, 16)
 
-    return uppercase_letters, lowercase_letters, upcase_map, downcase_map
+    return uppercase_letters, lowercase_letters, upcase_map, downcase_map, numeric_digits
+
+
+def to_ranges(codepoints):
+    """Collapse a set of code points into sorted, merged (lo, hi) ranges."""
+    merged = []
+    for cp in sorted(codepoints):
+        if merged and cp <= merged[-1][1] + 1:
+            merged[-1] = (merged[-1][0], cp)
+        else:
+            merged.append((cp, cp))
+    return merged
 
 def parse_case_folding(path):
     fold_map = {}
@@ -129,7 +144,7 @@ def write_range_table(lines, name, ranges):
     lines.append(f"// {len(ranges)} ranges")
     lines.append("")
 
-def generate_zig(uppercase_letters, lowercase_letters, upcase_map, downcase_map, fold_map, derived_props):
+def generate_zig(uppercase_letters, lowercase_letters, upcase_map, downcase_map, fold_map, derived_props, numeric_ranges):
     lines = []
     lines.append("// Auto-generated from Unicode 15.1 UnicodeData.txt, CaseFolding.txt,")
     lines.append("// and DerivedCoreProperties.txt")
@@ -169,6 +184,10 @@ def generate_zig(uppercase_letters, lowercase_letters, upcase_map, downcase_map,
     write_range_table(lines, "alphabetic_ranges", derived_props["Alphabetic"])
     write_range_table(lines, "cased_ranges", derived_props["Cased"])
 
+    # General_Category == Nd (decimal digit) ranges, from UnicodeData.txt.
+    # Drives char-numeric? across all planes (kaappi#1925).
+    write_range_table(lines, "numeric_ranges", numeric_ranges)
+
     # Binary search for range tables
     lines.append("pub fn inRanges(comptime table: []const Range, cp: u21) bool {")
     lines.append("    var lo: usize = 0;")
@@ -202,9 +221,11 @@ def main():
     download(DERIVED_PROPS_URL, dprops_path)
 
     print("Parsing UnicodeData.txt...")
-    upper_set, lower_set, upcase_map, downcase_map = parse_unicode_data(udata_path)
+    upper_set, lower_set, upcase_map, downcase_map, numeric_digits = parse_unicode_data(udata_path)
+    numeric_ranges = to_ranges(numeric_digits)
     print(f"  Lu: {len(upper_set)}, Ll: {len(lower_set)}")
     print(f"  Upcase mappings: {len(upcase_map)}, Downcase mappings: {len(downcase_map)}")
+    print(f"  Nd: {len(numeric_digits)} code points ({len(numeric_ranges)} ranges)")
 
     print("Parsing CaseFolding.txt...")
     fold_map = parse_case_folding(cfold_path)
@@ -216,7 +237,7 @@ def main():
         total = sum(hi - lo + 1 for lo, hi in derived_props[prop])
         print(f"  {prop}: {len(derived_props[prop])} ranges ({total} codepoints)")
 
-    zig_src = generate_zig(upper_set, lower_set, upcase_map, downcase_map, fold_map, derived_props)
+    zig_src = generate_zig(upper_set, lower_set, upcase_map, downcase_map, fold_map, derived_props, numeric_ranges)
 
     out_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "src", "unicode_tables.zig")
     with open(out_path, 'w') as f:

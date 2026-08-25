@@ -95,18 +95,10 @@ pub fn isUnicodeWhitespace(cp: u21) bool {
 }
 
 fn isUnicodeNumeric(cp: u21) bool {
-    if (cp >= '0' and cp <= '9') return true;
-    const digit_zeros = [_]u21{
-        0x0660, 0x06F0, 0x07C0, 0x0966, 0x09E6, 0x0A66, 0x0AE6, 0x0B66,
-        0x0BE6, 0x0C66, 0x0CE6, 0x0D66, 0x0DE6, 0x0E50, 0x0ED0, 0x0F20,
-        0x1040, 0x1090, 0x17E0, 0x1810, 0x1946, 0x19D0, 0x1A80, 0x1A90,
-        0x1B50, 0x1BB0, 0x1C40, 0x1C50, 0xA620, 0xA8D0, 0xA900, 0xA9D0,
-        0xA9F0, 0xAA50, 0xABF0, 0xFF10,
-    };
-    for (digit_zeros) |zero| {
-        if (cp >= zero and cp <= zero + 9) return true;
-    }
-    return false;
+    // General_Category == Nd (decimal digit), across all planes. Table-driven
+    // from the same generated Unicode data as the other predicates so a
+    // version bump keeps it in sync instead of leaving it behind (kaappi#1925).
+    return unicode.inRanges(&unicode.numeric_ranges, cp);
 }
 
 pub fn unicodeUpcase(cp: u21) u21 {
@@ -178,19 +170,12 @@ pub fn charFoldcase(cp: u21) u21 {
 fn digitValueFn(args: []const Value) PrimitiveError!Value {
     if (!types.isChar(args[0])) return primitives.typeError("digit-value", "char", args[0]);
     const cp = types.toChar(args[0]);
-    if (cp >= '0' and cp <= '9') {
-        return types.makeFixnum(@as(i64, cp) - '0');
-    }
-    const digit_zeros = [_]u21{
-        0x0660, 0x06F0, 0x07C0, 0x0966, 0x09E6, 0x0A66, 0x0AE6, 0x0B66,
-        0x0BE6, 0x0C66, 0x0CE6, 0x0D66, 0x0DE6, 0x0E50, 0x0ED0, 0x0F20,
-        0x1040, 0x1090, 0x17E0, 0x1810, 0x1946, 0x19D0, 0x1A80, 0x1A90,
-        0x1B50, 0x1BB0, 0x1C40, 0x1C50, 0xA620, 0xA8D0, 0xA900, 0xA9D0,
-        0xA9F0, 0xAA50, 0xABF0, 0xFF10,
-    };
-    for (digit_zeros) |zero| {
-        if (cp >= zero and cp <= zero + 9) {
-            return types.makeFixnum(@as(i64, cp) - @as(i64, zero));
+    // Every Nd range is a contiguous 0..9 run whose low end is the "digit
+    // zero", so the value is the offset from the range base. Consult the same
+    // generated table as char-numeric? so the two never disagree (kaappi#1925).
+    for (unicode.numeric_ranges) |range| {
+        if (cp >= range.lo and cp <= range.hi) {
+            return types.makeFixnum(@as(i64, cp) - @as(i64, range.lo));
         }
     }
     return types.FALSE;
