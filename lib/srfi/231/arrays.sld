@@ -94,10 +94,24 @@
       (unless (interval? interval) (error "make-array: not an interval" interval))
       (unless (procedure? getter) (error "make-array: getter must be a procedure" getter))
       (let ((setter (if (null? maybe-setter) #f (car maybe-setter))))
+        (unless (or (not setter) (procedure? setter))
+          (error "make-array: setter must be a procedure or #f" setter))
         (%make-array interval getter setter #f #f #f #f)))
 
-    (define specialized-array-default-safe? (make-parameter #f))
-    (define specialized-array-default-mutable? (make-parameter #t))
+    ;; safe?/mutable? are booleans everywhere they appear (the two default
+    ;; parameters and both specialized constructors' options) -- the
+    ;; reference implementation rejects non-booleans at each site rather
+    ;; than letting a truthy wrong-typed value silently flip a mode.
+    (define (%check-boolean! x who)
+      (unless (boolean? x) (error (string-append who ": argument must be a boolean") x)))
+
+    (define (%boolean-parameter default name)
+      (make-parameter default (lambda (x) (%check-boolean! x name) x)))
+
+    (define specialized-array-default-safe?
+      (%boolean-parameter #f "specialized-array-default-safe?"))
+    (define specialized-array-default-mutable?
+      (%boolean-parameter #t "specialized-array-default-mutable?"))
 
     ;; The lexicographical mapping of interval onto [0, interval-volume) --
     ;; per spec, a specialized array's own indexer. Subtracts each axis's
@@ -134,6 +148,8 @@
 
     (define (make-specialized-array interval . opts)
       (unless (interval? interval) (error "make-specialized-array: not an interval" interval))
+      (%check-boolean! (%opt opts 2 (specialized-array-default-safe?))
+                       "make-specialized-array: safe?")
       (let* ((storage-class (%opt opts 0 generic-storage-class))
              (initial-value (%opt opts 1 (storage-class-default storage-class)))
              (safe? (%opt opts 2 (specialized-array-default-safe?)))
@@ -152,6 +168,10 @@
     ;; new 1-D array WITHOUT copying -- data must already be exactly
     ;; body-shaped for storage-class (per storage-class-data?).
     (define (make-specialized-array-from-data data . opts)
+      (%check-boolean! (%opt opts 1 (specialized-array-default-mutable?))
+                       "make-specialized-array-from-data: mutable?")
+      (%check-boolean! (%opt opts 2 (specialized-array-default-safe?))
+                       "make-specialized-array-from-data: safe?")
       (let* ((storage-class (%opt opts 0 generic-storage-class))
              (mutable? (%opt opts 1 (specialized-array-default-mutable?)))
              (safe? (%opt opts 2 (specialized-array-default-safe?))))

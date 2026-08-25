@@ -191,6 +191,26 @@
                                               (make-interval (vector 5)))
                   #f))  ;; volume mismatch
 
+;;; --- reference-parity argument validation: the sharing mapper must be a
+;;; procedure (checked even for empty new-domains, where it would never be
+;;; invoked), and a scalar slice-width is legal only on a positive-width
+;;; axis (an empty axis takes the explicit-vector form) ---
+(test-equal #t (guard (e (#t #t))
+                  (specialized-array-share (array-copy (make-array (make-interval (vector 1)) list))
+                                           (make-interval (vector 1)) 1)
+                  #f))
+(test-equal #t (guard (e (#t #t))
+                  (specialized-array-share (array-copy (make-array (make-interval (vector 1)) list))
+                                           (make-interval (vector 0)) 5)
+                  #f))
+(test-equal #t (guard (e (#t #t))
+                  (array-tile (make-array (make-interval (vector 0)) list) (vector 2))
+                  #f))
+(test-equal 1 (interval-volume
+               (array-domain
+                (array-tile (make-array (make-interval (vector 0)) list)
+                            (vector (vector 0))))))
+
 (let ((runner (test-runner-current)))
   (test-end "srfi-231-views")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))

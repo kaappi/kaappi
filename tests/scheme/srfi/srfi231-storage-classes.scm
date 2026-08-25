@@ -87,6 +87,22 @@
   (test-equal #t ((storage-class-checker sc) 'a-symbol))
   (test-equal #f ((storage-class-checker sc) 42)))
 
+;;; --- storage-class-data->body: rejects wrong-typed data (raising, like
+;;; the reference implementation) and hands correct data back unchanged
+;;; (the body IS the data -- zero-copy) ---
+(test-equal #t (guard (e (#t #t))
+                  ((storage-class-data->body u8-storage-class) 'a)
+                  #f))
+(test-equal #t (guard (e (#t #t))
+                  ((storage-class-data->body generic-storage-class) 'a)
+                  #f))
+(test-equal #t (guard (e (#t #t))
+                  ((storage-class-data->body f64-storage-class) "not an f64vector")
+                  #f))
+(let ((v (vector 1 2 3)) (u #u8(9 8)))
+  (test-equal #t (eq? v ((storage-class-data->body generic-storage-class) v)))
+  (test-equal #t (eq? u ((storage-class-data->body u8-storage-class) u))))
+
 (let ((runner (test-runner-current)))
   (test-end "srfi-231-storage-classes")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))

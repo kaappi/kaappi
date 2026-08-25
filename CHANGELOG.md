@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **SRFI 231 argument validation now matches the reference implementation at
+  six entry points** (#2312, #2313, #2315, #2316, #2317, #2318), found by
+  running the reference test suite's 330 error-expectation tests against
+  Kaappi (all 330 now pass; 322 did before).
+  `interval-contains-multi-index?` signaled nothing when the number of
+  indices differed from the interval's dimension, silently returning `#f`
+  (#2312); every built-in storage class's `data->body` was the unvalidated
+  identity, handing wrong-typed data back as a would-be body (#2313);
+  `make-array` accepted a non-procedure setter, so `mutable-array?` and
+  `array-setter` then misreported the object (#2315); non-boolean
+  `safe?`/`mutable?` values were accepted by both specialized constructors
+  and both default parameters — the parameter case installing garbage as a
+  process-wide default every later array would inherit (#2316);
+  `specialized-array-share` accepted a non-procedure mapper, undetectable
+  for empty domains where the mapper is never invoked (#2317); and
+  `array-tile` accepted a scalar slice-width on a zero-width axis, where the
+  spec permits only the explicit-vector form (#2318).
+
 ## [0.23.0] - 2026-08-23
 
 ### Added
