@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787669711772,
+  "lastUpdate": 1787670926956,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "bfd73a166e5020873ab96aaab58050e040264f68",
-          "message": "Make the printer exact, iterative, and cycle-safe; unalias write-simple (#2190)\n\n* Make the printer exact, iterative, and cycle-safe; unalias write-simple\n\nThe printer silently truncated at fixed 1024-entry limits, recursed on\nthe native stack, and its cycle pre-pass walked fewer containers than\nits print arms did. Audit v2 Phase 1D/4D turned that into four\nuser-visible failures: an exact rational at nesting depth 1023 printed\nas `.../...` and read back as a symbol (#1953); a cycle reached only\nthrough an error-object irritant or a mutex/condition-variable name\nhung write, display, write-shared and write-simple alike (#1954);\nwrite-simple was registered as `&write`, so it emitted datum labels the\nspec forbids (#1955); and on wasm32 the recursion exhausted the 16 MiB\ndefault shadow stack at depth 848 -- an uncatchable module abort --\nwhile the depth guard sat at 1024, calibrated to the native 64 MB stack\nthat build.zig never gave the wasm module (#2107). #1902 (closed,\ndecomposed into the first three) catalogued the truncation cliffs.\n\nOne fix serves all of them because they were one design problem: the\nprinter now runs a single iterative, label-aware engine over a\nheap-allocated task stack, with hashmap-based detection (cycle targets\nfor write/display, all repeated containers for write-shared) that\nenumerates children through the same `childAt` the engine uses -- so\ndetection and printing can no longer disagree about which edges exist,\nno capacity or depth constant remains on the exact path, and no native\nstack is consumed regardless of nesting. Rationals render atomically\n(their parts are always exact integers), so no depth seam can split\nthem. write-simple gets its own implementation: label-free by\ndefinition, and a catchable error on cyclic input where the spec\nanticipates non-termination -- loud beats a wedged process. The wasm\nmodule also gets the same 64 MB stack as every native executable, so\nthe remaining native-stack recursions (reader nesting, REPL layout)\nkeep the headroom their guards assume.\n\nThe bounded `printValue` survives as the diagnostic printer (compiler\nmessages, REPL layout probes) -- now iterative and spine-ticking, which\nalso ends the REPL wedge on cyclic values at narrow widths (#859's\nsurviving tail). The pretty-printer moves to printer_pretty.zig under\nthe 1500-line policy.\n\nAll 16 formerly-disabled assertions in printer-gaps.scm are re-enabled\n(reworded where the old expectation pinned the bug), the per-tag\nself-cycle lock and depth/label exactness live in src/tests_printer.zig,\nand a new cross-tier probe pins native/wasm agreement at the old cliff\ndepths. write-shared on 32k shared nodes got ~4x faster (hashmaps\nreplace the linear array scans); write/display are unchanged within\nnoise, and non-cyclic output is byte-identical to before.\n\nFixes #1953\nFixes #1954\nFixes #1955\nFixes #2107\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address PR #2190 review: widen prettyPrint fits-check, thread bignum allocator, complete the per-tag lock\n\nReview of #2190 surfaced one real pre-existing crash: `exactFlatLen`\nsaturates at maxInt(u16) and `ppValue`'s fits-check added it to `indent`\nin u16 arithmetic, so echoing any nested subtree whose flat form reaches\n64 KiB — ((<70000-char string>)) — panicked the ReleaseSafe REPL with\ninteger overflow. Verified reachable on the pre-rework binary too;\nwidened to u32 with a regression test.\n\nAlso from review: the new cyclic prettyPrint test was missing the write\nbarrier its tests_printer.zig sibling already had; `writeBignum` now\nthreads the engine allocator instead of paying page_allocator's\nmmap/munmap per element; the \"every traversable container\" mutation\nlock gains the two tags (.pair, .record_instance) it delegated\nelsewhere, so it alone owns the checklist CLAUDE.md points at; and two\ncomments are refreshed — the #1713 block no longer describes the\nremoved depth-cap machinery, and printer_pretty's header now spells out\nwhy the multi-line fallback's emissions are bounded on purpose (fit\ndecisions and emitted text must come from the same renderer).\n\nDeclined with evidence on the PR: routing ppValue's flat emissions\nthrough the exact printer (an exact emission behind a bounded\nmeasurement can be arbitrarily wider than the width the layout just\nbudgeted), and rooting allocSymbol results in the moved tests (interned\nsymbols are permanent GC roots — memory.zig:166 — which is why those\npre-existing tests have always been gc-stress green).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-02T13:51:23Z",
-          "tree_id": "5581bfc26462cb4219fe4e27b3343da96b2ef2d7",
-          "url": "https://github.com/kaappi/kaappi/commit/bfd73a166e5020873ab96aaab58050e040264f68"
-        },
-        "date": 1785680168464,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.953832,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.317363,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.579275,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.872056,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005018,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.044824,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.293147,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054903,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.313039,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.154005,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.530694,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.309988,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.725154,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.801173,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044693,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046174,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7ecbdf3525fd1ed420979506407a2a673721d025",
+          "message": "Make the untraced env-map invariant explicit and checkable (#2331)\n\nFunction.env and Transformer.def_env are raw *StringHashMap(Value) pointers\nthat no GC switch traces. They are safe only by an unwritten rule: the map\nis GC-reachable through its paired env_val/def_env_val, EXCEPT when it is one\nof the VM-rooted library registries markVmRoots traces (lib_env, retired_envs,\npending_lib_envs, current_lib_env), where the paired value may be NIL. A\nfuture call site handing a private map a NIL paired value would silently lose\nevery binding at the next collection, looking identical to the safe sites.\n\nDocument the invariant on both fields and make it checkable: a VM predicate\nisGcRootedEnvMap plus a globals.assertEnvMapInvariant that, in debug/test\nbuilds only, fires the moment a construction site violates it. Wired into the\none Function.env site (compileExpressionInEnv) and the three Transformer\ndef_env sites, reaching the VM through a registered callback so the compiler\nneed not import vm.zig (mirroring #1812's current_lib_name_lookup). Compiled\nout of release builds, so no shipped behavior or perf change.\n\nCloses #1962\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-25T18:58:27+05:30",
+          "tree_id": "a15e861c18fe9d0f46020fe63a74c7fd24233d86",
+          "url": "https://github.com/kaappi/kaappi/commit/7ecbdf3525fd1ed420979506407a2a673721d025"
+        },
+        "date": 1787670921721,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.046866,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.938692,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.432254,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.178391,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003761,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.036436,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.219127,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.042144,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.852855,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.87251,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.225384,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.235038,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.299348,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.415922,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.036874,
             "unit": "seconds"
           }
         ]
