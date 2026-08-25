@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787643769540,
+  "lastUpdate": 1787653811123,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "dc9215a61bb9287d99925956e2add22bc238043c",
-          "message": "Tick the last seven units — every audit unit is complete, 50 of 53 (#2169)\n\nOnly Phase 8 (synthesis) remains. These seven entries are written from each\nunit's report plus my own re-verification of its headline, and where those\ndisagreed the entry says so.\n\nThree findings in this batch came from a unit's own hypothesis being wrong:\n\n- 6E guessed the BSD legs could not clone a local bare repo, built a probe\n  for exactly that, and the probe PASSED while the suite still failed. That\n  falsification located #2152 — thottam hardcodes /usr/bin/git, so the\n  package manager is non-functional on three platforms it ships for.\n- 5A found the reconnaissance had credited the wrong guard for a claim that\n  is genuinely retired, and then found a live crash (#2129) on a fourth\n  entry path nobody had written down.\n- 7E's own first mutation was caught by neither build, which is what taught\n  it that gc-stress detects a lost root when the object is later marked,\n  not merely read.\n\n7C is the only unit in the whole campaign that confirmed both of its\ntracker claims rather than correcting one.\n\nAnd 7E's #2163 caught my own false claim about 5F's Scheme half, corrected\nin #2168 — that entry now carries the correction inline rather than the\noverclaim.",
-          "timestamp": "2026-08-02T07:09:51+05:30",
-          "tree_id": "28776d8ef31a71650481c399b8ad4e224cb40744",
-          "url": "https://github.com/kaappi/kaappi/commit/dc9215a61bb9287d99925956e2add22bc238043c"
-        },
-        "date": 1785639571409,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.405634,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.654756,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.595402,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.114359,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004814,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046261,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.311183,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057505,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.779518,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.232598,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.578423,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.291188,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.790371,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.667007,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044353,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046079,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "63b5002647ab1a9e289dece975ad2594d43ff92e",
+          "message": "Correct SRFI 260 rationale: generated symbols intern deliberately (#2308)\n\nThe SRFI 260 header and srfi-implementation-notes.md both claimed Kaappi\nhas no uninterned symbols, so write/read invariance falls out for free.\nThat is false: SRFI 258 shipped uninterned symbols 51 minutes later\n(GC.allocUninternedSymbol). generate-symbol's invariance is a deliberate\nchoice — it interns via GC.allocSymbol — not the absence of an\nalternative. State the real reason and warn against 'simplifying' onto\nthe uninterned allocator, which would break eq? round-trip.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-25T14:55:31+05:30",
+          "tree_id": "93029e0943ae0da60f4a432725ba8a1c5b776b06",
+          "url": "https://github.com/kaappi/kaappi/commit/63b5002647ab1a9e289dece975ad2594d43ff92e"
+        },
+        "date": 1787653809588,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.370604,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.349241,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.573555,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.018092,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004705,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04874,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.322164,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056469,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.686293,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.214878,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.690907,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.281532,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.811835,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.604161,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044768,
             "unit": "seconds"
           }
         ]
