@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787664300265,
+  "lastUpdate": 1787665451221,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "18c9b05b23a30d63e2aa51e6d436c653c932f92d",
-          "message": "Make SRFI 41 stream-map and stream-for-each variadic (#2178)\n\nSRFI 41 specifies both as (proc strm strm ...), and the document's\ncenterpiece example — the self-referential Fibonacci stream — depends\non the two-stream form:\n\n  (define fibs\n    (stream-cons 0 (stream-cons 1 (stream-map + fibs (stream-cdr fibs)))))\n\nBoth were defined with a single fixed strm parameter, so that example\n(and any multi-stream call) raised KP3003. The fix walks all streams in\nstep using the same any-null?/map-over-cars pattern stream-zip already\nuses, terminating at the shortest input per the spec. Requiring the\nfirst stream positionally keeps the spec's \"at least one stream\"\nprecondition as a natural arity error.\n\nRegression tests pin the fibs example plus two- and three-stream map,\nshortest-stream termination for both procedures, unary calls, and\nlaziness over infinite inputs.\n\nFixes #2176\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-02T11:36:11+05:30",
-          "tree_id": "c55965cc18bdbabb1b882066e1ec8e4a547bb741",
-          "url": "https://github.com/kaappi/kaappi/commit/18c9b05b23a30d63e2aa51e6d436c653c932f92d"
-        },
-        "date": 1785652779836,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.344001,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.032625,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.568976,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.000906,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004626,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046978,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.314453,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056306,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.540724,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.220833,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.571931,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.279931,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.815307,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.604702,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042619,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045704,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "423ef45efb386a4409e1df96042542226e88b1e3",
+          "message": "Compile top-level define-values in program order, not the preamble (#2311)\n\nThe --compile path recorded every top-level form handleTopLevelForm claims\ninto the .sbc preamble, which the artifact replays before any compiled form.\nHoisting is correct for the five isEnvSetup() declarations, but define-values\nis ordinary program code whose producer can depend on an earlier top-level\nform, so replaying it first reorders execution and fails where the interpreter\nsucceeds (e.g. (define x 1)(define-values (a b)(values x 2)) errored with\nundefined variable 'x').\n\nRestrict preamble hoisting to isEnvSetup() heads; let define-values fall\nthrough to ordinary compilation via its existing compilable lowering\n(compileDefineValues), so it keeps its position in the compiled stream. Its\nproducer is still not executed at compile time.\n\nAdd a compile/*.sh regression test (native/artifact tier) asserting the bundled\nbinary prints (1 2) and exits 0, plus an env-setup control that stays hoisted.\nUpdate docs/dev/cache.md, which had documented #2200 as an open limitation.\n\nCloses #2200\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-25T16:00:42+05:30",
+          "tree_id": "1f75b9ca3cd37ff7440d41b506beaa4d639ab95d",
+          "url": "https://github.com/kaappi/kaappi/commit/423ef45efb386a4409e1df96042542226e88b1e3"
+        },
+        "date": 1787665449149,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.546985,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.379885,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.492583,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.563833,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004794,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04319,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.274752,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.046542,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.459056,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.128313,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.412791,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.261063,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.553349,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.959058,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.039861,
             "unit": "seconds"
           }
         ]
