@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787669056895,
+  "lastUpdate": 1787669073472,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "53a989b4f612cbcff2b5ed403551ef468aca3508",
-          "message": "Make the .sbc cache transparent: format v11, honest write gating, target-keyed compiler hash (#2188)\n\n* Make the .sbc cache transparent: format v11 + honest write gating\n\nSix cache defects, one root theme: a HIT behaved differently from a MISS.\n\nFormat v11 (bytecode_file*, #2110 #2111 #2113):\n- Pair/string/vector/bytevector constants carry their immutability byte,\n  so a set-car! on a literal raises KP3002 warm exactly as cold (#2110).\n- A shareable constant reached twice is emitted once and referenced via\n  TAG_BACKREF, so datum-label sharing keeps eq?, shared DAGs stay linear\n  on disk (a 20-level DAG drops 4.7 MB -> 474 B), and cyclic literals\n  terminate and load (#2111).\n- List spines are walked iteratively on both halves — depth counts\n  nesting only — so a quoted list past 257 elements is cacheable; and\n  the writer now refuses (never truncates) anything the reader would\n  reject, so an entry that recompiles forever cannot be written (#2113).\n\nCache gating and reporting (main.zig, cache.zig):\n- A file whose compilation registered a macro or syntax property is not\n  cached (--timings: \"define-syntax\") — a HIT compiles nothing, so a\n  top-level define-syntax/define-property was invisible to run-time\n  eval (#2112). Detection is semantic (table-count snapshots around each\n  form), so a macro expanding into define-syntax is covered too.\n- A file with a top-level compile error is not cached (\"compile error\")\n  — the warm run used to execute the partial program with exit 0 and no\n  diagnostic (found during this work; probe cache-compile-error.scm).\n- The HIT path feeds runtime errors the same per-form fallback line\n  (Function.source_line) the fresh path uses, so errors with no\n  line-table entry keep their file:line and snippet (#1922).\n- cache status dry-runs each current-build entry's body and reports one\n  the reader rejects as \"unloadable\" instead of \"current\" (#2113).\n\nCache key (#2155): compilerHashFor gains a target component — the triple\nplus types.platform_features — so the 17 release binaries built from one\nclean checkout no longer share a key, and a cond-expand-bearing .sbc\ncompiled on POSIX is a loud miss for a Windows binary instead of silently\nrunning the wrong branch.\n\nThe differential harness's KNOWN_DIFFS and KNOWN_NEVER_HIT lists are both\nempty now; the five probes stay in the corpus as regression probes, so\nany of these divergences coming back fails the run. Docs: cache.md gains\nthe target key component, the full refusal list, the unloadable state,\nand a transparency-guarantees section.\n\nCloses #1922, closes #2110, closes #2111, closes #2112, closes #2113,\ncloses #2155.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Extend writer/reader limit parity to the bundle sections (review)\n\nCodeRabbit review of #2188, all three findings taken:\n\n- writeFileWithBundle now refuses (LimitExceeded) a bundled-file count,\n  bundled path/content length, preamble count, or preamble form length\n  the reader would reject, completing the parity the v11 header comment\n  claims — the gap was --compile artifacts, not the auto-run cache\n  (which writes both sections empty), so the failure mode was a bundle\n  that only fails at run time as \"invalid embedded bytecode\", not an\n  invisible permanent miss. The path cap also makes the u16 length cast\n  unreachable (it could panic in ReleaseSafe on a >65535-byte path).\n  The reader's magic 4096s become shared MAX_BUNDLED_FILES /\n  MAX_PREAMBLE_FORMS constants, and a unit test pins refusal, no\n  file-on-disk, the in-bounds round-trip, and double-free safety.\n\n- freeDeserializeResult resets funcs alongside bundled_files/preamble,\n  so all three fields are uniformly safe against a second call.\n\n- timings-1515.sh asserts the \"compile error\" refusal reason, matching\n  the coverage the other two new reasons already had (kaappi#2187).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-02T11:51:08Z",
-          "tree_id": "64b3821fc021cad21dc9f6b86242ac296541cddc",
-          "url": "https://github.com/kaappi/kaappi/commit/53a989b4f612cbcff2b5ed403551ef468aca3508"
-        },
-        "date": 1785673432818,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.319065,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.928382,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.571273,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.028937,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004657,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046632,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.313994,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.058127,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.65308,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.229475,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.586626,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.279474,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.800902,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.569061,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043171,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046423,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "45951828823b99a7f77cb12f358b98294ff8dfcf",
+          "message": "Accept unresolvable SRFI 211 transformer-specs under kaappi check (#2329)\n\nkaappi check (and the LSP) run compile-only static analysis, executing\nnothing. Two valid SRFI 211 transformer-spec shapes could therefore not be\nresolved and were wrongly reported as KP2001 'invalid syntax' (exit 1) even\nthough the program compiles and runs: a runtime-bound Transformer used as a\nbare-symbol alias, and an er/lisp-macro-transformer expression that\nreferences a global bound only at run time. Since check never executes the\nearlier define, the globals lookup and the transformer-expr eval both come\nback empty and resolveTransformerSpecRec fell through to InvalidSyntax.\n\nUnder analysis (check_lint.active != null) accept these still-unresolvable\nspecs as a benign catch-all placeholder macro so the file is clean and later\nuses of the keyword compile too. A normal run is unaffected: the branch is\nonly reached when nothing has executed. Genuine invalid detection is kept\nintact: a non-symbol/non-pair literal, a bare alias to a bound\nnon-transformer value (e.g. a procedure), and a malformed-arity er-macro\nform are all still reported.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-25T18:33:23+05:30",
+          "tree_id": "29113c9471816d347985304f8157aea2e66440a4",
+          "url": "https://github.com/kaappi/kaappi/commit/45951828823b99a7f77cb12f358b98294ff8dfcf"
+        },
+        "date": 1787669071988,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.954536,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.265512,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.560124,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.833546,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004863,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046477,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.285731,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053412,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.412739,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.137955,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.608903,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.30134,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.68079,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.791993,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045863,
             "unit": "seconds"
           }
         ]
