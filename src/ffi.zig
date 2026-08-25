@@ -73,12 +73,12 @@ fn toIntArgOpt(v: Value) ?i64 {
 }
 
 fn toIntArg(v: Value) error{TypeError}!i64 {
-    return toIntArgOpt(v) orelse return error.TypeError;
+    return toIntArgOpt(v) orelse return error.TypeError; // bare-ok: marshalling helper, no proc context; funnels through mapFfiError
 }
 
 fn toCheckedInt(comptime T: type, v: Value) error{TypeError}!T {
-    const wide = toIntArgOpt(v) orelse return error.TypeError;
-    return std.math.cast(T, wide) orelse return error.TypeError;
+    const wide = toIntArgOpt(v) orelse return error.TypeError; // bare-ok: marshalling helper, no proc context; funnels through mapFfiError
+    return std.math.cast(T, wide) orelse return error.TypeError; // bare-ok: marshalling helper, no proc context; funnels through mapFfiError
 }
 
 fn toUnsignedArgOpt(v: Value) ?u64 {
@@ -98,8 +98,8 @@ fn toUnsignedArgOpt(v: Value) ?u64 {
 
 fn toLongArg(v: Value, declared: FfiType) error{TypeError}!i64 {
     if (declared == .uint64 or declared == .size_type) {
-        const unsigned = toUnsignedArgOpt(v) orelse return error.TypeError;
-        const narrowed = std.math.cast(u64, unsigned) orelse return error.TypeError;
+        const unsigned = toUnsignedArgOpt(v) orelse return error.TypeError; // bare-ok: marshalling helper, no proc context; funnels through mapFfiError
+        const narrowed = std.math.cast(u64, unsigned) orelse return error.TypeError; // bare-ok: marshalling helper, no proc context; funnels through mapFfiError
         return @bitCast(narrowed);
     }
     return toCheckedInt(i64, v);
@@ -163,7 +163,7 @@ fn marshalReturn(comptime T: type, result: T, rt: FfiType, gc: *memory.GC) !Valu
     } else if (T == void) {
         return types.VOID;
     }
-    return error.TypeError;
+    return error.TypeError; // bare-ok: unreachable return carrier; funnels through mapFfiError
 }
 
 fn marshalCStringReturn(cstr: [*:0]const u8, gc: *memory.GC) !Value {
@@ -237,30 +237,37 @@ fn validateArg(v: Value, t: FfiType) bool {
     };
 }
 
-fn checkNarrowIntRange(v: Value, declared: FfiType) error{TypeError}!void {
+/// Range-check a value already known (by `validateArg`) to be an integer of an
+/// int/long class against a narrower declared type. Every failure here is a
+/// *magnitude* failure — the value is the right kind but too large, too small,
+/// or the wrong sign — so it signals `InvalidArgument` (KP3007), not
+/// `TypeError` (KP3002): a wrong magnitude is not a wrong type (kaappi#2026).
+/// The returned tag is a bare signal; `validateArgsDetailed` attaches the
+/// per-argument KP3007 detail message.
+fn checkNarrowIntRange(v: Value, declared: FfiType) error{InvalidArgument}!void {
     if (declared == .uint64 or declared == .size_type) {
-        if (toUnsignedArgOpt(v) == null) return error.TypeError;
+        if (toUnsignedArgOpt(v) == null) return error.InvalidArgument; // bare-ok: KP3007 range signal; validateArgsDetailed sets the detail
         return;
     }
     const wide = switch (declared) {
-        .int8, .uint8, .int16, .uint16, .char_type, .uint32 => toIntArgOpt(v) orelse return error.TypeError,
+        .int8, .uint8, .int16, .uint16, .char_type, .uint32 => toIntArgOpt(v) orelse return error.InvalidArgument, // bare-ok: KP3007 range signal; validateArgsDetailed sets the detail
         else => return,
     };
     switch (declared) {
         .int8 => {
-            if (wide < std.math.minInt(i8) or wide > std.math.maxInt(i8)) return error.TypeError;
+            if (wide < std.math.minInt(i8) or wide > std.math.maxInt(i8)) return error.InvalidArgument; // bare-ok: KP3007 range signal
         },
         .uint8, .char_type => {
-            if (wide < 0 or wide > std.math.maxInt(u8)) return error.TypeError;
+            if (wide < 0 or wide > std.math.maxInt(u8)) return error.InvalidArgument; // bare-ok: KP3007 range signal
         },
         .int16 => {
-            if (wide < std.math.minInt(i16) or wide > std.math.maxInt(i16)) return error.TypeError;
+            if (wide < std.math.minInt(i16) or wide > std.math.maxInt(i16)) return error.InvalidArgument; // bare-ok: KP3007 range signal
         },
         .uint16 => {
-            if (wide < 0 or wide > std.math.maxInt(u16)) return error.TypeError;
+            if (wide < 0 or wide > std.math.maxInt(u16)) return error.InvalidArgument; // bare-ok: KP3007 range signal
         },
         .uint32 => {
-            if (wide < 0 or wide > std.math.maxInt(u32)) return error.TypeError;
+            if (wide < 0 or wide > std.math.maxInt(u32)) return error.InvalidArgument; // bare-ok: KP3007 range signal
         },
         else => {},
     }
@@ -272,28 +279,32 @@ fn validateArgsDetailed(ffi_fn: *types.FfiFunction, args: []const Value, vm: *VM
             vm.setErrorDetail("'{s}': argument {d} must be {s}, got {s}", .{
                 ffi_fn.name, i + 1, ffiTypeName(ffi_fn.param_types[i]), schemeTypeName(args[i]),
             });
-            return error.TypeError;
+            return error.TypeError; // bare-ok: genuine type mismatch (KP3002); detail set above, mapFfiError preserves it
         }
+        // A value of the right kind whose magnitude does not fit the declared
+        // narrow type is an argument-range failure, not a type failure: it
+        // must surface as KP3007 (InvalidArgument), not KP3002, so a caller
+        // can tell a wrong type from a wrong magnitude (kaappi#2026).
         checkNarrowIntRange(args[i], ffi_fn.param_types[i]) catch {
             vm.setErrorDetail("'{s}': argument {d} out of range for {s}", .{
                 ffi_fn.name, i + 1, ffiTypeName(ffi_fn.param_types[i]),
             });
-            return error.TypeError;
+            return error.InvalidArgument; // bare-ok: out-of-range (KP3007); detail set above
         };
         const nt = normalizeType(ffi_fn.param_types[i]);
         if (nt == .int and ffi_fn.param_types[i] != .bool_type) {
             if (toIntArgOpt(args[i])) |wide| {
                 if (std.math.cast(c_int, wide) == null) {
-                    vm.setErrorDetail("'{s}': argument {d} out of range for {s}", .{
-                        ffi_fn.name, i + 1, ffiTypeName(ffi_fn.param_types[i]),
+                    vm.setErrorDetail("'{s}': argument {d} = {d} out of range for {s}", .{
+                        ffi_fn.name, i + 1, wide, ffiTypeName(ffi_fn.param_types[i]),
                     });
-                    return error.TypeError;
+                    return error.InvalidArgument; // bare-ok: out-of-range (KP3007); detail set above
                 }
             } else {
                 vm.setErrorDetail("'{s}': argument {d} out of range for {s}", .{
                     ffi_fn.name, i + 1, ffiTypeName(ffi_fn.param_types[i]),
                 });
-                return error.TypeError;
+                return error.InvalidArgument; // bare-ok: out-of-range (KP3007); detail set above
             }
         }
         if (nt == .string) {
@@ -302,13 +313,13 @@ fn validateArgsDetailed(ffi_fn: *types.FfiFunction, args: []const Value, vm: *VM
                 vm.setErrorDetail("'{s}': argument {d} string too long ({d} bytes, max 4095)", .{
                     ffi_fn.name, i + 1, str.len,
                 });
-                return error.TypeError;
+                return error.InvalidArgument; // bare-ok: string of the right type violates a size constraint (KP3007); detail set above
             }
             if (std.mem.indexOfScalar(u8, str.data[0..str.len], 0) != null) {
                 vm.setErrorDetail("'{s}': argument {d} string contains NUL byte", .{
                     ffi_fn.name, i + 1,
                 });
-                return error.TypeError;
+                return error.InvalidArgument; // bare-ok: string of the right type violates a content constraint (KP3007); detail set above
             }
         }
     }
@@ -370,7 +381,7 @@ fn marshalArg(comptime t: FfiType, v: Value, buf: *[4096]u8, declared: FfiType) 
         .long => toLongArg(v, declared),
         .double => types.toF64(v),
         .float => @floatCast(types.toF64(v)),
-        .string => toCString(v, buf) orelse return error.TypeError,
+        .string => toCString(v, buf) orelse return error.TypeError, // bare-ok: marshalling helper, no proc context; funnels through mapFfiError
         .pointer => marshalToPointer(v),
         else => unreachable,
     };
@@ -445,7 +456,7 @@ fn callFfiGeneric(comptime N: u4, ffi_fn: *types.FfiFunction, args: []const Valu
             }
         }
     }
-    return error.TypeError;
+    return error.TypeError; // bare-ok: unsupported signature fall-through; mapFfiError fills the detail
 }
 
 /// Main FFI call dispatcher. Routes to arity-specific handlers.
@@ -464,7 +475,7 @@ pub fn callFfi(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC, 
         const lib = types.toObject(ffi_fn.library).as(types.FfiLibrary);
         if (lib.handle == null) {
             vm.setErrorDetail("'{s}': FFI library is closed", .{ffi_fn.name});
-            return error.TypeError;
+            return error.TypeError; // bare-ok: closed-library state error; detail set above, mapFfiError preserves it
         }
     }
     try validateArgsDetailed(ffi_fn, args, vm);
@@ -479,7 +490,7 @@ pub fn callFfi(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC, 
         5 => callFfi5(ffi_fn, call_args, gc),
         else => {
             vm.setErrorDetail("'{s}': unsupported parameter count ({d})", .{ ffi_fn.name, ffi_fn.param_count });
-            return error.TypeError;
+            return error.TypeError; // bare-ok: unsupported-arity signature error; detail set above, mapFfiError preserves it
         },
     };
     // A Scheme error raised inside an ffi-callback during this call was
@@ -495,12 +506,12 @@ pub fn callFfi(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC, 
             return error.ExceptionRaised;
         }
         vm.setErrorDetail("'{s}': error in FFI callback", .{ffi_fn.name});
-        return error.TypeError;
+        return error.TypeError; // bare-ok: callback failure with no stashed exception; detail set above, mapFfiError preserves it
     }
     const result = call_result catch {
         if (vm.last_error_detail_len == 0)
             vm.setErrorDetail("'{s}': unsupported FFI signature", .{ffi_fn.name});
-        return error.TypeError;
+        return error.TypeError; // bare-ok: unsupported-signature funnel; detail set above, mapFfiError preserves it
     };
     if (ffi_fn.return_type == .bool_type) {
         if (types.isFixnum(result))
@@ -571,7 +582,7 @@ fn callFfi4(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
         return marshalRetValue(.pointer, result, ffi_fn.return_type, gc);
     }
 
-    return error.TypeError;
+    return error.TypeError; // bare-ok: unsupported 4-arg signature fall-through; mapFfiError fills the detail
 }
 
 // ---------------------------------------------------------------------------
@@ -666,7 +677,7 @@ fn callFfi5(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
         return marshalRetValue(.pointer, result, ffi_fn.return_type, gc);
     }
 
-    return error.TypeError;
+    return error.TypeError; // bare-ok: unsupported 5-arg signature fall-through; mapFfiError fills the detail
 }
 
 // ---------------------------------------------------------------------------
@@ -839,9 +850,9 @@ test "checkNarrowIntRange: int8 accepts [-128, 127]" {
 }
 
 test "checkNarrowIntRange: int8 rejects out of range" {
-    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(128), .int8));
-    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(-129), .int8));
-    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(200), .int8));
+    try std.testing.expectError(error.InvalidArgument, checkNarrowIntRange(types.makeFixnum(128), .int8));
+    try std.testing.expectError(error.InvalidArgument, checkNarrowIntRange(types.makeFixnum(-129), .int8));
+    try std.testing.expectError(error.InvalidArgument, checkNarrowIntRange(types.makeFixnum(200), .int8));
 }
 
 test "checkNarrowIntRange: uint8 accepts [0, 255]" {
@@ -851,9 +862,9 @@ test "checkNarrowIntRange: uint8 accepts [0, 255]" {
 }
 
 test "checkNarrowIntRange: uint8 rejects out of range" {
-    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(256), .uint8));
-    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(-1), .uint8));
-    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(300), .uint8));
+    try std.testing.expectError(error.InvalidArgument, checkNarrowIntRange(types.makeFixnum(256), .uint8));
+    try std.testing.expectError(error.InvalidArgument, checkNarrowIntRange(types.makeFixnum(-1), .uint8));
+    try std.testing.expectError(error.InvalidArgument, checkNarrowIntRange(types.makeFixnum(300), .uint8));
 }
 
 test "checkNarrowIntRange: int16 accepts [-32768, 32767]" {
@@ -863,9 +874,9 @@ test "checkNarrowIntRange: int16 accepts [-32768, 32767]" {
 }
 
 test "checkNarrowIntRange: int16 rejects out of range" {
-    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(32768), .int16));
-    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(-32769), .int16));
-    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(40000), .int16));
+    try std.testing.expectError(error.InvalidArgument, checkNarrowIntRange(types.makeFixnum(32768), .int16));
+    try std.testing.expectError(error.InvalidArgument, checkNarrowIntRange(types.makeFixnum(-32769), .int16));
+    try std.testing.expectError(error.InvalidArgument, checkNarrowIntRange(types.makeFixnum(40000), .int16));
 }
 
 test "checkNarrowIntRange: uint16 accepts [0, 65535]" {
@@ -875,9 +886,9 @@ test "checkNarrowIntRange: uint16 accepts [0, 65535]" {
 }
 
 test "checkNarrowIntRange: uint16 rejects out of range" {
-    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(65536), .uint16));
-    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(-1), .uint16));
-    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(70000), .uint16));
+    try std.testing.expectError(error.InvalidArgument, checkNarrowIntRange(types.makeFixnum(65536), .uint16));
+    try std.testing.expectError(error.InvalidArgument, checkNarrowIntRange(types.makeFixnum(-1), .uint16));
+    try std.testing.expectError(error.InvalidArgument, checkNarrowIntRange(types.makeFixnum(70000), .uint16));
 }
 
 test "checkNarrowIntRange: uint32 accepts [0, 4294967295]" {
@@ -887,15 +898,15 @@ test "checkNarrowIntRange: uint32 accepts [0, 4294967295]" {
 }
 
 test "checkNarrowIntRange: uint32 rejects out of range" {
-    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(-1), .uint32));
-    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(4294967296), .uint32));
+    try std.testing.expectError(error.InvalidArgument, checkNarrowIntRange(types.makeFixnum(-1), .uint32));
+    try std.testing.expectError(error.InvalidArgument, checkNarrowIntRange(types.makeFixnum(4294967296), .uint32));
 }
 
 test "checkNarrowIntRange: char_type same as uint8" {
     try checkNarrowIntRange(types.makeFixnum(0), .char_type);
     try checkNarrowIntRange(types.makeFixnum(255), .char_type);
-    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(256), .char_type));
-    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(-1), .char_type));
+    try std.testing.expectError(error.InvalidArgument, checkNarrowIntRange(types.makeFixnum(256), .char_type));
+    try std.testing.expectError(error.InvalidArgument, checkNarrowIntRange(types.makeFixnum(-1), .char_type));
 }
 
 test "toIntArgOpt: extracts codepoint from Scheme character" {
@@ -918,20 +929,20 @@ test "checkNarrowIntRange: char_type accepts Scheme characters in 0-255" {
 }
 
 test "checkNarrowIntRange: char_type rejects codepoint > 255" {
-    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeChar(256), .char_type));
-    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeChar(0x03BB), .char_type));
+    try std.testing.expectError(error.InvalidArgument, checkNarrowIntRange(types.makeChar(256), .char_type));
+    try std.testing.expectError(error.InvalidArgument, checkNarrowIntRange(types.makeChar(0x03BB), .char_type));
 }
 
 test "checkNarrowIntRange: uint64 rejects negative" {
     try checkNarrowIntRange(types.makeFixnum(0), .uint64);
     try checkNarrowIntRange(types.makeFixnum(1000000), .uint64);
-    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(-1), .uint64));
+    try std.testing.expectError(error.InvalidArgument, checkNarrowIntRange(types.makeFixnum(-1), .uint64));
 }
 
 test "checkNarrowIntRange: size_type rejects negative" {
     try checkNarrowIntRange(types.makeFixnum(0), .size_type);
     try checkNarrowIntRange(types.makeFixnum(1000000), .size_type);
-    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(-1), .size_type));
+    try std.testing.expectError(error.InvalidArgument, checkNarrowIntRange(types.makeFixnum(-1), .size_type));
 }
 
 test "checkNarrowIntRange: non-narrow types pass through" {
@@ -1029,6 +1040,6 @@ test "checkNarrowIntRange: uint64 rejects negative bignum" {
     defer gc.deinit();
 
     const neg = try gc.allocBignumFromI64(-1);
-    try std.testing.expectError(error.TypeError, checkNarrowIntRange(neg, .uint64));
-    try std.testing.expectError(error.TypeError, checkNarrowIntRange(neg, .size_type));
+    try std.testing.expectError(error.InvalidArgument, checkNarrowIntRange(neg, .uint64));
+    try std.testing.expectError(error.InvalidArgument, checkNarrowIntRange(neg, .size_type));
 }

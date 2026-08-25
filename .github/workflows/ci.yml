@@ -123,24 +123,41 @@ jobs:
       - name: Format check
         run: zig fmt --check src/
 
-      # This was a ratchet (91 at introduction, then 20) while a backlog of
-      # anonymous TypeErrors was worked off. kaappi#1868 cleared the last of
-      # them, so the baseline is now 0 and there is no number to keep in step
-      # with the source -- every bare return must carry a `bare-ok` reason.
-      - name: Check bare TypeError regression
+      # A bare `return <set>.TypeError/IndexOutOfBounds/InvalidArgument` reaches
+      # the user through mapNativeError/mapFfiError's fallback, which names the
+      # primitive but reports args[0] as the offending value -- so every such
+      # return must instead use primitives.typeError/indexError/argError, or
+      # carry a `// bare-ok: <reason>` when it is an infrastructure guard with no
+      # procedure context (see kaappi#1874).
+      #
+      # kaappi#2026 widened this gate on two axes at once: it now scans all of
+      # src/ (not just src/primitives*.zig, which missed src/ffi.zig entirely)
+      # and both spellings -- `error.Foo` as well as `PrimitiveError.Foo` /
+      # `VMError.Foo` -- across the whole taxonomy, not TypeError alone. ffi.zig
+      # is clean; a backlog of bare IndexOutOfBounds/InvalidArgument in the
+      # primitives (kaappi#2020/#2021/#2022) is not, so this is once again a
+      # ratchet, exactly as it was for TypeError (91 -> 20 -> 0, cleared by
+      # kaappi#1868). BASELINE may only go DOWN: lower it whenever you remove a
+      # bare return, and delete it when it reaches 0. Test files legitimately
+      # write `error.TypeError` in `expectError`, so src/tests_*.zig is excluded.
+      - name: Check bare error-taxonomy regression
         run: |
-          if grep -rn 'return PrimitiveError\.TypeError' src/primitives*.zig | grep -v 'bare-ok'; then
-            echo "::error::Bare PrimitiveError.TypeError without a 'bare-ok' annotation (listed above)."
-            echo "Use primitives.typeError(proc, expected, got) for type checks --"
-            echo "a bare return reaches the user as vm_calls.mapNativeError's fallback,"
-            echo "which names the primitive but reports args[0] as the offending value."
-            echo "Only add '// bare-ok: <reason>' for infrastructure guards that have no"
-            echo "procedure context to report, and only when TypeError is the tag the"
-            echo "function returns anyway -- a 'vm_instance orelse' whose function has no"
-            echo "natural tag is InvalidBytecode (kaappi#1874), not an annotated TypeError."
+          BASELINE=28
+          hits=$(grep -rnE 'return (PrimitiveError|VMError|error)\.(TypeError|IndexOutOfBounds|InvalidArgument)' src/*.zig \
+                 | grep -v '^src/tests_' | grep -v 'bare-ok' || true)
+          count=$(printf '%s' "$hits" | grep -c . || true)
+          echo "Unannotated bare error-taxonomy returns: $count (baseline $BASELINE)."
+          if [ "$count" -gt "$BASELINE" ]; then
+            printf '%s\n' "$hits"
+            echo "::error::Bare error-taxonomy returns rose to $count (baseline $BASELINE)."
+            echo "Use primitives.typeError/indexError/argError with a procedure name,"
+            echo "or add '// bare-ok: <reason>' for an infrastructure guard that has no"
+            echo "procedure context (kaappi#1874). Do not raise BASELINE."
             exit 1
           fi
-          echo "No unannotated bare TypeErrors."
+          if [ "$count" -lt "$BASELINE" ]; then
+            echo "::warning::Bare error-taxonomy returns dropped to $count -- lower BASELINE to $count in .github/workflows/ci.yml."
+          fi
 
       # Globs, ignores, and the rule set all live in .markdownlint-cli2.jsonc,
       # so `npx markdownlint-cli2` locally lints exactly what this step does.

@@ -59,6 +59,36 @@
     (c-abs (expt 2 40))
     #f))
 
+;; kaappi#2026: an out-of-range FFI argument is a wrong *magnitude*, not a
+;; wrong *type*, so it must carry KP3007 (invalid argument) while a genuine
+;; type mismatch stays KP3002. Message text alone cannot tell them apart
+;; (both name the function); `error-object-code` is the control a caller
+;; recovers on. The FFI marshalling path used to collapse both to KP3002.
+(test-equal "out-of-range int argument is KP3007, not KP3002"
+  'KP3007
+  (guard (e (#t (error-object-code e)))
+    (c-abs (expt 2 40))
+    'no-error))
+
+(test-equal "wrong-type argument stays KP3002"
+  'KP3002
+  (guard (e (#t (error-object-code e)))
+    (c-abs "x")
+    'no-error))
+
+;; The narrow-integer range checks (int8/uint8/… ) reclassify too.
+(let ((c-abs-i8 (ffi-fn lib "abs" '(int8) 'int)))
+  (test-equal "narrow int8 out-of-range is KP3007"
+    'KP3007
+    (guard (e (#t (error-object-code e)))
+      (c-abs-i8 200)
+      'no-error))
+  (test-equal "narrow int8 wrong-type stays KP3002"
+    'KP3002
+    (guard (e (#t (error-object-code e)))
+      (c-abs-i8 "x")
+      'no-error)))
+
 ;; kaappi#1880: one FFI failure, four dispatch sites. `callFfi` is reached from
 ;; four places -- callValue and callWithArgs in vm_calls.zig, and the tail-call
 ;; and tail-apply opcodes in vm_dispatch.zig -- and until #1880 only the first
