@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787668960113,
+  "lastUpdate": 1787669056895,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "67fc69d0950091602a0c3ba778cdc9bef362aa68",
-          "message": "Fix the uncatchable-abort family: record sizing, devfs stat, SRFI-18 timeouts, 255-arg calls (#2186)\n\n* Fix the uncatchable-abort family: record sizing, devfs stat, SRFI-18 timeouts, 255-arg calls\n\nAll four are one root cause — unguarded narrow arithmetic or conversion\nat a representation boundary — each an exit-134 process abort reachable\nfrom an ordinary program, invisible to guard.\n\n#1973: allocRecordInstance sized its allocation as\n`num_fields * @sizeOf(Value)` in u8 arithmetic (num_fields is a u8), so\nthe first instantiation of any record with >= 27 fields aborted; under\nReleaseFast it would instead corrupt GC accounting silently. Widened to\nusize. parseRecordSpec also admitted 256-field specs whose later u8\n@intCast aborted at definition time; capped at 255 to match the R6RS\nparser. The three audit assertions disabled against this are re-enabled,\nplus new ceiling pins: 254 fields is the construction ceiling everywhere\n(the rtd+fields call hits the 255-arg ISA limit), loudly.\n\n#1976: doStat @intCast a signed dev_t (i32 on macOS/OpenBSD) into u64,\nso file-info aborted on every devfs path — macOS /dev/null stats as\nst_dev = -1296473318. New devToU64 reinterprets the bits as unsigned\nbefore widening (a device id is an opaque identity, not a quantity),\napplied to dev and rdev on both stat branches. The audit's disabled\ndevfs assertions are re-enabled.\n\n#1983: seconds->time, thread-sleep!, and timeoutToDeadlineNs converted\nuser-supplied numbers with unchecked @intFromFloat / u64 multiplies.\nTwo deliberate behaviors now:\n- seconds->time raises a catchable KP3007 outside [-2^63, 2^63)\n  (including inf/nan) — it constructs an observable value, so clamping\n  would silently build a wrong time. The bound is written 0x1p63\n  exactly; @floatFromInt(maxInt(i64)) rounds up and would re-admit the\n  first aborting value (the same off-by-one-ULP shape as #1907).\n- Timeouts saturate (*|, +|, std.math.lossyCast): +inf.0 and any\n  beyond-range duration or far-future time object mean \"never times\n  out\", the SRFI-18 convention (Gambit), continuous with #f. NaN stays\n  0 as before. timeoutToDeadlineNs is pub and shared with\n  (kaappi fibers), so this also fixes channel-send/receive timeouts.\nThe audit file's disabled abort cases are re-enabled under the new\ncontract, and its stale \"TODAY\" NaN pin updated.\n\n#2185 (found by sweeping for sibling sites while fixing #1973):\ncallClosure computed `nargs + 1` in u8, aborting every 255-argument\ncall — the ISA's own maximum; three tail-dispatch paths computed a\nvariadic callee's `arity + 1` rest-slot count the same way; and both\ncompileLambda copies (compiler_lambda.zig and the live IR path in\ncompiler_ir.zig) overflowed their u8 arity counter on a 256-parameter\nlambda, aborting at compile time — including from `kaappi check`. Calls\nwidened to usize; a 256th fixed parameter is now a clean KP2001\n(InvalidSyntax, not TooManyLocals, which surfaces as a KP9001\n\"internal error — report this bug\" and would blame kaappi for user\nsyntax).\n\n#1907 (reader #e panic at 2^63) needed no code here: verified fixed by\n#2181 on this branch — read, check, ast, and fmt all handle the\nformerly-aborting literal, and both boundary values are pinned by\n#2181's tests.\n\nRegression tests: tests_records.zig (27/254/255/256-field ladder),\ntests_filesystem.zig (devfs), tests_srfi18.zig (seconds->time bounds,\ntimeout saturation), tests_fibers.zig (channel timeout, unbounded sleep\nparks with progress pinned), tests_core_eval.zig (255-arg direct/tail/\napply x exact/variadic, 256-param rejection), plus scheme suites\nsrfi170-devfs-1976.scm, srfi18-timeout-saturation-1983.scm,\ncall-255-args-2185.scm and the re-enabled audit assertions.\n\nCloses #1973. Closes #1976. Closes #1983. Closes #2185.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address PR #2186 review: single saturating-conversion helper, tolerant /dev/fd pin\n\nExtract saturatedNsFromSeconds, shared by timeoutToDeadlineNs's number\nbranch and threadSleepFn. #1983 existed as three diverged copies of this\nexact conversion, so a future policy change (say, to NaN handling) must\nhave a single edit point; the helper's doc records why the two sites'\nhistoric @max spellings were equivalent, making the unification visibly\nbehavior-preserving.\n\nThe audit's re-enabled /dev/fd assertion no longer requires the path to\nresolve: on Linux it is a symlink into /proc, which a minimal environment\nmay not have mounted. It still pins 'directory wherever /dev/fd does\nresolve — dropping that entirely would lose the assertion's dev-vs-rdev\ndiscriminating role — and accepts only a catchable failure otherwise,\nnever the abort #1976 fixed.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-02T10:35:23Z",
-          "tree_id": "df04952741bac1c99f7918293d27dff0442cc151",
-          "url": "https://github.com/kaappi/kaappi/commit/67fc69d0950091602a0c3ba778cdc9bef362aa68"
-        },
-        "date": 1785668634448,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.291526,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.11757,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.580341,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.989124,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004637,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046691,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.311422,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056474,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.737304,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.219034,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.585378,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.281098,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.787294,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.614896,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043378,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044413,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9bcc06ba9d5da64d0122f9b43331cd4a1cf64bbf",
+          "message": "Reject subcommand-scoped CLI flags at global scope (#2330)\n\nThe global flag loop accepted --check and --no-opt in any position with no\nscope check. --no-opt was merely inert there, but --check is one hyphen-pair\nfrom the check subcommand whose contract is that nothing executes, so\n'kaappi --check foo.scm' silently RAN the file it meant only to analyse.\n\ncli.parse now tracks the active inline subcommand and rejects a top_level=false\nflag (usage error, exit 2) unless its owning subcommand word preceded it,\nnaming that subcommand and — for --check — pointing at the check subcommand as\nthe likely intent. The owner is derived data-driven from cli_spec's globalSubset\nmembership via owningSubcommand, and a comptime check pins every scoped flag to\nexactly one subcommand so the reject path always has an owner to name.\n'kaappi fmt --check' and 'kaappi ir --no-opt' keep working.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-25T18:24:51+05:30",
+          "tree_id": "589a4b9c07043f8a6f8be4117b4dca9ea1bba201",
+          "url": "https://github.com/kaappi/kaappi/commit/9bcc06ba9d5da64d0122f9b43331cd4a1cf64bbf"
+        },
+        "date": 1787669053992,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.355466,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.568191,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.592874,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.99887,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004783,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047608,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.308154,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055264,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.781497,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.233792,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.6381,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.284101,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.79564,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.667284,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046423,
             "unit": "seconds"
           }
         ]
