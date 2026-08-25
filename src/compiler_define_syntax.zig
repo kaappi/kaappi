@@ -19,6 +19,7 @@ const compiler_mod = @import("compiler.zig");
 const expander = @import("expander.zig");
 const globals_mod = @import("globals.zig");
 const ir_mod = @import("ir.zig");
+const check_lint = @import("check_lint.zig");
 const Compiler = compiler_mod.Compiler;
 const CompileError = compiler_mod.CompileError;
 const Value = types.Value;
@@ -542,14 +543,35 @@ fn resolveTransformerSpecRec(self: *Compiler, spec_in: Value, merged_macros: *st
             // `(define-syntax foo t)`. Only already-executed defines are
             // visible (top-level and library bodies run form-by-form), which
             // is the same left-to-right visibility every global has.
+            var bound_non_transformer = false;
             if (self.globals) |g| {
                 const glk = globals_mod.acquireGlobalsRead(g);
                 const gv = g.get(alias_name);
                 globals_mod.releaseGlobalsRead(glk);
                 if (gv) |v| {
                     if (types.isTransformer(v)) return v;
+                    // The name resolves to a real value that is NOT a
+                    // transformer (e.g. a procedure like `car`): this is
+                    // statically wrong at run time too, so keep rejecting it
+                    // even under analysis — the placeholder fallback below is
+                    // only for names we genuinely cannot resolve.
+                    bound_non_transformer = true;
                 }
             }
+            // kaappi#2007: `kaappi check` (and the LSP) execute nothing, so a
+            // define/define-values that would bind this name to a Transformer
+            // at run time never ran — the globals lookup above comes back
+            // empty even for a program that compiles and runs cleanly. Flagging
+            // it KP2001 is a false positive on a valid file. When analysing
+            // (check_lint.active != null) rather than really compiling for
+            // execution, and only when the name is otherwise unresolvable (not
+            // a known non-transformer binding), accept the still-unresolved
+            // alias as a benign placeholder macro instead of rejecting it. A
+            // normal run never takes this branch: by the time this
+            // define-syntax executes, the earlier define has run and the
+            // transformer is in globals.
+            if (check_lint.active != null and !bound_non_transformer)
+                return makeCheckPlaceholderTransformer(self);
             return CompileError.InvalidSyntax;
         }
         if (!types.isPair(spec)) return CompileError.InvalidSyntax;
@@ -572,11 +594,25 @@ fn resolveTransformerSpecRec(self: *Compiler, spec_in: Value, merged_macros: *st
             // Evaluated NOW, at macro-definition time, in the global
             // environment (phase separation: enclosing runtime locals have
             // no values at expansion time and are deliberately invisible).
-            const proc = eval_fn(types.car(rest_spec)) catch |err| return switch (err) {
-                error.OutOfMemory => CompileError.OutOfMemory,
-                else => CompileError.InvalidSyntax,
+            const proc = eval_fn(types.car(rest_spec)) catch |err| switch (err) {
+                error.OutOfMemory => return CompileError.OutOfMemory,
+                // kaappi#2007: SRFI 211 evaluates the transformer expression at
+                // macro-definition time, so it may legally reference a global
+                // that only gets bound when the program runs. `kaappi check`
+                // executes nothing, so that global is unbound and the eval
+                // fails — but the arity-checked spec is structurally valid and
+                // the program compiles and runs. Under analysis accept it as a
+                // placeholder rather than emit a KP2001 false positive; a real
+                // run reaches here only when the eval genuinely succeeds.
+                else => if (check_lint.active != null)
+                    return makeCheckPlaceholderTransformer(self)
+                else
+                    return CompileError.InvalidSyntax,
             };
-            if (!types.isProcedure(proc)) return CompileError.InvalidSyntax;
+            if (!types.isProcedure(proc)) {
+                if (check_lint.active != null) return makeCheckPlaceholderTransformer(self);
+                return CompileError.InvalidSyntax;
+            }
             var proc_root = proc;
             self.gc.pushRoot(&proc_root);
             const tx_val = self.gc.allocProceduralTransformer(
@@ -684,6 +720,36 @@ fn resolveTransformerSpecRec(self: *Compiler, spec_in: Value, merged_macros: *st
         if (expander.isUsertextPair(spec)) spec = expander.unwrapUsertext(spec);
         if (types.isPair(spec) or types.isVector(spec)) expander.stripUsertextMarkers(self.gc, spec);
     }
+}
+
+/// kaappi#2007: build a benign catch-all transformer for a transformer-spec
+/// that `kaappi check`/the LSP cannot resolve because nothing has executed
+/// (a runtime-bound Transformer alias, or an er/lisp-transformer expression
+/// that references a not-yet-bound global). Equivalent to
+/// `(syntax-rules () ((_ . rest) (if #f #f)))`: every use of the defined
+/// keyword expands to void, so the macro use itself compiles cleanly during
+/// analysis instead of surfacing as an "undefined variable" downstream. Only
+/// ever called under check_lint.active — a normal run resolves the real
+/// transformer. The returned Transformer is freshly allocated and unrooted,
+/// exactly like parseSyntaxRules' result; compileDefineSyntax roots it via
+/// extra_roots with nothing allocating in between (same contract).
+fn makeCheckPlaceholderTransformer(self: *Compiler) CompileError!Value {
+    const gc = self.gc;
+    // Suppress collection while assembling this small transient spec so the
+    // intermediate pairs/symbols need no manual rooting (mirrors the
+    // no_collect window expandMacro uses); parseSyntaxRules copies every
+    // slice with the raw allocator before it could collect anyway.
+    gc.no_collect += 1;
+    defer gc.no_collect -= 1;
+    const underscore = gc.allocSymbol("_") catch return CompileError.OutOfMemory;
+    const rest = gc.allocSymbol("rest") catch return CompileError.OutOfMemory;
+    const pattern = gc.allocPair(underscore, rest) catch return CompileError.OutOfMemory; // (_ . rest)
+    const if_sym = gc.allocSymbol("if") catch return CompileError.OutOfMemory;
+    const template = gc.makeList(&.{ if_sym, types.FALSE, types.FALSE }) catch return CompileError.OutOfMemory; // (if #f #f)
+    const rule = gc.makeList(&.{ pattern, template }) catch return CompileError.OutOfMemory; // ((_ . rest) (if #f #f))
+    const sr = gc.allocSymbol("syntax-rules") catch return CompileError.OutOfMemory;
+    const spec = gc.makeList(&.{ sr, types.NIL, rule }) catch return CompileError.OutOfMemory; // (syntax-rules () <rule>)
+    return parseSyntaxRules(self, spec, &.{});
 }
 
 pub fn parseSyntaxRules(self: *Compiler, spec: Value, extra_bound: []const []const u8) CompileError!Value {
