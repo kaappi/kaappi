@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787685040813,
+  "lastUpdate": 1787687021675,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e292e8e27a87e83d6341ff656a64524159c9356f",
-          "message": "Stop compile-only commands running program code, and name the real cache reason (#2199)\n\n* Stop compile-only commands running program code, and name the real cache reason\n\n`vm_eval.handleTopLevelForm` claims eight top-level heads — import,\ndefine-library, define-record-type, define-values, include, include-ci,\nbegin and cond-expand. Three consumers each carried their own hand-kept\ncopy of that list, and both defects here came from the copies disagreeing\nwith what the dispatcher actually does.\n\n`--compile` and `--disassemble` routed every claimed head through the\n*evaluator*. Three of the eight carry ordinary program code, so a\n`delete-file` inside a top-level begin, cond-expand or define-values ran\nfor real while the artifact was being produced — and the form was also\nrecorded in the preamble, so across compile + run the effect happened\ntwice. A bare top-level `(delete-file ...)` was never executed, which is\nwhat makes this the dispatcher's fault rather than \"compiling runs the\nprogram\".\n\nSplice begin and cond-expand into the driver's form stream instead\n(`toplevel_driver.TopLevelForms`), so their bodies are compiled: only a\ncond-expand's branch *selection* is a compile-time question. Evaluate\nonly `TopLevelHead.isEnvSetup()` — the five declarations later forms are\ncompiled against — and record define-values without running its producer.\nThis also repaired an ordering divergence, since the preamble replays\nentirely before the compiled forms: `one / (begin two) / three` used to\nprint `two one three` from the standalone binary.\n\nThe cache half is reporting, not behaviour. All eight heads legitimately\ndisable the `.sbc` cache — handleTopLevelForm appends no Function, so a\nHIT would skip the form's work entirely — but `--timings` blamed\n`imports` for all of them, telling files containing no import that an\nimport was the cause. It now names the head that fired, and the docs give\nthe shared reason rather than the library-loading one that only covers\nthree of the eight.\n\nThe four parallel lists are now one `vm_eval.TopLevelHead` enum. The\ndispatch is an exhaustive switch, so a ninth head cannot reach the VM\nwithout a handler; `isSpecialTopLevelForm` (whose own comment asked the\nreader to keep it in sync) and check.zig's env-setup allowlist derive\nfrom it.\n\nCloses #2156.\nCloses #2114.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n* Address review: compile shadowed define-record-type, propagate compile OOM\n\nFive review findings, all verified against the code before acting.\n\n`check` classified top-level heads by *name*, so a `define-record-type`\nshadowed by a macro (SRFI 57/131/136/150 each bind that name) entered the\nenv-setup branch, `handleTopLevelForm` declined it — it does consult the\nmacro table — and the form was dropped uncompiled. `vm.topLevelHead` gives\nthe VM-aware answer, so it now falls through to ordinary compilation.\n\nThe review described the false-negative half: a malformed shadowed use\nreported nothing and `check` exited 0. The false-*positive* half is worse\nand was not mentioned — dropping the form also dropped whatever it bound,\nso later forms drew phantom diagnostics. Sweeping `check` over 880 files\n(tests plus every shipped .sld), old vs new, found exactly two that differ,\nboth known-good: srfi136.scm lost 3 phantom KP2001 \"invalid syntax\" errors\nplus a phantom KP4001, and srfi150.scm a phantom KP2002. Both are hard\nerrors, so `check` was failing valid files.\n\n`compileFile` had three silent failure paths — a failed valueToString or\npreamble/compiled_funcs append dropped a form, then printed\n\"Compiled ... -> ...\" and exited 0 with an artifact missing an import or a\ntop-level form. They now propagate OutOfMemory, as runFile's equivalent\nsite already did.\n\n`define-values` still replays from the preamble, which runs in full before\nany compiled form, so its producer can observe an earlier form's binding as\nunbound: the artifact for `(define x 1)` + `(define-values (a b) (values x\n2))` fails with KP3001 where the interpreter prints `(1 2)`. Reproduced\nidentically at 07cceb25, so this PR neither caused nor fixed it — splicing\nis what restores order and there is nothing to splice a define-values into.\nFiled as #2200 and documented in cache.md rather than folded in here; the\nfix needs an order-preserving preamble or a compilable define-values.\n\nTests: four assertions in errors/check.sh for the shadowing fix (all four\nfail pre-fix), using the real SRFI files as the guard for the\nfalse-positive direction — a synthetic probe cannot show it, since `check`\ngathers top-level define names structurally and never sees a binding any\nmacro introduces. The #2156 suite now uses interp_stdout /\nassert_tiers_agree, which also compares exit status; the golden string\nstays as a second assertion against the interpreter. Deduplicated the\ninclude/include-ci assertion.\n\nRefs #2199 review.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-03T12:19:10Z",
-          "tree_id": "7a778f392438e9f8b459ff6cbdfa61c30e9f5801",
-          "url": "https://github.com/kaappi/kaappi/commit/e292e8e27a87e83d6341ff656a64524159c9356f"
-        },
-        "date": 1785761404583,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.412813,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.128928,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.571461,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.079665,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004691,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046955,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.315135,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.058301,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.678782,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.220512,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.600071,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.286545,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.822148,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.585962,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042547,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04442,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "259f918732b1dc4eba933456ac67d4d908a24450",
+          "message": "ci: stop docs-only PRs blocking on the skipped test matrix's required checks (#2338)\n\nThe docs-only fast-path skipped the `test` job at the job level. GitHub does\nnot expand a skipped matrix job into its per-leg check names -- it reports one\ncheck under the raw template `test (${{ matrix.os }}, ${{ matrix.optimize }})`\n-- so the five required contexts (`test (ubuntu-latest, ReleaseSafe)` etc.)\nwere never reported and every docs-only PR sat at BLOCKED on phantom\n\"Expected -- Waiting for status\" checks (kaappi#2337). The classifier itself is\ncorrect; its safety premise (\"a skipped job reports Success to branch\nprotection\") holds for standalone required jobs (wasm, riscv64-test) but not\nfor a matrix job whose expanded legs are individually required.\n\nOption 2 from the issue: the `test` job no longer carries a job-level\n`if: docs_only`, so its matrix always expands and always reports the five\ncontexts. The docs-only short-circuit moves per-step onto `env.DOCS_ONLY`, so\neach leg still reports success on a docs-only PR while skipping the build and\nsuites -- costing ~5 runner startups (seconds), not the ~194 build/test\nminutes. Correct the `format` classifier comment that asserted the\nnow-disproven premise, so the matrix job is not \"simplified\" back.\n\nOnly `test` needs this; every other heavy job is either not a required context\nor a standalone job that skips cleanly.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-25T19:00:23Z",
+          "tree_id": "359864fc7c96ce902d5e048eac26c3ded2561a38",
+          "url": "https://github.com/kaappi/kaappi/commit/259f918732b1dc4eba933456ac67d4d908a24450"
+        },
+        "date": 1787687017316,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.9363,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.29621,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.560855,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.812177,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005149,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046115,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.281707,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053457,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.574733,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.133392,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.5829,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.307755,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.668151,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.817397,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045789,
             "unit": "seconds"
           }
         ]
