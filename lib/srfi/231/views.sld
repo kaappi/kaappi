@@ -315,6 +315,8 @@
     ;; and complexity isn't justified for this phase.
     (define (%array-copy-impl array opts)
       (unless (array? array) (error "array-copy: not an array" array))
+      (%check-boolean! (%opt opts 1 (specialized-array-default-mutable?)) "array-copy: mutable?")
+      (%check-boolean! (%opt opts 2 (specialized-array-default-safe?)) "array-copy: safe?")
       (let* ((specialized? (specialized-array? array))
              (storage-class (%opt opts 0 (if specialized? (array-storage-class array) generic-storage-class)))
              (mutable? (%opt opts 1 (if specialized? (mutable-array? array) (specialized-array-default-mutable?))))

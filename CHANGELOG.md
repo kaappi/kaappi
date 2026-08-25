@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`array-copy`/`array-copy!` reject non-boolean `mutable?`/`safe?` options, and
+  every SRFI 231 combinator rejects a non-procedure function argument**
+  (#2320, #2321), closing the two gaps surfaced by the SRFI author's follow-up
+  report. `array-copy`'s `mutable?` never flowed through a validating
+  constructor, so a truthy wrong-typed value silently yielded an unfrozen
+  array; `array-map`, `array-for-each`, both folds, `array-any`, `array-every`,
+  `array-outer-product`, and `array-inner-product` now check at call time —
+  previously the lazy combinators deferred the failure to first element access
+  (possibly never) and the eager ones could succeed silently over an empty
+  domain.
+
 - **`array-packed?` now follows the spec's definition: consecutive increasing
   body indices from any base, not from zero** (#2314). It previously required
   the lexicographic traversal to start at body index 0, so any view with a

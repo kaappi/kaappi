@@ -140,6 +140,16 @@
 ;; array-tile's outer array is always immutable/non-specialized
 (test-equal #f (specialized-array? (array-tile (make-specialized-array (make-interval (vector 4)) s8-storage-class) (vector 2))))
 
+;;; --- array-copy/array-copy! validate their own boolean options (#2320):
+;;; mutable? never flows through a validating constructor, so a truthy
+;;; wrong-typed value would silently yield an unfrozen array; safe? now
+;;; errors attributed to array-copy itself, not the inner constructor ---
+(let ((plain (make-array (make-interval (vector 3)) list)))
+  (test-equal #t (guard (e (#t #t)) (array-copy plain generic-storage-class 'a) #f))
+  (test-equal #t (guard (e (#t #t)) (array-copy plain generic-storage-class #f 'a) #f))
+  (test-equal #t (guard (e (#t #t)) (array-copy! plain generic-storage-class 'a) #f))
+  (test-equal #t (array-safe? (array-copy plain generic-storage-class #f #t))))
+
 ;;; --- array-copy / array-copy!: default-inheritance rule ---
 (let* ((plain (make-array (make-interval (vector 2 2)) list))
        (copied (array-copy plain)))

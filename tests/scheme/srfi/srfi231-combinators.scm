@@ -152,6 +152,26 @@
 ;; own %check-nested-list validation, rather than a raw vector->list crash
 (test-equal #t (guard (e (#t #t)) (vector*->array 2 (vector 1 2)) #f))
 
+;;; --- every combinator validates its function argument at call time
+;;; (#2321): the lazy ones (array-map, array-outer-product) would
+;;; otherwise defer the failure to first access, and eager ones would
+;;; succeed silently over an empty domain, where f is never invoked ---
+(let ((t (make-array (make-interval (vector 2)) (lambda (i) i)))
+      (empty (make-array (make-interval (vector 0)) list)))
+  (test-equal #t (guard (e (#t #t)) (array-map 'a t) #f))
+  (test-equal #t (guard (e (#t #t)) (array-for-each 'a t) #f))
+  ;; the silent case: empty domain, f never invoked -- still an error
+  (test-equal #t (guard (e (#t #t)) (array-for-each 'a empty) #f))
+  (test-equal #t (guard (e (#t #t)) (array-fold-left 'a 0 t) #f))
+  (test-equal #t (guard (e (#t #t)) (array-fold-right 'a 0 t) #f))
+  (test-equal #t (guard (e (#t #t)) (array-any 'a t) #f))
+  (test-equal #t (guard (e (#t #t)) (array-every 'a t) #f))
+  (test-equal #t (guard (e (#t #t)) (array-outer-product 'a t t) #f))
+  (test-equal #t (guard (e (#t #t)) (array-inner-product t 'a + t) #f))
+  (test-equal #t (guard (e (#t #t)) (array-inner-product t + 'a t) #f))
+  ;; sanity: proper calls still work (- negates: 0 -> 0, 1 -> -1)
+  (test-equal '(0 -1) (array->list (array-map - t))))
+
 (let ((runner (test-runner-current)))
   (test-end "srfi-231-combinators")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))
