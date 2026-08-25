@@ -386,7 +386,7 @@ expression cannot re-enter subsequent top-level expressions (standard behavior
 shared by Guile, Chibi, Chicken, Chez, and Racket).
 
 SRFI 248's delimited continuations (`with-unwind-handler`, and the extended
-`guard`) are built on this `call/cc` via a sticky exception handler, with two
+`guard`) are built on this `call/cc` via a sticky exception handler, with three
 observable caveats:
 
 - **Single-shot** — each captured delimited continuation may be resumed at most
@@ -400,9 +400,20 @@ observable caveats:
   after-thunk of the guarded body, where R7RS-small runs it after. All the
   effects still happen; only their order differs. See
   [CONFORMANCE.md](CONFORMANCE.md) for details.
+- **Shared prompt cell** — the delimited-control prompt is a single cell per
+  thread, shared by every fiber in it, so a `with-unwind-handler`/`guard` body
+  must not span a fiber suspension point (a blocking channel operation, parked
+  I/O) while another fiber runs delimited control: the prompts cross silently —
+  one fiber's `with-unwind-handler` can return another fiber's handler value
+  while the parked body never completes, with no error raised. Mixing in user
+  `call/cc` is unsupported the same way: a `call/cc` capture that crosses a
+  `with-unwind-handler` boundary makes the guarded body re-run exponentially —
+  a loop that escapes through user `call/cc` from inside `with-unwind-handler`,
+  run under SRFI 248's `guard`, executes its body 2^n-1 times instead of n (255
+  where 8 is correct, at n = 8) and still exits 0.
 
-Both are limited to SRFI 248; plain `call/cc`, `dynamic-wind`, and the built-in
-`guard` are unaffected unless you import `(srfi 248)`.
+All three are limited to SRFI 248; plain `call/cc`, `dynamic-wind`, and the
+built-in `guard` are unaffected unless you import `(srfi 248)`.
 
 ### Exceptions
 
@@ -500,6 +511,17 @@ very large inputs, chunking manually with `make-pool`/`pool-submit`/
 `task-wait` (one task per processor, each covering a slice of the input with
 an ordinary sequential loop) reduces per-task submission overhead — see
 `kaappi-examples/parallel-primes` for a worked example.
+
+### Script output
+
+Running a script (`kaappi program.scm`) echoes the value of every non-void
+top-level expression to stdout, as a REPL does; `define` and other
+void-valued forms print nothing. A top-level call used for effect therefore
+adds a datum to the program's own output — a cleanup helper ending in
+`(guard (e (#t #f)) ...)` prints its `#f`, and `(map f rows)` prints the
+resulting list. Chibi and Guile print nothing when running the same file. No
+flag disables the echo; keep effectful top-level sequences void-valued (end a
+`begin` with `(if #f #f)`) when the program's output must stay parseable.
 
 ### Macros
 
