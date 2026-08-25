@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787683546316,
+  "lastUpdate": 1787685040813,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "07cceb257ed76cf6fd4d7d890a4a8b367544c496",
-          "message": "Refuse three cross-heap uses that the owner checks were missing (#2198)\n\nAll three issues are the same shape: an object used by a thread that does\nnot own it, on a route where nothing checked. The globals map is shared by\npointer, so a thunk that merely *names* a top-level binding hands the child\nthe parent's own object -- and only channels and thread handles compared\nObject.owner against the running GC.id.\n\nfiber-join (#2001) is the worst of the three, because the API itself\nperforms the hand-off: it returned the parent's heap object to the child as\nits documented result value, so a set-car! in the child was observed by the\nparent. A still-running foreign fiber was reported as a deadlock, sending\nthe reader to look for a cycle that does not exist -- the fiber simply\nbelongs to another thread's scheduler. gc_deep_copy refuses the .fiber tag\noutright, so there is no idiom to protect: nothing legal is now refused.\n\ninvokeGuardian (#2008) mutated Guardian.registered -- a raw std.ArrayList,\nthe only Zig container Scheme can grow across a heap boundary -- with the\n*calling* thread's allocator and no lock. Two threads registering into one\nshared guardian aborted the process 5 of 5 times with empty stdout and\nstderr. A child registering a child-heap object left the parent holding a\npointer into the freed child arena, which weakReachable then read for an\nowner id: silently #f in ReleaseSafe, an unrelated live parent-heap pair\nunder -Dgc-stress. One check ahead of both the register and the retrieve\nbranch closes both.\n\ngc_deep_copy's channel arm (#1934) checked ownership only on the\nunpromoted branch, so promotion state alone decided whether KEP-0002\ninvariant 4 applied. A thread could read a promoted channel out of a\nshared global -- which every channel primitive refuses it directly -- and\nhand it to a child, which then held a perfectly working stub. The check\nnow runs before `shared` is read at all (so a foreign heap's field is\nnever read on this path) and keys off direction rather than promotion\nstate: a copy *out of* the running heap into an Envelope must be a channel\nthe running thread owns, while a copy *in*, draining an envelope some\nentitled thread already built, is not re-checked -- its objects belong to\nthat private heap, not to the importer, so re-checking would reject every\nlegal message. All three import sites set gc_instance to the destination\nfirst.\n\nTwo existing unit tests modelled a thread boundary without moving the\nthreadlocal with it, and now set it the way the production path does.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-03T07:35:59Z",
-          "tree_id": "d2990824a84b8b8b87b199b6c5e2e6eca4e477c2",
-          "url": "https://github.com/kaappi/kaappi/commit/07cceb257ed76cf6fd4d7d890a4a8b367544c496"
-        },
-        "date": 1785744426098,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.082126,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.628332,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.564224,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.884687,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004887,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.045022,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.296736,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054011,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.309598,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.168119,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.52496,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.305176,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.701278,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.781277,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044534,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.036564,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "645d2bba6d60d2d4f3fdc6bda45ba956627d8091",
+          "message": "pr-groups: work each PR on its own git worktree (#2336)\n\nThe pr-groups skill planned the groups but said nothing about how to\nexecute them once a wave starts. Launching concurrent implementation\nsessions in the shared checkout means they collide on files and on the\nworking tree, and a fix can land on main by accident.\n\nDocument the execution half: one git worktree per group, branched off\nmain, with a self-contained brief and a commit/PR wrap-up contract\n(regression test, DCO sign-off, per-issue Closes keyword). Bake in the\ntwo operational failures that each cost a session in practice — a\nbackgrounded test run that stalls waiting on a notification, and\nconcurrent builds serialising on the Zig cache lock looking hung — plus\nthe reminder that one worktree's green run does not prove main is green.\n\nAdd eval #5 covering the \"start the wave\" behaviour.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-25T19:02:58Z",
+          "tree_id": "535555475b2bbabbbba3d8a04af73d979afeb1ca",
+          "url": "https://github.com/kaappi/kaappi/commit/645d2bba6d60d2d4f3fdc6bda45ba956627d8091"
+        },
+        "date": 1787685034917,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.407817,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.35227,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.57014,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.050149,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004674,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048018,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.307422,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057181,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.839549,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.238747,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.66755,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.282488,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.794084,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.621578,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04442,
             "unit": "seconds"
           }
         ]
