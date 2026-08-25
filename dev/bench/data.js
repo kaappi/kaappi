@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787670926956,
+  "lastUpdate": 1787671430410,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "990eae71da27761ad31ec11beb96cee6b8704c5c",
-          "message": "Reject non-positive segment sizes across SRFIs 152/160/178/196 (#2191)\n\n* Reject non-positive segment sizes across SRFIs 152/160/178/196\n\nFour segment procedures shared one missing precondition: none rejected\na non-positive size, and each loop advances by that size per iteration,\nso n = 0 never advanced — an unbounded-allocation hang (%uvec-segment on\nall 12 kinds, string-segment, range-segment) or unbounded recursion into\nan uncatchable KP3008 (bitvector-segment). SRFI 171's tsegment already\nrejected n = 0 at entry; the other four now do the same, raising a\ncatchable error for any size that is not an exact positive integer —\nwhich SRFI 160 and 178 spell out verbatim, and which is the only sane\nreading for 152/196, where no finite list of length-0 pieces can cover\na non-empty input.\n\nbitvector-segment also recursed once per segment with the cons outside\nthe recursive call, so a legal call on a 200,000-bit vector died with an\nuncatchable stack overflow. It now accumulates in tail position and\nreverses, the shape the other three already had.\n\nOne observable change beyond the hangs: (s8vector-segment (s8vector) 0)\nreturned () — the empty vector was the sole input where n = 0\nterminated. The guard runs before the loop, so it raises now too, per\nthe spec's unconditional \"it is an error\".\n\nRe-enables the assertions disabled with FAIL: #1949 / FAIL: #2084 and\nadds n = 0, n = -1, and inexact-n regressions across both dispatch\nbranches and all five test files.\n\nFixes #1949\nFixes #2084\nFixes #2172\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Move the deep bitvector-segment case to its own stress-skipped file\n\nThe 200,000-segment regression for #2084 timed out the gc-stress-scheme\njob (exit 124): stress collection runs on every allocation, so building\n200k bitvectors against a growing live heap is quadratic — measured\n4.2 s at 5k, 42 s at 20k, ~3 min at 40k on a fast machine, extrapolating\nfar past the job's 900 s per-file budget at 200k. Shrinking the count is\nno escape: any count that still exceeds the 32,768 frame cap (the point\nof the test) is already minutes under stress.\n\nSo the deep case moves to srfi178-segment-stack-2084.scm, listed in\nKAAPPI_GC_STRESS_SKIP under reason (a) like reader-port-refill-gaps.scm\nbefore it — run-all.sh still runs it plain on every PR (~0.1 s), and\nsrfi178-audit.scm keeps its other 369 assertions stressed (5.3 s under\nthe stress binary), including the n = 0 guard half of #2084.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address review: uniform guard coverage, accurate skip-list prose\n\nReview follow-ups on #2191, from CodeRabbit and inline notes:\n\n- primitives_srfi160-audit.scm sweeps n = 0 through all 12 public\n  segment wrappers via the existing all-kinds table. The guard is one\n  shared definition in %uvec-segment and s8/u8 already proved both\n  dispatch branches, so this pins wrapper reach, not 12 copies of the\n  guard — a future per-kind split cannot drop it for one kind unnoticed.\n- Every segment site now covers the full predicate matrix uniformly:\n  n = 0, n = -1, an inexact 2.0, and n = 0 on the empty input — the\n  last one pinning guard-before-length-check order, the one subtle\n  placement decision in the fix (empty inputs used to return ()).\n- srfi178-audit.scm's \"discriminating control\" comment predated the\n  tail rewrite; the 1,000-bit case is now labeled the smoke check it is,\n  with the depth job pointed at srfi178-segment-stack-2084.scm.\n- ci.yml no longer claims skipped files \"still run stressed in the\n  nightly fuzz.yml legs\": fuzz.yml's gc-stress legs run fuzz targets\n  and the Zig unit suite, never the Scheme corpus. The rewritten\n  paragraph says what is actually true — listing a file removes its\n  stressed Scheme run entirely, plain coverage stays on every other\n  leg, and named counterparts keep the stressed half.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-02T14:49:11Z",
-          "tree_id": "a261b2aa30ed45097d399178188a139a61a1f2e6",
-          "url": "https://github.com/kaappi/kaappi/commit/990eae71da27761ad31ec11beb96cee6b8704c5c"
-        },
-        "date": 1785683900303,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.263764,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.207414,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.568913,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.965574,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004699,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046445,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.309608,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056598,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.684413,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.235654,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.568085,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.281014,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.784887,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.60288,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042921,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.036874,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ad52ca4cd2ff221ef874285cc9640bc88726f8f5",
+          "message": "Guard the WASM differential against a stale kaappi.wasm (#2328)\n\n* Guard the WASM differential against a stale kaappi.wasm\n\nrun-wasm-differential.sh only checked that a module existed, never that it\nwas built from the tree under test. run-all.sh has no `zig build wasm` step,\nso a local run compared today's interpreter against whatever module happened\nto sit in zig-out/ — producing confident, specific FALSE tier divergences\nagainst an old engine (or, silently, a clean PASS that tested nothing).\n\nAdd a freshness gate: if any interpreter source compiled into the module\n(src/, build.zig{,.zon}, vendor/) is newer than the module, SKIP (77) with a\nmessage to run 'zig build wasm' instead of reporting divergences against a\nmodule of unknown provenance. Only the binary's inputs are checked, so editing\na test or doc does not trip it. `find -newer` is plain POSIX. Also surface the\nmodule size in the preamble. Wire run-all.sh to build the module up front when\nzig and wasmtime are both present, so the common local path runs the leg\ninstead of skipping; it degrades to the SKIP when the toolchain is absent.\n\nCloses #2197\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Fail closed on WASM freshness scan and name the full input scope\n\nAddresses CodeRabbit review: exit 77 when the find scan itself cannot\nestablish freshness (instead of proceeding on an empty result), and report\nthat the module was verified newer than all interpreter build inputs\n(src/, build.zig{, .zon}, vendor/) rather than only src/.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-25T19:26:18+05:30",
+          "tree_id": "0cd3ad1159a4f60182c2309c2ef36df1826c92d6",
+          "url": "https://github.com/kaappi/kaappi/commit/ad52ca4cd2ff221ef874285cc9640bc88726f8f5"
+        },
+        "date": 1787671427450,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.438491,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.511063,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.584076,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.107319,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004753,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048232,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.30752,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057066,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.879507,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.241337,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.689383,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.284853,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.803737,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.648788,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044847,
             "unit": "seconds"
           }
         ]
