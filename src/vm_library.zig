@@ -271,24 +271,25 @@ fn loadLibrarySource(vm: *VM, source: []const u8) !void {
 /// Resolve the full path for a library .sld file.
 /// Returns a heap-allocated path string, or null if not found.
 pub fn resolveLibraryPath(allocator: std.mem.Allocator, rel_path: []const u8, lib_paths: []const []const u8) ?[]u8 {
-    // Built-in search prefixes (relative to cwd)
+    // Search the explicit --lib-path entries (and the auto-added script dir /
+    // ~/.kaappi/lib / exe-relative lib that follow them in vm.lib_paths)
+    // BEFORE the cwd-relative "" and "lib/" fallbacks. Otherwise a bundled
+    // library found under ./lib silently wins over a --lib-path entry meant to
+    // shadow it — e.g. running from the source checkout, ./lib/srfi/N.sld beat
+    // `--lib-path shadow`, so an A/B comparison measured the bundled copy
+    // (kaappi#1927). This preserves the documented ordering: explicit
+    // --lib-path first, then the auto-added dirs, with the cwd fallbacks last.
     const builtin_prefixes = [_][]const u8{ "", "lib/" };
 
-    const total_candidates = builtin_prefixes.len + lib_paths.len;
+    const total_candidates = lib_paths.len + builtin_prefixes.len;
     var candidate_idx: usize = 0;
 
     while (candidate_idx < total_candidates) : (candidate_idx += 1) {
         var full_path_buf: [600]u8 = undefined;
         var full_len: usize = 0;
 
-        if (candidate_idx < builtin_prefixes.len) {
-            const prefix = builtin_prefixes[candidate_idx];
-            full_len = prefix.len + rel_path.len;
-            if (full_len >= full_path_buf.len) continue;
-            @memcpy(full_path_buf[0..prefix.len], prefix);
-            @memcpy(full_path_buf[prefix.len .. prefix.len + rel_path.len], rel_path);
-        } else {
-            const lp = lib_paths[candidate_idx - builtin_prefixes.len];
+        if (candidate_idx < lib_paths.len) {
+            const lp = lib_paths[candidate_idx];
             const needs_sep: usize = if (lp.len > 0 and lp[lp.len - 1] != '/') 1 else 0;
             full_len = lp.len + needs_sep + rel_path.len;
             if (full_len >= full_path_buf.len) continue;
@@ -297,6 +298,12 @@ pub fn resolveLibraryPath(allocator: std.mem.Allocator, rel_path: []const u8, li
                 full_path_buf[lp.len] = '/';
             }
             @memcpy(full_path_buf[lp.len + needs_sep .. lp.len + needs_sep + rel_path.len], rel_path);
+        } else {
+            const prefix = builtin_prefixes[candidate_idx - lib_paths.len];
+            full_len = prefix.len + rel_path.len;
+            if (full_len >= full_path_buf.len) continue;
+            @memcpy(full_path_buf[0..prefix.len], prefix);
+            @memcpy(full_path_buf[prefix.len .. prefix.len + rel_path.len], rel_path);
         }
 
         const full_path = full_path_buf[0..full_len];
@@ -401,15 +408,8 @@ pub fn libraryFileExists(vm: *VM, name_list: Value) bool {
 /// Try to find a library's .sld source in bundled files, using the same
 /// search order as resolveLibraryPath.
 fn findBundledSource(bf: *std.StringHashMap([]const u8), rel_path: []const u8, lib_paths: []const []const u8) ?struct { path: []const u8, source: []const u8 } {
-    const prefixes = [_][]const u8{ "", "lib/" };
-    for (prefixes) |prefix| {
-        var buf: [600]u8 = undefined;
-        const full = std.fmt.bufPrint(&buf, "{s}{s}", .{ prefix, rel_path }) catch continue;
-        if (bf.get(full)) |src| {
-            const key = bf.getKey(full) orelse continue;
-            return .{ .path = key, .source = src };
-        }
-    }
+    // Same precedence as resolveLibraryPath (kaappi#1927): --lib-path entries
+    // (and the auto-added dirs after them) before the cwd-relative fallbacks.
     for (lib_paths) |lp| {
         var buf: [600]u8 = undefined;
         const needs_sep: usize = if (lp.len > 0 and lp[lp.len - 1] != '/') 1 else 0;
@@ -418,6 +418,15 @@ fn findBundledSource(bf: *std.StringHashMap([]const u8), rel_path: []const u8, l
             if (needs_sep == 1) "/" else "",
             rel_path,
         }) catch continue;
+        if (bf.get(full)) |src| {
+            const key = bf.getKey(full) orelse continue;
+            return .{ .path = key, .source = src };
+        }
+    }
+    const prefixes = [_][]const u8{ "", "lib/" };
+    for (prefixes) |prefix| {
+        var buf: [600]u8 = undefined;
+        const full = std.fmt.bufPrint(&buf, "{s}{s}", .{ prefix, rel_path }) catch continue;
         if (bf.get(full)) |src| {
             const key = bf.getKey(full) orelse continue;
             return .{ .path = key, .source = src };
@@ -454,8 +463,10 @@ fn recordFileForBundle(vm: *VM, path: []const u8, content: []const u8) void {
 }
 
 /// Try to load a library from a .sld file on disk.
-/// Search order: ./rel_path, ./lib/rel_path, then each vm.lib_paths entry
-/// (--lib-path flags, the script's directory, ~/.kaappi/lib).
+/// Search order: each vm.lib_paths entry (--lib-path flags first, then the
+/// script's directory, ~/.kaappi/lib, and the exe-relative lib), then the
+/// cwd-relative ./rel_path and ./lib/rel_path fallbacks. --lib-path therefore
+/// takes precedence over a bundled ./lib copy (kaappi#1927).
 fn loadEmbeddedLibrary(vm: *VM, rel_path: []const u8, source: []const u8) !void {
     loadLibrarySource(vm, source) catch |err| {
         if (vm.last_error_detail_len == 0) {
