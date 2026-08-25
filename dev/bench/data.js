@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787628240983,
+  "lastUpdate": 1787634719902,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "98195459f6a0b658295d97c0a3a3543b0008fddc",
-          "message": "Phase 7D: golden .sbc bytes, because a paired byte-swap cancels (#2159)\n\nAudit v2, Phase 7D. Refs #1890.\n\n7C broke the writer/reader pairing for the `.sbc` *header* — writer against\nliteral bytes, reader against a hand-assembled little-endian header — and\nhanded 7D the rest: the per-function record and every constant encoding are\nreached only by the round-trip tests in `bytecode_file.zig`, which write and\nread on the same host. A swap present on *both* sides cancels and leaves them\ngreen on every machine, s390x included.\n\n## Field-by-field: nothing is unconverted\n\nEvery scalar in the format goes through a helper, and every `@bitCast` in\neither half is paired with a `nativeToLittle`/`littleToNative`. The two\napparent exceptions are not fields: `readI16FromCode` bitcasts a u16 already\nassembled byte-at-a-time from the code stream (bytecode operands are emitted\n`v >> 8`, `v & 0xFF` and read back the same way, so they are endian-neutral by\nconstruction), and bignum limbs are `[]u64` in little-endian *limb* order with\neach limb serialized whole through `writeU64`. No field is written with a raw\n`asBytes` or an unconverted `@bitCast`. **There is no byte-order bug here** —\nwhat was missing is the instrument that would show one.\n\n## The instrument\n\n`GOLDEN_BODY` in `src/tests_endian.zig`: a committed literal covering\n`func_count`/`top_level_count`, both function records\n(arity/locals/upvalues/variadic/name/code/line table) and all 18 constant\nencodings — fixnum, flonum, symbol, string, boolean, nil, void, eof,\nundefined, char, function reference, pair, vector, bytevector, bignum,\nrational, complex — plus the bundled-files and preamble trailers. Written as a\n`++` chain of one-field-per-line literals so `zig fmt` cannot reflow a value\nacross a line boundary; each line's comment names the value it spells LSB-first,\nand a `comptime` guard rejects a byte-palindrome for the four scalars carrying\nthe argument.\n\nIt is used twice with no contact between the uses: the serializer must\nreproduce it, and the deserializer must decode it. The hand-assembled header\nuses shifts only, never a `@bitCast`, so it cannot inherit the host's byte\norder from the code under test. Neither expected value is a function of the\nhost.\n\n## Mutation evidence\n\n| mutation | `bytecode_file.zig` round-trips | writer golden | reader golden |\n|---|---|---|---|\n| paired: `writeU32` **and** `readU32` flipped | 10/10 **pass** | **fail** | **fail** |\n| writer only (`writeU64`) | fail | **fail** | pass |\n| reader only (`readU32`) | pass | pass | **fail** |\n| byte-reverse one fixture field (the bignum limb) | pass | **fail** | **fail** |\n\nRow 1 is the point: the bug class that is invisible to every existing test now\nfails on every host. Rows 2–3 confirm the two directions are independent —\nneither test can mask the other's mutation. Row 4 confirms the literal is what\nis being asserted.\n\n## SRFI 271 has the identical shape\n\n`tests/scheme/srfi/srfi271.scm` compares two ports on the same host, so it is\nblind to byte order outright: flipping the seed-word read to `.big` leaves it\nat **35/35**. Eight golden assertions in\n`tests/scheme/audit/endianness-audit.scm` (which the s390x leg runs, via 7C's\n`tools/run-endian-suite.sh` step) pin both directions — a literal 32-byte seed\nto a literal 16-byte output prefix and a literal 46-byte state, and separately a\nhand-written literal state to its own literal output. Expected values were\nderived from the published xoshiro256** algorithm, not captured from the\nimplementation, and matched it exactly on the first run. Three mutations\n(`.little`→`.big` in the seed read, in the paired state read+write, and in the\noutput block write) each leave `srfi271.scm` at 35/35 and fail 3–4 of the new\nassertions. The unread-port state is called out explicitly as *the* cancelling\ncase — the words go in and straight back out, so those bytes equal the seed\nunder any consistent order — which is why the assertion after it reads the\nstate one byte in.\n\nAlso pins `sourceHash`/`compilerHashFor` as host-independent: Wyhash reads\nthrough `readInt(..., .little)`, so the cache key is a function of bytes, not of\nhost byte order. Nothing stated that, and a native-load hash would make the key\nhost-dependent with every other test still green.\n\n## The cache-key question: it should include the target\n\nFiled as #2155 rather than fixed. `compilerHashFor` takes the version string\nand the git build id and nothing else — not the target triple — and\n`gitBuildId` has no `-Dtarget` input, so all 17 platform binaries in a release\nshare one key. The load gate checks only magic, VERSION, source hash and\ncompiler hash; the header carries no target field. Meanwhile `cond-expand` is\nresolved at compile time and only the taken branch survives into the `.sbc`\n(measured: the cache entry for a `cond-expand` inside a procedure contains\n`POSIX-BRANCH` and not `WINDOWS-BRANCH`). Honest exposure, since it changes the\npriority: the realistic shared-`$KAAPPI_HOME` pairs all have identical feature\nsets today, so the reachable path is `zig build -Dbundle=out.sbc` with a cross\n`-Dtarget` — a documented workflow where the compiler-hash check silently\npasses.\n\nAlso filed #2156: `kaappi --compile` executes top-level `cond-expand`, `begin`\nand `define-values` bodies for real — a compile-only command that deletes a\nfile — while a bare top-level form, `define-record-type` and code inside a\nlambda are not executed.\n\n## Verification\n\nVerified, little-endian macOS aarch64 ReleaseSafe at `910f7c75`: `zig build\ntest` green; the endian tests green under `-Dgc-stress=true`; `kaappi test\ntests/scheme/audit` 5306/0 and `tests/scheme/srfi` 33937/0; the endian suite\n11/11; `zig fmt --check` and markdownlint clean; every mutation result above\nrun and reverted.\n\nNot verified, by construction: how any of this *behaves* big-endian. No s390x\nexecution was performed here, and a local `zig build test -Dtarget=s390x-linux`\nproves compilation only (`skip_foreign_checks`). The `s390x-test` leg on this PR\nis the first big-endian run of the new assertions — read that check before\nmerging, and treat a failure there as a finding.\n\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-02T06:10:15+05:30",
-          "tree_id": "e61897380d74dbc2a1806e5488aa53459b5c691e",
-          "url": "https://github.com/kaappi/kaappi/commit/98195459f6a0b658295d97c0a3a3543b0008fddc"
-        },
-        "date": 1785633032591,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.29726,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.169655,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.579861,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.99875,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004797,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047313,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.320439,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057551,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.776925,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.22787,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.57278,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.287638,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.802809,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.659911,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044733,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04561,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3c11014dfcee10ec9a9aca47082587ddf5d3a64d",
+          "message": "Validate SRFI 231 entry-point arguments to match the reference (#2319)\n\nSix reference-parity guard clauses, one per filed issue, each with a\nguarded regression test in its per-module suite:\n\n- interval-contains-multi-index?: a multi-index whose length differs\n  from the interval's dimension is now an error, not a silent #f (#2312)\n- storage-class-data->body: built-in classes reject wrong-typed data\n  instead of returning it as a would-be body via identity (#2313)\n- make-array: setter must be a procedure or #f, checked at construction\n  so mutable-array?/array-setter cannot misreport the object (#2315)\n- make-specialized-array, make-specialized-array-from-data, and the two\n  specialized-array-default-* parameters reject non-boolean\n  safe?/mutable? values (#2316)\n- specialized-array-share: mapper must be a procedure, checked even for\n  empty new-domains where it would never be invoked (#2317)\n- array-tile: a scalar slice-width is legal only on a positive-width\n  axis; empty axes take the explicit-vector form (#2318)\n\nVerified by running the reference test suite's 330 error-expectation\ntests against kaappi: 322 passed before, 330 after. All seven\ntests/scheme/srfi/srfi231-*.scm suites pass. #2314 (array-packed?\nzero-offset) is deliberately excluded -- it is a semantic change that\nbelongs to its own PR.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-25T04:32:21Z",
+          "tree_id": "e70fd8acd704dbb6d551d8b9305bb6f56f9a3617",
+          "url": "https://github.com/kaappi/kaappi/commit/3c11014dfcee10ec9a9aca47082587ddf5d3a64d"
+        },
+        "date": 1787634718686,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.640692,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.272237,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.566639,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.10622,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004635,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048042,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.307178,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055846,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.681526,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.218396,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.683842,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.281962,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.802022,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.632075,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044234,
             "unit": "seconds"
           }
         ]
