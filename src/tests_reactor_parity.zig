@@ -534,8 +534,10 @@ test "parity: a cross-thread notify interrupts the wait without consuming a time
 // ---------------------------------------------------------------------------
 // epoll's nanoseconds→milliseconds conversion, verified from any host.
 //
-// `msFromNs` is epoll-only (`epoll_wait` takes `int` milliseconds) but it is
-// a pure function at file scope in reactor.zig, so it compiles and runs on
+// `msFromNs` began epoll-only (`epoll_wait` takes `int` milliseconds) but is
+// now the single ceil-to-ms rule for both millisecond backends: the Windows
+// backend calls it too (kaappi#2154) rather than restating the arithmetic. It
+// is a pure function at file scope in reactor.zig, so it compiles and runs on
 // every target. That makes it the one piece of a *foreign* backend a kqueue
 // host can verify directly — and its rule is a documented KEP-0001
 // resolution, not an implementation detail: "Rounds up (ceil) so a timer may
@@ -599,4 +601,16 @@ test "parity: msFromNs saturates instead of overflowing into a negative timeout"
         try std.testing.expect(ms > 0);
         try std.testing.expectEqual(std.math.maxInt(i32), ms);
     }
+}
+
+test "parity: msFromNs pins the exact ceil mapping the Windows backend now shares" {
+    // The Windows backend calls msFromNs (kaappi#2154) instead of restating
+    // the ceil, so these exact mappings are the contract both millisecond
+    // backends observe. Each row is a value from the issue's own table.
+    try std.testing.expectEqual(@as(i32, -1), reactor_mod.msFromNs(null)); // no bound
+    try std.testing.expectEqual(@as(i32, 0), reactor_mod.msFromNs(0)); // do not block
+    try std.testing.expectEqual(@as(i32, 1), reactor_mod.msFromNs(1)); // 1 ns ceils to 1 ms
+    try std.testing.expectEqual(@as(i32, 1), reactor_mod.msFromNs(1_000_000)); // exact 1 ms
+    try std.testing.expectEqual(@as(i32, 2), reactor_mod.msFromNs(1_500_000)); // ceils to 2 ms
+    try std.testing.expectEqual(std.math.maxInt(i32), reactor_mod.msFromNs(std.math.maxInt(u64))); // clamp
 }
