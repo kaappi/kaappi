@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787664078426,
+  "lastUpdate": 1787664300265,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "39ae79684bb8bb00915186894111d950dc7a96e7",
-          "message": "Make (read port) safe across the 4096-byte chunk boundary (#2174)\n\n* Make (read port) safe across the 4096-byte chunk boundary\n\nThe incremental read loop refills on exactly UnexpectedEof and treats\nevery other parse outcome as final. Tokens straddling a chunk boundary\nbroke that contract both ways: scanners that reported truncation as a\ndifferent error made valid files unreadable (strings #1893, dotted\npairs #1920, split UTF-8 codepoints #1945, raw/byte strings and #-\nprefixes #1940), and scanners that treated end-of-buffer as a token\nterminator silently split symbols, numbers, characters and booleans --\nand fed a line comment's tail back in as program data (#1940).\n\nInstead of per-site patches, Reader gains one mode: incomplete_input,\nset only by readDatumFn's chunk loop, under which any scan that stops\nat end-of-slice (rather than at a delimiter or closing character)\nreports UnexpectedEof -- never finalize a token more bytes could\nextend, never reject one more bytes could complete. Deferral loses\nnothing: the whole-input parse at fd EOF keeps today's precise errors,\nand every other Reader user leaves the flag off.\n\nAlso, per #1920's analysis: exhausted input where ')' belongs is now\nUnexpectedEof in every mode; the read procedure's error object names\nwhat failed (\"read error: unterminated string literal\") instead of a\nbare \"read error\"; a trailing #!directive yields the EOF object rather\nthan a spurious read error (new Reader.readDatumOrEof); and a buffer\nholding a directive is never discarded by the loop, so fold-case\nsurvives the boundary.\n\nOne deliberate semantic change: a bare atom on a still-open pipe with\nno delimiter now waits for one instead of returning immediately --\nthat early return was the split bug. Newline-terminated interactive\ninput is unaffected (#847 behavior preserved, regression-tested).\n\nCloses #1893. Closes #1920. Closes #1940. Closes #1945.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Exclude the boundary sweep from the gc-stress Scheme gate as too-slow\n\nreader-port-refill-gaps.scm runs ~800 chunk-boundary fixtures, each an\nincremental read re-parsing a 4 KiB buffer per refill -- ~1 s plain,\nexit 124 at the 900 s stress timeout. Category (a) of the job's own\nskip taxonomy; the incomplete-input mode it guards keeps stress\ncoverage via tests_reader_incremental.zig in the gc-stress unit job,\nand the file itself still runs unstressed on every other leg.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-02T05:08:45Z",
-          "tree_id": "0faa2f5a95414540aaca7e846062abe7bd2704ca",
-          "url": "https://github.com/kaappi/kaappi/commit/39ae79684bb8bb00915186894111d950dc7a96e7"
-        },
-        "date": 1785649164388,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.337419,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.260278,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.571827,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.036931,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004675,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046665,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.312995,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056308,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.682985,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.216165,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.574831,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.285287,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.794862,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.623852,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042993,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044431,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1f25ba20352041584c556310d60af966284a5dfb",
+          "message": "Let --lib-path shadow a bundled (srfi N) (#2323)\n\nresolveLibraryPath probed the cwd-relative \"\" and \"lib/\" prefixes before any\n--lib-path entry, so a bundled library under ./lib silently beat a --lib-path\ndir meant to override it. That made A/B comparisons of two implementations of\nthe same SRFI vacuous: the bundled copy was measured while the run looked like\nit used the shadow. Both `kaappi --help` and CLAUDE.md document --lib-path as\ntaking precedence (auto-added dirs come after it), so search every lib_paths\nentry before the cwd fallbacks. findBundledSource is reordered to match its\n\"same search order\" contract.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-25T16:00:39+05:30",
+          "tree_id": "56143b3475b956b8f931fca125ebb609cf8684d3",
+          "url": "https://github.com/kaappi/kaappi/commit/1f25ba20352041584c556310d60af966284a5dfb"
+        },
+        "date": 1787664299030,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.341604,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.597664,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.595669,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.049427,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005368,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048733,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.309855,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056107,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.760444,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.208382,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.702729,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.287283,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.82852,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.715114,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045704,
             "unit": "seconds"
           }
         ]
