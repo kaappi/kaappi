@@ -5,6 +5,7 @@ const reader_mod = @import("reader.zig");
 const compiler = @import("compiler.zig");
 const vm_mod = @import("vm.zig");
 const ir_mod = @import("ir.zig");
+const expander = @import("expander.zig");
 const llvm_emit = @import("llvm_emit.zig");
 const file_utils = @import("file_utils.zig");
 const reporting = @import("reporting.zig");
@@ -259,7 +260,12 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
 
         // Record any define/set! target from this form so that the next
         // form's constant folding does not assume the primitive is unmodified.
-        collectRedefinedNames(expr, &redefined_names);
+        // Macro-aware (#2212): a top-level macro use whose expansion contains a
+        // `(set! + -)` rebinds a primitive exactly as a literal `set!` would,
+        // but `kaappi compile` never executes program forms, so without
+        // expanding it here the rebinding stays invisible and a later `(+ ...)`
+        // folds against the stale primitive.
+        collectRedefinedNamesMacroAware(vm, expr, &redefined_names, MAX_TOPLEVEL_MACRO_SCAN_DEPTH);
     }
 
     if (collect_files.count() > 0) {
@@ -462,6 +468,84 @@ fn collectRedefinedNames(expr: types.Value, map: *std.StringHashMap(void)) void 
             collectRedefinedNames(types.car(body), map);
             body = types.cdr(body);
         }
+    }
+}
+
+/// Cap on how deep a top-level head-position macro chain the redefined-names
+/// scan will expand (a macro whose expansion is another macro use, ...). Well
+/// above any real program; only guards against a macro that expands to itself.
+const MAX_TOPLEVEL_MACRO_SCAN_DEPTH: u8 = 32;
+
+/// Macro-aware variant of `collectRedefinedNames` for the native top-level read
+/// loop (#2212). A top-level *macro use* that expands to `(set! + -)` rebinds a
+/// primitive exactly as a literal `set!` does, but the syntactic tracker never
+/// sees the `set!`: `kaappi compile` does not execute program forms, so a later
+/// `(+ ...)` folds against the stale primitive (native 7 vs interpreter 3). The
+/// interpreter is immune for an unrelated reason — it has already *executed*
+/// the rebinding form, so `IR.isRedefined`'s globals check sees the new value.
+///
+/// The compiling VM still holds `vm.macros`, `vm.gc`, and `vm.globals`, so when
+/// the form's head names a `syntax-rules` macro we expand it (best-effort, the
+/// same expansion lowering runs anyway) and scan the expansion for the
+/// `define`/`set!` targets it introduces. Names are recorded stripped of any
+/// hygiene prefix so they match the raw name the folder looks up at the use
+/// site.
+///
+/// This stays bounded, unlike the speculative per-subform scan whose cost cliff
+/// #1802 documents: it expands a macro only in *head* position and recurses
+/// only through `begin` — it never descends into expression positions
+/// (lambda/let bodies, call arguments), so its reach is the program's own
+/// top-level structure plus a head-macro chain that `depth` caps. Only
+/// `syntax-rules` transformers are expanded, so no procedural (SRFI 211) macro
+/// re-runs its arbitrary Scheme here. Over-recording a name is always safe (it
+/// only *declines* a fold); a divergent best-effort expansion at worst misses a
+/// target, exactly as before this fix.
+fn collectRedefinedNamesMacroAware(vm: *vm_mod.VM, expr: types.Value, map: *std.StringHashMap(void), depth: u8) void {
+    if (!types.isPair(expr)) return;
+    const head = types.car(expr);
+    if (!types.isSymbol(head)) return;
+    const form = types.stripHygienicPrefix(types.symbolName(head));
+
+    if (std.mem.eql(u8, form, "define")) {
+        const rest = types.cdr(expr);
+        if (rest == types.NIL or !types.isPair(rest)) return;
+        const target = types.car(rest);
+        if (types.isSymbol(target)) {
+            map.put(types.stripHygienicPrefix(types.symbolName(target)), {}) catch {};
+        } else if (types.isPair(target) and types.isSymbol(types.car(target))) {
+            map.put(types.stripHygienicPrefix(types.symbolName(types.car(target))), {}) catch {};
+        }
+    } else if (std.mem.eql(u8, form, "set!")) {
+        const rest = types.cdr(expr);
+        if (rest == types.NIL or !types.isPair(rest)) return;
+        const target = types.car(rest);
+        if (types.isSymbol(target)) {
+            map.put(types.stripHygienicPrefix(types.symbolName(target)), {}) catch {};
+        }
+    } else if (std.mem.eql(u8, form, "begin")) {
+        var body = types.cdr(expr);
+        while (body != types.NIL and types.isPair(body)) {
+            collectRedefinedNamesMacroAware(vm, types.car(body), map, depth);
+            body = types.cdr(body);
+        }
+    } else {
+        // A non-special head: expand it if it names a syntax-rules macro, then
+        // scan the expansion. `depth` bounds a macro-to-macro chain.
+        if (depth == 0) return;
+        const transformer = vm.macros.get(types.symbolName(head)) orelse return;
+        if (!types.isPointer(transformer)) return;
+        const tobj = types.toObject(transformer);
+        if (tobj.tag != .transformer) return;
+        if (tobj.as(types.Transformer).kind != .syntax_rules) return;
+
+        // Best-effort expansion with an empty use-site check (no locals at top
+        // level), mirroring compiler.collectSetTargets' pre-scan path. Held in
+        // the batch's existing no_collect window; take an extra guard anyway so
+        // this is correct independent of the caller.
+        vm.gc.no_collect += 1;
+        defer vm.gc.no_collect -= 1;
+        const expanded = expander.expandMacro(vm.gc, expr, transformer, vm.globals, &vm.macros, .{}) catch return;
+        collectRedefinedNamesMacroAware(vm, expanded, map, depth - 1);
     }
 }
 

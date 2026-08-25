@@ -602,6 +602,25 @@ pub const LLVMEmitter = struct {
         return ir.isKnownGlobal(name) or self.reserved_fast.contains(name);
     }
 
+    // Whether `name` may hold something other than its original primitive by the
+    // time this call runs, so inline primitive dispatch must be declined.
+    // `rebound_globals` is populated by `emitSet` as forms are emitted in order,
+    // which covers a *literal* top-level `set!`. A top-level *macro use* that
+    // expands to `(set! + -)` never reaches `emitSet` — it is emitted through the
+    // eval fallback — so its rebinding would be invisible here (#2212). The read
+    // loop's macro-aware `collectRedefinedNames` records such targets in the
+    // whole-program `set_targets` map instead, so consulting it too closes the
+    // gap. Whole-program rather than order-sensitive, exactly as it already gates
+    // constant folding (`IR.isRedefined`): a use textually before the rebind
+    // conservatively loses its inline, which is only a missed optimization.
+    pub fn isReboundGlobal(self: *LLVMEmitter, name: []const u8) bool {
+        if (self.rebound_globals.contains(name)) return true;
+        if (self.set_targets) |st| {
+            if (st.contains(name)) return true;
+        }
+        return false;
+    }
+
     // Read through a box: `slot` holds the box pointer, the result temp holds
     // the box's current value.
     fn emitBoxRead(self: *LLVMEmitter, slot: []const u8) EmitError![]const u8 {
@@ -739,7 +758,7 @@ pub const LLVMEmitter = struct {
                     }
                 }
             }
-            if (!is_shadowed and !self.rebound_globals.contains(op_name)) {
+            if (!is_shadowed and !self.isReboundGlobal(op_name)) {
                 if (call.args.len == 2) {
                     if (inline_prim.tryEmitInlineBinary(self, op_name, call.args)) |result| return result;
                 }
