@@ -97,6 +97,7 @@ test "shared rendezvous: timed-out receive withdraws demand on the promoted chan
 }
 
 test "shared rendezvous: cross-thread handoff both directions" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // cross-OS-thread rendezvous needs thread-start!, unregistered on wasm
     // The #1600 scenario on real OS threads, channel captured by the thunk
     // (the KEP-0002 §2 legal sharing path — a top-level global would fail
     // the foreign-owner check instead of promoting).
@@ -191,6 +192,7 @@ test "shared rendezvous: tryTimeoutWithdraw is one lock section (finding 6)" {
 }
 
 test "shared rendezvous: close wakes a parked child-thread receiver (deterministic)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // cross-OS-thread rendezvous needs thread-start!, unregistered on wasm
     // #1604 review: the Scheme twin of this test synchronizes with
     // thread-sleep!, which cannot prove the child parked before the close.
     // Here the parent polls sc.rv_demand — the child's commitment is

@@ -745,6 +745,7 @@ fn tryLink(allocator: std.mem.Allocator, cc: []const u8, ll_path: []const u8, ou
             const code = platform.winSpawnPassthrough(allocator, argv_slices[0..argc], null) catch break :blk false;
             break :blk code == 0;
         }
+        if (comptime platform.is_wasm) break :blk false; // no process creation on WASI p1 (kaappi#2153)
         const pid = std.posix.system.fork();
         if (pid < 0) return false;
 

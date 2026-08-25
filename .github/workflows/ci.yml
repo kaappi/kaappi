@@ -1273,6 +1273,20 @@ jobs:
       - name: Timer test (reactor poll_oneoff backend)
         run: wasmtime run --dir=. zig-out/bin/kaappi.wasm tests/wasm/timers.scm
 
+      # kaappi#2153: the wasm32-wasi unit suite as a compile gate (like
+      # `-Dtarget=<arch>-windows` — the foreign run skips, compilation must
+      # not) plus execution of the produced binary under wasmtime. The step
+      # runs everything the WASI target can run: VM/GC/reader/printer, the
+      # reactor's CLOCK path (timer tests in tests_reactor*), scheduler and
+      # fiber logic. fd-pair/thread/ffi/Scheme-file-I/O tests skip there
+      # with per-test comptime gates — WASI p1 under wasmtime cannot
+      # construct an EAGAIN-capable fd (no pipe/socketpair syscalls,
+      # sock_open unimplemented) — see docs/dev/porting.md Stage 3.
+      - name: WASI unit tests (compile gate + run under wasmtime, kaappi#2153)
+        run: |
+          zig build test -Dtarget=wasm32-wasi
+          wasmtime run --dir=. --dir=/tmp zig-out/bin/unit-tests.wasm
+
       - name: Parallel pool test (fiber-degraded, KEP-0002 Phase 5)
         run: wasmtime run --dir=. zig-out/bin/kaappi.wasm tests/wasm/parallel.scm
 

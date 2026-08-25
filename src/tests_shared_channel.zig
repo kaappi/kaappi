@@ -1107,6 +1107,7 @@ test "Motivation Path 2 regression: a channel reached through a shared global ra
 // ---------------------------------------------------------------------------
 
 test "KEP-0002 Phase 2: thunk snapshot -- mutation after thread-start! returns is not visible to the child" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // cross-OS-thread channels need thread-start!, unregistered on wasm
     // The envelope copy runs synchronously inside thread-start!, before it
     // ever returns -- so this is deterministic, not a race the test might
     // get lucky on. Before Phase 2, the child deepCopy'd fiber.thunk at some
@@ -1122,6 +1123,7 @@ test "KEP-0002 Phase 2: thunk snapshot -- mutation after thread-start! returns i
 }
 
 test "KEP-0002 Phase 2: Motivation Path 1 -- a channel captured in the thread thunk now works end-to-end" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // cross-OS-thread channels need thread-start!, unregistered on wasm
     // Before Phase 1+2: the child errored with "thread thunk contains
     // uncopyable type" (deepCopy rejected channels outright). Now: `ch` is
     // promoted on the parent thread as part of the envelope build (the only
@@ -1139,6 +1141,7 @@ test "KEP-0002 Phase 2: Motivation Path 1 -- a channel captured in the thread th
 }
 
 test "KEP-0002 Phase 2: a channel created and returned by the child promotes correctly" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // cross-OS-thread channels need thread-start!, unregistered on wasm
     var ctx: th.TestContext = undefined;
     try ctx.init();
     defer ctx.deinit();
@@ -1162,6 +1165,7 @@ test "KEP-0002 Phase 2: a channel created and returned by the child promotes cor
 }
 
 test "KEP-0002 Phase 2: a thunk returning an uncopyable value raises the .failed path at thread-join!" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // cross-OS-thread channels need thread-start!, unregistered on wasm
     var ctx: th.TestContext = undefined;
     try ctx.init();
     defer ctx.deinit();
@@ -1184,6 +1188,7 @@ test "KEP-0002 Phase 2: a thunk returning an uncopyable value raises the .failed
 }
 
 test "KEP-0002 Phase 2: uncopyable thunk is detected synchronously in thread-start!, never spawns an OS thread" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // cross-OS-thread channels need thread-start!, unregistered on wasm
     var ctx: th.TestContext = undefined;
     try ctx.init();
     defer ctx.deinit();
@@ -1216,6 +1221,7 @@ test "KEP-0002 Phase 2: uncopyable thunk is detected synchronously in thread-sta
 }
 
 test "kaappi#1742: thread-join! surfaces the child's real failure reason in the default error detail" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // cross-OS-thread channels need thread-start!, unregistered on wasm
     var ctx: th.TestContext = undefined;
     try ctx.init();
     defer ctx.deinit();
@@ -1241,6 +1247,7 @@ test "kaappi#1742: thread-join! surfaces the child's real failure reason in the 
 }
 
 test "KEP-0002 Phase 2: thread churn -- repeated cross-thread channel round trips leave no refcount leak" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // cross-OS-thread channels need thread-start!, unregistered on wasm
     const baseline = shared_object.liveCount();
     {
         var ctx: th.TestContext = undefined;
@@ -1287,6 +1294,7 @@ test "KEP-0002 Phase 2: thread churn -- repeated cross-thread channel round trip
 }
 
 test "KEP-0002 Phase 2: an exception raised in the child carrying a channel promotes via the exception envelope" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // cross-OS-thread channels need thread-start!, unregistered on wasm
     const baseline = shared_object.liveCount();
     {
         var ctx: th.TestContext = undefined;
@@ -1344,6 +1352,7 @@ test "KEP-0002 Phase 2: an exception raised in the child carrying a channel prom
 // ---------------------------------------------------------------------------
 
 test "review regression: two spawned fibers each parked on their own promoted channel do not corrupt each other's result" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // cross-OS-thread channels need thread-start!, unregistered on wasm
     // Confirmed VM corruption before this fix (PR #1485 review): drive-
     // parking a scheduler-dispatched fiber (setting .waiting and continuing
     // to nest runSchedulerStep in the same native frame) makes its mid-call
@@ -1381,6 +1390,7 @@ test "review regression: two spawned fibers each parked on their own promoted ch
 }
 
 test "review regression: local sibling send still wakes a receiver after the channel is only transiently promoted" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // cross-OS-thread channels need thread-start!, unregistered on wasm
     // Confirmed false-positive deadlock before this fix (PR #1485 review):
     // channelReceiveShared raised immediately whenever sharedWakeupPossible()
     // was false, even for a dispatched fiber -- breaking ordinary local
@@ -1420,6 +1430,7 @@ test "review regression: local sibling send still wakes a receiver after the cha
 }
 
 test "required regression: park locally -> promote -> remote send wakes (§2 step 4)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // cross-OS-thread channels need thread-start!, unregistered on wasm
     const baseline = shared_object.liveCount();
     const notifier_baseline = reactor_mod.notifierLiveCount();
     {
@@ -1518,6 +1529,7 @@ test "required regression: a rung receiver that loses the pop race re-parks and 
 }
 
 test "N producers / M consumers stress on the raw SharedChannel/ThreadNotifier primitives: no lost or duplicated deliveries, no leaks" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no OS threads on wasm32-wasi (single-threaded target)
     const n_producers = 4;
     const m_consumers = 4;
     const per_producer: usize = if (@import("build_options").gc_stress) 25 else 250;
@@ -1618,6 +1630,7 @@ test "N producers / M consumers stress on the raw SharedChannel/ThreadNotifier p
 }
 
 test "KEP-0002 Phase 3 (#1468): main thread receives values sent concurrently by several real OS threads" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // cross-OS-thread channels need thread-start!, unregistered on wasm
     const baseline = shared_object.liveCount();
     const notifier_baseline = reactor_mod.notifierLiveCount();
     {

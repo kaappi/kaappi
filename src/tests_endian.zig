@@ -48,6 +48,7 @@
 //! little-endian *limb* order, with each limb serialized through
 //! `writeU64`; and SRFI 178 bit order is spec-defined, not host-defined.
 
+const platform = @import("platform.zig");
 const std = @import("std");
 const builtin = @import("builtin");
 const build_options = @import("build_options");
@@ -247,6 +248,7 @@ test "endian: readHeaderInfo rejects a big-endian-spelled version field" {
 // ---------------------------------------------------------------------------
 
 test "endian: a written .sbc file carries VERSION and source_hash little-endian" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the golden .sbc write path is gated off on wasm (bytecode_file_write.zig)
     const allocator = std.testing.allocator;
     var gc = GC.init(allocator);
     defer gc.deinit();
@@ -519,6 +521,7 @@ fn buildGoldenGraph(gc: *GC, allocator: std.mem.Allocator, roots: *[2]types.Valu
 }
 
 test "endian: the serializer reproduces the golden .sbc byte sequence" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the golden .sbc write path is gated off on wasm (bytecode_file_write.zig)
     const allocator = std.testing.allocator;
     var gc = GC.init(allocator);
     defer gc.deinit();

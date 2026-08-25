@@ -46,12 +46,17 @@
 //! kqueue (the `macos` matrix leg, plus the FreeBSD/OpenBSD/NetBSD VM legs,
 //! which execute the cross-compiled binary), epoll (`ubuntu-latest`), and
 //! Windows (`windows-arm-test`/`windows-x64-test` run `unit-tests.exe`).
-//! WASI does not: `zig build test -Dtarget=wasm32-wasi` does not compile at
-//! all, so `WasiPollBackend`'s fd path is executed by nothing anywhere —
-//! kaappi#2153. `msFromNs` below is the one exception in the other
-//! direction, a backend-specific rule any host can check; its Windows
-//! twin is a hand-written second copy that no test can reach —
-//! kaappi#2154.
+//! WASI is the half-covered fourth: since kaappi#2153 the suite compiles
+//! and RUNS for wasm32-wasi (the `wasm` CI job executes the unit-tests
+//! binary under wasmtime), so the timer-heap assertions below and
+//! `msFromNs` really do run against `WasiPollBackend`'s CLOCK path — but
+//! the fd assertions skip there, because WASI p1 under wasmtime cannot
+//! construct an EAGAIN-capable fd at all (no pipe/socketpair syscalls,
+//! `sock_open` unimplemented; see docs/dev/porting.md Stage 3), so
+//! `WasiPollBackend`'s fd branch is still executed by nothing anywhere.
+//! `msFromNs` below is the one exception in the other direction, a
+//! backend-specific rule any host can check; its Windows twin is a
+//! hand-written second copy that no test can reach — kaappi#2154.
 //!
 //! Both halves of the kqueue/epoll comparison were executed when this file
 //! landed, not inferred: macOS aarch64 natively, and aarch64 Linux by
@@ -157,6 +162,7 @@ test "parity: timers fire in deadline order, not insertion order" {
 }
 
 test "parity: an already-due timer floors the wait at zero instead of blocking" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     // `effectiveTimeout` reduces a past deadline to 0, so `poll` must return
     // the expired fiber without ever blocking — even with an fd registered
     // that will never fire and a multi-second cap. Asserted as ordering
@@ -271,6 +277,7 @@ test "parity: removeTimer cancels only the named fiber; a sibling timer still fi
 // ---------------------------------------------------------------------------
 
 test "parity: poll's documented duplicate wake — one fiber, fd and timer, listed twice" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     // `Reactor.poll`'s doc comment: "`ready` may contain the same fiber
     // twice in one call ... Callers must tolerate a duplicate wake". The
     // reactor's half of that contract had no test, so a change that
@@ -305,6 +312,7 @@ test "parity: poll's documented duplicate wake — one fiber, fd and timer, list
 // ---------------------------------------------------------------------------
 
 test "parity: a hangup wakes waiters on both directions, not only the read side" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     // Every backend maps a broken fd to *both* directions — kqueue's EV_EOF
     // (`readable = is_read or broken`, `writable = !is_read or broken`),
     // epoll's `EPOLLERR|EPOLLHUP`, WASI's per-subscription error/HANGUP,
@@ -342,6 +350,7 @@ test "parity: a hangup wakes waiters on both directions, not only the read side"
 }
 
 test "parity: both directions of one ready fd wake in a single poll" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     // A socket that is simultaneously readable and writable must wake both
     // waiters. kqueue delivers two independent knotes that `wait` merges by
     // fd; epoll delivers one event with `IN|OUT`; the merge and the split
@@ -374,6 +383,7 @@ test "parity: both directions of one ready fd wake in a single poll" {
 }
 
 test "parity: removeWaiter silences the removed fiber and keeps the co-waiter" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     // `removeWaiter`'s contract is "without waking it or disturbing other
     // waiters". #1462's test covers the *kernel* consequence of a stale
     // fire; this covers the bookkeeping half on the same direction — two
@@ -405,6 +415,7 @@ test "parity: removeWaiter silences the removed fiber and keeps the co-waiter" {
 }
 
 test "parity: removeWaiter for a fiber that was never registered is a no-op" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     // The unwind path (`waitForFd`'s error exit) calls this on fds whose
     // lists may already have been cleared by a fired ONESHOT. It must not
     // disturb the surviving registration.
@@ -435,6 +446,7 @@ test "parity: removeWaiter for a fiber that was never registered is a no-op" {
 }
 
 test "parity: a zero timeout polls without blocking on every backend" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     // `effectiveTimeout` floors an already-due deadline at 0 and the
     // scheduler's per-tick probe relies on a 0 wait being a *probe*: kqueue
     // passes a zeroed timespec, epoll `timeout_ms == 0`, WASI a CLOCK
@@ -472,6 +484,7 @@ test "parity: a zero timeout polls without blocking on every backend" {
 }
 
 test "parity: a cross-thread notify interrupts the wait without consuming a timer or an fd arming" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no OS threads on wasm32-wasi (single-threaded target)
     // tests_reactor.zig pins that `notify()` interrupts an otherwise idle
     // `poll`. What nothing pinned is that it interrupts a wait which has
     // *real* work pending without disturbing it — the case that actually

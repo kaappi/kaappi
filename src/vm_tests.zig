@@ -40,11 +40,14 @@ test {
     _ = @import("tests_native.zig");
     _ = @import("tests_native_dispatch.zig");
     _ = @import("tests_native_gate.zig");
-    // The fd-readiness suites run everywhere: their fds come from
-    // testing_helpers' cross-platform pairs — pipes/socketpairs on POSIX,
-    // loopback socket pairs on Windows, where these suites cover the
-    // WSAEventSelect socket backend, and their "#1608:" pipe-pair tests
-    // cover the polled pipe backend (stage 2).
+    // The fd-readiness suites run on every hosted target: their fds come
+    // from testing_helpers' cross-platform pairs — pipes/socketpairs on
+    // POSIX, loopback socket pairs on Windows, where these suites cover
+    // the WSAEventSelect socket backend, and their "#1608:" pipe-pair
+    // tests cover the polled pipe backend (stage 2). WASI is the one
+    // exception — no constructible fd pairs there, the fd tests skip
+    // (kaappi#2153) while the timer/scheduler halves still run under
+    // wasmtime.
     _ = @import("tests_reactor.zig");
     // Audit v2 Phase 5G: the backend-parity contracts. Same per-OS legs, so
     // the assertions run against whichever of the four backends the target

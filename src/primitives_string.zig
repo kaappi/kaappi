@@ -128,6 +128,7 @@ fn makeStringFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[0])) return primitives.typeError("make-string", "exact integer", args[0]);
     const k = types.toFixnum(args[0]);
     if (k < 0) return primitives.typeError("make-string", "non-negative integer", args[0]);
+    if (!primitives.fixnumFitsUsize(k)) return PrimitiveError.OutOfMemory; // wasm32: would truncate (kaappi#2153)
     const count: usize = @intCast(k);
     const fill_cp: u21 = if (args.len > 1) blk: {
         if (!types.isChar(args[1])) return primitives.typeError("make-string", "character", args[1]);

@@ -58,6 +58,7 @@ fn gcHoldsObject(gc: *GC, obj: *types.Object) bool {
 }
 
 test "bytecode cache: deserialized top-level functions survive a mid-run GC" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // bytecode-file writes are gated off on wasm (bytecode_file_write.zig)
     const allocator = std.testing.allocator;
     var gc = GC.init(allocator);
     defer gc.deinit();
@@ -182,26 +183,32 @@ fn expectSbcEquivalence(source: []const u8) !void {
 }
 
 test "sbc equiv: fixnum arithmetic" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // bytecode-file writes are gated off on wasm (bytecode_file_write.zig)
     try expectSbcEquivalence("(+ (* 3 4) 5)");
 }
 
 test "sbc equiv: conditional" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // bytecode-file writes are gated off on wasm (bytecode_file_write.zig)
     try expectSbcEquivalence("(if (< 1 2) 10 20)");
 }
 
 test "sbc equiv: let binding" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // bytecode-file writes are gated off on wasm (bytecode_file_write.zig)
     try expectSbcEquivalence("(let ((x 5) (y 3)) (+ x y))");
 }
 
 test "sbc equiv: boolean logic" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // bytecode-file writes are gated off on wasm (bytecode_file_write.zig)
     try expectSbcEquivalence("(and (or #f #t) (not #f))");
 }
 
 test "sbc equiv: list operations" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // bytecode-file writes are gated off on wasm (bytecode_file_write.zig)
     try expectSbcEquivalence("(car (cons 42 '()))");
 }
 
 test "sbc equiv: tail-recursive loop" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // bytecode-file writes are gated off on wasm (bytecode_file_write.zig)
     try expectSbcEquivalence(
         \\(define (loop n acc) (if (= n 0) acc (loop (- n 1) (+ acc 1))))
         \\(loop 1000 0)

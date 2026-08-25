@@ -30,7 +30,7 @@ const builtin = @import("builtin");
 pub const is_windows = builtin.os.tag == .windows;
 pub const is_openbsd = builtin.os.tag == .openbsd;
 pub const is_netbsd = builtin.os.tag == .netbsd;
-const is_wasm = builtin.os.tag == .wasi;
+pub const is_wasm = builtin.os.tag == .wasi;
 
 /// CRT file descriptor on Windows; kernel fd elsewhere. i32 on every
 /// supported target (std.posix.fd_t is i32 on all POSIX platforms).
@@ -248,38 +248,136 @@ pub fn openRead(path: [:0]const u8) OpenError!fd_t {
     if (comptime is_windows) return winOpen(path, win.O_RDONLY, 0);
     if (comptime is_wasm) {
         // WASI has no AT.FDCWD: paths resolve only relative to a preopened
-        // directory fd. fd 3 is the first preopened dir — the working
-        // directory that both wasmtime `--dir=.` and the browser shim mount —
-        // the same convention file_utils.readWholeFile already uses. Without
-        // this branch, resolveLibraryPath's existence probe failed for every
-        // candidate path and no file-backed .sld was importable on wasm32
-        // even when the host mounted the directory (kaappi#2108).
+        // directory fd. Before #2153 this hardcoded fd 3 (the working
+        // directory that both wasmtime `--dir=.` and the browser shim mount,
+        // the same convention file_utils.readWholeFile uses — without it,
+        // resolveLibraryPath's existence probe failed for every candidate
+        // path and no file-backed .sld was importable on wasm32 even when
+        // the host mounted the directory, kaappi#2108). It now resolves
+        // through the preopen table like wasi-libc's open(), so absolute
+        // paths ("/tmp/...") reach the preopen that mounts them.
+        const resolved = wasiResolve(path) orelse return error.OpenFailed;
         var result_fd: std.os.wasi.fd_t = undefined;
-        const rc = std.os.wasi.path_open(3, .{ .SYMLINK_FOLLOW = true }, path.ptr, path.len, .{}, .{ .FD_READ = true, .FD_SEEK = true }, .{ .FD_READ = true }, .{}, &result_fd);
+        const rc = std.os.wasi.path_open(@intCast(resolved.dirfd), .{ .SYMLINK_FOLLOW = true }, resolved.path.ptr, resolved.path.len, .{}, .{ .FD_READ = true, .FD_SEEK = true }, .{ .FD_READ = true }, .{}, &result_fd);
         if (rc != .SUCCESS) return error.OpenFailed;
         return @as(fd_t, @intCast(result_fd));
     }
     return std.posix.openatZ(std.posix.AT.FDCWD, path, .{}, 0) catch |e| classifyOpenError(e);
 }
 
+/// WASI path resolution, the way wasi-libc's open() does it (kaappi#2153).
+/// Relative paths go to the first "."-named (or unnamed-root) preopen — the
+/// working directory `wasmtime --dir=.` and the browser shim mount, the old
+/// hardcoded fd 3. Absolute paths are matched against each preopen's *name*
+/// (its guest-side mount path), longest prefix first, and opened relative
+/// to that fd — so `wasmtime --dir=/tmp` (or `--dir=/abs/guest::/abs/host`)
+/// makes the absolute paths real programs and the unit suite spell
+/// ("/tmp/...") resolve instead of failing. The table is fixed for the
+/// process lifetime; the scan runs once and is cached.
+const WasiResolve = struct { dirfd: fd_t, path: []const u8 };
+
+var wasi_preopen_buf: [512]u8 = undefined;
+var wasi_preopen_names: ?[]const u8 = null; // packed "name\0" entries, fd implied by scan order
+var wasi_preopen_cwd: fd_t = -1;
+
+fn wasiPreopenScan() []const u8 {
+    if (wasi_preopen_names) |s| return s;
+    var used: usize = 0;
+    var fd: fd_t = 3;
+    // BADF arrives well before 64 on any real host; the cap bounds a
+    // hostile/odd table so the scan cannot walk the whole fd space.
+    while (fd < 64) : (fd += 1) {
+        var prestat: std.os.wasi.prestat_t = undefined;
+        if (std.os.wasi.fd_prestat_get(fd, &prestat) != .SUCCESS) break;
+        // Only DIR preopens exist in practice, and the resolve walk below
+        // pairs names to fds strictly by scan order — a non-DIR preopen
+        // would desynchronize that pairing, so treat one as the table's
+        // end rather than skip past it.
+        if (prestat.pr_type != .DIR) break;
+        const name_len = @min(prestat.u.dir.pr_name_len, wasi_preopen_buf.len - used - 1);
+        if (std.os.wasi.fd_prestat_dir_name(fd, wasi_preopen_buf[used..].ptr, name_len) != .SUCCESS) break;
+        if (wasi_preopen_cwd < 0 and (name_len == 0 or std.mem.eql(u8, wasi_preopen_buf[used .. used + name_len], "."))) {
+            wasi_preopen_cwd = fd;
+        }
+        used += name_len;
+        wasi_preopen_buf[used] = 0;
+        used += 1;
+    }
+    wasi_preopen_names = wasi_preopen_buf[0..used];
+    return wasi_preopen_names.?;
+}
+
+/// Resolve `path` (any spelling) to a preopen dirfd plus a path relative to
+/// it. Null when an absolute path matches no preopen name.
+fn wasiResolve(path: []const u8) ?WasiResolve {
+    const names = wasiPreopenScan();
+    if (path.len == 0 or path[0] != '/') {
+        // Relative: the CWD preopen, first DIR preopen when none is named
+        // "." — the fd 3 convention the pre-#2153 code relied on.
+        const cwd: fd_t = if (wasi_preopen_cwd >= 0) wasi_preopen_cwd else 3;
+        return .{ .dirfd = cwd, .path = path };
+    }
+    // Absolute: longest-prefix match over the preopen names.
+    var best: ?WasiResolve = null;
+    var best_len: usize = 0;
+    var fd: fd_t = 3;
+    var off: usize = 0;
+    while (off < names.len) : (fd += 1) {
+        const end = std.mem.indexOfScalarPos(u8, names, off, 0) orelse names.len;
+        const name = names[off..end];
+        off = end + 1;
+        const root_mount = name.len == 0 or std.mem.eql(u8, name, ".");
+        const matches = root_mount or
+            (std.mem.startsWith(u8, path, name) and
+                (path.len == name.len or path[name.len] == '/'));
+        if (matches and name.len >= best_len) {
+            const rest: []const u8 = if (path.len > name.len) path[name.len + 1 ..] else ".";
+            best = .{ .dirfd = fd, .path = rest };
+            best_len = name.len;
+        }
+    }
+    return best;
+}
+
+/// WASI write-open: resolved through the same preopen table as openRead's
+/// WASI arm (kaappi#2108, #2153) — there is no AT.FDCWD and no /dev/null,
+/// and `mode` has no counterpart in path_open, so the POSIX mode argument
+/// is ignored. Append is fdflags.APPEND (the open file description
+/// remembers it), not an oflag, exactly as on POSIX.
+fn wasiOpenWrite(path: [:0]const u8, oflags: std.os.wasi.oflags_t, append: bool) OpenError!fd_t {
+    const resolved = wasiResolve(path) orelse return error.OpenFailed;
+    var result_fd: std.os.wasi.fd_t = undefined;
+    const rc = std.os.wasi.path_open(@intCast(resolved.dirfd), .{ .SYMLINK_FOLLOW = true }, resolved.path.ptr, resolved.path.len, oflags, .{ .FD_WRITE = true, .FD_SEEK = true }, .{ .FD_WRITE = true }, if (append) .{ .APPEND = true } else .{}, &result_fd);
+    if (rc != .SUCCESS) return error.OpenFailed;
+    return @as(fd_t, @intCast(result_fd));
+}
+
 pub fn openWriteTrunc(path: [:0]const u8, mode: u16) OpenError!fd_t {
     if (comptime is_windows) return winOpen(path, win.O_WRONLY | win.O_CREAT | win.O_TRUNC, 0o600);
+    if (comptime is_wasm) return wasiOpenWrite(path, .{ .CREAT = true, .TRUNC = true }, false);
     return std.posix.openatZ(std.posix.AT.FDCWD, path, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, mode) catch |e| classifyOpenError(e);
 }
 
 pub fn openWriteTruncExcl(path: [:0]const u8, mode: u16) OpenError!fd_t {
     if (comptime is_windows) return winOpen(path, win.O_WRONLY | win.O_CREAT | win.O_TRUNC | win.O_EXCL, 0o600);
+    if (comptime is_wasm) return wasiOpenWrite(path, .{ .CREAT = true, .TRUNC = true, .EXCL = true }, false);
     return std.posix.openatZ(std.posix.AT.FDCWD, path, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .EXCL = true }, mode) catch error.OpenFailed;
 }
 
 pub fn openAppend(path: [:0]const u8, mode: u16) OpenError!fd_t {
     if (comptime is_windows) return winOpen(path, win.O_WRONLY | win.O_CREAT | win.O_APPEND, 0o600);
+    if (comptime is_wasm) return wasiOpenWrite(path, .{ .CREAT = true }, true);
     return std.posix.openatZ(std.posix.AT.FDCWD, path, .{ .ACCMODE = .WRONLY, .CREAT = true, .APPEND = true }, mode) catch error.OpenFailed;
 }
 
 /// Write-only sink for discarding output (/dev/null, NUL).
 pub fn openNullSink() OpenError!fd_t {
     if (comptime is_windows) return winOpen("NUL", win.O_WRONLY, 0);
+    // WASI has no null device: nothing to open. Callers already treat the
+    // error as "no sink available" (doctor passes `catch -1`, the fuzz
+    // harness skips its fd-discarding mode), so a loud OpenFailed is the
+    // honest answer rather than substituting some real file.
+    if (comptime is_wasm) return error.OpenFailed;
     return std.posix.openatZ(std.posix.AT.FDCWD, "/dev/null", .{ .ACCMODE = .WRONLY }, 0) catch error.OpenFailed;
 }
 
@@ -602,7 +700,19 @@ pub const DirIter = struct {
         first_pending: bool,
         name_buf: [1024]u8,
     };
-    state: if (is_windows) WinState else *std.c.DIR,
+    /// WASI p1 has no libc DIR emulation here we can lean on (std.c.dirent
+    /// is void on wasi), so this arm drives fd_readdir directly: one batch
+    /// buffer, `cookie` tracking the last fully-consumed entry's `next`.
+    /// A name that cannot fit the batch buffer ends iteration — acceptable
+    /// for the directory listings this serves (library paths, cache dirs).
+    const WasiState = struct {
+        fd: std.os.wasi.fd_t,
+        buf: [4096]u8 = undefined,
+        len: usize = 0,
+        pos: usize = 0,
+        cookie: std.os.wasi.dircookie_t = std.os.wasi.DIRCOOKIE_START,
+    };
+    state: if (is_windows) WinState else if (is_wasm) WasiState else *std.c.DIR,
 
     pub fn open(path: [:0]const u8) ?DirIter {
         if (comptime is_windows) {
@@ -615,6 +725,16 @@ pub const DirIter = struct {
             if (st.handle == win.INVALID_HANDLE_VALUE) return null;
             st.first_pending = true;
             return .{ .state = st };
+        }
+        if (comptime is_wasm) {
+            // Same preopen resolution as openRead/openWriteTrunc's WASI
+            // arms: relative paths against the CWD preopen, absolute paths
+            // against whichever preopen's name mounts them.
+            const resolved = wasiResolve(path) orelse return null;
+            var result_fd: std.os.wasi.fd_t = undefined;
+            const rc = std.os.wasi.path_open(@intCast(resolved.dirfd), .{ .SYMLINK_FOLLOW = true }, resolved.path.ptr, resolved.path.len, .{ .DIRECTORY = true }, .{ .FD_READ = true }, .{}, .{}, &result_fd);
+            if (rc != .SUCCESS) return null;
+            return .{ .state = .{ .fd = result_fd } };
         }
         const dh = opendir_sys(path) orelse return null;
         return .{ .state = dh };
@@ -631,6 +751,37 @@ pub const DirIter = struct {
             const n = std.unicode.wtf16LeToWtf8(&st.name_buf, wname);
             return st.name_buf[0..n];
         }
+        if (comptime is_wasm) {
+            const st = &self.state;
+            while (true) {
+                if (st.pos == st.len) {
+                    // Refill from the last consumed entry's cookie.
+                    var used: usize = 0;
+                    const rc = std.os.wasi.fd_readdir(st.fd, &st.buf, st.buf.len, st.cookie, &used);
+                    if (rc != .SUCCESS or used == 0) return null;
+                    st.len = used;
+                    st.pos = 0;
+                }
+                const rest = st.buf[st.pos..st.len];
+                if (rest.len < @sizeOf(std.os.wasi.dirent_t)) {
+                    st.pos = st.len;
+                    continue;
+                }
+                const ent: *align(1) const std.os.wasi.dirent_t = @ptrCast(rest.ptr);
+                const total = @sizeOf(std.os.wasi.dirent_t) + @as(usize, ent.namlen);
+                if (rest.len < total) {
+                    // Entry straddles the batch end. fd_readdir only writes
+                    // whole entries, so this means the name cannot fit the
+                    // buffer at all — end iteration rather than loop.
+                    if (st.len == st.buf.len) return null;
+                    st.pos = st.len;
+                    continue;
+                }
+                st.pos += total;
+                st.cookie = ent.next;
+                return st.buf[st.pos - ent.namlen .. st.pos];
+            }
+        }
         const ent = readdir_sys(self.state) orelse return null;
         const name_ptr: [*:0]const u8 = @ptrCast(&ent.name);
         return std.mem.span(name_ptr);
@@ -639,6 +790,10 @@ pub const DirIter = struct {
     pub fn close(self: *DirIter) void {
         if (comptime is_windows) {
             _ = win.FindClose(self.state.handle);
+            return;
+        }
+        if (comptime is_wasm) {
+            _ = std.os.wasi.fd_close(self.state.fd);
             return;
         }
         _ = std.c.closedir(self.state);
@@ -1146,6 +1301,14 @@ pub fn dlOpen(path: ?[*:0]const u8) ?*anyopaque {
         if (handle == null) dl_error_pending = true;
         return handle;
     }
+    if (comptime is_wasm) {
+        // WASI p1 has no dynamic loading at all — no dlopen, no global
+        // symbol table to search. Fail through the same pending-error
+        // channel Windows uses so dlError() explains why.
+        dl_error_pending = true;
+        _ = std.fmt.bufPrintZ(&dl_error_buf, "dynamic loading unavailable on WASI", .{}) catch {};
+        return null;
+    }
     return std.c.dlopen(path, .{ .LAZY = true });
 }
 
@@ -1172,6 +1335,11 @@ pub fn dlSym(handle: *anyopaque, name: [*:0]const u8) ?*anyopaque {
         if (sym == null) dl_error_pending = true;
         return sym;
     }
+    if (comptime is_wasm) {
+        dl_error_pending = true;
+        _ = std.fmt.bufPrintZ(&dl_error_buf, "dynamic loading unavailable on WASI", .{}) catch {};
+        return null;
+    }
     return std.c.dlsym(handle, name);
 }
 
@@ -1181,6 +1349,10 @@ pub fn dlClose(handle: *anyopaque) void {
         // Windows; FreeLibrary on it would corrupt the exe module count.
         if (handle == win.GetModuleHandleW(null)) return;
         _ = win.FreeLibrary(handle);
+        return;
+    }
+    if (comptime is_wasm) {
+        // dlOpen can never succeed on WASI, so there is no handle to close.
         return;
     }
     _ = std.c.dlclose(handle);
@@ -1195,6 +1367,13 @@ pub fn dlError() ?[*:0]const u8 {
         dl_error_pending = false;
         const msg = std.fmt.bufPrintZ(&dl_error_buf, "Win32 error {d}", .{win.GetLastError()}) catch return null;
         return msg.ptr;
+    }
+    if (comptime is_wasm) {
+        // The failure arms above left the message in dl_error_buf; unlike
+        // Windows there is no per-call error code to reformat.
+        if (!dl_error_pending) return null;
+        dl_error_pending = false;
+        return @ptrCast(&dl_error_buf);
     }
     return std.c.dlerror();
 }
@@ -1212,6 +1391,14 @@ pub fn dlError() ?[*:0]const u8 {
 /// leak-tracking test allocators never see it.
 pub fn argsIterate(args: std.process.Args) std.process.Args.Iterator {
     if (comptime is_windows) {
+        return args.iterateAllocator(std.heap.c_allocator) catch @panic("out of memory parsing command line");
+    }
+    if (comptime is_wasm) {
+        // std's raw iterate() compile-errors on WASI (argv there must be
+        // wrapped by an allocator-initialized iterator). With libc linked —
+        // always, for us — the WASI iterator walks the raw argv block and
+        // never asks the allocator for anything, so this is the same
+        // process-lifetime-by-design shape as the Windows arm above.
         return args.iterateAllocator(std.heap.c_allocator) catch @panic("out of memory parsing command line");
     }
     return args.iterate();

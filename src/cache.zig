@@ -465,6 +465,7 @@ fn writeTestCacheEntry(allocator: std.mem.Allocator, dir: []const u8, name: []co
 }
 
 test "renderStatus and clearDir over a temp cache dir" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the bytecode cache is disabled on wasm by design (cache.zig)
     const allocator = std.testing.allocator;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -517,6 +518,7 @@ test "clearDir on a missing directory is a no-op" {
 }
 
 test "renderStatus reports a current-build entry the reader rejects as unloadable (kaappi#2113)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the bytecode cache is disabled on wasm by design (cache.zig)
     // A valid header over a body the loader rejects used to render as
     // "current" — documented as "a plain run would hit" — while every run
     // recompiled forever. The dry run must catch it. Corruption here is a

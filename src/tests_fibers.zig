@@ -100,6 +100,7 @@ test "channel-receive deadlock error is catchable by guard" {
 }
 
 test "kaappi#1742: channel-receive deadlock names the other thread when one is alive but never shared this channel" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the #1742 deadlock diagnostic needs real OS threads, unavailable on wasm
     var ctx: th.TestContext = undefined;
     try ctx.init();
     defer ctx.deinit();
@@ -501,6 +502,7 @@ fn ringAfter(flag: *std.atomic.Value(bool), n: *reactor_mod.ThreadNotifier) void
 }
 
 test "an expired timer popped by the dispatch tick ends the wait instead of parking unbounded" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no OS threads on wasm32-wasi (single-threaded target)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);

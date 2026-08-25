@@ -462,6 +462,9 @@ fn runCapture(arena: std.mem.Allocator, argv: []const []const u8) ?CaptureResult
         };
         return .{ .stdout = stdout, .ok = true };
     }
+    // No process creation on WASI p1 (kaappi#2153) — the git-based selection
+    // helpers read "unavailable", which their callers already handle.
+    if (comptime platform.is_wasm) return null;
 
     var pipe: [2]c_int = undefined;
     if (std.c.pipe(&pipe) != 0) return null;

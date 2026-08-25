@@ -85,6 +85,7 @@ test "eof-object and eof-object?" {
 }
 
 test "write to file and read back with read-line" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // Scheme-level file I/O is deliberately gated off on wasm (kaappi#1972: this WebAssembly build has no filesystem access)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -117,6 +118,7 @@ test "write to file and read back with read-line" {
 }
 
 test "write-char and read-char" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // Scheme-level file I/O is deliberately gated off on wasm (kaappi#1972: this WebAssembly build has no filesystem access)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -153,6 +155,7 @@ test "write-char and read-char" {
 }
 
 test "peek-char does not consume" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // Scheme-level file I/O is deliberately gated off on wasm (kaappi#1972: this WebAssembly build has no filesystem access)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -184,6 +187,7 @@ test "peek-char does not consume" {
 }
 
 test "close-port marks port as closed" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // Scheme-level file I/O is deliberately gated off on wasm (kaappi#1972: this WebAssembly build has no filesystem access)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -198,6 +202,7 @@ test "close-port marks port as closed" {
 }
 
 test "file-exists?" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // Scheme-level file I/O is deliberately gated off on wasm (kaappi#1972: this WebAssembly build has no filesystem access)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -218,6 +223,7 @@ test "file-exists?" {
 }
 
 test "file-exists? returns #t for unreadable files" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // Scheme-level file I/O is deliberately gated off on wasm (kaappi#1972: this WebAssembly build has no filesystem access)
     // POSIX permission bits; Windows ACLs don't map to chmod(0o000).
     if (comptime platform.is_windows) return error.SkipZigTest;
     var gc = memory.GC.init(std.testing.allocator);
@@ -259,6 +265,7 @@ test "file-exists? returns #t for FIFOs" {
 }
 
 test "read datum from file" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // Scheme-level file I/O is deliberately gated off on wasm (kaappi#1972: this WebAssembly build has no filesystem access)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -287,6 +294,7 @@ test "read datum from file" {
 }
 
 test "display and write with port argument" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // Scheme-level file I/O is deliberately gated off on wasm (kaappi#1972: this WebAssembly build has no filesystem access)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -318,6 +326,7 @@ test "display and write with port argument" {
 }
 
 test "open-input-file on port is an input port" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // Scheme-level file I/O is deliberately gated off on wasm (kaappi#1972: this WebAssembly build has no filesystem access)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -339,6 +348,7 @@ test "open-input-file on port is an input port" {
 }
 
 test "read-line returns eof on empty file" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // Scheme-level file I/O is deliberately gated off on wasm (kaappi#1972: this WebAssembly build has no filesystem access)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -359,6 +369,7 @@ test "read-line returns eof on empty file" {
 }
 
 test "read-line with multiple lines" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // Scheme-level file I/O is deliberately gated off on wasm (kaappi#1972: this WebAssembly build has no filesystem access)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -397,6 +408,7 @@ test "read-line with multiple lines" {
 }
 
 test "write to port with write procedure" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // Scheme-level file I/O is deliberately gated off on wasm (kaappi#1972: this WebAssembly build has no filesystem access)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);

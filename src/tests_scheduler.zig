@@ -65,6 +65,7 @@ test "hasRunnableFibers reports io_waiting as alive but not a merely-running anc
 }
 
 test "parkOnReactor wakes a manually io_waiting fiber when its fd becomes readable" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -292,6 +293,7 @@ test "runSchedulerStep sets driving for its whole extent and clears it on return
 }
 
 test "review regression: mutex-lock! contended through a 3-level nested dispatch does not corrupt an unrelated fiber's result" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // these drive thread-start!/mutex contention on real OS threads, unavailable on wasm
     // Confirmed VM corruption without the driving guard (git-stash A/B, see
     // tests/scheme/smoke/mutex-nested-dispatch-dirty-snapshot-1487.scm):
     // fiber b sets .waiting on m1 and starts its own nested drive
@@ -507,6 +509,7 @@ test "#1530: a broadcast wakes every enrolled waiter on the object and frees the
 }
 
 test "#1530: a hand-off wakes exactly one waiter and leaves the rest enrolled" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // these drive thread-start!/mutex contention on real OS threads, unavailable on wasm
     var ctx: th.TestContext = undefined;
     try ctx.init();
     defer ctx.deinit();
@@ -559,6 +562,7 @@ test "#1530: a terminated (.errored) waiter still in the index is skipped, not r
 }
 
 test "#1530: tail dedup bounds a same-object re-park; a wake+re-park re-indexes" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // these drive thread-start!/mutex contention on real OS threads, unavailable on wasm
     var ctx: th.TestContext = undefined;
     try ctx.init();
     defer ctx.deinit();

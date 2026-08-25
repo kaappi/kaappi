@@ -16,7 +16,15 @@ pub const Value = types.Value;
 /// every platform. std.testing places tmp dirs at `.zig-cache/tmp/<sub_path>`
 /// relative to the cwd (see `std.testing.tmpDir`), which realpath
 /// canonicalizes. Caller owns the returned slice.
+///
+/// On WASI the realpath is *dropped* instead (kaappi#2153): an absolute
+/// host path can resolve only against a same-named preopen, and the test
+/// binary's runner mounts just the working directory (`wasmtime --dir=.`),
+/// so the relative spelling is the one the preopen table can actually open.
 pub fn tmpDirRealPathAlloc(tmp: *std.testing.TmpDir, allocator: std.mem.Allocator) ![]const u8 {
+    if (comptime platform.is_wasm) {
+        return std.fmt.allocPrint(allocator, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    }
     var rel_buf: [platform.PATH_MAX]u8 = undefined;
     const rel = try std.fmt.bufPrintZ(&rel_buf, ".zig-cache/tmp/{s}", .{tmp.sub_path});
     var out_buf: [platform.PATH_MAX]u8 = undefined;
@@ -108,7 +116,10 @@ pub fn expectEvalVoid(source: []const u8) !void {
 // (#1608), so there every pair is a loopback TCP pair wrapped in CRT fds —
 // exactly the object the port layer's socket bridge expects — and the raw
 // read/write helpers route through sockRecv/sockSend (CRT _read/_write
-// cannot operate on SOCKET handles).
+// cannot operate on SOCKET handles). WASI p1 constructs no pairs at all:
+// the proposal has no pipe/socketpair creation syscalls and wasmtime
+// leaves sock_open unimplemented, so the pair constructors panic there and
+// every fd-suite test skips on wasm before its first call (kaappi#2153).
 // ---------------------------------------------------------------------------
 
 /// Winsock externs only the loopback-pair construction needs; test-only,
@@ -136,6 +147,7 @@ const winsock_test = if (platform.is_windows) struct {
 /// which satisfies every unidirectional use).
 pub fn makeFdPair() [2]platform.fd_t {
     if (comptime platform.is_windows) return makeWinLoopbackPair();
+    if (comptime platform.is_wasm) wasmNoFdPairs();
     var fds: [2]std.c.fd_t = undefined;
     if (std.c.pipe(&fds) != 0) unreachable;
     return fds;
@@ -146,6 +158,7 @@ pub fn makeFdPair() [2]platform.fd_t {
 /// Windows. For tests that need two-way traffic or socket buffer tuning.
 pub fn makeBidiFdPair() [2]platform.fd_t {
     if (comptime platform.is_windows) return makeWinLoopbackPair();
+    if (comptime platform.is_wasm) wasmNoFdPairs();
     var fds: [2]std.c.fd_t = undefined;
     if (std.c.socketpair(std.c.AF.UNIX, std.c.SOCK.STREAM, 0, &fds) != 0) unreachable;
     return fds;
@@ -160,9 +173,22 @@ pub fn makeBidiFdPair() [2]platform.fd_t {
 /// I/O on these fds must use platform.read/platform.write, not
 /// fdRead/fdWrite (whose Windows routing is socket-only).
 pub fn makePipeFdPair() [2]platform.fd_t {
+    if (comptime platform.is_wasm) wasmNoFdPairs();
     var fds: [2]platform.fd_t = undefined;
     std.debug.assert(platform.pipe(&fds) == 0);
     return fds;
+}
+
+/// WASI p1 cannot construct fd pairs, and no runtime remedy exists: the
+/// proposal has no pipe(2)/socketpair(2) creation syscalls, and wasmtime
+/// (the CI runtime) leaves the nonstandard sock_open unimplemented — there
+/// is no EAGAIN-capable fd a guest can create at all (kaappi#2153; the
+/// same reason poll_oneoff rejects fd subscriptions on every obtainable
+/// fd there). Every fd-suite test skips on wasm *before* its first
+/// makeFdPair/makeBidiFdPair/makePipeFdPair call; reaching this panic is
+/// a missing skip, not a runtime failure to tolerate.
+fn wasmNoFdPairs() noreturn {
+    @panic("fd pairs are not constructible on WASI p1 (kaappi#2153) — the fd suite test is missing its wasm skip");
 }
 
 fn makeWinLoopbackPair() [2]platform.fd_t {
@@ -224,10 +250,18 @@ pub fn fdReadRetry(fd: platform.fd_t, buf: []u8) isize {
     return -1;
 }
 
-/// Flips a pair fd to non-blocking: fcntl(O_NONBLOCK) / ioctlsocket(FIONBIO).
+/// Flips a pair fd to non-blocking: fcntl(O_NONBLOCK) / ioctlsocket(FIONBIO)
+/// / WASI fd_fdstat_set_flags(NONBLOCK).
 pub fn setFdNonblocking(fd: platform.fd_t) void {
     if (comptime platform.is_windows) {
         std.debug.assert(platform.setSockNonblockingFd(fd));
+        return;
+    }
+    if (comptime platform.is_wasm) {
+        // No fcntl on WASI — the fd's flags live in fd_fdstat_set_flags,
+        // the same call primitives_io's maybeSetNonblocking capability
+        // probe issues (KEP-0001 Phase 4).
+        std.debug.assert(std.os.wasi.fd_fdstat_set_flags(fd, .{ .NONBLOCK = true }) == .SUCCESS);
         return;
     }
     const flags = std.c.fcntl(fd, std.posix.F.GETFL, @as(c_int, 0));
@@ -247,6 +281,11 @@ pub fn setSockBufSize(fd: platform.fd_t, which: SockBuf, size: c_int) void {
         const sock = platform.sockFromFd(fd) orelse unreachable;
         std.debug.assert(winsock_test.setsockopt(sock, platform.win.SOL_SOCKET, opt, @ptrCast(&size), @sizeOf(c_int)) == 0);
         return;
+    }
+    if (comptime platform.is_wasm) {
+        // Only socket-pair fds are worth tuning, and those cannot exist on
+        // WASI p1 — the callers are wasm-skipped fd-suite tests.
+        wasmNoFdPairs();
     }
     const opt: u32 = if (which == .snd) std.posix.SO.SNDBUF else std.posix.SO.RCVBUF;
     std.posix.setsockopt(fd, std.posix.SOL.SOCKET, opt, std.mem.asBytes(&size)) catch unreachable;

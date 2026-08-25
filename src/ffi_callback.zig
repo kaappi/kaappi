@@ -324,6 +324,9 @@ test "marshalPtrArg: small address returns fixnum" {
 test "marshalPtrArg: large address returns bignum" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
+    // A pointer above MAX_FIXNUM needs 48 address bits, which a 32-bit
+    // target's usize cannot hold — the case is unreachable there.
+    if (comptime @bitSizeOf(usize) < 48) return error.SkipZigTest;
     const addr: usize = 0x0001_0000_0000_0000;
     const ptr: *anyopaque = @ptrFromInt(addr);
     const val = marshalPtrArg(ptr, &gc).?;

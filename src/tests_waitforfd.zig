@@ -102,6 +102,7 @@ fn settleSpawnedFibers(vm: *th.VM) !void {
 // ===========================================================================
 
 test "waitForFd cell (idx!=0, dispatched): parks — Yielded, io_waiting, retry armed" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -136,6 +137,7 @@ test "waitForFd cell (idx!=0, dispatched): parks — Yielded, io_waiting, retry 
 }
 
 test "waitForFd cell (idx==0, dispatched): drives — control for the my_idx term" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -165,6 +167,7 @@ test "waitForFd cell (idx==0, dispatched): drives — control for the my_idx ter
 }
 
 test "waitForFd cell (idx!=0, not dispatched): drives — control for the dispatched term" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -193,6 +196,7 @@ test "waitForFd cell (idx!=0, not dispatched): drives — control for the dispat
 }
 
 test "waitForFd cell (idx==0, not dispatched): drives — the sequential main-fiber path" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -214,6 +218,7 @@ test "waitForFd cell (idx==0, not dispatched): drives — the sequential main-fi
 }
 
 test "waitForFd's park branch ignores fd readiness entirely" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     // The mirror of the park cell above: an fd with nothing to read parks
     // identically. Together the two pin that the branch is chosen by
     // dispatch state alone — readiness is never consulted before the
@@ -239,6 +244,7 @@ test "waitForFd's park branch ignores fd readiness entirely" {
 }
 
 test "waitForFd parks on write interest with the same selector" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     // .write is the second interest the port layer uses (drainWriteBuffer);
     // the selector is interest-independent, and the registration must land
     // in the write list, not the read one.
@@ -266,6 +272,7 @@ test "waitForFd parks on write interest with the same selector" {
 }
 
 test "waitForFd restores status and unregisters when reactor registration fails" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     // The one pre-branch failure path: register() rejects the fd (EBADF on
     // a closed one). Neither branch has run yet, so the fiber must be left
     // exactly as it was found — not stranded in .io_waiting with a dangling
@@ -548,6 +555,7 @@ test "an empty driving_waits stack never reports a resolved ancestor" {
 // ===========================================================================
 
 test "yield-retry: a park mid-UTF-8-sequence stashes the consumed prefix" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -587,6 +595,7 @@ test "yield-retry: a park mid-UTF-8-sequence stashes the consumed prefix" {
 }
 
 test "yield-retry: a park mid-line stashes the partial line" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -619,6 +628,7 @@ test "yield-retry: a park mid-line stashes the partial line" {
 }
 
 test "yield-retry: a park mid-CRLF stashes the bare carriage return" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     // read-line's CR lookahead consumes a byte it has not appended. If the
     // lookahead parks and the CR is not re-stashed, the retry never reaches
     // the same decision point and the line boundary silently moves.
@@ -650,6 +660,7 @@ test "yield-retry: a park mid-CRLF stashes the bare carriage return" {
 }
 
 test "yield-retry: a park mid-datum stashes the partial datum for (read)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -676,6 +687,7 @@ test "yield-retry: a park mid-datum stashes the partial datum for (read)" {
 }
 
 test "yield-retry: a park at an item boundary stashes nothing" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     // The control for the four tests above: with no partial progress to
     // preserve, the park must leave read_buf empty. A stash-everything
     // implementation would pass those and fail this.
@@ -702,6 +714,7 @@ test "yield-retry: a park at an item boundary stashes nothing" {
 }
 
 test "yield-retry: a write-side park resumes from write_buf_start without duplicating" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     // The write half of the contract takes a different route from the read
     // half: portWriteBytes drains BEFORE appending, and drainWriteBuffer
     // records how far it got in the port's own `write_buf_start`. Nothing is
@@ -777,6 +790,7 @@ test "yield-retry: a write-side park resumes from write_buf_start without duplic
 // ===========================================================================
 
 test "which frames force the drive branch: guard does; map and dynamic-wind do not" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     // waitForFd's doc comment names "guard, dynamic-wind, callbacks" as the
     // re-entrant native frames that make a spawned fiber drive rather than
     // park, and vm.in_custom_port_callback's own comment lists
@@ -839,6 +853,7 @@ test "which frames force the drive branch: guard does; map and dynamic-wind do n
 }
 
 test "close-port on a parked fd wakes the waiter and its retry raises cleanly" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     // wakeIoWaitersOnFd's contract on the PARK path (the existing
     // tests_port_io close test covers the drive path, where the wait
     // returns into waitPortFd's own is_open re-check). Here the retry is
@@ -890,6 +905,7 @@ test "close-port on a parked fd wakes the waiter and its retry raises cleanly" {
 }
 
 test "a custom-port callback is refused before the drive, even on a ready fd" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     // vm.in_custom_port_callback is checked BEFORE runSchedulerStep, so the
     // rejection does not depend on the fd being unready — a callback that
     // would have succeeded by luck still gets the documented error rather
@@ -927,6 +943,7 @@ test "a custom-port callback is refused before the drive, even on a ready fd" {
 }
 
 test "a stale timed_out does not degrade an fd wait into an abandonment" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     // waitForFd clears me.timed_out before driving. Without that, an fd
     // wait inheriting a leftover deadline flag from an earlier timed wait
     // exits runSchedulerStep's loop immediately with done == false — which
@@ -952,6 +969,7 @@ test "a stale timed_out does not degrade an fd wait into an abandonment" {
 }
 
 test "#1625 unwind leaves the fd unregistered and the port usable" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     // The abandonment path's cleanup half, which the existing single #1625
     // test does not assert: the raise happens after waitForFd's defer, so
     // the reactor must hold no waiter for the fd afterwards — otherwise
@@ -992,6 +1010,7 @@ test "#1625 unwind leaves the fd unregistered and the port usable" {
 }
 
 test "two fibers parked on the same fd are both listed and both woken by close" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     // waitForFd registers per-fiber, not per-fd, and wakeIoWaitersOnFd
     // iterates every fiber rather than the reactor's list — the two must
     // agree, or a second waiter is silently stranded.
