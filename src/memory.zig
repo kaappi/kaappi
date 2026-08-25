@@ -355,7 +355,25 @@ pub const GC = struct {
             // GC, so it needs no remembered-set entry — and reading its
             // generation bit would race the owner's collection cycle.
             if (child.owner == self.id and child.flags.generation == 0) {
-                self.remembered_set.append(self.allocator, container) catch @panic("GC writeBarrier: remembered set OOM");
+                // #2196: dedup. A container mutated n times must appear in the
+                // remembered_set at most once — otherwise the minor mark phase
+                // marks it n times, and marking a large container is O(capacity),
+                // making a fill quadratic in writes. The in_remembered_set flag
+                // is cleared when the container leaves the set (pruneRememberedSet
+                // or a full-collect drain), so a container re-added after being
+                // dropped queues exactly one fresh entry.
+                //
+                // The flag belongs to the container's *owning* GC. Only dedup a
+                // container we own; a foreign container (a shared global mutated
+                // across threads — the #1924 hazard) keeps the pre-#2196
+                // unconditional append, so its owner's flag is never observed or
+                // written here and no reference this GC must track is dropped.
+                if (container.owner != self.id) {
+                    self.remembered_set.append(self.allocator, container) catch @panic("GC writeBarrier: remembered set OOM");
+                } else if (!container.flags.in_remembered_set) {
+                    self.remembered_set.append(self.allocator, container) catch @panic("GC writeBarrier: remembered set OOM");
+                    container.flags.in_remembered_set = true;
+                }
             }
         }
     }

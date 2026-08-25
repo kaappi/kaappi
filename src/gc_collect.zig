@@ -81,6 +81,12 @@ fn pruneRememberedSet(gc: *GC) void {
         if (referencesYoung(gc, obj)) {
             gc.remembered_set.items[write_idx] = obj;
             write_idx += 1;
+        } else {
+            // #2196: dropped from the set, so clear the dedup flag — a later
+            // old->young write to this container must be free to re-queue it.
+            // Only touch the flag on containers we own (foreign containers are
+            // appended without the flag; see writeBarrier).
+            if (obj.owner == gc.id) obj.flags.in_remembered_set = false;
         }
     }
     gc.remembered_set.shrinkRetainingCapacity(write_idx);
@@ -323,6 +329,13 @@ fn isYoungPointer(gc: *GC, val: Value) bool {
 }
 
 fn fullCollect(gc: *GC) void {
+    // #2196: drain the remembered_set up front. A full collect marks from
+    // roots over both generations, so it never consults the set — and doing
+    // this before sweepOld frees any old object means every entry is still
+    // live when we clear its dedup flag (clearing after the sweep would be a
+    // use-after-free). Every surviving old container is then free to re-queue
+    // itself on its next old->young write.
+    drainRememberedSet(gc);
     clearOldMarks(gc);
     markRoots(gc);
     processWeakRefs(gc);
@@ -330,6 +343,14 @@ fn fullCollect(gc: *GC) void {
     gc.quarantineReleaseToCap();
     sweep(gc);
     sweepOld(gc);
+}
+
+fn drainRememberedSet(gc: *GC) void {
+    // Only clear the flag on containers we own (foreign containers never had it
+    // set by this GC; see writeBarrier).
+    for (gc.remembered_set.items) |obj| {
+        if (obj.owner == gc.id) obj.flags.in_remembered_set = false;
+    }
     gc.remembered_set.clearRetainingCapacity();
 }
 
