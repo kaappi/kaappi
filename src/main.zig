@@ -1230,29 +1230,38 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
             };
 
             if (vm.topLevelHead(form)) |head| {
-                // Record every declaration for replay when the artifact runs.
-                // Propagate an allocation failure rather than dropping the
-                // form: silently continuing here writes an artifact missing an
-                // `import`, then prints `Compiled ... -> ...` and exits 0.
-                // `runFile`'s equivalent site returns error.OutOfMemory too.
-                const form_src = try printer.valueToString(allocator, form, .write);
-                preamble.append(allocator, form_src) catch {
-                    allocator.free(form_src);
-                    return error.OutOfMemory;
-                };
-                // ...but evaluate only those the *compiler* depends on. A
-                // `define-values` needs nothing at compile time, and evaluating
-                // it ran its producer expression's side effects for real while
-                // writing the `.sbc`, on top of the replay just recorded — so
-                // `(define-values (a) (values (delete-file "x")))` deleted the
-                // file twice (#2156). `begin` and `cond-expand` never reach
-                // here; TopLevelForms already spliced them.
-                if (!head.isEnvSetup()) continue;
-                _ = vm.runTopLevelHead(head, form) catch |err| {
-                    script_had_error = true;
-                    toplevel_driver.reportRuntimeError(vm, err, .{ .source = path, .line = datum_lc.line });
-                };
-                continue;
+                // Only the env-setup declarations belong in the preamble, which
+                // the artifact replays *before* any compiled form. `import` /
+                // `include` / `include-ci` / `define-library` /
+                // `define-record-type` establish the environment later forms
+                // are compiled against, so hoisting them ahead of the compiled
+                // stream is exactly what a preamble is for.
+                //
+                // `define-values` is NOT env setup: its producer is arbitrary
+                // program code that can depend on earlier forms, so hoisting it
+                // into the preamble reorders execution and can fail where the
+                // interpreter succeeds (#2200). It has a compilable lowering
+                // (`compileDefineValues`), so let it fall through to ordinary
+                // compilation and keep its position in the compiled stream.
+                // `begin` and `cond-expand` never reach here; TopLevelForms
+                // already spliced them.
+                if (head.isEnvSetup()) {
+                    // Record the declaration for replay when the artifact runs.
+                    // Propagate an allocation failure rather than dropping the
+                    // form: silently continuing here writes an artifact missing
+                    // an `import`, then prints `Compiled ... -> ...` and exits 0.
+                    // `runFile`'s equivalent site returns error.OutOfMemory too.
+                    const form_src = try printer.valueToString(allocator, form, .write);
+                    preamble.append(allocator, form_src) catch {
+                        allocator.free(form_src);
+                        return error.OutOfMemory;
+                    };
+                    _ = vm.runTopLevelHead(head, form) catch |err| {
+                        script_had_error = true;
+                        toplevel_driver.reportRuntimeError(vm, err, .{ .source = path, .line = datum_lc.line });
+                    };
+                    continue;
+                }
             }
 
             const func = compiler.compileExpressionWithMacrosAt(vm.gc, form, &vm.macros, vm.globals, datum_lc.line, path, false) catch |err| {

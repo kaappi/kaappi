@@ -179,34 +179,37 @@ to* the source as `file.sbc`. A central store is what makes `cache status` /
   `define-library`, `define-record-type`) — and records them in the artifact's
   preamble for replay. `begin` and `cond-expand` are spliced into the form
   stream so their bodies are compiled (only a `cond-expand`'s branch
-  *selection* is a compile-time question), and a `define-values` is recorded
-  without its producer expression being evaluated. Until
-  [#2156](https://github.com/kaappi/kaappi/issues/2156) all three were
-  evaluated for real, so `(begin (delete-file "x"))` deleted the file while
-  producing the `.sbc` and again at run time from the preamble.
-  `--disassemble` follows the same discipline.
+  *selection* is a compile-time question). Until
+  [#2156](https://github.com/kaappi/kaappi/issues/2156) those bodies — and a
+  `define-values` producer — were evaluated for real, so
+  `(begin (delete-file "x"))` deleted the file while producing the `.sbc` and
+  again at run time from the preamble. `--disassemble` follows the same
+  discipline.
 
   **The preamble replays in full before any compiled form**, so a recorded
-  declaration does not keep its position in the program. Splicing puts `begin`
-  and `cond-expand` bodies into the compiled stream, which is what restores
-  their order; the other six heads still replay first. For `import`,
-  `include`, `include-ci`, `define-library` and `define-record-type` that is
-  harmless — they are declarations, and hoisting them is what a preamble is
-  for. For `define-values` it is not, because its producer is arbitrary
-  program code that can depend on earlier forms:
+  declaration does not keep its position in the program. That is harmless for
+  the five env-setup heads — they are declarations, and hoisting them ahead of
+  the compiled stream is what a preamble is for.
+
+  `define-values` is **not** hoisted
+  ([#2200](https://github.com/kaappi/kaappi/issues/2200)): its producer is
+  arbitrary program code that can depend on an earlier top-level form, so
+  reordering it would fail where the interpreter succeeds. It has a compilable
+  lowering (`compileDefineValues` desugars it to `define` + `call-with-values` +
+  `set!`), so `--compile` routes it through ordinary compilation and it keeps
+  its position in the compiled stream, exactly like `begin`/`cond-expand`
+  splicing does for their bodies.
 
   ```scheme
   (define x 1)
-  (define-values (a b) (values x 2))   ; replayed first, with x unbound
+  (define-values (a b) (values x 2))   ; compiled in order, sees x = 1
   (display (list a b))
   ```
 
-  The interpreter prints `(1 2)`; the standalone binary fails with
-  `preamble error[KP3001]: undefined variable 'x'` and exits 1. This
-  pre-dates #2156 and is unchanged by it — tracked separately as
-  [#2200](https://github.com/kaappi/kaappi/issues/2200), since fixing it needs
-  either an order-preserving preamble in the `.sbc` format or a compilable
-  `define-values`.
+  Both the interpreter and the standalone binary print `(1 2)`. Before #2200
+  the `define-values` was recorded in the preamble and replayed first, with `x`
+  still unbound, so the binary failed with
+  `preamble error[KP3001]: undefined variable 'x'` and exited 1.
 - `.sld` library loads are never cached in either direction.
 
 ## Inspect, clear, bypass
