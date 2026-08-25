@@ -137,39 +137,63 @@ pub fn parse(args: std.process.Args) Options {
     // toOwnedSlice below, leaving lib_paths_slice empty — they never consult it.
     var lib_paths: std.ArrayList([]const u8) = .empty;
 
+    // The inline subcommand word in play (compile/check/ast/expand/ir/fmt),
+    // once one has been consumed. A subcommand-scoped flag (`top_level =
+    // false`, e.g. `--no-opt`, `--check`) is legal only after its owning
+    // subcommand word; at global scope it is rejected rather than silently
+    // accepted, which is what let `kaappi --check foo.scm` run the file the
+    // `check` subcommand promises never to execute (kaappi#2096).
+    var active_subcommand: ?[]const u8 = null;
+
     while (iter.next()) |arg| {
         if (std.mem.eql(u8, arg, "compile")) {
             opts.native_compile_mode = true;
+            active_subcommand = arg;
             continue;
         }
 
         if (std.mem.eql(u8, arg, "check")) {
             opts.check_mode = true;
+            active_subcommand = arg;
             continue;
         }
 
         if (std.mem.eql(u8, arg, "ast")) {
             opts.ast_mode = true;
+            active_subcommand = arg;
             continue;
         }
 
         if (std.mem.eql(u8, arg, "expand")) {
             opts.expand_mode = true;
+            active_subcommand = arg;
             continue;
         }
 
         if (std.mem.eql(u8, arg, "ir")) {
             opts.ir_mode = true;
+            active_subcommand = arg;
             continue;
         }
 
         if (std.mem.eql(u8, arg, "fmt")) {
             opts.fmt_mode = true;
+            active_subcommand = arg;
             continue;
         }
 
         if (matchFlag(arg)) |m| {
             const f = m.flag;
+
+            // A subcommand-scoped flag is meaningful only under its owning
+            // subcommand; reject it (usage error, exit 2) anywhere else instead
+            // of accepting it inertly — or, for `--check`, running the file.
+            if (spec.owningSubcommand(f.id)) |owner| {
+                const in_scope = active_subcommand != null and
+                    std.mem.eql(u8, active_subcommand.?, owner);
+                if (!in_scope) scopedFlagError(f.long, owner);
+            }
+
             const value: ?[]const u8 = if (m.inline_value) |v| v else if (f.takesSeparateValue()) blk: {
                 break :blk iter.next() orelse {
                     writeStderr(f.long);
@@ -294,9 +318,9 @@ fn oomCollectingArgs() noreturn {
 
 /// The `Options:` block, generated from the same table the parse loop and the
 /// completion scripts read. It used to be a fourth hand-maintained list.
-/// `--no-opt` and `--check` are `top_level = false`: the loop accepts them
-/// anywhere, but they only mean anything under `ir` / `fmt`, where the
-/// `Commands:` block above already documents them.
+/// `--no-opt` and `--check` are `top_level = false`: the loop accepts them only
+/// after their owning `ir` / `fmt` subcommand word (kaappi#2096) and the
+/// `Commands:` block above documents them there, so they stay out of this block.
 const options_block = blk: {
     @setEvalBranchQuota(100_000);
     // One column for every spelling, so the descriptions line up.
@@ -367,6 +391,30 @@ const usage_text =
 
 pub fn usageError(msg: []const u8) noreturn {
     writeStderr(msg);
+    std.process.exit(USAGE_ERROR_EXIT);
+}
+
+/// A subcommand-scoped flag appeared at global scope (kaappi#2096). Name the
+/// subcommand it belongs to and, when a same-named subcommand exists (as for
+/// `--check` vs the `check` subcommand), point at the likely intent, then exit
+/// with the usage-error status rather than running the file.
+fn scopedFlagError(flag_long: []const u8, owner: []const u8) noreturn {
+    writeStderr("kaappi: ");
+    writeStderr(flag_long);
+    writeStderr(" is a `kaappi ");
+    writeStderr(owner);
+    writeStderr("` option, not a global flag\n");
+    // `--check` strips to `check`, which is also a subcommand with the opposite
+    // execution semantics — surface that so the user is not left running the
+    // file they meant only to analyse.
+    const bare = std.mem.trimStart(u8, flag_long, "-");
+    if (spec.isInlineSubcommand(bare)) {
+        writeStderr("  did you mean the `");
+        writeStderr(bare);
+        writeStderr("` subcommand? (kaappi ");
+        writeStderr(bare);
+        writeStderr(" <file> executes nothing)\n");
+    }
     std.process.exit(USAGE_ERROR_EXIT);
 }
 
@@ -753,6 +801,24 @@ test "parse: no-ir-opt" {
     const argv = [_][*:0]const u8{ "kaappi", "--no-ir-opt", "test.scm" };
     const opts = parse(testArgs(&argv));
     try std.testing.expect(opts.no_ir_opt);
+    try std.testing.expectEqualStrings("test.scm", opts.file_path.?);
+}
+
+test "parse: fmt --check is accepted in scope (kaappi#2096)" {
+    // The subcommand-scoped `--check` is legal after its owning `fmt` word.
+    // The out-of-scope spelling `kaappi --check file` is rejected with a usage
+    // error (exit 2) — covered by tests/scheme/errors, since it exits.
+    const argv = [_][*:0]const u8{ "kaappi", "fmt", "--check", "test.scm" };
+    const opts = parse(testArgs(&argv));
+    try std.testing.expect(opts.fmt_mode);
+    try std.testing.expect(opts.fmt_check);
+}
+
+test "parse: ir --no-opt is accepted in scope (kaappi#2096)" {
+    const argv = [_][*:0]const u8{ "kaappi", "ir", "--no-opt", "test.scm" };
+    const opts = parse(testArgs(&argv));
+    try std.testing.expect(opts.ir_mode);
+    try std.testing.expect(opts.ir_no_opt);
     try std.testing.expectEqualStrings("test.scm", opts.file_path.?);
 }
 
