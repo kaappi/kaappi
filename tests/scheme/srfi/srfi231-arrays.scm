@@ -141,6 +141,31 @@
   (let ((safe-ea (make-specialized-array e s8-storage-class 0 #t)))
     (test-equal #t (guard (exn (#t #t)) (array-ref safe-ea 3 3) #f))))
 
+;;; --- reference-parity argument validation: a setter must be a procedure
+;;; or #f, and safe?/mutable? must be booleans at every site they appear
+;;; (both constructors' options and the two default parameters) ---
+(test-equal #t (guard (e (#t #t))
+                  (make-array (make-interval (vector 3)) list 1)
+                  #f))
+(test-equal #t (guard (e (#t #t))
+                  (make-specialized-array (make-interval (vector 10)) generic-storage-class 0 'a)
+                  #f))
+(test-equal #t (guard (e (#t #t))
+                  (make-specialized-array-from-data (vector 1 2 3) generic-storage-class 'a)
+                  #f))
+(test-equal #t (guard (e (#t #t))
+                  (make-specialized-array-from-data (vector 1 2 3) generic-storage-class #t 'a)
+                  #f))
+(test-equal #t (guard (e (#t #t))
+                  (specialized-array-default-safe? 'a)
+                  #f))
+(test-equal #t (guard (e (#t #t))
+                  (specialized-array-default-mutable? 'a)
+                  #f))
+;; the rejected sets must not have changed the defaults
+(test-equal #f (specialized-array-default-safe?))
+(test-equal #t (specialized-array-default-mutable?))
+
 (let ((runner (test-runner-current)))
   (test-end "srfi-231-arrays")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))

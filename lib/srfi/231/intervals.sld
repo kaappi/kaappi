@@ -125,16 +125,22 @@
                  (<= (interval-upper-bound i1 k) (interval-upper-bound i2 k))
                  (loop (+ k 1))))))
 
+    ;; Per spec, the multi-index must have exactly the interval's
+    ;; dimension -- a mismatch is an error, not a normal #f result (#f is
+    ;; reserved for a well-formed multi-index that fails the bound check),
+    ;; mirroring interval-subset? above.
     (define (interval-contains-multi-index? interval . multi-index)
+      (unless (= (length multi-index) (interval-dimension interval))
+        (error "interval-contains-multi-index?: the dimension of the interval does not match the number of indices"
+               interval multi-index))
       (let ((lo (interval-lower-vec interval)) (up (interval-upper-vec interval)))
-        (and (= (length multi-index) (vector-length lo))
-             (let loop ((i 0) (xs multi-index))
-               (or (null? xs)
-                   (begin
-                     (unless (and (integer? (car xs)) (exact? (car xs)))
-                       (error "interval-contains-multi-index?: multi-index entries must be exact integers" (car xs)))
-                     (and (<= (vector-ref lo i) (car xs)) (< (car xs) (vector-ref up i))
-                          (loop (+ i 1) (cdr xs)))))))))
+        (let loop ((i 0) (xs multi-index))
+          (or (null? xs)
+              (begin
+                (unless (and (integer? (car xs)) (exact? (car xs)))
+                  (error "interval-contains-multi-index?: multi-index entries must be exact integers" (car xs)))
+                (and (<= (vector-ref lo i) (car xs)) (< (car xs) (vector-ref up i))
+                     (loop (+ i 1) (cdr xs))))))))
 
     ;; General d-dimensional nested traversal in lexicographic order. proc
     ;; receives each multi-index as a LIST; public callers apply it to their

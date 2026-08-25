@@ -57,6 +57,20 @@
       (data? storage-class-data?)
       (data->body storage-class-data->body))
 
+    ;; data->body: the body IS the data for every built-in class (no
+    ;; offset/scale to install), but the contract still requires rejecting
+    ;; wrong-typed data instead of handing it back as a would-be body
+    ;; (reference implementation: "converts data to a body, raising an
+    ;; exception if needed").
+    (define (%checked-data->body pred class-name type-name)
+      (lambda (data)
+        (if (pred data)
+            data
+            (error (string-append "Expecting a " type-name
+                                  " passed to (storage-class-data->body "
+                                  class-name "): ")
+                   data))))
+
     ;; Reference definitions from the spec text itself, reused verbatim --
     ;; Kaappi's native vector/string already satisfy every one of
     ;; make-storage-class's operational contracts (O(1) getter/setter,
@@ -65,52 +79,52 @@
     (define generic-storage-class
       (make-storage-class vector-ref vector-set! (lambda (arg) #t)
                            make-vector vector-copy! vector-length
-                           #f vector? values))
+                           #f vector? (%checked-data->body vector? "generic-storage-class" "vector")))
 
     (define char-storage-class
       (make-storage-class string-ref string-set! char?
                            make-string string-copy! string-length
-                           #\0 string? values))
+                           #\0 string? (%checked-data->body string? "char-storage-class" "string")))
 
     (define (%exact-int-range-checker lo hi)
       (lambda (x) (and (exact-integer? x) (<= lo x hi))))
 
     (define s8-storage-class
       (make-storage-class s8vector-ref s8vector-set! (%exact-int-range-checker -128 127)
-                           make-s8vector s8vector-copy! s8vector-length 0 s8vector? values))
+                           make-s8vector s8vector-copy! s8vector-length 0 s8vector? (%checked-data->body s8vector? "s8-storage-class" "s8vector")))
     (define s16-storage-class
       (make-storage-class s16vector-ref s16vector-set! (%exact-int-range-checker -32768 32767)
-                           make-s16vector s16vector-copy! s16vector-length 0 s16vector? values))
+                           make-s16vector s16vector-copy! s16vector-length 0 s16vector? (%checked-data->body s16vector? "s16-storage-class" "s16vector")))
     (define s32-storage-class
       (make-storage-class s32vector-ref s32vector-set! (%exact-int-range-checker -2147483648 2147483647)
-                           make-s32vector s32vector-copy! s32vector-length 0 s32vector? values))
+                           make-s32vector s32vector-copy! s32vector-length 0 s32vector? (%checked-data->body s32vector? "s32-storage-class" "s32vector")))
     (define s64-storage-class
       (make-storage-class s64vector-ref s64vector-set!
                            (%exact-int-range-checker -9223372036854775808 9223372036854775807)
-                           make-s64vector s64vector-copy! s64vector-length 0 s64vector? values))
+                           make-s64vector s64vector-copy! s64vector-length 0 s64vector? (%checked-data->body s64vector? "s64-storage-class" "s64vector")))
 
     ;; u8 is a plain R7RS bytevector alias throughout this codebase (per
     ;; SRFI 160's own design), so its storage class is built directly on
     ;; (scheme base)'s bytevector procedures, not a (srfi 160 u8) import.
     (define u8-storage-class
       (make-storage-class bytevector-u8-ref bytevector-u8-set! (%exact-int-range-checker 0 255)
-                           make-bytevector bytevector-copy! bytevector-length 0 bytevector? values))
+                           make-bytevector bytevector-copy! bytevector-length 0 bytevector? (%checked-data->body bytevector? "u8-storage-class" "bytevector")))
     (define u16-storage-class
       (make-storage-class u16vector-ref u16vector-set! (%exact-int-range-checker 0 65535)
-                           make-u16vector u16vector-copy! u16vector-length 0 u16vector? values))
+                           make-u16vector u16vector-copy! u16vector-length 0 u16vector? (%checked-data->body u16vector? "u16-storage-class" "u16vector")))
     (define u32-storage-class
       (make-storage-class u32vector-ref u32vector-set! (%exact-int-range-checker 0 4294967295)
-                           make-u32vector u32vector-copy! u32vector-length 0 u32vector? values))
+                           make-u32vector u32vector-copy! u32vector-length 0 u32vector? (%checked-data->body u32vector? "u32-storage-class" "u32vector")))
     (define u64-storage-class
       (make-storage-class u64vector-ref u64vector-set! (%exact-int-range-checker 0 18446744073709551615)
-                           make-u64vector u64vector-copy! u64vector-length 0 u64vector? values))
+                           make-u64vector u64vector-copy! u64vector-length 0 u64vector? (%checked-data->body u64vector? "u64-storage-class" "u64vector")))
 
     (define f32-storage-class
       (make-storage-class f32vector-ref f32vector-set! real?
-                           make-f32vector f32vector-copy! f32vector-length 0.0 f32vector? values))
+                           make-f32vector f32vector-copy! f32vector-length 0.0 f32vector? (%checked-data->body f32vector? "f32-storage-class" "f32vector")))
     (define f64-storage-class
       (make-storage-class f64vector-ref f64vector-set! real?
-                           make-f64vector f64vector-copy! f64vector-length 0.0 f64vector? values))
+                           make-f64vector f64vector-copy! f64vector-length 0.0 f64vector? (%checked-data->body f64vector? "f64-storage-class" "f64vector")))
 
     ;; complex? is true of every number in Scheme's numeric tower
     ;; (real/rational/integer are all complex), matching the spec's own
@@ -118,11 +132,11 @@
     (define c64-storage-class
       (make-storage-class c64vector-ref c64vector-set! complex?
                            make-c64vector c64vector-copy! c64vector-length
-                           (make-rectangular 0.0 0.0) c64vector? values))
+                           (make-rectangular 0.0 0.0) c64vector? (%checked-data->body c64vector? "c64-storage-class" "c64vector")))
     (define c128-storage-class
       (make-storage-class c128vector-ref c128vector-set! complex?
                            make-c128vector c128vector-copy! c128vector-length
-                           (make-rectangular 0.0 0.0) c128vector? values))
+                           (make-rectangular 0.0 0.0) c128vector? (%checked-data->body c128vector? "c128-storage-class" "c128vector")))
 
     (define u1-storage-class #f)
     (define f8-storage-class #f)

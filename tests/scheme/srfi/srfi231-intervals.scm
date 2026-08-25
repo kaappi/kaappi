@@ -93,7 +93,14 @@
   (test-equal #f (interval-contains-multi-index? b 2 0))
   (test-equal #t (interval-contains-multi-index? b 0 0))
   ;; a multi-index must consist of exact integers
-  (test-equal #t (guard (e (#t #t)) (interval-contains-multi-index? b 1.5 0) #f)))
+  (test-equal #t (guard (e (#t #t)) (interval-contains-multi-index? b 1.5 0) #f))
+  ;; a multi-index whose length differs from the interval's dimension is an
+  ;; error (reference-parity), not a normal #f answer
+  (test-equal #t (guard (e (#t #t)) (interval-contains-multi-index? b 1) #f))
+  (test-equal #t (guard (e (#t #t)) (interval-contains-multi-index? b 0 0 0) #f))
+  (test-equal #t (guard (e (#t #t))
+                  (interval-contains-multi-index? (make-interval '#(1 2 3) '#(4 5 6)) 1)
+                  #f)))
 
 ;;; --- interval-for-each: lexicographic order, separate positional args ---
 (let ((visits '()))

@@ -69,6 +69,8 @@
     (define (specialized-array-share array new-domain new-domain->old-domain)
       (unless (specialized-array? array) (error "specialized-array-share: not a specialized array" array))
       (unless (interval? new-domain) (error "specialized-array-share: not an interval" new-domain))
+      (unless (procedure? new-domain->old-domain)
+        (error "specialized-array-share: new-domain->old-domain must be a procedure" new-domain->old-domain))
       (when (> (interval-volume new-domain) (interval-volume (array-domain array)))
         (error "specialized-array-share: new-domain has more elements than array" new-domain array))
       (let* ((storage-class (array-storage-class array))
@@ -243,16 +245,22 @@
     ;; confirmed spec-sanctioned, not an error) or a nonempty vector of
     ;; nonnegative exact integers summing to the axis's width (custom
     ;; per-slice widths, exact prefix sums).
-    (define (%tile-cut-offsets width lower Sk)
+    (define (%tile-cut-offsets width lower k Sk)
       (cond
        ((and (integer? Sk) (exact? Sk) (positive? Sk))
-        (let* ((n (quotient (+ width (- Sk 1)) Sk))
-               (offsets (make-vector (+ n 1) lower)))
-          (let loop ((i 1))
-            (when (<= i n)
-              (vector-set! offsets i (min (+ lower (* i Sk)) (+ lower width)))
-              (loop (+ i 1))))
-          offsets))
+        ;; A scalar slice-width is legal only on a positive-width axis; a
+        ;; zero-width axis must use the explicit-vector form (e.g. #(0)),
+        ;; whose entries sum to the width -- the reference implementation's
+        ;; own rule.
+        (if (eqv? width 0)
+            (error "array-tile: a scalar slice-width is allowed only on an axis of positive width" k Sk width)
+            (let* ((n (quotient (+ width (- Sk 1)) Sk))
+                   (offsets (make-vector (+ n 1) lower)))
+              (let loop ((i 1))
+                (when (<= i n)
+                  (vector-set! offsets i (min (+ lower (* i Sk)) (+ lower width)))
+                  (loop (+ i 1))))
+              offsets)))
        ((and (vector? Sk) (> (vector-length Sk) 0)
              (%vector-every (lambda (x) (and (integer? x) (exact? x) (>= x 0))) Sk)
              (= (let loop ((i 0) (acc 0)) (if (= i (vector-length Sk)) acc (loop (+ i 1) (+ acc (vector-ref Sk i))))) width))
@@ -275,7 +283,7 @@
         (let ((cuts (make-vector d #f)))
           (let loop ((k 0))
             (when (< k d)
-              (vector-set! cuts k (%tile-cut-offsets (vector-ref widths k) (vector-ref lowers k) (vector-ref S k)))
+              (vector-set! cuts k (%tile-cut-offsets (vector-ref widths k) (vector-ref lowers k) k (vector-ref S k)))
               (loop (+ k 1))))
           (let ((out-dims (list->vector (map (lambda (c) (- (vector-length c) 1)) (vector->list cuts)))))
             (make-array
