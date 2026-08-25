@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787640783999,
+  "lastUpdate": 1787643769540,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "0bba2a1f114c22816cdce31114c8c5b46d7a7f12",
-          "message": "Correct 5F: its Scheme half never ran under gc-stress (#2168)\n\nI reported that 5F ran the Scheme suite against a gc-stress binary on\nx86-64 Linux for the first time, 2061 pass / 0 fail. That is wrong.\n\n`zig build test -Dgc-stress=true` builds *test* binaries. It does not\nrebuild `zig-out/bin/kaappi`, which is what `run-all.sh` executes. On the\ndroplet I had run a plain `zig build` for the sanity check, so the Scheme\nhalf ran against that plain binary and demonstrated nothing about gc-stress.\n\nVerified directly: after `zig build test -Dgc-stress=true`, the installed\nbinary still reports `gc_stress = False`.\n\nPhase 7E found this (#2163) the right way — not by re-reading my claim but\nby noticing the reported timings were arithmetically inconsistent with a\nstressed binary, since three corpus files exceed run-all.sh's 60s budget by\n100x under stress.\n\n5F's unit-suite result stands: 1570/1570 under a genuinely stressed build,\nconfirmed by the 6x slowdown and the differing skip count. Only the Scheme\nhalf was unsupported.\n\n7E's new `gc-stress-scheme` job is what actually closes that gap, and it\nfound two real bugs on its first run (#2160, #2161) — which is the clearest\nevidence that the coverage I claimed did not previously exist.",
-          "timestamp": "2026-08-02T07:05:08+05:30",
-          "tree_id": "788232f70e4d76757254eb1e3b986040b8857639",
-          "url": "https://github.com/kaappi/kaappi/commit/0bba2a1f114c22816cdce31114c8c5b46d7a7f12"
-        },
-        "date": 1785638096054,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.064231,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.274582,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.461624,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.207746,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004072,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.034804,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.231721,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.043024,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.828458,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.904849,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.172182,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.243874,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.308319,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.450899,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.036176,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045155,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1114b38004df526381db951b49ed7510e5342f45",
+          "message": "Validate array-copy options and combinator function arguments (#2326)\n\nTwo reference-parity guard sets completing the SRFI 231 validation\nwork, both reported by the SRFI's author:\n\n- array-copy/array-copy! validate their own mutable?/safe? options\n  (#2320): mutable? never flows through a validating constructor, so a\n  truthy wrong-typed value silently produced an unfrozen array, and\n  safe? errors were attributed to the inner constructor. %check-boolean!\n  moves to arrays.sld's internal helper exports for views.sld to reuse.\n- array-map, array-for-each, array-fold-left/right, array-any,\n  array-every, array-outer-product, and array-inner-product (f and g)\n  reject non-procedure function arguments at call time (#2321); the\n  lazy combinators previously deferred the failure to first element\n  access, and eager ones succeeded silently over empty domains where f\n  is never invoked. array-reduce already checked.\n\nVerified: all seven tests/scheme/srfi/srfi231-*.scm suites pass, the\nspec document's worked-example corpus still passes, and the reference\ntest suite's 330 error-expectation tests stay 330/330.\n\nCloses #2320\nCloses #2321\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-25T07:04:23Z",
+          "tree_id": "0a80b478bfcc54f58b83555f3a1bc3ca4a96d2f7",
+          "url": "https://github.com/kaappi/kaappi/commit/1114b38004df526381db951b49ed7510e5342f45"
+        },
+        "date": 1787643768212,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.095486,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.00332,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.558496,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.869033,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004882,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046354,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.285346,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053764,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.363816,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.150976,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.637518,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.303581,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.694811,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.79004,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046079,
             "unit": "seconds"
           }
         ]
