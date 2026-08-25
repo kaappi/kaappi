@@ -94,26 +94,33 @@ jobs:
             timeout: 55
           # gc-stress: collection attempted on every allocation, converting
           # latent rooting bugs into immediate, attributable failures
-          # (#1401, fixed). The pre-fuzz unit-test phase dominates the wall
-          # time here — every test's VM bootstrap runs tens of thousands of
-          # collections (~35 min locally on M-series; budget more on a
-          # hosted runner) — so the fuzz limit stays small and the timeout
-          # generous. Throughput-sensitive fuzz targets skip themselves on
-          # stress builds (src/tests_fuzz.zig). Run on both arches: a rooting
-          # bug is arch-independent, but the pointer-tagging and write-barrier
-          # code it stresses is exactly where an ARM-specific fault would hide.
+          # (#1401, fixed). The pre-fuzz unit-test phase runs slower here —
+          # every test's VM bootstrap runs tens of thousands of collections —
+          # but the whole leg (checkout, Zig install, build, full unit suite,
+          # and the bounded fuzz runs) is nothing like the ~35 min a stale
+          # estimate here once claimed (it predated #1802/#1804/#1809, when
+          # ReleaseSafe stopped 0xAA-filling `= undefined` buffers): #2164
+          # measured 10-13 min in Aug 2026, and later that month the same
+          # legs measure 11-40 min as the suite and corpus grow. The timeout
+          # keeps ~50% headroom over the worst leg observed — enough to
+          # survive a slow runner without letting a livelocked collector sit
+          # for hours. Throughput-sensitive
+          # fuzz targets skip themselves on stress builds (src/tests_fuzz.zig).
+          # Run on both arches: a rooting bug is arch-independent, but the
+          # pointer-tagging and write-barrier code it stresses is exactly where
+          # an ARM-specific fault would hide.
           - platform: x86_64
             runs-on: ubuntu-latest
             variant: gc-stress
             build-args: '-Dgc-stress=true'
             limit: 100
-            timeout: 300
+            timeout: 60
           - platform: arm64
             runs-on: ubuntu-24.04-arm
             variant: gc-stress
             build-args: '-Dgc-stress=true'
             limit: 100
-            timeout: 300
+            timeout: 60
     steps:
       # Every job in this workflow executes fuzzer-generated programs (and the
       # native-diff job runs binaries compiled from them), so don't leave the
