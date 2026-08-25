@@ -1061,7 +1061,7 @@ fn portPosition(args: []const Value) PrimitiveError!Value {
         return types.makeFixnum(@intCast(port.string_out_pos));
     }
     if (port.custom_backend) |cb| {
-        return portPositionFromCustomPort(cb);
+        return portPositionFromCustomPort(port, cb);
     }
     const os_pos = platform.seek(port.fd, 0, platform.SEEK_CUR);
     if (os_pos < 0) return primitives.argError("port-position", "port does not support positioning", .{});
@@ -1185,13 +1185,23 @@ fn setPortPositionBang(args: []const Value) PrimitiveError!Value {
 /// offset to the result. The spec's alternative "implementation-dependent
 /// object" case is available directly from get-position for code that
 /// calls it itself; it just isn't threaded through port-position.
-fn portPositionFromCustomPort(cb: *types.CustomBacking) PrimitiveError!Value {
+fn portPositionFromCustomPort(port: *types.Port, cb: *types.CustomBacking) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
     if (cb.get_position_proc == types.FALSE)
         return primitives.argError("port-position", "port does not support positioning", .{});
     const result = try callCustomPortProc(vm, cb.get_position_proc, &[_]Value{});
     if (!types.isFixnum(result)) return raiseCustomPortBadReturn(vm, "get-position");
-    return result;
+    // get-position reports the SOURCE position, but the port holds its own
+    // lookahead the program has not consumed: the tail of the last read!
+    // burst (read_buf), a pushed-back peek_byte, and peek_extra. Subtract it,
+    // and add any pending write-buffer bytes -- the identical adjustment the
+    // fd path in portPosition applies to its os_pos (#1996).
+    const base: i64 = types.toFixnum(result);
+    const ahead: i64 = @as(i64, @intCast(port.read_buf_len)) +
+        @as(i64, if (port.peek_byte != null) 1 else 0) +
+        @as(i64, port.peek_extra_len);
+    const behind: i64 = @intCast(port.write_buf_len - port.write_buf_start);
+    return types.makeFixnum(base - ahead + behind);
 }
 
 /// SRFI 181: (set-port-position! custom-port pos). Flushes first via
