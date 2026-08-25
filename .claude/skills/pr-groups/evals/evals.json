@@ -60,6 +60,20 @@
         "Groups sharing a file never appear in the same wave",
         "The wave lines contain no prose or commands mixed in"
       ]
+    },
+    {
+      "id": 5,
+      "prompt": "Start wave 1 sessions for the plan you just gave me.",
+      "expected_output": "One session per wave-1 group launched concurrently, each in its own git worktree on a branch off main, with a self-contained brief and the commit/PR wrap-up contract (regression test, DCO sign-off, per-issue Closes keyword).",
+      "expectations": [
+        "Each group is launched in its own git worktree (Agent isolation: worktree, or git worktree add), never in the shared checkout or on main",
+        "Branches are cut from a freshly-fetched origin/main (git fetch first), not from the possibly-stale local checkout",
+        "All groups of the wave are launched concurrently rather than one at a time",
+        "Each session brief is self-contained and tells the session to read the issue bodies itself",
+        "The wrap-up contract is stated: regression test, git commit -s (DCO), push, gh pr create with a per-issue Closes line",
+        "Tests are directed to run in the foreground, not backgrounded waiting on a notification",
+        "The response does not treat a single worktree's green test run as proof that main is green"
+      ]
     }
   ]
 }
