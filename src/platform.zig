@@ -206,13 +206,41 @@ pub const sockPollReady = win_sock.sockPollReady;
 // is platform-specific and the runtime only ever uses these five shapes.
 // ---------------------------------------------------------------------------
 
-pub const OpenError = error{OpenFailed};
+/// `FdExhausted` singles out EMFILE (per-process) / ENFILE (system-wide)
+/// descriptor exhaustion so a caller can force a GC — reclaiming descriptors
+/// held by unreachable ports / directory streams — and retry the open before
+/// raising (kaappi#1993). Every other open failure stays `OpenFailed`.
+pub const OpenError = error{ OpenFailed, FdExhausted };
+
+/// Fold std.posix's open error set onto OpenError, mapping the two
+/// descriptor-exhaustion errnos (EMFILE → ProcessFdQuotaExceeded,
+/// ENFILE → SystemFdQuotaExceeded) to `FdExhausted`.
+fn classifyOpenError(e: anytype) OpenError {
+    return switch (e) {
+        error.ProcessFdQuotaExceeded, error.SystemFdQuotaExceeded => error.FdExhausted,
+        else => error.OpenFailed,
+    };
+}
+
+/// True when libc's current errno is EMFILE/ENFILE. POSIX-only: on Windows
+/// FindFirstFileW reports via GetLastError rather than errno, so this reads
+/// false there and the caller simply skips the retry. Read it immediately
+/// after the failing call, before any intervening libc call can clobber errno.
+pub fn errnoIsFdExhausted() bool {
+    if (comptime is_windows) return false;
+    const ev = std.c._errno().*;
+    return ev == @intFromEnum(E.MFILE) or ev == @intFromEnum(E.NFILE);
+}
 
 fn winOpen(path: []const u8, oflag: c_int, pmode: c_int) OpenError!fd_t {
     var wbuf: WPathBuf = undefined;
     const wpath = widen(&wbuf, path) orelse return error.OpenFailed;
     const fd = win._wopen(wpath.ptr, oflag | win.O_BINARY, pmode);
-    if (fd < 0) return error.OpenFailed;
+    if (fd < 0) {
+        const ev = win._errno().*;
+        if (ev == @intFromEnum(E.MFILE) or ev == @intFromEnum(E.NFILE)) return error.FdExhausted;
+        return error.OpenFailed;
+    }
     return fd;
 }
 
@@ -231,12 +259,12 @@ pub fn openRead(path: [:0]const u8) OpenError!fd_t {
         if (rc != .SUCCESS) return error.OpenFailed;
         return @as(fd_t, @intCast(result_fd));
     }
-    return std.posix.openatZ(std.posix.AT.FDCWD, path, .{}, 0) catch error.OpenFailed;
+    return std.posix.openatZ(std.posix.AT.FDCWD, path, .{}, 0) catch |e| classifyOpenError(e);
 }
 
 pub fn openWriteTrunc(path: [:0]const u8, mode: u16) OpenError!fd_t {
     if (comptime is_windows) return winOpen(path, win.O_WRONLY | win.O_CREAT | win.O_TRUNC, 0o600);
-    return std.posix.openatZ(std.posix.AT.FDCWD, path, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, mode) catch error.OpenFailed;
+    return std.posix.openatZ(std.posix.AT.FDCWD, path, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, mode) catch |e| classifyOpenError(e);
 }
 
 pub fn openWriteTruncExcl(path: [:0]const u8, mode: u16) OpenError!fd_t {
@@ -621,13 +649,17 @@ pub const DirIter = struct {
 /// GC-managed object (SRFI-170 directory streams): allocated from the
 /// c allocator so the GC finalizer can destroy it without allocator
 /// plumbing.
-pub fn dirIterCreate(path: [:0]const u8) ?*DirIter {
-    const it = std.heap.c_allocator.create(DirIter) catch return null;
-    it.* = DirIter.open(path) orelse {
-        std.heap.c_allocator.destroy(it);
-        return null;
-    };
-    return it;
+pub fn dirIterCreate(path: [:0]const u8) OpenError!*DirIter {
+    const it = std.heap.c_allocator.create(DirIter) catch return error.OpenFailed;
+    if (DirIter.open(path)) |opened| {
+        it.* = opened;
+        return it;
+    }
+    // opendir failed — read errno before destroy() can clobber it, so an
+    // EMFILE/ENFILE surfaces as FdExhausted and the caller can retry (#1993).
+    const err: OpenError = if (errnoIsFdExhausted()) error.FdExhausted else error.OpenFailed;
+    std.heap.c_allocator.destroy(it);
+    return err;
 }
 
 pub fn dirIterDestroy(it: *DirIter) void {

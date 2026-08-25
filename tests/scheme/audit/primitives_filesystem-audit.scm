@@ -669,19 +669,21 @@
                               ((string? e) (loop (+ n 1)))
                               (else #f)))))
      (close-directory ds))
-   ;; FAIL: #1993 (an abandoned stream is reclaimed only when the GC's
-   ;; allocation-count threshold happens to trip, never on descriptor
-   ;; pressure: at `ulimit -n 256` exactly 253 unclosed opens succeed, i.e.
-   ;; no collection runs before EMFILE.  This passed on macOS and Linux CI
-   ;; only because their limit is 1048576, and it exhausted the fd table on
-   ;; the openbsd-test and netbsd-test legs -- taking down the *next* block,
-   ;; which could no longer create its own scratch files.  Re-enable with
-   ;; the collect-and-retry fix.)
-   ;; (test-equal "(let loop ((i 0)) (if (= i 3000) #t (let ((ds (open-direc..." #t (let loop ((i 0))
-   ;;                  (if (= i 3000) #t
-   ;;                      (let ((ds (open-directory dir)))
-   ;;                        (read-directory ds)
-   ;;                        (loop (+ i 1))))))
+   ;; #1993: an abandoned stream must be reclaimed under descriptor pressure,
+   ;; not only when the GC's allocation-count threshold happens to trip. Before
+   ;; the fix this exhausted the fd table at `ulimit -n 256` (exactly 253
+   ;; unclosed opens succeeded, i.e. no collection ran before EMFILE) and so
+   ;; took down the *next* block on the low-limit openbsd-test/netbsd-test legs.
+   ;; open-directory now forces a full collection and retries on EMFILE/ENFILE,
+   ;; so 3000 opens with no close complete at every limit. (A hermetic trigger
+   ;; that fails without the fix regardless of the ambient limit lives in
+   ;; smoke/fd-reclaim-emfile-1993.sh, which caps `ulimit -n`.)
+   (test-equal "(let loop ((i 0)) (if (= i 3000) #t (let ((ds (open-directory dir))) (read-directory ds) (loop (+ i 1)))))" #t
+     (let loop ((i 0))
+       (if (= i 3000) #t
+           (let ((ds (open-directory dir)))
+             (read-directory ds)
+             (loop (+ i 1))))))
    ;; The reclamation-independent half of that check: closing is what the
    ;; program controls, and 3000 open/close cycles must not accumulate fds.
    (test-equal "(let loop ((i 0)) (if (= i 3000) #t (let ((ds (open-directory dir))) (read-directory ds) (close-directory ds) ...)))" #t

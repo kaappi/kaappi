@@ -779,6 +779,34 @@ fn raiseFileError(gc: *@import("memory.zig").GC, msg_text: []const u8, irritant:
 /// native target fell through to its caller on the playground.
 const wasm_no_fs = ": this WebAssembly build has no filesystem access";
 
+/// Open a file, forcing a full GC and retrying once on descriptor exhaustion
+/// (EMFILE/ENFILE). The fd-holding objects (ports) are ordinarily unreachable
+/// and their finalizers close the descriptor, so a collection frees table
+/// slots the retry can reuse — a legal program that abandons ports faster than
+/// the GC's allocation-count threshold trips no longer spuriously fails at a
+/// normal `ulimit -n` (kaappi#1993). Only `FdExhausted` triggers the retry;
+/// every other failure (ENOENT, EACCES, …) propagates unchanged so the caller
+/// still raises the correct file error.
+fn openFileWithFdRetry(
+    gc: *memory.GC,
+    comptime openFn: fn ([:0]const u8) platform.OpenError!platform.fd_t,
+    path_z: [:0]const u8,
+) platform.OpenError!platform.fd_t {
+    return openFn(path_z) catch |e| switch (e) {
+        error.FdExhausted => blk: {
+            gc.collectFull();
+            break :blk openFn(path_z);
+        },
+        else => e,
+    };
+}
+
+/// `openWriteTrunc` with the 0o644 mode `open-output-file` uses fixed, so it
+/// matches `openFileWithFdRetry`'s single-argument `openFn` shape.
+fn openOutputTrunc(path_z: [:0]const u8) platform.OpenError!platform.fd_t {
+    return platform.openWriteTrunc(path_z, 0o644);
+}
+
 fn openInputFile(args: []const Value) PrimitiveError!Value {
     // The type check runs first even on WASM: a non-string argument is a type
     // error on every target, and only a well-formed call reaches the gate.
@@ -791,7 +819,7 @@ fn openInputFile(args: []const Value) PrimitiveError!Value {
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
-    const fd = platform.openRead(path_z) catch {
+    const fd = openFileWithFdRetry(gc, platform.openRead, path_z) catch {
         return raiseFileError(gc, "cannot open input file", args[0]);
     };
     errdefer _ = platform.close(fd);
@@ -813,7 +841,7 @@ fn openOutputFile(args: []const Value) PrimitiveError!Value {
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
-    const fd = platform.openWriteTrunc(path_z, 0o644) catch {
+    const fd = openFileWithFdRetry(gc, openOutputTrunc, path_z) catch {
         return raiseFileError(gc, "cannot open output file", args[0]);
     };
     errdefer _ = platform.close(fd);
