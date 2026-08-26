@@ -90,12 +90,14 @@
 # a run-time `eval` would diverge.  `had_compile_error` is set when any form
 # failed to compile, since a HIT would silently run the partial program with
 # exit 0 where the cold run reported the error with exit 1.  One occurrence of
-# any of these, anywhere at top level, makes the whole file uncacheable — and
-# `--timings` reports `not cached: top-level <head>` (kaappi#2114 — it used to
-# report all eight as `imports`) / `define-syntax` /
-# `compile error`.  MEASURED over the default corpus: 40 of 345 files populate
-# the cache; of the 305 that do not, 303 have a top-level `import`, one is
-# disabled by a top-level `begin` and one by a top-level `define-values`.
+# either, anywhere at top level, makes the whole file's own entry uncacheable —
+# `--timings` reports `not cached: define-syntax` / `compile error`.  The eight
+# top-level declaration heads stopped declining in kaappi#1888: each becomes a
+# positional declaration slot (verbatim source span re-dispatched on a HIT)
+# while the libraries an `import` pulls in hit their own per-.sld entries, so
+# importing programs populate the cache again.  MEASURED over the default
+# corpus before #1888: 40 of 345 files populated the cache (303 of the 305
+# non-populating files had a top-level `import`).
 # probes/sbc-population.scm pins the rule, including the control that a NESTED
 # `begin`/`cond-expand`/`define-values`/`define-record-type` leaves caching
 # alive.
@@ -416,6 +418,7 @@ COSMETIC_B=0
 COSMETIC_D=0
 CACHE_USED=0
 CACHE_NEVER_HIT=0
+CACHE_UNOBSERVABLE=0
 CACHE_NEVER_HIT_KNOWN=0
 IR_DIFFERS=0
 IR_SAME=0
@@ -450,9 +453,9 @@ check_file() {
         return 0
     fi
 
-    # Did this file populate the cache at all?  Programs that `import` do not
-    # (docs/dev/cache.md), so tier (d) is a no-op for most of the corpus and
-    # we count how often it is not.
+    # Did this file populate the cache at all?  Since kaappi#1888 importing
+    # programs do too (their own entry plus per-.sld library entries), so tier
+    # (d) exercises most of the corpus; we count how many did.
     entries=$(sbc_count "$d/home1")
     [ "$entries" -gt 0 ] && CACHE_USED=$((CACHE_USED + 1))
 
@@ -495,9 +498,10 @@ check_file() {
     # Three, applied in order of how conclusive they are.  All are paid only
     # when something already looks wrong, so the green path costs nothing.
 
-    # Control 1 (structural, and the strongest).  A program that `import`s is
-    # never cached (docs/dev/cache.md), so it wrote no .sbc entry and the
-    # "warm" run is BIT-FOR-BIT the same configuration as the cold one.  A
+    # Control 1 (structural, and the strongest).  A file that wrote no .sbc
+    # entry (an empty or comment-only program — every other shape is cacheable
+    # since kaappi#1888, modulo the define-syntax / compile-error refusals) had
+    # a "warm" run BIT-FOR-BIT identical in configuration to the cold one.  A
     # mismatch there cannot be a cache effect — there is no cache — so it is
     # nondeterminism in the file, by construction.  Without this rule a flaky
     # fiber/timing test reads as a tier-(d) finding, which is exactly what
@@ -616,11 +620,24 @@ check_file() {
     # HIT/MISS and is the only channel that distinguishes "the warm run reused
     # the entry" from "the warm run recompiled and rewrote it".  Paid only for
     # the files that wrote something, so most of the corpus costs nothing.
+    #
+    # Since kaappi#1888 a run's cache use has two halves: the main file's own
+    # entry (`cache: HIT`) and the per-.sld library entries (`libcache: N
+    # hit[s]`).  A file that itself declines (e.g. top-level define-syntax)
+    # while its imports wrote entries legitimately reports MISS for the main
+    # entry with library hits — that is cache in use, not a permanent miss.
     if [ "$entries" -gt 0 ]; then
         run_kaappi "$d/home1" "$d/tm.out" "$d/tm.err" --timings "$f"
-        local cache_state
+        local cache_state lib_hits
         cache_state=$(sed -n 's/^cache: \([A-Za-z]*\).*/\1/p' "$d/tm.err" | head -1)
-        if [ "$cache_state" != "HIT" ]; then
+        lib_hits=$(sed -n 's/^libcache: \([0-9]*\) hit.*/\1/p' "$d/tm.err" | head -1)
+        lib_hits=${lib_hits:-0}
+        if [ -z "$cache_state" ]; then
+            # The program exited before the report ran (an explicit
+            # `(exit ...)` epilogue skips the defer).  Nothing observable
+            # either way -- count it, don't fail it.
+            CACHE_UNOBSERVABLE=$((CACHE_UNOBSERVABLE + 1))
+        elif [ "$cache_state" != "HIT" ] && [ "$lib_hits" -eq 0 ]; then
             if is_known_never_hit "$f"; then
                 CACHE_NEVER_HIT_KNOWN=$((CACHE_NEVER_HIT_KNOWN + 1))
                 echo "  KNOWN [d permanent miss] $f  (wrote an .sbc it can never load; see KNOWN_NEVER_HIT)"
@@ -705,6 +722,7 @@ echo "  known divergences hit:        $KNOWN (suppressed; see KNOWN_DIFFS)"
 echo "  stderr cosmetic-only notes:   b=$COSMETIC_B d=$COSMETIC_D"
 echo ""
 echo "  cache exercised:              $CACHE_USED / $COMPARED files wrote an .sbc entry"
+        echo "  cache use unobservable:       $CACHE_UNOBSERVABLE files exit before the timings report"
 echo "  cache entries never loaded:   $CACHE_NEVER_HIT unexpected, $CACHE_NEVER_HIT_KNOWN known (see KNOWN_NEVER_HIT)"
 echo "  IR differs under --no-ir-opt: $IR_DIFFERS / $IR_TOTAL files ($IR_UNKNOWN undetermined)"
 if [ "$IR_DIFFERS" -eq 0 ] && [ "$IR_TOTAL" -gt 0 ]; then

@@ -112,7 +112,11 @@ check "run text: --no-ir-opt reports cache off with reason" "cache: off (--no-ir
 out="$(stderr_of "$KAAPPI" --timings --sandbox "$PROG")"
 check "run text: --sandbox reports cache off with reason" "cache: off (sandbox)" "$out"
 
-# ── 5. Imported programs: a MISS that is honestly not cached ────────────────
+# ── 5. Imported programs: cached since kaappi#1888 ──────────────────────────
+# The eight top-level heads stopped declining the cache in #1888 — an import
+# becomes a positional declaration slot, and the libraries it pulls in get
+# their own .sld entries. Cold run: a miss that writes, with library misses
+# reported on the libcache line.
 IMP="$PROGDIR/imp.scm"
 cat > "$IMP" <<'SCM'
 (import (scheme base) (scheme write))
@@ -122,11 +126,15 @@ SCM
 json="$(stderr_of "$KAAPPI" --timings=json "$IMP")"
 check_json_parses "imports json" "$json"
 check "imports json: recorded as a miss" '"status":"miss"' "$json"
-check "imports json: not written to cache" '"written":false' "$json"
-# kaappi#2114: the reason names the top-level head that actually fired, not a
-# blanket "imports" that also covered seven other heads. The full per-head
-# matrix lives in tests/scheme/cache/cache-decline-reason-2114.sh.
-check "imports json: reason names the import head" '"reason":"top-level import"' "$json"
+check "imports json: miss writes an entry" '"written":true' "$json"
+if printf '%s' "$json" | grep -q '"reason":"'; then
+    echo "FAIL: imports json: no decline reason"
+    echo "  $json"
+    FAIL=$((FAIL + 1))
+else
+    echo "PASS: imports json: no decline reason"
+    PASS=$((PASS + 1))
+fi
 
 # ── 5b. Other honest not-cached reasons (kaappi#2112, #2113) ───────────────
 # A top-level define-syntax registers its transformer at compile time, which a

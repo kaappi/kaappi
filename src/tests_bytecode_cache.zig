@@ -86,9 +86,9 @@ test "bytecode cache: deserialized top-level functions survive a mid-run GC" {
     try bytecode_file.writeFileWithTopLevel(allocator, &funcs_arr, hash, "test.scm", path);
     defer _ = std.posix.system.unlink(@ptrCast(path));
 
-    const loaded = (try bytecode_file.readFileWithTopLevel(&gc, hash, path)) orelse
+    var loaded = (try bytecode_file.readFileWithTopLevel(&gc, hash, path)) orelse
         return error.TestUnexpectedResult;
-    defer allocator.free(loaded.funcs);
+    defer bytecode_file.freeDeserializeResult(allocator, &loaded);
     try std.testing.expectEqual(@as(u32, 3), loaded.top_level_count);
 
     const want = [_]i64{ 111, 222, 333 };
@@ -161,9 +161,9 @@ fn expectSbcEquivalence(source: []const u8) !void {
     try bytecode_file.writeFileWithTopLevel(allocator, funcs.items, hash, "test.scm", path);
     defer _ = std.posix.system.unlink(@ptrCast(path));
 
-    const loaded = (try bytecode_file.readFileWithTopLevel(&gc2, hash, path)) orelse
+    var loaded = (try bytecode_file.readFileWithTopLevel(&gc2, hash, path)) orelse
         return error.TestUnexpectedResult;
-    defer allocator.free(loaded.funcs);
+    defer bytecode_file.freeDeserializeResult(allocator, &loaded);
 
     // Phase 4: execute deserialized functions and compare final result
     var result: types.Value = types.VOID;

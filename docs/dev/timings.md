@@ -56,8 +56,14 @@ The cache line is never blank. When caching was not even attempted it says why:
 
 ```text
 cache: off (--no-ir-opt)     # or (sandbox), or (no home dir)
-cache: MISS (not cached: top-level import)   # one of the eight top-level heads (#1516, #2114)
+cache: MISS (not cached: define-syntax)      # or (compile error) (#2112)
+libcache: 2 hits, 0 misses                   # the .sld library entries (#1888)
 ```
+
+The `libcache` line appears when any library loaded: `hits`/`misses` count
+per-`.sld` warm replays versus cold compiles, with `written`, `stale`
+(a dependency or include changed — invalidation working as designed) and a
+reason for a load that declined to cache.
 
 ### Stages
 

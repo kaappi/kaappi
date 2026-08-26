@@ -184,6 +184,26 @@ fn readConstantTagged(r: *Reader, gc: *GC, all_funcs: []*Function, shared: *Shar
             if (idx >= all_funcs.len) return BytecodeError.CorruptedFile;
             return types.makePointer(&all_funcs[idx].header);
         },
+        bf.TAG_CLOSURE => {
+            // kaappi#1888: a procedural transformer's proc. The upvalue count
+            // must match the inner function's own — the writer derived this
+            // closure from it.
+            const idx = try r.readU32();
+            if (idx >= all_funcs.len) return BytecodeError.CorruptedFile;
+            const func = all_funcs[idx];
+            const count = try r.readU32();
+            if (count != func.upvalue_count) return BytecodeError.CorruptedFile;
+            var cls_val = gc.allocClosure(func) catch return BytecodeError.OutOfMemory;
+            gc.pushRoot(&cls_val);
+            defer gc.popRoot();
+            const cls = types.toObject(cls_val).as(types.Closure);
+            for (0..count) |i| {
+                const uv = try readConstant(r, gc, all_funcs, shared, depth + 1);
+                cls.upvalues[i] = uv;
+                gc.writeBarrier(types.toObject(cls_val), uv);
+            }
+            return cls_val;
+        },
         bf.TAG_PAIR => {
             // Allocate before reading children and register immediately, so a
             // back-reference inside this pair's own subtree — a cycle — can
@@ -406,27 +426,78 @@ fn validateFunctionBytecode(func: *Function) BytecodeError!void {
 // Deserialize
 // ---------------------------------------------------------------------------
 
+/// How a warm program run replays one top-level form (kaappi#1888): the
+/// compiled function, or the declaration's source text re-dispatched through
+/// `handleTopLevelForm`. `declaration.src` is owned by the result.
+pub const ProgramSlot = union(enum) {
+    function: u32,
+    declaration: struct { line: u32, src: []const u8 },
+};
+
+/// One replay event of a `.sld` library entry (kaappi#1888). `register_tx.name`
+/// is owned by the result.
+pub const LibEvent = union(enum) {
+    run_lib: u32,
+    run_global: u32,
+    register_tx: struct { name: []const u8, tx: *types.Transformer },
+};
+
+/// The library-only sections of a `.sld` entry. All strings are owned by the
+/// result; the Transformer objects belong to the GC (rooted for the load).
+pub const LibraryData = struct {
+    events: []LibEvent,
+    includes: []bf.IncludeRecord, // paths owned
+    deps: []bf.DepRecord, // strings owned
+};
+
 pub const DeserializeResult = struct {
     funcs: []*Function,
     top_level_count: u32,
     bundled_files: ?std.StringHashMap([]const u8) = null,
     preamble: ?[][]const u8 = null,
+    /// Present for program entries (v13): the positional replay stream.
+    slots: ?[]ProgramSlot = null,
+    /// Present for library entries (v13).
+    library: ?LibraryData = null,
 };
 
 /// Frees everything a successful deserialize allocated with `allocator` — the
-/// function-pointer slice, the bundled-file map, the preamble entries. The
-/// `Function` objects themselves belong to the GC that loaded them (and stay
-/// in its `extra_roots`). For callers like `cache status`'s loadability dry
-/// run (kaappi#2113) that load an entry only to discard it.
+/// function-pointer slice, the bundled-file map, the preamble entries, the
+/// program slots, the library sections. The `Function` and `Transformer`
+/// objects themselves belong to the GC that loaded them (and stay in its
+/// `extra_roots`). For callers like `cache status`'s loadability dry-run
+/// (kaappi#2113) that load an entry only to discard it.
 pub fn freeDeserializeResult(allocator: std.mem.Allocator, result: *DeserializeResult) void {
     allocator.free(result.funcs);
     if (result.bundled_files) |*b| freeBundledFiles(allocator, b);
     if (result.preamble) |p| freePreambleEntries(allocator, p, p.len);
-    // Reset all three fields uniformly, so an (unsupported, but cheap to
-    // survive) second call frees nothing rather than double-freeing funcs.
+    if (result.slots) |slots| {
+        for (slots) |slot| {
+            if (slot == .declaration) allocator.free(slot.declaration.src);
+        }
+        allocator.free(slots);
+    }
+    if (result.library) |*lib| {
+        for (lib.events) |ev| {
+            if (ev == .register_tx) allocator.free(ev.register_tx.name);
+        }
+        allocator.free(lib.events);
+        for (lib.includes) |inc| allocator.free(@constCast(inc.path));
+        allocator.free(lib.includes);
+        for (lib.deps) |dep| {
+            allocator.free(@constCast(dep.rel_path));
+            allocator.free(@constCast(dep.resolved_path));
+            allocator.free(@constCast(dep.lib_name));
+        }
+        allocator.free(lib.deps);
+    }
+    // Reset all fields uniformly, so an (unsupported, but cheap to survive)
+    // second call frees nothing rather than double-freeing funcs.
     result.funcs = &.{};
     result.bundled_files = null;
     result.preamble = null;
+    result.slots = null;
+    result.library = null;
 }
 
 pub fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?DeserializeResult {
@@ -459,8 +530,15 @@ pub fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?D
     _ = r.readStr() catch return null;
     _ = r.readStr() catch return null;
 
+    // Entry kind (v13): selects the tail layout.
+    const entry_kind = r.readU8() catch return null;
+    if (entry_kind != bf.ENTRY_PROGRAM and entry_kind != bf.ENTRY_BUNDLE and entry_kind != bf.ENTRY_LIBRARY)
+        return null;
+
     const func_count = r.readU32() catch return null;
-    if (func_count == 0 or func_count > bf.MAX_FUNCTIONS) return null;
+    // A library with no compiled body forms (pure re-export shim) legitimately
+    // has an empty function table; every other kind needs at least one.
+    if ((func_count == 0 and entry_kind != bf.ENTRY_LIBRARY) or func_count > bf.MAX_FUNCTIONS) return null;
 
     const top_level_count = r.readU32() catch return null;
     if (top_level_count > func_count or top_level_count > bf.MAX_TOP_LEVEL_FUNCTIONS) return null;
@@ -542,11 +620,67 @@ pub fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?D
         validateFunctionBytecode(func) catch return null;
     }
 
+    // Program slot section (v13): the positional replay stream.
+    var slots: ?[]ProgramSlot = null;
+    if (entry_kind == bf.ENTRY_PROGRAM) {
+        const slot_count = r.readU32() catch return null;
+        if (slot_count > bf.MAX_TOP_LEVEL_FUNCTIONS) return null;
+        const entries = allocator.alloc(ProgramSlot, slot_count) catch return BytecodeError.OutOfMemory;
+        var filled: usize = 0;
+        errdefer {
+            for (entries[0..filled]) |*s| {
+                if (s.* == .declaration) allocator.free(s.declaration.src);
+            }
+            allocator.free(entries);
+        }
+        for (0..slot_count) |i| {
+            const tag = r.readU8() catch break;
+            if (tag == bf.SLOT_FUNCTION) {
+                const idx = r.readU32() catch break;
+                if (idx >= top_level_count) break;
+                entries[i] = .{ .function = idx };
+            } else if (tag == bf.SLOT_DECLARATION) {
+                const line = r.readU32() catch break;
+                const src_len = r.readU32() catch break;
+                if (src_len > bf.MAX_STRING_BYTES) break;
+                const src_bytes = r.readBytes(src_len) catch break;
+                const src = allocator.dupe(u8, src_bytes) catch return BytecodeError.OutOfMemory;
+                entries[i] = .{ .declaration = .{ .line = line, .src = src } };
+            } else break;
+            filled = i + 1;
+        }
+        if (filled != slot_count) {
+            for (entries[0..filled]) |*s| {
+                if (s.* == .declaration) allocator.free(s.declaration.src);
+            }
+            allocator.free(entries);
+            return null;
+        }
+        slots = entries;
+    }
+
+    // Library sections (v13): transformers, events, includes, deps.
+    var library: ?LibraryData = null;
+    if (entry_kind == bf.ENTRY_LIBRARY) {
+        library = readLibrarySections(&r, gc, all_funcs, top_level_count, &shared) catch |err| switch (err) {
+            BytecodeError.OutOfMemory => return BytecodeError.OutOfMemory,
+            else => return null,
+        } orelse return null;
+    }
+
     // Read bundled files section
-    const bf_count = r.readU32() catch return null;
+    const bf_count = r.readU32() catch {
+        if (slots) |s| freeSlots(allocator, s);
+        if (library) |*l| freeLibrary(allocator, l);
+        return null;
+    };
     var bundled_files: ?std.StringHashMap([]const u8) = null;
     if (bf_count > 0) {
-        if (bf_count > bf.MAX_BUNDLED_FILES) return null;
+        if (bf_count > bf.MAX_BUNDLED_FILES) {
+            if (slots) |s| freeSlots(allocator, s);
+            if (library) |*l| freeLibrary(allocator, l);
+            return null;
+        }
         var bfm = std.StringHashMap([]const u8).init(allocator);
         for (0..bf_count) |_| {
             const path_len = r.readU16() catch {
@@ -590,37 +724,51 @@ pub fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?D
 
     // Read preamble section
     const preamble_count = r.readU32() catch {
+        if (slots) |s| freeSlots(allocator, s);
+        if (library) |*l| freeLibrary(allocator, l);
         if (bundled_files) |*b| freeBundledFiles(allocator, b);
         return null;
     };
     var preamble: ?[][]const u8 = null;
     if (preamble_count > 0) {
         if (preamble_count > bf.MAX_PREAMBLE_FORMS) {
+            if (slots) |s| freeSlots(allocator, s);
+            if (library) |*l| freeLibrary(allocator, l);
             if (bundled_files) |*b| freeBundledFiles(allocator, b);
             return null;
         }
         const entries = allocator.alloc([]const u8, preamble_count) catch {
+            if (slots) |s| freeSlots(allocator, s);
+            if (library) |*l| freeLibrary(allocator, l);
             if (bundled_files) |*b| freeBundledFiles(allocator, b);
             return BytecodeError.OutOfMemory;
         };
         for (0..preamble_count) |i| {
             const src_len = r.readU32() catch {
                 freePreambleEntries(allocator, entries, i);
+                if (slots) |s| freeSlots(allocator, s);
+                if (library) |*l| freeLibrary(allocator, l);
                 if (bundled_files) |*b| freeBundledFiles(allocator, b);
                 return null;
             };
             if (src_len > bf.MAX_STRING_BYTES) {
                 freePreambleEntries(allocator, entries, i);
+                if (slots) |s| freeSlots(allocator, s);
+                if (library) |*l| freeLibrary(allocator, l);
                 if (bundled_files) |*b| freeBundledFiles(allocator, b);
                 return null;
             }
             const src = r.readBytes(src_len) catch {
                 freePreambleEntries(allocator, entries, i);
+                if (slots) |s| freeSlots(allocator, s);
+                if (library) |*l| freeLibrary(allocator, l);
                 if (bundled_files) |*b| freeBundledFiles(allocator, b);
                 return null;
             };
             entries[i] = allocator.dupe(u8, src) catch {
                 freePreambleEntries(allocator, entries, i);
+                if (slots) |s| freeSlots(allocator, s);
+                if (library) |*l| freeLibrary(allocator, l);
                 if (bundled_files) |*b| freeBundledFiles(allocator, b);
                 return BytecodeError.OutOfMemory;
             };
@@ -629,6 +777,8 @@ pub fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?D
     }
 
     if (r.pos != data.len) {
+        if (slots) |s| freeSlots(allocator, s);
+        if (library) |*l| freeLibrary(allocator, l);
         if (bundled_files) |*b| freeBundledFiles(allocator, b);
         if (preamble) |p| freePreambleEntries(allocator, p, p.len);
         return null;
@@ -639,7 +789,247 @@ pub fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?D
     // Load succeeded: keep the functions rooted for the rest of the run so a GC
     // during execution of one top-level form cannot free the others.
     keep_roots = true;
-    return .{ .funcs = result, .top_level_count = top_level_count, .bundled_files = bundled_files, .preamble = preamble };
+    return .{ .funcs = result, .top_level_count = top_level_count, .bundled_files = bundled_files, .preamble = preamble, .slots = slots, .library = library };
+}
+
+fn freeSlots(allocator: std.mem.Allocator, slots: []ProgramSlot) void {
+    for (slots) |*s| {
+        if (s.* == .declaration) allocator.free(s.declaration.src);
+    }
+    allocator.free(slots);
+}
+
+fn freeLibrary(allocator: std.mem.Allocator, lib: *LibraryData) void {
+    for (lib.events) |ev| {
+        if (ev == .register_tx) allocator.free(ev.register_tx.name);
+    }
+    allocator.free(lib.events);
+    for (lib.includes) |inc| allocator.free(@constCast(inc.path));
+    allocator.free(lib.includes);
+    for (lib.deps) |dep| {
+        allocator.free(@constCast(dep.rel_path));
+        allocator.free(@constCast(dep.resolved_path));
+        allocator.free(@constCast(dep.lib_name));
+    }
+    allocator.free(lib.deps);
+    lib.events = &.{};
+    lib.includes = &.{};
+    lib.deps = &.{};
+}
+
+/// One length-capped identifier/string field of a transformer record. The
+/// bytes come from an INTERNED symbol (a GC root), matching the cold path's
+/// convention — freeObject frees only the slice arrays, never these strings,
+/// because the cold path borrows them from symbol names too.
+fn readTxStr(r: *Reader, gc: *GC) BytecodeError![]const u8 {
+    const len = try r.readU16();
+    if (len > bf.MAX_SYMBOL_BYTES) return BytecodeError.CorruptedFile;
+    const bytes = try r.readBytes(len);
+    const sym = gc.allocSymbol(bytes) catch return BytecodeError.OutOfMemory;
+    return types.symbolName(sym);
+}
+
+/// Read one Transformer record. The returned object's `def_env` is left null —
+/// the warm loader points it (and only it) at the reconstructed lib_env. The
+/// object is rooted in gc.extra_roots for the rest of the deserialize; the
+/// warm loader trims those roots when the library finishes loading.
+fn readTransformer(r: *Reader, gc: *GC, all_funcs: []*Function, shared: *SharedTable) BytecodeError!*types.Transformer {
+    const allocator = gc.allocator;
+    const kind_byte = try r.readU8();
+    const kind: types.TransformerKind = switch (kind_byte) {
+        0 => .syntax_rules,
+        1 => .er_macro,
+        2 => .lisp_macro,
+        else => return BytecodeError.CorruptedFile,
+    };
+    const num_rules = try r.readU16();
+
+    // Temporary roots for the component Values: allocTransformer dupes them
+    // into its own slices, at which point they are reachable through the
+    // transformer and the temp entries are shrunk away. The transformer
+    // itself is then rooted for the rest of the deserialize — a later
+    // record's readConstant allocations must not collect it — and stays
+    // rooted until the warm loader trims the deserialize's roots.
+    const roots_base = gc.extra_roots.items.len;
+
+    var lits: std.ArrayList(Value) = .empty;
+    defer lits.deinit(allocator);
+    const lit_count = try r.readU32();
+    if (lit_count > bf.MAX_CONSTANTS_PER_FUNCTION) return BytecodeError.CorruptedFile;
+    for (0..lit_count) |_| {
+        const v = try readConstant(r, gc, all_funcs, shared, 0);
+        gc.extra_roots.append(allocator, v) catch return BytecodeError.OutOfMemory;
+        lits.append(allocator, v) catch return BytecodeError.OutOfMemory;
+    }
+    var pats: std.ArrayList(Value) = .empty;
+    defer pats.deinit(allocator);
+    const pat_count = try r.readU32();
+    if (pat_count > bf.MAX_CONSTANTS_PER_FUNCTION or pat_count != num_rules) return BytecodeError.CorruptedFile;
+    for (0..pat_count) |_| {
+        const v = try readConstant(r, gc, all_funcs, shared, 0);
+        gc.extra_roots.append(allocator, v) catch return BytecodeError.OutOfMemory;
+        pats.append(allocator, v) catch return BytecodeError.OutOfMemory;
+    }
+    var tmps: std.ArrayList(Value) = .empty;
+    defer tmps.deinit(allocator);
+    const tmpl_count = try r.readU32();
+    if (tmpl_count > bf.MAX_CONSTANTS_PER_FUNCTION or tmpl_count != num_rules) return BytecodeError.CorruptedFile;
+    for (0..tmpl_count) |_| {
+        const v = try readConstant(r, gc, all_funcs, shared, 0);
+        gc.extra_roots.append(allocator, v) catch return BytecodeError.OutOfMemory;
+        tmps.append(allocator, v) catch return BytecodeError.OutOfMemory;
+    }
+    const proc = try readConstant(r, gc, all_funcs, shared, 0);
+    gc.extra_roots.append(allocator, proc) catch return BytecodeError.OutOfMemory;
+
+    const tx_val = gc.allocTransformer(lits.items, pats.items, tmps.items) catch return BytecodeError.OutOfMemory;
+    // Drop the component temp roots (now duped inside the transformer), then
+    // take the transformer's own — order matters: shrinking after the append
+    // would unroot it (the gc-stress "marking freed object" class).
+    gc.extra_roots.shrinkRetainingCapacity(roots_base);
+    gc.extra_roots.append(allocator, tx_val) catch return BytecodeError.OutOfMemory;
+    const tx = types.toObject(tx_val).as(types.Transformer);
+    tx.kind = kind;
+    tx.proc = proc;
+    errdefer gc.extra_roots.shrinkRetainingCapacity(roots_base);
+
+    if (try r.readU8() != 0) {
+        tx.custom_ellipsis = try readTxStr(r, gc);
+    }
+    const bound_count = try r.readU32();
+    if (bound_count > bf.MAX_CONSTANTS_PER_FUNCTION) return BytecodeError.CorruptedFile;
+    if (bound_count > 0) {
+        const slots = allocator.alloc(u32, bound_count) catch return BytecodeError.OutOfMemory;
+        for (slots) |*s| s.* = try r.readU32();
+        tx.literal_bound = slots;
+    }
+    const caps_count = try r.readU32();
+    if (caps_count > bf.MAX_CONSTANTS_PER_FUNCTION) return BytecodeError.CorruptedFile;
+    if (caps_count > 0) {
+        const caps = allocator.alloc(types.CapturedLocal, caps_count) catch return BytecodeError.OutOfMemory;
+        for (caps) |*c| {
+            c.name = try readTxStr(r, gc);
+            c.slot = try r.readU16();
+        }
+        tx.captured_locals = caps;
+    }
+    const bfr_count = try r.readU32();
+    if (bfr_count > bf.MAX_CONSTANTS_PER_FUNCTION) return BytecodeError.CorruptedFile;
+    if (bfr_count > 0) {
+        const names = allocator.alloc([]const u8, bfr_count) catch return BytecodeError.OutOfMemory;
+        for (names) |*n| n.* = try readTxStr(r, gc);
+        tx.bound_free_refs = names;
+    }
+    const dslr_count = try r.readU32();
+    if (dslr_count > bf.MAX_CONSTANTS_PER_FUNCTION) return BytecodeError.CorruptedFile;
+    if (dslr_count > 0) {
+        const names = allocator.alloc([]const u8, dslr_count) catch return BytecodeError.OutOfMemory;
+        for (names) |*n| n.* = try readTxStr(r, gc);
+        tx.def_site_local_refs = names;
+    }
+    if (try r.readU8() != 0) {
+        tx.def_lib_name = try readTxStr(r, gc);
+    }
+    tx.finalized = (try r.readU8()) != 0;
+    tx.peers_computed = (try r.readU8()) != 0;
+    return tx;
+}
+
+/// Read the transformer/event/include/dependency sections of a library entry.
+/// Null (not an error) means corrupt — the caller treats it as a miss.
+fn readLibrarySections(r: *Reader, gc: *GC, all_funcs: []*Function, top_level_count: u32, shared: *SharedTable) BytecodeError!?LibraryData {
+    const allocator = gc.allocator;
+
+    const tx_count = try r.readU32();
+    if (tx_count > bf.MAX_LIBRARY_TRANSFORMERS) return BytecodeError.CorruptedFile;
+    const txs = allocator.alloc(*types.Transformer, tx_count) catch return BytecodeError.OutOfMemory;
+    var txs_filled: usize = 0;
+    defer allocator.free(txs);
+    for (0..tx_count) |i| {
+        txs[i] = try readTransformer(r, gc, all_funcs, shared);
+        txs_filled = i + 1;
+    }
+
+    const event_count = try r.readU32();
+    if (event_count > bf.MAX_LIBRARY_EVENTS) return BytecodeError.CorruptedFile;
+    const events = allocator.alloc(LibEvent, event_count) catch return BytecodeError.OutOfMemory;
+    var events_filled: usize = 0;
+    errdefer {
+        for (events[0..events_filled]) |*ev| {
+            if (ev.* == .register_tx) allocator.free(ev.register_tx.name);
+        }
+        allocator.free(events);
+    }
+    for (0..event_count) |i| {
+        const tag = try r.readU8();
+        if (tag == bf.EVENT_RUN_LIB) {
+            const idx = try r.readU32();
+            if (idx >= top_level_count) return BytecodeError.CorruptedFile;
+            events[i] = .{ .run_lib = idx };
+        } else if (tag == bf.EVENT_RUN_GLOBAL) {
+            const idx = try r.readU32();
+            if (idx >= top_level_count) return BytecodeError.CorruptedFile;
+            events[i] = .{ .run_global = idx };
+        } else if (tag == bf.EVENT_REGISTER_TX) {
+            const name_len = try r.readU16();
+            if (name_len > bf.MAX_TX_NAME_BYTES) return BytecodeError.CorruptedFile;
+            const name_bytes = try r.readBytes(name_len);
+            const name = allocator.dupe(u8, name_bytes) catch return BytecodeError.OutOfMemory;
+            const tx_idx = try r.readU32();
+            if (tx_idx >= txs_filled) return BytecodeError.CorruptedFile;
+            events[i] = .{ .register_tx = .{ .name = name, .tx = txs[tx_idx] } };
+        } else return BytecodeError.CorruptedFile;
+        events_filled = i + 1;
+    }
+
+    const include_count = try r.readU32();
+    if (include_count > bf.MAX_LIBRARY_INCLUDES) return BytecodeError.CorruptedFile;
+    const includes = allocator.alloc(bf.IncludeRecord, include_count) catch return BytecodeError.OutOfMemory;
+    var includes_filled: usize = 0;
+    errdefer {
+        for (includes[0..includes_filled]) |inc| allocator.free(@constCast(inc.path));
+        allocator.free(includes);
+    }
+    for (0..include_count) |i| {
+        const len = try r.readU16();
+        if (len > bf.MAX_HEADER_STR_BYTES) return BytecodeError.CorruptedFile;
+        const path_bytes = try r.readBytes(len);
+        const path = allocator.dupe(u8, path_bytes) catch return BytecodeError.OutOfMemory;
+        const hash = try r.readU64();
+        includes[i] = .{ .path = path, .hash = hash };
+        includes_filled = i + 1;
+    }
+
+    const dep_count = try r.readU32();
+    if (dep_count > bf.MAX_LIBRARY_DEPS) return BytecodeError.CorruptedFile;
+    const deps = allocator.alloc(bf.DepRecord, dep_count) catch return BytecodeError.OutOfMemory;
+    var deps_filled: usize = 0;
+    errdefer {
+        for (deps[0..deps_filled]) |dep| {
+            allocator.free(@constCast(dep.rel_path));
+            allocator.free(@constCast(dep.resolved_path));
+            allocator.free(@constCast(dep.lib_name));
+        }
+        allocator.free(deps);
+    }
+    for (0..dep_count) |i| {
+        const rel_len = try r.readU16();
+        if (rel_len > bf.MAX_HEADER_STR_BYTES) return BytecodeError.CorruptedFile;
+        const rel = allocator.dupe(u8, try r.readBytes(rel_len)) catch return BytecodeError.OutOfMemory;
+        errdefer allocator.free(rel);
+        const res_len = try r.readU16();
+        if (res_len > bf.MAX_HEADER_STR_BYTES) return BytecodeError.CorruptedFile;
+        const resolved = allocator.dupe(u8, try r.readBytes(res_len)) catch return BytecodeError.OutOfMemory;
+        errdefer allocator.free(resolved);
+        const hash = try r.readU64();
+        const name_len = try r.readU16();
+        if (name_len > bf.MAX_HEADER_STR_BYTES) return BytecodeError.CorruptedFile;
+        const lib_name = allocator.dupe(u8, try r.readBytes(name_len)) catch return BytecodeError.OutOfMemory;
+        deps[i] = .{ .rel_path = rel, .resolved_path = resolved, .source_hash = hash, .lib_name = lib_name };
+        deps_filled = i + 1;
+    }
+
+    return .{ .events = events, .includes = includes, .deps = deps };
 }
 
 pub fn readFromBuffer(gc: *GC, data: []const u8) !?DeserializeResult {

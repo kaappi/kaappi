@@ -42,10 +42,13 @@ pub const MAGIC = [4]u8{ 'K', 'P', 'B', 'C' };
 // runtime errors can report `file:line:col`. A version mismatch makes
 // `readFileWithTopLevel` return null, so older `.sbc` caches are ignored and
 // silently recompiled — no stale-cache hazard.
-/// Format version. v12 (kaappi#2166): TAG_COMPLEX payload changed from two
-/// f64s + two exactness bytes to two nested component constants, so the
-/// wire format is incompatible with v11 files.
-pub const VERSION: u16 = 12;
+/// Format version. v13 (kaappi#1888): the header carries an entry-kind byte
+/// after the source path (program / bundle / library), program entries carry a
+/// positional slot section (compiled function vs. declaration source text, in
+/// top-level order), and library entries carry transformer, event, include and
+/// dependency sections. v12 (kaappi#2166): TAG_COMPLEX payload changed from two
+/// f64s + two exactness bytes to two nested component constants.
+pub const VERSION: u16 = 13;
 pub const MAX_FUNCTIONS: u32 = 16_384;
 pub const MAX_TOP_LEVEL_FUNCTIONS: u32 = 4_096;
 pub const MAX_CODE_BYTES: u32 = 4_194_304;
@@ -69,6 +72,34 @@ pub const MAX_CONSTANT_DEPTH: u32 = 256;
 // to u16 from being reachable.
 pub const MAX_BUNDLED_FILES: u32 = 4_096;
 pub const MAX_PREAMBLE_FORMS: u32 = 4_096;
+// Library-section caps (kaappi#1888 `.sld` entries). Same writer-refuses /
+// reader-rejects contract as the constant limits above.
+pub const MAX_LIBRARY_TRANSFORMERS: u32 = 16_384;
+pub const MAX_LIBRARY_EVENTS: u32 = 65_536;
+pub const MAX_LIBRARY_INCLUDES: u32 = 4_096;
+pub const MAX_LIBRARY_DEPS: u32 = 4_096;
+pub const MAX_TX_NAME_BYTES: u16 = 4_096;
+
+/// What an entry is (v13 header byte, after the source path). The read half's
+/// tail layout depends on it: programs carry the positional slot section,
+/// bundles carry the bundled-files/preamble sections (`--compile` artifacts),
+/// libraries carry the transformer/event/include/dependency sections.
+pub const ENTRY_PROGRAM: u8 = 0;
+pub const ENTRY_BUNDLE: u8 = 1;
+pub const ENTRY_LIBRARY: u8 = 2;
+
+// Slot kinds (v13 program entries): how the run replays each top-level form.
+pub const SLOT_FUNCTION: u8 = 0;
+pub const SLOT_DECLARATION: u8 = 1;
+
+// Event kinds (v13 library entries), in cold-load order.
+/// Run funcs[idx] with `env` = the library's reconstructed lib_env.
+pub const EVENT_RUN_LIB: u8 = 0;
+/// Run funcs[idx] with `env` = null (compiled against vm.globals — a form from
+/// an include reached through `evalIncludedForm`).
+pub const EVENT_RUN_GLOBAL: u8 = 1;
+/// Register transformers[idx] into lib_env under the name that follows.
+pub const EVENT_REGISTER_TX: u8 = 2;
 
 // Constant type tags
 pub const TAG_FIXNUM: u8 = 0;
@@ -93,6 +124,11 @@ pub const TAG_UNDEFINED: u8 = 16;
 /// sharing (`'(#1=(1 2) #1#)`) and cyclic literals round-trip as the *same*
 /// object instead of a copy per reference.
 pub const TAG_BACKREF: u8 = 17;
+/// A closure (kaappi#1888): a nested function-table reference plus its captured
+/// upvalues. Reached from serialized procedural (`er-macro-transformer`)
+/// transformer `proc`s; an ordinary compiled body never needs it, because a HIT
+/// re-runs the body and recreates its closures against the live environment.
+pub const TAG_CLOSURE: u8 = 18;
 
 pub const BytecodeError = error{
     InvalidMagic,
@@ -124,6 +160,12 @@ pub const BytecodeError = error{
 pub const Writer = write.Writer;
 pub const writeFileWithTopLevel = write.writeFileWithTopLevel;
 pub const writeFileWithBundle = write.writeFileWithBundle;
+pub const Slot = write.Slot;
+pub const writeFileWithSlots = write.writeFileWithSlots;
+pub const LibEventRecord = write.LibEventRecord;
+pub const IncludeRecord = write.IncludeRecord;
+pub const DepRecord = write.DepRecord;
+pub const writeFileWithLibrary = write.writeFileWithLibrary;
 
 pub const DeserializeResult = read.DeserializeResult;
 pub const freeDeserializeResult = read.freeDeserializeResult;
@@ -132,6 +174,9 @@ pub const deserializeFromBuffer = read.deserializeFromBuffer;
 pub const readFromBuffer = read.readFromBuffer;
 pub const readFileWithTopLevel = read.readFileWithTopLevel;
 pub const readHeaderInfo = read.readHeaderInfo;
+pub const ProgramSlot = read.ProgramSlot;
+pub const LibEvent = read.LibEvent;
+pub const LibraryData = read.LibraryData;
 
 // ---------------------------------------------------------------------------
 // Utility: compute source hash
@@ -272,8 +317,8 @@ test "bytecode round-trip: simple function" {
     const result = try readFileWithTopLevel(&gc, hash, path);
     try std.testing.expect(result != null);
 
-    const loaded = result.?;
-    defer allocator.free(loaded.funcs);
+    var loaded = result.?;
+    defer read.freeDeserializeResult(allocator, &loaded);
 
     try std.testing.expectEqual(@as(u32, 1), loaded.top_level_count);
     try std.testing.expect(loaded.funcs.len >= 1);
@@ -369,8 +414,8 @@ test "bytecode round-trip: various constant types" {
     const result = try readFileWithTopLevel(&gc, hash, path);
     try std.testing.expect(result != null);
 
-    const loaded = result.?;
-    defer allocator.free(loaded.funcs);
+    var loaded = result.?;
+    defer read.freeDeserializeResult(allocator, &loaded);
 
     const consts = loaded.funcs[0].constants.items;
     try std.testing.expectEqual(@as(usize, 10), consts.len);
@@ -437,8 +482,8 @@ test "bytecode round-trip: nested functions" {
     const result = try readFileWithTopLevel(&gc, hash, path);
     try std.testing.expect(result != null);
 
-    const loaded = result.?;
-    defer allocator.free(loaded.funcs);
+    var loaded = result.?;
+    defer read.freeDeserializeResult(allocator, &loaded);
 
     try std.testing.expectEqual(@as(u32, 1), loaded.top_level_count);
     try std.testing.expect(loaded.funcs.len >= 2);
@@ -518,8 +563,8 @@ test "bytecode round-trip: immutability flag preserved (kaappi#2110)" {
         c.append(allocator, bv) catch unreachable;
     }
 
-    const loaded = try roundTrip(&gc, func, "/tmp/kaappi_test_immutable.sbc");
-    defer allocator.free(loaded.funcs);
+    var loaded = try roundTrip(&gc, func, "/tmp/kaappi_test_immutable.sbc");
+    defer read.freeDeserializeResult(allocator, &loaded);
 
     const k = loaded.funcs[0].constants.items;
     try std.testing.expectEqual(@as(usize, 8), k.len);
@@ -562,8 +607,8 @@ test "bytecode round-trip: datum-label sharing preserved via backrefs (kaappi#21
     gc.popRoot(); // tail
     gc.popRoot(); // shared_pair
 
-    const loaded = try roundTrip(&gc, func, "/tmp/kaappi_test_shared.sbc");
-    defer allocator.free(loaded.funcs);
+    var loaded = try roundTrip(&gc, func, "/tmp/kaappi_test_shared.sbc");
+    defer read.freeDeserializeResult(allocator, &loaded);
 
     const k = loaded.funcs[0].constants.items;
     // (car outer) and (cadr outer) are the same object again.
@@ -607,8 +652,8 @@ test "bytecode round-trip: cyclic literal terminates and re-ties the knot (kaapp
     func.constants.append(allocator, cyc_vec) catch unreachable;
     gc.popRoot();
 
-    const loaded = try roundTrip(&gc, func, "/tmp/kaappi_test_cycle.sbc");
-    defer allocator.free(loaded.funcs);
+    var loaded = try roundTrip(&gc, func, "/tmp/kaappi_test_cycle.sbc");
+    defer read.freeDeserializeResult(allocator, &loaded);
 
     const k = loaded.funcs[0].constants.items;
     // (cddr k0) is k0 itself again.
@@ -641,8 +686,8 @@ test "bytecode round-trip: a long quoted list costs no nesting depth (kaappi#211
     func.constants.append(allocator, list) catch unreachable;
     gc.popRoot();
 
-    const loaded = try roundTrip(&gc, func, "/tmp/kaappi_test_longlist.sbc");
-    defer allocator.free(loaded.funcs);
+    var loaded = try roundTrip(&gc, func, "/tmp/kaappi_test_longlist.sbc");
+    defer read.freeDeserializeResult(allocator, &loaded);
 
     var cur = loaded.funcs[0].constants.items[0];
     var n: i64 = 1;
@@ -761,8 +806,8 @@ test "bytecode write: refuses what the reader would reject (kaappi#2113)" {
     }
     func.constants.append(allocator, at_cap) catch unreachable;
     gc.popRoot();
-    const loaded = try roundTrip(&gc, func, path);
-    allocator.free(loaded.funcs);
+    var loaded = try roundTrip(&gc, func, path);
+    read.freeDeserializeResult(allocator, &loaded);
 }
 
 test "stale compiler version rejects cache" {
@@ -1033,8 +1078,8 @@ test "bytecode round-trip: vector pair bignum rational complex constants" {
     const result = try readFileWithTopLevel(&gc, hash, path);
     try std.testing.expect(result != null);
 
-    const loaded = result.?;
-    defer allocator.free(loaded.funcs);
+    var loaded = result.?;
+    defer read.freeDeserializeResult(allocator, &loaded);
 
     const consts = loaded.funcs[0].constants.items;
     try std.testing.expectEqual(@as(usize, 6), consts.len);
@@ -1100,8 +1145,8 @@ test "bytecode round-trip: line table and source_line preserved" {
     const result = try readFileWithTopLevel(&gc, hash, path);
     try std.testing.expect(result != null);
 
-    const loaded = result.?;
-    defer allocator.free(loaded.funcs);
+    var loaded = result.?;
+    defer read.freeDeserializeResult(allocator, &loaded);
 
     const lf = loaded.funcs[0];
     try std.testing.expectEqual(@as(u32, 5), lf.source_line);

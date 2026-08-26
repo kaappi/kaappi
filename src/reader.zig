@@ -135,6 +135,10 @@ pub const Reader = struct {
     labels: [32]?Value = .{null} ** 32,
     source_name: []const u8 = "<input>",
     depth: u32 = 0,
+    /// Monotone line/col cursor behind `lineColMonotone` — see its comment.
+    span_cursor_pos: usize = 0,
+    span_cursor_line: u32 = 1,
+    span_cursor_col: u32 = 1,
     /// True when `source` is a possibly-truncated prefix of a longer input:
     /// the incremental `read` path (primitives_io.readDatumFn) parses a
     /// growing buffer chunk by chunk, refilling on `UnexpectedEof`. In this
@@ -190,11 +194,49 @@ pub const Reader = struct {
         return r;
     }
 
-    /// Compute line and column from the current position by scanning from the
-    /// start of the source. O(n) per call but only used on error paths and
-    /// datum boundaries, not every character advance.
+    /// Compute `getLineCol` at `self.pos`, advancing the reader's monotone
+    /// line/col cursor (see `lineColMonotone`).
+    /// line/col cursor (see `lineColMonotone`).
     pub fn getLineCol(self: *Reader) LineCol {
-        return lineColAt(self.source, self.pos);
+        return self.lineColMonotone(self.pos);
+    }
+
+    /// Incremental `lineColAt` for the reader's own sequential use. Datum
+    /// start/end offsets arrive in nondecreasing order (each datum begins
+    /// where the previous one ended, modulo whitespace), so a cursor advanced
+    /// from the last queried position answers in O(distance) instead of
+    /// rescanning from byte 0 — which made reading one large nested datum
+    /// quadratic and dominated every `.sld` load's parse time (kaappi#1888
+    /// profiling). A defensive backward jump (no caller does this today)
+    /// falls back to a full `lineColAt` and rebases the cursor, so the answer
+    /// is identical either way.
+    pub fn lineColMonotone(self: *Reader, pos: usize) LineCol {
+        if (pos < self.span_cursor_pos) {
+            const lc = lineColAt(self.source, pos);
+            self.span_cursor_pos = pos;
+            self.span_cursor_line = lc.line;
+            self.span_cursor_col = lc.col;
+            return lc;
+        }
+        var i = self.span_cursor_pos;
+        const end = @min(pos, self.source.len);
+        while (i < end) : (i += 1) {
+            const c = self.source[i];
+            if (c == '\n') {
+                if (!(i > 0 and self.source[i - 1] == '\r')) {
+                    // Not the LF of a CRLF (the \r already advanced the line).
+                    self.span_cursor_line += 1;
+                    self.span_cursor_col = 1;
+                }
+            } else if (c == '\r') {
+                self.span_cursor_line += 1;
+                self.span_cursor_col = 1;
+            } else {
+                self.span_cursor_col += 1;
+            }
+        }
+        self.span_cursor_pos = end;
+        return .{ .line = self.span_cursor_line, .col = self.span_cursor_col };
     }
 
     /// Record the source span of a just-read datum in the GC's span side-table,
@@ -208,9 +250,11 @@ pub const Reader = struct {
         if (!self.record_spans) return;
         if (!types.isPair(val) and !types.isVector(val)) return;
         const end_pos = self.pos;
-        const end = lineColAt(self.source, end_pos);
-        // A start at or past the end (an empty span) collapses to the end point.
-        const start = if (start_pos >= end_pos) end else lineColAt(self.source, start_pos);
+        // Query start BEFORE end so the monotone cursor only ever advances
+        // (see lineColMonotone). A start at or past the end (an empty span)
+        // collapses to the end point.
+        const start = if (start_pos >= end_pos) self.lineColMonotone(end_pos) else self.lineColMonotone(start_pos);
+        const end = self.lineColMonotone(end_pos);
         self.gc.source_spans.put(val, .{
             .line = start.line,
             .col = start.col,
@@ -801,6 +845,46 @@ fn readAndPrint(gc: *memory.GC, input: []const u8) ![]u8 {
 fn readAndDisplay(gc: *memory.GC, input: []const u8) ![]u8 {
     const val = try readString(gc, input);
     return printer.valueToString(gc.allocator, val, .display);
+}
+
+test "lineColMonotone agrees with the full scan across line endings" {
+    // kaappi#1888: the reader's monotone line/col cursor must answer exactly
+    // what lineColAt answers — across \n, \r\n, and lone \r endings, at
+    // every position, queried strictly forward (the span-recording order),
+    // and must also survive a defensive backward jump by rebasing.
+    const allocator = std.testing.allocator;
+    var gc = memory.GC.init(allocator);
+    defer gc.deinit();
+    const cases = [_][]const u8{
+        "plain single line",
+        "a\nb\nc",
+        "crlf\r\nend\r\ntail",
+        "cr-only\rend\rtail",
+        "mixed\r\nline\rlone\nend",
+        "",
+        "\n\n\n",
+    };
+    for (cases) |src| {
+        var r = Reader.init(&gc, src);
+        var pos: usize = 0;
+        while (pos <= src.len) : (pos += 1) {
+            const want = lineColAt(src, pos);
+            const got = r.lineColMonotone(pos);
+            try std.testing.expectEqual(want.line, got.line);
+            try std.testing.expectEqual(want.col, got.col);
+        }
+        // A backward jump (never produced by span recording, but the
+        // fallback must still be exact) followed by a forward query.
+        if (src.len > 0) {
+            const back = r.lineColMonotone(0);
+            try std.testing.expectEqual(@as(u32, 1), back.line);
+            try std.testing.expectEqual(@as(u32, 1), back.col);
+            const fwd = r.lineColMonotone(src.len);
+            const want = lineColAt(src, src.len);
+            try std.testing.expectEqual(want.line, fwd.line);
+            try std.testing.expectEqual(want.col, fwd.col);
+        }
+    }
 }
 
 test "read integers" {

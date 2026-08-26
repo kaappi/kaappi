@@ -3,6 +3,11 @@
 //! The write half of the `.sbc` codec. Shares the format contract (magic,
 //! version, constant tags, size limits, `compilerHash`) with the deserializer
 //! via `bytecode_file.zig`; see `bytecode_file_read.zig` for the inverse.
+//!
+//! Three entry kinds share the function-section writer (v13, kaappi#1888):
+//! programs (with a positional replay-slot section), `--compile` bundles
+//! (bundled files + preamble), and `.sld` libraries (transformers + replay
+//! events + invalidation records — see `writeFileWithLibrary`).
 
 const std = @import("std");
 const platform = @import("platform.zig");
@@ -247,6 +252,19 @@ fn writeConstant(w: *Writer, allocator: std.mem.Allocator, val: Value, all_funcs
                 try w.writeU8(allocator, bf.TAG_FUNCTION);
                 try w.writeU32(allocator, idx);
             },
+            .closure => {
+                // kaappi#1888: a procedural transformer's `proc` may be a
+                // closure. The function table carries the inner Function; the
+                // captured upvalues ride along as ordinary constants.
+                const cls = obj.as(types.Closure);
+                const idx = findFunctionIndex(all_funcs, cls.func) orelse return BytecodeError.CorruptedFile;
+                try w.writeU8(allocator, bf.TAG_CLOSURE);
+                try w.writeU32(allocator, idx);
+                try w.writeU32(allocator, @intCast(cls.upvalues.len));
+                for (cls.upvalues) |uv| {
+                    try writeConstant(w, allocator, uv, all_funcs, seen, depth + 1);
+                }
+            },
             .pair => {
                 // Iterative over the cdr spine: a quoted list of N elements
                 // costs no recursion depth (kaappi#2113). Registration order —
@@ -343,8 +361,28 @@ fn isRealComponent(v: Value) bool {
 // Enhanced writeFile that records the top-level function count
 // ---------------------------------------------------------------------------
 
-fn writeFunctionsToBuffer(w: *Writer, allocator: std.mem.Allocator, top_level_funcs: []*Function, source_hash: u64, source_path: []const u8) !std.ArrayList(*Function) {
-    var all_funcs_list = try collectFunctions(allocator, top_level_funcs);
+// ---------------------------------------------------------------------------
+// Function section (shared by all three entry kinds)
+// ---------------------------------------------------------------------------
+
+/// Write the header + function table. `roots` are the functions to serialize
+/// first (in order), with nested functions collected after them;
+/// `top_level_count` names how many of `roots` are replayable top-level forms —
+/// for library entries the aux functions (procedural-transformer procs) that
+/// follow must NOT count. `seen` is the whole-file shared-structure map, owned
+/// by the caller so later sections (transformer patterns/templates) continue
+/// the same id sequence.
+fn writeFuncsSection(
+    w: *Writer,
+    allocator: std.mem.Allocator,
+    roots: []*Function,
+    top_level_count: u32,
+    entry_kind: u8,
+    source_hash: u64,
+    source_path: []const u8,
+    seen: *SharedMap,
+) !std.ArrayList(*Function) {
+    var all_funcs_list = try collectFunctions(allocator, roots);
     // The refusal paths below (kaappi#2113) make mid-write errors ordinary;
     // don't leak the collected list when one fires.
     errdefer all_funcs_list.deinit(allocator);
@@ -354,12 +392,7 @@ fn writeFunctionsToBuffer(w: *Writer, allocator: std.mem.Allocator, top_level_fu
     // an entry past any of them could be written but never loaded — a
     // permanent, invisible cache miss.
     if (all_funcs.len > bf.MAX_FUNCTIONS) return BytecodeError.LimitExceeded;
-    if (top_level_funcs.len > bf.MAX_TOP_LEVEL_FUNCTIONS) return BytecodeError.LimitExceeded;
-
-    // Shared-structure ids span the whole file, matching the reader's single
-    // table across all functions (kaappi#2111).
-    var seen = SharedMap.init(allocator);
-    defer seen.deinit();
+    if (top_level_count > roots.len or top_level_count > bf.MAX_TOP_LEVEL_FUNCTIONS) return BytecodeError.LimitExceeded;
 
     try w.writeBytes(allocator, &bf.MAGIC);
     try w.writeU16(allocator, bf.VERSION);
@@ -371,8 +404,11 @@ fn writeFunctionsToBuffer(w: *Writer, allocator: std.mem.Allocator, top_level_fu
     // rejected on load regardless of what these strings say.
     try w.writeStr(allocator, build_options.git_build_id);
     try w.writeStr(allocator, source_path);
+    // v13 (kaappi#1888): the entry kind selects the tail layout — program
+    // slots, bundle sections, or the library sections.
+    try w.writeU8(allocator, entry_kind);
     try w.writeU32(allocator, @intCast(all_funcs.len));
-    try w.writeU32(allocator, @intCast(top_level_funcs.len));
+    try w.writeU32(allocator, top_level_count);
 
     for (all_funcs) |func| {
         if (func.code.items.len > bf.MAX_CODE_BYTES) return BytecodeError.LimitExceeded;
@@ -397,7 +433,7 @@ fn writeFunctionsToBuffer(w: *Writer, allocator: std.mem.Allocator, top_level_fu
 
         try w.writeU32(allocator, @intCast(func.constants.items.len));
         for (func.constants.items) |constant| {
-            try writeConstant(w, allocator, constant, all_funcs, &seen, 0);
+            try writeConstant(w, allocator, constant, all_funcs, seen, 0);
         }
 
         // Debug info: source_line and line_table (added in v7; col added in v9)
@@ -435,17 +471,325 @@ fn writeBufferToFile(w: *Writer, path: []const u8) !void {
 }
 
 pub fn writeFileWithTopLevel(allocator: std.mem.Allocator, top_level_funcs: []*Function, source_hash: u64, source_path: []const u8, path: []const u8) !void {
+    // No declarations recorded → every top-level form is a compiled function,
+    // in order (the synthesized slots below).
     var w = Writer.init();
     defer w.deinit(allocator);
+    var seen = SharedMap.init(allocator);
+    defer seen.deinit();
 
-    var all_funcs_list = try writeFunctionsToBuffer(&w, allocator, top_level_funcs, source_hash, source_path);
+    var all_funcs_list = try writeFuncsSection(&w, allocator, top_level_funcs, @intCast(top_level_funcs.len), bf.ENTRY_PROGRAM, source_hash, source_path, &seen);
     defer all_funcs_list.deinit(allocator);
+
+    try w.writeU32(allocator, @intCast(top_level_funcs.len));
+    for (top_level_funcs, 0..) |_, i| {
+        try w.writeU8(allocator, bf.SLOT_FUNCTION);
+        try w.writeU32(allocator, @intCast(i));
+    }
 
     // Empty bundled files and preamble sections (regular cache files)
     try w.writeU32(allocator, 0);
     try w.writeU32(allocator, 0);
 
     try writeBufferToFile(&w, path);
+}
+
+/// How a warm run replays one top-level form of a program entry (kaappi#1888):
+/// execute the compiled function, or re-read and re-dispatch the declaration's
+/// source text through `handleTopLevelForm`. Positional — the slot order IS
+/// the top-level form order, so an `import` between two defines stays between
+/// them (the #2200 reorder class cannot arise).
+pub const Slot = union(enum) {
+    /// Index into the entry's top-level functions (`funcs[0..top_level_count]`).
+    function: u32,
+    /// Verbatim source bytes of a declaration the VM interprets (`import`,
+    /// `define-library`, `include`, ...), plus its 1-based source line for
+    /// error reporting parity with the cold path.
+    declaration: struct { line: u32, src: []const u8 },
+};
+
+/// Write a program entry whose top-level stream interleaves compiled
+/// functions with interpreted declarations (kaappi#1888). `slots` is the full
+/// form stream in order; each `.function` slot's index refers to the
+/// entry's top-level function table.
+pub fn writeFileWithSlots(
+    allocator: std.mem.Allocator,
+    top_level_funcs: []*Function,
+    slots: []const Slot,
+    source_hash: u64,
+    source_path: []const u8,
+    path: []const u8,
+) !void {
+    var w = Writer.init();
+    defer w.deinit(allocator);
+    var seen = SharedMap.init(allocator);
+    defer seen.deinit();
+
+    var all_funcs_list = try writeFuncsSection(&w, allocator, top_level_funcs, @intCast(top_level_funcs.len), bf.ENTRY_PROGRAM, source_hash, source_path, &seen);
+    defer all_funcs_list.deinit(allocator);
+
+    if (slots.len > bf.MAX_TOP_LEVEL_FUNCTIONS) return BytecodeError.LimitExceeded;
+    try w.writeU32(allocator, @intCast(slots.len));
+    for (slots) |slot| {
+        switch (slot) {
+            .function => |idx| {
+                if (idx >= top_level_funcs.len) return BytecodeError.CorruptedFile;
+                try w.writeU8(allocator, bf.SLOT_FUNCTION);
+                try w.writeU32(allocator, idx);
+            },
+            .declaration => |d| {
+                if (d.src.len > bf.MAX_STRING_BYTES) return BytecodeError.LimitExceeded;
+                try w.writeU8(allocator, bf.SLOT_DECLARATION);
+                try w.writeU32(allocator, d.line);
+                try w.writeU32(allocator, @intCast(d.src.len));
+                try w.writeBytes(allocator, d.src);
+            },
+        }
+    }
+
+    try w.writeU32(allocator, 0);
+    try w.writeU32(allocator, 0);
+
+    try writeBufferToFile(&w, path);
+}
+
+/// One replay event of a `.sld` library entry (kaappi#1888), in the exact
+/// order the cold load produced them.
+pub const LibEventRecord = union(enum) {
+    /// Run form_funcs[idx] with `env` pointed at the reconstructed lib_env.
+    run_lib: u32,
+    /// Run form_funcs[idx] with `env` = null (compiled against vm.globals).
+    run_global: u32,
+    /// Put the transformer into lib_env under `name`. The writer builds the
+    /// deduplicated transformer table from these.
+    register_tx: struct { name: []const u8, tx: *types.Transformer },
+};
+
+/// An include-family file a cold library load read, with its content hash —
+/// the invalidation dimension the .sld's own source hash cannot see.
+pub const IncludeRecord = struct { path: []const u8, hash: u64 };
+
+/// A file-backed dependency library the load resolved and read. Validated at
+/// warm time by re-resolving `rel_path` through the current lib-path (a
+/// `--lib-path` change that re-resolves elsewhere is a miss) and re-hashing
+/// the file at the recorded path.
+pub const DepRecord = struct { rel_path: []const u8, resolved_path: []const u8, source_hash: u64, lib_name: []const u8 };
+
+/// Write a `.sld` library cache entry (kaappi#1888). `form_funcs` are the
+/// library body's compiled top-level functions in run order; `events` is the
+/// interleaved replay log (transformer registrations included); `includes` and
+/// `deps` are the invalidation records.
+pub fn writeFileWithLibrary(
+    allocator: std.mem.Allocator,
+    form_funcs: []*Function,
+    events: []const LibEventRecord,
+    includes: []const IncludeRecord,
+    deps: []const DepRecord,
+    source_hash: u64,
+    source_path: []const u8,
+    path: []const u8,
+) !void {
+    var w = Writer.init();
+    defer w.deinit(allocator);
+    var seen = SharedMap.init(allocator);
+    defer seen.deinit();
+
+    // The transformer table, deduplicated by object identity, plus the aux
+    // functions procedural transformers reference (their procs) — appended
+    // after the form functions so event indices stay within form_funcs.
+    var tx_table: std.ArrayList(*types.Transformer) = .empty;
+    defer tx_table.deinit(allocator);
+    var aux: std.ArrayList(*Function) = .empty;
+    defer aux.deinit(allocator);
+    for (events) |ev| {
+        if (ev != .register_tx) continue;
+        const tx = ev.register_tx.tx;
+        var found = false;
+        for (tx_table.items) |t| {
+            if (t == tx) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            if (tx_table.items.len >= bf.MAX_LIBRARY_TRANSFORMERS) return BytecodeError.LimitExceeded;
+            tx_table.append(allocator, tx) catch return BytecodeError.OutOfMemory;
+            if (tx.kind != .syntax_rules) {
+                try collectProcFunction(allocator, tx.proc, &aux, form_funcs);
+            }
+        }
+    }
+
+    var roots: std.ArrayList(*Function) = .empty;
+    defer roots.deinit(allocator);
+    roots.appendSlice(allocator, form_funcs) catch return BytecodeError.OutOfMemory;
+    roots.appendSlice(allocator, aux.items) catch return BytecodeError.OutOfMemory;
+
+    var all_funcs_list = try writeFuncsSection(&w, allocator, roots.items, @intCast(form_funcs.len), bf.ENTRY_LIBRARY, source_hash, source_path, &seen);
+    defer all_funcs_list.deinit(allocator);
+    const all_funcs = all_funcs_list.items;
+
+    // Transformer table. Every field is data (identifiers, datum trees, slot
+    // ids); `def_env` is deliberately absent — the warm load re-points it at
+    // the reconstructed lib_env.
+    try w.writeU32(allocator, @intCast(tx_table.items.len));
+    for (tx_table.items) |tx| {
+        try writeTransformer(&w, allocator, tx, all_funcs, &seen);
+    }
+
+    // Events.
+    if (events.len > bf.MAX_LIBRARY_EVENTS) return BytecodeError.LimitExceeded;
+    try w.writeU32(allocator, @intCast(events.len));
+    for (events) |ev| {
+        switch (ev) {
+            .run_lib => |idx| {
+                if (idx >= form_funcs.len) return BytecodeError.CorruptedFile;
+                try w.writeU8(allocator, bf.EVENT_RUN_LIB);
+                try w.writeU32(allocator, idx);
+            },
+            .run_global => |idx| {
+                if (idx >= form_funcs.len) return BytecodeError.CorruptedFile;
+                try w.writeU8(allocator, bf.EVENT_RUN_GLOBAL);
+                try w.writeU32(allocator, idx);
+            },
+            .register_tx => |reg| {
+                if (reg.name.len > bf.MAX_TX_NAME_BYTES) return BytecodeError.LimitExceeded;
+                var table_index: ?u32 = null;
+                for (tx_table.items, 0..) |t, i| {
+                    if (t == reg.tx) {
+                        table_index = @intCast(i);
+                        break;
+                    }
+                }
+                try w.writeU8(allocator, bf.EVENT_REGISTER_TX);
+                try w.writeU16(allocator, @intCast(reg.name.len));
+                try w.writeBytes(allocator, reg.name);
+                try w.writeU32(allocator, table_index orelse return BytecodeError.CorruptedFile);
+            },
+        }
+    }
+
+    // Include records.
+    if (includes.len > bf.MAX_LIBRARY_INCLUDES) return BytecodeError.LimitExceeded;
+    try w.writeU32(allocator, @intCast(includes.len));
+    for (includes) |inc| {
+        if (inc.path.len > bf.MAX_HEADER_STR_BYTES) return BytecodeError.LimitExceeded;
+        try w.writeU16(allocator, @intCast(inc.path.len));
+        try w.writeBytes(allocator, inc.path);
+        try w.writeU64(allocator, inc.hash);
+    }
+
+    // Dependency records.
+    if (deps.len > bf.MAX_LIBRARY_DEPS) return BytecodeError.LimitExceeded;
+    try w.writeU32(allocator, @intCast(deps.len));
+    for (deps) |dep| {
+        if (dep.rel_path.len > bf.MAX_HEADER_STR_BYTES) return BytecodeError.LimitExceeded;
+        if (dep.resolved_path.len > bf.MAX_HEADER_STR_BYTES) return BytecodeError.LimitExceeded;
+        if (dep.lib_name.len > bf.MAX_HEADER_STR_BYTES) return BytecodeError.LimitExceeded;
+        try w.writeU16(allocator, @intCast(dep.rel_path.len));
+        try w.writeBytes(allocator, dep.rel_path);
+        try w.writeU16(allocator, @intCast(dep.resolved_path.len));
+        try w.writeBytes(allocator, dep.resolved_path);
+        try w.writeU64(allocator, dep.source_hash);
+        try w.writeU16(allocator, @intCast(dep.lib_name.len));
+        try w.writeBytes(allocator, dep.lib_name);
+    }
+
+    // Empty bundle tail (uniform with the other kinds).
+    try w.writeU32(allocator, 0);
+    try w.writeU32(allocator, 0);
+
+    try writeBufferToFile(&w, path);
+}
+
+/// Append the Function behind a procedural transformer's `proc` to `aux` (a
+/// bare procedure directly, or a closure's inner function), deduplicated
+/// against the form functions and earlier aux entries — a proc shared by two
+/// transformers must keep its identity across the round trip.
+fn collectProcFunction(allocator: std.mem.Allocator, proc: Value, aux: *std.ArrayList(*Function), form_funcs: []*Function) !void {
+    var func: ?*Function = null;
+    if (types.isFunction(proc)) {
+        func = types.toObject(proc).as(Function);
+    } else if (types.isClosure(proc)) {
+        func = types.toObject(proc).as(types.Closure).func;
+    } else {
+        // A proc the codec cannot represent (native function, record, ...):
+        // refuse so the whole library stays uncached rather than half-serializing.
+        return BytecodeError.UnsupportedConstant;
+    }
+    const f = func.?;
+    for (form_funcs) |existing| {
+        if (existing == f) return;
+    }
+    for (aux.items) |existing| {
+        if (existing == f) return;
+    }
+    aux.append(allocator, f) catch return BytecodeError.OutOfMemory;
+}
+
+fn writeTxStr(w: *Writer, allocator: std.mem.Allocator, s: []const u8) !void {
+    if (s.len > bf.MAX_SYMBOL_BYTES) return BytecodeError.LimitExceeded;
+    try w.writeU16(allocator, @intCast(s.len));
+    try w.writeBytes(allocator, s);
+}
+
+fn writeTransformer(w: *Writer, allocator: std.mem.Allocator, tx: *types.Transformer, all_funcs: []*Function, seen: *SharedMap) !void {
+    // let-syntax peer snapshots are computed by compileLetSyntax for
+    // body-scoped macros and never occur for a lib_env-registered transformer;
+    // refuse rather than silently drop them (they drive sibling suppression).
+    if (tx.let_syntax_peer_names.len != 0 or tx.let_syntax_peer_vals.len != 0)
+        return BytecodeError.UnsupportedConstant;
+
+    try w.writeU8(allocator, switch (tx.kind) {
+        .syntax_rules => 0,
+        .er_macro => 1,
+        .lisp_macro => 2,
+    });
+    try w.writeU16(allocator, tx.num_rules);
+
+    if (tx.literals.len > bf.MAX_CONSTANTS_PER_FUNCTION) return BytecodeError.LimitExceeded;
+    try w.writeU32(allocator, @intCast(tx.literals.len));
+    for (tx.literals) |v| try writeConstant(w, allocator, v, all_funcs, seen, 0);
+    if (tx.num_rules > bf.MAX_CONSTANTS_PER_FUNCTION) return BytecodeError.LimitExceeded;
+    try w.writeU32(allocator, tx.num_rules);
+    for (tx.patterns[0..tx.num_rules]) |v| try writeConstant(w, allocator, v, all_funcs, seen, 0);
+    try w.writeU32(allocator, tx.num_rules);
+    for (tx.templates[0..tx.num_rules]) |v| try writeConstant(w, allocator, v, all_funcs, seen, 0);
+    // The procedural body (NIL for syntax_rules); written as one ordinary
+    // constant so a Function/Closure proc resolves through the function table.
+    try writeConstant(w, allocator, tx.proc, all_funcs, seen, 0);
+
+    if (tx.custom_ellipsis) |ce| {
+        try w.writeU8(allocator, 1);
+        try writeTxStr(w, allocator, ce);
+    } else {
+        try w.writeU8(allocator, 0);
+    }
+
+    try w.writeU32(allocator, @intCast(tx.literal_bound.len));
+    for (tx.literal_bound) |slot| try w.writeU32(allocator, slot);
+
+    try w.writeU32(allocator, @intCast(tx.captured_locals.len));
+    for (tx.captured_locals) |cl| {
+        try writeTxStr(w, allocator, cl.name);
+        try w.writeU16(allocator, cl.slot);
+    }
+
+    try w.writeU32(allocator, @intCast(tx.bound_free_refs.len));
+    for (tx.bound_free_refs) |name| try writeTxStr(w, allocator, name);
+
+    try w.writeU32(allocator, @intCast(tx.def_site_local_refs.len));
+    for (tx.def_site_local_refs) |name| try writeTxStr(w, allocator, name);
+
+    if (tx.def_lib_name) |dln| {
+        try w.writeU8(allocator, 1);
+        try writeTxStr(w, allocator, dln);
+    } else {
+        try w.writeU8(allocator, 0);
+    }
+
+    try w.writeU8(allocator, if (tx.finalized) 1 else 0);
+    try w.writeU8(allocator, if (tx.peers_computed) 1 else 0);
 }
 
 /// Write a standalone .sbc with bundled library sources and preamble forms.
@@ -460,8 +804,10 @@ pub fn writeFileWithBundle(
 ) !void {
     var w = Writer.init();
     defer w.deinit(allocator);
+    var seen = SharedMap.init(allocator);
+    defer seen.deinit();
 
-    var all_funcs_list = try writeFunctionsToBuffer(&w, allocator, top_level_funcs, source_hash, source_path);
+    var all_funcs_list = try writeFuncsSection(&w, allocator, top_level_funcs, @intCast(top_level_funcs.len), bf.ENTRY_BUNDLE, source_hash, source_path, &seen);
     defer all_funcs_list.deinit(allocator);
 
     // Bundled files section. Same refusal contract as the constant limits

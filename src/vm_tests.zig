@@ -37,6 +37,7 @@ test {
     _ = @import("tests_fibers.zig");
     _ = @import("tests_ffi.zig");
     _ = @import("tests_bytecode_cache.zig");
+    _ = @import("tests_vm_library_cache.zig");
     _ = @import("tests_native.zig");
     _ = @import("tests_native_dispatch.zig");
     _ = @import("tests_native_gate.zig");

@@ -102,6 +102,7 @@ pub fn enable(fmt: Format) void {
     cache_reason = "";
     cache_path_len = 0;
     output_path_len = 0;
+    resetLibCounters();
 }
 
 // ── Timing primitives ──────────────────────────────────────────────────────
@@ -201,6 +202,65 @@ pub fn cacheReason(reason: []const u8) void {
     cache_reason = reason;
 }
 
+// ── Library cache (.sld entries, kaappi#1888) ────────────────────────────
+// A run loads many libraries; these counters summarize how the per-library
+// cache fared without spamming one line per load.
+
+var lib_hits: u32 = 0;
+var lib_misses: u32 = 0;
+var lib_stale: u32 = 0;
+var lib_written: u32 = 0;
+var lib_reason: []const u8 = "";
+
+pub fn libCacheHit() void {
+    if (!enabled) return;
+    lib_hits += 1;
+}
+
+pub fn libCacheMiss() void {
+    if (!enabled) return;
+    lib_misses += 1;
+}
+
+/// An entry existed but its include/dependency records no longer validated —
+/// the transitive invalidation working as designed.
+pub fn libCacheStale() void {
+    if (!enabled) return;
+    lib_stale += 1;
+}
+
+pub fn libCacheWrote() void {
+    if (!enabled) return;
+    lib_written += 1;
+}
+
+/// Why a cold library load wrote no entry (static string). Last one wins —
+/// enough to name the cause, per the cacheReason precedent.
+pub fn libCacheReason(reason: []const u8) void {
+    if (!enabled) return;
+    lib_reason = reason;
+}
+
+fn resetLibCounters() void {
+    lib_hits = 0;
+    lib_misses = 0;
+    lib_stale = 0;
+    lib_written = 0;
+    lib_reason = "";
+}
+
+fn writeLibLine(w: *std.Io.Writer) void {
+    if (lib_hits == 0 and lib_misses == 0 and lib_stale == 0 and lib_written == 0) return;
+    w.print("libcache: {d} hit", .{lib_hits}) catch {};
+    if (lib_hits != 1) w.writeAll("s") catch {};
+    w.print(", {d} miss", .{lib_misses}) catch {};
+    if (lib_misses != 1) w.writeAll("es") catch {};
+    if (lib_written > 0) w.print(", {d} written", .{lib_written}) catch {};
+    if (lib_stale > 0) w.print(", {d} stale", .{lib_stale}) catch {};
+    if (lib_reason.len > 0) w.print(" ({s})", .{lib_reason}) catch {};
+    w.writeByte('\n') catch {};
+}
+
 /// Record the explicit output artifact for `--compile` / native `compile`.
 pub fn setOutput(path: []const u8) void {
     if (!enabled) return;
@@ -271,7 +331,10 @@ fn renderText(w: *std.Io.Writer, mode: Mode) void {
     w.writeByte('\n') catch {};
 
     switch (mode) {
-        .run => renderCacheLine(w),
+        .run => {
+            renderCacheLine(w);
+            writeLibLine(w);
+        },
         .compile, .native => if (output_path_len > 0) {
             w.print("output: {s}\n", .{output_path_buf[0..output_path_len]}) catch {};
         },
@@ -326,6 +389,9 @@ fn renderCacheJson(w: *std.Io.Writer) void {
         w.writeAll("\"") catch {};
     }
     w.writeAll("}") catch {};
+    if (lib_hits > 0 or lib_misses > 0 or lib_stale > 0 or lib_written > 0) {
+        w.print(",\"libcache\":{{\"hits\":{d},\"misses\":{d},\"written\":{d},\"stale\":{d}}}", .{ lib_hits, lib_misses, lib_written, lib_stale }) catch {};
+    }
 }
 
 /// Minimal JSON string escaping (paths can contain backslashes/quotes on some

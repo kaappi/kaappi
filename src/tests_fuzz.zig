@@ -155,7 +155,8 @@ const loader_corpus = [_][]const u8{
 /// Function objects themselves are GC-owned (and rooted in gc.extra_roots),
 /// so gc.deinit reclaims those.
 fn freeLoaded(allocator: std.mem.Allocator, loaded: bytecode_file.DeserializeResult) void {
-    allocator.free(loaded.funcs);
+    var l = loaded;
+    bytecode_file.freeDeserializeResult(allocator, &l);
     if (loaded.bundled_files) |bf| {
         var map = bf;
         var it = map.iterator();
