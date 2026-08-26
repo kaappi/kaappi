@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787713242528,
+  "lastUpdate": 1787713260987,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e62b90ebd41368fc03b2e462c39806b6e709becb",
-          "message": "Check arity on the native branches of the re-entrancy helpers too (#2206)\n\ncallHandler and callThunk reach a native procedure through their own branches,\nwhich had no arity check at all — a gap the closure-side fix left behind, found\nby CodeRabbit in review of it.\n\nA NativeFn body indexes args[0], args[1], … without bounds checks of its own,\nbecause the VM is expected to have validated arity before the call. Both helpers\nhand one a fixed-size argument array, so a wrong-arity native read past its end.\nUnder the default ReleaseSafe build that is a panic — a process abort out of\nfive lines of ordinary Scheme, not the catchable arity error the closure path\nnow produces:\n\n    (call-with-values cons list)                                    ; callThunk, 0 args to arity 2\n    (with-exception-handler cons (lambda () (raise-continuable 'x))) ; callHandler, 1 arg to arity 2\n    (dynamic-wind (lambda () 1) (lambda () (raise 'x)) -)            ; unwind, 0 args to variadic min 1\n\nAll three printed \"kaappi internal error — this is a bug in kaappi\" and died.\n\nThe check itself already existed twice, verbatim, in callNative and in\ncallWithArgs' native branch. Rather than add a third and fourth copy — the\nduplication this PR is otherwise removing — it moves to checkNativeArity and\nall four sites share it. Messages are unchanged.\n\nThe dynamic-wind case reports as before: the unwind loop discards a failing\nafter-thunk, so the original raise survives, which is what should happen. What\nchanges is that the process reaches that point at all.\n\nThis is pre-existing, not a regression from the previous commit — the native\nbranches are untouched by it — and inside #2034's stated scope, whose table\nlists the with-exception-handler handler reached via callHandler as unchecked.\nIt only tested closures.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-03T20:40:24+05:30",
-          "tree_id": "c5103917c94fce3c03d369887fe5f65682173f2f",
-          "url": "https://github.com/kaappi/kaappi/commit/e62b90ebd41368fc03b2e462c39806b6e709becb"
-        },
-        "date": 1785771669056,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.329055,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.025367,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.576594,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.992864,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004671,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046979,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.312776,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057884,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.648063,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.219668,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.623063,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.282094,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.808687,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.477415,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044188,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04628,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f9b575209dfd4ae662444571c5967a531817ac90",
+          "message": "fmt: pin the #2143 lexeme-glue and #2080 diagnostic fixes in fmt-adversarial (#2340)\n\nBoth issues were fixed on main by #2291 (fmt's atom scan now ends at the\nfirst non-<subsequent> byte exactly like Reader.readSymbol, and\nverifyRoundTrip reports the reader's own KP1xxx diagnostic when the\noriginal does not read), but fmt-adversarial.sh — the file both issues\npoint at — still lacked the shapes their own bodies name:\n\n- #2143's byte-mutation campaign tripped the round-trip guard on a `#(`\n  glued after an identifier: `(import#(scheme base))` and a datum-label\n  vector glued to one. The comment/vector glues were covered; these two\n  guard-tripping forms were not.\n- #2080's diagnostic path had a single case in fmt.sh (`#\\qqq`); the\n  other three error classes of its table (`#\\xZZ`, `(a . . b)`, form\n  feed) were untested anywhere, and fmt-adversarial.sh had none at all.\n\nEvery new case fails on the pre-fix lexer (verified by rebuilding with\n220e31a2's src/fmt.zig): the glue cases trip the round-trip guard and\neach diagnostic case reports \"internal error\" instead of the reader's\nKP1xxx. With the fix: fmt-adversarial 81/81, fmt.sh 38/38, zig build\ntest green.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-26T06:02:46+05:30",
+          "tree_id": "3b7c36c6d024b35fe6e64db3bce71249f0de408f",
+          "url": "https://github.com/kaappi/kaappi/commit/f9b575209dfd4ae662444571c5967a531817ac90"
+        },
+        "date": 1787713259182,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.3928,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.967642,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.597134,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.039411,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004715,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.0486,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.308367,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057314,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.863392,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.235698,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.675212,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.287857,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.819179,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.688031,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045761,
             "unit": "seconds"
           }
         ]
