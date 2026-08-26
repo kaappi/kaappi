@@ -645,35 +645,34 @@
              (begin (%pop-unwind-handler!) (%pop-unwind-handler!)
                     ;; a later raise must still reach the ordinary handler
                     (guard (e (#t #t)) (raise 'still-works))))
-(test-equal "%unwind-to-escape: a non-continuation is a named type error"
-            "type error in '%unwind-to-escape': expected escape continuation, got 42"
-            (raised-msg (%unwind-to-escape 42)))
-(test-assert "%unwind-to-escape: a full continuation is ignored"
-             (begin (call/cc (lambda (k) (%unwind-to-escape k))) #t))
-(test-assert "%unwind-to-escape: an expired escape continuation is ignored"
-             (let ((saved #f))
-               (call/ec (lambda (k) (set! saved k) 'in))
-               (begin (%unwind-to-escape saved) #t)))
-;; It really does run the intervening after-thunks — which is exactly why it
-;; must not be reachable from user code: the bootstrapped dynamic-wind that
-;; pushed those records then pops a stack that is already empty (#2037).
-(test-equal "%unwind-to-escape: it runs the after-thunks down to the escape's depth"
-            '(B1 B2 A2 A1)
+;; #2037: %unwind-to-escape pops dynamic-wind records off the VM's wind
+;; stack, so it exists for exactly one caller — the guard desugaring — and is
+;; purged from globals like %push-wind/%pop-wind. Direct calls used to be
+;; possible and desynchronised the wind stack (the underflow then surfaced as
+;; a type error naming %pop-wind); the assertions that pinned those direct
+;; calls are gone with the reachability.
+(test-equal "D1: %unwind-to-escape is purged from globals after bootstrap"
+            'KP3001 (raised-code (eval '(%unwind-to-escape 1) (interaction-environment))))
+(test-equal "D1: %check-procedure is purged from globals after bootstrap"
+            'KP3001 (raised-code (eval '(%check-procedure "dynamic-wind" 1)
+                                       (interaction-environment))))
+;; It still does its job through its one legitimate caller: a guard's
+;; clauses run in the guard's dynamic environment, so the after-thunks of
+;; every extent entered inside the body must run BEFORE the clause body
+;; (compileGuard's %unwind-to-escape, #1988). Plain unwinding would run the
+;; clause first — this shape is what distinguishes the two.
+(test-equal "%unwind-to-escape: via guard, after-thunks run before the clauses"
+            '(B1 B2 A2 A1 clause)
             (let ((log '()))
-              (guard (e (#t #t))
-                (call/ec (lambda (k)
-                           (dynamic-wind
-                             (lambda () (set! log (cons 'B1 log)))
-                             (lambda ()
-                               (dynamic-wind (lambda () (set! log (cons 'B2 log)))
-                                             (lambda () (%unwind-to-escape k) 'inner)
-                                             (lambda () (set! log (cons 'A2 log)))))
-                             (lambda () (set! log (cons 'A1 log)))))))
+              (guard (e (#t (set! log (cons 'clause log)) 'done))
+                (dynamic-wind
+                  (lambda () (set! log (cons 'B1 log)))
+                  (lambda ()
+                    (dynamic-wind (lambda () (set! log (cons 'B2 log)))
+                                  (lambda () (raise 'boom))
+                                  (lambda () (set! log (cons 'A2 log)))))
+                  (lambda () (set! log (cons 'A1 log)))))
               (reverse log)))
-;; FAIL: #2037 (%unwind-to-escape is reachable from user code and desynchronises
-;; the wind stack; the underflow surfaces as a type error naming %pop-wind)
-;; (test-equal "D1: %unwind-to-escape is purged from globals after bootstrap"
-;;             'KP3001 (raised-code (eval '(%unwind-to-escape 1) (interaction-environment))))
 
 ;;; ------------------------------------------------------------------
 ;;; D2 — error taxonomy for the control primitives
@@ -705,20 +704,51 @@
               (call/ec (lambda (k) (set! saved k) 'in))
               (raised-msg (saved 'x))))
 
-;; FAIL: #2036 (dynamic-wind's argument type errors carry no diagnostic code and
-;; drop the offending value, unlike every other control primitive)
-;; (test-equal "D2: dynamic-wind non-procedure before is KP3002"
-;;             'KP3002 (raised-code (dynamic-wind 1 (lambda () 2) (lambda () 3))))
-;; (test-equal "D2: dynamic-wind names the offending value"
-;;             "type error in 'dynamic-wind': expected procedure, got 1"
-;;             (raised-msg (dynamic-wind 1 (lambda () 2) (lambda () 3))))
-;; FAIL: #2036 (call/cc in tail position reports a non-procedure receiver as
-;; KP3005 with the bare message "error"; the same call non-tail gives KP3002)
-;; (test-equal "D2: call/cc non-procedure receiver is KP3002 in tail position too"
-;;             'KP3002 ((lambda () (raised-code (call/cc 42)))))
-;; (test-equal "D2: call/cc names itself and the offending value in tail position"
-;;             "type error in 'call/cc': expected procedure, got 42"
-;;             ((lambda () (raised-msg (call/cc 42)))))
+;; #2036: dynamic-wind's argument type errors carry the KP3002 code and name
+;; the offending value, like every other control primitive (the checks go
+;; through the native %check-procedure now, not an uncoded Scheme `error`).
+(test-equal "D2: dynamic-wind non-procedure before is KP3002"
+            'KP3002 (raised-code (dynamic-wind 1 (lambda () 2) (lambda () 3))))
+(test-equal "D2: dynamic-wind names the offending value"
+            "type error in 'dynamic-wind': expected procedure, got 1"
+            (raised-msg (dynamic-wind 1 (lambda () 2) (lambda () 3))))
+(test-equal "D2: dynamic-wind non-procedure after is KP3002"
+            'KP3002 (raised-code (dynamic-wind (lambda () 1) (lambda () 2) 3)))
+;; #2036: call/cc in tail position reports a non-procedure receiver exactly
+;; as the non-tail path does — KP3002 naming the value, not KP3005 "error".
+;; The receiver must sit in genuine tail position, hence the lambda wrapper.
+(test-equal "D2: call/cc non-procedure receiver is KP3002 in tail position too"
+            'KP3002 ((lambda () (raised-code (call/cc 42)))))
+(test-equal "D2: call/cc names itself and the offending value in tail position"
+            "type error in 'call/cc': expected procedure, got 42"
+            ((lambda () (raised-msg (call/cc 42)))))
+
+;; #2036: a proper operand list of the wrong length handed to a
+;; tail-dispatched name is a runtime arity error (KP3003), not a KP2001
+;; "invalid syntax" compile error that abandons the whole top-level form —
+;; the same form one position away always reported KP3003. The forms are
+;; built by eval so a residual compile error surfaces as a catchable error
+;; object instead of aborting this file.
+(test-equal "D2: (call/cc) in tail position is a runtime arity error"
+            'KP3003 (raised-code (eval '((lambda () (call/cc)))
+                                       (interaction-environment))))
+(test-equal "D2: (call/cc) in tail position names the procedure and counts"
+            "'call/cc': expected 1 arguments, got 0"
+            (guard (e (#t (error-object-message e)))
+              (eval '((lambda () (call/cc))) (interaction-environment))))
+(test-equal "D2: (call/cc f g) in tail position is a runtime arity error"
+            'KP3003 (raised-code (eval '((lambda () (call/cc 1 2)))
+                                       (interaction-environment))))
+(test-equal "D2: (call-with-values p) in tail position is a runtime arity error"
+            'KP3003 (raised-code (eval '((lambda () (call-with-values 42)))
+                                       (interaction-environment))))
+(test-equal "D2: (apply) in tail position is a runtime arity error"
+            'KP3003 (raised-code (eval '((lambda () (apply)))
+                                       (interaction-environment))))
+(test-equal "D2: (apply) in tail position names the procedure"
+            "'apply': expected at least 2 arguments, got 0"
+            (guard (e (#t (error-object-message e)))
+              (eval '((lambda () (apply))) (interaction-environment))))
 
 ;; call/cc in non-tail position is the discriminating control: it goes through
 ;; callWithCurrentContinuation rather than the tail_call_cc superinstruction.

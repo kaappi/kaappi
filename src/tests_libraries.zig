@@ -719,6 +719,43 @@ test "every spec name resolves in globals (drift guard)" {
     }
 }
 
+test "purged %unwind-to-escape still resolves for guard's desugaring (#2037)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Purged from globals like its %push-wind sibling — user code cannot pop
+    // the wind stack out of sequence. But unlike the sibling it has a
+    // compile-time consumer: compileGuard emits a base-binding reference that
+    // resolves through libraries.internal_bindings, and the registrar's
+    // snapshot of globals runs only AFTER the purge, so vm_bootstrap.install
+    // seeds the entry itself. Dropping either half breaks every guard.
+    try std.testing.expect(vm.globals.get("%unwind-to-escape") == null);
+    try std.testing.expect(vm.libraries.internal_bindings.get("%unwind-to-escape") != null);
+    const r = try vm.eval("(guard (e (#t 42)) (raise 'boom))");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(r));
+    // And the wind discipline survives the seeded path: the clauses must see
+    // the after-thunks of extents entered in the body already run (#1988).
+    const order = try vm.eval(
+        \\(let ((log '()))
+        \\  (guard (e (#t (set! log (cons 'clause log)) 'done))
+        \\    (dynamic-wind (lambda () (set! log (cons 'B log)))
+        \\                  (lambda () (raise 'x))
+        \\                  (lambda () (set! log (cons 'A log)))))
+        \\  (reverse log))
+    );
+    try std.testing.expect(types.isPair(order));
+    var it = order;
+    const expected = [_][]const u8{ "B", "A", "clause" };
+    for (expected) |name| {
+        try std.testing.expect(types.isSymbol(types.car(it)));
+        try std.testing.expectEqualStrings(name, types.symbolName(types.car(it)));
+        it = types.cdr(it);
+    }
+    try std.testing.expectEqual(types.NIL, it);
+}
+
 test "no standard library exports a %-prefixed internal (#1856)" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();

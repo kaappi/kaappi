@@ -37,6 +37,12 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "%push-wind", .func = &pushWindFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.internal) },
     .{ .name = "%pop-wind", .func = &popWindFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.internal) },
     .{ .name = "%unwind-to-escape", .func = &unwindToEscapeFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.internal) },
+    // Type-check gate for the bootstrapped dynamic-wind: raising through
+    // primitives.typeError stamps the KP3002 code and names the offending
+    // value in the message, where the Scheme-level `(error ...)` it replaces
+    // produced an uncoded object with the value demoted to an irritant
+    // (#2036). Purged from globals with its siblings below.
+    .{ .name = "%check-procedure", .func = &checkProcedureFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.internal) },
     // SRFI 248 (minimal delimited continuations): building blocks for the
     // portable (srfi 248) library. Not for direct use — see lib/srfi/248.sld.
     .{ .name = "%call-with-unwind-handler", .func = &callWithUnwindHandlerFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_248_primitives) },
@@ -548,9 +554,30 @@ fn pushWindFn(args: []const Value) PrimitiveError!Value {
 
 fn popWindFn(_: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
-    if (vm.wind_count == 0) return PrimitiveError.TypeError; // bare-ok: underflow
+    if (vm.wind_count == 0) {
+        // Internal invariant, not an argument problem: the wind stack lost
+        // sync with the bootstrapped dynamic-wind that owns it. KP9001
+        // ("internal error") per docs/dev/gc-safety-and-error-handling.md —
+        // a TypeError here used to surface as "type error in '%pop-wind'",
+        // blaming an argument of a primitive the user never wrote (#2037).
+        vm.setErrorDetail("wind stack underflow in '%pop-wind'", .{});
+        return PrimitiveError.InvalidBytecode;
+    }
     vm.wind_count -= 1;
     return types.VOID;
+}
+
+/// (%check-procedure name value) → value when value is a procedure, else the
+/// coded, value-naming type error a native primitive would raise. Exists so
+/// bootstrapped Scheme (dynamic-wind) can reject bad arguments exactly like
+/// its native siblings instead of an uncoded user `(error ...)` (#2036).
+fn checkProcedureFn(args: []const Value) PrimitiveError!Value {
+    const name: []const u8 = if (types.isString(args[0])) blk: {
+        const s = types.toObject(args[0]).as(types.SchemeString);
+        break :blk s.data[0..s.len];
+    } else "?";
+    if (!types.isProcedure(args[1])) return primitives.typeError(name, "procedure", args[1]);
+    return args[1];
 }
 
 /// Run the dynamic-wind after-thunks standing between here and where `k` — an

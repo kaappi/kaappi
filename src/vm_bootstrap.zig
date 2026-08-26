@@ -35,6 +35,16 @@ pub fn install(vm: *VM) VMError!void {
     {
         vm.globals_lock.lock();
         defer vm.globals_lock.unlock();
+        // %unwind-to-escape has a second consumer besides the closures above:
+        // guard's desugaring references it through a base-binding symbol, which
+        // resolves via libraries.internal_bindings (lookupBaseBinding), not
+        // globals. registerStandardLibraries snapshots that map from globals
+        // only AFTER this purge runs, so seed the entry here — removing the
+        // name from globals alone would leave every `guard` raising an
+        // undefined variable instead of unwinding to its clauses (#2037).
+        if (vm.globals.get("%unwind-to-escape")) |val| {
+            vm.libraries.internal_bindings.put("%unwind-to-escape", val) catch return VMError.OutOfMemory;
+        }
         for (internal_helpers) |name| {
             _ = vm.globals.remove(name);
         }
@@ -51,6 +61,8 @@ pub fn install(vm: *VM) VMError!void {
 pub const internal_helpers = [_][]const u8{
     "%push-wind",
     "%pop-wind",
+    "%unwind-to-escape",
+    "%check-procedure",
     "%promise-forced?",
     "%promise-forcing?",
     "%promise-value",
@@ -266,19 +278,19 @@ const string_map_src =
 ;
 
 // Validates all three arguments before running (before), so a bad-argument
-// call cannot leak before's side effects, and errors name 'dynamic-wind'
-// rather than the internal %push-wind (#1375).
+// call cannot leak before's side effects. The checks go through the native
+// %check-procedure so the rejection is the coded, value-naming type error
+// every native control primitive raises (KP3002), not an uncoded user error
+// (#2036); the name in the message stays 'dynamic-wind' rather than the
+// internal %push-wind (#1375).
 const dynamic_wind_src =
     \\(define dynamic-wind
     \\  (let ((%push-wind %push-wind) (%pop-wind %pop-wind)
-    \\        (procedure? procedure?) (not not) (error error))
+    \\        (%check-procedure %check-procedure))
     \\    (lambda (before thunk after)
-    \\      (if (not (procedure? before))
-    \\          (error "type error in 'dynamic-wind': expected procedure, got" before))
-    \\      (if (not (procedure? thunk))
-    \\          (error "type error in 'dynamic-wind': expected procedure, got" thunk))
-    \\      (if (not (procedure? after))
-    \\          (error "type error in 'dynamic-wind': expected procedure, got" after))
+    \\      (%check-procedure "dynamic-wind" before)
+    \\      (%check-procedure "dynamic-wind" thunk)
+    \\      (%check-procedure "dynamic-wind" after)
     \\      (before)
     \\      (%push-wind before after)
     \\      (let ((result (thunk)))

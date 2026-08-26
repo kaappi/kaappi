@@ -1359,7 +1359,16 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     if (resumesHere(self, target_frame_count, scope_root_seq)) continue;
                     return VMError.ContinuationInvoked;
                 } else {
-                    return VMError.NotAProcedure;
+                    // Match the non-tail path (callWithCurrentContinuation's
+                    // primitives.typeError): KP3002 naming call/cc and the
+                    // offending value. A detail-less NotAProcedure surfaced as
+                    // KP3005 with the literal message "error" (#2036). Routed
+                    // through typeError itself so the rendering stays
+                    // byte-identical to the non-tail path (safeValueDescription:
+                    // bounded, cycle-safe, no allocation); mapNativeError only
+                    // synthesizes a detail when none is set.
+                    const perr = @import("primitives.zig").typeError("call/cc", "procedure", receiver);
+                    return vm_calls.mapNativeError(self, perr, "call/cc", &[_]Value{receiver});
                 }
             },
             .tail_eval => {
