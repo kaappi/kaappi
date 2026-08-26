@@ -908,6 +908,154 @@
         (if (= i (string-length s)) n
             (loop (+ i 1) (if (char=? (string-ref s i) #\newline) (+ n 1) n)))))))
 
+;;; ================================ completing the #2292 rework
+
+;; Spec, (trimmed/lazy width fmt ...): "a variant of trimmed which generates
+;; each fmt in left-to-right order, and truncates and terminates immediately
+;; if more than width characters are generated.  It does not output ellipsis.
+;; Thus this is safe to use with an infinite amount of output, e.g. from
+;; written-simply on an infinite list."
+(test-equal "trimmed/lazy: truncates on the right like trimmed/right"
+  "abc" (show #f (trimmed/lazy 3 "abcdef")))
+(test-equal "trimmed/lazy: no ellipsis is output even when one is set"
+  "abc" (show #f (with (( ellipsis "...")) (trimmed/lazy 3 "abcdef"))))
+(test-equal "trimmed/lazy: a zero width outputs nothing"
+  "" (show #f (trimmed/lazy 0 "abc")))
+;; The defining property: the infinite generator must be TERMINATED, not just
+;; truncated after the fact -- a circular list under written-simply generates
+;; without end, so only lazy generation can answer at all.
+(test-equal "trimmed/lazy: terminates an infinite written-simply stream"
+  "(1 2 1 "
+  (let ((cyc (list 1 2)))
+    (set-cdr! (cdr cyc) cyc)
+    (show #f (trimmed/lazy 7 (written-simply cyc)))))
+;; ...and the output hook it rides on must be unbound again afterwards.
+(test-equal "trimmed/lazy: output after the form is not truncated"
+  "ab|z   " (show #f (trimmed/lazy 2 "abcdef") "|" (padded/right 4 "z")))
+
+;; Spec, (make-state-variable name default [immutable]): "Returns a new state
+;; variable suitable for use in fn and with, etc."; "If immutable is true, the
+;; state variable can only be dynamically bound with with, and not set with
+;; with!."
+(define %my-var (make-state-variable "my" 5))
+(test-equal "make-state-variable: the default is visible through fn"
+  "5" (show #f (fn ((v %my-var)) (displayed v))))
+(test-equal "make-state-variable: with binds and restores"
+  "9" (show #f (with (( %my-var 9)) (fn ((v %my-var)) (displayed v)))))
+(test-equal "make-state-variable: the binding does not escape with"
+  "95" (show #f (with (( %my-var 9)) (fn ((v %my-var)) (displayed v)))
+                  (fn ((v %my-var)) (displayed v))))
+(test-assert "make-state-variable: with! on an immutable variable is an error"
+  (not (ok? (lambda ()
+              (show #f (with! (make-state-variable "iv" 1 #t) 2) "x")))))
+(test-equal "make-state-variable: with may still bind an immutable variable"
+  "9"
+  (let ((iv (make-state-variable "iv" 1 #t)))
+    (show #f (with (( iv 9)) (fn ((v iv)) (displayed v))))))
+
+;; Spec, numeric/fitted: "Like numeric, but if the result doesn't fit in width
+;; using the current precision, output instead a string of hashes rather than
+;; showing an incorrectly truncated number."
+(test-equal "numeric/fitted: a value that fits is shown as is"
+  "1.25" (show #f (with (( precision 2)) (numeric/fitted 4 1.25))))
+(test-equal "numeric/fitted: an overflowing fixed-point value becomes hashes"
+  "#.##" (show #f (with (( precision 2)) (numeric/fitted 4 12.345))))
+(test-equal "numeric/fitted: precision 0 overflow is all hashes"
+  "##" (show #f (with (( precision 0)) (numeric/fitted 2 123.45))))
+
+;; Spec, joined/dot: "Like joined, but if the list is a dotted list, then
+;; formats the dotted value with dot-mapper instead."
+;; (show #f "(" (joined/dot displayed (lambda (dot) (each ". " dot))
+;;                          '(1 2 . 3) " ") ")")  =>  "(1 2 . 3)"
+(test-equal "joined/dot: the spec's dotted-list example"
+  "(1 2 . 3)"
+  (show #f "(" (joined/dot displayed (lambda (dot) (each ". " dot))
+                           '(1 2 . 3) " ") ")"))
+
+;; Spec, the writer state variable: "The mapper for automatic formatting of
+;; non-string/char values in top-level show, each and other formatters."
+(test-equal "writer: overriding it formats unhandled values"
+  "W" (show #f (with (( writer (lambda (x) (displayed "W")))) 42)))
+
+;; written labels cycles only -- plain (acyclic) sharing prints duplicated,
+;; like write.  Pins the exit-timing of the shared-object walk.
+(test-equal "written: plain acyclic sharing is not labelled"
+  "((1 2) (1 2))"
+  (let ((x (list 1 2))) (show #f (written (list x x)))))
+(test-equal "written: a cycle among sharing is labelled, the sharing is not"
+  "((1 2) ((1 2) #0=(#0#)))"
+  (let* ((y (list 1 2))
+         (c (list 0)))
+    (set-car! c c)
+    (show #f (written (list y (list y c))))))
+
+;; The shared-object walk and the token stream are both iterative: a long
+;; flat list neither overflows the stack nor has to fit in one string.
+;; KAAPPI_GC_STRESS_SKIP lists this file (reason (a), too slow under stress):
+;; this assertion streams 50,000 elements, each token allocating against the
+;; whole live list, which is quadratic under collection-on-every-allocation.
+(test-assert "written: a 50,000-element list does not overflow the stack"
+  (positive? (string-length (show #f (written (make-list 50000 'x))))))
+
+;; Spec, comma-sep: separators come from state variables too.
+(test-equal "numeric: the comma-sep state variable names the separator"
+  "1.234.567"
+  (show #f (with (( comma-rule 3) ( comma-sep #\.)) (numeric 1234567))))
+;; Spec, decimal-align: "an alignment for the decimal place ... useful for
+;; outputting tables of numbers" -- the points must land in one column.
+(test-equal "numeric: decimal-align aligns the decimal points"
+  "    1.50\n   22.50"
+  (show #f (with (( decimal-align 5) ( precision 2))
+                 (numeric 1.5) nl (numeric 22.5))))
+
+;; Spec, word-separator?: "A character predicate used to tokenize words for
+;; wrapped and justify", defaulting to char-whitespace?.
+(test-equal "wrapped: tokenizes on the word-separator? predicate"
+  "ab cd\nef gh"
+  (show #f (with (( width 5)
+                  ( word-separator? (lambda (c) (char=? c #\,))))
+                 (wrapped "ab,cd,ef,gh"))))
+
+;; Spec, escaped's renamer: "a procedure of one character which maps that
+;; character to its escape value".
+(test-equal "escaped: the renamer maps characters to their escape value"
+  "\\bbc"
+  (show #f (escaped "abc" #\" #\\ (lambda (c) (and (char=? c #\a) "b")))))
+
+;; Spec, string-terminal-width/wide: like string-terminal-width, "except the
+;; ambiguous-is-wide? parameter is treated as true" -- East Asian Ambiguous
+;; characters (here: Greek alpha) count as 2.
+(test-equal "string-terminal-width: an ambiguous character counts as 1"
+  1 (string-terminal-width "\x3b1;"))
+(test-equal "string-terminal-width/wide: an ambiguous character counts as 2"
+  2 (string-terminal-width/wide "\x3b1;"))
+(test-equal "substring-terminal-width/wide: wide-range selection"
+  "\xff41;\xff42;" (substring-terminal-width/wide fullwidth-abc 0 4))
+
+;; The SRFI's own worked example shape: a pretty-printed definition beside a
+;; justified docstring.  Every line carries the border, and the layout spans
+;; several lines at a narrow width.
+(test-assert "columnar: pretty beside justified, the spec's worked example"
+  (let ((s (show #f (with (( width 60))
+                          (columnar
+                            (pretty '(define (fold kons knil ls)
+                                       (if (null? ls)
+                                           knil
+                                           (fold kons (kons (car ls) knil)) (cdr ls))))
+                            " ; "
+                            (justified "The fundamental list recursion operator. kons is called for each element, knil is the seed."))))))
+    (and (> (count-lines s) 3)
+         (let every ((i 0) (ok #t))
+           (cond ((not ok) #f)
+                 ((= i (string-length s)) #t)
+                 ((and (char=? (string-ref s i) #\newline)
+                       (< (+ i 1) (string-length s)))
+                  (every (+ i 1)
+                         (contains? (substring s (+ i 1)
+                                               (min (string-length s) (+ i 61)))
+                                    " ; ")))
+                 (else (every (+ i 1) ok)))))))
+
 ;;; ============================================ export inventory (D1-shaped)
 
 ;; The spec's index lists names beyond the historical 50; each assertion below

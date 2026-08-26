@@ -233,13 +233,18 @@
              st2)))))
 
     ;; with! is a procedure taking flat (state-var value) pairs and setting
-    ;; them permanently (the state variables are first-class values).
+    ;; them permanently (the state variables are first-class values).  An
+    ;; immutable state variable "can only be dynamically bound with with, and
+    ;; not set with with!" — with! on one is an error.
     (define (with! . bindings)
       (lambda (st)
         (let loop ((bs bindings))
           (if (null? bs)
               st
               (begin
+                (if (state-variable-immutable? (car bs))
+                    (error "with!: immutable state variable"
+                           (state-variable-name (car bs))))
                 (%st-set! st (car bs) (cadr bs))
                 (loop (cddr bs)))))))
 
@@ -449,10 +454,45 @@
     (define (fitted/both w . fmts)
       (padded/both w (apply trimmed/both (cons w fmts))))
 
-    ;; A non-lazy stand-in for trimmed/lazy: correct for finite output (the
-    ;; infinite-stream laziness has no observable effect for the finite tests).
+    ;; Spec: "a variant of trimmed which generates each fmt in left-to-right
+    ;; order, and truncates and terminates immediately if more than width
+    ;; characters are generated.  It does not output ellipsis.  Thus this is
+    ;; safe to use with an infinite amount of output, e.g. from
+    ;; written-simply on an infinite list."
+    ;;
+    ;; Laziness is realized through the `output` state variable: the writer
+    ;; streams one token at a time (see %write-stream), so a counting output
+    ;; hook sees each chunk as it is generated and, once the budget is spent,
+    ;; terminates the whole walk by invoking an escape continuation — no
+    ;; amount of further generation can follow.  The output binding is
+    ;; restored on both exit paths (a plain `with` would skip its restore on
+    ;; the escape path), and chunks are delegated to the output binding found
+    ;; on entry so nested uses compose.
     (define (trimmed/lazy w . fmts)
-      (apply trimmed/right (cons w fmts)))
+      (lambda (st)
+        (call/cc
+          (lambda (return)
+            (let ((kept 0)
+                  (saved (%st-ref st output)))
+              (define (finish st2)
+                (%st-set! st2 output saved)
+                (return st2))
+              (define (lazy-output str)
+                (lambda (st2)
+                  (let ((room (- w kept)))
+                    (cond
+                      ((<= room 0) (finish st2))
+                      ((<= (string-length str) room)
+                       (set! kept (+ kept (string-length str)))
+                       ((saved str) st2))
+                      (else
+                        (set! kept w)
+                        (finish ((saved (substring str 0 room)) st2)))))))
+              (let ((st2 (begin
+                           (%st-set! st output lazy-output)
+                           ((apply each fmts) st))))
+                (%st-set! st2 output saved)
+                st2))))))
 
     ;;; ================================================== escaping
 
@@ -689,27 +729,52 @@
 
     ;;; =============================================== shared structures
 
+    ;; Iterative depth-first walk (explicit enter/exit worklist) so a long
+    ;; list does not consume stack.  The `exit` event runs the same
+    ;; delete-if-not-revisited check the recursive original ran after a
+    ;; subtree completed -- and the timing of that check is exactly what
+    ;; distinguishes a cycle (revisited before its first visit completes, so
+    ;; the count is already 2 and the entry survives `cyclic-only?` deletion)
+    ;; from plain sharing (revisited only after the entry was deleted, so it
+    ;; is re-counted from 1 and is kept only when `cyclic-only?` is #f).
     (define (extract-shared-objects x cyclic-only?)
       (let ((seen (make-hash-table eq?)))
-        (let find ((x x))
-          (cond
-            ((or (pair? x) (vector? x))
-             (hash-table-update!/default seen x (lambda (n) (+ n 1)) 0)
-             (cond
-               ((> (hash-table-ref seen x) 1))
-               ((pair? x) (find (car x)) (find (cdr x)))
-               ((vector? x)
-                (let ((len (vector-length x)))
-                  (do ((i 0 (+ i 1))) ((= i len)) (find (vector-ref x i))))))
-             (if (and cyclic-only? (<= (hash-table-ref/default seen x 0) 1))
-                 (hash-table-delete! seen x)))))
-        (let ((res (make-hash-table eq?)) (count 0))
-          (hash-table-walk seen
-            (lambda (k v)
-              (cond ((> v 1)
-                     (hash-table-set! res k (cons count #f))
-                     (set! count (+ count 1))))))
-          (cons res 0))))
+        (let loop ((todo (list (cons 'enter x))))
+          (if (null? todo)
+              (let ((res (make-hash-table eq?)) (count 0))
+                (hash-table-walk seen
+                  (lambda (k v)
+                    (cond ((> v 1)
+                           (hash-table-set! res k (cons count #f))
+                           (set! count (+ count 1))))))
+                (cons res 0))
+              (let ((ev (car todo))
+                    (rest (cdr todo)))
+                (cond
+                  ((eq? (car ev) 'exit)
+                   (if (and cyclic-only?
+                            (<= (hash-table-ref/default seen (cdr ev) 0) 1))
+                       (hash-table-delete! seen (cdr ev)))
+                   (loop rest))
+                  ((not (or (pair? (cdr ev)) (vector? (cdr ev)))) (loop rest))
+                  (else
+                   (let ((x (cdr ev)))
+                     (hash-table-update!/default seen x (lambda (n) (+ n 1)) 0)
+                     (cond
+                       ((> (hash-table-ref seen x) 1) (loop rest))
+                       ((pair? x)
+                        (loop (cons (cons 'enter (car x))
+                                    (cons (cons 'enter (cdr x))
+                                          (cons (cons 'exit x) rest)))))
+                       (else
+                        (loop (let ((len (vector-length x)))
+                                (let build ((i (- len 1))
+                                            (acc (cons (cons 'exit x) rest)))
+                                  (if (< i 0)
+                                      acc
+                                      (build (- i 1)
+                                             (cons (cons 'enter (vector-ref x i))
+                                                   acc))))))))))))))))
 
     (define (%gen-shared-ref cell shares)
       (set-car! cell (cdr shares))
@@ -717,27 +782,16 @@
       (set-cdr! shares (+ (cdr shares) 1))
       (number->string (car cell)))
 
-    (define (%shared-ref-prefix obj shares proc)
-      (let ((cell (hash-table-ref/default (car shares) obj #f)))
-        (cond
-          ((and (pair? cell) (cdr cell))
-           (string-append "#" (number->string (car cell)) "#"))
-          ((pair? cell)
-           (string-append "#" (%gen-shared-ref cell shares) "=" (proc)))
-          (else (proc)))))
-
-    (define (%shared-ref-cdr obj shares proc)
-      (let ((cell (hash-table-ref/default (car shares) obj #f)))
-        (cond
-          ((and (pair? cell) (cdr cell))
-           (string-append ". #" (number->string (car cell)) "#"))
-          ((pair? cell)
-           (string-append ". #" (%gen-shared-ref cell shares) "=(" (proc) ")"))
-          (else (proc)))))
-
-    ;; Flatten obj to a string, labelling shared structure, with numbers
-    ;; formatted according to radix/precision.
-    (define (%write-flat obj shares radix precision)
+    ;; Stream obj to (emit string) one token at a time ("(", each element,
+    ;; separators, ")"), labelling shared structure per the `shares` table,
+    ;; with numbers formatted per radix/precision.  Chunked emission is what
+    ;; makes `trimmed/lazy` able to truncate and *terminate* an infinite
+    ;; generator such as written-simply on a circular list: emit runs after
+    ;; every token, so an `output` override observing the chunks can stop the
+    ;; walk.  The list/vector spines iterate tail-recursively so a long list
+    ;; does not consume stack (the previous whole-string builder recursed
+    ;; non-tail once per element).
+    (define (%write-stream obj shares radix precision emit)
       ;; Per the spec, `written` uses the radix only for 2/8/10/16 (the
       ;; readable radices), and fixed-point precision only when the radix is
       ;; 10.  Precision must not disable the radix branch for non-decimal
@@ -749,56 +803,84 @@
              (if precision (%number->string n 10 precision #f #f #f #f #f) (number->string n)))
             ((and cell (exact? n)) (string-append (cdr cell) (number->string n (car cell))))
             (else (%number->string n 10 precision #f #f #f #f #f)))))
-      (let wr ((obj obj))
-        (%shared-ref-prefix
-          obj shares
-          (lambda ()
-            (cond
-              ((pair? obj)
-               (string-append
-                 "("
-                 (let lp ((ls obj))
-                   (let ((rest (cdr ls)))
-                     (string-append
-                       (wr (car ls))
-                       (cond
-                         ((null? rest) "")
-                         ((pair? rest)
-                          (string-append " " (%shared-ref-cdr rest shares (lambda () (lp rest)))))
-                         (else (string-append " . " (wr rest)))))))
-                 ")"))
-              ((vector? obj)
-               (let ((len (vector-length obj)))
-                 (if (zero? len)
-                     "#()"
-                     (let loop ((i 0) (acc "#("))
-                       (if (= i len)
-                           (string-append acc ")")
-                           (loop (+ i 1)
-                                 (string-append acc (if (zero? i) "" " ")
-                                                (wr (vector-ref obj i)))))))))
-              ((number? obj) (write-number obj))
-              (else (%write-to-string obj)))))))
+      (define (emit-shared-cdr rest k)
+        ;; k continues the spine walk from rest's elements.
+        (let ((cell (hash-table-ref/default (car shares) rest #f)))
+          (cond
+            ((and (pair? cell) (cdr cell))
+             (emit (string-append ". #" (number->string (car cell)) "#")))
+            ((pair? cell)
+             (emit (string-append ". #" (%gen-shared-ref cell shares) "=("))
+             (k)
+             (emit ")"))
+            (else (k)))))
+      (define (wr obj)
+        (let ((cell (hash-table-ref/default (car shares) obj #f)))
+          (cond
+            ((and (pair? cell) (cdr cell))
+             (emit (string-append "#" (number->string (car cell)) "#")))
+            ((pair? cell)
+             (emit (string-append "#" (%gen-shared-ref cell shares) "="))
+             (wr-body obj))
+            (else (wr-body obj)))))
+      (define (wr-body obj)
+        (cond
+          ((pair? obj)
+           (emit "(")
+           (let lp ((ls obj))
+             (wr (car ls))
+             (let ((rest (cdr ls)))
+               (cond
+                 ((null? rest))
+                 ((pair? rest)
+                  (emit " ")
+                  (emit-shared-cdr rest (lambda () (lp rest))))
+                 (else (emit " . ") (wr rest)))))
+           (emit ")"))
+          ((vector? obj)
+           (emit "#(")
+           (let ((len (vector-length obj)))
+             (do ((i 0 (+ i 1)))
+                 ((= i len))
+               (if (positive? i) (emit " "))
+               (wr (vector-ref obj i))))
+           (emit ")"))
+          ((number? obj) (emit (write-number obj)))
+          (else (emit (%write-to-string obj)))))
+      (wr obj))
+
+    ;; Flatten obj to a single string: %write-stream accumulated in order.
+    ;; Used where a whole string is genuinely needed, e.g. pretty's
+    ;; does-it-fit decision.
+    (define (%write-flat obj shares radix precision)
+      (let ((acc '()))
+        (%write-stream obj shares radix precision
+                       (lambda (s) (set! acc (cons s acc))))
+        (apply string-append (reverse acc))))
+
+    ;; Stream obj's tokens through the `output` state variable, threading the
+    ;; state through each chunk.  `written` alone consults the `writer` state
+    ;; variable (it is the mapper for *automatic* formatting of non-string
+    ;; values via displayed's fallback; -shared/-simply are explicit).
+    (define (%write-to-state st obj shares)
+      (let ((cur (list st)))
+        (%write-stream obj shares (%st-ref st radix) (%st-ref st precision)
+                       (lambda (s) (set-car! cur (%output-string (car cur) s))))
+        (car cur)))
 
     (define (written obj)
       (lambda (st)
         (let ((w (%st-ref st writer)))
           (if w
               ((w obj) st)
-              (%output-string st
-                (%write-flat obj (extract-shared-objects obj #t)
-                             (%st-ref st radix) (%st-ref st precision)))))))
+              (%write-to-state st obj (extract-shared-objects obj #t))))))
 
     (define (written-shared obj)
       (lambda (st)
-        (%output-string st
-          (%write-flat obj (extract-shared-objects obj #f)
-                       (%st-ref st radix) (%st-ref st precision)))))
+        (%write-to-state st obj (extract-shared-objects obj #f))))
 
     (define (written-simply obj)
       (lambda (st)
-        (%output-string st
-          (%write-flat obj (extract-shared-objects #f #f)
-                       (%st-ref st radix) (%st-ref st precision)))))
+        (%write-to-state st obj (extract-shared-objects #f #f))))
 
     ))

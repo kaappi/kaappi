@@ -747,6 +747,63 @@ view there too, which a literal R7RS vector cannot provide in portable Scheme
 documented scope reduction, unlike `array-flatten`, which the spec itself
 mandates as always a fresh copy regardless of source mode.
 
+### SRFI 166 — Monadic Formatting
+
+SRFI 166 ships as six libraries: `(srfi 166 base)` holds the entire state
+model and formatting core, and `(srfi 166)` re-exports base plus the four
+sub-libraries (`pretty`, `columnar`, `unicode`, `color`) from
+`lib/srfi/166/`. The #2292 rewrite put every state variable, `fn`/`with`
+macro, and formatter on one architecture: a state variable is a record
+carrying name/default/immutable (so `make-state-variable` is the real spec
+extension point, and `with!` errors on an immutable one because the spec
+allows "only dynamically bound with with"), the formatting state is a hash
+table keyed by the state-variable *object*, formatters mutate the state in
+place, and `with` restores exactly the variables it bound — which is why
+`col`/`row` survive a `with` while `forked`/`call-with-output` snapshot the
+whole table with `hash-table-copy`. Three constraints from that file that
+are invisible from the code and easy to break:
+
+1. **The writer streams token by token, and that is load-bearing.**
+   `%write-stream` calls `(emit string)` for every token ("(", each element,
+   separators, ")") rather than building one string; `written` and friends
+   thread each chunk through the `output` state variable. This is what makes
+   `trimmed/lazy` implementable at all: it installs a counting `output` hook
+   and, when the width budget is spent, unwinds the *generator itself* via a
+   `call/cc` escape — the spec's only mechanism that is "safe to use with an
+   infinite amount of output, e.g. from written-simply on an infinite
+   (circular) list". Regressing `%write-stream` back to whole-string
+   accumulation reinstates a hard KP3008 stack overflow on that case (the
+   audit pins it). Two related details: the list/vector spines are written
+   tail-recursively (a 50k-element list must not overflow), and
+   `trimmed/lazy` must restore the `output` binding on its escape path by
+   hand — a plain `with` skips its restore on a non-local exit, which would
+   strand the counting hook in the state for every later formatter.
+2. **`extract-shared-objects`' exit-event timing is the cycle/sharing
+   distinction.** The walk is an explicit enter/exit worklist (again so long
+   lists don't consume stack). An entry survives the `cyclic-only?` deletion
+   only if it was revisited *before* its first visit completed — that is a
+   cycle, kept for `written`'s datum labels; plain acyclic sharing re-visits
+   only after the exit event deleted the entry, so it re-counts from one and
+   `written` prints it duplicated, exactly like `write`, while
+   `written-shared` keeps it. Moving the delete earlier (e.g. to make the
+   cdr walk a tail call) misses cycles and hangs the writer on circular
+   data; moving it later labels sharing under plain `written`, which the
+   spec reserves for `-shared`.
+3. **Label numbers are assigned at first emission, not by the walk.** The
+   count stored in the shared table is a placeholder; `%gen-shared-ref`
+   overwrites it from a counter at the moment the label is first printed,
+   so numbering follows output order (`#0=` then `#0#`) regardless of hash
+   iteration order.
+
+A test-harness trap worth knowing: the library search order is explicit
+`--lib-path`, then the auto-added script dir, `~/.kaappi/lib`, and the
+exe-relative `zig-out/lib`, all *before* the cwd `lib/` fallback — so an
+installed or previously-built copy silently shadows edits to the source
+tree, and `zig build` (which re-installs `lib/` into `zig-out/lib`) must be
+rerun after every `.sld` edit. The shell suites isolate this with a temp
+`KAAPPI_HOME`; do the same when running
+`tests/scheme/srfi/srfi166-audit.scm` by hand.
+
 ### SRFI 63 — homogeneous and heterogeneous arrays
 
 SRFI 63 (homogeneous and heterogeneous arrays), the third piece of #1694's

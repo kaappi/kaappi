@@ -460,7 +460,13 @@ jobs:
           #     tail-recursion fix past the 32,768 frame cap -- ~0.1 s plain,
           #     exit 124 stressed (measured quadratic: ~3 min at 40k on a
           #     fast machine); the n = 0 guard half of #2084 stays stressed
-          #     in srfi178-audit.scm.
+          #     in srfi178-audit.scm. srfi166-audit.scm streams a
+          #     50,000-element list through the token writer to pin #2344's
+          #     iterative (non-recursing) written/pretty stack-safety -- ~0.1 s
+          #     plain, exit 124 stressed since each emitted token allocates
+          #     against the whole live list (and its parallel lane starves a
+          #     sibling into a timeout too); the full 285-assertion audit still
+          #     runs unstressed on every other leg.
           #
           # (b) REAL BUGS THIS GATE FOUND ON ITS FIRST RUN -- excluded so the
           #     gate is green for everything else, exactly as the campaign
@@ -497,8 +503,8 @@ jobs:
           # cannot rot into a silent no-op.
           KAAPPI_GC_STRESS_SKIP: >-
             trampoline-polish-1375.scm srfi14.scm srfi264.scm
-            reader-port-refill-gaps.scm srfi178-segment-stack-2084.scm
-            srfi18-deepcopy-matrix-audit.scm
+            srfi166-audit.scm reader-port-refill-gaps.scm
+            srfi178-segment-stack-2084.scm srfi18-deepcopy-matrix-audit.scm
 
   riscv64-test:
     needs: format
