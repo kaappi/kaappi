@@ -80,6 +80,19 @@ const definitions = [_][]const u8{
     string_map_src,
     dynamic_wind_src,
     force_src,
+    // SRFI 1 / SRFI 69 higher-order drivers whose callbacks may capture and
+    // resume a continuation (e.g. a SRFI 158 coroutine-backed generator). The
+    // native versions re-entered the VM under a Zig frame, so a continuation
+    // captured in the callback could not be resumed once that frame returned
+    // (kaappi#2060). Scoped to the six the SRFI 158 spec examples flow through;
+    // the remaining native SRFI 1 drivers keep the restriction (see README
+    // "Known limitations -> Continuations").
+    fold_src,
+    filter_src,
+    any_src,
+    every_src,
+    unfold_src,
+    hash_table_walk_src,
 };
 
 const for_each_src =
@@ -355,4 +368,151 @@ const force_src =
     \\                                        (%promise-set-forcing! current #f)
     \\                                        (%promise-complete! current result)
     \\                                        result))))))))))))))
+;
+
+// (fold kons knil list1 ...) — matches the native driver it replaces: stops at
+// the first exhausted (null) list, raises on a non-pair tail, and does not
+// pre-check kons (a non-procedure surfaces as the VM's own "not a procedure"
+// when first applied). Multi-list form calls (kons e1 e2 ... acc) via apply.
+const fold_src =
+    \\(define fold
+    \\  (let ((null? null?) (pair? pair?) (car car) (cdr cdr) (cons cons)
+    \\        (apply apply) (error error))
+    \\    (lambda (kons knil list1 . lists)
+    \\      (if (null? lists)
+    \\          (let loop ((lst list1) (acc knil))
+    \\            (if (pair? lst)
+    \\                (loop (cdr lst) (kons (car lst) acc))
+    \\                (if (null? lst) acc (error "fold: not a proper list"))))
+    \\          (let loop ((lsts (cons list1 lists)) (acc knil))
+    \\            (let ((go (let check ((l lsts))
+    \\                        (if (null? l) #t
+    \\                            (if (null? (car l)) #f
+    \\                                (if (not (pair? (car l)))
+    \\                                    (error "fold: not a proper list")
+    \\                                    (check (cdr l))))))))
+    \\              (if go
+    \\                  (loop
+    \\                    (let cdrs ((l lsts))
+    \\                      (if (null? l) '()
+    \\                          (cons (cdr (car l)) (cdrs (cdr l)))))
+    \\                    (apply kons
+    \\                      (let cars ((l lsts))
+    \\                        (if (null? l) (cons acc '())
+    \\                            (cons (car (car l)) (cars (cdr l)))))))
+    \\                  acc)))))))
+;
+
+// (filter pred list) — keeps elements for which pred is true, in order.
+// An empty list never calls pred (so a non-procedure pred is not reached),
+// matching the native driver.
+const filter_src =
+    \\(define filter
+    \\  (let ((null? null?) (pair? pair?) (car car) (cdr cdr) (cons cons)
+    \\        (reverse reverse) (error error))
+    \\    (lambda (pred lst)
+    \\      (let loop ((lst lst) (acc '()))
+    \\        (if (pair? lst)
+    \\            (let ((x (car lst)))
+    \\              (loop (cdr lst) (if (pred x) (cons x acc) acc)))
+    \\            (if (null? lst) (reverse acc)
+    \\                (error "filter: not a proper list")))))))
+;
+
+// (any pred list1 ...) — first truthy (pred e ...) value, else #f. Short-
+// circuits, so a truthy hit before a non-pair tail returns without error.
+const any_src =
+    \\(define any
+    \\  (let ((null? null?) (pair? pair?) (car car) (cdr cdr) (cons cons)
+    \\        (apply apply) (not not) (error error))
+    \\    (lambda (pred list1 . lists)
+    \\      (if (null? lists)
+    \\          (let loop ((lst list1))
+    \\            (if (pair? lst)
+    \\                (let ((r (pred (car lst))))
+    \\                  (if r r (loop (cdr lst))))
+    \\                (if (null? lst) #f (error "any: not a proper list"))))
+    \\          (let loop ((lsts (cons list1 lists)))
+    \\            (let ((go (let check ((l lsts))
+    \\                        (if (null? l) #t
+    \\                            (if (null? (car l)) #f
+    \\                                (if (not (pair? (car l)))
+    \\                                    (error "any: not a proper list")
+    \\                                    (check (cdr l))))))))
+    \\              (if go
+    \\                  (let ((r (apply pred
+    \\                             (let cars ((l lsts))
+    \\                               (if (null? l) '()
+    \\                                   (cons (car (car l)) (cars (cdr l))))))))
+    \\                    (if r r
+    \\                        (loop
+    \\                          (let cdrs ((l lsts))
+    \\                            (if (null? l) '()
+    \\                                (cons (cdr (car l)) (cdrs (cdr l))))))))
+    \\                  #f)))))))
+;
+
+// (every pred list1 ...) — #f as soon as pred is false, else the last pred
+// result (#t over an empty list). Short-circuits like any.
+const every_src =
+    \\(define every
+    \\  (let ((null? null?) (pair? pair?) (car car) (cdr cdr) (cons cons)
+    \\        (apply apply) (not not) (error error))
+    \\    (lambda (pred list1 . lists)
+    \\      (if (null? lists)
+    \\          (let loop ((lst list1) (last #t))
+    \\            (if (pair? lst)
+    \\                (let ((r (pred (car lst))))
+    \\                  (if r (loop (cdr lst) r) #f))
+    \\                (if (null? lst) last (error "every: not a proper list"))))
+    \\          (let loop ((lsts (cons list1 lists)) (last #t))
+    \\            (let ((go (let check ((l lsts))
+    \\                        (if (null? l) #t
+    \\                            (if (null? (car l)) #f
+    \\                                (if (not (pair? (car l)))
+    \\                                    (error "every: not a proper list")
+    \\                                    (check (cdr l))))))))
+    \\              (if go
+    \\                  (let ((r (apply pred
+    \\                             (let cars ((l lsts))
+    \\                               (if (null? l) '()
+    \\                                   (cons (car (car l)) (cars (cdr l))))))))
+    \\                    (if r
+    \\                        (loop
+    \\                          (let cdrs ((l lsts))
+    \\                            (if (null? l) '()
+    \\                                (cons (cdr (car l)) (cdrs (cdr l)))))
+    \\                          r)
+    \\                        #f))
+    \\                  last)))))))
+;
+
+// (unfold p f g seed [tail-gen]) — builds (f seed0) (f seed1) ... in order,
+// then appends (tail-gen final-seed) or '(). Only a 5th argument is consulted,
+// matching the native driver.
+const unfold_src =
+    \\(define unfold
+    \\  (let ((null? null?) (car car) (cdr cdr) (cons cons))
+    \\    (lambda (p f g seed . tail-gen)
+    \\      (let loop ((seed seed) (acc '()))
+    \\        (if (p seed)
+    \\            (let ((tail (if (null? tail-gen) '() ((car tail-gen) seed))))
+    \\              (let rev ((a acc) (r tail))
+    \\                (if (null? a) r (rev (cdr a) (cons (car a) r)))))
+    \\            (loop (g seed) (cons (f seed) acc)))))))
+;
+
+// (hash-table-walk ht proc) — calls (proc key value) for every entry. Walks a
+// hash-table->alist snapshot so the callback may capture and resume a
+// continuation; the native version snapshotted the same way before calling.
+const hash_table_walk_src =
+    \\(define hash-table-walk
+    \\  (let ((null? null?) (car car) (cdr cdr)
+    \\        (hash-table->alist hash-table->alist))
+    \\    (lambda (ht proc)
+    \\      (let loop ((es (hash-table->alist ht)))
+    \\        (if (null? es)
+    \\            (if #f #f)
+    \\            (begin (proc (car (car es)) (cdr (car es)))
+    \\                   (loop (cdr es))))))))
 ;

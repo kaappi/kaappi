@@ -385,6 +385,22 @@ captured in tight inner loops. Continuations captured in one top-level REPL
 expression cannot re-enter subsequent top-level expressions (standard behavior
 shared by Guile, Chibi, Chicken, Chez, and Racket).
 
+A continuation captured inside the callback of a **native driver** — a
+higher-order procedure implemented in Zig that re-enters the VM once per
+element — cannot be resumed once that driver's call has returned, because the
+driver's state lives on the Zig stack, not in the copied VM state. This is the
+restriction [CONFORMANCE.md](CONFORMANCE.md) refers to. It is why a
+continuation-backed value (e.g. a SRFI 158 coroutine generator, which captures
+a continuation on every `yield`) breaks when consumed inside such a driver. As
+of #2060 the SRFI-1 `fold`, `filter`, `any`, `every`, `unfold` and SRFI-69
+`hash-table-walk` run in the bytecode dispatch loop and are exempt — a coroutine
+generator can be folded, filtered, or walked freely. The remaining native
+SRFI-1 drivers still carry the restriction: `fold-right`, `reduce`,
+`reduce-right`, `find`, `find-tail`, `count`, `partition`, `remove`,
+`take-while`, `drop-while`, `delete`, `delete-duplicates`, `filter-map`,
+`append-map`, `pair-for-each`, `pair-fold`, the `lset-*` family, and
+`assoc`/`member` with a custom predicate, among others.
+
 SRFI 248's delimited continuations (`with-unwind-handler`, and the extended
 `guard`) are built on this `call/cc` via a sticky exception handler, with three
 observable caveats:
@@ -438,11 +454,12 @@ own, whose separate timing caveat is above.
 ### Fibers
 
 Callbacks driven by `map`, `for-each`, `vector-map`, `vector-for-each`,
-`string-map`, `string-for-each`, `dynamic-wind`, and `force` run in the
-bytecode dispatch loop, so a fiber can park inside them (e.g. block on an
-empty channel) and resume later. Other higher-order procedures are still
-native drivers — SRFI-1 (`fold`, `filter`, `find`, `any`, `every`, ...),
-`hash-table-walk`/`hash-table-update!`, `assoc`/`member` with a custom
+`string-map`, `string-for-each`, `dynamic-wind`, `force`, and — since #2060 —
+SRFI-1 `fold`, `filter`, `any`, `every`, `unfold` and SRFI-69 `hash-table-walk`
+run in the bytecode dispatch loop, so a fiber can park inside them (e.g. block
+on an empty channel) and resume later. Other higher-order procedures are still
+native drivers — SRFI-1 (`fold-right`, `reduce`, `find`, `count`, `partition`,
+`remove`, ...), `hash-table-update!`, `assoc`/`member` with a custom
 predicate, `string-index`, `eval`, ... — and a fiber that blocks on
 an empty channel inside one of those callbacks cannot be parked: the native
 call's state lives on the Zig stack and cannot be suspended. If other fibers

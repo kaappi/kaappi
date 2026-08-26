@@ -994,11 +994,16 @@
 ;;       (generator-unfold (make-for-each-generator string-for-each "abc") unfold)
 ;;                                                              => (#\a #\b #\c)
 ;;
-;;     and it does not run: SRFI 1's `unfold` is a native driver, and every
-;;     coroutine-backed generator — make-coroutine-generator,
-;;     make-for-each-generator, make-unfold-generator, and gtake — resumes a
-;;     continuation captured under it.  See #2060.
-;;     The controls below isolate the mechanism to the driver, not the SRFI.
+;;     It now runs: #2060 moved SRFI 1's `fold`, `filter`, `any`, `every`,
+;;     `unfold` and SRFI 69's `hash-table-walk` to bytecode-driven Scheme
+;;     (src/vm_bootstrap.zig), so a continuation captured inside their callback
+;;     — as every coroutine-backed generator (make-coroutine-generator,
+;;     make-for-each-generator, make-unfold-generator, gtake) does on yield —
+;;     can be resumed.  The controls below isolate the mechanism to the driver,
+;;     not the SRFI.  The remaining native SRFI 1 drivers (fold-right, find,
+;;     reduce, count, partition, remove, take-while, assoc/member with a
+;;     predicate, ...) keep the restriction — see #2060 and README
+;;     "Known limitations -> Continuations".
 ;; ---------------------------------------------------------------------------
 
 (define (portable-unfold stop? mapper successor seed . rest)
@@ -1030,37 +1035,36 @@
 (test-equal "CONTROL driver: a plain let* sequence resumes a coroutine freely"
             '(1 2 3) (let* ((g (fresh-coroutine)) (a (g)) (b (g)) (c (g))) (list a b c)))
 
-(test-assert "driver: SRFI 158's own generator-unfold example raises (see #2060)"
-             (raises? (lambda ()
-                        (generator-unfold (make-for-each-generator string-for-each "abc") unfold))))
-(test-assert "driver: gtake under SRFI 1 unfold raises (see #2060)"
-             (raises? (lambda () (generator-unfold (gtake (string->generator "abcdef") 3) unfold))))
-(test-assert "driver: make-unfold-generator under SRFI 1 unfold raises (see #2060)"
-             (raises? (lambda ()
-                        (generator-unfold
-                         (make-unfold-generator (lambda (s) (> s 2)) (lambda (s) s)
-                                                (lambda (s) (+ s 1)) 0)
-                         unfold))))
-(test-assert "driver: a coroutine generator under SRFI 1 fold raises (see #2060)"
-             (raises? (lambda () (let ((g (fresh-coroutine)))
-                                   (fold (lambda (i acc) (cons (g) acc)) '() '(a b c))))))
-(test-assert "driver: a coroutine generator under SRFI 1 filter raises (see #2060)"
-             (raises? (lambda () (let ((g (fresh-coroutine))) (filter (lambda (i) (g)) '(a b c))))))
-(test-assert "driver: a coroutine generator under SRFI 1 any raises (see #2060)"
-             (raises? (lambda () (let ((g (fresh-coroutine)))
-                                   (any (lambda (i) (eq? 99 (g))) '(a b c))))))
-(test-assert "driver: a coroutine generator under SRFI 1 every raises (see #2060)"
-             (raises? (lambda () (let ((g (fresh-coroutine))) (every (lambda (i) (g)) '(a b c))))))
-(test-assert "driver: a coroutine generator under hash-table-walk raises (see #2060)"
-             (raises? (lambda ()
-                        (let ((g (fresh-coroutine)) (h (make-hash-table equal?)) (acc '()))
-                          (hash-table-set! h 'a 1) (hash-table-set! h 'b 2) (hash-table-set! h 'c 3)
-                          (hash-table-walk h (lambda (k v) (set! acc (cons (g) acc))))
-                          acc))))
-(test-assert "driver: a gtake generator under SRFI 1 fold raises (see #2060)"
-             (raises? (lambda ()
-                        (let ((g (gtake (make-range-generator 0 100) 5)))
-                          (fold (lambda (i acc) (cons (g) acc)) '() '(a b c))))))
+(test-equal "driver: SRFI 158's own generator-unfold example resumes (see #2060)"
+            '(#\a #\b #\c)
+            (generator-unfold (make-for-each-generator string-for-each "abc") unfold))
+(test-equal "driver: gtake under SRFI 1 unfold resumes (see #2060)"
+            '(#\a #\b #\c) (generator-unfold (gtake (string->generator "abcdef") 3) unfold))
+(test-equal "driver: make-unfold-generator under SRFI 1 unfold resumes (see #2060)"
+            '(0 1 2)
+            (generator-unfold
+             (make-unfold-generator (lambda (s) (> s 2)) (lambda (s) s)
+                                    (lambda (s) (+ s 1)) 0)
+             unfold))
+(test-equal "driver: a coroutine generator under SRFI 1 fold resumes (see #2060)"
+            '(3 2 1) (let ((g (fresh-coroutine)))
+                       (fold (lambda (i acc) (cons (g) acc)) '() '(a b c))))
+(test-equal "driver: a coroutine generator under SRFI 1 filter resumes (see #2060)"
+            '(a b c) (let ((g (fresh-coroutine))) (filter (lambda (i) (g)) '(a b c))))
+(test-equal "driver: a coroutine generator under SRFI 1 any resumes (see #2060)"
+            #f (let ((g (fresh-coroutine))) (any (lambda (i) (eq? 99 (g))) '(a b c))))
+(test-equal "driver: a coroutine generator under SRFI 1 every resumes (see #2060)"
+            3 (let ((g (fresh-coroutine))) (every (lambda (i) (g)) '(a b c))))
+(test-equal "driver: a coroutine generator under hash-table-walk resumes (see #2060)"
+            '(3 2 1)
+            (let ((g (fresh-coroutine)) (h (make-hash-table equal?)) (acc '()))
+              (hash-table-set! h 'a 1) (hash-table-set! h 'b 2) (hash-table-set! h 'c 3)
+              (hash-table-walk h (lambda (k v) (set! acc (cons (g) acc))))
+              acc))
+(test-equal "driver: a gtake generator under SRFI 1 fold resumes (see #2060)"
+            '(2 1 0)
+            (let ((g (gtake (make-range-generator 0 100) 5)))
+              (fold (lambda (i acc) (cons (g) acc)) '() '(a b c))))
 (test-equal "CONTROL driver: the same gtake generator under map succeeds"
             '(0 1 2) (let ((g (gtake (make-range-generator 0 100) 5)))
                        (map (lambda (i) (g)) '(a b c))))
@@ -1072,46 +1076,43 @@
 
 ;; make-for-each-generator's stated job is to convert ANY collection: "converts
 ;; any collection obj to a generator that returns its elements using a for-each
-;; procedure appropriate for obj".  It works only when that for-each is one of
-;; the eight bytecode-driven primitives; a hash table or any SRFI 1-shaped
-;; walker cannot be converted at all.  Its very first item does come back — the
-;; failure is on resumption — so the damage is not visible until the second call.
+;; procedure appropriate for obj".  Since #2060 it works for a hash table and
+;; any SRFI 1-shaped walker built on the six converted drivers, not only the
+;; eight core bytecode-driven for-each primitives — the yield's continuation
+;; now resumes, so a multi-element collection drains instead of breaking on the
+;; second demand.
 (test-equal "driver: make-for-each-generator over hash-table-walk yields item 1"
             1 ((make-for-each-generator hash-walk (one-entry-table))))
-(test-assert "driver: ... but its second call raises (see #2060)"
-             (raises? (lambda ()
-                        (let* ((g (make-for-each-generator hash-walk (one-entry-table))) (a (g)))
-                          (g)))))
-(test-assert "driver: make-for-each-generator over hash-table-walk cannot be drained (see #2060)"
-             (raises? (lambda ()
-                        (generator->list (make-for-each-generator hash-walk (one-entry-table))))))
-(test-assert "driver: make-for-each-generator over an SRFI 1 walker cannot be drained (see #2060)"
-             (raises? (lambda () (generator->list (make-for-each-generator fold-walk '(1 2 3))))))
-(test-assert "driver: gtake over a hash-table-backed generator raises (see #2060)"
-             (raises? (lambda ()
-                        (generator->list
-                         (gtake (make-for-each-generator hash-walk (one-entry-table)) 2)))))
+(test-assert "driver: ... and its second call reaches eof (see #2060)"
+             (eof-object?
+              (let* ((g (make-for-each-generator hash-walk (one-entry-table))) (a (g)))
+                (g))))
+(test-equal "driver: make-for-each-generator over hash-table-walk drains (see #2060)"
+            '(1) (generator->list (make-for-each-generator hash-walk (one-entry-table))))
+(test-equal "driver: make-for-each-generator over an SRFI 1 walker drains (see #2060)"
+            '(1 2 3) (generator->list (make-for-each-generator fold-walk '(1 2 3))))
+(test-equal "driver: gtake over a hash-table-backed generator resumes (see #2060)"
+            '(1)
+            (generator->list
+             (gtake (make-for-each-generator hash-walk (one-entry-table)) 2)))
 (test-equal "CONTROL driver: the same walker shape over a bytecode-driven for-each works"
             '(1 2 3) (generator->list (make-for-each-generator for-each '(1 2 3))))
 
-;; FAIL: #2060 (SRFI 1's native unfold cannot resume a coroutine generator)
-;; (test-equal "spec example: generator-unfold over make-for-each-generator"
-;;             '(#\a #\b #\c)
-;;             (generator-unfold (make-for-each-generator string-for-each "abc") unfold))
-;; FAIL: #2060 (SRFI 1's native fold cannot resume a coroutine generator)
-;; (test-equal "driver: a coroutine generator drives SRFI 1 fold"
-;;             '(3 2 1) (let ((g (fresh-coroutine)))
-;;                        (fold (lambda (i acc) (cons (g) acc)) '() '(a b c))))
-;; FAIL: #2060 (SRFI 1's native fold cannot resume a gtake generator)
-;; (test-equal "driver: a gtake generator drives SRFI 1 fold"
-;;             '(2 1 0) (let ((g (gtake (make-range-generator 0 100) 5)))
-;;                        (fold (lambda (i acc) (cons (g) acc)) '() '(a b c))))
-;; FAIL: #2060 (hash-table-walk is a native driver, so its yield cannot resume)
-;; (test-equal "seam: a hash table becomes a generator through make-for-each-generator"
-;;             '(1) (generator->list (make-for-each-generator hash-walk (one-entry-table))))
-;; FAIL: #2060 (SRFI 1 fold is a native driver, so its yield cannot resume)
-;; (test-equal "driver: an SRFI 1-shaped walker becomes a generator"
-;;             '(1 2 3) (generator->list (make-for-each-generator fold-walk '(1 2 3))))
+;; Fixed by #2060 (formerly ;; FAIL): the six converted drivers resume a
+;; coroutine-backed generator, so these spec-shaped examples now run.
+(test-equal "spec example: generator-unfold over make-for-each-generator"
+            '(#\a #\b #\c)
+            (generator-unfold (make-for-each-generator string-for-each "abc") unfold))
+(test-equal "driver: a coroutine generator drives SRFI 1 fold"
+            '(3 2 1) (let ((g (fresh-coroutine)))
+                       (fold (lambda (i acc) (cons (g) acc)) '() '(a b c))))
+(test-equal "driver: a gtake generator drives SRFI 1 fold"
+            '(2 1 0) (let ((g (gtake (make-range-generator 0 100) 5)))
+                       (fold (lambda (i acc) (cons (g) acc)) '() '(a b c))))
+(test-equal "seam: a hash table becomes a generator through make-for-each-generator"
+            '(1) (generator->list (make-for-each-generator hash-walk (one-entry-table))))
+(test-equal "driver: an SRFI 1-shaped walker becomes a generator"
+            '(1 2 3) (generator->list (make-for-each-generator fold-walk '(1 2 3))))
 
 (let ((runner (test-runner-current)))
   (test-end "srfi158-audit")

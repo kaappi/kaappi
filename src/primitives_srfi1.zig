@@ -9,17 +9,21 @@ const PrimitiveError = primitives.PrimitiveError;
 const LS = primitives.LibSet;
 
 pub const specs = [_]primitives.PrimSpec{
-    .{ .name = "fold", .func = &foldFn, .arity = .{ .variadic = 3 }, .libs = LS.initOne(.srfi_1) },
+    // fold/filter/any/every/unfold are implemented in Scheme (src/vm_bootstrap.zig)
+    // so a continuation captured inside their callback can be resumed — the native
+    // driver's returned C frame could not be re-entered (kaappi#2060). The stub
+    // errors only if vm_bootstrap.install() has not run.
+    .{ .name = "fold", .func = primitives.bootstrapStub("fold"), .arity = .{ .variadic = 3 }, .libs = LS.initOne(.srfi_1) },
     .{ .name = "fold-right", .func = &foldRightFn, .arity = .{ .variadic = 3 }, .libs = LS.initOne(.srfi_1) },
     .{ .name = "reduce", .func = &reduceFn, .arity = .{ .exact = 3 }, .libs = LS.initOne(.srfi_1) },
     .{ .name = "reduce-right", .func = &reduceRightFn, .arity = .{ .exact = 3 }, .libs = LS.initOne(.srfi_1) },
-    .{ .name = "filter", .func = &filterFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "filter", .func = primitives.bootstrapStub("filter"), .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_1) },
     .{ .name = "remove", .func = &removeFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_1) },
     .{ .name = "partition", .func = &partitionFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_1) },
     .{ .name = "find", .func = &findFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_1) },
     .{ .name = "find-tail", .func = &findTailFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_1) },
-    .{ .name = "any", .func = &anyFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_1) },
-    .{ .name = "every", .func = &everyFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "any", .func = primitives.bootstrapStub("any"), .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "every", .func = primitives.bootstrapStub("every"), .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_1) },
     .{ .name = "count", .func = &countFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_1) },
     .{ .name = "iota", .func = &iotaFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_1) },
     .{ .name = "zip", .func = &zipFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_1) },
@@ -70,7 +74,7 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "alist-cons", .func = &alistConsFn, .arity = .{ .exact = 3 }, .libs = LS.initOne(.srfi_1) },
     .{ .name = "alist-copy", .func = &alistCopyFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_1) },
     .{ .name = "alist-delete", .func = &alistDeleteFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_1) },
-    .{ .name = "unfold", .func = &unfoldFn, .arity = .{ .variadic = 4 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "unfold", .func = primitives.bootstrapStub("unfold"), .arity = .{ .variadic = 4 }, .libs = LS.initOne(.srfi_1) },
     .{ .name = "unfold-right", .func = &unfoldRightFn, .arity = .{ .variadic = 4 }, .libs = LS.initOne(.srfi_1) },
     .{ .name = "append-reverse", .func = &appendReverseFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_1) },
     .{ .name = "length+", .func = &lengthPlusFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_1) },
@@ -165,24 +169,8 @@ const MultiListIter = struct {
 // Folds
 // ---------------------------------------------------------------------------
 
-// (fold proc init list1 ...)
-fn foldFn(args: []const Value) PrimitiveError!Value {
-    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const proc = args[0];
-    var acc = args[1];
-    std.debug.assert(args.len >= 3);
-
-    gc.pushRoot(&acc);
-    defer gc.popRoot();
-
-    var iter = MultiListIter.init(args[2..], false);
-    while (try iter.next("fold")) |_| {
-        iter.call_args[iter.list_count] = acc;
-        acc = try callVM(proc, iter.call_args[0 .. iter.list_count + 1]);
-        iter.advance();
-    }
-    return acc;
-}
+// `fold` is implemented in Scheme (src/vm_bootstrap.zig) so continuations
+// captured inside its callback can resume (kaappi#2060).
 
 // (fold-right proc init list1 ...)
 fn foldRightFn(args: []const Value) PrimitiveError!Value {
@@ -296,28 +284,8 @@ fn reduceRightFn(args: []const Value) PrimitiveError!Value {
 // Filtering
 // ---------------------------------------------------------------------------
 
-// (filter pred list)
-fn filterFn(args: []const Value) PrimitiveError!Value {
-    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const pred = args[0];
-    var current = args[1];
-
-    var results: std.ArrayList(Value) = .empty;
-    defer results.deinit(gc.allocator);
-
-    while (current != types.NIL) {
-        if (!types.isPair(current)) return primitives.typeError("filter", "pair", current);
-        const elem = types.car(current);
-        const call_args_buf = [1]Value{elem};
-        const result = try callVM(pred, &call_args_buf);
-        if (isTruthyResult(result)) {
-            results.append(gc.allocator, elem) catch return PrimitiveError.OutOfMemory;
-        }
-        current = types.cdr(current);
-    }
-
-    return buildList(gc, results.items, types.NIL);
-}
+// `filter` is implemented in Scheme (src/vm_bootstrap.zig) so continuations
+// captured inside its callback can resume (kaappi#2060).
 
 // (remove pred list) — opposite of filter
 fn removeFn(args: []const Value) PrimitiveError!Value {
@@ -410,35 +378,8 @@ fn findTailFn(args: []const Value) PrimitiveError!Value {
     return types.FALSE;
 }
 
-// (any pred list1 ...) — returns first truthy pred result
-fn anyFn(args: []const Value) PrimitiveError!Value {
-    const pred = args[0];
-    std.debug.assert(args.len >= 2);
-
-    var iter = MultiListIter.init(args[1..], false);
-    while (try iter.next("any")) |call_args| {
-        const result = try callVM(pred, call_args);
-        if (isTruthyResult(result)) return result;
-        iter.advance();
-    }
-    return types.FALSE;
-}
-
-// (every pred list1 ...) — returns last truthy result or #f
-fn everyFn(args: []const Value) PrimitiveError!Value {
-    const pred = args[0];
-    std.debug.assert(args.len >= 2);
-
-    var iter = MultiListIter.init(args[1..], false);
-    var last_result: Value = types.TRUE;
-    while (try iter.next("every")) |call_args| {
-        const result = try callVM(pred, call_args);
-        if (!isTruthyResult(result)) return types.FALSE;
-        last_result = result;
-        iter.advance();
-    }
-    return last_result;
-}
+// `any` and `every` are implemented in Scheme (src/vm_bootstrap.zig) so
+// continuations captured inside their callback can resume (kaappi#2060).
 
 // (count pred list1 ...) — count satisfying elements
 fn countFn(args: []const Value) PrimitiveError!Value {
@@ -1539,42 +1480,8 @@ fn lsetXorFn(args: []const Value) PrimitiveError!Value {
 // Unfold
 // ---------------------------------------------------------------------------
 
-// (unfold p f g seed [tail-gen]) — fundamental list constructor
-fn unfoldFn(args: []const Value) PrimitiveError!Value {
-    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const p = args[0]; // stop predicate
-    const f = args[1]; // map function
-    const g = args[2]; // successor
-    var seed = args[3];
-    const has_tail = args.len > 4;
-
-    var elems: std.ArrayList(Value) = .empty;
-    defer elems.deinit(gc.allocator);
-    const scope = gc.rootedScope();
-    defer scope.release();
-    gc.pushRoot(&seed);
-    defer gc.popRoot();
-
-    while (true) {
-        const stop_args = [1]Value{seed};
-        const stop = try callVM(p, &stop_args);
-        if (isTruthyResult(stop)) break;
-
-        const map_args = [1]Value{seed};
-        const val = try callVM(f, &map_args);
-        try appendRooted(gc, &elems, val);
-
-        const succ_args = [1]Value{seed};
-        seed = try callVM(g, &succ_args);
-    }
-
-    var tail: Value = types.NIL;
-    if (has_tail) {
-        const tail_args = [1]Value{seed};
-        tail = try callVM(args[4], &tail_args);
-    }
-    return buildList(gc, elems.items, tail);
-}
+// `unfold` is implemented in Scheme (src/vm_bootstrap.zig) so continuations
+// captured inside its p/f/g/tail-gen callbacks can resume (kaappi#2060).
 
 // (unfold-right p f g seed [tail]) — build list from right
 fn unfoldRightFn(args: []const Value) PrimitiveError!Value {
