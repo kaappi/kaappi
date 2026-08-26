@@ -583,6 +583,12 @@
 (define g-two-b (make-guardian))
 (let ((o (list 'watched-twice))) (g-two-a o) (g-two-b o))
 
+;; One object registered twice in the SAME guardian: the resurrect branch used
+;; to mark the watched object as it moved each entry to ready, so the second
+;; registration starved until the first was drained (#2011, same mechanism).
+(define g-twice (make-guardian))
+(let ((o (list 'registered-twice))) (g-twice o) (g-twice o))
+
 ;; A transport cell guardian and an object guardian watching one object.
 (define g-vs-tcg (make-guardian))
 (define tcg-pin (make-transport-cell-guardian))
@@ -689,20 +695,33 @@
 ;; --- Two guardians watching one object -------------------------------------
 ;;
 ;; The spec's hypothetical makes "resurrected elements of all guardians" weak,
-;; so both elements must be resurrected. Kaappi resurrects one and marks the
-;; watched object strongly (gc_collect.markGuardianStrong marks every ready
-;; entry in the strong phase), so the other guardian's probe sees a reachable
-;; object and starves for as long as the first holds it. See #2011.
-(test-equal "GC: exactly one of two guardians watching one object fires (#2011)"
-            1
-            (let ((a (g-two-a)) (b (g-two-b)))
-              (+ (if a 1 0) (if b 1 0))))
-;;
-;; FAIL: #2011 (a second guardian watching the same object never resurrects it)
-;; (test-equal "GC: spec — both guardians watching one object fire"
-;;             2
-;;             (let ((a (g-two-a)) (b (g-two-b)))
-;;               (+ (if a 1 0) (if b 1 0))))
+;; so both elements must be resurrected — in the SAME collection, not one per
+;; round. Kaappi used to mark the first guardian's ready queue strongly
+;; (gc_collect.markGuardianStrong) and mark the watched object inside the
+;; resurrect branch itself, so the second guardian's probe answered
+;; "reachable" and starved for as long as the first held it (#2011).
+(define two-a-got (g-two-a))
+(define two-b-got (g-two-b))
+(test-equal "GC: both guardians watching one object fire (#2011)"
+            2
+            (+ (if two-a-got 1 0) (if two-b-got 1 0)))
+;; The two representatives are the very same object, twice.
+(test-assert "GC: the two resurrections hand back the identical object (#2011)"
+            (eq? two-a-got two-b-got))
+
+;; Site 2 of #2011 on its own: two registrations in ONE guardian must both
+;; resurrect in one round (the audit's single churn phase), not one per
+;; collection.
+(define twice-1 (g-twice))
+(define twice-2 (g-twice))
+(define twice-3 (g-twice))
+(test-equal "GC: one object registered twice in one guardian fires twice (#2011)"
+            '(#t #t #f)
+            (list (if twice-1 #t #f) (if twice-2 #t #f) (if twice-3 #t #f)))
+(test-assert "GC: both resurrections hand back the same intact object (#2011)"
+            (and (eq? twice-1 twice-2)
+                 (pair? twice-1)
+                 (eq? 'registered-twice (car twice-1))))
 
 ;; ---------------------------------------------------------------------------
 ;; 12. Transport cell guardians after collection
@@ -711,9 +730,11 @@
 ;; and "the transport cell is broken in the course of the computation when the
 ;; garbage collector reclaims the location or sequence of locations."
 ;;
-;; Kaappi marks a transport cell guardian's registered cells — and their keys —
-;; strongly (gc_collect.markGuardianStrong), so no cell ever breaks and no key
-;; is ever reclaimed. See #2006.
+;; The cell itself is held strongly by its guardian (a registration is
+;; permanent — that much is forced by the non-moving collector), but the key
+;; field is weak and the cell breaks when the key dies (#2006). The value
+;; field is an ordinary strong field ("Except as noted, all newly chosen
+;; locations are strongly holding") and survives regardless.
 ;; ---------------------------------------------------------------------------
 
 ;; "When guardian is invoked on no arguments and it contains a transport cell
@@ -724,45 +745,58 @@
 (test-assert "GC: an orphaned transport cell guardian also yields nothing"
              (not (tcg-orphan)))
 
-;; Current behaviour, pinned so a fix flips a visible test.
-(test-assert "GC: a transport cell whose key is unreachable is NOT broken (#2006)"
-             (not (transport-cell-broken? tcg-orphan-cell)))
-(test-equal "GC: its key is retained verbatim instead (#2006)" '(orphan-key)
-            (transport-cell-key tcg-orphan-cell))
-(test-assert "GC: a transport cell key blocks an object guardian (#2006)"
-             (not (g-vs-tcg)))
+;; "the transport cell is broken in the course of the computation when the
+;; garbage collector reclaims the location" — the orphan key was unreachable,
+;; so it was reclaimed and the cell broke.
+(test-assert "GC: a transport cell whose key is unreachable is broken (#2006)"
+             (transport-cell-broken? tcg-orphan-cell))
+;; "returns the contents of the key field of transport-cell if the
+;; transport-cell hasn't been broken, and #f otherwise."
+(test-assert "GC: a broken transport cell reports #f as its key (#2006)"
+             (not (transport-cell-key tcg-orphan-cell)))
+;; The cell registered alongside an object guardian stays intact while the
+;; guardian holds its key resurrected (kept alive): the location was not
+;; reclaimed, so the cell must not break. Asserted BEFORE the drain below —
+;; once (g-vs-tcg) hands the object over and the test drops it, nothing holds
+;; the key and a later collection may rightly break the cell.
+(test-assert "GC: the cell registered alongside an object guardian is intact"
+             (and (transport-cell? tcg-pin-cell)
+                  (not (transport-cell-broken? tcg-pin-cell))))
+;; The weak key no longer pins the object, so the object guardian watching the
+;; same object fires; the control below shows the transport cell registration
+;; is the only difference from a firing shape.
+(test-equal "GC: a transport cell key does not block an object guardian (#2006)"
+            'tcg-keyed
+            (let ((got (g-vs-tcg))) (and (pair? got) (car got))))
 ;; The discriminating control: the same shape without a transport cell fires.
 (test-equal "GC: control — without the transport cell the guardian does fire"
             'not-tcg-keyed
             (let ((got (g-vs-nothing))) (and (pair? got) (car got))))
-;;
-;; FAIL: #2006 (a transport cell key is held strongly, so the cell never breaks)
-;; (test-assert "GC: spec — a transport cell with an unreachable key is broken"
-;;              (transport-cell-broken? tcg-orphan-cell))
-;;
-;; FAIL: #2006 (a weakly-held transport cell key must not block resurrection)
-;; (test-equal "GC: spec — a transport cell key does not block an object guardian"
-;;             'tcg-keyed
-;;             (let ((got (g-vs-tcg))) (and (pair? got) (car got))))
 
 ;; The cell's own value field is strong in the spec too, so it survives here
 ;; for the right reason regardless.
 (test-equal "GC: a transport cell's value field survives collection" 'orphan-value
             (transport-cell-value tcg-orphan-cell))
-(test-assert "GC: the cell registered alongside an object guardian is intact"
-             (and (transport-cell? tcg-pin-cell)
-                  (not (transport-cell-broken? tcg-pin-cell))))
 
 ;; ---------------------------------------------------------------------------
-;; 13. A second collection round — nothing regresses, and draining unblocks
+;; 13. A second collection round — nothing regresses, both guardians re-arm
 ;; ---------------------------------------------------------------------------
 
-;; Draining the guardian that won the race releases the object, so the starved
-;; guardian fires on the next collection. Order-independent: whichever of the
-;; two fired above was drained by that assertion.
+;; Both two-guardian queues were drained in section 11 and nothing further is
+;; registered on them, so they stay empty across later collections.
 (churn-rounds! 3)
-(test-equal "GC: the starved guardian fires once the winner has been drained"
-            1
+(test-equal "GC: drained guardians stay empty after more collections"
+            0
+            (let ((a (g-two-a)) (b (g-two-b)))
+              (+ (if a 1 0) (if b 1 0))))
+
+;; The same pair of guardians re-arms: a fresh registration on both must again
+;; fire on both in one round — the fix is not a one-shot side effect of the
+;; first collection's mark order.
+(let ((o (list 'watched-again))) (g-two-a o) (g-two-b o))
+(churn-rounds! 3)
+(test-equal "GC: the same two guardians both fire again on a fresh object (#2011)"
+            2
             (let ((a (g-two-a)) (b (g-two-b)))
               (+ (if a 1 0) (if b 1 0))))
 
@@ -771,6 +805,9 @@
 (test-assert "GC: a broken ephemeron stays broken" (ephemeron-broken? eph-dead))
 (test-equal "GC: current-hash is stable across collections" ch-h0 (current-hash ch-obj))
 (test-assert "GC: an already-drained guardian keeps returning #f" (not (g-dead)))
+(test-assert "GC: a broken transport cell stays broken"
+             (and (transport-cell-broken? tcg-orphan-cell)
+                  (not (transport-cell-key tcg-orphan-cell))))
 (test-assert "GC: reference-barrier still works after collection"
              (not (raises? (lambda () (reference-barrier ch-obj)))))
 

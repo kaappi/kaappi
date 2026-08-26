@@ -518,13 +518,30 @@ test "gc tracing: scheme_environment traces every binding" {
     try expectTraced(&gc, env, &.{ ref(a, 1), ref(b, 2) });
 }
 
-test "gc tracing: transport_cell traces key and value" {
+test "gc tracing: transport_cell traces value, holds key weakly (#2006)" {
     var gc = newGc();
     defer gc.deinit();
     const k = try young(&gc, 1);
     const v = try young(&gc, 2);
     const tc = try gc.allocTransportCell(k, v);
-    try expectTraced(&gc, tc, &.{ ref(k, 1), ref(v, 2) });
+
+    var root = tc;
+    gc.pushRoot(&root);
+    forceMinor(&gc);
+    // The value is a strong field, kept alive by the rooted cell alone.
+    try expectAlive(&gc, ref(v, 2));
+    // The key field is weakly holding (SRFI-254): nothing else roots `k`, so
+    // its location was reclaimed and the cell broke.
+    const cell = types.toObject(tc).as(types.TransportCell);
+    try std.testing.expect(cell.broken);
+    try std.testing.expectEqual(types.FALSE, cell.key);
+    forceFull(&gc);
+    try expectAlive(&gc, ref(v, 2));
+    gc.popRoot();
+
+    // Discriminating control.
+    forceFull(&gc);
+    try expectDead(&gc, ref(v, 2));
 }
 
 test "gc tracing: fiber traces every Value-bearing field" {
@@ -637,7 +654,7 @@ test "gc tracing: ephemeron with an unreachable key breaks rather than retaining
     try std.testing.expectEqual(types.FALSE, e.value);
 }
 
-test "gc tracing: object guardian holds ready elements strongly" {
+test "gc tracing: object guardian keeps ready elements alive (weak resurrection)" {
     var gc = newGc();
     defer gc.deinit();
     const watched = try young(&gc, 1);
@@ -645,6 +662,10 @@ test "gc tracing: object guardian holds ready elements strongly" {
     const g_val = try gc.allocGuardian(false);
     const g = types.toObject(g_val).as(types.Guardian);
     try g.ready.append(gc.allocator, .{ .watched = watched, .payload = payload });
+    // Ready (resurrected) elements are NOT traced during the strong phase
+    // (#2011) — that marking made every other guardian's probe on the same
+    // object answer "reachable" — but processWeakRefs' settle pass keeps
+    // them alive, so liveness here is the settle pass, not markValueInner.
     try expectTraced(&gc, g_val, &.{ ref(watched, 1), ref(payload, 2) });
 }
 
@@ -657,9 +678,29 @@ test "gc tracing: transport guardian holds registered cells strongly" {
     const g_val = try gc.allocGuardian(true);
     const g = types.toObject(g_val).as(types.Guardian);
     try g.registered.append(gc.allocator, .{ .watched = cell, .payload = cell });
-    // The cell is strong, and marking it reaches its own key/value through
-    // the `.transport_cell` arm.
-    try expectTraced(&gc, g_val, &.{ .{ .val = cell }, ref(k, 1), ref(v, 2) });
+
+    var root = g_val;
+    gc.pushRoot(&root);
+    forceMinor(&gc);
+    // The cell is strong, and marking it reaches its value through the
+    // `.transport_cell` arm. The key is weakly holding (#2006): with nothing
+    // else rooting `k`, it dies while the cell and its guardian are rooted,
+    // and the cell breaks.
+    try expectAlive(&gc, .{ .val = cell });
+    try expectAlive(&gc, ref(v, 2));
+    try expectDead(&gc, ref(k, 1));
+    const tc = types.toObject(cell).as(types.TransportCell);
+    try std.testing.expect(tc.broken);
+    try std.testing.expectEqual(types.FALSE, tc.key);
+    forceFull(&gc);
+    try expectAlive(&gc, .{ .val = cell });
+    try expectAlive(&gc, ref(v, 2));
+    gc.popRoot();
+
+    // Discriminating control.
+    forceFull(&gc);
+    try expectDead(&gc, .{ .val = cell });
+    try expectDead(&gc, ref(v, 2));
 }
 
 test "gc tracing: object guardian resurrects a registered element" {
@@ -677,7 +718,7 @@ test "gc tracing: object guardian resurrects a registered element" {
     forceFull(&gc);
 
     // `watched` is unreachable, so the element is resurrected: both fields
-    // are marked and it moves to the ready queue.
+    // are kept alive (weakly, #2011) and it moves to the ready queue.
     try expectAlive(&gc, ref(watched, 1));
     try expectAlive(&gc, ref(payload, 2));
     try std.testing.expectEqual(@as(usize, 0), g.registered.items.len);
@@ -1161,7 +1202,14 @@ test "gc tracing (remembered set): transport_cell" {
     cell.key = k;
     cell.value = v;
     gc.writeBarrier(&cell.header, k);
-    try expectRememberedTrace(&gc, tc, &.{ ref(k, 1), ref(v, 2) });
+    // The value is strong: the remembered-set walk (markObjectContents) keeps
+    // it alive. The key is weakly holding (#2006): the walk defers it to
+    // processWeakRefs, which breaks the cell once nothing else roots `k`.
+    try expectRememberedTrace(&gc, tc, &.{ref(v, 2)});
+    try expectDead(&gc, ref(k, 1));
+    const after = types.toObject(tc).as(types.TransportCell);
+    try std.testing.expect(after.broken);
+    try std.testing.expectEqual(types.FALSE, after.key);
 }
 
 test "gc tracing (remembered set): fiber" {

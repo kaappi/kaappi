@@ -235,6 +235,20 @@ pub const GC = struct {
     /// Live only within a single collection.
     pending_ephemerons: std.ArrayList(Value) = .empty,
     pending_guardians: std.ArrayList(Value) = .empty,
+    /// Reachable transport cells awaiting key resolution (SRFI-254: the key
+    /// field is weakly holding). Filled by the mark arms like the two lists
+    /// above and resolved by processWeakRefs after the fixpoint. Live only
+    /// within a single collection.
+    pending_transport_cells: std.ArrayList(Value) = .empty,
+    /// SRFI-254 weak resurrections of the current collection: objects held in
+    /// an object guardian's ready queue, freshly resurrected elements, and
+    /// retained representatives. These locations are *kept alive* without
+    /// being reachable, so guardian probes deliberately ignore the set (#2011)
+    /// while ephemeron and transport-cell key probes consult it via
+    /// gc_collect.keptAlive. Materialized into real marks by processWeakRefs
+    /// once every weak decision is made, then cleared. Live only within a
+    /// single collection.
+    weak_resurrected: std.AutoHashMap(*Object, void) = undefined,
     /// #1687 free-quarantine (gc-stress builds only; see `free_quarantine`).
     /// FIFO of freed header slots withheld from the allocator: entries before
     /// `quarantine_head` are already released. Slots are appended by
@@ -277,6 +291,7 @@ pub const GC = struct {
             .extra_roots = .empty,
             .remembered_set = .empty,
             .source_spans = std.AutoHashMap(Value, types.Span).init(allocator),
+            .weak_resurrected = std.AutoHashMap(*Object, void).init(allocator),
             .id = nextGcId(),
         };
     }
@@ -303,6 +318,7 @@ pub const GC = struct {
             .extra_roots = .empty,
             .remembered_set = .empty,
             .source_spans = std.AutoHashMap(Value, types.Span).init(allocator),
+            .weak_resurrected = std.AutoHashMap(*Object, void).init(allocator),
             .gc_threshold = GC_THRESHOLD,
             .id = nextGcId(),
             .shared_owner_id = if (parent.shared_symbols != null) parent.shared_owner_id else parent.id,
@@ -345,6 +361,8 @@ pub const GC = struct {
         self.mark_worklist.deinit(self.allocator);
         self.pending_ephemerons.deinit(self.allocator);
         self.pending_guardians.deinit(self.allocator);
+        self.pending_transport_cells.deinit(self.allocator);
+        self.weak_resurrected.deinit();
         self.source_spans.deinit();
     }
 

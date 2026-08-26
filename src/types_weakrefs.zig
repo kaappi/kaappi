@@ -35,13 +35,19 @@ pub const GuardEntry = struct {
 /// A guardian (SRFI-254). Invoked as a procedure: `(g obj [rep])` registers an
 /// element, `(g)` removes and returns a resurrected element's representative
 /// (or `#f`). `registered` elements are held weakly; when the collector proves
-/// a `watched` object unreachable it resurrects the element (marking both
-/// fields) and moves it to `ready`, where `(g)` can retrieve it.
+/// a `watched` object unreachable it resurrects the element — moving it to
+/// `ready`, where `(g)` can retrieve it — keeping both fields *alive without
+/// making them reachable* (a weak resurrection, per the spec's hypothetical
+/// covering "the fields of guarded elements or by resurrected elements of all
+/// guardians"), so every guardian watching the same object fires, not just
+/// the first one (#2011).
 ///
 /// A transport cell guardian (`is_transport`) is the degenerate case on
 /// Kaappi's non-moving collector: keys never move, so no cell is ever
-/// transported. Its `registered` cells are held *strongly* (marked by the GC),
-/// `ready` stays empty, and `(tg)` always returns `#f`.
+/// transported, `ready` stays empty, and `(tg)` always returns `#f`. Its
+/// `registered` cells are held strongly — a registration is permanent — but
+/// each cell's *key* is weakly holding and breaks when the key is reclaimed
+/// (#2006).
 pub const Guardian = struct {
     header: Object,
     is_transport: bool,
@@ -49,10 +55,11 @@ pub const Guardian = struct {
     ready: std.ArrayList(GuardEntry) = .empty,
 };
 
-/// A transport cell (SRFI-254). On a non-moving collector its `key` and
-/// `value` are ordinary strong fields and it never breaks (`broken` stays
-/// false); it exists so code written against transport cell guardians ports
-/// unchanged, using `current-hash` for stable eq?-hashing.
+/// A transport cell (SRFI-254). The `value` field is an ordinary strong
+/// field; the `key` field is weakly holding, so when the key location is
+/// reclaimed the cell breaks (`broken` set, key cleared to `#f`, which
+/// `transport-cell-key` reports; the value survives). Cells themselves never
+/// transport on this non-moving collector — only their keys can die.
 pub const TransportCell = struct {
     header: Object,
     key: Value,

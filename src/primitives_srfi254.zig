@@ -10,7 +10,10 @@
 //! On Kaappi's non-moving collector `current-hash` is a stable identity hash
 //! and transport cell guardians are degenerate: keys never move, so a cell is
 //! never transported and a zero-argument transport-cell-guardian call always
-//! returns #f. See the SRFI-254 section of README/CLAUDE for the rationale.
+//! returns #f. That degeneracy is about *transport*, not liveness — a cell's
+//! key is still weakly holding and the cell still breaks when the key is
+//! reclaimed (#2006). See the SRFI-254 section of README/CLAUDE for the
+//! rationale.
 
 const std = @import("std");
 const types = @import("types.zig");

@@ -177,8 +177,15 @@ marking/resurrection lives in `gc_collect.processWeakRefs`, its heap types
 (`Ephemeron`, `Guardian`, `TransportCell`) in `types.zig`, its primitives in
 `primitives_srfi254.zig`, and guardian invocation (a guardian is callable) in
 `vm_calls.invokeGuardian`. On this non-moving collector `current-hash` is a
-stable identity hash and transport cell guardians are degenerate (keys never
-move, so `(tg)` always yields #f).
+stable identity hash and transport cell guardians are degenerate in one
+direction only: keys never move, so a cell is never transported and `(tg)`
+always yields #f — but a cell's key is still weakly holding and the cell
+still breaks when the key is reclaimed (#2006). Guardian resurrection follows
+the spec's "weakly resurrected" hypothetical exactly (#2011): ready-queue
+contents and freshly resurrected elements are kept alive (a per-collection
+`weak_resurrected` set, materialized into real marks once every weak decision
+is made) without ever counting as reachable, so N guardians watching one
+object all fire in the same collection instead of the first starving the rest.
 
 ### SRFI 258 — uninterned symbols
 

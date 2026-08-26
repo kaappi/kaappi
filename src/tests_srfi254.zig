@@ -221,9 +221,108 @@ test "guardian: representative outlives a resurrected object" {
     try expectEqual(@as(i64, 2), types.toFixnum(types.car(rep)));
 }
 
-// --- Transport cells are strong on a non-moving collector ------------------
+test "guardian: two guardians watching one object both resurrect (#2011)" {
+    // The spec's resurrection hypothetical makes the ready queues of every
+    // guardian weak, so an object registered with two independent guardians
+    // must be resurrected by both — in the same collection. Kaappi used to
+    // mark the first guardian's ready queue strongly, so the second guardian
+    // starved for as long as the first held the object.
+    var gc = GC.init(std.testing.allocator);
+    defer gc.deinit();
+    gc.enabled = false;
 
-test "transport cell: key and value survive collection, never broken" {
+    var ga = try gc.allocGuardian(false);
+    gc.pushRoot(&ga);
+    defer gc.popRoot();
+    var gb = try gc.allocGuardian(false);
+    gc.pushRoot(&gb);
+    defer gc.popRoot();
+
+    {
+        const obj = try gc.allocPair(fix(42), types.NIL);
+        try types.toGuardian(ga).registered.append(gc.allocator, .{ .watched = obj, .payload = obj });
+        try types.toGuardian(gb).registered.append(gc.allocator, .{ .watched = obj, .payload = obj });
+    }
+
+    gc.collect();
+
+    // Both fired, and both hand back the very same object.
+    try expectEqual(@as(usize, 0), types.toGuardian(ga).registered.items.len);
+    try expectEqual(@as(usize, 0), types.toGuardian(gb).registered.items.len);
+    try expectEqual(@as(usize, 1), types.toGuardian(ga).ready.items.len);
+    try expectEqual(@as(usize, 1), types.toGuardian(gb).ready.items.len);
+    const a = types.toGuardian(ga).ready.items[0].payload;
+    const b = types.toGuardian(gb).ready.items[0].payload;
+    try expectEqual(a, b);
+    try expectEqual(@as(i64, 42), types.toFixnum(types.car(a)));
+}
+
+test "guardian: one object registered twice in one guardian resurrects twice (#2011)" {
+    // The same defect's second site: the resurrect branch used to mark the
+    // watched object while moving the first entry to ready, so the second
+    // registration starved until the first was drained.
+    var gc = GC.init(std.testing.allocator);
+    defer gc.deinit();
+    gc.enabled = false;
+
+    var g = try gc.allocGuardian(false);
+    gc.pushRoot(&g);
+    defer gc.popRoot();
+
+    {
+        const obj = try gc.allocPair(fix(7), types.NIL);
+        try types.toGuardian(g).registered.append(gc.allocator, .{ .watched = obj, .payload = obj });
+        try types.toGuardian(g).registered.append(gc.allocator, .{ .watched = obj, .payload = obj });
+    }
+
+    gc.collect();
+
+    try expectEqual(@as(usize, 0), types.toGuardian(g).registered.items.len);
+    try expectEqual(@as(usize, 2), types.toGuardian(g).ready.items.len);
+    try expectEqual(types.toGuardian(g).ready.items[0].payload, types.toGuardian(g).ready.items[1].payload);
+}
+
+test "guardian: a ready queue hold neither marks nor blocks another guardian (#2011)" {
+    // Cross-cycle half of #2011: ga resurrected the object in an earlier
+    // collection and has not drained it. An object *newly* registered with gb
+    // must still resurrect — the ready queue keeps the object alive without
+    // making it reachable, so gb's probe must not see it.
+    var gc = GC.init(std.testing.allocator);
+    defer gc.deinit();
+    gc.enabled = false;
+
+    var ga = try gc.allocGuardian(false);
+    gc.pushRoot(&ga);
+    defer gc.popRoot();
+    var gb = try gc.allocGuardian(false);
+    gc.pushRoot(&gb);
+    defer gc.popRoot();
+
+    {
+        const obj = try gc.allocPair(fix(9), types.NIL);
+        try types.toGuardian(ga).registered.append(gc.allocator, .{ .watched = obj, .payload = obj });
+    }
+
+    gc.collect();
+    try expectEqual(@as(usize, 1), types.toGuardian(ga).ready.items.len);
+
+    // ga still holds the object in its ready queue. gb registers it now.
+    const held = types.toGuardian(ga).ready.items[0].payload;
+    try types.toGuardian(gb).registered.append(gc.allocator, .{ .watched = held, .payload = held });
+
+    gc.collect();
+
+    // The ready hold did not make the object reachable: gb fired too, and
+    // ga's element is still alive and retrievable.
+    try expectEqual(@as(usize, 0), types.toGuardian(gb).registered.items.len);
+    try expectEqual(@as(usize, 1), types.toGuardian(gb).ready.items.len);
+    try expectEqual(held, types.toGuardian(gb).ready.items[0].payload);
+    try expectEqual(@as(i64, 9), types.toFixnum(types.car(held)));
+}
+
+// --- Transport cells: weak key, strong value (#2006) ------------------------
+
+test "transport cell: breaks when the key becomes unreachable (#2006)" {
     var gc = GC.init(std.testing.allocator);
     defer gc.deinit();
     gc.enabled = false;
@@ -239,9 +338,86 @@ test "transport cell: key and value survive collection, never broken" {
     var i: usize = 0;
     while (i < 10) : (i += 1) gc.collect();
 
-    try expect(!types.toTransportCell(cell).broken);
-    try expectEqual(@as(i64, 3), types.toFixnum(types.car(types.toTransportCell(cell).key)));
+    // The key field is weakly holding: its location was reclaimed and the
+    // cell broke. The value field is strong and survives.
+    try expect(types.toTransportCell(cell).broken);
+    try expectEqual(types.FALSE, types.toTransportCell(cell).key);
+    try expect(types.isPair(types.toTransportCell(cell).value));
     try expectEqual(@as(i64, 4), types.toFixnum(types.car(types.toTransportCell(cell).value)));
+}
+
+test "transport cell: stays unbroken while the key stays reachable (#2006)" {
+    var gc = GC.init(std.testing.allocator);
+    defer gc.deinit();
+    gc.enabled = false;
+
+    var key = try gc.allocPair(fix(5), types.NIL);
+    gc.pushRoot(&key);
+    defer gc.popRoot();
+    var cell = try gc.allocTransportCell(key, try gc.allocPair(fix(6), types.NIL));
+    gc.pushRoot(&cell);
+    defer gc.popRoot();
+
+    var i: usize = 0;
+    while (i < 10) : (i += 1) gc.collect();
+
+    try expect(!types.toTransportCell(cell).broken);
+    try expectEqual(key, types.toTransportCell(cell).key);
+    try expectEqual(@as(i64, 6), types.toFixnum(types.car(types.toTransportCell(cell).value)));
+}
+
+test "transport cell: an immediate key never breaks the cell" {
+    // "If the content of its key field denotes a location or a sequence of
+    // locations, the transport cell is broken ... when the garbage collector
+    // reclaims the location" — an immediate denotes no location.
+    var gc = GC.init(std.testing.allocator);
+    defer gc.deinit();
+    gc.enabled = false;
+
+    var cell = try gc.allocTransportCell(types.makeFixnum(11), types.TRUE);
+    gc.pushRoot(&cell);
+    defer gc.popRoot();
+
+    gc.collect();
+
+    try expect(!types.toTransportCell(cell).broken);
+    try expectEqual(types.makeFixnum(11), types.toTransportCell(cell).key);
+}
+
+test "transport cell: a weak key does not block an object guardian (#2006)" {
+    // The same object is guarded by an object guardian and used as a
+    // transport cell key. The key is weakly holding, so it must not keep the
+    // object alive: the guardian resurrects it, and the cell — whose key is
+    // kept alive by the resurrection — stays intact.
+    var gc = GC.init(std.testing.allocator);
+    defer gc.deinit();
+    gc.enabled = false;
+
+    var g = try gc.allocGuardian(false);
+    gc.pushRoot(&g);
+    defer gc.popRoot();
+    var tg = try gc.allocGuardian(true);
+    gc.pushRoot(&tg);
+    defer gc.popRoot();
+    var cell = blk: {
+        const obj = try gc.allocPair(fix(12), types.NIL);
+        try types.toGuardian(g).registered.append(gc.allocator, .{ .watched = obj, .payload = obj });
+        const c = try gc.allocTransportCell(obj, fix(13));
+        try types.toGuardian(tg).registered.append(gc.allocator, .{ .watched = c, .payload = c });
+        break :blk c;
+    };
+    gc.pushRoot(&cell);
+    defer gc.popRoot();
+
+    gc.collect();
+
+    try expectEqual(@as(usize, 1), types.toGuardian(g).ready.items.len);
+    const resurrected = types.toGuardian(g).ready.items[0].payload;
+    try expectEqual(@as(i64, 12), types.toFixnum(types.car(resurrected)));
+    // The key was kept alive by the guardian's resurrection, so the location
+    // was not reclaimed and the cell did not break.
+    try expect(!types.toTransportCell(cell).broken);
+    try expectEqual(resurrected, types.toTransportCell(cell).key);
 }
 
 // --- API surface via a real VM ---------------------------------------------

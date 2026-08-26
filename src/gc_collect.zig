@@ -358,36 +358,68 @@ fn drainRememberedSet(gc: *GC) void {
 /// before sweeping. Reaches a fixpoint over two interacting weak structures:
 ///
 ///   * Ephemerons — the value is retained (marked strongly) only once the key
-///     is proven reachable; keys reachable solely through an ephemeron's own
+///     is proven live; keys kept alive solely through an ephemeron's own
 ///     value never qualify, so an ephemeron whose value references its key
-///     still breaks. Ephemerons whose key never becomes reachable are broken.
+///     still breaks. Ephemerons whose key never becomes live are broken.
 ///
 ///   * Object guardians — a registered element whose watched object is still
-///     reachable keeps its representative alive (tying the representative's
-///     lifetime to the object, so a resurrected element never hands back a
-///     reclaimed representative). An element whose watched object is
-///     unreachable is resurrected: both fields are marked and the element moves
-///     to the guardian's ready queue for a zero-argument `(g)` call.
+///     reachable keeps its representative alive (weakly: the representative
+///     survives but nothing it references becomes reachable). An element
+///     whose watched object is unreachable is resurrected: it moves to the
+///     guardian's ready queue and both its fields are kept alive, ready for a
+///     zero-argument `(g)` call.
 ///
 /// Ephemerons are processed before guardians each round so that a key kept
 /// alive only by a still-live ephemeron value is seen before any guardian
-/// decision; resurrecting a guardian element can in turn make an ephemeron key
-/// reachable, so the whole thing iterates until neither makes progress.
-/// Transport cell guardians hold their cells strongly (marked during the strong
-/// phase) and never resurrect on this non-moving collector, so they need no
-/// work here.
+/// decision; the two structures feed each other, so the whole thing iterates
+/// until neither makes progress.
+///
+/// The one rule that shapes the whole function is the resurrection
+/// hypothetical (#2011): "if all locations denoted by the fields of guarded
+/// elements or by resurrected elements of all guardians were weakly
+/// resurrected." Weak resurrection means *kept alive without being
+/// reachable* — so guardian probes (which use `weakReachable`, marked bits
+/// only) must never see a ready-queue hold or a same-collection
+/// resurrection, or a second guardian watching the same object starves for
+/// as long as the first holds it. Two consequences:
+///
+///   * every registered element of every guardian is probed against the
+///     frozen mark state *before* any element is resurrected in that round,
+///     so N guardians (or N registrations) watching one object all fire in
+///     the same collection;
+///   * ready-queue contents are recorded in `weak_resurrected` instead of
+///     being marked, and only `keptAlive` — the probe used by ephemeron and
+///     transport-cell keys, which the spec keeps alive rather than ignores —
+///     consults that set.
+///
+/// Transport cells (SRFI-254: "the content of the key field is stored in a
+/// weakly holding location") hold their value strongly but defer the key to
+/// the post-fixpoint pass below, which breaks every cell whose key is
+/// neither reachable nor kept alive (#2006). Cells never *transport* on this
+/// non-moving collector, so a transport cell guardian's ready queue stays
+/// empty and `(tg)` always returns `#f` — that part is conformant; the
+/// breaking is what the strong key hold used to lose.
 fn processWeakRefs(gc: *GC) void {
+    // Settled: one full round has run since the settle pass last marked
+    // something without any of the three resolution phases making progress.
+    // The settle pass's marking can itself discover weak structures (an
+    // ephemeron reachable only from a resurrected representative, say), and
+    // those discoveries get one more round before the break/break/materialize
+    // tail runs — without the flag, a marking-only settle would loop forever.
+    var settled = false;
     while (true) {
         var progress = false;
 
-        // Ephemerons: retain the value of every ephemeron whose key is now
-        // reachable, and drop it from the pending set.
+        // Ephemerons: retain the value of every ephemeron whose key is kept
+        // alive, and drop it from the pending set. The key itself is not
+        // marked here: a key kept alive only by a weak resurrection must not
+        // become *reachable* to a guardian probe in a later round (#2011);
+        // the settle pass materializes its survival instead.
         var i: usize = 0;
         while (i < gc.pending_ephemerons.items.len) {
             const eph_val = gc.pending_ephemerons.items[i];
             const eph = types.toObject(eph_val).as(Ephemeron);
-            if (weakReachable(gc, eph.key)) {
-                markValue(gc, eph.key);
+            if (keptAlive(gc, eph.key)) {
                 markValue(gc, eph.value);
                 _ = gc.pending_ephemerons.swapRemove(i); // moved last into i
                 progress = true;
@@ -396,44 +428,83 @@ fn processWeakRefs(gc: *GC) void {
             }
         }
 
-        // Object guardians: resurrect registered elements whose watched object
-        // is unreachable; keep the representatives of the rest alive.
+        // Object guardians. Probe sub-pass first, apply sub-pass second, so
+        // that every probe in a round sees the same mark state: the resurrect
+        // branch used to mark the watched object on the spot, and a later
+        // entry (in this or another guardian) then probed it as reachable
+        // and starved (#2011).
         var gi: usize = 0;
         while (gi < gc.pending_guardians.items.len) : (gi += 1) {
             const g = types.toObject(gc.pending_guardians.items[gi]).as(Guardian);
-            var j: usize = 0;
-            while (j < g.registered.items.len) {
-                const e = g.registered.items[j];
+
+            // Probe: partition registered elements by the frozen mark state.
+            // No marking, no mutation — nothing here can change an answer a
+            // later probe would give.
+            var resurrect: std.ArrayList(types.GuardEntry) = .empty;
+            defer resurrect.deinit(gc.allocator);
+            var keep_len: usize = 0;
+            for (g.registered.items) |e| {
                 if (weakReachable(gc, e.watched)) {
-                    // Retain the representative strongly while its element is
-                    // registered, tying its lifetime to the watched object.
-                    // This is a deliberate choice for a non-refcounted
-                    // collector: a representative reachable only through the
-                    // element could otherwise be swept before the element is
-                    // resurrected, leaving `(g)` to hand back freed memory. The
-                    // bounded cost is that a representative which transitively
-                    // references another guarded object can delay that object's
-                    // resurrection — harmless, since SRFI-254 leaves the order
-                    // in which elements become available unspecified.
-                    if (!weakReachable(gc, e.payload)) {
-                        markValue(gc, e.payload);
-                        progress = true;
-                    }
-                    j += 1;
+                    g.registered.items[keep_len] = e;
+                    keep_len += 1;
                 } else {
-                    markValue(gc, e.watched);
-                    markValue(gc, e.payload);
-                    g.ready.append(gc.allocator, e) catch @panic("GC guardian: ready queue OOM");
-                    _ = g.registered.swapRemove(j); // moved last into j
+                    resurrect.append(gc.allocator, e) catch
+                        @panic("GC guardian: resurrect buffer OOM");
+                }
+            }
+            g.registered.shrinkRetainingCapacity(keep_len);
+
+            // Apply. Resurrected elements move to the ready queue, their
+            // watched object and representative kept alive weakly — never
+            // marked, never reachable. Kept elements retain their
+            // representative the same way: the representative is reachable
+            // only through the element, and the spec makes the fields of
+            // guarded elements part of the weak-resurrection hypothetical.
+            for (g.registered.items) |e| {
+                if (!keptAlive(gc, e.payload)) {
+                    noteWeakResurrection(gc, e.payload);
                     progress = true;
                 }
             }
+            for (resurrect.items) |e| {
+                noteWeakResurrection(gc, e.watched);
+                noteWeakResurrection(gc, e.payload);
+                g.ready.append(gc.allocator, e) catch @panic("GC guardian: ready queue OOM");
+                progress = true;
+            }
         }
 
-        if (!progress) break;
+        if (progress) {
+            settled = false;
+            continue;
+        }
+        if (settled) break;
+
+        // Settle: materialize the weak resurrections — everything the set
+        // holds (ready queues, freshly resurrected elements, retained
+        // representatives) must survive the sweep, now that every weak
+        // decision of this round is made. Iterated by index: the marking can
+        // reach a guardian not yet registered (one only referenced from a
+        // resurrected representative), and markValueInner appends it to
+        // pending_guardians mid-loop. Residual, deliberately kept: a guardian
+        // discovered *by this marking* probes in the next round against the
+        // now-materialized marks, so an entry of its watching an already
+        // weakly-resurrected object keeps rather than fires — the same
+        // bounded representative-delay corner the previous implementation
+        // had for every guardian, now narrowed to settle-discovered ones.
+        var si: usize = 0;
+        while (si < gc.pending_guardians.items.len) : (si += 1) {
+            const g = types.toObject(gc.pending_guardians.items[si]).as(Guardian);
+            for (g.ready.items) |e| {
+                markValue(gc, e.watched);
+                markValue(gc, e.payload);
+            }
+            for (g.registered.items) |e| markValue(gc, e.payload);
+        }
+        settled = true;
     }
 
-    // Any ephemeron still pending has a key that never became reachable: break
+    // Any ephemeron still pending has a key that never became live: break
     // it. Clearing both fields (not just the key) keeps ephemeron-value
     // memory-safe, since the value is no longer marked and may now be swept.
     for (gc.pending_ephemerons.items) |eph_val| {
@@ -442,13 +513,64 @@ fn processWeakRefs(gc: *GC) void {
         eph.key = types.FALSE;
         eph.value = types.FALSE;
     }
+
+    // Transport cells: the key field is weakly holding, so a cell whose key
+    // is neither reachable nor kept alive breaks — the key location was
+    // reclaimed and reads as #f from now on (#2006). The value field is an
+    // ordinary strong field, marked during the strong phase, and survives
+    // regardless.
+    for (gc.pending_transport_cells.items) |cell_val| {
+        const tc = types.toObject(cell_val).as(TransportCell);
+        if (!keptAlive(gc, tc.key)) {
+            tc.broken = true;
+            tc.key = types.FALSE;
+        }
+    }
+
     gc.pending_ephemerons.clearRetainingCapacity();
     gc.pending_guardians.clearRetainingCapacity();
+    gc.pending_transport_cells.clearRetainingCapacity();
+    gc.weak_resurrected.clearRetainingCapacity();
+}
+
+/// Record `v` as weakly resurrected this collection: kept alive (the settle
+/// pass marks it before the sweep) but not reachable — guardian probes never
+/// see it, so every guardian watching it fires (#2011).
+fn noteWeakResurrection(gc: *GC, v: Value) void {
+    if (!types.isPointer(v)) return;
+    const obj = types.toObject(v);
+    if (obj.owner != gc.id) return;
+    gc.weak_resurrected.put(obj, {}) catch
+        @panic("GC: weak resurrection set OOM");
+}
+
+/// True when `v` survives this collection: an immediate, a foreign-owned
+/// object, a strongly marked object — or a location SRFI-254 *keeps alive*
+/// (a guardian's ready queue holds it, or it was just resurrected). Ephemeron
+/// keys and transport-cell keys probe with this: a kept-alive key was not
+/// reclaimed, so its ephemeron does not break and its cell does not break.
+/// Guardian probes deliberately use plain weakReachable instead — a weakly
+/// resurrected object is not reachable, so every guardian watching it must
+/// still resurrect it (#2011).
+fn keptAlive(gc: *GC, v: Value) bool {
+    if (!types.isPointer(v)) return true;
+    const obj = types.toObject(v);
+    // #1687: same freed-header trap as weakReachable — this probe runs in
+    // the same mark phase against the same potentially dangling values.
+    if (comptime memory_mod.uaf_detection) {
+        if (obj.owner == memory_mod.FREED_OWNER)
+            @panic("GC: marking freed object (use-after-free)");
+    }
+    if (obj.owner != gc.id) return true;
+    return obj.flags.marked or gc.weak_resurrected.contains(obj);
 }
 
 /// True when `v` will survive this collection independently of any weak
 /// structure: immediates are never collected, foreign-owned objects are the
 /// other GC's responsibility, and same-GC heap objects survive iff marked.
+/// This is the *guardian* probe — a weakly resurrected object kept alive by
+/// a ready queue answers false here on purpose (#2011); ephemeron and
+/// transport-cell keys use keptAlive instead.
 fn weakReachable(gc: *GC, v: Value) bool {
     if (!types.isPointer(v)) return true;
     const obj = types.toObject(v);
@@ -611,9 +733,11 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
         .ephemeron => registerPendingEphemeron(gc, obj),
         .guardian => markGuardianStrong(gc, obj),
         .transport_cell => {
+            // The value field is strong; the key field is weakly holding
+            // (SRFI-254) and is resolved by processWeakRefs (#2006).
             const tc = obj.as(TransportCell);
-            markValue(gc, tc.key);
             markValue(gc, tc.value);
+            registerPendingTransportCell(gc, obj);
         },
         .symbol, .string, .native_fn, .flonum, .bytevector, .bignum, .ffi_library, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time, .numeric_vector => {},
     }
@@ -659,25 +783,52 @@ fn registerPendingEphemeron(gc: *GC, obj: *Object) void {
         @panic("GC: pending ephemerons OOM");
 }
 
-/// Mark the strongly-held fields of a reachable guardian and, for an object
-/// guardian, record it for the resurrection fixpoint. A transport cell
-/// guardian holds its registered cells strongly (they never resurrect on this
-/// non-moving collector); an object guardian holds only its ready (already
-/// resurrected) elements strongly, its registered elements being weak. Marking
-/// uses gc.markValue so it composes whether called from the worklist drain or
-/// the remembered-set walk.
+/// Record a reachable transport cell for post-fixpoint key resolution without
+/// tracing its key: the key field is weakly holding (SRFI-254), so its
+/// liveness is decided by processWeakRefs once every other question is
+/// settled (#2006). The value field is strong and is traced normally.
+fn registerPendingTransportCell(gc: *GC, obj: *Object) void {
+    gc.pending_transport_cells.append(gc.allocator, types.makePointer(obj)) catch
+        @panic("GC: pending transport cells OOM");
+}
+
+/// Record a reachable object guardian for the resurrection fixpoint, and fold
+/// the contents of its ready queue — elements resurrected by an earlier
+/// collection and not yet retrieved — into the weak-resurrection set. Those
+/// contents are kept alive without being reachable (#2011); the settle pass
+/// of processWeakRefs materializes their survival once every weak decision
+/// is made.
+fn registerPendingGuardian(gc: *GC, obj: *Object) void {
+    gc.pending_guardians.append(gc.allocator, types.makePointer(obj)) catch
+        @panic("GC: pending guardians OOM");
+    const g = obj.as(Guardian);
+    for (g.ready.items) |e| {
+        noteWeakResurrection(gc, e.watched);
+        noteWeakResurrection(gc, e.payload);
+    }
+}
+
+/// Mark the strongly-held fields of a reachable guardian and record the weak
+/// structures for processWeakRefs. Marking uses gc.markValue so it composes
+/// whether called from the worklist drain or the remembered-set walk.
+///
+/// A transport cell guardian holds its registered cells strongly — the cells
+/// themselves, that is; each cell then defers its key via the
+/// `.transport_cell` arm. Cells never transport on this non-moving
+/// collector, so the ready queue stays empty and nothing ever resurrects.
+///
+/// An object guardian holds *nothing* strongly here. Its registered elements
+/// are weak by definition, and its ready (already resurrected) elements are
+/// weak resurrections (#2011): marking them in the strong phase made every
+/// other guardian's probe on the same object answer "reachable", so a second
+/// guardian starved for as long as the first held the object in its queue.
 fn markGuardianStrong(gc: *GC, obj: *Object) void {
     const g = obj.as(Guardian);
     if (g.is_transport) {
         for (g.registered.items) |e| markValue(gc, e.watched);
         for (g.ready.items) |e| markValue(gc, e.watched);
     } else {
-        for (g.ready.items) |e| {
-            markValue(gc, e.watched);
-            markValue(gc, e.payload);
-        }
-        gc.pending_guardians.append(gc.allocator, types.makePointer(obj)) catch
-            @panic("GC: pending guardians OOM");
+        registerPendingGuardian(gc, obj);
     }
 }
 
@@ -981,24 +1132,22 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
         .guardian => {
             const g = obj.as(Guardian);
             if (g.is_transport) {
-                // Transport cells are held strongly; marking each cell traces
-                // its key/value via the .transport_cell arm.
+                // Transport cells are held strongly; marking each cell defers
+                // its key and traces its value via the `.transport_cell` arm.
                 for (g.registered.items) |e| worklist.append(gc.allocator, e.watched) catch @panic("GC mark: worklist OOM");
                 for (g.ready.items) |e| worklist.append(gc.allocator, e.watched) catch @panic("GC mark: worklist OOM");
             } else {
-                // Ready (resurrected) elements are strong; registered elements
-                // are weak and handled by processWeakRefs.
-                for (g.ready.items) |e| {
-                    worklist.append(gc.allocator, e.watched) catch @panic("GC mark: worklist OOM");
-                    worklist.append(gc.allocator, e.payload) catch @panic("GC mark: worklist OOM");
-                }
-                gc.pending_guardians.append(gc.allocator, cur) catch @panic("GC mark: pending guardians OOM");
+                // Both queues are weakly held — ready (resurrected) contents
+                // are weak resurrections, registered elements await their
+                // probe — so neither may be marked here (#2011).
+                registerPendingGuardian(gc, obj);
             }
         },
         .transport_cell => {
+            // Value strong, key deferred to processWeakRefs (#2006).
             const tc = obj.as(TransportCell);
-            worklist.append(gc.allocator, tc.key) catch @panic("GC mark: worklist OOM");
             worklist.append(gc.allocator, tc.value) catch @panic("GC mark: worklist OOM");
+            gc.pending_transport_cells.append(gc.allocator, cur) catch @panic("GC mark: pending transport cells OOM");
         },
         .symbol, .string, .native_fn, .flonum, .bytevector, .bignum, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time, .numeric_vector => {},
     }
