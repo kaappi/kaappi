@@ -853,20 +853,32 @@ pub fn endColdLoad(vm: *VM, ok: bool, source_hash: u64, sld_path: []const u8, re
         if (cache.pathForLibrary(allocator, sld_path)) |sbc_path| {
             defer allocator.free(sbc_path);
             cache.ensureDir();
+            // Record the dependency for the MAIN run's entry, inheriting
+            // this library's own include/dependency records (#1888
+            // review): a program's slots embed this library's macro
+            // expansions, which can change through an edit to any file in
+            // the transitive closure. The records validate against the
+            // filesystem, not against an entry, so they are recorded on a
+            // FAILED write too — otherwise this library would be invisible
+            // to the program entry and its edits would serve stale slots
+            // (#1888 review, round 3).
+            const record_run_dep = struct {
+                fn f(vm2: *VM, c2: *LibCollector, rel: []const u8, resolved: []const u8, hash: u64, name: []const u8) void {
+                    noteRunDep(vm2, rel, resolved, hash, name);
+                    inheritRunIncludes(vm2, c2.includes.items);
+                    inheritRunDeps(vm2, c2.deps.items);
+                }
+            };
             if (bf.writeFileWithLibrary(allocator, c.funcs.items, c.events.items, c.includes.items, c.deps.items, source_hash, sld_path, sbc_path)) |_| {
                 timings.libCacheWrote();
-                // Record the dependency for the MAIN run's entry, inheriting
-                // this library's own include/dependency records (#1888
-                // review): a program's slots embed this library's macro
-                // expansions, which can change through an edit to any file
-                // in the transitive closure.
-                noteRunDep(vm, rel_path, sld_path, source_hash, lib_name);
-                inheritRunIncludes(vm, c.includes.items);
-                inheritRunDeps(vm, c.deps.items);
-            } else |err| switch (err) {
-                error.LimitExceeded => timings.libCacheReason("library exceeds .sbc limits"),
-                error.UnsupportedConstant => timings.libCacheReason("library constant unrepresentable"),
-                else => {},
+                record_run_dep.f(vm, c, rel_path, sld_path, source_hash, lib_name);
+            } else |err| {
+                record_run_dep.f(vm, c, rel_path, sld_path, source_hash, lib_name);
+                switch (err) {
+                    error.LimitExceeded => timings.libCacheReason("library exceeds .sbc limits"),
+                    error.UnsupportedConstant => timings.libCacheReason("library constant unrepresentable"),
+                    else => {},
+                }
             }
         } else {
             // Nowhere to put the entry: the program entry cannot record this

@@ -342,6 +342,46 @@ f2="$(run_timed "$FC")"
 check "fold-case program: warm output" "125" "$f2"
 check "fold-case program: warm HIT" "cache: HIT" "$f2"
 
+# --- I: a library whose entry write fails still invalidates importers -------
+# The library's body carries a literal nested past the .sbc depth cap, so its
+# entry write fails with LimitExceeded (kaappi#2113) and the library stays
+# uncached. The run records do not depend on the entry existing — the program
+# entry must still record the dependency and stale when the library's macro
+# changes (#1888 review, round 3).
+mkdir -p "$LIBDIR/deep1888"
+{
+    echo '(define-library (deep1888 d)'
+    echo '  (import (scheme base))'
+    echo '  (export mac)'
+    echo '  (begin'
+    echo '    (define-syntax mac (syntax-rules () ((mac) 111)))'
+    printf "    (define deep '%s1%s)\n" "$(python3 -c 'print("(" * 300)')" "$(python3 -c 'print(")" * 300)')"
+    echo '))'
+} > "$LIBDIR/deep1888/d.sld"
+P4="$PROGDIR/p4.scm"
+cat > "$P4" <<'SCM'
+(import (deep1888 d) (scheme base))
+(display (mac))
+(newline)
+SCM
+i1="$(run_timed "$P4")"
+check "uncacheable-library program: cold output" "111" "$i1"
+check "uncacheable-library program: library write refused with a reason" "libcache: 0 hits, 1 miss" "$i1"
+i2="$(run_timed "$P4")"
+check "uncacheable-library program: warm HIT (dep recorded, not poisoned)" "cache: HIT" "$i2"
+sed_in_place() { python3 - "$1" "$2" "$3" <<'PY'
+import sys
+path, old, new = sys.argv[1], sys.argv[2], sys.argv[3]
+s = open(path).read()
+assert old in s, (path, old)
+open(path, 'w').write(s.replace(old, new, 1))
+PY
+}
+sed_in_place "$LIBDIR/deep1888/d.sld" '((mac) 111)' '((mac) 222)'
+i3="$(run_timed "$P4")"
+check "macro edit in unwritable library: program entry misses" "cache: MISS (wrote" "$i3"
+check "macro edit in unwritable library: new expansion runs" "222" "$i3"
+
 echo ""
 echo "passed: $PASS  failed: $FAIL"
 [[ "$FAIL" -eq 0 ]]
