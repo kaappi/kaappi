@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787715065068,
+  "lastUpdate": 1787715367294,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a7798d99eb3e3e8eec377251fd0f4bd97fdbb60e",
-          "message": "Add paredit-style structural editing to the REPL (#2221)\n\n* Add paredit-style structural editing to the REPL\n\nFour keys now move a paren rather than a character: slurp (alt+shift+S),\nbarf (alt+shift+B), raise (alt+shift+R) and rotate (alt+y). On a Lisp\nprompt these are the edits worth having, and a character-oriented editor\nmakes every one of them tedious.\n\nThe transforms live in src/repl_sexp.zig as pure functions over\n(buffer, byte cursor), so they test without a terminal. The keys and the\nbuffer swap are KAAPPI PATCH 3 in the vendored editor; a pty-driven\nshell test covers that half, since nothing in Zig can reach it. This had\nto wait for the isocline migration — on one editable physical line per\ncall there is no whole form to restructure.\n\nkaappi#2216 proposed porting the four commands from bestline. Two of\nthem are not there to port: bestlineEditRaise is an empty stub, and\nbestlineEditRotate rotates the kill ring (emacs yank-pop) rather than\nthe datums of a form. The two that do exist walk runes with a mirror\nstack and no notion of strings, comments or character literals — the\nbug class the issue asked the port to avoid. So the scanner here takes\nReader.isDelimiter from reader.zig directly rather than copying it, and\nthe attribution is for the design and the keybindings, not the code.\n\nRotate keeps the head and cycles the arguments. Rotating the head too\nwould turn every call form into something unevaluatable ((+ 1 2) ->\n(1 2 +)), and the point of a cycle is that repeating it restores the\noriginal.\n\nAlso closes the divergence the issue noted in passing: the highlighter\npainted [ and ] like parens while the reader gives them no meaning\n(0] is KP1002). repl.isDelimiter is now an alias of Reader.isDelimiter,\nso the colors, the brace matcher, the reader and repl_sexp all agree.\n\nCloses #2216\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Make the REPL pty test fail loudly when the binary never starts\n\nReview of #2221 pointed at the exec path in the pty driver. The stated\nfailure mode does not exist — `pty.fork()` is called once at module top\nlevel, not in a loop, so a raising `os.execv` propagates and the child\nexits; it cannot fork again. Measured with a missing binary: process\ncount 596 -> 600, no growth.\n\nChasing it down did surface a real hole, and a worse one. A binary that\nnever started exited 77, which run-all.sh counts as a skip and reports\ngreen. The test could silently not-run. It now separates the two cases\nthat were being conflated: no output at all means the REPL did not\nstart, which fails; output without a prompt means no usable terminal,\nwhich still skips, because that is what keeps the emulated CI legs from\nflaking.\n\nThe bash side resolves $KAAPPI up front — a value with no slash through\nPATH, anything else as given — and fails with a clear message rather\nthan letting execv fail ambiguously. That also fixes the bare-command\nform, which dirname turned into $PWD/<name>.\n\nAlso mark against the raw buffer rather than the ANSI-stripped one.\nStripped indices are not stable: a read ending mid-escape leaves bytes\nthe regex cannot match yet, and they vanish once the rest arrives,\nshifting every index taken before that. Raw offsets only grow.\n\nThe child now execs or `_exit(127)`s, so it can never run the parent's\ncode and drop a traceback into the pty slave.\n\nRe-verified by mutation: with edit_sexp stubbed out the suite still\nexits 1, and each failure mode now returns the exit code it means.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-04T19:51:00Z",
-          "tree_id": "220148ceec35ec8df6df1beae427322b6199ae4b",
-          "url": "https://github.com/kaappi/kaappi/commit/a7798d99eb3e3e8eec377251fd0f4bd97fdbb60e"
-        },
-        "date": 1785874784693,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.000411,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 5.981656,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.41491,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.159737,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004267,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.035801,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.220359,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.039242,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.066296,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.905619,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.197532,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.230073,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.281805,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.836963,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.034518,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045315,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f5ef594b6f9589fb842246de9720022e9c2687cd",
+          "message": "records: carry field names on R7RS define-record-type rtds (#2088) (#2345)\n\nAn R7RS positional define-record-type produced an rtd with zero own field\nnames: handleDefineRecordType called allocRecordType (count only), never\npopulating own_field_names/own_field_mutable. record-type-field-names\ntherefore answered #() -- a well-formed but false result -- and\nrecord-accessor, record-mutator and record-field-mutable? all failed with\n\"index 0 out of range for length 0\" on such a type (SRFI 240's whole\nreason for existing is that the R7RS and R6RS syntaxes produce\ninteroperable types; the R6RS-clause and make-record-type-descriptor\npaths already carried the metadata).\n\nAll three R7RS emit paths now record each field's name and mutability\n(mutable iff the clause names a mutator, R7RS 5.5.1):\n\n- handleDefineRecordType (top level and library bodies) allocates via\n  allocRecordTypeExtended -- parentless/generative/transparent, exactly\n  the shape allocRecordType built, plus the field metadata.\n- expandRecordTypeDefines (leading-define body scanning) and\n  compileDefineRecordType (general dispatch) emit the metadata through\n  %make-record-type, which gains an optional third argument: a list of\n  (name-string . mutable?) pairs, the same convention\n  %make-record-type-descriptor's field-specs use. Count-only callers\n  keep the two-argument form.\n\nThe rtd representation is unchanged -- own_field_names/own_field_mutable\nalready existed and were already traced by the GC switches (raw owned\nbytes, like RecordType.name); R7RS rtds now simply populate them, and\ngc_deep_copy's metadata-ful slow path carries them across thread\nboundaries. Stale comments that documented the old behavior\n(types_record.zig's \"0 for a plain R7RS record type\",\ngc_deep_copy.zig's fast-path rationale) are updated.\n\nTests:\n- tests/scheme/srfi/srfi240-audit.scm: the four assertions disabled\n  under \"FAIL: #2088\" are enabled (with the pinned broken-behavior set\n  flipped to assert the fixed behavior), plus new coverage: by-name\n  record-accessor, immutable-mutator rejection, out-of-range index\n  rejection, a zero-field type staying legitimately #(), and a\n  body-local define-record-type carrying its names.\n- src/tests_records.zig: unit tests for the top-level and body-local\n  desugarer paths asserting own_field_names/own_field_mutable on the\n  rtd.\n- tests/scheme/audit/internal-primitives-audit.scm: %make-record-type\n  arity assertions updated for the optional third argument, plus\n  positive and rejection tests for the field-specs form.\n\nEvidence: srfi240-audit 81/81 pass (9 failures without the fix),\ninternal-primitives-audit 255/255, srfi9/57/131/136/137/150/237/240\nall pass, R7RS suite 1395/0, zig build test green, and a no-import\nrecord program through `kaappi compile` prints its field names.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-26T06:14:41+05:30",
+          "tree_id": "39157d0b7b4efd89dc0cfbcd07ebc3110c9d8536",
+          "url": "https://github.com/kaappi/kaappi/commit/f5ef594b6f9589fb842246de9720022e9c2687cd"
+        },
+        "date": 1787715366020,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.939026,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.454008,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.555831,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.811681,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00496,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04616,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.284658,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053533,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.374855,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.136201,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.583453,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.306018,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.688405,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.762866,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045963,
             "unit": "seconds"
           }
         ]
