@@ -385,6 +385,18 @@ comptime {
                     lib.canonicalName() ++ "; use `.internal` (see Lib.internal) or a *_primitives sub-library");
         }
     }
+    // Every `(kaappi ffi)` primitive is native-only. Unlike SRFI 18 — whose
+    // OS-thread library is WASM-unavailable yet keeps the fiber-safe
+    // `thread-sleep!` registered as a working global — (kaappi ffi) has no
+    // WASM-viable subset: nothing behind these names can ever succeed on
+    // wasm32-wasi. A spec that omits `.wasm = false` would register a global
+    // that exists solely to refuse (kaappi#2018), so require it here rather
+    // than let the next FFI primitive silently reintroduce the divergence.
+    for (all_specs) |spec| {
+        if (spec.libs.contains(.kaappi_ffi) and spec.wasm)
+            @compileError("`.kaappi_ffi` spec \"" ++ spec.name ++
+                "\" must set `.wasm = false`: (kaappi ffi) has no WASM-viable subset (kaappi#2018)");
+    }
 }
 
 pub fn registerAll(vm: *vm_mod.VM) !void {
