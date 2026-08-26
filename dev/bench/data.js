@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787713403529,
+  "lastUpdate": 1787713510544,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d717d0b4d8e34df2e8dcc8b2fa55e8d533e78d54",
-          "message": "Stop two shell drivers tripping over the .exe suffix (#2220)\n\n* Stop two shell drivers tripping over the .exe suffix\n\nFound running the whole of tests/scheme/**/*.sh on the Windows 11 ARM64\nreference VM. Neither script is reached by the Windows CI loop — it iterates a\nfixed list of eleven suite directories, and completions/ is not among them —\nso both had been failing there unobserved. The behaviour under test is fine in\neach case; only the harness was wrong.\n\ncompletions.sh generated its scripts into $TMP/$(basename \"$bin\").$shell and\nthen went on sourcing a hardcoded $TMP/kaappi.bash. On Windows the binary is\nkaappi.exe, so it wrote kaappi.exe.bash and every reader missed: 19 of 39\nchecks failed with \"No such file or directory\" and \"_kaappi: command not\nfound\". The generated names are now keyed to the *tool* — kaappi, thottam —\nwhich is the one spelling stable across platforms and across however the\ncaller spelled the binary. §2's loop already iterated tool names; its variable\nis renamed from bin to tool so it stops reading like a path.\n\nThe suffix is worth naming as a class, because it is invisible from POSIX and\nhalf-invisible from Windows. Runners spell the binary both ways: bin/kaappi.exe\nin the CI jobs, plain zig-out/bin/kaappi from a Git Bash checkout — and the\nbare spelling *works*, because MSYS appends .exe when executing. So a script\nthat only ever runs the result is fine; one that names the file, -x-tests it,\nor derives an output name from its basename is not. That is why THOTTAM, built\nas \"$(dirname \"$KAAPPI\")/thottam\", executed correctly on the box while the\nkaappi half of the same suite was failing. New shell-common.sh helper\nsibling_tool takes the suffix from the path the caller passed rather than from\nis_windows, so the two cannot drift apart.\n\naudit-baseline.sh moves to tools/. It is a developer report generator, not a\ntest: it drives `zig build` and takes an *output directory* as $1, the opposite\nof every driver under tests/scheme/, which takes the kaappi binary there.\nrun-all.sh never ran it — run_shell_suite globs a suite directory and no call\npasses tests/scheme itself — but any sweep of tests/scheme/**/*.sh picks it up,\nhands it the binary path, and gets `mkdir -p zig-out/bin/kaappi.exe` followed\nby a summary grep against a path that is not a directory. Living in tools/,\nbeside run-r7rs-suite.sh and run-gc-stress-suite.sh, makes that unreachable\nrather than merely unlikely. Its four references are updated in step.\n\nVerified on the win11 box, both spellings of the binary: completions.sh goes\nfrom 20 pass / 19 fail to 39 pass / 0 fail, exit 0. On macOS it stays 41 pass /\n0 fail (two more than Windows: zsh and fish are installed, so their -n gates\nrun). Full run-all.sh clean.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Run the four uncovered shell suites on Windows too\n\ncompletions, lsp, thottam and differential were outside the Windows CI\nloop's directory list. That list is a hand-maintained enumeration in two\nplaces in ci.yml rather than a glob, so a suite wired into run-all.sh is\ncovered on every platform except this one until someone edits both loops\n— and nothing says so out loud. completions/completions.sh had been\nfailing there the whole time, 19 of its 39 checks, seen only when\nsomebody swept tests/scheme/**/*.sh on the reference VM by hand.\n\nMeasured on that VM before wiring them in, because these run on every\nPR. The exact new list gives 46 pass, 0 fail, 28 skip (25 compile/\ngates, profile-json-escaping.sh, thottam-lifecycle.sh,\nrun-wasm-differential.sh — the last two are the newcomers' own skips:\ngit fixtures at POSIX paths, and no wasmtime on the runners).\n\ndifferential/run-differential.sh is the one real cost at ~9 minutes,\nagainst jobs that currently finish in about 6 and are capped at 40 and\n45. That roughly triples the step and still leaves most of the budget;\nit earns its place because cold-vs-warm .sbc cache agreement is exactly\nthe kind of thing a platform's path handling breaks.\n\nwindows.md now states the keep-in-step rule where the list is described,\nand its verification record is re-measured rather than adjusted: 46/0/28\non build 26200. The older 34/15/0 line is left as the point-in-time\nrecord it was, with the framing corrected so it no longer claims to\ndescribe the current CI set.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-04T22:26:27+05:30",
-          "tree_id": "fbd02753ca25bb8d1e665855658c263bb5a4bf25",
-          "url": "https://github.com/kaappi/kaappi/commit/d717d0b4d8e34df2e8dcc8b2fa55e8d533e78d54"
-        },
-        "date": 1785864582103,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.006302,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.222618,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.589212,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.858977,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005546,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.045183,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.298468,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054021,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.376192,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.166547,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.535739,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.304756,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.731238,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.839798,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046371,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046993,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5b01dfb71332b937772a5b0ddfd0126b84c26835",
+          "message": "wasi: make `zig build test -Dtarget=wasm32-wasi` a real gate and run the suite under wasmtime (kaappi#2153) (#2349)\n\nThe wasm32-wasi unit suite did not compile (~20 errors: 32-bit usize\narithmetic, platform-facade gaps in code the test module pulls in), so\nthe WASI reactor backend had no compile gate anywhere and the binary\nwas never executed by any test.\n\nDirection (a) of the issue, with direction (b)'s documentation for the\none piece no runtime can host:\n\n* The suite now compiles: WASI arms for platform.zig's write-open\n  family / openNullSink / DirIter (fd_readdir) / dl* / argsIterate, the\n  process-spawn sites (thottam_proc, test_runner, test_selection,\n  doctor, native_compiler), testing_helpers' fd-pair family, and\n  32-bit-safe FFI test constants. build.zig marks the wasm test module\n  single-threaded (matching the wasm executable), adds the atomics CPU\n  feature (std's futex plumbing analyzes atomic waits even\n  single-threaded; only waits need shared memory, and this module never\n  waits), defaults it to ReleaseSmall (Debug exceeds wasmtime's\n  per-function locals limit in the comptime-generated FFI dispatchers;\n  ReleaseSafe crashes the LLVM wasm32 backend on a float constant-pool\n  selection), and installs zig-out/bin/unit-tests.wasm.\n* The installed binary runs green under\n  `wasmtime run --dir=. --dir=/tmp`: 1542 passed, 209 skipped, 0 failed\n  of 1751 - the same test count as the native suite. This executes\n  WasiPollBackend's CLOCK path for real (addTimer/removeTimer/\n  popExpiredTimers/msFromNs and the scheduler/fiber halves).\n* The fd suites skip on wasm with per-test comptime gates, and\n  testing_helpers.wasmNoFdPairs panics if a test reaches a pair\n  constructor without its skip: WASI p1 has no pipe/socketpair creation\n  syscalls and wasmtime leaves sock_open unimplemented, so a guest\n  cannot construct any EAGAIN-capable fd; poll_oneoff even rejects fd\n  subscriptions on every obtainable fd with BADF (probed on wasmtime\n  48). porting.md Stage 3 now documents this boundary explicitly\n  instead of listing a criterion the backend cannot meet.\n* Bug found by the new gate: make-bytevector/make-string silently\n  allocated a truncated (much smaller) object for absurd lengths on\n  wasm32 - the i64 length truncated inside @intCast before the GC\n  payload cap could see it (the #1912 class). primitives.fixnumFitsUsize\n  now checks in u64 before narrowing; the fixnum-length absurd-payload\n  regression test runs on wasm and fails without the fix.\n* platform.zig's WASI opens now resolve paths through the preopen table\n  the way wasi-libc does (relative -> CWD preopen, absolute -> longest\n  preopen-name prefix), replacing the hardcoded fd 3.\n* Two feature assertions that assumed \"unit tests never build for WASM\"\n  (kaappi-threads, (library (srfi 18))) now expect each platform's\n  correct answer; features' sandbox_available likewise.\n\nCI: the wasm job gains a step that runs the compile gate and executes\nthe binary under wasmtime (the runner is already installed there).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-26T06:08:55+05:30",
+          "tree_id": "74ac555eb88599636887ba36875c0927339e3c85",
+          "url": "https://github.com/kaappi/kaappi/commit/5b01dfb71332b937772a5b0ddfd0126b84c26835"
+        },
+        "date": 1787713508189,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.092079,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.573529,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.407302,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.202629,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004513,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.036769,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.224057,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.040362,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.23013,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.894731,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.253253,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.2337,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.294074,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.829753,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.034961,
             "unit": "seconds"
           }
         ]
