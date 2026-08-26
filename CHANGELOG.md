@@ -7,6 +7,90 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-08-27
+
+### Added
+
+- **Bytecode caching now engages for programs that import libraries** (#1888).
+  `.sld` libraries and importing programs are cached with "structure from
+  source, code from cache" — the loader re-parses the hash-validated `.sld` and
+  replays cached body functions and macro transformers, so imports load,
+  exports re-derive, and `cond-expand`/`define-record-type` re-run exactly as
+  cold. Layered invalidation tracks include files and file-backed dependencies;
+  libraries whose `cond-expand` consulted the live library registry are never
+  cached. The differential corpus went from 40/345 to 354/368 files caching,
+  cold==warm byte-identical. A quadratic reader span-recording cost was fixed
+  along the way (cold SRFI-64 load 27.5ms → 11.4ms). Cache format bumped to
+  v13; older entries read back as misses.
+
+- **SRFI 231 `u1` bit-packed storage class** (#2353), a direct port of the
+  reference bit-packing over `u16vector`. `specialized-array-reshape` now
+  handles reversed and per-axis-flipped (negatively strided) views via a
+  faithful port of NumPy's `_attempt_nocopy_reshape`, instead of raising on
+  anything but a packed array (#2350). Broad spec-conformance sweep
+  (#2353–#2362) with the official SRFI 231 test suite vendored as a permanent
+  conformance asset (~8,800 evaluations).
+
+- **SRFI 4 `u64vector`/`s64vector` family re-exported** (#2361) — a legal
+  `(import (srfi 4))` program no longer fails on the two 64-bit kinds.
+
+- **R7RS `define-record-type` rtds now carry field names and mutability**
+  (#2088). `record-type-field-names` returns the real names, and
+  `record-accessor`/`record-mutator`/`record-field-mutable?` work on positional
+  record types (previously "index 0 out of range for length 0").
+
+- **SRFI 1 `fold`/`filter`/`any`/`every`/`unfold` and SRFI 69
+  `hash-table-walk` are resumable** (#2060) — a coroutine-backed generator
+  (e.g. from SRFI 158) can now be consumed inside these drivers without
+  "continuation cannot resume across a returned native call".
+
+### Fixed
+
+- **Large error-taxonomy sweep** (#2020/#2021/#2022, #1914, #2036/#2037,
+  #2002/#2204, #2335): out-of-range accesses report KP3006, well-typed value
+  rejections report KP3007, and error messages name the real offending
+  procedure and value instead of a hardcoded placeholder or `args[0]`. Covers
+  substring/string-copy agreement, the bytevector/vector/string index families,
+  ~20 SRFI-13 procedures, the arithmetic operators, FFI narrow-integer ranges,
+  internal record primitives, and `(kaappi fibers)` capacity/timeout
+  diagnostics.
+
+- **Compiler capture-boxing bug in `do` loops** (#2360): a `guard`,
+  `let-values`, `parameterize`, `receive`, or any capturing user macro inside a
+  `do` body could hand a box object to arithmetic, surfacing as a spurious
+  "type error in arithmetic" at the loop's termination test. Every
+  `do`-referenced local is now boxed before the loop (measured flat-to-faster
+  on the benchmark suite).
+
+- **Fiber faults preserve their error code and message** across the fiber
+  boundary (#2204) — `fiber-join` now reports e.g.
+  `KP3002 "type error in 'car'..."` for a fault inside a spawned fiber,
+  identical to the same fault outside one, so a `guard` discriminating on the
+  code can match. Two `(kaappi fibers)` argument-diagnostic mislabels fixed
+  (#2002).
+
+- **SRFI 166**: `trimmed/lazy` is now truly lazy (safe with infinite output;
+  no KP3008 on a circular list under `written-simply`), and `with!` on an
+  immutable state variable is an error (#2344).
+
+- **SRFI 158**: `make-range-generator` begins the sequence with `start`
+  exactly (an inexact start is no longer perturbed), and `gflatten` yields
+  nothing for empty sub-lists instead of raising (#2055, #2057).
+
+- **SRFI 254**: guardian weak resurrection fires all watchers of an object in
+  the same collection, and transport-cell keys are held weakly (#2011, #2006).
+
+- **WASM `make-bytevector`/`make-string` truncation** for absurd lengths — the
+  i64 length truncated before the GC payload cap could reject it; found by the
+  new WASI test gate.
+
+- **`fd->port` is undefined on WASM** rather than a refusing global, matching
+  its FFI siblings (#2018).
+
+- **thottam**: ownership-aware `remove` (unlink only files no other package
+  claims) and state-file name validation are now covered by network-free unit
+  tests (#2136, #2144).
+
 ## [0.24.0] - 2026-08-25
 
 ### Added
