@@ -647,21 +647,24 @@
                     (string-search m "200 inherited")
                     (string-search m "255"))))
 
-;; The own-fields path reports a bare TypeError naming args[0] (the type
-;; NAME, which is perfectly valid) instead of the field count.
-;; FAIL: #1914 (own-field 255-limit overflow reports a bare TypeError blaming args[0])
-;; (test-assert "255 limit: the own-fields path reports the same limit as precisely"
-;;              (let ((m (message-of (lambda ()
-;;                                     (make-record-type-descriptor 'OWN256 #f #f #f #f
-;;                                                                  (fields-vector 256))))))
-;;                (and (string? m) (string-search m "255"))))
-
-;; Enabled: the current, asymmetric wording, so #1914's fix has a pinned "before".
-(test-assert "255 limit: the own-fields path currently reports a type error naming the rtd name"
+;; #1914 FIXED: the own-fields path used to report a bare TypeError naming
+;; args[0] (the type NAME, which is perfectly valid) instead of the field
+;; count. It now reports the SAME symmetric limit message the inherited path
+;; does, through argError (KP3007) rather than a bare TypeError.
+(test-assert "255 limit: the own-fields path reports the limit as precisely (#1914)"
              (let ((m (message-of (lambda ()
                                     (make-record-type-descriptor 'OWN256 #f #f #f #f
                                                                  (fields-vector 256))))))
-               (and (string? m) (string-search m "type error"))))
+               (and (string? m)
+                    (string-search m "256 fields")
+                    (string-search m "256 of its own")
+                    (string-search m "0 inherited")
+                    (string-search m "255"))))
+(test-assert "255 limit: the own-fields path no longer blames the rtd name with a type error (#1914)"
+             (let ((m (message-of (lambda ()
+                                    (make-record-type-descriptor 'OWN256 #f #f #f #f
+                                                                 (fields-vector 256))))))
+               (and (string? m) (not (string-search m "type error")))))
 
 
 ;;; ===================================================================
