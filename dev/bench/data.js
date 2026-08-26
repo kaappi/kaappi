@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787709315324,
+  "lastUpdate": 1787709367007,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "b813fd0cfa9579f51f83adf5b447b366847f4b27",
-          "message": "Add DCO2 app config\n\nEnables individual remediation commits so a contributor can retroactively sign off a commit without a force-push. See https://github.com/cncf/dco2.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-03T19:16:41+05:30",
-          "tree_id": "097dd7d53d7dad5ceac119e4884ea06cdf1e14a1",
-          "url": "https://github.com/kaappi/kaappi/commit/b813fd0cfa9579f51f83adf5b447b366847f4b27"
-        },
-        "date": 1785766848126,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.068876,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.611482,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.552554,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.875302,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005019,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.045382,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.301313,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.053425,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.840242,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.113366,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.508815,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.260662,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.745902,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.92578,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041796,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046431,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "603d3cd682894262f63af0a378267bab5dd4d9f6",
+          "message": "srfi-158: begin range generators with start; gflatten yields nothing for empty lists (#2339)\n\nTwo defects in lib/srfi/158-impl.scm, both ported faithfully from the\nSRFI's own reference implementation (chibi-scheme reproduces each):\n\n#2055 -- make-range-generator's three-argument case coerced start with\n(- (+ start step) step).  The round trip achieves the spec's exactness\ncontagion but does not leave an already-inexact start alone: the\nsequence began with 0.10000000000000009 instead of 0.1, and when step\ndwarfed start, the addition rounded start away entirely and the\nsubtraction returned 0.0 -- (make-range-generator 1e-20 1.0 1.0) began\nwith 0.0.  The spec's \"The sequence begins with start\" is explicit.\nCoerce with exact->inexact only when step is inexact; an inexact start\nnow passes through untouched, and exact/exact stays exact.\n\n#2057 -- gflatten's refill ran exactly once instead of until it held a\nnon-empty list, so an empty list from the source reached car and raised\na type error.  The spec's \"yields the elements of the lists produced\nby the given generator\" means a list with no elements contributes no\nelements.  The refill now loops; exhaustion still sticks.  This is the\nnatural shape of a filtering map (gmap returning '() for every rejected\nelement), which previously could not be flattened at all.\n\nBoth fixes diverge deliberately from the reference implementation and\nfrom chibi-scheme; the spec text is unambiguous in each case, and the\ndivergence is noted in comments at both sites.\n\nTests: the eight assertions the audit file had parked under ;; FAIL\nmarkers are enabled (and the three raises? pins for gflatten's raising\nbehaviour removed), plus a new consecutive-empty-sub-lists regression --\nthe case a refill that loops only once more still misses.  All nine\nfail on the old library; with the fix srfi158-audit reports 355 passes\nand exit 0, every other suite importing (srfi 158) passes, and\nzig build test is green.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-26T06:02:50+05:30",
+          "tree_id": "9632254f0d5bb29009393f8277bfca940a4cb5f8",
+          "url": "https://github.com/kaappi/kaappi/commit/603d3cd682894262f63af0a378267bab5dd4d9f6"
+        },
+        "date": 1787709364106,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.729232,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.638382,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.503902,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.683984,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004849,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.044513,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.273237,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.047098,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.464125,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.111798,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.473097,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.26501,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.545105,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.9614,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.040786,
             "unit": "seconds"
           }
         ]
