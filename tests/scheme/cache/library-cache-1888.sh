@@ -366,7 +366,11 @@ cat > "$P4" <<'SCM'
 SCM
 i1="$(run_timed "$P4")"
 check "uncacheable-library program: cold output" "111" "$i1"
-check "uncacheable-library program: library write refused with a reason" "libcache: 0 hits, 1 miss" "$i1"
+# Match the refusal REASON, not just "0 hits, 1 miss": a substring like that
+# also passes "... 1 miss, 1 written", which is the write SUCCEEDING — if the
+# depth cap ever moves past 300 this section would silently stop exercising
+# the failure path it exists for (#1888 review, round 3).
+check "uncacheable-library program: write refused with the reason" "libcache: 0 hits, 1 miss (library exceeds .sbc limits)" "$i1"
 i2="$(run_timed "$P4")"
 check "uncacheable-library program: warm HIT (dep recorded, not poisoned)" "cache: HIT" "$i2"
 sed_in_place() { python3 - "$1" "$2" "$3" <<'PY'
