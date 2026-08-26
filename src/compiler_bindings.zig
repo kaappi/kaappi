@@ -351,10 +351,23 @@ const CaptureScan = struct {
             const h = types.symbolName(head);
             // Quoted data holds no variable references.
             if (std.mem.eql(u8, h, "quote")) return;
+            // These forms compile their sub-expressions into closures:
+            // lambda/case-lambda obviously, delay/delay-force wrap their
+            // expression in a promise thunk, and guard desugars to
+            // (with-exception-handler (lambda (var) clauses...) (lambda ()
+            // body...)) — compileGuard builds those lambdas internally, so
+            // every reference inside a guard is a capture. Missing guard
+            // here left do-loop variables unboxed until the guard's own
+            // lambda was compiled mid-loop, emitting a box_local INSIDE
+            // the loop while the loop test still read the register raw —
+            // the second iteration then passed the box object itself to
+            // arithmetic (kaappi#2360). Any new compiler form that wraps
+            // sub-expressions in an internal lambda MUST be added here.
             if (std.mem.eql(u8, h, "lambda") or
                 std.mem.eql(u8, h, "case-lambda") or
                 std.mem.eql(u8, h, "delay") or
-                std.mem.eql(u8, h, "delay-force"))
+                std.mem.eql(u8, h, "delay-force") or
+                std.mem.eql(u8, h, "guard"))
             {
                 var p = types.cdr(expr);
                 while (types.isPair(p)) : (p = types.cdr(p)) {
