@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787713260987,
+  "lastUpdate": 1787713302463,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "798cb60794fe488e111f5c9a3d92cb94205b5b42",
-          "message": "Make a failing test able to fail (#2207)\n\n* Make a failing test able to fail\n\nFour issues, one root cause: a check that reports success having asserted\nnothing. Until this lands, every regression test in the corpus is of unknown\nvalue, which is why the audit strategy ranks R10 first.\n\n56 .scm files had no way to signal failure. They computed the right thing and\nthrew the verdict away: `(display (= x 43))` prints #f and exits 0, and so does\n`(display \"FAIL: ...\")`. Both runners reported every one of them as passing\nwhatever they computed -- smoke/thread-sleep-876.scm was demonstrably green\nunder the very regression it was written to catch. run-all.sh's stdout net\ncould not help: it matched a failure COUNT, which neither shape has.\n\nAll 56 are now SRFI-64 suites with the exit-on-fail epilogue (55 from #2116's\nown enumeration, plus deep-nesting-print-tier-margin.scm, which that\nenumeration's predicate missed because the word \"assert\" appears in one of its\ncomments). Three stay import-free with a hand-rolled `(exit 1)` and say why in\ntheir own headers: `(import (srfi 64))` fails at library load on WASM (#2108),\nwhich run-wasm-differential.sh classifies as LIBDIFF -- destroying what the two\n#2107/#1912 probes exist to measure -- and coroutine-repl-echo.scm's top-level\nforms must stay bare because consuming their values is what hid its bug.\n\nA verdict-channel check in run-all.sh now fails the run if a globbed suite file\ncarries none of test-begin, `(exit`, `(error` or `(assert`, so the count cannot\ngrow back from zero. It is a heuristic and says so; the standard is the\nepilogue.\n\nWidening the net to a bare FAIL token found the predicted second finding on its\nfirst run: smoke/fiber-error-handling.scm had been asserting the #551 behaviour\nthat #1155 deliberately REVERSED, printing \"FAIL - should have raised\" and\nexiting 0 ever since. Fixed to assert what #1155 specifies.\n\nThe R7RS suite's own verdict comes from its printed counts -- the (chibi test)\nshim exits 0 with failed assertions in the log -- and five ci.yml steps\n(riscv64, s390x, ppc64le, both Windows legs) took the exit status instead, so\n1,395 assertions caught a crash and never a wrong answer. That matters most on\ns390x, the big-endian canary, where a byte-order bug presents as exactly a\nwrong answer. tools/run-r7rs-suite.sh is now the single implementation behind\nall six callers. runner-agreement.sh's copy of the net regex gained a drift\ncheck against run-all.sh, so the copy cannot silently fall behind.\n\nrun-all.sh no longer builds a default binary when one is missing: the natural\ntwo-command gc-stress sequence silently substituted a plain build for the\nconfiguration being measured, with nothing in the output naming it. It now\nrefuses, and prints the binary's version, build id, target, build mode and\ngc_stress in its header.\n\nprimitives_filesystem-audit.scm asserted that an environment variable named\nKAAPPI is unset -- the name every harness here uses for \"the binary under\ntest\". Moved to a name the test owns.\n\nMeasured cost, so a green WASM differential is not misread: giving 52 files an\n`(import (srfi 64))` moves them into the #2108 LIBDIFF bucket, taking that\nharness's `agree` count from 176 to 124. It reverses entirely when #2108 lands;\nnoted in the harness header.\n\nVerified: run-all.sh 2075 pass / 0 fail; zig build test 1672 pass, 3 skip;\nrunner-agreement 10/10; the R7RS block green under a -Dgc-stress=true build;\nand mutation controls for each new gate (a fresh verdictless file, a drifted\nregex, a missing binary, a broken R7RS assertion, and each hand-rolled exit).\n\nCloses #2116\nCloses #2157\nCloses #2162\nCloses #2163\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Respond to review: fix 8 findings, decline 2 with evidence\n\nEight of CodeRabbit's ten findings were valid; the two it marked Critical were\nboth wrong, and disproving them was the useful part of the pass.\n\nAccepted:\n\n- The one inventory. The counts genuinely drifted: 56 files had no verdict\n  channel, 52 became SRFI-64 suites and 4 kept a hand-rolled `(exit 1)`, plus\n  fiber-error-handling.scm for 53 conversions. Two docs said \"Three files are\n  exempt\" and omitted deep-nesting-print.scm, which I converted and then\n  reverted late without updating them. tests/scheme/CLAUDE.md now carries the\n  single inventory table and the others point at it.\n- Seven callers of tools/run-r7rs-suite.sh, not six: run-all.sh,\n  run-gc-stress-suite.sh, and five ci.yml steps.\n- `-x` not `-e` for the binary pre-flight: a path that exists but is not\n  executable is a harness failure (exit 2), and `-e` let the exec fail with 126\n  and be reported as exit 1, i.e. \"the suite reported failing assertions\".\n- `(import (scheme process-context))` in the two exempt files that are not\n  KNOWN_DIFFS probes, so their verdict does not rest on Kaappi's ambient\n  script-mode `exit`. Verified WASM-safe: process-context is a BUILT-IN\n  library, not a file-backed .sld, and tier-margin's output and exit status are\n  byte-identical under wasmtime with and without it. The two KNOWN_DIFFS probes\n  are left alone — their divergence is the measurement.\n- Three assertions strengthened, each with a mutation control:\n  `(eq? '->string '->string)` was vacuous (both literals truncate identically\n  under #647 and eq? is still #t) — now asserts the symbol's text;\n  prettyprint-cycle-859 accepted any `#` — now matches `#0=` and `#0#`;\n  syntax-rules-many-vars summed 17 variables, and addition is commutative, so a\n  permuted expansion still totalled 153. Proved directly: with the template\n  permuted the sum-based assertion exits 0 and the list-based one exits 1.\n\nDeclined:\n\n- \"run-all.sh does not fail when the R7RS suite reports failing assertions\"\n  (Critical). It does. `R7RS_FAIL` is sourced from the counts file and tested\n  in the summary condition, which the finding did not check. Proved end to end:\n  one broken assertion injected into r7rs-tests.scm gives `1395 pass, 1 fail`\n  and run-all.sh exit 1. The suggestion is still worth taking on robustness\n  grounds, so the block now gates on `R7RS_RUNNER_STATUS -ne 0` — one condition\n  covering every runner exit rather than three that happen to cover today's\n  two.\n- \"(srfi 133) is not imported, so all five assertions pass vacuously\"\n  (Critical). vector-reverse!, vector-reverse-copy and vector-unfold resolve\n  with only (scheme base) imported — SRFI 133 is built-in. Discriminating\n  control: the VALID calls do not raise (they would if the names were unbound)\n  while a genuinely unbound name does, so `raises?` is sound and the\n  assertions are not vacuous.\n\nVerified: run-all.sh 2075 pass / 0 fail; runner-agreement 10/10 with its regex\ncopy and drift check intact; tier-margin identical native and under wasmtime.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-03T19:30:40Z",
-          "tree_id": "befda9667dced64aa2ed54b8c88c9eba518eeb56",
-          "url": "https://github.com/kaappi/kaappi/commit/798cb60794fe488e111f5c9a3d92cb94205b5b42"
-        },
-        "date": 1785787358935,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.360611,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.530314,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.60543,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.965039,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004689,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047147,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.313102,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057912,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.67077,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.220809,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.640459,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.290283,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.825695,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.66389,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044557,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045761,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "499662f5ccbf393b4a00b6d85f091041945ab625",
+          "message": "SRFI-254: guardian weak resurrection and transport-cell weak keys (#2011, #2006) (#2348)\n\nGuardian resurrection followed the spec's 'weakly resurrected'\nhypothetical only halfway: markGuardianStrong marked every ready-queue\nelement in the strong mark phase, and the resurrect branch inside\nprocessWeakRefs marked the watched object as it moved each entry, so a\nsecond guardian (or a second registration in the same guardian) watching\nthe same object probed it as reachable and starved for as long as the\nfirst held it — permanently, if the first was never drained (#2011).\n\nprocessWeakRefs now implements the hypothetical directly:\n\n  * every registered element of every guardian is probed against the\n    frozen mark state before any element is resurrected in that round,\n    so N watchers of one object all fire in the same collection;\n  * ready-queue contents, freshly resurrected elements, and retained\n    representatives are recorded in a per-collection weak_resurrected\n    set — kept alive (a settle pass materializes the marks once every\n    weak decision is made) without ever counting as reachable;\n  * ephemeron keys and transport-cell keys probe with keptAlive\n    (marked or weakly resurrected), preserving the spec's kept-alive\n    reading: a key held only by a guardian's ready queue neither breaks\n    its ephemeron nor breaks its cell.\n\nTransport cell keys were held strongly — cells never broke and every\nregistration pinned its key forever (#2006). The .transport_cell mark\narms now defer the key to a new pending_transport_cells list (the value\nfield stays strong, per 'Except as noted, all newly chosen locations\nare strongly holding') and processWeakRefs breaks every cell whose key\nis neither reachable nor kept alive: broken reads #t, the key reads\n#f, the value survives. A weak key no longer blocks an object guardian\nwatching the same object. Registration stays permanent (the non-moving\ncollector never transports a cell, so (tg) always returns #f) — that\nhalf of the degeneracy is conformant and unchanged; the doc-truth in\nCONFORMANCE.md, the SRFI notes and the type/primitive comments now say\nboth halves.\n\nTests: the audit's pinned one-of-two and never-breaks assertions are\nflipped to the spec answers and extended (same-guardian double\nregistration, re-arming guardians, cross-cycle ready-queue hold,\nstays-broken); 5 Zig GC-semantics tests in tests_srfi254.zig and 3\nrewritten tracing tests in tests_gc_tracing.zig pin the same behavior\ndeterministically (enabled=false GC, explicit collect()). All of them\nfail on the unfixed collector. Verified: audit 189/189 (ReleaseSafe,\n3x under -Dgc-stress=true), R7RS suite 1395/1395 under gc-stress,\nrelated srfi18/srfi-254 suites green, native tier via kaappi compile.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-26T06:07:35+05:30",
+          "tree_id": "9418bdc40a556d70d8dff6de808f5e9bb0bb0cda",
+          "url": "https://github.com/kaappi/kaappi/commit/499662f5ccbf393b4a00b6d85f091041945ab625"
+        },
+        "date": 1787713300082,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.495937,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.806039,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.344366,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 1.864105,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003683,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.029589,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.183231,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.038125,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.746935,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.739193,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.009904,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.213815,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.094298,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.89145,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.029042,
             "unit": "seconds"
           }
         ]
