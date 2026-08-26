@@ -65,7 +65,7 @@ pub const specs = [_]primitives.PrimSpec{
     // already imports — so a raw fd from an FFI call can be given reactor-
     // integrated non-blocking I/O (#1478). Not in sandbox: it is a raw
     // capability over an arbitrary descriptor.
-    .{ .name = "fd->port", .func = &fdToPort, .arity = .{ .exact = 1 }, .libs = LS.initOne(.kaappi_ffi), .sandbox = false },
+    .{ .name = "fd->port", .func = &fdToPort, .arity = .{ .exact = 1 }, .libs = LS.initOne(.kaappi_ffi), .sandbox = false, .wasm = false },
 };
 
 // ---------------------------------------------------------------------------

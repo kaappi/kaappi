@@ -23,6 +23,10 @@
   (newline)
   (if (not ok) (set! failures (+ failures 1))))
 
+(define (starts-with? s prefix)
+  (and (>= (string-length s) (string-length prefix))
+       (string=? (substring s 0 (string-length prefix)) prefix)))
+
 (define (classify thunk)
   (guard (e (#t (list (cond ((file-error? e) 'file-error)
                             ((error-object? e) 'error)
@@ -69,14 +73,19 @@
               (open-input-file "gate.txt"))))
 
 ;; --- fd->port ---------------------------------------------------------------
-;; A Kaappi extension over (kaappi ffi) — which is itself unavailable on WASM,
-;; though the primitive stays registered as a global, so the gate is reachable.
-;; No file is involved and nothing here satisfies file-error?, so this one is an
-;; argument fault (KP3007) rather than a borrowed file error.
+;; A Kaappi extension over (kaappi ffi), which has no WASM-viable subset — so,
+;; unlike SRFI 18's thread-sleep!, fd->port carries `.wasm = false` like its
+;; seven ffi-* siblings and is not registered at all on this target
+;; (kaappi#2018). The name genuinely does not exist here, so a reference is an
+;; undefined-variable fault, not a global that exists solely to refuse. (A
+;; "Did you mean …?" tail may follow, so match the prefix rather than the
+;; whole message.)
 
-(check "fd->port reports the platform, not the descriptor"
-       (equal? (classify (lambda () (fd->port 5)))
-               '(error "fd->port: raw file descriptors are unavailable in this WebAssembly build" ())))
+(check "fd->port is not registered on WASM (undefined, not a refusing global)"
+       (let ((c (classify (lambda () (fd->port 5)))))
+         (and (eq? (car c) 'error)
+              (string? (cadr c))
+              (starts-with? (cadr c) "undefined variable 'fd->port'"))))
 
 ;; --- controls ---------------------------------------------------------------
 ;; Without these the fix could have flattened every failure into a file error
@@ -85,10 +94,6 @@
 (check "CONTROL: a non-string argument is still a type error"
        (equal? (classify (lambda () (open-input-file 42)))
                '(error "type error in 'open-input-file': expected string, got 42" ())))
-
-(check "CONTROL: fd->port still type-checks its argument first"
-       (equal? (classify (lambda () (fd->port 'not-a-fixnum)))
-               '(error "type error in 'fd->port': expected file descriptor, got not-a-fixnum" ())))
 
 ;; file-exists? is the one filesystem procedure with a value to degrade to, so
 ;; it answers #f rather than raising anything at all — deliberately unlike the
