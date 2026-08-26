@@ -233,6 +233,16 @@ jobs:
           - os: ubuntu-latest
             optimize: Debug
             timeout: 40
+          # macOS runners are slower and the suite has outgrown the 30-min
+          # default here: a clean ReleaseSafe run now lands at ~35 min (build
+          # ~2, unit tests ~10, Scheme suites ~18+), so the cap cancels healthy
+          # runs mid-suite — the recurrence the timeout comment above predicted
+          # ("hit macOS ReleaseSafe repeatedly"). 40 restores headroom, same as
+          # the Debug leg; timeout is an include-only key that merges into this
+          # existing os+optimize combination without renaming its required check.
+          - os: macos-latest
+            optimize: ReleaseSafe
+            timeout: 40
           - os: ubuntu-latest
             optimize: ReleaseFast
 
