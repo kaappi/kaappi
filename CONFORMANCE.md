@@ -2,6 +2,16 @@
 
 Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/) — 695 built-in procedures, 32 syntax forms, and all 16 standard libraries. R7RS test suite: 1,395 pass, 0 fail.
 
+One behavior of the program runner, beyond the language proper: running a
+script (`kaappi program.scm`) echoes the value of every non-void top-level
+expression to stdout, exactly as the REPL does. `define` and other
+void-valued forms print nothing, but a top-level `guard` that yields `#f` or
+a `map` used for effect prints its result, interleaved with the program's own
+output — Chibi and Guile print nothing when running the same file. The echo
+is deliberate (`printTopLevelResult` in `src/main.zig`) and no flag disables
+it; end effectful top-level sequences with a void-valued form when output
+must stay clean. See README.md "Known limitations → Script output".
+
 ---
 
 ## SRFI conformance
@@ -360,7 +370,7 @@ to an explicit target, and resend from a directly-overriding method, both work.
 `.sld` on `(import (srfi 267))`.
 
 ‡ SRFI 248's `with-unwind-handler` prompt is layered over stack-copying
-`call/cc` via a sticky exception handler, with two caveats. (1) Delimited
+`call/cc` via a sticky exception handler, with three caveats. (1) Delimited
 continuations are effectively single-shot: each captured `k` may be resumed at
 most once — re-entering it twice crosses a native frame that cannot be
 re-entered after it returns, the same restriction as continuations captured
@@ -370,6 +380,19 @@ invokes each `k` once. (2) The handler runs at the raise point rather than after
 unwinding to `with-unwind-handler`, so a handler side effect and a
 dynamic-wind after-thunk of the guarded body run in the opposite order to what
 the SRFI wording implies; the captured continuation itself is unaffected.
+(3) The prompt is a single metacontinuation cell per VM — per OS thread —
+shared by every fiber in the thread, so a `with-unwind-handler`/`guard` body
+must not span a fiber suspension point (a blocking channel operation, parked
+I/O) while another fiber runs delimited control: the prompts cross silently —
+a parked body's handler value can surface in the other fiber's
+`with-unwind-handler` while the parked body never completes, with no error
+raised and exit status 0. Mixing in user `call/cc` is unsupported the same
+way: a `call/cc` capture that crosses a `with-unwind-handler` boundary makes
+the guarded body re-run exponentially. A loop that escapes through user
+`call/cc` from inside `with-unwind-handler`, run under SRFI 248's `guard`,
+executes its body 2^n-1 times instead of n — 255 where 8 is correct at n = 8 —
+while the same loop under the built-in `guard`, or with no boundary crossing,
+returns 8.
 
 § SRFI 226 (Control Features, 12 sub-libraries: prompts, continuations,
 shift-reset, continuation-marks, parameters, fluids, promises, exceptions,
