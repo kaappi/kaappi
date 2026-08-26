@@ -428,6 +428,11 @@ const GOLDEN_BODY =
     [_]u8{ 0x01, 0x00, 0x00, 0x00 } ++ // slot count u32 = 1
     [_]u8{bf.SLOT_FUNCTION} ++ [_]u8{ 0x00, 0x00, 0x00, 0x00 } ++ // function slot, top-level index u32 = 0
 
+    // ---- include/dependency sections (shared by program and library kinds;
+    //      #1888 review: a program's slots embed imported-macro expansions) ----
+    [_]u8{ 0x00, 0x00, 0x00, 0x00 } ++ // include count u32 = 0
+    [_]u8{ 0x00, 0x00, 0x00, 0x00 } ++ // dependency count u32 = 0
+
     [_]u8{ 0x00, 0x00, 0x00, 0x00 } ++ // bundled-files count u32 = 0
     [_]u8{ 0x00, 0x00, 0x00, 0x00 }; // preamble count u32 = 0
 

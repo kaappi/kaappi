@@ -244,6 +244,80 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+# --- E: program-entry staleness (#1888 review) -------------------------------
+# A program's compiled slots embed imported-macro expansions: editing the
+# library must stale the PROGRAM entry too, not only the library's own.
+P2="$PROGDIR/p2.scm"
+cat > "$P2" <<'SCM'
+(import (user1888 u) (scheme base))
+(display (twicer (total 1)))
+(newline)
+SCM
+o1="$(run_timed "$P2")"
+check "program over libraries: cold output" "(171 171)" "$o1"
+o2="$(run_timed "$P2")"
+check "program over libraries: warm HIT" "cache: HIT" "$o2"
+python3 - "$LIBDIR/user1888/u.sld" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+open(p, 'w').write(s.replace("(list v v)", "(list v v v)"))
+PY
+o3="$(run_timed "$P2")"
+check "library macro edit stales the program entry" "cache: MISS (wrote" "$o3"
+check "library macro edit: new expansion runs" "(171 171 171)" "$o3"
+python3 - "$LIBDIR/user1888/u.sld" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+open(p, 'w').write(s.replace("(list v v v)", "(list v v)"))
+PY
+
+# --- F: registry-order dependency recording (#1888 review) -------------------
+# The main file imports (dep1888 base) FIRST, so user1888's own load finds it
+# in the registry and never calls tryLoadLibraryFromFile — its entry must still
+# record the dependency (Library.source_path provenance).
+P3="$PROGDIR/p3.scm"
+cat > "$P3" <<'SCM'
+(import (dep1888 base) (user1888 u) (scheme base))
+(display (twicer (total 1)))
+(newline)
+SCM
+o1="$(run_timed "$P3")"
+check "registry-order program: cold output" "(171 171)" "$o1"
+o2="$(run_timed "$P3")"
+check "registry-order program: warm HIT" "cache: HIT" "$o2"
+cat > "$LIBDIR/dep1888/base.sld" <<'SLD'
+(define-library (dep1888 base)
+  (import (scheme base))
+  (export base-val bump)
+  (begin
+    (define base-val 1000)
+    (define (bump x) (+ x base-val))))
+SLD
+o3="$(run_timed "$P3")"
+check "dep edit stales registry-order dependents" "cache: MISS (wrote" "$o3"
+check "dep edit: new value everywhere" "(1071 1071)" "$o3"
+
+# --- G: running a .sld directly must not replay its library entry ------------
+# The library entry shares the cache key with `kaappi u.sld`; the direct run
+# must interpret the define-library cleanly (cold behavior), not execute the
+# body thunks as a program.
+d1="$("$KAAPPI" --lib-path "$LIBDIR" "$LIBDIR/user1888/u.sld" 2>&1; echo "rc=$?")"
+check "running the .sld directly stays clean" "rc=0" "$d1"
+
+# --- H: fold-case declarations replay (#1888 review) -------------------------
+# A #!fold-case directive falls inside an earlier form's span; the declaration
+# slot must carry the reader state so a folded (IMPORT ...) is still claimed
+# as a declaration on the warm run.
+FC="$PROGDIR/fc.scm"
+printf '#!fold-case\n(define x 5)\n(IMPORT (SCHEME BASE))\n(display (EXPT x 3))\n(newline)\n' > "$FC"
+f1="$(run_plain "$FC")"
+check "fold-case program: cold output" "125" "$f1"
+f2="$(run_timed "$FC")"
+check "fold-case program: warm output" "125" "$f2"
+check "fold-case program: warm HIT" "cache: HIT" "$f2"
+
 echo ""
 echo "passed: $PASS  failed: $FAIL"
 [[ "$FAIL" -eq 0 ]]

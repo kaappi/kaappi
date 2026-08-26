@@ -202,14 +202,14 @@ pub const Reader = struct {
     }
 
     /// Incremental `lineColAt` for the reader's own sequential use. Datum
-    /// start/end offsets arrive in nondecreasing order (each datum begins
-    /// where the previous one ended, modulo whitespace), so a cursor advanced
-    /// from the last queried position answers in O(distance) instead of
-    /// rescanning from byte 0 — which made reading one large nested datum
-    /// quadratic and dominated every `.sld` load's parse time (kaappi#1888
-    /// profiling). A defensive backward jump (no caller does this today)
-    /// falls back to a full `lineColAt` and rebases the cursor, so the answer
-    /// is identical either way.
+    /// start/end offsets arrive in nondecreasing order (each datum's start is
+    /// queried before its children advance the cursor past its end), so a
+    /// cursor advanced from the last queried position answers in O(distance)
+    /// instead of rescanning from byte 0 — which made reading one large
+    /// nested datum quadratic and dominated every `.sld` load's parse time
+    /// (kaappi#1888 profiling). A defensive backward jump falls back to a
+    /// full `lineColAt` and rebases the cursor, so the answer is identical
+    /// either way.
     pub fn lineColMonotone(self: *Reader, pos: usize) LineCol {
         if (pos < self.span_cursor_pos) {
             const lc = lineColAt(self.source, pos);
@@ -246,14 +246,15 @@ pub const Reader = struct {
     /// datum's first character (captured before reading); `self.pos` is one past
     /// its last character. Both endpoints are 1-based `(line, col)` computed
     /// with the same CR/LF/CRLF line-ending rules as `getLineCol` (kaappi#1506).
-    pub fn recordSpan(self: *Reader, val: Value, start_pos: usize) void {
+    pub fn recordSpan(self: *Reader, val: Value, start_pos: usize, start_lc: LineCol) void {
         if (!self.record_spans) return;
         if (!types.isPair(val) and !types.isVector(val)) return;
         const end_pos = self.pos;
-        // Query start BEFORE end so the monotone cursor only ever advances
-        // (see lineColMonotone). A start at or past the end (an empty span)
-        // collapses to the end point.
-        const start = if (start_pos >= end_pos) self.lineColMonotone(end_pos) else self.lineColMonotone(start_pos);
+        // `start_lc` was captured (cursor advanced to start_pos) before the
+        // datum was read, so only the end query remains — strictly forward.
+        // A start at or past the end (an empty span) collapses to the end
+        // point.
+        const start = if (start_pos >= end_pos) self.lineColMonotone(end_pos) else start_lc;
         const end = self.lineColMonotone(end_pos);
         self.gc.source_spans.put(val, .{
             .line = start.line,

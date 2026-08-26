@@ -487,6 +487,8 @@ pub fn writeFileWithTopLevel(allocator: std.mem.Allocator, top_level_funcs: []*F
         try w.writeU32(allocator, @intCast(i));
     }
 
+    try writeIncludeAndDepSections(&w, allocator, &.{}, &.{});
+
     // Empty bundled files and preamble sections (regular cache files)
     try w.writeU32(allocator, 0);
     try w.writeU32(allocator, 0);
@@ -504,8 +506,11 @@ pub const Slot = union(enum) {
     function: u32,
     /// Verbatim source bytes of a declaration the VM interprets (`import`,
     /// `define-library`, `include`, ...), plus its 1-based source line for
-    /// error reporting parity with the cold path.
-    declaration: struct { line: u32, src: []const u8 },
+    /// error reporting parity with the cold path and the reader's fold-case
+    /// state at the time the form was read — a `#!fold-case` directive falls
+    /// inside an earlier form's span, so a per-slot re-parse must be told
+    /// (#1888 review).
+    declaration: struct { line: u32, src: []const u8, fold_case: bool = false },
 };
 
 /// Write a program entry whose top-level stream interleaves compiled
@@ -516,6 +521,8 @@ pub fn writeFileWithSlots(
     allocator: std.mem.Allocator,
     top_level_funcs: []*Function,
     slots: []const Slot,
+    includes: []const bf.IncludeRecord,
+    deps: []const bf.DepRecord,
     source_hash: u64,
     source_path: []const u8,
     path: []const u8,
@@ -541,16 +548,49 @@ pub fn writeFileWithSlots(
                 if (d.src.len > bf.MAX_STRING_BYTES) return BytecodeError.LimitExceeded;
                 try w.writeU8(allocator, bf.SLOT_DECLARATION);
                 try w.writeU32(allocator, d.line);
+                try w.writeU8(allocator, if (d.fold_case) @as(u8, 1) else @as(u8, 0));
                 try w.writeU32(allocator, @intCast(d.src.len));
                 try w.writeBytes(allocator, d.src);
             },
         }
     }
 
+    try writeIncludeAndDepSections(&w, allocator, includes, deps);
+
     try w.writeU32(allocator, 0);
     try w.writeU32(allocator, 0);
 
     try writeBufferToFile(&w, path);
+}
+
+/// The include/dependency invalidation sections, shared by the program and
+/// library entry kinds (#1888 review: a program's compiled slots embed
+/// imported-macro expansions, so its entry must stale exactly like a
+/// library's).
+fn writeIncludeAndDepSections(w: *Writer, allocator: std.mem.Allocator, includes: []const bf.IncludeRecord, deps: []const bf.DepRecord) !void {
+    if (includes.len > bf.MAX_LIBRARY_INCLUDES) return BytecodeError.LimitExceeded;
+    try w.writeU32(allocator, @intCast(includes.len));
+    for (includes) |inc| {
+        if (inc.path.len > bf.MAX_HEADER_STR_BYTES) return BytecodeError.LimitExceeded;
+        try w.writeU16(allocator, @intCast(inc.path.len));
+        try w.writeBytes(allocator, inc.path);
+        try w.writeU64(allocator, inc.hash);
+    }
+
+    if (deps.len > bf.MAX_LIBRARY_DEPS) return BytecodeError.LimitExceeded;
+    try w.writeU32(allocator, @intCast(deps.len));
+    for (deps) |dep| {
+        if (dep.rel_path.len > bf.MAX_HEADER_STR_BYTES) return BytecodeError.LimitExceeded;
+        if (dep.resolved_path.len > bf.MAX_HEADER_STR_BYTES) return BytecodeError.LimitExceeded;
+        if (dep.lib_name.len > bf.MAX_HEADER_STR_BYTES) return BytecodeError.LimitExceeded;
+        try w.writeU16(allocator, @intCast(dep.rel_path.len));
+        try w.writeBytes(allocator, dep.rel_path);
+        try w.writeU16(allocator, @intCast(dep.resolved_path.len));
+        try w.writeBytes(allocator, dep.resolved_path);
+        try w.writeU64(allocator, dep.source_hash);
+        try w.writeU16(allocator, @intCast(dep.lib_name.len));
+        try w.writeBytes(allocator, dep.lib_name);
+    }
 }
 
 /// One replay event of a `.sld` library entry (kaappi#1888), in the exact
@@ -669,31 +709,8 @@ pub fn writeFileWithLibrary(
         }
     }
 
-    // Include records.
-    if (includes.len > bf.MAX_LIBRARY_INCLUDES) return BytecodeError.LimitExceeded;
-    try w.writeU32(allocator, @intCast(includes.len));
-    for (includes) |inc| {
-        if (inc.path.len > bf.MAX_HEADER_STR_BYTES) return BytecodeError.LimitExceeded;
-        try w.writeU16(allocator, @intCast(inc.path.len));
-        try w.writeBytes(allocator, inc.path);
-        try w.writeU64(allocator, inc.hash);
-    }
-
-    // Dependency records.
-    if (deps.len > bf.MAX_LIBRARY_DEPS) return BytecodeError.LimitExceeded;
-    try w.writeU32(allocator, @intCast(deps.len));
-    for (deps) |dep| {
-        if (dep.rel_path.len > bf.MAX_HEADER_STR_BYTES) return BytecodeError.LimitExceeded;
-        if (dep.resolved_path.len > bf.MAX_HEADER_STR_BYTES) return BytecodeError.LimitExceeded;
-        if (dep.lib_name.len > bf.MAX_HEADER_STR_BYTES) return BytecodeError.LimitExceeded;
-        try w.writeU16(allocator, @intCast(dep.rel_path.len));
-        try w.writeBytes(allocator, dep.rel_path);
-        try w.writeU16(allocator, @intCast(dep.resolved_path.len));
-        try w.writeBytes(allocator, dep.resolved_path);
-        try w.writeU64(allocator, dep.source_hash);
-        try w.writeU16(allocator, @intCast(dep.lib_name.len));
-        try w.writeBytes(allocator, dep.lib_name);
-    }
+    // Include/dependency records (shared section helper).
+    try writeIncludeAndDepSections(&w, allocator, includes, deps);
 
     // Empty bundle tail (uniform with the other kinds).
     try w.writeU32(allocator, 0);

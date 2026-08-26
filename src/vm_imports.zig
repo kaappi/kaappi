@@ -14,6 +14,7 @@ const ir = @import("ir.zig");
 const macro = @import("compiler_macro.zig");
 const library_mod = @import("library.zig");
 const vm_library = @import("vm_library.zig");
+const lcc = @import("vm_library_cache.zig");
 const vm_mod = @import("vm.zig");
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -343,6 +344,18 @@ pub fn processImportSet(vm: *VM, target: *std.StringHashMap(Value), import_set: 
 
     // Try built-in registry first
     if (vm.libraries.get(lib_name)) |lib| {
+        // kaappi#1888 review: a file-backed library found in the registry is
+        // still a cache dependency of every enclosing load (and of the main
+        // file's entry) — without this, an import order that loads the
+        // dependency earlier would leave the importer's entry with no record
+        // of it, and editing the dependency's macros would serve the
+        // importer's stale expansions.
+        if (lib.source_path) |src_path| {
+            var rel_buf: [512]u8 = undefined;
+            if (vm_library.buildLibRelPath(import_set, &rel_buf)) |dep_rel| {
+                lcc.noteDepLoadedAllFrames(vm, dep_rel, src_path, lib.source_hash, lib_name);
+            } else |_| {}
+        }
         var it = lib.exports.iterator();
         while (it.next()) |entry| {
             // `target` here is always a resolveImportBindings scratch map

@@ -78,6 +78,7 @@ pub const features = @import("features.zig");
 pub const test_runner = @import("test_runner.zig");
 pub const doctor = @import("doctor.zig");
 pub const cache = @import("cache.zig");
+const vm_library_cache_mod = @import("vm_library_cache.zig");
 pub const timings = @import("timings.zig");
 pub const check = @import("check.zig");
 pub const pipeline = @import("pipeline.zig");
@@ -748,6 +749,13 @@ fn runCachedTopLevelFunc(vm: *vm_mod.VM, func: *types.Function, source: []const 
 fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     const allocator = vm.gc.allocator;
 
+    // Per-run include/dependency records for this file's cache entry
+    // (kaappi#1888 review): every file-backed library it imports and every
+    // file a top-level include reads. Cleared again once the entry is
+    // written (or the run declines).
+    vm_library_cache_mod.beginRunRecording(vm);
+    defer vm_library_cache_mod.clearRunRecords(vm);
+
     // Resolve top-level `(include ...)` paths relative to the program's directory.
     const saved_lib_dir = vm.current_lib_dir;
     vm.current_lib_dir = if (std.mem.lastIndexOfScalar(u8, path, '/')) |pos| path[0 .. pos + 1] else "";
@@ -797,115 +805,137 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     if (sbc_path) |sp| {
         if (bytecode_file.readFileWithTopLevel(vm.gc, source_hash, sp) catch null) |loaded_const| {
             var loaded = loaded_const;
-            timings.cacheHit(sp);
-            defer bytecode_file.freeDeserializeResult(allocator, &loaded);
+            // Kind check (#1888 review): a LIBRARY entry shares this cache key
+            // with running the .sld directly, and its functions are library
+            // body thunks — replaying them as a program would run them with
+            // no env and no transformer registrations. Only a program entry
+            // with a slot stream is replayable here.
+            if (loaded.entry_kind != bytecode_file.ENTRY_PROGRAM or loaded.slots == null) {
+                vm_library_cache_mod.dropDeserializeRoots(vm.gc, &loaded);
+                bytecode_file.freeDeserializeResult(allocator, &loaded);
+            } else if (!vm_library_cache_mod.recordsValid(
+                vm,
+                loaded.includes orelse &.{},
+                loaded.deps orelse &.{},
+            )) {
+                // Stale program entry: a file-backed library it imported, or a
+                // top-level include file it read, changed since the entry was
+                // written. The compiled slots embed those macro expansions, so
+                // this must be an ordinary miss (nothing has executed yet).
+                timings.cacheReason("stale dependency");
+                vm_library_cache_mod.dropDeserializeRoots(vm.gc, &loaded);
+                bytecode_file.freeDeserializeResult(allocator, &loaded);
+            } else {
+                timings.cacheHit(sp);
+                defer bytecode_file.freeDeserializeResult(allocator, &loaded);
 
-            var bundled_files_map = loaded.bundled_files orelse std.StringHashMap([]const u8).init(allocator);
-            defer {
-                var bfit = bundled_files_map.iterator();
-                while (bfit.next()) |entry| {
-                    allocator.free(entry.key_ptr.*);
-                    allocator.free(entry.value_ptr.*);
-                }
-                bundled_files_map.deinit();
-            }
-            if (loaded.bundled_files != null) {
-                vm.bundled_files = &bundled_files_map;
-            }
-            defer vm.bundled_files = null;
-
-            if (loaded.preamble) |preamble| {
+                var bundled_files_map = loaded.bundled_files orelse std.StringHashMap([]const u8).init(allocator);
                 defer {
-                    for (preamble) |p| allocator.free(p);
-                    allocator.free(preamble);
+                    var bfit = bundled_files_map.iterator();
+                    while (bfit.next()) |entry| {
+                        allocator.free(entry.key_ptr.*);
+                        allocator.free(entry.value_ptr.*);
+                    }
+                    bundled_files_map.deinit();
                 }
-                for (preamble) |src| {
-                    var pr = reader.Reader.init(vm.gc, src);
-                    defer pr.deinit();
-                    while (pr.hasMore() catch break) {
-                        var expr = pr.readDatum() catch break;
-                        vm.gc.pushRoot(&expr);
-                        defer vm.gc.popRoot();
-                        timings.begin(.execute); // preamble replay re-runs imports (kaappi#1515)
-                        const top = vm.handleTopLevelForm(expr);
-                        timings.end();
-                        if (top) |top_result| {
-                            _ = top_result catch {};
+                if (loaded.bundled_files != null) {
+                    vm.bundled_files = &bundled_files_map;
+                }
+                defer vm.bundled_files = null;
+
+                if (loaded.preamble) |preamble| {
+                    defer {
+                        for (preamble) |p| allocator.free(p);
+                        allocator.free(preamble);
+                    }
+                    for (preamble) |src| {
+                        var pr = reader.Reader.init(vm.gc, src);
+                        defer pr.deinit();
+                        while (pr.hasMore() catch break) {
+                            var expr = pr.readDatum() catch break;
+                            vm.gc.pushRoot(&expr);
+                            defer vm.gc.popRoot();
+                            timings.begin(.execute); // preamble replay re-runs imports (kaappi#1515)
+                            const top = vm.handleTopLevelForm(expr);
+                            timings.end();
+                            if (top) |top_result| {
+                                _ = top_result catch {};
+                            }
                         }
                     }
                 }
-            }
 
-            // Set source_name on all loaded functions — the path is valid
-            // for the entire runFile scope, matching the fresh-compile path
-            // where the compiler sets source_name to the same pointer.
-            for (loaded.funcs) |func| {
-                func.source_name = path;
-            }
+                // Set source_name on all loaded functions — the path is valid
+                // for the entire runFile scope, matching the fresh-compile path
+                // where the compiler sets source_name to the same pointer.
+                for (loaded.funcs) |func| {
+                    func.source_name = path;
+                }
 
-            crash.noteStage(.executing);
+                crash.noteStage(.executing);
 
-            // v13 program entries (kaappi#1888) replay through positional
-            // slots: a compiled function, or a declaration's verbatim source
-            // re-dispatched through handleTopLevelForm — in the exact
-            // top-level order, so an `import` between two defines stays
-            // between them (no preamble hoisting, the #2200 reorder class).
-            // Older-format entries predate slots; synthesize one function
-            // slot per top-level function, which is what they are.
-            if (loaded.slots) |slots| {
-                for (slots) |slot| {
-                    switch (slot) {
-                        .function => |idx| {
-                            if (idx >= loaded.top_level_count) continue;
-                            const func = loaded.funcs[idx];
-                            try runCachedTopLevelFunc(vm, func, source, path);
-                        },
-                        .declaration => |decl| {
-                            var dr = reader.Reader.init(vm.gc, decl.src);
-                            defer dr.deinit();
-                            while (dr.hasMore() catch break) {
-                                var dexpr = dr.readDatum() catch break;
-                                vm.gc.pushRoot(&dexpr);
-                                defer vm.gc.popRoot();
-                                crash.noteStage(.executing);
-                                timings.begin(.execute);
-                                // The cold run recorded this slot because
-                                // handleTopLevelForm claimed the form; the
-                                // replayed imports restore the same macro
-                                // state, so it is claimed again. The
-                                // compile-and-run fallback keeps an unclaimed
-                                // form correct rather than silently dropped.
-                                if (vm.topLevelHead(dexpr)) |head| {
-                                    const result = vm.runTopLevelHead(head, dexpr) catch |err| {
+                // v13 program entries (kaappi#1888) replay through positional
+                // slots: a compiled function, or a declaration's verbatim source
+                // re-dispatched through handleTopLevelForm — in the exact
+                // top-level order, so an `import` between two defines stays
+                // between them (no preamble hoisting, the #2200 reorder class).
+                // Older-format entries are unreachable: the VERSION check
+                // rejects them, and the kind/slots check above is what admits a
+                // replayable entry.
+                {
+                    for (loaded.slots.?) |slot| {
+                        switch (slot) {
+                            .function => |idx| {
+                                if (idx >= loaded.top_level_count) continue;
+                                const func = loaded.funcs[idx];
+                                try runCachedTopLevelFunc(vm, func, source, path);
+                            },
+                            .declaration => |decl| {
+                                var dr = reader.Reader.init(vm.gc, decl.src);
+                                // A `#!fold-case` directive falls inside an earlier
+                                // form's span; the slot carries the reader state
+                                // that applied when the form was read (#1888
+                                // review).
+                                dr.fold_case = decl.fold_case;
+                                defer dr.deinit();
+                                while (dr.hasMore() catch break) {
+                                    var dexpr = dr.readDatum() catch break;
+                                    vm.gc.pushRoot(&dexpr);
+                                    defer vm.gc.popRoot();
+                                    crash.noteStage(.executing);
+                                    timings.begin(.execute);
+                                    // The cold run recorded this slot because
+                                    // handleTopLevelForm claimed the form; the
+                                    // replayed imports restore the same macro
+                                    // state, so it is claimed again. The
+                                    // compile-and-run fallback keeps an unclaimed
+                                    // form correct rather than silently dropped.
+                                    if (vm.topLevelHead(dexpr)) |head| {
+                                        const result = vm.runTopLevelHead(head, dexpr) catch |err| {
+                                            timings.end();
+                                            script_had_error = true;
+                                            toplevel_driver.reportRuntimeError(vm, err, .{ .source = path, .line = decl.line });
+                                            continue;
+                                        };
+                                        timings.end();
+                                        printTopLevelResult(allocator, result);
+                                        continue;
+                                    }
+                                    const func = compiler.compileExpressionWithMacrosAt(vm.gc, dexpr, &vm.macros, vm.globals, decl.line, path, false) catch |err| {
                                         timings.end();
                                         script_had_error = true;
-                                        toplevel_driver.reportRuntimeError(vm, err, .{ .source = path, .line = decl.line });
+                                        toplevel_driver.reportCompileError(path, decl.line, 1, err);
                                         continue;
                                     };
                                     timings.end();
-                                    printTopLevelResult(allocator, result);
-                                    continue;
+                                    try runCachedTopLevelFunc(vm, func, source, path);
                                 }
-                                const func = compiler.compileExpressionWithMacrosAt(vm.gc, dexpr, &vm.macros, vm.globals, decl.line, path, false) catch |err| {
-                                    timings.end();
-                                    script_had_error = true;
-                                    toplevel_driver.reportCompileError(path, decl.line, 1, err);
-                                    continue;
-                                };
-                                timings.end();
-                                try runCachedTopLevelFunc(vm, func, source, path);
-                            }
-                        },
+                            },
+                        }
                     }
-                }
-                return;
-            }
-
-            const top_count = @min(loaded.top_level_count, @as(u32, @intCast(loaded.funcs.len)));
-            for (loaded.funcs[0..top_count]) |func| {
-                try runCachedTopLevelFunc(vm, func, source, path);
-            }
-            return;
+                    return;
+                } // slot replay
+            } // kind/records-validated replay (else branch)
         }
     }
 
@@ -966,7 +996,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         if (vm.topLevelHead(expr)) |head| {
             if (sbc_path != null and !defines_syntax and !had_compile_error) {
                 const src_copy = allocator.dupe(u8, source[span_start..span_end]) catch return error.OutOfMemory;
-                slots.append(allocator, .{ .declaration = .{ .line = datum_lc.line, .src = src_copy } }) catch {
+                slots.append(allocator, .{ .declaration = .{ .line = datum_lc.line, .src = src_copy, .fold_case = r.fold_case } }) catch {
                     allocator.free(src_copy);
                     return error.OutOfMemory;
                 };
@@ -1051,7 +1081,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     if (!defines_syntax and !had_compile_error and (compiled_funcs.items.len > 0 or slots.items.len > 0)) {
         if (sbc_path) |sp| {
             cache.ensureDir();
-            if (bytecode_file.writeFileWithSlots(allocator, compiled_funcs.items, slots.items, source_hash, path, sp)) |_| {
+            if (bytecode_file.writeFileWithSlots(allocator, compiled_funcs.items, slots.items, vm.run_cache_includes.items, vm.run_cache_deps.items, source_hash, path, sp)) |_| {
                 timings.cacheWrote(); // kaappi#1515: the miss's bytecode is now cached
             } else |err| switch (err) {
                 // kaappi#2113: the writer refuses entries the reader would

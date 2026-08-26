@@ -586,10 +586,26 @@ pub fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
     // Record this .sld as a dependency of every enclosing load (not of this
     // one — our own file is the key): an enclosing library's compiled body
     // embeds expansions of the macros we exported, so it must miss when we
-    // change.
+    // change. Also recorded for the MAIN file's own entry, whose compiled
+    // forms embed the same expansions (#1888 review).
     if (library_mod.libraryNameToString(allocator, name_list)) |dep_name| {
         defer allocator.free(dep_name);
         lcc.noteDepLoaded(vm, rel_path, sld_path, source_hash, dep_name, depth_before);
+        lcc.noteRunDep(vm, rel_path, sld_path, source_hash, dep_name);
+
+        // Stamp provenance so a LATER importer that finds us in the registry
+        // can still record the dependency (the registry short-circuit in
+        // processImportSet never reaches this function).
+        if (vm.libraries.get(dep_name)) |lib| {
+            if (lib.source_path == null) {
+                if (allocator.dupe(u8, sld_path)) |owned| {
+                    lib.source_path = owned;
+                    lib.source_hash = source_hash;
+                } else |_| {}
+            } else {
+                lib.source_hash = source_hash;
+            }
+        }
     } else |_| {}
 }
 
@@ -684,8 +700,15 @@ fn openIncludeFile(vm: *VM, file_path: []const u8) VMError!IncludeFile {
     // kaappi#1888: hash every include-family file a library *load* opens (the
     // structure-depth gate keeps a runtime `(eval "(include …)")` inside a
     // body out) — an edited include must invalidate the .sld's cache entry.
+    // A top-level include of the MAIN file (no library load in flight) feeds
+    // the run recorder instead: a macro defined by an included file is baked
+    // into later compiled forms, so the program entry must stale on its edit.
     if (vm.lib_structure_depth > 0) {
-        lcc.noteIncludeFile(vm, resolved_path orelse file_path, source);
+        if (vm.lib_cache_depth > 0) {
+            lcc.noteIncludeFile(vm, resolved_path orelse file_path, source);
+        } else {
+            lcc.noteRunInclude(vm, resolved_path orelse file_path, source);
+        }
     }
     return .{ .source = source, .resolved_path = resolved_path };
 }

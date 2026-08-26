@@ -110,6 +110,8 @@ test "library entry: transformer, events, includes and deps round-trip" {
     defer bytecode_file.freeDeserializeResult(allocator, &loaded);
 
     const lib = loaded.library orelse return error.TestUnexpectedResult;
+    const r_includes = loaded.includes orelse return error.TestUnexpectedResult;
+    const r_deps = loaded.deps orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(usize, 3), lib.events.len);
     try std.testing.expectEqualStrings("twicer", lib.events[0].register_tx.name);
     try std.testing.expect(lib.events[1] == .run_lib);
@@ -136,15 +138,15 @@ test "library entry: transformer, events, includes and deps round-trip" {
     try std.testing.expectEqualStrings("kw", types.symbolName(types.car(tx2.patterns[0])));
     try std.testing.expectEqualStrings("helper", types.symbolName(types.car(tx2.templates[0])));
 
-    try std.testing.expectEqual(@as(usize, 1), lib.includes.len);
-    try std.testing.expectEqualStrings("dir/body.scm", lib.includes[0].path);
-    try std.testing.expectEqual(@as(u64, 0xDEADBEEF), lib.includes[0].hash);
+    try std.testing.expectEqual(@as(usize, 1), r_includes.len);
+    try std.testing.expectEqualStrings("dir/body.scm", r_includes[0].path);
+    try std.testing.expectEqual(@as(u64, 0xDEADBEEF), r_includes[0].hash);
 
-    try std.testing.expectEqual(@as(usize, 1), lib.deps.len);
-    try std.testing.expectEqualStrings("dep1888/base.sld", lib.deps[0].rel_path);
-    try std.testing.expectEqualStrings("/libs/dep1888/base.sld", lib.deps[0].resolved_path);
-    try std.testing.expectEqual(@as(u64, 0xCAFE), lib.deps[0].source_hash);
-    try std.testing.expectEqualStrings("dep1888.base", lib.deps[0].lib_name);
+    try std.testing.expectEqual(@as(usize, 1), r_deps.len);
+    try std.testing.expectEqualStrings("dep1888/base.sld", r_deps[0].rel_path);
+    try std.testing.expectEqualStrings("/libs/dep1888/base.sld", r_deps[0].resolved_path);
+    try std.testing.expectEqual(@as(u64, 0xCAFE), r_deps[0].source_hash);
+    try std.testing.expectEqualStrings("dep1888.base", r_deps[0].lib_name);
 
     // The event functions load and their bytecode still executes.
     try std.testing.expectEqual(@as(u32, 2), loaded.top_level_count);

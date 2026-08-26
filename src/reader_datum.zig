@@ -27,10 +27,16 @@ pub fn readDatumOrEof(self: *Reader) ReadError!?Value {
     // heap-keyable results (pairs, vectors) get a span recorded (kaappi#1506).
     try self.skipWhitespaceAndCommentsChecked();
     const start_pos = self.pos;
+    // Advance the monotone line/col cursor to the datum's start BEFORE
+    // reading: the sub-datums read below push the cursor past the whole
+    // form, and re-deriving the start afterwards would take the cursor's
+    // backward path — a full O(offset) rescan per enclosing list, i.e. the
+    // quadratic span recording this cursor exists to remove (#1888 review).
+    const start_lc = self.lineColMonotone(start_pos);
     const tok = try self.nextToken();
     if (tok == .eof) return null;
     const val = try tokenToValue(self, tok);
-    self.recordSpan(val, start_pos);
+    self.recordSpan(val, start_pos, start_lc);
     return val;
 }
 

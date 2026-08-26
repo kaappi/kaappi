@@ -135,9 +135,6 @@ pub const WarmCursor = struct {
     /// Function indices in events are < top_level_count (the form functions).
     top_level_count: u32,
     pos: usize = 0,
-    /// gc.extra_roots length before the deserialize; endWarmLoad truncates
-    /// back to it once the replay finishes.
-    roots_base: usize = 0,
 
     fn peek(self: *WarmCursor) ?bf.LibEvent {
         if (self.pos >= self.events.len) return null;
@@ -247,45 +244,61 @@ pub fn noteIncludeFile(vm: *VM, path: []const u8, content: []const u8) void {
     };
 }
 
+/// The registry short-circuit variant: the dependency was loaded by an
+/// EARLIER import, so every frame that imports it now — including the
+/// innermost in-flight load, which is exactly the one whose entry needs the
+/// record — plus the main run's recorder get the dependency.
+pub fn noteDepLoadedAllFrames(vm: *VM, rel_path: []const u8, resolved_path: []const u8, source_hash: u64, lib_name: []const u8) void {
+    noteRunDep(vm, rel_path, resolved_path, source_hash, lib_name);
+    var d: u8 = 0;
+    const max = @min(vm.lib_cache_depth, @as(u8, vm.lib_cache_stack.len));
+    while (d < max) : (d += 1) {
+        noteDepInto(&vm.lib_cache_stack[d], vm, rel_path, resolved_path, source_hash, lib_name);
+    }
+}
+
 /// Record a dependency .sld resolved and read by a (nested) load, into every
 /// armed enclosing frame except the load's own — the enclosing libraries'
 /// compiled bodies embed expansions of the dependency's macros, so their
 /// entries must miss when it changes. Deduplicated per frame by canonical
 /// library name.
 pub fn noteDepLoaded(vm: *VM, rel_path: []const u8, resolved_path: []const u8, source_hash: u64, lib_name: []const u8, own_depth: u8) void {
-    const allocator = vm.gc.allocator;
     var d: u8 = 0;
     while (d < own_depth and d < vm.lib_cache_stack.len) : (d += 1) {
-        const c = &vm.lib_cache_stack[d];
-        if (!c.armed or c.warm != null) continue;
-        var dup = false;
-        for (c.deps.items) |dep| {
-            if (std.mem.eql(u8, dep.lib_name, lib_name)) {
-                dup = true;
-                break;
-            }
-        }
-        if (dup) continue;
-        if (c.deps.items.len >= bf.MAX_LIBRARY_DEPS) {
-            c.bail = true;
-            continue;
-        }
-        const rel = allocator.dupe(u8, rel_path) catch continue;
-        const res = allocator.dupe(u8, resolved_path) catch {
-            allocator.free(rel);
-            continue;
-        };
-        const name = allocator.dupe(u8, lib_name) catch {
-            allocator.free(rel);
-            allocator.free(res);
-            continue;
-        };
-        c.deps.append(allocator, .{ .rel_path = rel, .resolved_path = res, .source_hash = source_hash, .lib_name = name }) catch {
-            allocator.free(rel);
-            allocator.free(res);
-            allocator.free(name);
-        };
+        noteDepInto(&vm.lib_cache_stack[d], vm, rel_path, resolved_path, source_hash, lib_name);
     }
+}
+
+fn noteDepInto(c: *LibCollector, vm: *VM, rel_path: []const u8, resolved_path: []const u8, source_hash: u64, lib_name: []const u8) void {
+    const allocator = vm.gc.allocator;
+    if (!c.armed or c.warm != null) return;
+    var dup = false;
+    for (c.deps.items) |dep| {
+        if (std.mem.eql(u8, dep.lib_name, lib_name)) {
+            dup = true;
+            break;
+        }
+    }
+    if (dup) return;
+    if (c.deps.items.len >= bf.MAX_LIBRARY_DEPS) {
+        c.bail = true;
+        return;
+    }
+    const rel = allocator.dupe(u8, rel_path) catch return;
+    const res = allocator.dupe(u8, resolved_path) catch {
+        allocator.free(rel);
+        return;
+    };
+    const name = allocator.dupe(u8, lib_name) catch {
+        allocator.free(rel);
+        allocator.free(res);
+        return;
+    };
+    c.deps.append(allocator, .{ .rel_path = rel, .resolved_path = res, .source_hash = source_hash, .lib_name = name }) catch {
+        allocator.free(rel);
+        allocator.free(res);
+        allocator.free(name);
+    };
 }
 
 /// Snapshot lib_env's transformer registrations before compiling a form, so
@@ -527,17 +540,17 @@ pub fn replayGlobalForm(vm: *VM, c: *LibCollector) VMError!void {
 /// Validate an entry's include and dependency records against the live
 /// filesystem. Pure reads — no loading, no VM state touched — so a mismatch
 /// is an ordinary miss that falls back to a cold load with nothing partial
-/// having happened.
-fn recordsValid(vm: *VM, lib: *const bf.LibraryData) bool {
+/// having happened. Shared by the library and program entry kinds.
+pub fn recordsValid(vm: *VM, includes: []const bf.IncludeRecord, deps: []const bf.DepRecord) bool {
     const file_utils = @import("file_utils.zig");
     const allocator = vm.gc.allocator;
 
-    for (lib.includes) |inc| {
+    for (includes) |inc| {
         const content = file_utils.readWholeFile(allocator, inc.path, 4 * 1024 * 1024) catch return false;
         defer allocator.free(content);
         if (bf.sourceHash(content) != inc.hash) return false;
     }
-    for (lib.deps) |dep| {
+    for (deps) |dep| {
         // Re-resolve through the CURRENT lib-path: a --lib-path change that
         // now resolves the same library name elsewhere must miss, even if the
         // old file is still sitting there unchanged.
@@ -551,6 +564,34 @@ fn recordsValid(vm: *VM, lib: *const bf.LibraryData) bool {
     return true;
 }
 
+/// Remove the GC roots of exactly the objects a deserialized entry introduced
+/// — its functions and transformers — BY POINTER, never by truncation: the
+/// load's own body execution may have appended longer-lived roots above them
+/// (a fiber kept alive until thread-join!, a rootedSlot eval-cache entry),
+/// and endColdLoad's own rule is the same. Live objects stay reachable
+/// through the registered library (lib_env values, transformers and their
+/// procs); the executed top-level form wrappers are garbage now, exactly like
+/// the cold path's collected functions after endColdLoad (#1888 review).
+pub fn dropDeserializeRoots(gc: *memory.GC, result: *const bf.DeserializeResult) void {
+    const allocator = gc.allocator;
+    var remove = std.AutoHashMap(usize, void).init(allocator);
+    defer remove.deinit();
+    for (result.funcs) |f| remove.put(@intFromPtr(f), {}) catch return;
+    if (result.library) |lib| {
+        for (lib.events) |ev| {
+            if (ev == .register_tx) remove.put(@intFromPtr(ev.register_tx.tx), {}) catch return;
+        }
+    }
+    if (remove.count() == 0) return;
+    var out_i: usize = 0;
+    for (gc.extra_roots.items) |root| {
+        if (types.isPointer(root) and remove.contains(@intFromPtr(types.toObject(root)))) continue;
+        gc.extra_roots.items[out_i] = root;
+        out_i += 1;
+    }
+    gc.extra_roots.shrinkRetainingCapacity(out_i);
+}
+
 /// Begin serving a library load from the cache: read the entry, validate its
 /// include/dependency records, and push a replay cursor. Returns true when the
 /// caller should proceed by running `loadLibrarySource` unchanged (the cursor
@@ -562,29 +603,35 @@ pub fn beginWarmLoad(vm: *VM, source_hash: u64, sld_path: []const u8) bool {
     const sbc_path = cache.pathForSource(allocator, sld_path) orelse return false;
     defer allocator.free(sbc_path);
 
-    // The deserialize roots the functions and transformers it loads; remember
-    // where the list stood so the replay can drop exactly those roots again
-    // (by truncation — nothing but the deserializer appended in between).
-    const roots_base = vm.gc.extra_roots.items.len;
-
     const loaded = (bf.readFileWithTopLevel(vm.gc, source_hash, sbc_path) catch null) orelse {
         timings.libCacheMiss();
         return false;
     };
     var result = loaded;
-    // Ownership: on the fall-through paths below the result is freed at once;
-    // once pushed, the collector owns it and frees it on pop.
-    if (result.library == null) {
-        bf.freeDeserializeResult(allocator, &result);
-        timings.libCacheMiss();
-        return false;
+    // Every fall-through below is a miss: free the host-side sections and drop
+    // the deserialize roots by pointer (the deserializer rooted the functions
+    // and transformers; leaving them pinned would collect garbage for the
+    // process lifetime, one stale body per stale entry — #1888 review).
+    const miss = struct {
+        fn f(vm2: *VM, res: *bf.DeserializeResult, stale: bool) bool {
+            // Roots first: freeDeserializeResult resets the pointer fields
+            // dropDeserializeRoots walks.
+            dropDeserializeRoots(vm2.gc, res);
+            bf.freeDeserializeResult(vm2.gc.allocator, res);
+            if (stale) timings.libCacheStale() else timings.libCacheMiss();
+            return false;
+        }
+    };
+
+    // Kind check both ways: a LIBRARY entry shares its cache key with running
+    // the .sld directly, and a PROGRAM entry cannot be replayed as a library.
+    if (result.library == null or result.entry_kind != bf.ENTRY_LIBRARY) {
+        return miss.f(vm, &result, false);
     }
     const lib = &result.library.?;
 
-    if (!recordsValid(vm, lib)) {
-        bf.freeDeserializeResult(allocator, &result);
-        timings.libCacheStale();
-        return false;
+    if (!recordsValid(vm, result.includes orelse &.{}, result.deps orelse &.{})) {
+        return miss.f(vm, &result, true);
     }
 
     // No source_name assignment: the cold path's library functions carry none
@@ -595,12 +642,9 @@ pub fn beginWarmLoad(vm: *VM, source_hash: u64, sld_path: []const u8) bool {
         .events = lib.events,
         .funcs = result.funcs,
         .top_level_count = result.top_level_count,
-        .roots_base = roots_base,
     }, .warm_result = result });
     if (!pushed) {
-        bf.freeDeserializeResult(allocator, &result);
-        timings.libCacheMiss();
-        return false; // nesting too deep: cold path (nothing recorded yet)
+        return miss.f(vm, &result, false); // nesting too deep: cold path
     }
     return true;
 }
@@ -608,44 +652,121 @@ pub fn beginWarmLoad(vm: *VM, source_hash: u64, sld_path: []const u8) bool {
 /// Finish a warm replay after `loadLibrarySource` succeeded. Errors loudly on
 /// an unconsumed event log — the hashes validated by beginWarmLoad make a
 /// desync near-impossible, so it indicates a loader/serializer bug and must
-/// never pass silently.
+/// never pass silently. Every path out of here pops the collector frame
+/// (#1888 review: a leaked frame shifts every enclosing load's collector).
 pub fn endWarmLoad(vm: *VM, sld_path: []const u8) VMError!void {
     const depth = vm.lib_cache_depth;
     if (depth == 0 or depth > vm.lib_cache_stack.len) return; // overflowed frame
     const c = &vm.lib_cache_stack[depth - 1];
-    const roots_base = if (c.warm) |*w| w.roots_base else vm.gc.extra_roots.items.len;
+    const desync = c.replay_desync or (c.warm != null and c.warm.?.pos != c.warm.?.events.len);
+    const result_ptr: ?*bf.DeserializeResult = if (c.warm_result) |*wr| wr else null;
 
-    if (c.replay_desync or (c.warm != null and c.warm.?.pos != c.warm.?.events.len)) {
+    // Roots before pop: the collector's deinit frees (and resets) the result
+    // the root walk reads.
+    if (result_ptr) |rp| dropDeserializeRoots(vm.gc, rp);
+
+    if (desync) {
         // Structure and log disagree. The validated source/include/dep
         // equality makes this near-impossible, so it indicates a
         // loader/serializer bug — loud, never silent.
+        pop(vm);
         vm.setErrorDetail("library cache: replay event log desync for {s}", .{sld_path});
         return VMError.CompileError;
     }
 
     timings.libCacheHit();
     pop(vm);
-    // Drop the deserialize roots: live objects stayed reachable through the
-    // registered library (lib_env values, transformers and their procs); the
-    // executed top-level form wrappers are garbage now, exactly like the cold
-    // path's collected functions after endColdLoad.
-    vm.gc.extra_roots.shrinkRetainingCapacity(roots_base);
 }
 
 /// Abort a warm replay that failed mid-load (body error etc.). The entry's
-/// working state is freed; the deserialize roots are dropped (the partially
-/// built library is unreachable garbage, same as a failed cold load).
+/// working state is freed; the deserialize roots are dropped by pointer (the
+/// partially built library is unreachable garbage, same as a failed cold
+/// load).
 pub fn abortWarmLoad(vm: *VM) void {
     const depth = vm.lib_cache_depth;
     if (depth == 0) return;
     if (depth <= vm.lib_cache_stack.len) {
         const c = &vm.lib_cache_stack[depth - 1];
-        const roots_base = if (c.warm) |*w| w.roots_base else vm.gc.extra_roots.items.len;
+        const result_ptr: ?*bf.DeserializeResult = if (c.warm_result) |*wr| wr else null;
+        if (result_ptr) |rp| dropDeserializeRoots(vm.gc, rp);
         pop(vm);
-        vm.gc.extra_roots.shrinkRetainingCapacity(roots_base);
     } else {
         pop(vm);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Program-run dependency recording (called from runFile via the load hooks)
+// ---------------------------------------------------------------------------
+
+/// A program's compiled slots embed imported-macro expansions, exactly like a
+/// library body's — so its cache entry must carry the same include/dependency
+/// records and stale on the same edits (#1888 review). The recorder is
+/// VM-level rather than collector-stack-level because the "run" whose deps we
+/// want is the main file's, not whichever .sld happens to be loading.
+pub fn beginRunRecording(vm: *VM) void {
+    clearRunRecords(vm);
+}
+
+/// Free whatever the run recorder holds (end of runFile either way).
+pub fn clearRunRecords(vm: *VM) void {
+    const allocator = vm.gc.allocator;
+    for (vm.run_cache_deps.items) |dep| {
+        allocator.free(@constCast(dep.rel_path));
+        allocator.free(@constCast(dep.resolved_path));
+        allocator.free(@constCast(dep.lib_name));
+    }
+    vm.run_cache_deps.clearRetainingCapacity();
+    for (vm.run_cache_includes.items) |inc| allocator.free(@constCast(inc.path));
+    vm.run_cache_includes.clearRetainingCapacity();
+}
+
+pub fn deinitRunRecords(vm: *VM) void {
+    clearRunRecords(vm);
+    const allocator = vm.gc.allocator;
+    vm.run_cache_deps.deinit(allocator);
+    vm.run_cache_includes.deinit(allocator);
+}
+
+/// Record a file-backed library the program's run resolved and read — every
+/// load, cold or warm, registry short-circuit or disk (the hook sites).
+/// Deduplicated by canonical library name.
+pub fn noteRunDep(vm: *VM, rel_path: []const u8, resolved_path: []const u8, source_hash: u64, lib_name: []const u8) void {
+    const allocator = vm.gc.allocator;
+    for (vm.run_cache_deps.items) |dep| {
+        if (std.mem.eql(u8, dep.lib_name, lib_name)) return;
+    }
+    if (vm.run_cache_deps.items.len >= bf.MAX_LIBRARY_DEPS) return;
+    const rel = allocator.dupe(u8, rel_path) catch return;
+    const res = allocator.dupe(u8, resolved_path) catch {
+        allocator.free(rel);
+        return;
+    };
+    const name = allocator.dupe(u8, lib_name) catch {
+        allocator.free(rel);
+        allocator.free(res);
+        return;
+    };
+    vm.run_cache_deps.append(allocator, .{ .rel_path = rel, .resolved_path = res, .source_hash = source_hash, .lib_name = name }) catch {
+        allocator.free(rel);
+        allocator.free(res);
+        allocator.free(name);
+    };
+}
+
+/// Record an include-family file the MAIN file's structure opened (top-level
+/// include/include-ci — the ones whose macros a later compiled form can
+/// embed). Library-load includes are covered by that library's own entry.
+pub fn noteRunInclude(vm: *VM, path: []const u8, content: []const u8) void {
+    const allocator = vm.gc.allocator;
+    for (vm.run_cache_includes.items) |inc| {
+        if (std.mem.eql(u8, inc.path, path)) return;
+    }
+    if (vm.run_cache_includes.items.len >= bf.MAX_LIBRARY_INCLUDES) return;
+    const owned = allocator.dupe(u8, path) catch return;
+    vm.run_cache_includes.append(allocator, .{ .path = owned, .hash = bf.sourceHash(content) }) catch {
+        allocator.free(owned);
+    };
 }
 
 // ---------------------------------------------------------------------------

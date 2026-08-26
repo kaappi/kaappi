@@ -133,7 +133,10 @@ to* the source as `file.sbc`. A central store is what makes `cache status` /
   run used — so an `(import ...)` between two defines stays between them (no
   preamble hoisting; the reorder class of
   [#2200](https://github.com/kaappi/kaappi/issues/2200) cannot arise), and a
-  mid-file `define-values` keeps its position in the stream. The forms a
+  mid-file `define-values` keeps its position in the stream. Each declaration
+  slot also carries the reader's fold-case state as of the form (a
+  `#!fold-case` directive falls inside an earlier form's span), so a folded
+  `(IMPORT ...)` is claimed as a declaration warm exactly as cold. The forms a
   declaration *interprets* (a top-level `begin`'s body, an included file's
   forms) are compiled fresh on a HIT exactly as on a miss — correct, just not
   cached.
@@ -154,13 +157,17 @@ to* the source as `file.sbc`. A central store is what makes `cache status` /
   `cond-expand` branch is present warm for the same reason it is present
   cold (the failure mode of the old, pre-#1888 cache-read path).
 
-  Library invalidation is layered on the key: besides the library's own
-  source hash, the entry records every include-family file it read (path +
+  Invalidation is layered on the key, and identically for libraries and
+  programs: the entry records every include-family file the run read (path +
   content hash) and every file-backed dependency it resolved (relative path,
   resolved path, content hash), all re-validated before a warm replay starts.
   Editing an included file misses; editing a dependency misses *and* stales
-  every entry that transitively imported it; a `--lib-path` change that
-  re-resolves a dependency elsewhere misses. A library whose `cond-expand`
+  every entry that transitively imported it — a program's compiled slots
+  embed imported-macro expansions just like a library body's, so a program
+  entry goes stale on a library edit too. A dependency found already in the
+  registry (loaded by an earlier import) is recorded through its
+  `Library.source_path` provenance, so import ORDER cannot hide a dependency.
+  A `--lib-path` change that re-resolves a dependency elsewhere misses. A library whose `cond-expand`
   consulted *library availability* (`(library …)` requirements, `srfi-<n>`
   feature ids) is never cached — that answer depends on the live
   registry/lib-path, not on anything a key can hash (platform-only features
