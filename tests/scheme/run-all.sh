@@ -58,6 +58,26 @@ TIMEOUT="${KAAPPI_TEST_TIMEOUT:-60}"
 # 40-minute CI job before anyone could tell which file was responsible).
 SHELL_TIMEOUT="${KAAPPI_SHELL_TEST_TIMEOUT:-300}"
 
+# Per-file timeout overrides for .scm files that legitimately outlive TIMEOUT.
+# The official SRFI 231 conformance suite (srfi231-official.scm) runs ~150s
+# cold — the isolated KAAPPI_HOME means its .sld libraries compile fresh every
+# run, and the PGM convolution timing blocks dominate the rest — where the 60s
+# default would kill an otherwise-green file (the same class of
+# false-positive the SHELL_TIMEOUT comment above describes, at file scale).
+PER_FILE_TIMEOUTS="srfi231-official.scm:${KAAPPI_SRFI231_OFFICIAL_TIMEOUT:-600}"
+
+timeout_for() {
+    local base entry
+    base=$(basename "$1")
+    for entry in $PER_FILE_TIMEOUTS; do
+        if [[ "$base" == "${entry%%:*}" ]]; then
+            echo "${entry##*:}"
+            return
+        fi
+    done
+    echo "$TIMEOUT"
+}
+
 # How many .scm files to run at once. Each file is a fresh interpreter with no
 # shared state (see tests/scheme/CLAUDE.md), so they parallelise cleanly — the
 # suite's own audit found no cross-file collisions on fixed paths or ports.
@@ -126,16 +146,17 @@ R7RS_STATUS_FAIL=0
 # of the order files actually finish in.
 run_file_worker() {
     local file="$1" slot="$2"
-    local pid status
+    local pid status tmo
+    tmo=$(timeout_for "$file")
     "$KAAPPI" "$file" > "$slot.out" 2>&1 &
     pid=$!
-    if wait_with_timeout "$pid" "$TIMEOUT"; then
+    if wait_with_timeout "$pid" "$tmo"; then
         status=0
         wait "$pid" || status=$?
     else
         kill "$pid" 2>/dev/null || true
         wait "$pid" 2>/dev/null || true
-        echo "TIMEOUT" > "$slot.rec"
+        echo "TIMEOUT ${tmo}s" > "$slot.rec"
         return 0
     fi
     if [[ $status -eq 0 ]]; then
@@ -173,8 +194,8 @@ report_file_result() {
             echo "  PASS  $file"
             PASS=$((PASS + 1))
             ;;
-        TIMEOUT)
-            echo "  TIMEOUT  $file  (killed after ${TIMEOUT}s)"
+        TIMEOUT*)
+            echo "  TIMEOUT  $file  (killed after ${kind#TIMEOUT })"
             [[ -f "$slot.out" ]] && cat "$slot.out"
             TIMEDOUT=$((TIMEDOUT + 1))
             ;;
