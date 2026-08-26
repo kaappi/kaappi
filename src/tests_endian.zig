@@ -424,6 +424,15 @@ const GOLDEN_BODY =
     [_]u8{ 0x00, 0x00, 0x00, 0x00 } ++ // source_line u32 = 0
     [_]u8{ 0x00, 0x00, 0x00, 0x00 } ++ // line_table count u32 = 0
 
+    // ---- v13 program slot section (kaappi#1888) ----
+    [_]u8{ 0x01, 0x00, 0x00, 0x00 } ++ // slot count u32 = 1
+    [_]u8{bf.SLOT_FUNCTION} ++ [_]u8{ 0x00, 0x00, 0x00, 0x00 } ++ // function slot, top-level index u32 = 0
+
+    // ---- include/dependency sections (shared by program and library kinds;
+    //      #1888 review: a program's slots embed imported-macro expansions) ----
+    [_]u8{ 0x00, 0x00, 0x00, 0x00 } ++ // include count u32 = 0
+    [_]u8{ 0x00, 0x00, 0x00, 0x00 } ++ // dependency count u32 = 0
+
     [_]u8{ 0x00, 0x00, 0x00, 0x00 } ++ // bundled-files count u32 = 0
     [_]u8{ 0x00, 0x00, 0x00, 0x00 }; // preamble count u32 = 0
 
@@ -466,6 +475,9 @@ fn goldenHeader(
     try list.appendSlice(allocator, build_id);
     try appendLe(list, allocator, 2, GOLDEN_SOURCE_PATH.len);
     try list.appendSlice(allocator, GOLDEN_SOURCE_PATH);
+    // v13 (kaappi#1888): the entry-kind byte after the source path — a
+    // program entry (0), whose replay slot section GOLDEN_BODY carries.
+    try list.append(allocator, bf.ENTRY_PROGRAM);
 }
 
 /// The Function graph `GOLDEN_BODY` encodes. Both functions stay rooted for the
@@ -562,9 +574,9 @@ test "endian: the deserializer decodes the golden .sbc byte sequence" {
     try goldenHeader(&buf, allocator, GOLDEN_BUILD_ID);
     try buf.appendSlice(allocator, &GOLDEN_BODY);
 
-    const result = (try bf.deserializeFromBuffer(&gc, buf.items, GOLDEN_SOURCE_HASH)) orelse
+    var result = (try bf.deserializeFromBuffer(&gc, buf.items, GOLDEN_SOURCE_HASH)) orelse
         return error.GoldenBufferRejected;
-    defer allocator.free(result.funcs);
+    defer bf.freeDeserializeResult(allocator, &result);
 
     try std.testing.expectEqual(@as(u32, 1), result.top_level_count);
     try std.testing.expectEqual(@as(usize, 2), result.funcs.len);

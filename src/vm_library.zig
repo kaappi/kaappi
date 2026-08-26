@@ -13,6 +13,8 @@ const Value = types.Value;
 const macro = @import("compiler_macro.zig");
 const ir = @import("ir.zig");
 const vm_mod = @import("vm.zig");
+const lcc = @import("vm_library_cache.zig");
+const bytecode_file = @import("bytecode_file.zig");
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 
@@ -237,6 +239,14 @@ fn loadLibrarySource(vm: *VM, source: []const u8) !void {
         var expr = rdr.readDatum() catch return error.LibrarySourceReadError;
         vm.gc.pushRoot(&expr);
         defer vm.gc.popRoot();
+
+        // These datums are the .sld's *structure*: dispatching them is what
+        // both a cold load and a warm cache replay do (kaappi#1888), and the
+        // flag tells openIncludeFile/evalIncludedForm that an include reached
+        // from here is structure too — its compiled forms become replay
+        // events, unlike one a running body `(eval)`s mid-load.
+        vm.lib_structure_depth += 1;
+        defer vm.lib_structure_depth -= 1;
 
         if (vm.handleTopLevelForm(expr)) |result| {
             _ = result catch |err| return err;
@@ -534,22 +544,70 @@ pub fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
     // without the compile-time --lib-path prefix)
     recordFileForBundle(vm, rel_path, source);
 
-    // No .sbc caching for .sld files, in either direction. Writing was
-    // disabled because collected function pointers can be freed by GC during
-    // library loading (use-after-free in the serializer). The old cache-read
-    // path reconstructed the export table by re-parsing the .sld top level,
-    // silently dropping exports from include-library-declarations and
-    // cond-expand — if caching is ever reintroduced, serialize the export
-    // table into the .sbc instead of re-deriving it from source.
-    loadLibrarySource(vm, source) catch |err| {
-        // The .sld file was found and read — a failure here is a load error,
-        // not a missing library. Say so instead of letting processImportSet
-        // report "library not found" (#1010).
-        if (vm.last_error_detail_len == 0) {
-            vm.setErrorDetail("{s} while loading library from {s}", .{ @errorName(err), sld_path });
+    // .sld bytecode cache (kaappi#1888). A warm replay re-walks the structure
+    // from this (hash-validated) source but runs cached body functions and
+    // registers cached transformers instead of compiling — see
+    // vm_library_cache.zig for the design. The two original hazards that
+    // forced caching off are addressed there: collected functions are rooted
+    // for the load's duration (the serializer can no longer walk freed
+    // memory), and the export table is derived from the reconstructed lib_env
+    // by the normal export-name lookup, so exports contributed by
+    // include-library-declarations or cond-expand are present warm exactly as
+    // cold (the old cache-read path re-derived them from source and dropped
+    // those).
+    const source_hash = bytecode_file.sourceHash(source);
+    const depth_before = vm.lib_cache_depth;
+
+    const dep_name_owned = library_mod.libraryNameToString(allocator, name_list) catch null;
+    const dep_name: []const u8 = dep_name_owned orelse rel_path;
+    defer if (dep_name_owned) |dn| allocator.free(dn);
+
+    if (lcc.beginWarmLoad(vm, source_hash, sld_path)) {
+        loadLibrarySource(vm, source) catch |err| {
+            lcc.abortWarmLoad(vm);
+            if (vm.last_error_detail_len == 0) {
+                vm.setErrorDetail("{s} while loading library from {s}", .{ @errorName(err), sld_path });
+            }
+            return error.UndefinedVariable;
+        };
+        try lcc.endWarmLoad(vm, sld_path, rel_path, source_hash, dep_name);
+    } else {
+        lcc.beginColdLoad(vm);
+        var cold_ok = true;
+        loadLibrarySource(vm, source) catch |err| {
+            cold_ok = false;
+            // The .sld file was found and read — a failure here is a load error,
+            // not a missing library. Say so instead of letting processImportSet
+            // report "library not found" (#1010).
+            if (vm.last_error_detail_len == 0) {
+                vm.setErrorDetail("{s} while loading library from {s}", .{ @errorName(err), sld_path });
+            }
+        };
+        lcc.endColdLoad(vm, cold_ok, source_hash, sld_path, rel_path, dep_name);
+        if (!cold_ok) return error.UndefinedVariable;
+    }
+
+    // Record this .sld as a dependency of every enclosing load (not of this
+    // one — our own file is the key): an enclosing library's compiled body
+    // embeds expansions of the macros we exported, so it must miss when we
+    // change. The MAIN run's own entry is recorded inside endWarmLoad /
+    // endColdLoad, where the library's own include/dependency records are at
+    // hand to inherit (#1888 review).
+    lcc.noteDepLoaded(vm, rel_path, sld_path, source_hash, dep_name, depth_before);
+
+    // Stamp provenance so a LATER importer that finds us in the registry can
+    // still record the dependency (the registry short-circuit in
+    // processImportSet never reaches this function).
+    if (vm.libraries.get(dep_name)) |lib| {
+        if (lib.source_path == null) {
+            if (allocator.dupe(u8, sld_path)) |owned| {
+                lib.source_path = owned;
+                lib.source_hash = source_hash;
+            } else |_| {}
+        } else {
+            lib.source_hash = source_hash;
         }
-        return error.UndefinedVariable;
-    };
+    }
 }
 
 /// Evaluate a feature requirement for cond-expand in define-library.
@@ -558,6 +616,12 @@ pub fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
 /// cond-expand selects clauses with the same live-registry logic as the
 /// define-library form.
 pub fn evalLibFeatureReq(vm: *VM, req: Value) bool {
+    // kaappi#1888: a requirement whose answer depends on library availability
+    // (the live registry / lib-path) makes the library being loaded
+    // uncacheable — the selected branch is not a function of anything a cache
+    // key hashes. Platform features are compile-time constants covered by the
+    // compiler hash, so only (library …) and srfi-<n> leaves bail.
+    lcc.noteFeatureReq(vm, req);
     if (types.isSymbol(req)) {
         const name = types.symbolName(req);
         for (types.platform_features) |f| {
@@ -634,6 +698,19 @@ fn openIncludeFile(vm: *VM, file_path: []const u8) VMError!IncludeFile {
             return VMError.CompileError;
         };
     };
+    // kaappi#1888: hash every include-family file a library *load* opens (the
+    // structure-depth gate keeps a runtime `(eval "(include …)")` inside a
+    // body out) — an edited include must invalidate the .sld's cache entry.
+    // A top-level include of the MAIN file (no library load in flight) feeds
+    // the run recorder instead: a macro defined by an included file is baked
+    // into later compiled forms, so the program entry must stale on its edit.
+    if (vm.lib_structure_depth > 0) {
+        if (vm.lib_cache_depth > 0) {
+            lcc.noteIncludeFile(vm, resolved_path orelse file_path, source);
+        } else {
+            lcc.noteRunInclude(vm, resolved_path orelse file_path, source);
+        }
+    }
     return .{ .source = source, .resolved_path = resolved_path };
 }
 
@@ -711,6 +788,27 @@ fn evalIncludedForm(vm: *VM, expr: Value, path: []const u8, line: u32) void {
         return;
     }
 
+    // Warm replay (kaappi#1888): a form an include contributed to a library
+    // load's structure replays its cached function instead of recompiling.
+    // These compile against vm.globals (env = null), not lib_env.
+    const collector = lcc.top(vm);
+    if (collector) |c| {
+        if (c.warm != null and vm.lib_structure_depth > 0) {
+            lcc.replayGlobalForm(vm, c) catch |err| {
+                reportIncludeError(vm, path, line, vm.getErrorDetail(), err);
+                vm.last_error_detail_len = 0;
+            };
+            return;
+        }
+    }
+
+    // kaappi#1888: a form compiled for a library load's structure becomes a
+    // replay event; growth in vm.macros / syntax properties is a compile-time
+    // registration the log cannot replay, so it bails the entry.
+    const recording = collector != null and collector.?.armed and collector.?.warm == null and vm.lib_structure_depth > 0;
+    const macros_before = vm.macros.count();
+    const props_before = vm.syntax_properties.count();
+
     const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, vm.globals) catch |err| {
         reportIncludeError(vm, path, line, null, err);
         return;
@@ -721,7 +819,13 @@ fn evalIncludedForm(vm: *VM, expr: Value, path: []const u8, line: u32) void {
     var func_val = types.makePointer(&func.header);
     vm.gc.pushRoot(&func_val);
     defer vm.gc.popRoot();
-    compiler_mod.Compiler.unrootFunction(vm.gc, func);
+    if (recording) {
+        if (vm.macros.count() != macros_before or vm.syntax_properties.count() != props_before)
+            lcc.noteCompileSideEffect(collector.?);
+        lcc.noteCompiledForm(vm, func, false);
+    } else {
+        compiler_mod.Compiler.unrootFunction(vm.gc, func);
+    }
     // runTopLevelFunction, not vm.execute (#2012): the including form can be
     // reached re-entrantly (a library body loaded from inside an outer
     // top-level form contains an (include ...)); a bare vm.execute would
@@ -865,11 +969,18 @@ fn compileLibBeginBlock(vm: *VM, lib_env: *std.StringHashMap(Value), body_list: 
 
 /// Compile and evaluate a single expression in a library context.
 fn compileLibExpr(vm: *VM, lib_env: *std.StringHashMap(Value), expr: Value) VMError!void {
+    const collector = lcc.top(vm);
+
     if (isLibTopLevelForm(expr)) {
         // Set the library env so handleDefineRecordType etc. use it
         const saved_env = vm.current_lib_env;
         vm.current_lib_env = lib_env;
         defer vm.current_lib_env = saved_env;
+        // Structure dispatch (kaappi#1888): an include reached from a begin
+        // body belongs to the load's structure, so its compiled forms become
+        // replay events.
+        vm.lib_structure_depth += 1;
+        defer vm.lib_structure_depth -= 1;
         if (vm.handleTopLevelForm(expr)) |result| {
             _ = try result;
             return;
@@ -881,6 +992,12 @@ fn compileLibExpr(vm: *VM, lib_env: *std.StringHashMap(Value), expr: Value) VMEr
         // unconditionally here used to mean a null result was treated the
         // same as "handled": the form was neither compiled as the builtin
         // special form nor as an ordinary macro use.
+    }
+
+    // Warm replay (kaappi#1888): consume the cached registrations this form's
+    // compilation performed, then run its cached function — no compilation.
+    if (collector) |c| {
+        if (c.warm != null) return lcc.replayForm(vm, lib_env, c);
     }
 
     // Compile against a per-library macro table seeded from lib_env rather
@@ -898,6 +1015,16 @@ fn compileLibExpr(vm: *VM, lib_env: *std.StringHashMap(Value), expr: Value) VMEr
             lib_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return VMError.OutOfMemory;
         }
     }
+
+    // kaappi#1888: record what this form's compilation does that the event
+    // log must replay — the transformer registrations it leaves in lib_env,
+    // and any vm.macros / syntax-property growth (a compile-time side effect
+    // outside lib_env, the #2112 class — such a library stays uncached).
+    const recording = collector != null and collector.?.armed and collector.?.warm == null;
+    if (recording) lcc.snapshotTransformers(vm, lib_env);
+    const macros_before = vm.macros.count();
+    const props_before = vm.syntax_properties.count();
+
     const func = compiler_mod.compileExpressionInEnv(vm.gc, expr, &lib_macros, lib_env, types.NIL, false, .library) catch |err| {
         // Name the failing form so a broken library body surfaces as itself
         // instead of being masked as "library not found" upstream (#1010).
@@ -916,13 +1043,31 @@ fn compileLibExpr(vm: *VM, lib_env: *std.StringHashMap(Value), expr: Value) VMEr
         }
         return VMError.CompileError;
     };
+    if (recording) {
+        if (vm.macros.count() != macros_before or vm.syntax_properties.count() != props_before)
+            lcc.noteCompileSideEffect(collector.?);
+    }
     if (vm.lib_compile_collect) |collect| {
         collect.append(vm.gc.allocator, func) catch return VMError.OutOfMemory;
     }
+    // Shadow-root for this whole tail: the compile's own roots were shrunk
+    // away, and the recording calls below allocate before the collector's
+    // permanent extra_roots entry lands (kaappi#1888's GC hazard).
     var func_val = types.makePointer(&func.header);
     vm.gc.pushRoot(&func_val);
-    compiler_mod.Compiler.unrootFunction(vm.gc, func);
     defer vm.gc.popRoot();
+    if (recording) {
+        lcc.diffTransformers(vm, lib_env);
+        lcc.noteCompiledForm(vm, func, true);
+        // runTopLevelFunction, not vm.execute (#2012): this library body form
+        // runs during a load that may itself be nested inside an executing
+        // top-level form ((environment ...)/(eval ...) touching a file-backed
+        // .sld for the first time); a bare vm.execute would resetExecutionState
+        // and abandon that enclosing form. Rooted by the collector.
+        _ = try vm.runTopLevelFunction(func);
+        return;
+    }
+    compiler_mod.Compiler.unrootFunction(vm.gc, func);
     // runTopLevelFunction, not vm.execute (#2012): this library body form
     // runs during a load that may itself be nested inside an executing
     // top-level form ((environment ...)/(eval ...) touching a file-backed

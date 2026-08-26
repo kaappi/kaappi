@@ -9,6 +9,16 @@ pub const Library = struct {
     owned_name: ?[]const u8, // if non-null, this is a heap-allocated name to free
     exports: std.StringHashMap(Value),
     lib_env: ?*std.StringHashMap(Value) = null, // per-library environment (heap-allocated)
+    /// Provenance for file-backed libraries (kaappi#1888 review): the
+    /// resolved .sld this library was loaded from, and its content hash.
+    /// Lets an importer that finds the library already in the registry still
+    /// record it as a cache dependency — without this, `(a)` loaded by an
+    /// earlier import and `(b)` importing `(a)` later would leave `(b)`'s
+    /// entry with no record of `(a)`, and editing `(a)`'s macros would serve
+    /// `(b)`'s stale expansions. Null for built-in/registered-in-code
+    /// libraries.
+    source_path: ?[]const u8 = null,
+    source_hash: u64 = 0,
     allocator: std.mem.Allocator,
 
     /// Create a library with a borrowed name (string literal or other static string).
@@ -36,6 +46,9 @@ pub const Library = struct {
         if (self.lib_env) |env| {
             env.deinit();
             self.allocator.destroy(env);
+        }
+        if (self.source_path) |sp| {
+            self.allocator.free(sp);
         }
         if (self.owned_name) |owned| {
             self.allocator.free(owned);

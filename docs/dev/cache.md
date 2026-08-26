@@ -122,31 +122,56 @@ to* the source as `file.sbc`. A central store is what makes `cache status` /
 - **Cached:** a plain `kaappi file.scm` run of a program that none of the
   refusals below applies to. `--timings` names the refusal that fired
   (`not cached: <reason>`).
-- **Not cached — top-level forms the VM handles directly:** one occurrence of
-  any of `import`, `define-library`, `include`, `include-ci`,
-  `define-record-type`, `define-values`, `begin`, or `cond-expand` at top
-  level skips caching for the whole file — every other form in it included.
-  These eight are `vm_eval.TopLevelHead`, the set `handleTopLevelForm`
-  claims; `--timings` names the one that fired (`not cached: top-level
-  cond-expand`). Until
-  [#2114](https://github.com/kaappi/kaappi/issues/2114) it reported all eight
-  as `imports`, so a file with no `import` in it was told an import was the
-  cause.
+- **Cached — top-level declarations, positionally
+  ([#1888](https://github.com/kaappi/kaappi/issues/1888)):** `import`,
+  `define-library`, `include`, `include-ci`, `define-record-type`,
+  `define-values`, `begin`, and `cond-expand` at top level no longer refuse
+  anything. A cold run records the *positional replay stream*: one slot per
+  top-level form, either the compiled function or the declaration's verbatim
+  source span. A HIT replays the slots in order, re-reading each declaration
+  span and dispatching it through the same `handleTopLevelForm` path the cold
+  run used — so an `(import ...)` between two defines stays between them (no
+  preamble hoisting; the reorder class of
+  [#2200](https://github.com/kaappi/kaappi/issues/2200) cannot arise), and a
+  mid-file `define-values` keeps its position in the stream. Each declaration
+  slot also carries the reader's fold-case state as of the form (a
+  `#!fold-case` directive falls inside an earlier form's span), so a folded
+  `(IMPORT ...)` is claimed as a declaration warm exactly as cold. The forms a
+  declaration *interprets* (a top-level `begin`'s body, an included file's
+  forms) are compiled fresh on a HIT exactly as on a miss — correct, just not
+  cached.
 
-  They are refused for one shared reason: `handleTopLevelForm` *interprets*
-  such a form and appends no `Function` to the run's compiled list, so a HIT —
-  which compiles nothing — would skip that form's work entirely. (The separate
-  hazard that library loading can free collected function pointers is real,
-  but specific to the three heads that load libraries.)
+  **Cached — `.sld` libraries ([#1888](https://github.com/kaappi/kaappi/issues/1888)):**
+  a file-backed library load writes its own entry. The design is "structure
+  from source, code from cache": the entry stores the compiled body
+  functions, the macro transformers (`define-syntax`) as data, and an ordered
+  event log; a HIT re-reads and re-parses the (hash-validated) `.sld`, walks
+  its declarations through the ordinary loader — imports really load, exports
+  are re-derived by name, `cond-expand` re-selects, `define-record-type` runs
+  as data — but replays cached functions/transformers wherever the cold path
+  compiled. Running the body against the reconstructed environment is what
+  makes this safe where value-serialization cannot be: closures capture the
+  live environment, record types and every other runtime value are created
+  exactly as cold, and the export table comes out of the normal export-name
+  lookup — so an export contributed by `include-library-declarations` or a
+  `cond-expand` branch is present warm for the same reason it is present
+  cold (the failure mode of the old, pre-#1888 cache-read path).
 
-  The rule is **top-level head position only**. The same constructs nested
-  inside a body are ordinary code and leave caching alive:
-
-  ```scheme
-  (define (a) (begin 1 2 3))                     ; still cacheable
-  (define (b) (cond-expand (else 'chosen)))
-  (define (c) (define-values (x y) (values 1 2)) (+ x y))
-  ```
+  Invalidation is layered on the key, and identically for libraries and
+  programs: the entry records every include-family file the run read (path +
+  content hash) and every file-backed dependency it resolved (relative path,
+  resolved path, content hash), all re-validated before a warm replay starts.
+  Editing an included file misses; editing a dependency misses *and* stales
+  every entry that transitively imported it — a program's compiled slots
+  embed imported-macro expansions just like a library body's, so a program
+  entry goes stale on a library edit too. A dependency found already in the
+  registry (loaded by an earlier import) is recorded through its
+  `Library.source_path` provenance, so import ORDER cannot hide a dependency.
+  A `--lib-path` change that re-resolves a dependency elsewhere misses. A library whose `cond-expand`
+  consulted *library availability* (`(library …)` requirements, `srfi-<n>`
+  feature ids) is never cached — that answer depends on the live
+  registry/lib-path, not on anything a key can hash (platform-only features
+  are compile-time constants already covered by the compiler hash).
 
 - **Not cached — compile-time registrations
   ([#2112](https://github.com/kaappi/kaappi/issues/2112)):** a top-level
@@ -154,19 +179,24 @@ to* the source as `file.sbc`. A central store is what makes `cache status` /
   registers into the VM's macro / syntax-property tables as a side effect of
   compilation. A HIT compiles nothing, so it would not replay the
   registration and a run-time `eval` would diverge from the cold run; such
-  files are refused instead (reason: `define-syntax`).
+  files are refused instead (reason: `define-syntax`). This applies to the
+  *main file's own* top level — macros *inside* a cached library are fine,
+  because the library entry serializes the transformers themselves.
 - **Not cached — compile errors:** if any top-level form fails to compile,
-  nothing is written (reason: `compile error`) — a HIT would otherwise run
-  the partial program with exit 0 and no diagnostic where the cold run
-  reported the error with exit 1.
+  nothing is written (reason: `compile error`) — a HIT would otherwise run the
+  partial program with exit 0 and no diagnostic where the cold run reported
+  the error with exit 1.
 - **Not cached — constants past the format's limits
   ([#2113](https://github.com/kaappi/kaappi/issues/2113)):** the writer
   refuses anything the reader would reject — nesting deeper than 256 (a long
   *list* is fine: spines cost no depth), or an oversized
   string/vector/bytevector/bignum literal (reason:
   `constant exceeds .sbc limits`). Refusing at write time is what prevents
-  the pathological alternative: an entry that recompiles and rewrites itself
-  on every run, forever, while looking cached.
+  the pathological alternative: an entry that recompiles and rewrites itself on
+  every run, forever, while looking cached. The same contract covers the
+  library sections (a procedural transformer whose `proc` the codec cannot
+  represent, an unrepresentable constant, oversized event/include/deps
+  tables): the library simply stays uncached.
 - **Not the cache:** `kaappi --compile file.scm [-o out.sbc]` writes an
   *explicit* bytecode artifact you named — for embedding into a standalone
   binary via `zig build -Dbundle=out.sbc`, not for the auto-run path. It is
@@ -210,7 +240,10 @@ to* the source as `file.sbc`. A central store is what makes `cache status` /
   the `define-values` was recorded in the preamble and replayed first, with `x`
   still unbound, so the binary failed with
   `preamble error[KP3001]: undefined variable 'x'` and exited 1.
-- `.sld` library loads are never cached in either direction.
+  (The auto-run cache does not have this hazard: its slots are positional.)
+- Sandboxed and WASM loads never touch the `.sld` cache, and neither do
+  embedded or bundled library sources — only file-backed, non-sandboxed
+  loads.
 
 ## Inspect, clear, bypass
 
@@ -259,7 +292,11 @@ Three properties of the constant codec exist specifically for this
 
 `tests/scheme/differential/run-differential.sh` enforces all of this per run:
 cold vs. warm must agree byte for byte over the corpus, and every written
-entry must actually HIT.
+entry must actually HIT (a main-file entry via `cache: HIT`, a library entry
+via `libcache: N hits`). The `.sld` half of the contract — dependency and
+include staleness, export-set completeness across `include-library-declarations`
+and `cond-expand`, `--lib-path` re-resolution — is pinned by
+`tests/scheme/cache/library-cache-1888.sh`.
 
 ## For contributors
 

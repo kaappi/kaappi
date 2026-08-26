@@ -86,6 +86,23 @@ pub fn pathForSource(allocator: std.mem.Allocator, source_path: []const u8) ?[]u
     return std.fmt.allocPrint(allocator, "{s}/{x:0>16}.sbc", .{ dir, key }) catch null;
 }
 
+/// The `.sbc` cache path for a LIBRARY source (kaappi#1888). Deliberately a
+/// different key namespace than `pathForSource`: a `.sld` run directly
+/// (`kaappi lib.sld`) and the same file loaded as an import produce different
+/// entry KINDS for the same source, and sharing one key would let each
+/// overwrite the other every time the other access pattern ran.
+pub fn pathForLibrary(allocator: std.mem.Allocator, source_path: []const u8) ?[]u8 {
+    if (comptime is_wasm) return null;
+    var dir_buf: [1024]u8 = undefined;
+    const dir = cacheDir(&dir_buf) orelse return null;
+
+    var abs_buf: [platform.PATH_MAX]u8 = undefined;
+    const key_path = absPath(source_path, &abs_buf) orelse source_path;
+    const key = std.hash.Wyhash.hash(0x1a2b3c4d, key_path);
+
+    return std.fmt.allocPrint(allocator, "{s}/l{x:0>16}.sbc", .{ dir, key }) catch null;
+}
+
 /// Canonicalizes `path` into `buf` via `realpath` (requires the file to exist,
 /// which it does on both the cache read and write paths), returning the slice
 /// or null on failure so the caller falls back to the raw path.

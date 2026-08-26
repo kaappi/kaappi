@@ -14,6 +14,8 @@ pub const vm_library = @import("vm_library.zig");
 pub const vm_records = @import("vm_records.zig");
 pub const vm_continuations = @import("vm_continuations.zig");
 pub const vm_bootstrap = @import("vm_bootstrap.zig");
+pub const vm_library_cache = @import("vm_library_cache.zig");
+const bytecode_file = @import("bytecode_file.zig");
 
 pub const VMError = @import("errors.zig").KaappiError;
 
@@ -462,6 +464,31 @@ pub const VM = struct {
     /// When non-null, handleDefineLibrary collects compiled functions here
     /// for .sbc cache writing. Set by tryLoadLibraryFromFile.
     lib_compile_collect: ?*std.ArrayList(*types.Function) = null,
+    /// `.sld` cache state (kaappi#1888): one frame per file-backed library
+    /// load in flight. The innermost frame is written by compileLibExpr /
+    /// evalIncludedForm / openIncludeFile / evalLibFeatureReq to record what a
+    /// cold load did (compiled functions, transformer registrations, include
+    /// hashes, dependency identities), or — when `warm` is set — replayed from
+    /// instead of compiling. See vm_library_cache.zig.
+    lib_cache_stack: [8]vm_library_cache.LibCollector = @splat(.{}),
+    lib_cache_depth: u8 = 0,
+    /// Per-run include/dependency records for the MAIN file's cache entry
+    /// (kaappi#1888 review): a program's compiled slots embed imported-macro
+    /// expansions, so its entry stales on the same edits a library's does.
+    /// Owned by vm_library_cache's run recorder; cleared/freed there.
+    run_cache_deps: std.ArrayList(bytecode_file.DepRecord) = .empty,
+    run_cache_includes: std.ArrayList(bytecode_file.IncludeRecord) = .empty,
+    /// False once any dependency of the run proved unrecordable (a library
+    /// that declined caching or could not write its entry): a program entry
+    /// would serve stale compiled slots forever, so runFile declines.
+    run_cache_ok: bool = true,
+    /// > 0 while the loader walks *structural* forms (a .sld's top-level
+    /// datums, a library begin/include body) as opposed to forms a running
+    /// program eval'd mid-flight. Only structure-walk include forms become
+    /// cache events — a runtime `(eval "(include …)")` inside a library body
+    /// is body execution, not structure, and replaying it from the event log
+    /// would desync (kaappi#1888).
+    lib_structure_depth: u8 = 0,
     last_callback_error: bool = false,
     /// Scheme exception stashed by an FFI callback trampoline when the
     /// callback raises (ffi_callback.zig): the C frames between the FFI call
@@ -820,6 +847,11 @@ pub const VM = struct {
         self.output.deinit(self.gc.allocator);
         self.loading_libs.deinit();
         self.param_overrides.deinit();
+        // Any collectors still on the stack mean a load errored out mid-flight
+        // (endColdLoad/endWarmLoad always pop on their own paths); free their
+        // recordings so a failed load doesn't leak.
+        vm_library_cache.deinitStack(self);
+        vm_library_cache.deinitRunRecords(self);
         vm_debug.freeWatches(self);
         for (self.breakpoints[0..self.breakpoint_count]) |bp| {
             self.gc.allocator.free(bp.name);

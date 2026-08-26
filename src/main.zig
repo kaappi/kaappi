@@ -78,6 +78,7 @@ pub const features = @import("features.zig");
 pub const test_runner = @import("test_runner.zig");
 pub const doctor = @import("doctor.zig");
 pub const cache = @import("cache.zig");
+const vm_library_cache_mod = @import("vm_library_cache.zig");
 pub const timings = @import("timings.zig");
 pub const check = @import("check.zig");
 pub const pipeline = @import("pipeline.zig");
@@ -717,8 +718,43 @@ fn resolveScriptPath(allocator: std.mem.Allocator, path: []const u8) ?[]const u8
     return std.fs.path.resolve(allocator, &.{ cwd, path }) catch null;
 }
 
+/// Execute one cached top-level function and report its result/error exactly
+/// as the fresh-compile loop does: the #1922 line fallback, the source
+/// snippet, the stack trace, and `printTopLevelResult`. Shared by the v13
+/// slot replay (kaappi#1888) and the pre-slot legacy path.
+fn runCachedTopLevelFunc(vm: *vm_mod.VM, func: *types.Function, source: []const u8, path: []const u8) !void {
+    const allocator = vm.gc.allocator;
+    var func_val = types.makePointer(&func.header);
+    vm.gc.pushRoot(&func_val);
+    timings.begin(.execute);
+    const exec_result = vm.execute(func);
+    timings.end();
+    const result = exec_result catch |err| {
+        vm.gc.popRoot();
+        script_had_error = true;
+        // kaappi#1922: fall back to the form's own line — serialized as
+        // Function.source_line — exactly as the fresh-compile path passes
+        // datum_lc.line, so an error with no line-table entry (raise,
+        // division by zero) keeps its location and snippet on a cache HIT.
+        const loc = toplevel_driver.vmErrorLocation(vm, path, func.source_line);
+        toplevel_driver.reportRuntimeError(vm, err, loc);
+        toplevel_driver.printSourceSnippet(source, loc.line);
+        toplevel_driver.printStackTrace(vm);
+        return;
+    };
+    vm.gc.popRoot();
+    printTopLevelResult(allocator, result);
+}
+
 fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     const allocator = vm.gc.allocator;
+
+    // Per-run include/dependency records for this file's cache entry
+    // (kaappi#1888 review): every file-backed library it imports and every
+    // file a top-level include reads. Cleared again once the entry is
+    // written (or the run declines).
+    vm_library_cache_mod.beginRunRecording(vm);
+    defer vm_library_cache_mod.clearRunRecords(vm);
 
     // Resolve top-level `(include ...)` paths relative to the program's directory.
     const saved_lib_dir = vm.current_lib_dir;
@@ -767,80 +803,139 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     }
 
     if (sbc_path) |sp| {
-        if (bytecode_file.readFileWithTopLevel(vm.gc, source_hash, sp) catch null) |loaded| {
-            timings.cacheHit(sp);
-            defer allocator.free(loaded.funcs);
+        if (bytecode_file.readFileWithTopLevel(vm.gc, source_hash, sp) catch null) |loaded_const| {
+            var loaded = loaded_const;
+            // Kind check (#1888 review): a LIBRARY entry shares this cache key
+            // with running the .sld directly, and its functions are library
+            // body thunks — replaying them as a program would run them with
+            // no env and no transformer registrations. Only a program entry
+            // with a slot stream is replayable here.
+            if (loaded.entry_kind != bytecode_file.ENTRY_PROGRAM or loaded.slots == null) {
+                vm_library_cache_mod.dropDeserializeRoots(vm.gc, &loaded);
+                bytecode_file.freeDeserializeResult(allocator, &loaded);
+            } else if (!vm_library_cache_mod.recordsValid(
+                vm,
+                loaded.includes orelse &.{},
+                loaded.deps orelse &.{},
+            )) {
+                // Stale program entry: a file-backed library it imported, or a
+                // top-level include file it read, changed since the entry was
+                // written. The compiled slots embed those macro expansions, so
+                // this must be an ordinary miss (nothing has executed yet).
+                timings.cacheReason("stale dependency");
+                vm_library_cache_mod.dropDeserializeRoots(vm.gc, &loaded);
+                bytecode_file.freeDeserializeResult(allocator, &loaded);
+            } else {
+                timings.cacheHit(sp);
+                defer bytecode_file.freeDeserializeResult(allocator, &loaded);
 
-            var bundled_files_map = loaded.bundled_files orelse std.StringHashMap([]const u8).init(allocator);
-            defer {
-                var bfit = bundled_files_map.iterator();
-                while (bfit.next()) |entry| {
-                    allocator.free(entry.key_ptr.*);
-                    allocator.free(entry.value_ptr.*);
-                }
-                bundled_files_map.deinit();
-            }
-            if (loaded.bundled_files != null) {
-                vm.bundled_files = &bundled_files_map;
-            }
-            defer vm.bundled_files = null;
-
-            if (loaded.preamble) |preamble| {
+                var bundled_files_map = loaded.bundled_files orelse std.StringHashMap([]const u8).init(allocator);
                 defer {
-                    for (preamble) |p| allocator.free(p);
-                    allocator.free(preamble);
+                    var bfit = bundled_files_map.iterator();
+                    while (bfit.next()) |entry| {
+                        allocator.free(entry.key_ptr.*);
+                        allocator.free(entry.value_ptr.*);
+                    }
+                    bundled_files_map.deinit();
                 }
-                for (preamble) |src| {
-                    var pr = reader.Reader.init(vm.gc, src);
-                    defer pr.deinit();
-                    while (pr.hasMore() catch break) {
-                        var expr = pr.readDatum() catch break;
-                        vm.gc.pushRoot(&expr);
-                        defer vm.gc.popRoot();
-                        timings.begin(.execute); // preamble replay re-runs imports (kaappi#1515)
-                        const top = vm.handleTopLevelForm(expr);
-                        timings.end();
-                        if (top) |top_result| {
-                            _ = top_result catch {};
+                if (loaded.bundled_files != null) {
+                    vm.bundled_files = &bundled_files_map;
+                }
+                defer vm.bundled_files = null;
+
+                if (loaded.preamble) |preamble| {
+                    defer {
+                        for (preamble) |p| allocator.free(p);
+                        allocator.free(preamble);
+                    }
+                    for (preamble) |src| {
+                        var pr = reader.Reader.init(vm.gc, src);
+                        defer pr.deinit();
+                        while (pr.hasMore() catch break) {
+                            var expr = pr.readDatum() catch break;
+                            vm.gc.pushRoot(&expr);
+                            defer vm.gc.popRoot();
+                            timings.begin(.execute); // preamble replay re-runs imports (kaappi#1515)
+                            const top = vm.handleTopLevelForm(expr);
+                            timings.end();
+                            if (top) |top_result| {
+                                _ = top_result catch {};
+                            }
                         }
                     }
                 }
-            }
 
-            // Set source_name on all loaded functions — the path is valid
-            // for the entire runFile scope, matching the fresh-compile path
-            // where the compiler sets source_name to the same pointer.
-            for (loaded.funcs) |func| {
-                func.source_name = path;
-            }
+                // Set source_name on all loaded functions — the path is valid
+                // for the entire runFile scope, matching the fresh-compile path
+                // where the compiler sets source_name to the same pointer.
+                for (loaded.funcs) |func| {
+                    func.source_name = path;
+                }
 
-            const top_count = @min(loaded.top_level_count, @as(u32, @intCast(loaded.funcs.len)));
-            crash.noteStage(.executing);
-            for (loaded.funcs[0..top_count]) |func| {
-                var func_val = types.makePointer(&func.header);
-                vm.gc.pushRoot(&func_val);
-                timings.begin(.execute);
-                const exec_result = vm.execute(func);
-                timings.end();
-                const result = exec_result catch |err| {
-                    vm.gc.popRoot();
-                    script_had_error = true;
-                    // kaappi#1922: fall back to the form's own line — serialized
-                    // as Function.source_line — exactly as the fresh-compile
-                    // path passes datum_lc.line, so an error with no line-table
-                    // entry (raise, division by zero) keeps its location and
-                    // snippet on a cache HIT.
-                    const loc = toplevel_driver.vmErrorLocation(vm, path, func.source_line);
-                    toplevel_driver.reportRuntimeError(vm, err, loc);
-                    toplevel_driver.printSourceSnippet(source, loc.line);
-                    toplevel_driver.printStackTrace(vm);
-                    continue;
-                };
-                vm.gc.popRoot();
+                crash.noteStage(.executing);
 
-                printTopLevelResult(allocator, result);
-            }
-            return;
+                // v13 program entries (kaappi#1888) replay through positional
+                // slots: a compiled function, or a declaration's verbatim source
+                // re-dispatched through handleTopLevelForm — in the exact
+                // top-level order, so an `import` between two defines stays
+                // between them (no preamble hoisting, the #2200 reorder class).
+                // Older-format entries are unreachable: the VERSION check
+                // rejects them, and the kind/slots check above is what admits a
+                // replayable entry.
+                {
+                    for (loaded.slots.?) |slot| {
+                        switch (slot) {
+                            .function => |idx| {
+                                if (idx >= loaded.top_level_count) continue;
+                                const func = loaded.funcs[idx];
+                                try runCachedTopLevelFunc(vm, func, source, path);
+                            },
+                            .declaration => |decl| {
+                                var dr = reader.Reader.init(vm.gc, decl.src);
+                                // A `#!fold-case` directive falls inside an earlier
+                                // form's span; the slot carries the reader state
+                                // that applied when the form was read (#1888
+                                // review).
+                                dr.fold_case = decl.fold_case;
+                                defer dr.deinit();
+                                while (dr.hasMore() catch break) {
+                                    var dexpr = dr.readDatum() catch break;
+                                    vm.gc.pushRoot(&dexpr);
+                                    defer vm.gc.popRoot();
+                                    crash.noteStage(.executing);
+                                    timings.begin(.execute);
+                                    // The cold run recorded this slot because
+                                    // handleTopLevelForm claimed the form; the
+                                    // replayed imports restore the same macro
+                                    // state, so it is claimed again. The
+                                    // compile-and-run fallback keeps an unclaimed
+                                    // form correct rather than silently dropped.
+                                    if (vm.topLevelHead(dexpr)) |head| {
+                                        const result = vm.runTopLevelHead(head, dexpr) catch |err| {
+                                            timings.end();
+                                            script_had_error = true;
+                                            toplevel_driver.reportRuntimeError(vm, err, .{ .source = path, .line = decl.line });
+                                            continue;
+                                        };
+                                        timings.end();
+                                        printTopLevelResult(allocator, result);
+                                        continue;
+                                    }
+                                    const func = compiler.compileExpressionWithMacrosAt(vm.gc, dexpr, &vm.macros, vm.globals, decl.line, path, false) catch |err| {
+                                        timings.end();
+                                        script_had_error = true;
+                                        toplevel_driver.reportCompileError(path, decl.line, 1, err);
+                                        continue;
+                                    };
+                                    timings.end();
+                                    try runCachedTopLevelFunc(vm, func, source, path);
+                                }
+                            },
+                        }
+                    }
+                    return;
+                } // slot replay
+            } // kind/records-validated replay (else branch)
         }
     }
 
@@ -850,9 +945,15 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
 
     var compiled_funcs: std.ArrayList(*types.Function) = .empty;
     defer compiled_funcs.deinit(allocator);
-    // The first top-level declaration head seen, if any — it both disables the
-    // cache and names the reason `--timings` prints (#2114).
-    var first_toplevel_decl: ?vm_eval.TopLevelHead = null;
+    // The positional replay stream (kaappi#1888): one slot per top-level form,
+    // function or declaration, in order. Owned src slices freed with the list.
+    var slots: std.ArrayList(bytecode_file.Slot) = .empty;
+    defer {
+        for (slots.items) |*s| {
+            if (s.* == .declaration) allocator.free(s.declaration.src);
+        }
+        slots.deinit(allocator);
+    }
     var defines_syntax = false;
     var had_compile_error = false;
 
@@ -868,9 +969,13 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     }) {
         crash.noteStage(.reading);
         const datum_lc = r.getLineCol();
+        // Byte span of this form (leading trivia included — it re-parses to
+        // the same datum), for the declaration replay slot (kaappi#1888).
+        const span_start = r.pos;
         timings.begin(.read);
         const read_result = r.readDatum();
         timings.end();
+        const span_end = r.pos;
         var expr = read_result catch |err| {
             const lc = r.getLineCol();
             toplevel_driver.reportReadError(path, lc.line, lc.col, err);
@@ -885,9 +990,24 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         // code here; the other five heads are interpreted directly. Classify
         // before dispatching: evaluating one form can change how the next is
         // classified, so the head and its handler must be read from the same
-        // moment (#2114).
+        // moment (#2114). Since #1888 these are cacheable as declaration
+        // slots: the HIT re-reads the verbatim source span and re-dispatches
+        // it, positionally — library loads hit their own .sld entries.
         if (vm.topLevelHead(expr)) |head| {
-            if (first_toplevel_decl == null) first_toplevel_decl = head;
+            // Structure flag: a top-level include reached from here is the
+            // MAIN file's structure, so its file feeds the run recorder (the
+            // macro an included file defines is baked into later compiled
+            // slots — kaappi#1888 review). A runtime `(eval "(include …)")`
+            // inside a function keeps depth 0 and records nothing.
+            vm.lib_structure_depth += 1;
+            defer vm.lib_structure_depth -= 1;
+            if (sbc_path != null and !defines_syntax and !had_compile_error) {
+                const src_copy = allocator.dupe(u8, source[span_start..span_end]) catch return error.OutOfMemory;
+                slots.append(allocator, .{ .declaration = .{ .line = datum_lc.line, .src = src_copy, .fold_case = r.fold_case } }) catch {
+                    allocator.free(src_copy);
+                    return error.OutOfMemory;
+                };
+            }
             crash.noteStage(.executing);
             timings.begin(.execute);
             const top_result = vm.runTopLevelHead(head, expr);
@@ -923,6 +1043,9 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
 
         compiled_funcs.append(allocator, func) catch return error.OutOfMemory;
         vm.gc.extra_roots.append(allocator, types.makePointer(&func.header)) catch return error.OutOfMemory;
+        if (sbc_path != null and !defines_syntax and !had_compile_error) {
+            slots.append(allocator, .{ .function = @intCast(compiled_funcs.items.len - 1) }) catch return error.OutOfMemory;
+        }
 
         var func_val = types.makePointer(&func.header);
         vm.gc.pushRoot(&func_val);
@@ -947,24 +1070,32 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
 
     // Cache compiled bytecode. Skipped in three cases.
     //
-    // Any of the eight top-level declaration heads (kaappi#2114 — see
-    // `vm_eval.TopLevelHead` and `docs/dev/cache.md`): `handleTopLevelForm`
-    // consumes such a form and appends no Function here, so a HIT — which
-    // compiles nothing — would skip its work entirely. That, not the
-    // library-loading rationale this comment used to give, is why all eight
-    // disable the cache; the GC hazard is real but specific to the three that
-    // load libraries.
+    // No compiled form AND no declaration (an empty or comment-only file).
     //
     // A form that registered a macro or syntax property at compile time (a HIT
     // would not replay the registration and run-time `eval` would diverge —
     // kaappi#2112), and any form that failed to compile (a HIT would silently
     // run the partial program with exit 0 where the cold run reported the error
-    // with exit 1). Best-effort: a failed write (read-only home, etc.) just
-    // means the next run recompiles.
-    if (first_toplevel_decl == null and !defines_syntax and !had_compile_error and compiled_funcs.items.len > 0) {
+    // with exit 1). Both also stop SLOT RECORDING mid-file (the guards in the
+    // loop above), so a poisoned prefix can never pair with a clean suffix.
+    //
+    // The eight top-level declaration heads no longer refuse anything
+    // (kaappi#1888): each becomes a declaration slot — its verbatim source
+    // span, replayed positionally through the same dispatch on a HIT — while
+    // `import`/`define-library`/`include` inside them hit the per-.sld library
+    // cache. Best-effort: a failed write (read-only home, etc.) just means the
+    // next run recompiles.
+    // vm.run_cache_ok is false when some imported library declined caching
+    // or could not write its entry: no record would ever validate it, so a
+    // program entry here would serve stale compiled slots forever (#1888
+    // review).
+    if (!vm_library_cache_mod.runCacheOk(vm) and sbc_path != null) {
+        timings.cacheReason("uncacheable dependency");
+    }
+    if (vm_library_cache_mod.runCacheOk(vm) and !defines_syntax and !had_compile_error and (compiled_funcs.items.len > 0 or slots.items.len > 0)) {
         if (sbc_path) |sp| {
             cache.ensureDir();
-            if (bytecode_file.writeFileWithTopLevel(allocator, compiled_funcs.items, source_hash, path, sp)) |_| {
+            if (bytecode_file.writeFileWithSlots(allocator, compiled_funcs.items, slots.items, vm.run_cache_includes.items, vm.run_cache_deps.items, source_hash, path, sp)) |_| {
                 timings.cacheWrote(); // kaappi#1515: the miss's bytecode is now cached
             } else |err| switch (err) {
                 // kaappi#2113: the writer refuses entries the reader would
@@ -976,13 +1107,8 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
             }
         }
     } else if (sbc_path != null) {
-        // A miss was recorded but nothing will be written — say why. Name the
-        // head that actually disabled it: every one of the eight used to be
-        // reported as `imports`, including files containing no import at all
-        // (#2114).
-        if (first_toplevel_decl) |head| {
-            timings.cacheReason(head.cacheReason());
-        } else if (defines_syntax) {
+        // A miss was recorded but nothing will be written — say why (#2114).
+        if (defines_syntax) {
             timings.cacheReason("define-syntax");
         } else if (had_compile_error) {
             timings.cacheReason("compile error");
