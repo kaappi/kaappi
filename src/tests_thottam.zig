@@ -1110,3 +1110,98 @@ test "doRemove keeps a file a still-installed package still claims (issue #2136)
         try std.testing.expect(owner == null);
     }
 }
+
+/// Write `<lib_dir>/<rel>` with a trivial library body, creating parent
+/// directories — the shape a *pre-#2289* install left behind: files copied
+/// straight into the shared lib dir with no `thottam.files` line recording
+/// ownership.
+fn writeLibFile(allocator: std.mem.Allocator, lib_dir: []const u8, rel: []const u8, body: []const u8) !void {
+    const full = try std.mem.concat(allocator, u8, &.{ lib_dir, "/", rel });
+    defer allocator.free(full);
+    const dir = full[0..std.mem.lastIndexOfScalar(u8, full, '/').?];
+    try tfs.makeDirRecursive(allocator, dir);
+    try thottam.writeFile(allocator, full, body);
+}
+
+test "doRemove discovers a pre-manifest package's files via the legacy source-tree walk, still claim-guarded (issue #2136)" {
+    const allocator = std.testing.allocator;
+    var env = try TmpHome.init(allocator, "rmlegacy");
+    defer env.deinit(allocator);
+
+    // kaappi-one is installed the modern way: its lib tree is synced and its
+    // ownership recorded in thottam.files, so it *claims* the shared file.
+    try writeSrcLib(allocator, env.config.src_dir, "kaappi-one", "kaappi/one.sld", "(define-library (kaappi one) (export a) (import (scheme base)) (begin (define a 1)))");
+    try writeSrcLib(allocator, env.config.src_dir, "kaappi-one", "kaappi/shared.sld", "(define-library (kaappi shared) (export s) (import (scheme base)) (begin (define s 0)))");
+    allocator.free(try syncPkg(allocator, env.config, "kaappi-one"));
+
+    // kaappi-three stands in for a package installed by a pre-#2289 thottam:
+    // its source tree exists (a clone would leave it) but it has NO
+    // thottam.files manifest lines. Its files were copied into the shared lib
+    // dir by hand — its own unique library plus the file kaappi-one already
+    // claims. This is exactly the state removal-by-name walked, and the only
+    // shape that reaches removeInstalledFiles' legacy discovery branch
+    // (thottam.zig:338-351): with no manifest lines, the "own records" loop
+    // finds nothing and the source-tree walk is what turns up the files.
+    try writeSrcLib(allocator, env.config.src_dir, "kaappi-three", "kaappi/three.sld", "(define-library (kaappi three) (export c) (import (scheme base)) (begin (define c 3)))");
+    try writeSrcLib(allocator, env.config.src_dir, "kaappi-three", "kaappi/shared.sld", "(define-library (kaappi shared) (export s) (import (scheme base)) (begin (define s 0)))");
+    // shared.sld is already in lib_dir from kaappi-one's sync; three.sld is the
+    // pre-manifest package's own copy, placed with no ownership record.
+    try writeLibFile(allocator, env.config.lib_dir, "kaappi/three.sld", "(define-library (kaappi three) (export c) (import (scheme base)) (begin (define c 3)))");
+    try thottam.writeFile(allocator, env.config.installed, "kaappi-one\nkaappi-three\n");
+
+    // Precondition: kaappi-three owns nothing in the manifest (the legacy
+    // state), while kaappi-one's claim on the shared file is on record.
+    {
+        const three_claim = state.fileClaimedBy(allocator, env.config.files, "kaappi/three.sld", "kaappi-one");
+        defer if (three_claim) |o| allocator.free(o);
+        try std.testing.expect(three_claim == null);
+        const shared_owner = state.fileClaimedBy(allocator, env.config.files, "kaappi/shared.sld", "kaappi-three");
+        defer if (shared_owner) |o| allocator.free(o);
+        try std.testing.expect(shared_owner != null);
+        try std.testing.expectEqualStrings("kaappi-one", shared_owner.?);
+    }
+
+    // All three files are present in the shared lib dir before removal.
+    try std.testing.expect(installedFileExists(allocator, env.config.lib_dir, "kaappi/one.sld"));
+    try std.testing.expect(installedFileExists(allocator, env.config.lib_dir, "kaappi/shared.sld"));
+    try std.testing.expect(installedFileExists(allocator, env.config.lib_dir, "kaappi/three.sld"));
+
+    // Remove kaappi-three. With no manifest lines, removal must fall back to
+    // the source-tree walk to find its files at all — the path #2364's test
+    // never reaches because both its packages carry manifest lines.
+    {
+        const cap = try captureOutput(true, thottam.doRemove, .{ allocator, env.config, "kaappi-three" });
+        defer allocator.free(cap.out);
+        try std.testing.expect(cap.err == null);
+    }
+
+    // (a) The legacy discovery path found and removed kaappi-three's own file.
+    try std.testing.expect(!installedFileExists(allocator, env.config.lib_dir, "kaappi/three.sld"));
+    // (b) The shared file survived: the claim guard fires on the legacy path
+    //     too, because kaappi-one's manifest still claims it. Removal-by-name
+    //     (the pre-#2136 behaviour) would have deleted it here.
+    try std.testing.expect(installedFileExists(allocator, env.config.lib_dir, "kaappi/shared.sld"));
+    // kaappi-one's own unique file is untouched.
+    try std.testing.expect(installedFileExists(allocator, env.config.lib_dir, "kaappi/one.sld"));
+
+    // kaappi-three is dropped from installed.txt; kaappi-one remains, and its
+    // claim on the shared file — the reason removal kept it — is intact.
+    try std.testing.expect(!state.isInstalled(allocator, env.config.installed, "kaappi-three"));
+    try std.testing.expect(state.isInstalled(allocator, env.config.installed, "kaappi-one"));
+    {
+        const owner = state.fileClaimedBy(allocator, env.config.files, "kaappi/shared.sld", "kaappi-three");
+        defer if (owner) |o| allocator.free(o);
+        try std.testing.expect(owner != null);
+        try std.testing.expectEqualStrings("kaappi-one", owner.?);
+    }
+
+    // Removing the last claimant finally deletes the shared file — the legacy
+    // path guarded it, it did not orphan it.
+    {
+        const cap = try captureOutput(true, thottam.doRemove, .{ allocator, env.config, "kaappi-one" });
+        defer allocator.free(cap.out);
+        try std.testing.expect(cap.err == null);
+    }
+    try std.testing.expect(!installedFileExists(allocator, env.config.lib_dir, "kaappi/one.sld"));
+    try std.testing.expect(!installedFileExists(allocator, env.config.lib_dir, "kaappi/shared.sld"));
+}
