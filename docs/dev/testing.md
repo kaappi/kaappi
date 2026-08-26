@@ -166,7 +166,10 @@ tests/scheme/
                     (strings.scm, vectors.scm, chars.scm, unicode.scm, …)
   continuations/    Advanced call/cc and call/ec edge cases
   hygiene/          Macro hygiene edge cases
-  srfi/             SRFI library tests
+  srfi/             SRFI library tests, plus srfi231-official.scm — the
+                    OFFICIAL SRFI 231 suite (generated; see its subsection
+                    below) — and srfi231-official-fixtures/ holding its
+                    pristine upstream source and girl.pgm fixture
   ffi/              C FFI tests (+ fixtures/ built on the fly by run-all.sh)
   audit/            Primitives correctness audits
 
@@ -215,6 +218,44 @@ bash tests/scheme/run-all.sh
 # assertions in the log (kaappi#2157). The wrapper parses the counts.
 bash tools/run-r7rs-suite.sh zig-out/bin/kaappi
 ```
+
+### The official SRFI 231 conformance suite
+
+`tests/scheme/srfi/srfi231-official.scm` is the SRFI's **official** test
+suite (`test-arrays.scm`, by the SRFI's author — 744 test sites, ~8,800
+evaluations with the random loops), adapted from its Gambit flavor to
+portable R7RS. It is the broadest single conformance asset in the tree and
+the one that found the #2362 family (124 official-suite failures invisible
+to kaappi's own SRFI 231 tests).
+
+It is **generated — never hand-edit it**. Regenerate with:
+
+```bash
+python3 tests/scheme/srfi/srfi231-official-transform.py
+```
+
+which reads the pristine upstream source vendored in
+`srfi231-official-fixtures/` (commit recorded in the generated header) and
+applies both the Gambit→R7RS adaptation and the kaappi vendoring postlude
+(fixture path resolution, PGM output redirection to `TMPDIR`, and the
+known-divergence verdict machinery). Commit the regenerated file together
+with any change to the transformer or the vendored upstream source.
+
+Conventions specific to this suite:
+
+- **Known divergences are accounted, not failed.** A table of test ids in
+  the generated file maps each documented kaappi-vs-reference divergence to
+  its reason and issue reference (f16 deferral, the unsafe-view UB choice,
+  the Gambit string-mutability expectation). The suite exits nonzero only
+  on *unexpected* failures — or when a known divergence stops diverging,
+  which means its entry is stale and hiding real coverage: prune it.
+- **Error-expecting tests pass on any error** — only the Gambit message
+  text differs from kaappi's (counted separately as "error-message-only").
+- **It runs ~150 s** (the isolated `KAAPPI_HOME` compiles the SRFI's
+  libraries fresh, and the PGM convolution timing blocks dominate), so
+  `run-all.sh` gives it a per-file timeout override
+  (`KAAPPI_SRFI231_OFFICIAL_TIMEOUT`, default 600 s) instead of the 60 s
+  default.
 
 ### Writing a Scheme test
 

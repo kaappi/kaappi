@@ -67,6 +67,22 @@
 
 ;;; --- type disjointness among the vector kinds ---
 (test-equal #f (s8vector? (u8vector 1)))
+
+;;; --- u64 / s64: part of SRFI 4's own ten-kind surface; the hub lost
+;;; them until kaappi#2361 restored the re-export ---
+(let ((u (u64vector 1 18446744073709551615)))
+  (test-equal #t (u64vector? u))
+  (test-equal 2 (u64vector-length u))
+  (test-equal 18446744073709551615 (u64vector-ref u 1)))
+(let ((s (s64vector -9223372036854775808 42)))
+  (test-equal #t (s64vector? s))
+  (test-equal -9223372036854775808 (s64vector-ref s 0))
+  (s64vector-set! s 1 -1)
+  (test-equal -1 (s64vector-ref s 1)))
+(test-equal '(0 1) (u64vector->list (list->u64vector '(0 1))))
+(test-equal '(0 -1) (s64vector->list (list->s64vector '(0 -1))))
+(test-equal #f (u64vector? (s64vector 0)))
+(test-equal #f (u64vector? #(1)))
 (test-equal #f (u16vector? (u8vector 1)))
 (test-equal #f (u8vector? (s8vector 1)))
 (test-equal #f (u32vector? (s32vector 1)))

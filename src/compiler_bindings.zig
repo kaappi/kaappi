@@ -328,6 +328,20 @@ pub fn compileNamedLet(self: *Compiler, args: Value, dst: u16, is_tail: bool) Co
 // variable that is never actually captured is transparent, just an extra
 // indirection. Missing a macro-hidden capture falls back to the idempotent
 // box_local guard. See issue #803.
+// Collects every free symbol appearing in an expression. compileDo uses it
+// to decide which locals to box before a loop starts: any local referenced
+// anywhere in the do body is boxed, captured or not.
+//
+// This is deliberately NOT a whitelist of closure-introducing forms (the
+// original design, kaappi#803): the set cannot be enumerated. Besides the
+// compiler's own internal-lambda desugarings (guard, let-values,
+// let*-values, parameterize, ...), a USER MACRO expanding to a capturing
+// lambda is invisible to a pre-expansion scan, and each miss emitted
+// box_local mid-loop while earlier-compiled accesses still read the
+// register raw -- the second iteration then handed the box object itself
+// to arithmetic (kaappi#2360 and its siblings). Over-approximating is
+// safe: get_box_local/set_box_local lazily box raw registers, so a marked
+// local whose box_local never executed still reads and writes correctly.
 const CaptureScan = struct {
     names: *std.ArrayList([]const u8),
     alloc: std.mem.Allocator,
@@ -339,37 +353,25 @@ const CaptureScan = struct {
         try self.names.append(self.alloc, name);
     }
 
-    fn walk(self: *@This(), expr: Value, in_closure: bool) error{OutOfMemory}!void {
+    fn walk(self: *@This(), expr: Value) error{OutOfMemory}!void {
         if (types.isSymbol(expr)) {
-            if (in_closure) try self.addName(types.symbolName(expr));
+            try self.addName(types.symbolName(expr));
             return;
         }
         if (!types.isPair(expr)) return;
 
         const head = types.car(expr);
         if (types.isSymbol(head)) {
-            const h = types.symbolName(head);
             // Quoted data holds no variable references.
-            if (std.mem.eql(u8, h, "quote")) return;
-            if (std.mem.eql(u8, h, "lambda") or
-                std.mem.eql(u8, h, "case-lambda") or
-                std.mem.eql(u8, h, "delay") or
-                std.mem.eql(u8, h, "delay-force"))
-            {
-                var p = types.cdr(expr);
-                while (types.isPair(p)) : (p = types.cdr(p)) {
-                    try self.walk(types.car(p), true);
-                }
-                return;
-            }
+            if (std.mem.eql(u8, types.symbolName(head), "quote")) return;
         }
 
         var p = expr;
         while (types.isPair(p)) : (p = types.cdr(p)) {
-            try self.walk(types.car(p), in_closure);
+            try self.walk(types.car(p));
         }
-        // Improper (dotted) tail: a bare symbol in a closure is a reference.
-        if (in_closure and types.isSymbol(p)) try self.addName(types.symbolName(p));
+        // Improper (dotted) tail: a bare symbol is still a reference.
+        if (types.isSymbol(p)) try self.addName(types.symbolName(p));
     }
 };
 
@@ -429,25 +431,34 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileE
         try self.addLocal(var_names[vi], var_slots[vi]);
     }
 
-    // Box any local captured by a closure in the loop body *before* the loop
-    // starts. `do` compiles to a same-frame backward jump, so a box_local
-    // emitted at the (in-loop) point where the capturing lambda is compiled
-    // would re-run every iteration and every access compiled before it would
-    // bypass the box. Boxing here (once, ahead of loop_start) makes all in-loop
-    // accesses box-aware and keeps the box creation off the back-edge. Applies
-    // to captured `do` variables and to captured enclosing locals alike.
-    // See issue #803.
+    // Box every local referenced in the loop body *before* the loop starts.
+    // `do` compiles to a same-frame backward jump, so a box_local emitted at
+    // the (in-loop) point where a capturing lambda is compiled would re-run
+    // every iteration and every access compiled before it would bypass the
+    // box (kaappi#803). Boxing here (once, ahead of loop_start) makes all
+    // in-loop accesses box-aware and keeps the box creation off the
+    // back-edge. Applies to `do` variables and to enclosing locals alike.
+    //
+    // The scan collects EVERY referenced symbol, not just provably-captured
+    // ones: which forms introduce closures cannot be enumerated ahead of
+    // macro expansion (the compiler's own guard/let-values/parameterize
+    // desugar to internal lambdas, and a user macro expanding to a
+    // capturing lambda is invisible here), and each miss corrupted the loop
+    // (kaappi#2360 and siblings). Over-boxing is safe — get_box_local /
+    // set_box_local lazily box a raw register — and costs one box per
+    // variable per loop entry, off the back-edge. Globals collected here
+    // simply fail resolveLocal and are dropped.
     {
-        var captured: std.ArrayList([]const u8) = .empty;
-        defer captured.deinit(self.gc.allocator);
-        var scan = CaptureScan{ .names = &captured, .alloc = self.gc.allocator };
-        try scan.walk(test_expr, false);
-        try scan.walk(commands, false);
+        var referenced: std.ArrayList([]const u8) = .empty;
+        defer referenced.deinit(self.gc.allocator);
+        var scan = CaptureScan{ .names = &referenced, .alloc = self.gc.allocator };
+        try scan.walk(test_expr);
+        try scan.walk(commands);
         for (0..var_count) |j| {
-            if (has_step[j]) try scan.walk(step_exprs[j], false);
+            if (has_step[j]) try scan.walk(step_exprs[j]);
         }
-        try scan.walk(result_exprs, false);
-        for (captured.items) |name| {
+        try scan.walk(result_exprs);
+        for (referenced.items) |name| {
             if (self.resolveLocal(name)) |slot| {
                 try self.markLocalBoxedBySlot(slot);
             }

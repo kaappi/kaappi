@@ -191,6 +191,29 @@
   ;; sanity: proper calls still work (- negates: 0 -> 0, 1 -> -1)
   (test-equal '(0 -1) (array->list (array-map - t))))
 
+;;; --- non-array arguments are rejected by name at every entry point,
+;;; not surfaced as internal %record-ref type errors (#2359) ---
+(test-equal #t (guard (e (#t #t)) (array-map + 5) #f))
+(test-equal #t (guard (e (#t #t)) (array-for-each + 5) #f))
+(test-equal #t (guard (e (#t #t)) (array->list 5) #f))
+(test-equal #t (guard (e (#t #t)) (array->vector 5) #f))
+(test-equal #t (guard (e (#t #t)) (array->list* 5) #f))
+(test-equal #t (guard (e (#t #t)) (array->vector* 5) #f))
+(test-equal #t (guard (e (#t #t)) (array-outer-product + 5 6) #f))
+(test-equal #t (guard (e (#t #t)) (array-inner-product 5 + + 6) #f))
+(test-equal #t (guard (e (#t #t)) (list->array (make-interval '#(1)) 5) #f))
+(test-equal #t (guard (e (#t #t)) (list->array (make-interval '#(1)) '(1) 'nope) #f))
+(test-equal #t (guard (e (#t #t)) (vector->array (make-interval '#(1)) 5) #f))
+(test-equal #t (guard (e (#t #t)) (list*->array -1 '()) #f))
+(test-equal #t (guard (e (#t #t)) (list*->array 'a '(1)) #f))
+(test-equal #t (guard (e (#t #t)) (vector*->array -1 #()) #f))
+;; list->array/vector->array validate every element against the storage
+;; class's checker up front, as the reference does -- unchecked fills
+;; silently corrupt bit-packed u1 bodies (#2359)
+(test-equal #t (guard (e (#t #t)) (list->array (make-interval '#(2)) '(1 2) u1-storage-class) #f))
+(test-equal #t (guard (e (#t #t)) (vector->array (make-interval '#(2)) '#(1 0 1) u1-storage-class) #f))
+(test-equal '(1 0) (array->list (list->array (make-interval '#(2)) '(1 0) u1-storage-class)))
+
 (let ((runner (test-runner-current)))
   (test-end "srfi-231-combinators")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))

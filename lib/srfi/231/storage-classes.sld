@@ -21,18 +21,20 @@
 ;;; no numeric substrate at all -- Kaappi's native vector/string already
 ;;; satisfy the "linearly indexed, 0-based, vector-like" contract, and the
 ;;; spec gives their exact reference definitions verbatim, reused here
-;;; unchanged. The remaining 3 (u1, f8, f16) have no Kaappi-native
-;;; representation; f8 is left #f even in the SRFI's OWN reference
-;;; implementation (no standard 8-bit-float Scheme type exists anywhere),
-;;; and u1/f16 -- though fully portable-implementable via bit-packing over
-;;; a u16vector, per the reference implementation's own code -- are also
-;;; deferred to #f for this phase as a documented, spec-sanctioned scope
-;;; reduction rather than a blocker; revisit if a caller ever needs them.
+;;; unchanged. u1 is a direct port of the reference's own bit-packing over
+;;; u16vector (the representation the spec itself documents for bit
+;;; arrays). f8 is left #f even in the SRFI's OWN reference implementation
+;;; (no standard 8-bit-float Scheme type exists anywhere), and f16 -- which
+;;; the reference implements as software half-floats -- remains #f as a
+;;; documented scope reduction (#2353).
 (define-library (srfi 231 storage-classes)
   (import (scheme base)
           (srfi 160 s8) (srfi 160 s16) (srfi 160 s32) (srfi 160 s64)
           (srfi 160 u16) (srfi 160 u32) (srfi 160 u64)
-          (srfi 160 f32) (srfi 160 f64) (srfi 160 c64) (srfi 160 c128))
+          (srfi 160 f32) (srfi 160 f64) (srfi 160 c64) (srfi 160 c128)
+          ;; bitwise-and/ior/not for u1's bit-packing (R7RS-small has no
+          ;; bitwise primitives of its own)
+          (srfi 60))
   (export make-storage-class storage-class?
           storage-class-getter storage-class-setter storage-class-checker
           storage-class-maker storage-class-copier storage-class-length
@@ -81,10 +83,13 @@
                            make-vector vector-copy! vector-length
                            #f vector? (%checked-data->body vector? "generic-storage-class" "vector")))
 
+    ;; Reference default is #\null (NUL, U+0000) -- generic-arrays.scm's
+    ;; defaults list and the official test suite both assert it; the spec
+    ;; prose's #\0 (digit zero) is stale relative to its own reference.
     (define char-storage-class
       (make-storage-class string-ref string-set! char?
                            make-string string-copy! string-length
-                           #\0 string? (%checked-data->body string? "char-storage-class" "string")))
+                           #\null string? (%checked-data->body string? "char-storage-class" "string")))
 
     (define (%exact-int-range-checker lo hi)
       (lambda (x) (and (exact-integer? x) (<= lo x hi))))
@@ -119,25 +124,83 @@
       (make-storage-class u64vector-ref u64vector-set! (%exact-int-range-checker 0 18446744073709551615)
                            make-u64vector u64vector-copy! u64vector-length 0 u64vector? (%checked-data->body u64vector? "u64-storage-class" "u64vector")))
 
+    ;; fX/cX checkers match the reference exactly: f32/f64 accept only
+    ;; inexact reals (flonum?, generic-arrays.scm's f32/f64 checker) and
+    ;; c64/c128 only complexes whose real and imaginary parts are both
+    ;; inexact. Accepting exact values silently coerces them (1/3 stored
+    ;; into c64 narrows to f32 precision), diverging from the reference's
+    ;; "value cannot be stored in body" error (#2355).
+    (define (%flonum-checker x) (and (real? x) (inexact? x)))
+    (define (%inexact-complex-checker x)
+      (and (complex? x) (inexact? (real-part x)) (inexact? (imag-part x))))
+
     (define f32-storage-class
-      (make-storage-class f32vector-ref f32vector-set! real?
+      (make-storage-class f32vector-ref f32vector-set! %flonum-checker
                            make-f32vector f32vector-copy! f32vector-length 0.0 f32vector? (%checked-data->body f32vector? "f32-storage-class" "f32vector")))
     (define f64-storage-class
-      (make-storage-class f64vector-ref f64vector-set! real?
+      (make-storage-class f64vector-ref f64vector-set! %flonum-checker
                            make-f64vector f64vector-copy! f64vector-length 0.0 f64vector? (%checked-data->body f64vector? "f64-storage-class" "f64vector")))
 
-    ;; complex? is true of every number in Scheme's numeric tower
-    ;; (real/rational/integer are all complex), matching the spec's own
-    ;; intent that any number -- real or genuinely complex -- is valid.
     (define c64-storage-class
-      (make-storage-class c64vector-ref c64vector-set! complex?
+      (make-storage-class c64vector-ref c64vector-set! %inexact-complex-checker
                            make-c64vector c64vector-copy! c64vector-length
                            (make-rectangular 0.0 0.0) c64vector? (%checked-data->body c64vector? "c64-storage-class" "c64vector")))
     (define c128-storage-class
-      (make-storage-class c128vector-ref c128vector-set! complex?
+      (make-storage-class c128vector-ref c128vector-set! %inexact-complex-checker
                            make-c128vector c128vector-copy! c128vector-length
                            (make-rectangular 0.0 0.0) c128vector? (%checked-data->body c128vector? "c128-storage-class" "c128vector")))
 
-    (define u1-storage-class #f)
+    ;; u1 -- bit arrays, ported from the reference implementation's own
+    ;; bit-packing (generic-arrays.scm's u1-storage-class): the body is a
+    ;; (vector n u16vector) pair where n is the number of VALID bits and
+    ;; the u16vector holds the bit string little-endian within each u16
+    ;; (bit i lives at u16[i div 16], bit position i mod 16). The spec
+    ;; mandates uX for X=1 and documents exactly this representation, and
+    ;; (srfi 160 u16) supplies the substrate, so #f was not the spec's
+    ;; sanctioned fallback here (#2353). The reference passes #f for the
+    ;; copier ("no copier (for now") and so do we; nothing in this
+    ;; package ever calls storage-class-copier.
+    (define u1-storage-class
+      (make-storage-class
+       ;; getter
+       (lambda (v i)
+         (let ((index (quotient i 16))
+               (shift (modulo i 16))
+               (bodyv (vector-ref v 1)))
+           (bitwise-and (arithmetic-shift (u16vector-ref bodyv index) (- shift)) 1)))
+       ;; setter
+       (lambda (v i val)
+         (let ((index (quotient i 16))
+               (shift (modulo i 16))
+               (bodyv (vector-ref v 1)))
+           (u16vector-set! bodyv index
+                           (bitwise-ior (arithmetic-shift val shift)
+                                        (bitwise-and (u16vector-ref bodyv index)
+                                                     (bitwise-not (arithmetic-shift 1 shift)))))))
+       ;; checker -- 0 and 1 only
+       (lambda (val) (and (exact-integer? val) (= 0 (bitwise-and -2 val))))
+       ;; maker -- n is the exact requested bit count; an all-ones
+       ;; initializer fills every bit of every u16 (extra tail bits past
+       ;; n are dead storage the length getter never exposes)
+       (lambda (size initializer)
+         (let ((u16-size (quotient (+ size 15) 16)))
+           (vector size (make-u16vector u16-size (if (= 0 initializer) 0 65535)))))
+       ;; no copier, as in the reference
+       #f
+       ;; length -- the valid-bit count, not 16 * u16 length
+       (lambda (v) (vector-ref v 0))
+       ;; default
+       0
+       ;; data? -- raw u16vector of bits
+       u16vector?
+       ;; data->body -- every bit of the data is valid
+       (lambda (data)
+         (if (not (u16vector? data))
+             (error "Expecting a u16vector passed to (storage-class-data->body u1-storage-class): " data)
+             (vector (* 16 (u16vector-length data)) data)))))
+
     (define f8-storage-class #f)
+    ;; f16 stays #f for now: the reference implements software half-floats
+    ;; over u16vectors, which is a deliberate port of its own to make, not
+    ;; a mechanical substrate mapping like u1's (#2353 tracks the call).
     (define f16-storage-class #f)))

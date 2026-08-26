@@ -282,7 +282,12 @@ jobs:
         if: env.DOCS_ONLY != 'true'
         run: bash tests/scheme/run-all.sh
         env:
-          KAAPPI_TEST_SKIP: ${{ matrix.optimize == 'Debug' && 'callcc-bench.scm r7rs-tail-procedures-gaps.scm r7rs-thin-forms-gaps.scm' || '' }}
+          # srfi231-official.scm joins the Debug-only skip for the same reason as
+          # callcc-bench: it is the one allocation-heavy file whose ReleaseSafe
+          # runtime (~77s warm, ~150s with the isolated cold cache) times 10-20x
+          # under Debug -- well past even its own 600s run-all override. The
+          # hand-written srfi231*.scm suites still run stressed and Debug.
+          KAAPPI_TEST_SKIP: ${{ matrix.optimize == 'Debug' && 'callcc-bench.scm r7rs-tail-procedures-gaps.scm r7rs-thin-forms-gaps.scm srfi231-official.scm' || '' }}
           # Debug is 10-20x slower on allocation-heavy work, so the 60s
           # per-file default is the wrong budget for it: the macro-expansion
           # suites (srfi257*.scm) already sit within seconds of the cliff on a
@@ -460,7 +465,11 @@ jobs:
           #     tail-recursion fix past the 32,768 frame cap -- ~0.1 s plain,
           #     exit 124 stressed (measured quadratic: ~3 min at 40k on a
           #     fast machine); the n = 0 guard half of #2084 stays stressed
-          #     in srfi178-audit.scm. srfi166-audit.scm streams a
+          #     in srfi178-audit.scm. srfi231-official.scm is the same shape at
+#     suite scale -- 8,778 evaluations plus PGM convolutions over a
+#     512x512 image, every element an allocation against the whole live
+#     heap (~77s warm unstressed); the hand-written srfi231*.scm suites
+#     keep the SRFI stress-covered. srfi166-audit.scm streams a
           #     50,000-element list through the token writer to pin #2344's
           #     iterative (non-recursing) written/pretty stack-safety -- ~0.1 s
           #     plain, exit 124 stressed since each emitted token allocates
@@ -505,6 +514,7 @@ jobs:
             trampoline-polish-1375.scm srfi14.scm srfi264.scm
             srfi166-audit.scm reader-port-refill-gaps.scm
             srfi178-segment-stack-2084.scm srfi18-deepcopy-matrix-audit.scm
+            srfi231-official.scm
 
   riscv64-test:
     needs: format

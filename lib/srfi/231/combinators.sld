@@ -74,6 +74,15 @@
       (unless (procedure? x) (error (string-append who ": the function argument must be a procedure") x)))
 
     (define (%check-same-domain! all who)
+      ;; Every element must be an array before array-domain can be called
+      ;; on it -- otherwise a non-array argument surfaces as an internal
+      ;; %record-ref type error instead of a message naming the procedure
+      ;; (the reference checks "Not all arguments after the first are
+      ;; arrays" up front) (#2359).
+      (for-each (lambda (a)
+                  (unless (array? a)
+                    (error (string-append who ": all arguments after the first must be arrays") all)))
+                all)
       (let ((domain (array-domain (car all))))
         (for-each (lambda (a)
                     (unless (interval= (array-domain a) domain)
@@ -177,6 +186,8 @@
 
     (define (array-outer-product operator array1 array2)
       (%check-procedure! operator "array-outer-product")
+      (unless (array? array1) (error "array-outer-product: not an array" array1))
+      (unless (array? array2) (error "array-outer-product: not an array" array2))
       (let ((domain (interval-cartesian-product (array-domain array1) (array-domain array2)))
             (d1 (array-dimension array1)))
         (make-array domain
@@ -187,6 +198,8 @@
     (define (array-inner-product A f g B)
       (%check-procedure! f "array-inner-product")
       (%check-procedure! g "array-inner-product")
+      (unless (array? A) (error "array-inner-product: not an array" A))
+      (unless (array? B) (error "array-inner-product: not an array" B))
       (unless (and (>= (array-dimension A) 1) (>= (array-dimension B) 1))
         (error "array-inner-product: both arrays must have dimension at least 1" A B))
       (let ((a-last (- (array-dimension A) 1)))
@@ -203,6 +216,7 @@
     ;; --- flat list/vector conversions ---
 
     (define (array->list array)
+      (unless (array? array) (error "array->list: not an array" array))
       (let ((acc '()))
         (interval-for-each (lambda multi-index (set! acc (cons (apply (array-getter array) multi-index) acc)))
                             (array-domain array))
@@ -212,6 +226,9 @@
 
     (define (list->array interval lst . opts)
       (unless (interval? interval) (error "list->array: not an interval" interval))
+      (unless (list? lst) (error "list->array: not a list" lst))
+      (unless (storage-class? (%opt opts 0 generic-storage-class))
+        (error "list->array: not a storage class" (%opt opts 0 generic-storage-class)))
       (unless (= (length lst) (interval-volume interval))
         (error "list->array: list length does not match interval volume" interval lst))
       (%check-boolean! (%opt opts 1 (specialized-array-default-mutable?)) "list->array: mutable?")
@@ -219,17 +236,30 @@
       (let* ((storage-class (%opt opts 0 generic-storage-class))
              (mutable? (%opt opts 1 (specialized-array-default-mutable?)))
              (safe? (%opt opts 2 (specialized-array-default-safe?)))
-             (dest (make-specialized-array interval storage-class (storage-class-default storage-class) safe?))
-             (setter (array-setter dest))
-             (remaining lst))
-        (interval-for-each (lambda multi-index
-                              (apply setter (car remaining) multi-index)
-                              (set! remaining (cdr remaining)))
-                            interval)
-        (if mutable? dest (array-freeze! dest))))
+             ;; The reference validates every element against the checker
+             ;; up front ("Not all elements of the source can be
+             ;; manipulated by the storage class"); the raw fill below
+             ;; skips checking, which for e.g. u1 silently corrupts bits
+             ;; (#2359).
+             (checker (storage-class-checker storage-class)))
+        (for-each (lambda (x)
+                    (unless (checker x)
+                      (error "list->array: not all elements of the source can be manipulated by the storage class" x storage-class)))
+                  lst)
+        (let* ((dest (make-specialized-array interval storage-class (storage-class-default storage-class) safe?))
+               (setter (array-setter dest))
+               (remaining lst))
+          (interval-for-each (lambda multi-index
+                               (apply setter (car remaining) multi-index)
+                               (set! remaining (cdr remaining)))
+                             interval)
+          (if mutable? dest (array-freeze! dest)))))
 
     (define (vector->array interval vect . opts)
       (unless (interval? interval) (error "vector->array: not an interval" interval))
+      (unless (vector? vect) (error "vector->array: not a vector" vect))
+      (unless (storage-class? (%opt opts 0 generic-storage-class))
+        (error "vector->array: not a storage class" (%opt opts 0 generic-storage-class)))
       (unless (= (vector-length vect) (interval-volume interval))
         (error "vector->array: vector length does not match interval volume" interval vect))
       (%check-boolean! (%opt opts 1 (specialized-array-default-mutable?)) "vector->array: mutable?")
@@ -237,14 +267,22 @@
       (let* ((storage-class (%opt opts 0 generic-storage-class))
              (mutable? (%opt opts 1 (specialized-array-default-mutable?)))
              (safe? (%opt opts 2 (specialized-array-default-safe?)))
-             (dest (make-specialized-array interval storage-class (storage-class-default storage-class) safe?))
-             (setter (array-setter dest))
-             (i 0))
-        (interval-for-each (lambda multi-index
-                              (apply setter (vector-ref vect i) multi-index)
-                              (set! i (+ i 1)))
-                            interval)
-        (if mutable? dest (array-freeze! dest))))
+             ;; see list->array: upfront element validation per the reference
+             (checker (storage-class-checker storage-class)))
+        (let loop ((i 0))
+          (when (< i (vector-length vect))
+            (unless (checker (vector-ref vect i))
+              (error "vector->array: not all elements of the source can be manipulated by the storage class"
+                     (vector-ref vect i) storage-class))
+            (loop (+ i 1))))
+        (let* ((dest (make-specialized-array interval storage-class (storage-class-default storage-class) safe?))
+               (setter (array-setter dest))
+               (i 0))
+          (interval-for-each (lambda multi-index
+                               (apply setter (vector-ref vect i) multi-index)
+                               (set! i (+ i 1)))
+                             interval)
+          (if mutable? dest (array-freeze! dest)))))
 
     ;; --- nested list/vector conversions ---
 
@@ -255,6 +293,7 @@
            ((= dim 0) ((array-getter a)))
            ((= dim 1) (array->list a))
            (else (array->list (array-map a->l (array-curry a (- dim 1))))))))
+      (unless (array? array) (error "array->list*: not an array" array))
       (a->l array))
 
     (define (array->vector* array)
@@ -292,6 +331,12 @@
         (else (apply append (map (lambda (l) (%flatten-nested-list (- dimension 1) l)) nested-list)))))
 
     (define (list*->array dimension nested-list . opts)
+      ;; The reference validates the dimension argument up front ("The
+      ;; first argument is not a nonnegative fixnum"); without this a
+      ;; negative or non-integer dimension fails inside make-list or the
+      ;; shape walk with an internal error instead (#2359).
+      (unless (and (exact-integer? dimension) (>= dimension 0))
+        (error "list*->array: dimension must be a nonnegative exact integer" dimension))
       (let ((shape (%check-nested-list dimension nested-list)))
         (unless shape
           (error "list*->array: nested-list is not the right shape for the given dimension" dimension nested-list))

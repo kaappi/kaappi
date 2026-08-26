@@ -233,6 +233,17 @@
 
     (define (interval-scale interval scales)
       (%check-dimension-match! scales interval "interval-scale")
+      ;; The spec requires "a length-d vector of positive exact integers";
+      ;; the reference rejects bad scales up front. Without this check a
+      ;; negative scale on a zero-width axis or a rational scale silently
+      ;; produces a plausible-looking interval instead of an error (#2357).
+      (let ((d (vector-length scales)))
+        (let loop ((i 0))
+          (when (< i d)
+            (let ((s (vector-ref scales i)))
+              (unless (and (exact-integer? s) (positive? s))
+                (error "interval-scale: scales must be a vector of positive exact integers" scales)))
+            (loop (+ i 1)))))
       (let* ((lo (interval-lower-vec interval)) (up (interval-upper-vec interval)) (d (vector-length lo)))
         (let loop ((i 0))
           (when (< i d)

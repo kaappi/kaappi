@@ -65,8 +65,20 @@
       (unless (interval= (array-domain destination) (array-domain source))
         (error "array-assign!: destination and source must have the same domain" destination source))
       (let ((dest-setter (array-setter destination)) (src-getter (array-getter source)))
-        (interval-for-each (lambda multi-index (apply dest-setter (apply src-getter multi-index) multi-index))
-                            (array-domain destination))))
+        ;; The reference validates every element against the destination's
+        ;; checker even when the destination is an UNSAFE specialized array
+        ;; ("should check anyway", test-arrays.scm:4361); the raw setter
+        ;; below skips checking, which for e.g. u1 silently corrupts bits
+        ;; instead of erroring (#2359).
+        (let ((checker (and (specialized-array? destination)
+                            (storage-class-checker (array-storage-class destination)))))
+          (interval-for-each (lambda multi-index
+                               (let ((val (apply src-getter multi-index)))
+                                 (when (and checker (not (checker val)))
+                                   (error "array-assign!: not all elements of the source can be stored in the destination"
+                                          val destination))
+                                 (apply dest-setter val multi-index)))
+                              (array-domain destination)))))
 
     ;; Stacks arrays (a nonempty list, all with IDENTICAL domains) along
     ;; a NEW k'th axis (0 <= k <= dimension, inclusive of the dimension
@@ -106,9 +118,15 @@
     (define (array-decurry AofA . opts)
       (unless (array? AofA) (error "array-decurry: not an array" AofA))
       (when (array-empty? AofA) (error "array-decurry: outer array must be nonempty" AofA))
-      (let* ((outer-domain (array-domain AofA))
-             (outer-d (array-dimension AofA))
-             (outer-getter (array-getter AofA))
+      ;; Copy AofA before any validation or consumption, as the reference
+      ;; does ((array-copy A-arg) up front): the user-visible outer getter
+      ;; then fires exactly once per element -- during this copy -- per
+      ;; the spec's access-count guarantee, instead of once per validation
+      ;; probe plus once per result element via the virtual getter (#2356).
+      (let* ((Acopy (array-copy AofA))
+             (outer-domain (array-domain Acopy))
+             (outer-d (array-dimension Acopy))
+             (outer-getter (array-getter Acopy))
              (sample-inner (apply outer-getter (interval-lower-bounds->list outer-domain)))
              (inner-domain (array-domain sample-inner)))
         (interval-for-each
@@ -227,18 +245,22 @@
     (define (array-block AofA . opts)
       (unless (array? AofA) (error "array-block: not an array" AofA))
       (when (array-empty? AofA) (error "array-block: outer array must be nonempty" AofA))
+      ;; Copy AofA before validating, as the reference does -- the outer
+      ;; getter fires once per element (during this copy) instead of once
+      ;; for validation and once for the fill (#2356). The copy is also
+      ;; normalized to zero lower bounds so every "corner"/pencil-start
+      ;; probe below is always literally an all-zeros multi-index.
       (let* ((d (array-dimension AofA))
              (orig-lowers (interval-lower-bounds->vector (array-domain AofA)))
-             (orig-getter (array-getter AofA)))
+             (A (array-translate (array-copy AofA) (vector-map - orig-lowers)))
+             (A-getter (array-getter A)))
         (interval-for-each
          (lambda multi-index
-           (unless (= (array-dimension (apply orig-getter multi-index)) d)
+           (unless (= (array-dimension (apply A-getter multi-index)) d)
              (error "array-block: not all elements have the same dimension as the outer array" AofA)))
-         (array-domain AofA))
-        (let* ((A (array-translate (array-copy AofA) (vector-map - orig-lowers)))
-               (A-getter (array-getter A)))
-          (%array-block-validate-widths A d)
-          (let* ((offsets (list->vector (map (lambda (k) (%array-block-axis-offsets A d k)) (iota d))))
+         (array-domain A))
+        (%array-block-validate-widths A d)
+        (let* ((offsets (list->vector (map (lambda (k) (%array-block-axis-offsets A d k)) (iota d))))
                  (new-uppers (vector-map (lambda (offs) (vector-ref offs (- (vector-length offs) 1))) offsets))
                  (new-domain (make-interval new-uppers))
                  (virtual
@@ -257,6 +279,6 @@
                        (let* ((block (apply A-getter (vector->list outer-idx)))
                               (block-lowers (interval-lower-bounds->vector (array-domain block))))
                          (apply (array-getter block) (vector->list (vector-map + local-idx block-lowers)))))))))
-            (apply array-copy virtual opts)))))
+            (apply array-copy virtual opts))))
 
     (define (array-block! AofA . opts) (apply array-block AofA opts))))

@@ -105,3 +105,73 @@ test "eval do" {
     const result = try vm.eval("(do ((i 0 (+ i 1)) (s 0 (+ s i))) ((= i 5) s))");
     try std.testing.expectEqual(@as(i64, 10), types.toFixnum(result));
 }
+
+test "eval nested do with guard capturing the outer loop variable (#2360)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // guard desugars to with-exception-handler + two internal lambdas, so
+    // its body captures `n`. CaptureScan must treat guard like lambda and
+    // box `n` before the outer loop starts; before #2360 the box_local was
+    // emitted mid-loop at the guard, and the inner test `(= i n)` —
+    // compiled before that point, reading the register raw — saw the box
+    // object itself on the second inner iteration and failed arithmetic.
+    const src =
+        \\(let ((acc 0))
+        \\  (do ((n 0 (+ n 1))) ((= n 3))
+        \\    (do ((i 0 (+ i 1))) ((= i n))
+        \\      (set! acc (+ acc (car (guard (e (#t 'E)) (list (+ n i))))))))
+        \\  acc)
+    ;
+    // iterations: n=1 → (1); n=2 → (2) and (3); total 1+2+3 = 6
+    try std.testing.expectEqual(@as(i64, 6), types.toFixnum(try vm.eval(src)));
+
+    // The guard's clause side (the handler lambda) captures too
+    const src2 =
+        \\(let ((acc 0))
+        \\  (do ((n 0 (+ n 1))) ((= n 3))
+        \\    (do ((i 0 (+ i 1))) ((= i n))
+        \\      (set! acc (+ acc (guard (e (#t (length (list n i)))) 1)))))
+        \\  acc)
+    ;
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(try vm.eval(src2)));
+
+    // The same corruption through the OTHER implicit-closure forms (the
+    // #2360 review): let-values and parameterize desugar to internal
+    // lambdas, and a user macro expanding to a capturing lambda is
+    // invisible to any pre-expansion capture scan -- which is why the
+    // scan now boxes every referenced local instead of whitelisting
+    // closure-introducing forms.
+    const lv =
+        \\(let ((acc 0))
+        \\  (do ((n 0 (+ n 1))) ((= n 3))
+        \\    (do ((i 0 (+ i 1))) ((= i n))
+        \\      (set! acc (+ acc (let-values (((x) (values (+ n i)))) x)))))
+        \\  acc)
+    ;
+    try std.testing.expectEqual(@as(i64, 6), types.toFixnum(try vm.eval(lv)));
+
+    const prm =
+        \\(define pr-2360 (make-parameter 0))
+        \\(let ((acc 0))
+        \\  (do ((n 0 (+ n 1))) ((= n 3))
+        \\    (do ((i 0 (+ i 1))) ((= i n))
+        \\      (set! acc (+ acc (parameterize ((pr-2360 0)) (+ n i))))))
+        \\  acc)
+    ;
+    try std.testing.expectEqual(@as(i64, 6), types.toFixnum(try vm.eval(prm)));
+
+    const mac =
+        \\(define-syntax capture-2360
+        \\  (syntax-rules ()
+        \\    ((_ expr) (lambda () expr))))
+        \\(let ((acc 0))
+        \\  (do ((n 0 (+ n 1))) ((= n 3))
+        \\    (do ((i 0 (+ i 1))) ((= i n))
+        \\      (set! acc (+ acc ((capture-2360 (+ n i)))))))
+        \\  acc)
+    ;
+    try std.testing.expectEqual(@as(i64, 6), types.toFixnum(try vm.eval(mac)));
+}

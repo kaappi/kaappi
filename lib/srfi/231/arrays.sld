@@ -96,7 +96,15 @@
       (let ((setter (if (null? maybe-setter) #f (car maybe-setter))))
         (unless (or (not setter) (procedure? setter))
           (error "make-array: setter must be a procedure or #f" setter))
-        (%make-array interval getter setter #f #f #f #f)))
+        ;; The reference wraps EVERY generalized array's getter/setter in
+        ;; index checks (%%make-safer-array, generic-arrays.scm): out-of-
+        ;; domain, wrong-arity, and empty-domain calls all error there, and
+        ;; the official suite tests it -- plain arrays are not exempt
+        ;; (#2362). Valid accesses are unaffected. Plain arrays have no
+        ;; storage-class checker, so the setter's value check is vacuous.
+        (%make-array interval (%safe-getter interval getter)
+                     (and setter (%safe-setter interval (lambda (v) #t) setter))
+                     #f #f #f #f)))
 
     ;; safe?/mutable? are booleans everywhere they appear (the two default
     ;; parameters and both specialized constructors' options) -- the
@@ -118,7 +126,10 @@
     ;; lower bound first to get a local 0-based index, then applies the
     ;; standard row-major stride computation using the interval's own
     ;; widths -- a direct generalization of SRFI 63's %row-major-offset to
-    ;; arbitrary (not just zero-based) lower bounds.
+    ;; arbitrary (not just zero-based) lower bounds. The walk consumes
+    ;; exactly d arguments; anything left over is a too-long multi-index,
+    ;; which must error even on the unsafe path -- the reference's
+    ;; fixed-arity getters reject wrong arity regardless of safe? (#2358).
     (define (%make-lex-indexer interval)
       (let ((lo (interval-lower-bounds->vector interval))
             (widths (interval-widths interval))
@@ -126,7 +137,9 @@
         (lambda multi-index
           (let loop ((i 0) (xs multi-index) (acc 0))
             (if (= i d)
-                acc
+                (if (null? xs)
+                    acc
+                    (error "array indexer: too many multi-index arguments for the array's dimension" xs))
                 (loop (+ i 1) (cdr xs)
                       (+ (* acc (vector-ref widths i)) (- (car xs) (vector-ref lo i)))))))))
 
@@ -152,16 +165,26 @@
                        "make-specialized-array: safe?")
       (let* ((storage-class (%opt opts 0 generic-storage-class))
              (initial-value (%opt opts 1 (storage-class-default storage-class)))
-             (safe? (%opt opts 2 (specialized-array-default-safe?)))
-             (body ((storage-class-maker storage-class) (interval-volume interval) initial-value))
-             (indexer (%make-lex-indexer interval))
-             (raw-getter (lambda multi-index
-                           ((storage-class-getter storage-class) body (apply indexer multi-index))))
-             (raw-setter (lambda (val . multi-index)
-                           ((storage-class-setter storage-class) body (apply indexer multi-index) val)))
-             (getter (if safe? (%safe-getter interval raw-getter) raw-getter))
-             (setter (if safe? (%safe-setter interval (storage-class-checker storage-class) raw-setter) raw-setter)))
-        (%make-array interval getter setter body indexer storage-class safe?)))
+             (safe? (%opt opts 2 (specialized-array-default-safe?))))
+        ;; Upfront validation matching the reference (:2587-:2601): a
+        ;; non-storage-class second argument and an initial value the
+        ;; class cannot manipulate both error at construction, named by
+        ;; this procedure, instead of surfacing from the maker later (or,
+        ;; for float classes, silently coercing) (#2359).
+        (unless (storage-class? storage-class)
+          (error "make-specialized-array: not a storage class" storage-class))
+        (unless ((storage-class-checker storage-class) initial-value)
+          (error "make-specialized-array: initial-value cannot be manipulated by storage-class"
+                 initial-value storage-class))
+        (let* ((body ((storage-class-maker storage-class) (interval-volume interval) initial-value))
+               (indexer (%make-lex-indexer interval))
+               (raw-getter (lambda multi-index
+                             ((storage-class-getter storage-class) body (apply indexer multi-index))))
+               (raw-setter (lambda (val . multi-index)
+                             ((storage-class-setter storage-class) body (apply indexer multi-index) val)))
+               (getter (if safe? (%safe-getter interval raw-getter) raw-getter))
+               (setter (if safe? (%safe-setter interval (storage-class-checker storage-class) raw-setter) raw-setter)))
+          (%make-array interval getter setter body indexer storage-class safe?))))
 
     ;; Wraps EXTERNALLY supplied data (e.g. a plain vector or one of this
     ;; codebase's own (srfi 160 <tag>) numeric vectors) as the body of a
@@ -175,6 +198,8 @@
       (let* ((storage-class (%opt opts 0 generic-storage-class))
              (mutable? (%opt opts 1 (specialized-array-default-mutable?)))
              (safe? (%opt opts 2 (specialized-array-default-safe?))))
+        (unless (storage-class? storage-class)
+          (error "make-specialized-array-from-data: not a storage class" storage-class))
         (unless ((storage-class-data? storage-class) data)
           (error "make-specialized-array-from-data: data is not compatible with storage-class" data storage-class))
         (let* ((body ((storage-class-data->body storage-class) data))
