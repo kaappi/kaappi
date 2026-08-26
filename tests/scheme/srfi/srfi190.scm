@@ -204,9 +204,12 @@
 ;;; --- resumption across a returned native frame (#2060).
 ;;;
 ;;; make-coroutine-generator is built on call/cc, so a resume that has to
-;;; cross a native driver's already-returned frame raises. SRFI 1's
-;;; higher-order procedures are still native drivers; (scheme base)'s
-;;; map/for-each were trampolined by #1347 and are the control. ---
+;;; cross a native driver's already-returned frame raises. #2060 moved SRFI 1's
+;;; fold/filter/any/every/unfold (and SRFI 69 hash-table-walk) into the
+;;; bytecode dispatch loop, so a coroutine generator resumes freely inside
+;;; those; (scheme base)'s map/for-each were trampolined by #1347 and are the
+;;; control. The remaining native SRFI 1 drivers (find, reduce, fold-right,
+;;; ...) still raise on resumption. ---
 
 (test-equal "control: a coroutine generator resumes under (scheme base) map"
   '(1 2 3)
@@ -217,20 +220,14 @@
   '(1 2 3)
   (generator->list (coroutine-generator (for-each yield '(1 2 3)))))
 
-;; FAIL: #2060 (SRFI 1 procedures are native drivers; a resume cannot cross them)
-;; (test-equal "a coroutine generator resumes under SRFI 1 fold"
-;;   '(3 2 1)
-;;   (let ((g (coroutine-generator (yield 1) (yield 2) (yield 3))))
-;;     (fold (lambda (i acc) (cons (g) acc)) '() '(a b c))))
-;; FAIL: #2060 (same, with the yield itself inside the native driver)
-;; (test-equal "yield inside a SRFI 1 driver"
-;;   '(1 2 3)
-;;   (generator->list (coroutine-generator (any (lambda (x) (yield x) #f) '(1 2 3)))))
-
-(test-error "a coroutine generator cannot resume under SRFI 1 fold (see #2060)"
+;; Fixed by #2060: fold and any are now bytecode-driven, so a coroutine
+;; generator resumes inside them.
+(test-equal "a coroutine generator resumes under SRFI 1 fold (see #2060)"
+  '(3 2 1)
   (let ((g (coroutine-generator (yield 1) (yield 2) (yield 3))))
     (fold (lambda (i acc) (cons (g) acc)) '() '(a b c))))
-(test-error "yield inside a SRFI 1 driver cannot resume (see #2060)"
+(test-equal "yield inside a SRFI 1 driver resumes (see #2060)"
+  '(1 2 3)
   (generator->list (coroutine-generator (any (lambda (x) (yield x) #f) '(1 2 3)))))
 
 ;;; --- the derived cond-expand feature id (#1649) ---
