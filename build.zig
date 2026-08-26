@@ -8,11 +8,12 @@ pub fn build(b: *std.Build) void {
     // heavy workloads. ReleaseSafe matches ReleaseFast in throughput here while
     // keeping bounds/safety checks (fixnum overflow auto-promotes to bignum).
     // Override for development with `-Doptimize=Debug`.
-    const optimize = b.option(
+    const optimize_opt = b.option(
         std.builtin.OptimizeMode,
         "optimize",
         "Prioritize performance, safety, or binary size (default: ReleaseSafe)",
-    ) orelse .ReleaseSafe;
+    );
+    const optimize = optimize_opt orelse .ReleaseSafe;
 
     // Standalone binary: embed compiled bytecode via -Dbundle=path/to/program.sbc
     const bundle = b.option([]const u8, "bundle", "Path to .sbc bytecode file to embed for standalone binary");
@@ -419,10 +420,39 @@ pub fn build(b: *std.Build) void {
     fuzz_gen_step.dependOn(&b.addInstallArtifact(fuzz_gen_exe, .{}).step);
 
     // Unit tests
+    //
+    // wasm32-wasi test-module specifics (kaappi#2153), making
+    // `zig build test -Dtarget=wasm32-wasi` a compile gate like Windows:
+    //
+    //  * single_threaded, matching the wasm executable (wasm32-wasi has no
+    //    wasi-threads here; std's Io/poll plumbing otherwise analyzes its
+    //    futex paths, whose inline asm requires the atomics feature).
+    //  * The atomics CPU feature on the test target: that same std code
+    //    emits `memory.atomic.*` even single-threaded. Only atomic *waits*
+    //    require shared memory, and a single-threaded module never waits,
+    //    so wasmtime runs the binary unmodified. The shipped kaappi.wasm
+    //    keeps its plain baseline CPU — only the test module needs this.
+    //  * ReleaseSmall when `-Doptimize` was not passed explicitly: Debug
+    //    exceeds wasmtime's per-function locals limit in the comptime-
+    //    generated ffi.callFfiGeneric dispatchers (wasm32 halves the slot
+    //    count per local), and ReleaseSafe crashes the LLVM wasm32 backend
+    //    selecting a float constant-pool entry ("Cannot select: i32 =
+    //    ConstantPool<float ...>") in test-only code. ReleaseSmall compiles
+    //    the same Sema surface — every error class the gate exists for is
+    //    semantic, not codegen — and is what CI runs under wasmtime. An
+    //    explicit -Doptimize is always respected.
+    const wasm_test_target = if (is_wasm_target) b.resolveTargetQuery(.{
+        .cpu_arch = .wasm32,
+        .os_tag = .wasi,
+        .cpu_features_add = std.Target.wasm.featureSet(&.{.atomics}),
+    }) else target;
     const test_mod = kaappiModule(b, options_mod, .{
-        .target = target,
-        .optimize = optimize,
+        .target = wasm_test_target,
+        .optimize = if (is_wasm_target and optimize_opt == null) .ReleaseSmall else optimize,
         .embed = null_embed,
+        // Match the wasm executable's own threading model (see `main_mod`
+        // above): wasm32-wasi without wasi-threads is single-threaded.
+        .single_threaded = if (is_wasm_target) true else null,
     });
     const unit_tests = b.addTest(.{
         .name = "unit-tests",
@@ -439,6 +469,14 @@ pub fn build(b: *std.Build) void {
     run_unit_tests.skip_foreign_checks = true;
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
+    if (is_wasm_target) {
+        // Install the cross-compiled test binary so a wasm runtime can
+        // execute it (the run step above skipped as foreign):
+        //   wasmtime run --dir=. zig-out/bin/unit-tests.wasm
+        // The wasm CI job does exactly that (kaappi#2153).
+        const install_wasm_tests = b.addInstallBinFile(unit_tests.getEmittedBin(), "unit-tests.wasm");
+        test_step.dependOn(&install_wasm_tests.step);
+    }
 
     const thottam_test_mod = kaappiModule(b, options_mod, .{
         .root = "src/thottam.zig",

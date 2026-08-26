@@ -251,6 +251,9 @@ test "siblingLibDir returns null when the result doesn't fit the buffer" {
 }
 
 test "getExeRelativeLibDir returns a lib dir sibling to the exe's bin dir" {
+    // WASI has no self-exe lookup (no /proc, no executable-path syscall)
+    // and getExeRelativeLibDir returns null there by design (kaappi#2153).
+    if (comptime platform.is_wasm) return error.SkipZigTest;
     // The test binary itself is always deeply nested (zig-cache output
     // dirs on every supported platform), so this must not return null —
     // asserting that keeps a regression in the platform probe from

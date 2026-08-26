@@ -5,6 +5,7 @@ const types = @import("types.zig");
 const memory = @import("memory.zig");
 
 test "file-info returns file-info object" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -14,6 +15,7 @@ test "file-info returns file-info object" {
 }
 
 test "file-info:size returns non-negative fixnum" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -23,6 +25,7 @@ test "file-info:size returns non-negative fixnum" {
 }
 
 test "file-info:inode returns positive fixnum" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -37,6 +40,7 @@ test "file-info:inode returns positive fixnum" {
 }
 
 test "file-info:nlinks returns positive fixnum" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -46,6 +50,7 @@ test "file-info:nlinks returns positive fixnum" {
 }
 
 test "file-info:device returns fixnum" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -55,6 +60,7 @@ test "file-info:device returns fixnum" {
 }
 
 test "file-info:uid and :gid return fixnums" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -65,6 +71,7 @@ test "file-info:uid and :gid return fixnums" {
 }
 
 test "file-info:atime and :ctime return fixnums" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -75,6 +82,7 @@ test "file-info:atime and :ctime return fixnums" {
 }
 
 test "file-info:blksize and :blocks" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -90,6 +98,7 @@ test "file-info:blksize and :blocks" {
 }
 
 test "file-info predicates on directory" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -104,6 +113,7 @@ test "file-info predicates on directory" {
 }
 
 test "file-info on regular file" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     if (!platform.pathExists("build.zig")) return error.SkipZigTest;
 
     var gc = memory.GC.init(std.testing.allocator);
@@ -116,6 +126,7 @@ test "file-info on regular file" {
 }
 
 test "pid returns positive integer" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -125,6 +136,7 @@ test "pid returns positive integer" {
 }
 
 test "current-directory returns non-empty string" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -135,6 +147,7 @@ test "current-directory returns non-empty string" {
 }
 
 test "umask returns non-negative integer" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     if (comptime platform.is_windows) return error.SkipZigTest; // POSIX identity/umask
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
@@ -145,6 +158,7 @@ test "umask returns non-negative integer" {
 }
 
 test "user-uid and user-gid return fixnums" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     if (comptime platform.is_windows) return error.SkipZigTest; // POSIX identity/umask
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
@@ -156,6 +170,7 @@ test "user-uid and user-gid return fixnums" {
 }
 
 test "user-effective-uid and user-effective-gid" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     if (comptime platform.is_windows) return error.SkipZigTest; // POSIX identity/umask
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
@@ -167,6 +182,7 @@ test "user-effective-uid and user-effective-gid" {
 }
 
 test "user-supplementary-gids returns list" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     if (comptime platform.is_windows) return error.SkipZigTest; // POSIX identity/umask
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
@@ -177,6 +193,7 @@ test "user-supplementary-gids returns list" {
 }
 
 test "real-path resolves current directory" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -187,6 +204,7 @@ test "real-path resolves current directory" {
 }
 
 test "user-info for current user" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     if (comptime platform.is_windows) return error.SkipZigTest; // POSIX-only, raises on Windows
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
@@ -202,6 +220,7 @@ test "user-info for current user" {
 }
 
 test "user-info by name" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     if (comptime platform.is_windows) return error.SkipZigTest; // POSIX-only, raises on Windows
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
@@ -215,6 +234,7 @@ test "user-info by name" {
 }
 
 test "user-info? predicate" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -225,6 +245,7 @@ test "user-info? predicate" {
 }
 
 test "group-info for current group" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     if (comptime platform.is_windows) return error.SkipZigTest; // POSIX-only, raises on Windows
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
@@ -237,6 +258,7 @@ test "group-info for current group" {
 }
 
 test "group-info? predicate" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -246,6 +268,7 @@ test "group-info? predicate" {
 }
 
 test "directory-files returns list" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -256,6 +279,7 @@ test "directory-files returns list" {
 }
 
 test "open-directory read-directory close-directory cycle" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -270,6 +294,7 @@ test "open-directory read-directory close-directory cycle" {
 }
 
 test "terminal? on file port returns #f" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     if (!platform.pathExists("build.zig")) return error.SkipZigTest;
 
     var gc = memory.GC.init(std.testing.allocator);
@@ -286,6 +311,7 @@ test "terminal? on file port returns #f" {
 }
 
 test "set-environment-variable! and get-environment-variable roundtrip" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -299,6 +325,7 @@ test "set-environment-variable! and get-environment-variable roundtrip" {
 }
 
 test "delete-environment-variable! removes variable" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -313,6 +340,7 @@ test "delete-environment-variable! removes variable" {
 }
 
 test "posix-time returns SRFI-19 time object" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -327,6 +355,7 @@ test "posix-time returns SRFI-19 time object" {
 }
 
 test "monotonic-time returns SRFI-19 time object" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -341,6 +370,7 @@ test "monotonic-time returns SRFI-19 time object" {
 }
 
 test "rename-file works" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -361,6 +391,7 @@ test "rename-file works" {
 }
 
 test "set-file-mode changes permissions" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     if (comptime platform.is_windows) return error.SkipZigTest; // POSIX-only, raises on Windows
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
@@ -387,6 +418,7 @@ test "set-file-mode changes permissions" {
 // discriminating control: a *directory* with st_rdev = 0 that still aborted,
 // pinning the fault on st_dev rather than rdev or the file type.
 test "file-info on devfs paths does not abort (#1976)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the SRFI-170/system surface is unregistered on wasm (primitives.zig wasm gating)
     if (comptime platform.is_windows) return error.SkipZigTest;
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();

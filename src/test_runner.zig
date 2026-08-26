@@ -781,6 +781,9 @@ fn spawnWorker(allocator: std.mem.Allocator, exe_path: []const u8, file: []const
         };
         return .{ .output = res.output, .exit_code = res.exit_code, .signaled = false };
     }
+    // No process creation on WASI p1 (kaappi#2153) — `kaappi test` is a
+    // hosted-CLI feature; this arm keeps the wasm test module linkable.
+    if (comptime platform.is_wasm) return error.ForkFailed;
 
     const argv_z = try allocator.alloc(?[*:0]const u8, argv.items.len + 1);
     @memset(argv_z, null);

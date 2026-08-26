@@ -46,6 +46,7 @@ fn makeBytevector(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const k = types.toFixnum(args[0]);
     if (k < 0) return primitives.typeError("make-bytevector", "non-negative integer", args[0]);
+    if (!primitives.fixnumFitsUsize(k)) return PrimitiveError.OutOfMemory; // wasm32: would truncate (kaappi#2153)
     const size: usize = @intCast(k);
     const fill: u8 = if (args.len > 1) blk: {
         if (!types.isFixnum(args[1])) return primitives.typeError("make-bytevector", "exact integer 0-255", args[1]);

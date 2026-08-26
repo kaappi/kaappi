@@ -619,6 +619,13 @@ fn smokeLink(r: *Report, lib_dir: []const u8) void {
             a.free(out);
             break :blk true;
         }
+        if (comptime platform.is_wasm) {
+            // No process creation on WASI p1 (kaappi#2153) — nothing to
+            // smoke-link. doctor itself is `!is_wasm`-gated in main.zig; this
+            // arm keeps the wasm test module linkable.
+            r.add("native-backend", "smoke-link", .pass, "skipped (no process spawning on WASI)", null);
+            return;
+        }
         const child = std.posix.system.fork();
         if (child < 0) {
             r.add("native-backend", "smoke-link", .pass, "skipped (fork failed)", null);

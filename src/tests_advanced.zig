@@ -571,7 +571,11 @@ test "cond-expand library check for srfi 18" {
         \\  ((library (srfi 18)) 'yes)
         \\  (else 'no))
     );
-    try std.testing.expectEqualStrings("yes", types.symbolName(result));
+    // (srfi 18) is wasm-gated (Lib.wasmAvailable's srfi_18 => false, no OS
+    // threads on wasm32-wasi) — expect each platform's correct answer
+    // (kaappi#2153: the unit suite now builds for wasm too).
+    const want: []const u8 = if (comptime platform.is_wasm) "no" else "yes";
+    try std.testing.expectEqualStrings(want, types.symbolName(result));
 }
 
 // KEP-0004 Phase 1: bare feature identifiers for the KEP subsystems.
@@ -603,9 +607,10 @@ test "cond-expand kaappi-reactor feature" {
     try std.testing.expectEqualStrings("yes", types.symbolName(result));
 }
 
-// Native unit-test builds are never wasm32-wasi, so kaappi-threads is always
-// present here; its absence on wasm is covered by Lib.wasmAvailable's
-// existing srfi_18 => false gate, not separately unit-testable on this host.
+// Since kaappi#2153 the unit suite builds for wasm32-wasi too, so the
+// platform-correct answer is assertable on both: kaappi-threads is present
+// natively and absent on wasm (types.zig platform_features omits it there,
+// matching Lib.wasmAvailable's srfi_18 => false gate — no OS threads).
 test "cond-expand kaappi-threads feature" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
@@ -617,7 +622,8 @@ test "cond-expand kaappi-threads feature" {
         \\  (kaappi-threads 'yes)
         \\  (else 'no))
     );
-    try std.testing.expectEqualStrings("yes", types.symbolName(result));
+    const want: []const u8 = if (comptime platform.is_wasm) "no" else "yes";
+    try std.testing.expectEqualStrings(want, types.symbolName(result));
 }
 
 // Regression: libraryIsAvailable must not let cond-expand report a

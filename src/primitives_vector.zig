@@ -74,6 +74,7 @@ fn makeVectorFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[0])) return primitives.typeError("make-vector", "exact non-negative integer", args[0]);
     const k = types.toFixnum(args[0]);
     if (k < 0) return primitives.typeError("make-vector", "exact non-negative integer", args[0]);
+    if (!primitives.fixnumFitsUsize(k)) return PrimitiveError.OutOfMemory; // wasm32: would truncate (kaappi#2153)
     const size: usize = @intCast(k);
     const fill: Value = if (args.len > 1) args[1] else types.UNDEFINED;
     return gc.allocVectorFill(size, fill) catch return PrimitiveError.OutOfMemory;

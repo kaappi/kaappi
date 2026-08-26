@@ -215,10 +215,25 @@ thottam → #1608 readiness), and it kept every intermediate PR shippable.
       `tests_reactor_parity.zig` is the one written *as* the
       cross-backend comparison: it names no backend, so a property that
       holds on kqueue/epoll/Windows and fails on the new one is a parity
-      defect by construction. Note that this criterion is currently
-      unmet for WASI — `zig build test -Dtarget=wasm32-wasi` does not
-      compile, so `WasiPollBackend`'s fd path is executed nowhere
-      (kaappi#2153).
+      defect by construction.
+      **WASI is a documented exception to the fd criterion, and the
+      boundary is the runtime, not us** (kaappi#2153): WASI p1 has no
+      pipe/socketpair creation syscalls, and wasmtime — the only runtime
+      CI has — leaves the nonstandard `sock_open` unimplemented, so a
+      guest cannot construct *any* EAGAIN-capable fd there (moreover,
+      `poll_oneoff` fails the whole call with `BADF` for an fd
+      subscription on every fd a guest *can* obtain). The fd suites skip
+      on wasm with per-test comptime gates, and
+      `testing_helpers.wasmNoFdPairs` panics if a test reaches a pair
+      constructor without its skip. What *is* required of the WASI leg —
+      and enforced by the `wasm` CI job — is: `zig build test
+      -Dtarget=wasm32-wasi` compiles (the same compile-gate discipline as
+      `-Dtarget=<arch>-windows`; the module also runs under `wasmtime
+      run --dir=. --dir=/tmp zig-out/bin/unit-tests.wasm`, executing the
+      suites' timer/scheduler halves — i.e. `WasiPollBackend`'s CLOCK
+      path). A future WASI runtime with working sockets should promote
+      the fd suites by giving `makeFdPair` a real WASI arm and deleting
+      the skips.
 
 ### Stage 4 — feature identifier, gates, degradations
 

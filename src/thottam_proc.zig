@@ -34,6 +34,12 @@ pub fn runCapture(allocator: std.mem.Allocator, argv: []const []const u8, cwd: ?
         const trimmed = std.mem.trim(u8, raw, "\n\r");
         return allocator.dupe(u8, trimmed) catch return error.OutOfMemory;
     }
+    // WASI p1 has no process creation — and wasi-libc does not even provide
+    // pipe/fork/execve as symbols, so the POSIX tail below would leave the
+    // module with imports no host can resolve (kaappi#2153). Thottam does
+    // not ship in the wasm build; this arm exists so the unit-test module
+    // compiles as a gate.
+    if (comptime platform.is_wasm) return error.ForkFailed;
 
     const argv_z = try allocator.alloc(?[*:0]const u8, argv.len + 1);
     @memset(argv_z, null);
@@ -117,6 +123,7 @@ pub fn runPassthrough(allocator: std.mem.Allocator, argv: []const []const u8, cw
             else => return error.ForkFailed,
         };
     }
+    if (comptime platform.is_wasm) return error.ForkFailed; // no process creation on WASI p1 (see runCapture)
 
     const argv_z = try allocator.alloc(?[*:0]const u8, argv.len + 1);
     @memset(argv_z, null);

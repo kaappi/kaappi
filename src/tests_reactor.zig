@@ -68,6 +68,7 @@ fn writeByte(fd: platform.fd_t, byte: u8) void {
 }
 
 test "register + poll wakes the fiber when the fd becomes readable" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var reactor = try Reactor.init(std.testing.allocator);
     defer reactor.deinit();
 
@@ -90,6 +91,7 @@ test "register + poll wakes the fiber when the fd becomes readable" {
 }
 
 test "poll times out with an empty ready list when nothing fires" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var reactor = try Reactor.init(std.testing.allocator);
     defer reactor.deinit();
 
@@ -109,6 +111,7 @@ test "poll times out with an empty ready list when nothing fires" {
 }
 
 test "multiple waiters on one fd direction are all woken (wake-all)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var reactor = try Reactor.init(std.testing.allocator);
     defer reactor.deinit();
 
@@ -140,6 +143,7 @@ test "multiple waiters on one fd direction are all woken (wake-all)" {
 }
 
 test "a write end is immediately ready for write interest" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var reactor = try Reactor.init(std.testing.allocator);
     defer reactor.deinit();
 
@@ -187,6 +191,7 @@ test "addTimer fires when its deadline passes" {
 }
 
 test "the nearer of an fd timeout and a timer deadline bounds the wait" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var reactor = try Reactor.init(std.testing.allocator);
     defer reactor.deinit();
 
@@ -245,6 +250,7 @@ test "removeTimer cancels a pending timer so it never fires" {
 }
 
 test "unregister drops the registration; a later write wakes nobody" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var reactor = try Reactor.init(std.testing.allocator);
     defer reactor.deinit();
 
@@ -267,6 +273,7 @@ test "unregister drops the registration; a later write wakes nobody" {
 }
 
 test "isEmpty is true after a fired oneshot drains its waiters, even though the fd is still tracked" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var reactor = try Reactor.init(std.testing.allocator);
     defer reactor.deinit();
 
@@ -291,6 +298,7 @@ test "isEmpty is true after a fired oneshot drains its waiters, even though the 
 }
 
 test "re-registering a fd after a fired oneshot re-arms correctly" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     // Exercises the epoll first_time bookkeeping directly: a second
     // register() on the same fd after a prior fire must use CTL_MOD, not
     // CTL_ADD (which would fail EEXIST on an already-tracked fd). On
@@ -325,6 +333,7 @@ test "re-registering a fd after a fired oneshot re-arms correctly" {
 }
 
 test "a recycled fd number registers cleanly over a stale Reg left by a close without unregister" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     // A port freed by the GC closes its fd without reactor.unregister —
     // the kernel silently drops the fd from the epoll set, but the Reg
     // (kernel_registered=true, empty waiter lists) survives in the map.
@@ -382,6 +391,7 @@ test "a recycled fd number registers cleanly over a stale Reg left by a close wi
 }
 
 test "two fds: only the one that becomes ready wakes its fiber" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var reactor = try Reactor.init(std.testing.allocator);
     defer reactor.deinit();
 
@@ -412,6 +422,7 @@ test "two fds: only the one that becomes ready wakes its fiber" {
 const makeSocketPair = th.makeBidiFdPair;
 
 test "one fd with both read and write interest: a fired direction re-arms the other" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     // Regression guard for the epoll-specific bug this design is most at
     // risk of: EPOLLONESHOT disarms the *entire* fd registration on any
     // fire, not just the direction that fired. Without the re-arm-on-
@@ -450,6 +461,7 @@ test "one fd with both read and write interest: a fired direction re-arms the ot
 }
 
 test "closing the peer wakes a parked read waiter (EOF/HUP mapped to broken)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     // Exercises the `broken` mapping on both backends (kqueue's EV_EOF,
     // epoll's EPOLLHUP|EPOLLERR): a peer close must be reported as read
     // (and write) readiness so the parked fiber wakes to observe EOF,
@@ -478,6 +490,7 @@ test "closing the peer wakes a parked read waiter (EOF/HUP mapped to broken)" {
 }
 
 test "data already buffered when the read interest is registered still wakes" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     // The condition predates the arm. kqueue/epoll report a pre-existing
     // condition on a fresh ONESHOT registration natively; the Windows
     // backend must catch it via arm()'s post-WSAEventSelect readiness
@@ -505,6 +518,7 @@ test "data already buffered when the read interest is registered still wakes" {
 }
 
 test "a peer closed before the read interest is registered still wakes" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     // Same pre-arm race as above but for the hangup edge: FD_CLOSE is
     // edge-recorded on Windows, so a peer that closed before the arm
     // would never re-fire — only arm()'s probe can observe it. On
@@ -569,6 +583,7 @@ fn drainSocket(fd: platform.fd_t) void {
 }
 
 test "a stale ONESHOT fire on one direction re-arms the fd for the surviving waiter (#1462)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     // removeWaiter only edits the waiter lists — it never touches the
     // kernel registration (see its doc comment). If the removed waiter's
     // direction fires before the surviving direction does, epoll's
@@ -658,6 +673,7 @@ test "retainNotifier keeps the notifier alive past Reactor.deinit; releasing the
 }
 
 test "notify() from another OS thread interrupts a blocking poll()" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no OS threads on wasm32-wasi (single-threaded target)
     var reactor = try Reactor.init(std.testing.allocator);
     defer reactor.deinit();
 
@@ -694,6 +710,7 @@ test "notify() from another OS thread interrupts a blocking poll()" {
 // ---------------------------------------------------------------------------
 
 test "#1608: pipe pair — register + poll wakes the fiber when the pipe becomes readable" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var reactor = try Reactor.init(std.testing.allocator);
     defer reactor.deinit();
 
@@ -723,6 +740,7 @@ test "#1608: pipe pair — register + poll wakes the fiber when the pipe becomes
 }
 
 test "#1608: pipe pair — poll times out empty while the pipe is silent" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var reactor = try Reactor.init(std.testing.allocator);
     defer reactor.deinit();
 
@@ -744,6 +762,7 @@ test "#1608: pipe pair — poll times out empty while the pipe is silent" {
 }
 
 test "#1608: pipe pair — a write end with buffer space is ready for write interest" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var reactor = try Reactor.init(std.testing.allocator);
     defer reactor.deinit();
 

@@ -292,6 +292,11 @@ fn evalNormalized(input: []const u8, optimize: bool, gpa: std.mem.Allocator) Nor
     // Redirect fd 1 to /dev/null for the duration: generated programs can
     // call (display ...), and the test binary's stdout is the build-runner
     // IPC pipe — a stray write there deadlocks the run.
+    // WASI has neither dup nor a null device (kaappi#2153): bail before any
+    // of those calls so the module never imports the missing symbols. The
+    // generated programs still run under wasmtime — only with output left
+    // on the runner's stdout instead of discarded.
+    if (comptime platform.is_wasm) return .harness_unavailable;
     const saved_stdout = platform.dup(1);
     if (saved_stdout < 0) return .harness_unavailable;
     defer _ = platform.close(saved_stdout);

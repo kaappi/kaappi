@@ -777,7 +777,9 @@ test "marshalPointerReturn: small address returns fixnum" {
     const ptr: ?*anyopaque = @ptrCast(&dummy);
     const val = try marshalPointerReturn(ptr, &gc);
     const addr = @intFromPtr(&dummy);
-    if (addr <= @as(usize, @intCast(MAX_FIXNUM))) {
+    // MAX_FIXNUM (2^47-1) can exceed a 32-bit target's usize; on wasm32
+    // every address is small, so the fixnum expectation holds unconditionally.
+    if (addr <= @min(@as(usize, std.math.maxInt(usize)), MAX_FIXNUM)) {
         try std.testing.expect(types.isFixnum(val));
     }
 }
@@ -793,6 +795,9 @@ test "marshalToPointer: round-trips bignum pointer" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
 
+    // A pointer above MAX_FIXNUM needs 48 address bits, which a 32-bit
+    // target's usize cannot hold — the case is unreachable there.
+    if (comptime @bitSizeOf(usize) < 48) return error.SkipZigTest;
     const addr: usize = 0x1234_5678_9ABC;
     const limbs_buf = [1]u64{addr};
     const v = try gc.allocBignumFromLimbs(&limbs_buf, 1, true);

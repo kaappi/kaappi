@@ -32,6 +32,7 @@ fn definePortGlobal(vm: *th.VM, name: []const u8, fd: platform.fd_t, is_input: b
 }
 
 test "two fibers reading two pipes park and interleave through the reactor" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -63,6 +64,7 @@ test "two fibers reading two pipes park and interleave through the reactor" {
 }
 
 test "main fiber read drives the scheduler while it waits" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -84,6 +86,7 @@ test "main fiber read drives the scheduler while it waits" {
 }
 
 test "write larger than the pipe buffer parks the writer; a reader fiber drains it losslessly" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -120,6 +123,7 @@ test "write larger than the pipe buffer parks the writer; a reader fiber drains 
 }
 
 test "(read) parked mid-datum resumes with the buffered prefix" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -146,6 +150,7 @@ test "(read) parked mid-datum resumes with the buffered prefix" {
 }
 
 test "closing a port with a parked reader raises a clean error in that fiber" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -170,6 +175,7 @@ test "closing a port with a parked reader raises a clean error in that fiber" {
 }
 
 test "#1959: a reader inside dynamic-wind, map or sort parks; only native frames drive" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -238,6 +244,7 @@ test "#1959: a reader inside dynamic-wind, map or sort parks; only native frames
 }
 
 test "#1625: guard reader's idle drive unwinds instead of wedging a resolved join" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -283,6 +290,7 @@ test "#1625: guard reader's idle drive unwinds instead of wedging a resolved joi
 }
 
 test "#1625: guard reader pinned under an expired thread-sleep! unwinds too" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -314,6 +322,7 @@ test "#1625: guard reader pinned under an expired thread-sleep! unwinds too" {
 }
 
 test "#1625: same ordering over an OS pipe unwinds identically" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -337,6 +346,7 @@ test "#1625: same ordering over an OS pipe unwinds identically" {
 }
 
 test "thread-terminate! pulls a parked reader off the reactor; the fd stays usable" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -365,6 +375,7 @@ test "thread-terminate! pulls a parked reader off the reactor; the fd stays usab
 }
 
 test "port write buffer holds bytes until flush; close-port flushes the remainder" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -390,6 +401,7 @@ test "port write buffer holds bytes until flush; close-port flushes the remainde
 }
 
 test "a read on the same port flushes its pending writes first" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -416,6 +428,7 @@ test "a read on the same port flushes its pending writes first" {
 }
 
 test "(read) must not lose read_buf when its write drain parks" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -458,6 +471,7 @@ test "(read) must not lose read_buf when its write drain parks" {
 }
 
 test "binary read-u8 drains bytes a prior (read) left in the port buffer" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -480,6 +494,7 @@ test "binary read-u8 drains bytes a prior (read) left in the port buffer" {
 }
 
 test "lazy non-blocking flip: only for fd > 2 and only once a scheduler exists" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -527,6 +542,7 @@ test "flush-output-port accepts string ports and the default port" {
 }
 
 test "file I/O with fibers active stays correct (files never EAGAIN)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // Scheme-level file I/O is deliberately gated off on wasm (kaappi#1972: this WebAssembly build has no filesystem access)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -554,6 +570,7 @@ test "file I/O with fibers active stays correct (files never EAGAIN)" {
 // busy-polling the fd with a 1ms sleep.
 
 test "#1478: fd->port read parks the fiber on the reactor until the peer writes" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -583,6 +600,7 @@ test "#1478: fd->port read parks the fiber on the reactor until the peer writes"
 }
 
 test "#1478: fd->port rejects the standard streams and non-fixnums" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // Scheme-level file I/O is deliberately gated off on wasm (kaappi#1972: this WebAssembly build has no filesystem access)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -605,6 +623,7 @@ test "#1478: fd->port rejects the standard streams and non-fixnums" {
 // than one per byte.
 
 test "readOneByte batches an available burst into read_buf, not one syscall per byte" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -631,6 +650,7 @@ test "readOneByte batches an available burst into read_buf, not one syscall per 
 }
 
 test "read-bytevector over a large file preserves byte order across batched chunk boundaries" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // Scheme-level file I/O is deliberately gated off on wasm (kaappi#1972: this WebAssembly build has no filesystem access)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -660,6 +680,7 @@ test "read-bytevector over a large file preserves byte order across batched chun
 }
 
 test "read-bytevector composes read_buf left by a prior (read) with fresh fd reads" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // Scheme-level file I/O is deliberately gated off on wasm (kaappi#1972: this WebAssembly build has no filesystem access)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -690,6 +711,7 @@ test "read-bytevector composes read_buf left by a prior (read) with fresh fd rea
 }
 
 test "read-bytevector after peek-char includes the peeked byte in order" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // Scheme-level file I/O is deliberately gated off on wasm (kaappi#1972: this WebAssembly build has no filesystem access)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -715,6 +737,7 @@ test "read-bytevector after peek-char includes the peeked byte in order" {
 }
 
 test "a parked mid-read-bytevector retry over a pipe loses no bytes" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -764,6 +787,7 @@ test "a parked mid-read-bytevector retry over a pipe loses no bytes" {
 // ---------------------------------------------------------------------------
 
 test "#1608: two fibers reading two OS-pipe ports park and interleave" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -803,6 +827,7 @@ test "#1608: two fibers reading two OS-pipe ports park and interleave" {
 }
 
 test "#1608: OS-pipe write beyond the pipe buffer parks the writer; a reader fiber drains it" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -840,6 +865,7 @@ test "#1608: OS-pipe write beyond the pipe buffer parks the writer; a reader fib
 }
 
 test "#1608: OS-pipe port stays blocking sequentially; enters non-blocking mode under a scheduler" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -873,6 +899,7 @@ test "#1608: OS-pipe port stays blocking sequentially; enters non-blocking mode 
 }
 
 test "#1608: closing an OS-pipe port with a parked reader raises a clean error in that fiber" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -904,6 +931,7 @@ test "#1608: closing an OS-pipe port with a parked reader raises a clean error i
 }
 
 test "#1608: GC finalization of an abandoned pipe port with a full pipe drops the remainder instead of blocking" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);

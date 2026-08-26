@@ -529,6 +529,7 @@ test "cond-expand (library ...) detects an unloaded .sld on the lib path" {
 // include-library-declarations or nested in cond-expand, so the import
 // succeeded with no bindings. .sbc files are now ignored for .sld libraries.
 test "stale .sbc next to .sld must not drop include-library-declarations exports" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // bytecode-file writes are gated off on wasm (bytecode_file_write.zig)
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     try tmp.dir.createDirPath(std.testing.io, "cachedlib");

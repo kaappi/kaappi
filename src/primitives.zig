@@ -580,6 +580,18 @@ pub inline fn fixnumIndexInBoundsInclusive(idx: i64, len: usize) bool {
     return idx >= 0 and @as(u64, @intCast(idx)) <= @as(u64, len);
 }
 
+/// Whether fixnum `k` (already known non-negative) fits the target's usize
+/// at all — the u64-domain check the `make-*` length conversions need
+/// before narrowing (kaappi#2153, the same #1912 class): on wasm32 a length
+/// like 10^14 would otherwise truncate inside `@intCast` and silently
+/// allocate a far smaller object than requested instead of raising. Callers
+/// report it as `OutOfMemory`, which is exactly what the 64-bit GC payload
+/// cap (gc_alloc.max_payload_bytes) raises for the same request, so
+/// `(guard ...)` sees one cross-platform condition.
+pub inline fn fixnumFitsUsize(k: i64) bool {
+    return @as(u64, @intCast(k)) <= @as(u64, std.math.maxInt(usize));
+}
+
 pub const Range = struct { start: usize, end: usize };
 
 pub fn parseOptionalRange(args: []const Value, arg_offset: usize, max_len: usize, proc_name: []const u8) PrimitiveError!Range {

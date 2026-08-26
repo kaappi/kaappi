@@ -235,6 +235,7 @@ pub fn getSbcPath(allocator: std.mem.Allocator, src_path: []const u8) ![]u8 {
 // ---------------------------------------------------------------------------
 
 test "bytecode round-trip: simple function" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // bytecode-file writes are gated off on wasm (bytecode_file_write.zig)
     const allocator = std.testing.allocator;
     var gc = GC.init(allocator);
     defer gc.deinit();
@@ -287,6 +288,7 @@ test "bytecode round-trip: simple function" {
 }
 
 test "bytecode round-trip: hash mismatch returns null" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // bytecode-file writes are gated off on wasm (bytecode_file_write.zig)
     const allocator = std.testing.allocator;
     var gc = GC.init(allocator);
     defer gc.deinit();
@@ -313,6 +315,7 @@ test "bytecode round-trip: hash mismatch returns null" {
 }
 
 test "bytecode round-trip: various constant types" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // bytecode-file writes are gated off on wasm (bytecode_file_write.zig)
     const allocator = std.testing.allocator;
     var gc = GC.init(allocator);
     defer gc.deinit();
@@ -389,6 +392,7 @@ test "bytecode round-trip: various constant types" {
 }
 
 test "bytecode round-trip: nested functions" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // bytecode-file writes are gated off on wasm (bytecode_file_write.zig)
     const allocator = std.testing.allocator;
     var gc = GC.init(allocator);
     defer gc.deinit();
@@ -484,6 +488,7 @@ fn roundTrip(gc: *GC, func: *Function, path: [:0]const u8) !DeserializeResult {
 }
 
 test "bytecode round-trip: immutability flag preserved (kaappi#2110)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // bytecode-file writes are gated off on wasm (bytecode_file_write.zig)
     // A literal's Object.flags.immutable must survive the codec, or a warm
     // run accepts a set-car! the cold run rejected. One immutable and one
     // mutable instance of each of the four types, so both flag values are
@@ -523,6 +528,7 @@ test "bytecode round-trip: immutability flag preserved (kaappi#2110)" {
 }
 
 test "bytecode round-trip: datum-label sharing preserved via backrefs (kaappi#2111)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // bytecode-file writes are gated off on wasm (bytecode_file_write.zig)
     // '(#1=(1 2) #1#) and friends: an object reached twice must decode as the
     // SAME object (eq?), not a copy per reference.
     const allocator = std.testing.allocator;
@@ -573,6 +579,7 @@ test "bytecode round-trip: datum-label sharing preserved via backrefs (kaappi#21
 }
 
 test "bytecode round-trip: cyclic literal terminates and re-ties the knot (kaappi#2111)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // bytecode-file writes are gated off on wasm (bytecode_file_write.zig)
     // '#0=(1 2 . #0#): before backrefs this recursed to the depth guard,
     // wrote a truncated entry, and the reader rejected it — a permanent miss.
     const allocator = std.testing.allocator;
@@ -612,6 +619,7 @@ test "bytecode round-trip: cyclic literal terminates and re-ties the knot (kaapp
 }
 
 test "bytecode round-trip: a long quoted list costs no nesting depth (kaappi#2113)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // bytecode-file writes are gated off on wasm (bytecode_file_write.zig)
     // The cdr spine is iterative on both sides, so a 400-element list — well
     // past MAX_CONSTANT_DEPTH — writes and reads back. Before this, element
     // 257 hit the writer's depth guard and the entry never loaded.
@@ -647,6 +655,7 @@ test "bytecode round-trip: a long quoted list costs no nesting depth (kaappi#211
 }
 
 test "bytecode write: bundle sections refuse what the reader would reject too" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // bytecode-file writes are gated off on wasm (bytecode_file_write.zig)
     // writeFileWithBundle's sections have the same refusal contract as the
     // constants: an oversized bundled file or preamble form fails the WRITE
     // with LimitExceeded, instead of producing a --compile artifact whose own
@@ -702,6 +711,7 @@ test "bytecode write: bundle sections refuse what the reader would reject too" {
 }
 
 test "bytecode write: refuses what the reader would reject (kaappi#2113)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // bytecode-file writes are gated off on wasm (bytecode_file_write.zig)
     // The writer must never produce an entry the reader rejects — that is a
     // permanent, invisible cache miss. Nesting past MAX_CONSTANT_DEPTH and an
     // oversized string both fail the WRITE with LimitExceeded, and no file
@@ -839,6 +849,7 @@ test "dev rebuild (different build id) rejects cache" {
 }
 
 test "classifyEmbeddedRejection: foreign build id is distinguished from corrupt" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // bytecode-file writes are gated off on wasm (bytecode_file_write.zig)
     // kaappi#1930: a bundled binary whose embedded .sbc came from a different
     // build must say so instead of "invalid embedded bytecode". The loader
     // refuses both cases with null, so the diagnostic classifier has to tell
@@ -893,6 +904,7 @@ test "classifyEmbeddedRejection: foreign build id is distinguished from corrupt"
 }
 
 test "readHeaderInfo round-trips build id and source path" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // bytecode-file writes are gated off on wasm (bytecode_file_write.zig)
     const allocator = std.testing.allocator;
     var gc = GC.init(allocator);
     defer gc.deinit();
@@ -959,6 +971,7 @@ test "bytecode validation rejects oversized function count header" {
 }
 
 test "bytecode round-trip: vector pair bignum rational complex constants" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // bytecode-file writes are gated off on wasm (bytecode_file_write.zig)
     const allocator = std.testing.allocator;
     var gc = GC.init(allocator);
     defer gc.deinit();
@@ -1056,6 +1069,7 @@ test "bytecode round-trip: vector pair bignum rational complex constants" {
 }
 
 test "bytecode round-trip: line table and source_line preserved" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // bytecode-file writes are gated off on wasm (bytecode_file_write.zig)
     const allocator = std.testing.allocator;
     var gc = GC.init(allocator);
     defer gc.deinit();

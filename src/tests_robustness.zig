@@ -832,6 +832,7 @@ test "profile: resetProfileCounters reaches functions promoted to the old genera
 }
 
 test "profile: JSON report includes functions promoted to the old generation" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the JSON profile report is written to a file, and file writes are gated off on wasm
     var ctx: th.TestContext = undefined;
     try ctx.init();
     defer ctx.deinit();

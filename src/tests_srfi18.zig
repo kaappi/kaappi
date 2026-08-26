@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const th = @import("testing_helpers.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
@@ -64,6 +65,7 @@ test "child VM globals view survives parent-side rehash (#958)" {
 // blocking forever in pthread_join. The child VM polls fiber.terminated at
 // the dispatch-loop safepoint.
 test "thread-terminate! stops busy OS thread and join raises terminated" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // OS threads are unregistered on wasm (thread-start! is native-only)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -91,6 +93,7 @@ test "thread-terminate! stops busy OS thread and join raises terminated" {
 // any allocation is leaked, so the many distinct child-only symbols below must
 // all be reclaimed.
 test "child thread interning distinct new symbols does not leak" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // OS threads are unregistered on wasm (thread-start! is native-only)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -340,6 +343,7 @@ test "abandonFiberMutexes abandons a mutex from another GC heap (#1458)" {
 }
 
 test "thread-terminate! on current thread abandons held mutex" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // OS threads are unregistered on wasm (thread-start! is native-only)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -368,6 +372,7 @@ test "thread-terminate! on current thread abandons held mutex" {
 }
 
 test "mutex-lock! on abandoned mutex raises abandoned-mutex-exception" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // OS threads are unregistered on wasm (thread-start! is native-only)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -399,6 +404,7 @@ test "mutex-lock! on abandoned mutex raises abandoned-mutex-exception" {
 }
 
 test "top-level define with yielding body (scheduler created mid-form)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // OS threads are unregistered on wasm (thread-start! is native-only)
     // Regression: spawn creates the scheduler lazily *during* the form's
     // run, so run() had already committed to the non-scheduler path and the
     // subsequent thread-yield! escaped as error.Yielded, aborting the define.
@@ -421,6 +427,7 @@ test "top-level define with yielding body (scheduler created mid-form)" {
 }
 
 test "top-level form value is the main fiber's result after nested resume" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // OS threads are unregistered on wasm (thread-start! is native-only)
     // Regression: when the main fiber yields and the spawned fiber then
     // blocks in a native primitive (mutex-lock!), the main fiber's form
     // completes inside that primitive's nested scheduler loop. The form's
@@ -511,6 +518,7 @@ test "marking skips objects owned by another GC (#958)" {
 // on the parent heap — between collections every mark bit is false, and the
 // parent's next cycle relies on that to trace its full object graph.
 test "child thread collections leave no stale marks on parent heap (#958)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // OS threads are unregistered on wasm (thread-start! is native-only)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -558,6 +566,7 @@ test "child thread collections leave no stale marks on parent heap (#958)" {
 // procedure to a boxed local, so nothing a child thread runs may leave
 // child-owned values in the shared globals map.
 test "child thread leaves no child-heap values in shared globals (#958)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // OS threads are unregistered on wasm (thread-start! is native-only)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -619,6 +628,7 @@ test "a joined child's freed slots pass to the parent's quarantine (#2127)" {
 // a raw pointer across the copy (issue #958 follow-up). The joined procedures
 // must be fresh parent-heap objects that are still callable.
 test "thread result containing primitive procedures is callable after join" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // OS threads are unregistered on wasm (thread-start! is native-only)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -639,6 +649,7 @@ test "thread result containing primitive procedures is callable after join" {
 // (sched_yield). This test verifies that the yield path coexists with
 // thread-terminate! without leaking error.Yielded (#948).
 test "thread-yield! in child OS thread does not busy-spin or leak Yielded" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // OS threads are unregistered on wasm (thread-start! is native-only)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -665,6 +676,7 @@ test "thread-yield! in child OS thread does not busy-spin or leak Yielded" {
 // pre-fix nesting would run deep; it must complete promptly rather than
 // crash or stall.
 test "concurrent thread-sleep! retries across fibers resolve without unbounded stack growth (#1463)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // OS threads are unregistered on wasm (thread-start! is native-only)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -741,6 +753,7 @@ test "concurrent thread-sleep! retries across fibers resolve without unbounded s
 // instead, because "so far out it never fires" is the legal SRFI-18 reading
 // of a huge deadline (+inf.0 conventionally means "never time out").
 test "seconds->time rejects unrepresentable seconds catchably (#1983)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // OS threads are unregistered on wasm (thread-start! is native-only)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -772,6 +785,7 @@ test "seconds->time rejects unrepresentable seconds catchably (#1983)" {
 }
 
 test "huge and infinite timeouts saturate instead of aborting (#1983)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // OS threads are unregistered on wasm (thread-start! is native-only)
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);

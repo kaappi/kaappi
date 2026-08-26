@@ -288,8 +288,9 @@ test "features json is one object with the documented keys and limit values" {
     try testing.expect(obj.get("build_id").?.string.len > 0);
     try testing.expectEqualStrings(target_triple, obj.get("target").?.string);
     try testing.expect(obj.get("build_mode").?.string.len > 0);
-    // Unit tests never build for WASM, so sandbox is available here.
-    try testing.expect(obj.get("sandbox_available").?.bool);
+    // `--sandbox` is native-only (WASM is sandboxed by construction), and
+    // since kaappi#2153 the unit suite does build for wasm32-wasi.
+    try testing.expect(obj.get("sandbox_available").?.bool == sandbox_available);
 
     const limits = obj.get("limits").?.object;
     try testing.expectEqual(@as(i64, build_options.max_frames), limits.get("initial_frame_capacity").?.integer);

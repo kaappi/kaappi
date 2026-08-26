@@ -121,6 +121,7 @@ fn expectStringValue(expected: []const u8, v: types.Value) !void {
 }
 
 test "ffi callback error is re-raised after the C call returns (#1185)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the FFI surface is unregistered on wasm (primitives.zig wasm gating)
     var ctx: th.TestContext = undefined;
     try ctx.init();
     defer ctx.deinit();
@@ -137,6 +138,7 @@ test "ffi callback error is re-raised after the C call returns (#1185)" {
 }
 
 test "ffi callback non-integer return raises instead of coercing to 0 (#1185)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the FFI surface is unregistered on wasm (primitives.zig wasm gating)
     var ctx: th.TestContext = undefined;
     try ctx.init();
     defer ctx.deinit();
@@ -152,6 +154,7 @@ test "ffi callback non-integer return raises instead of coercing to 0 (#1185)" {
 }
 
 test "ffi callback error state is consumed by the failing call (#1185)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the FFI surface is unregistered on wasm (primitives.zig wasm gating)
     var ctx: th.TestContext = undefined;
     try ctx.init();
     defer ctx.deinit();
@@ -193,6 +196,7 @@ fn ffiOpenErrorMessage(ctx: *th.TestContext, target: []const u8) ![]const u8 {
 }
 
 test "ffi-open: existing unloadable file's own error is reported, not a probe's" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the FFI surface is unregistered on wasm (primitives.zig wasm gating)
     var ctx: th.TestContext = undefined;
     try ctx.init();
     defer ctx.deinit();
@@ -220,6 +224,7 @@ test "ffi-open: existing unloadable file's own error is reported, not a probe's"
 }
 
 test "ffi-open: bare name hitting an unloadable file under KAAPPI_HOME/lib reports that file's error" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the FFI surface is unregistered on wasm (primitives.zig wasm gating)
     var ctx: th.TestContext = undefined;
     try ctx.init();
     defer ctx.deinit();
@@ -254,6 +259,7 @@ test "ffi-open: bare name hitting an unloadable file under KAAPPI_HOME/lib repor
 }
 
 test "ffi-open: name not found anywhere reports the requested name plus probe note" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the FFI surface is unregistered on wasm (primitives.zig wasm gating)
     var ctx: th.TestContext = undefined;
     try ctx.init();
     defer ctx.deinit();
@@ -264,6 +270,7 @@ test "ffi-open: name not found anywhere reports the requested name plus probe no
 }
 
 test "ffi-open: a path with separators is not re-searched under home lib" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // the FFI surface is unregistered on wasm (primitives.zig wasm gating)
     var ctx: th.TestContext = undefined;
     try ctx.init();
     defer ctx.deinit();
