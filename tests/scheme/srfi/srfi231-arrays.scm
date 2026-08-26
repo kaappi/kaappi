@@ -175,6 +175,29 @@
 (test-equal #f (specialized-array-default-safe?))
 (test-equal #t (specialized-array-default-mutable?))
 
+;;; --- unsafe specialized getters reject extra trailing multi-index
+;;; arguments, matching the reference's fixed-arity getters -- they were
+;;; silently dropped before kaappi#2358 ---
+(let ((u (make-specialized-array (make-interval '#(2 2)) u8-storage-class 7 #f)))
+  (test-equal 7 ((array-getter u) 0 1))
+  (test-equal #t (guard (e (#t #t)) ((array-getter u) 0 1 999) #f))
+  (test-equal #t (guard (e (#t #t)) (array-set! u 1 0 0 999) #f)))
+
+;;; --- plain (make-array) getters and setters validate the multi-index
+;;; exactly as the reference's %%make-safer-array wrapper does: out-of-
+;;; domain, wrong arity, and non-integer indices all error -- they ran
+;;; the raw closure unchecked before kaappi#2362 ---
+(let ((a (make-array (make-interval '#(1 1) '#(11 11)) (lambda (i j) (if (= i j) 1 0)))))
+  (test-equal 1 (array-ref a 5 5))
+  (test-equal #t (guard (e (#t #t)) ((array-getter a) 11 0) #f))
+  (test-equal #t (guard (e (#t #t)) ((array-getter a) 1 2 3 4) #f))
+  (test-equal #t (guard (e (#t #t)) ((array-getter a) 1 'a) #f)))
+(let ((m (make-array (make-interval '#(3)) (lambda (i) i) (lambda (v i) #f))))
+  (test-equal #t (guard (e (#t #t)) ((array-setter m) 'x 3) #f))
+  (test-equal #t (guard (e (#t #t)) ((array-setter m) 'x 1 2) #f)))
+;; an empty plain array errors on any access instead of running the closure
+(let ((e (make-array (make-interval '#(3 0)) (lambda (i j) 'should-never-run))))
+  (test-equal #t (guard (e2 (#t #t)) ((array-getter e) 0 0) #f)))
 (let ((runner (test-runner-current)))
   (test-end "srfi-231-arrays")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))
