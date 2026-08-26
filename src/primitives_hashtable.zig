@@ -23,7 +23,10 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "hash-table-size", .func = &hashTableSizeFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_69) },
     .{ .name = "hash-table-keys", .func = &hashTableKeysFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_69) },
     .{ .name = "hash-table-values", .func = &hashTableValuesFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_69) },
-    .{ .name = "hash-table-walk", .func = &hashTableWalkFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_69) },
+    // hash-table-walk is implemented in Scheme (src/vm_bootstrap.zig, over
+    // hash-table->alist) so a continuation captured inside its callback can
+    // resume — the native driver's returned C frame could not (kaappi#2060).
+    .{ .name = "hash-table-walk", .func = primitives.bootstrapStub("hash-table-walk"), .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_69) },
     .{ .name = "hash-table->alist", .func = &hashTableToAlistFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_69) },
     .{ .name = "alist->hash-table", .func = &alistToHashTableFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_69) },
     .{ .name = "hash-table-copy", .func = &hashTableCopyFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_69) },
@@ -744,33 +747,10 @@ fn hashTableValuesFn(args: []const Value) PrimitiveError!Value {
     return result;
 }
 
-// (hash-table-walk ht proc) — call (proc key value) for each entry
-fn hashTableWalkFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
-    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const ht = try getHashTable("hash-table-walk", args[0]);
-    const proc = args[1];
-
-    const snapshot = snapshotLiveEntries(gc, ht) orelse return PrimitiveError.OutOfMemory;
-    defer memory.freeSliceNoFill(gc.allocator, HashEntry, snapshot);
-
-    // Root all entries up front: the first callback can delete+allocate and
-    // free a not-yet-visited entry's key/value that only the snapshot holds.
-    const scope = gc.rootedScope();
-    defer scope.release();
-    for (snapshot) |entry| {
-        gc.extra_roots.append(gc.allocator, entry.key) catch return PrimitiveError.OutOfMemory;
-        gc.extra_roots.append(gc.allocator, entry.value) catch return PrimitiveError.OutOfMemory;
-    }
-
-    for (snapshot) |entry| {
-        const call_args = [2]Value{ entry.key, entry.value };
-        _ = vm.callWithArgs(proc, &call_args) catch |err| {
-            return err;
-        };
-    }
-    return types.VOID;
-}
+// hash-table-walk is implemented in Scheme (src/vm_bootstrap.zig) so a
+// continuation captured inside its callback can resume (kaappi#2060). It
+// snapshots via hash-table->alist, matching the native snapshot-then-call
+// order this used to do.
 
 // (hash-table->alist ht)
 fn hashTableToAlistFn(args: []const Value) PrimitiveError!Value {
