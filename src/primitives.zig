@@ -1286,7 +1286,7 @@ fn makeRecordTypeFn(args: []const Value) PrimitiveError!Value {
     // procedural ones); absent for count-only callers.
     const name_data = try expectString("%make-record-type", args[0]);
     const nf = try expectFixnum("%make-record-type", args[1]);
-    if (nf < 0 or nf > 255) return PrimitiveError.TypeError; // bare-ok: internal record primitive
+    if (nf < 0 or nf > 255) return argError("%make-record-type", "field count {d} is out of range (must be 0 to 255)", .{nf});
     const num_fields: u8 = @intCast(nf);
 
     if (args.len == 2) {
@@ -1301,7 +1301,7 @@ fn makeRecordTypeFn(args: []const Value) PrimitiveError!Value {
         if (!types.isPair(specs_cur)) return typeError("%make-record-type", "list", args[2]);
         const entry = types.car(specs_cur);
         if (!types.isPair(entry)) return typeError("%make-record-type", "(name . mutable?) pair", entry);
-        if (field_count >= 255) return PrimitiveError.TypeError; // bare-ok: internal record primitive
+        if (field_count >= 255) return argError("%make-record-type", "record type would have more than 255 fields, but the limit is 255", .{});
         field_names_buf[field_count] = try expectString("%make-record-type", types.car(entry));
         field_mutable_buf[field_count] = types.cdr(entry) != types.FALSE;
         field_count += 1;
@@ -1357,7 +1357,7 @@ fn recordRefFn(args: []const Value) PrimitiveError!Value {
     if (!types.sameRecordType(ri.record_type, rt)) return typeError("%record-ref", rt.name, args[0]);
     if (!types.isFixnum(args[1])) return typeError("%record-ref", "exact integer", args[1]);
     const raw_idx = types.toFixnum(args[1]);
-    if (raw_idx < 0) return PrimitiveError.TypeError; // bare-ok: internal record primitive
+    if (raw_idx < 0) return indexError("%record-ref", raw_idx, ri.fields.len);
     // u64 comparison before narrowing (kaappi#1912): see fixnumIndexInBounds.
     if (!fixnumIndexInBounds(raw_idx, ri.fields.len)) return indexError("%record-ref", raw_idx, ri.fields.len);
     const idx: usize = @intCast(raw_idx);
@@ -1373,7 +1373,7 @@ fn recordSetFn(args: []const Value) PrimitiveError!Value {
     if (!types.sameRecordType(ri.record_type, rt)) return typeError("%record-set!", rt.name, args[0]);
     if (!types.isFixnum(args[1])) return typeError("%record-set!", "exact integer", args[1]);
     const raw_idx = types.toFixnum(args[1]);
-    if (raw_idx < 0) return PrimitiveError.TypeError; // bare-ok: internal record primitive
+    if (raw_idx < 0) return indexError("%record-set!", raw_idx, ri.fields.len);
     // u64 comparison before narrowing (kaappi#1912): see fixnumIndexInBounds.
     if (!fixnumIndexInBounds(raw_idx, ri.fields.len)) return indexError("%record-set!", raw_idx, ri.fields.len);
     const idx: usize = @intCast(raw_idx);

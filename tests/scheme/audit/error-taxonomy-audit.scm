@@ -33,10 +33,14 @@
 ;;; message text). `raises?`-only assertions pin nothing -- a documented lesson
 ;;; from #1944, and the central hazard of this unit specifically.
 ;;;
+;;; #1914 is FIXED: the ten internal `%` record primitives that returned a bare
+;;; TypeError on a range/limit failure (blaming a valid args[0]) now route
+;;; through indexError (KP3006) for out-of-range indices and argError (KP3007)
+;;; for rejected-but-well-typed values. Pinned in PART 8.
+;;;
 ;;; Related, already filed -- not re-tested here:
 ;;;   #1899 primitives.safeValueDescription renders heap values opaquely (F10)
 ;;;        (fixed; its assertions remain live in PART 5)
-;;;   #1914 internal `%` primitives return bare TypeError on range failures
 ;;;   #1944 / #1972 primitives_io.zig taxonomy
 ;;;   #1978 SRFI-170 errno / filesystem range errors
 ;;;   #2002 fibers: make-channel range error claims a type error
@@ -610,6 +614,110 @@
             'KP3002 (code-of (lambda () (+ 1 'x))))
 (test-equal "clean: apply with a non-procedure is KP3005, not KP3002"
             'KP3005 (code-of (lambda () (apply 42 '()))))
+
+;; ===========================================================================
+;; PART 8 -- internal `%` record primitives: range failures        [FIXED: #1914]
+;;
+;; Ten sites in primitives.zig / primitives_srfi237.zig returned a bare
+;; PrimitiveError.TypeError on a range/limit failure. mapNativeError then
+;; synthesized "type error in '<proc>': got <args[0]>" -- naming the FIRST
+;; argument, which is valid in every one of these cases (the record, the name,
+;; the whole input list), and omitting the expected type. All ten carried a
+;; misapplied `// bare-ok:` annotation, so the CI gate waved them through.
+;;
+;; These primitives are ambient globals (%-prefixed, exported by nothing), so
+;; they are reachable here by name without an import.
+;; ===========================================================================
+
+;; A field-spec list of `n` entries for %make-record-type-descriptor / the
+;; 3-arg %make-record-type.
+(define (specs-1914 n)
+  (let loop ((i 0) (acc '()))
+    (if (= i n) (reverse acc)
+        (loop (+ i 1) (cons (cons (string-append "f" (number->string i)) #f) acc)))))
+(define (rtd-1914 name parent uid sealed opaque fields)
+  (%make-record-type-descriptor name parent uid sealed opaque fields))
+
+;; -- Negative indices are KP3006, naming the real index, not args[0] ---------
+;; The control (a POSITIVE out-of-range index) was already correct; the issue's
+;; discriminating test is that the NEGATIVE one used to degrade to a type error.
+(test-equal "%record-ref with a negative index is KP3006"
+            'KP3006
+            (code-of (lambda ()
+                       (let ((rt (%make-record-type "T" 2)))
+                         (%record-ref (%make-record rt 1 2) -1 rt)))))
+(test-equal "%record-ref: positive and negative out-of-range agree on the code"
+            (code-of (lambda ()
+                       (let ((rt (%make-record-type "T" 2)))
+                         (%record-ref (%make-record rt 1 2) 2 rt))))
+            (code-of (lambda ()
+                       (let ((rt (%make-record-type "T" 2)))
+                         (%record-ref (%make-record rt 1 2) -1 rt)))))
+(test-assert "%record-ref's negative-index message names the index, not the record"
+             (contains? (msg-of (lambda ()
+                                  (let ((rt (%make-record-type "T" 2)))
+                                    (%record-ref (%make-record rt 1 2) -1 rt))))
+                        "-1"))
+(test-assert "%record-ref's negative-index message no longer says 'type error'"
+             (not (contains? (msg-of (lambda ()
+                                       (let ((rt (%make-record-type "T" 2)))
+                                         (%record-ref (%make-record rt 1 2) -1 rt))))
+                             "type error")))
+(test-equal "%record-set! with a negative index is KP3006"
+            'KP3006
+            (code-of (lambda ()
+                       (let ((rt (%make-record-type "T" 2)))
+                         (%record-set! (%make-record rt 1 2) -1 9 rt)))))
+(test-equal "%record-field-mutable? with a negative index is KP3006"
+            'KP3006
+            (code-of (lambda () (%record-field-mutable? (%make-record-type "T" 1 '(("a" . #t))) -1))))
+(test-equal "%record-ref/inherit with a negative index is KP3006"
+            'KP3006
+            (code-of (lambda ()
+                       (let* ((p (rtd-1914 "P" #f #f #f #f '(("a" . #f))))
+                              (c (rtd-1914 "C" p #f #f #f '(("b" . #f)))))
+                         (%record-ref/inherit (%make-record c 1 2) -1 c)))))
+(test-equal "%record-set!/inherit with a negative index is KP3006"
+            'KP3006
+            (code-of (lambda ()
+                       (let* ((p (rtd-1914 "P" #f #f #f #f '(("a" . #f))))
+                              (c (rtd-1914 "C" p #f #f #f '(("b" . #t)))))
+                         (%record-set!/inherit (%make-record c 1 2) -1 9 c)))))
+
+;; -- Field-count / size limits are KP3007, naming the count, not the name ----
+(test-equal "%make-record-type with 256 fields is KP3007"
+            'KP3007 (code-of (lambda () (%make-record-type "T" 256))))
+(test-equal "%make-record-type with a negative field count is KP3007"
+            'KP3007 (code-of (lambda () (%make-record-type "T" -1))))
+(test-assert "%make-record-type's field-count message names 256, not the type name"
+             (contains? (msg-of (lambda () (%make-record-type "T" 256))) "256"))
+(test-assert "%make-record-type's field-count message no longer says 'type error'"
+             (not (contains? (msg-of (lambda () (%make-record-type "T" 256))) "type error")))
+(test-equal "%make-record-type with more than 255 field-specs is KP3007"
+            'KP3007 (code-of (lambda () (%make-record-type "T" 2 (specs-1914 256)))))
+;; The issue's "sharpest instance": the 255-field limit reached via OWN fields
+;; now reports the same symmetric message the inherited path already did.
+(test-equal "%make-record-type-descriptor with 256 own fields is KP3007"
+            'KP3007 (code-of (lambda () (rtd-1914 "T" #f #f #f #f (specs-1914 256)))))
+(test-assert "...and its message names the field count and the limit"
+             (let ((m (msg-of (lambda () (rtd-1914 "T" #f #f #f #f (specs-1914 256))))))
+               (and (contains? m "256") (contains? m "255"))))
+
+;; -- %record-split-args: negative, over-cap, and over-length are KP3007 ------
+;; The over-length message must NOT dump the whole input list (the old bare
+;; TypeError did); it names the two counts instead.
+(test-equal "%record-split-args with a negative suffix length is KP3007"
+            'KP3007 (code-of (lambda () (%record-split-args '(1 2) -1))))
+(test-equal "%record-split-args with a suffix longer than the list is KP3007"
+            'KP3007 (code-of (lambda () (%record-split-args '(1 2) 3))))
+(test-assert "%record-split-args' over-length message names both counts, not the list"
+             (let ((m (msg-of (lambda () (%record-split-args '(1 2) 3)))))
+               (and (contains? m "3") (contains? m "2"))))
+
+;; The control: a WORKING split still works, so the guards above are guarding
+;; a real failure, not rejecting everything.
+(test-equal "control: %record-split-args splits a valid request"
+            '((1) . (2 3)) (%record-split-args '(1 2 3) 2))
 
 (let ((runner (test-runner-current)))
   (test-end "error taxonomy audit")

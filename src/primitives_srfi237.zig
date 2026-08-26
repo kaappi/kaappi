@@ -257,7 +257,10 @@ fn makeRecordTypeDescriptorFn(args: []const Value) PrimitiveError!Value {
         if (!types.isPair(specs_cur)) return typeError(MAKE_RTD, "list", args[5]);
         const entry = types.car(specs_cur);
         if (!types.isPair(entry)) return typeError(MAKE_RTD, "(name . mutable?) pair", entry);
-        if (field_count >= 255) return PrimitiveError.TypeError; // bare-ok: internal record primitive; own_field_count is u8
+        // own_field_count is a u8: a 256th own field cannot be represented.
+        // Report it the same way as the post-alloc TooManyFields path, which
+        // also names the inherited count (the issue's "sharpest instance").
+        if (field_count >= 255) return tooManyFieldsError(MAKE_RTD, field_count + 1, parent);
         field_names_buf[field_count] = try expectString(MAKE_RTD, types.car(entry));
         field_mutable_buf[field_count] = types.cdr(entry) != types.FALSE;
         field_count += 1;
@@ -335,7 +338,7 @@ fn recordRefInheritFn(args: []const Value) PrimitiveError!Value {
     if (!isOrDescendsFrom(ri.record_type, rt)) return typeError("%record-ref/inherit", rt.name, args[0]);
     if (!types.isFixnum(args[1])) return typeError("%record-ref/inherit", "exact integer", args[1]);
     const raw_idx = types.toFixnum(args[1]);
-    if (raw_idx < 0) return PrimitiveError.TypeError; // bare-ok: internal record primitive
+    if (raw_idx < 0) return indexError("%record-ref/inherit", raw_idx, ri.fields.len);
     // u64 comparison before narrowing (kaappi#1912): see primitives.fixnumIndexInBounds.
     if (!primitives.fixnumIndexInBounds(raw_idx, ri.fields.len)) return indexError("%record-ref/inherit", raw_idx, ri.fields.len);
     const idx: usize = @intCast(raw_idx);
@@ -355,13 +358,13 @@ fn recordRefInheritFn(args: []const Value) PrimitiveError!Value {
 fn recordSplitArgsFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const suffix_len_raw = try expectFixnum("%record-split-args", args[1]);
-    if (suffix_len_raw < 0) return PrimitiveError.TypeError; // bare-ok: internal record primitive
+    if (suffix_len_raw < 0) return argError("%record-split-args", "suffix length {d} must be non-negative", .{suffix_len_raw});
     var buf: [256]Value = undefined;
     var n: usize = 0;
     var cur = args[0];
     while (cur != types.NIL) {
         if (!types.isPair(cur)) return typeError("%record-split-args", "list", args[0]);
-        if (n >= 256) return PrimitiveError.TypeError; // bare-ok: internal record primitive
+        if (n >= 256) return argError("%record-split-args", "argument list has more than {d} elements, the maximum this desugarer supports", .{buf.len});
         buf[n] = types.car(cur);
         n += 1;
         cur = types.cdr(cur);
@@ -370,7 +373,7 @@ fn recordSplitArgsFn(args: []const Value) PrimitiveError!Value {
     // suffix would truncate and pass the check against a short list, or panic
     // @intCast on a safety-checked build.  The narrowing runs only after the
     // check passes.
-    if (!primitives.fixnumIndexInBoundsInclusive(suffix_len_raw, n)) return PrimitiveError.TypeError; // bare-ok: internal record primitive
+    if (!primitives.fixnumIndexInBoundsInclusive(suffix_len_raw, n)) return argError("%record-split-args", "cannot take the last {d} elements of a {d}-element list", .{ suffix_len_raw, n });
     const suffix_len: usize = @intCast(suffix_len_raw);
     const split = n - suffix_len;
 
@@ -390,7 +393,7 @@ fn recordSetInheritFn(args: []const Value) PrimitiveError!Value {
     if (!isOrDescendsFrom(ri.record_type, rt)) return typeError("%record-set!/inherit", rt.name, args[0]);
     if (!types.isFixnum(args[1])) return typeError("%record-set!/inherit", "exact integer", args[1]);
     const raw_idx = types.toFixnum(args[1]);
-    if (raw_idx < 0) return PrimitiveError.TypeError; // bare-ok: internal record primitive
+    if (raw_idx < 0) return indexError("%record-set!/inherit", raw_idx, ri.fields.len);
     // u64 comparison before narrowing (kaappi#1912): see primitives.fixnumIndexInBounds.
     if (!primitives.fixnumIndexInBounds(raw_idx, ri.fields.len)) return indexError("%record-set!/inherit", raw_idx, ri.fields.len);
     const idx: usize = @intCast(raw_idx);
@@ -462,7 +465,7 @@ fn recordFieldMutableFn(args: []const Value) PrimitiveError!Value {
     if (!types.isRecordType(args[0])) return typeError("%record-field-mutable?", "record-type", args[0]);
     const rt = asRecordType(args[0]);
     const raw_idx = try expectFixnum("%record-field-mutable?", args[1]);
-    if (raw_idx < 0) return PrimitiveError.TypeError; // bare-ok: internal record primitive
+    if (raw_idx < 0) return indexError("%record-field-mutable?", raw_idx, rt.own_field_mutable.len);
     // u64 comparison before narrowing (kaappi#1912): see primitives.fixnumIndexInBounds.
     if (!primitives.fixnumIndexInBounds(raw_idx, rt.own_field_mutable.len)) return indexError("%record-field-mutable?", raw_idx, rt.own_field_mutable.len);
     const idx: usize = @intCast(raw_idx);
