@@ -13,9 +13,11 @@
 ;;; The three areas ranked highest going in — laziness/effect ordering,
 ;;; exhaustion stickiness, and infinite generators under bounded consumers —
 ;;; came back CLEAN, and are pinned below with counter-instrumented sources
-;;; rather than left as prose.  The bugs are elsewhere: an inexact `start`
-;;; that the sequence does not begin with, an empty sub-list that raises, and
-;;; a documented spec example that cannot run at all.
+;;; rather than left as prose.  The bugs were elsewhere: an inexact `start`
+;;; that the sequence did not begin with (#2055) and an empty sub-list that
+;;; raised (#2057) are fixed and pinned as passing regressions in sections 6
+;;; and 7; a documented spec example that cannot run at all (#2060) is still
+;;; pinned as raises? in section 15.
 ;;;
 ;;; Portability notes for the emulated CI legs:
 ;;;   * Never write (list (g) (g)) — R7RS leaves argument evaluation order
@@ -480,8 +482,12 @@
 ;;    "The sequence begins with start, increases by step (default 1) ...
 ;;     If both start and step are exact, it generates exact numbers;
 ;;     otherwise it generates inexact numbers."
-;;    The impl coerces start with (- (+ start step) step), which achieves the
-;;    exactness contagion but does not leave an already-inexact start alone.
+;;    Contagion without perturbation (#2055): an exact start is coerced with
+;;    exact->inexact only when step is inexact, so the sequence begins with
+;;    start itself.  The reference implementation's (- (+ start step) step)
+;;    round trip — which this port and chibi-scheme both carried — achieves
+;;    the contagion but perturbs an already-inexact start, annihilating it
+;;    to 0.0 when step dwarfs it.
 ;; ---------------------------------------------------------------------------
 
 (test-equal "range: exact start and step stay exact"
@@ -519,18 +525,16 @@
             '() (generator->list (make-iota-generator -3)))
 (test-equal "CONTROL iota: default start and step" '(0 1 2) (generator->list (make-iota-generator 3)))
 
-;; FAIL: #2055 (make-range-generator does not begin the sequence with an inexact start)
-;; (test-equal "range: begins with an inexact start exactly (default step)"
-;;             0.1 (car (generator->list (make-range-generator 0.1 3))))
-;; FAIL: #2055 (make-range-generator does not begin the sequence with an inexact start)
-;; (test-equal "range: begins with an inexact start exactly (inexact step)"
-;;             0.1 (car (generator->list (make-range-generator 0.1 0.5 0.2))))
-;; FAIL: #2055 (a large step annihilates start entirely: 1e-20 becomes 0.0)
-;; (test-equal "range: a tiny start survives a step of 1.0"
-;;             1e-20 (car (generator->list (gtake (make-range-generator 1e-20 1.0 1.0) 1))))
-;; FAIL: #2055 (a large step annihilates start entirely: 5.0 becomes 0.0)
-;; (test-equal "range: start survives a step 16 orders of magnitude larger"
-;;             5.0 (car (generator->list (gtake (make-range-generator 5.0 1e30 1e17) 1))))
+;; Regressions for #2055: the sequence begins with start itself, at every
+;; mix of exactness and every magnitude ratio between start and step.
+(test-equal "range: begins with an inexact start exactly (default step)"
+            0.1 (car (generator->list (make-range-generator 0.1 3))))
+(test-equal "range: begins with an inexact start exactly (inexact step)"
+            0.1 (car (generator->list (make-range-generator 0.1 0.5 0.2))))
+(test-equal "range: a tiny start survives a step of 1.0"
+            1e-20 (car (generator->list (gtake (make-range-generator 1e-20 1.0 1.0) 1))))
+(test-equal "range: start survives a step 16 orders of magnitude larger"
+            5.0 (car (generator->list (gtake (make-range-generator 5.0 1e30 1e17) 1))))
 
 ;; ---------------------------------------------------------------------------
 ;; 7. gflatten.  "Returns a generator that yields the elements of the lists
@@ -544,27 +548,22 @@
             '(1 2 3) (generator->list (gflatten (generator '(1 2 3)))))
 (test-equal "gflatten: an empty source generator yields nothing"
             '() (generator->list (gflatten (generator))))
-(test-assert "gflatten: an empty sub-list anywhere raises (see #2057)"
-             (raises? (lambda () (generator->list (gflatten (generator '(1) '() '(2)))))))
-(test-assert "gflatten: an empty sub-list first raises (see #2057)"
-             (raises? (lambda () (generator->list (gflatten (generator '() '(1)))))))
-(test-assert "gflatten: an empty sub-list last raises (see #2057)"
-             (raises? (lambda () (generator->list (gflatten (generator '(1) '()))))))
 
-;; FAIL: #2057 (gflatten raises on an empty list from its source)
-;; (test-equal "gflatten: skips an empty sub-list in the middle"
-;;             '(1 2) (generator->list (gflatten (generator '(1) '() '(2)))))
-;; FAIL: #2057 (gflatten raises on an empty list from its source)
-;; (test-equal "gflatten: skips a leading empty sub-list"
-;;             '(1) (generator->list (gflatten (generator '() '(1)))))
-;; FAIL: #2057 (gflatten raises on an empty list from its source)
-;; (test-equal "gflatten: skips a trailing empty sub-list"
-;;             '(1) (generator->list (gflatten (generator '(1) '()))))
-;; FAIL: #2057 (gflatten raises on an empty list from its source)
-;; (test-equal "gflatten: a filtering gmap that yields '() is a natural source"
-;;             '(0 2)
-;;             (generator->list (gflatten (gmap (lambda (x) (if (even? x) (list x) '()))
-;;                                              (make-range-generator 0 4)))))
+;; Regressions for #2057: an empty sub-list contributes no elements, wherever
+;; it falls in the sequence.  The interior and consecutive cases are the ones
+;; a refill that loops only once more can still miss.
+(test-equal "gflatten: skips an empty sub-list in the middle"
+            '(1 2) (generator->list (gflatten (generator '(1) '() '(2)))))
+(test-equal "gflatten: skips a leading empty sub-list"
+            '(1) (generator->list (gflatten (generator '() '(1)))))
+(test-equal "gflatten: skips a trailing empty sub-list"
+            '(1) (generator->list (gflatten (generator '(1) '()))))
+(test-equal "gflatten: skips consecutive empty sub-lists"
+            '(1 2) (generator->list (gflatten (generator '() '() '(1) '() '(2) '()))))
+(test-equal "gflatten: a filtering gmap that yields '() is a natural source"
+            '(0 2)
+            (generator->list (gflatten (gmap (lambda (x) (if (even? x) (list x) '()))
+                                             (make-range-generator 0 4)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 8. Predicate argument order, which the errata specifically clarified.
