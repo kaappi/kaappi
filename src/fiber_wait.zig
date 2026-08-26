@@ -12,6 +12,8 @@ const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const reactor_mod = @import("reactor.zig");
 const fiber_mod = @import("fiber.zig");
+const errors = @import("errors.zig");
+const primitives_control = @import("primitives_control.zig");
 const Value = types.Value;
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -451,6 +453,40 @@ pub fn runSchedulerStep(comptime Ctx: type, ctx: Ctx, vm: *VM, sched: *FiberSche
                     sched.markRunnable(fiber);
                 }
                 continue;
+            }
+            // #2204: a VM-level fault (type error, unbound variable, bad
+            // index, arity mismatch) carries its identity in two places the
+            // fiber's saved state never transports — the VMError tag and
+            // vm.last_error_detail — so fiber-join used to substitute a
+            // contentless KP3007 "fiber error (no exception value)" for the
+            // real diagnostic. Convert the fault HERE, before anything else
+            // runs (retireSlot/abandonFiberMutexes/wakeWaiters, or any later
+            // native call, can overwrite the detail), into the same coded
+            // ErrorObject withExceptionHandlerFn hands a guard, and stage it
+            // in vm.current_exception — the one error channel
+            // saveCurrentFiber copies into fiber.current_exception below,
+            // which is what the joiner's reraiseFiberError re-raises. A
+            // Scheme-level raise (ExceptionRaised) already carries its
+            // condition that way; a continuation jump (ContinuationInvoked)
+            // is control flow, not a fault; and an uncatchable error
+            // (StackOverflow, ExecutionTimeout, Terminated —
+            // errors.isUncatchable) must not become a catchable condition
+            // on its way through (#1886), so none of those convert.
+            if (err != VMError.ExceptionRaised and
+                err != VMError.ContinuationInvoked and
+                !errors.isUncatchable(err))
+            {
+                if (primitives_control.nativeErrorToErrorObject(vm, vm.gc, err)) |exc| {
+                    // Assigning straight into vm.current_exception (a GC
+                    // root, vm.zig markVmRoots) with no allocating call in
+                    // between is what roots the otherwise-unrooted object
+                    // the conversion contract warns about.
+                    vm.current_exception = exc;
+                } else |_| {
+                    // The conversion itself failed (OOM): keep the retire
+                    // bookkeeping and let the joiner see the fallback
+                    // placeholder — better a vague error than a lost fiber.
+                }
             }
             // Fiber 0 is the main fiber: finishing or aborting one
             // top-level form is not thread death, so its mutexes stay

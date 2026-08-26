@@ -632,3 +632,154 @@ test "a rejected spawn allocates no fiber and leaves the scheduler usable (#1999
     const result = try vm.eval("(list (fiber-join before) (fiber-join (spawn (lambda () 'after))))");
     try std.testing.expect(types.isPair(result));
 }
+
+// #2204: a VM-level fault in a fiber body (type error, unbound variable,
+// bad index, arity mismatch) used to cross the fiber boundary as a
+// contentless KP3007 "fiber error (no exception value)". The dispatch
+// loop's error arm (fiber_wait.zig) dropped the VMError tag, and
+// vm.last_error_detail -- where the whole message lives -- is not part of
+// the fiber's saved state, so fiber-join substituted a placeholder
+// condition. The loop now converts the fault into the same coded
+// ErrorObject a guard sees outside a fiber, before anything else can
+// overwrite the detail, and stages it in vm.current_exception for
+// saveCurrentFiber/reraiseFiberError to carry to the joiner.
+test "fiber-join re-raises a fiber's VM fault with its code and message (#2204)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define five 5)");
+    // CONTROL: the same fault outside a fiber is KP3002 with this message.
+    const direct = try vm.eval(
+        \\(guard (e (#t (list (error-object-code e) (error-object-message e))))
+        \\  (car five))
+    );
+    // A fault after a yield exercises the dispatched-fiber path too, not
+    // just the driven-in-place one.
+    const joined = try vm.eval(
+        \\(guard (e (#t (list (error-object-code e) (error-object-message e))))
+        \\  (fiber-join (spawn (lambda () (yield) (car five)))))
+    );
+
+    const printer = @import("printer.zig");
+    const want = "(KP3002 \"type error in 'car': expected pair, got 5\")";
+    const s1 = try printer.valueToString(std.testing.allocator, direct, .write);
+    defer std.testing.allocator.free(s1);
+    try std.testing.expectEqualStrings(want, s1);
+    const s2 = try printer.valueToString(std.testing.allocator, joined, .write);
+    defer std.testing.allocator.free(s2);
+    // Identical condition outside and inside a fiber: pre-fix the joined
+    // form printed (KP3007 "fiber error (no exception value)").
+    try std.testing.expectEqualStrings(want, s2);
+}
+
+test "each VM fault class keeps its own code across the fiber boundary (#2204)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Unbound variable KP3001, index KP3006, call arity KP3003 -- all used
+    // to collapse to the same KP3007 placeholder.
+    const result = try vm.eval(
+        \\(define (code-of thunk) (guard (e (#t (error-object-code e))) (thunk) 'no-raise))
+        \\(list (code-of (lambda () (no-such-variable-2204)))
+        \\      (code-of (lambda () (vector-ref (vector 1) 9)))
+        \\      (code-of (lambda () ((lambda (x) x))))
+        \\      (code-of (lambda () (fiber-join (spawn (lambda () (no-such-variable-2204))))))
+        \\      (code-of (lambda () (fiber-join (spawn (lambda () (vector-ref (vector 1) 9))))))
+        \\      (code-of (lambda () (fiber-join (spawn (lambda () ((lambda (x) x))))))))
+    );
+    const printer = @import("printer.zig");
+    const s = try printer.valueToString(std.testing.allocator, result, .write);
+    defer std.testing.allocator.free(s);
+    try std.testing.expectEqualStrings("(KP3001 KP3006 KP3003 KP3001 KP3006 KP3003)", s);
+}
+
+test "a fiber's VM fault is re-raised identically on every join (#2204)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define five 5)");
+    const result = try vm.eval(
+        \\(let ((f (spawn (lambda () (car five)))))
+        \\  (list (guard (e (#t (error-object-code e))) (fiber-join f))
+        \\        (guard (e (#t (error-object-code e))) (fiber-join f))))
+    );
+    const printer = @import("printer.zig");
+    const s = try printer.valueToString(std.testing.allocator, result, .write);
+    defer std.testing.allocator.free(s);
+    try std.testing.expectEqualStrings("(KP3002 KP3002)", s);
+}
+
+// #2002: make-channel's capacity is stored as a u32, so a value that IS an
+// exact integer outside [0, 2^32-1] is a range rejection -- an argument
+// error (KP3007) whose message names the real bound -- while a genuinely
+// non-integer argument stays a type error (KP3002). The old one-size
+// typeError claimed "expected non-negative exact integer, got 4294967296",
+// which argues against itself and hides the actual constraint.
+test "make-channel's range rejections are argument errors naming the bound (#2002)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(define (code-of thunk) (guard (e (#t (error-object-code e))) (thunk) 'no-raise))
+        \\(list (code-of (lambda () (make-channel 4294967296)))
+        \\      (code-of (lambda () (make-channel -1)))
+        \\      (code-of (lambda () (make-channel (expt 10 30))))  ; bignum
+        \\      (code-of (lambda () (make-channel 1.0)))
+        \\      (code-of (lambda () (make-channel 'x))))
+    );
+    const printer = @import("printer.zig");
+    const s = try printer.valueToString(std.testing.allocator, result, .write);
+    defer std.testing.allocator.free(s);
+    try std.testing.expectEqualStrings("(KP3007 KP3007 KP3007 KP3002 KP3002)", s);
+
+    // The range rejection's message states the constraint it enforced.
+    // (string-contains is SRFI 13: it returns a match INDEX or #f, so the
+    // and-chain ends in an explicit #t rather than the last index.)
+    const msg = try vm.eval(
+        \\(guard (e (#t (and (string-contains (error-object-message e) "4294967295")
+        \\                    (string-contains (error-object-message e) "4294967296")
+        \\                    (string-contains (error-object-message e) "make-channel")
+        \\                    #t)))
+        \\  (make-channel 4294967296)
+        \\  'missing-substrings)
+    );
+    try std.testing.expectEqual(types.TRUE, msg);
+}
+
+// #2002: a bad timeout argument to channel-send/channel-receive used to be
+// blamed on a procedure named 'thread' -- the shared SRFI-18 helper's
+// hardcoded name, which does not exist in (kaappi fibers). Each caller now
+// passes its own name through timeoutToDeadlineNs.
+test "a bad channel timeout names the channel primitive, not 'thread' (#2002)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(guard (e (#t (error-object-message e))) (channel-receive (make-channel) 'bad))
+    );
+    const printer = @import("printer.zig");
+    const s = try printer.valueToString(std.testing.allocator, result, .write);
+    defer std.testing.allocator.free(s);
+    try std.testing.expectEqualStrings("\"type error in 'channel-receive': expected time object or number, got bad\"", s);
+
+    const send_msg = try vm.eval(
+        \\(guard (e (#t (if (and (string-contains (error-object-message e) "channel-send")
+        \\                        (not (string-contains (error-object-message e) "thread")))
+        \\                  'ok 'wrong-name)))
+        \\  (channel-send (make-channel) 1 'bad)
+        \\  'not-raised)
+    );
+    const s2 = try printer.valueToString(std.testing.allocator, send_msg, .write);
+    defer std.testing.allocator.free(s2);
+    try std.testing.expectEqualStrings("ok", s2);
+}

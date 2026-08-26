@@ -149,7 +149,7 @@ jobs:
       # write `error.TypeError` in `expectError`, so src/tests_*.zig is excluded.
       - name: Check bare error-taxonomy regression
         run: |
-          BASELINE=28
+          BASELINE=27
           hits=$(grep -rnE 'return (PrimitiveError|VMError|error)\.(TypeError|IndexOutOfBounds|InvalidArgument)' src/*.zig \
                  | grep -v '^src/tests_' | grep -v 'bare-ok' || true)
           count=$(printf '%s' "$hits" | grep -c . || true)

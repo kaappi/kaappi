@@ -119,8 +119,16 @@ fn reraiseFiberError(fiber: *fiber_mod.Fiber) PrimitiveError {
         vm.current_exception = exc;
         return PrimitiveError.ExceptionRaised;
     }
+    // Since #2204 the dispatch loop converts every catchable VM-level fault
+    // into a coded ErrorObject before the fiber is retired, so this fallback
+    // is reached only for faults that deliberately carry no condition across
+    // the boundary: an uncatchable one (StackOverflow, ExecutionTimeout,
+    // Terminated — errors.isUncatchable, which must stay uncatchable) or the
+    // conversion itself failing. The detail below is set by hand, so this is
+    // a described error, not the synthesized blame-a-real-argument kind the
+    // bare-return gate exists to catch.
     vm.setErrorDetail("fiber error (no exception value)", .{});
-    return PrimitiveError.InvalidArgument;
+    return PrimitiveError.InvalidArgument; // bare-ok: detail set above; uncatchable-fault fallback (#2204)
 }
 
 fn fiberPredFn(args: []const Value) PrimitiveError!Value {
@@ -131,10 +139,23 @@ fn makeChannelFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (args.len == 0) return gc.allocChannel() catch return PrimitiveError.OutOfMemory;
 
-    if (!types.isFixnum(args[0])) return primitives.typeError("make-channel", "non-negative exact integer", args[0]);
+    // #2002: the capacity is stored as a u32, and a value that IS an exact
+    // integer but sits outside [0, 2^32-1] is a range rejection — argError
+    // (KP3007, "a value of acceptable type the procedure rejects anyway"),
+    // never a type error. The old one-size typeError read "expected
+    // non-negative exact integer, got 4294967296", contradicting itself and
+    // hiding the actual bound. A bignum is always out of range (a fixnum
+    // already spans ±2^47, so anything bignum-sized dwarfs u32); only a
+    // genuinely non-integer argument (1.0, 'x, 1/2) stays a typeError.
+    if (!types.isFixnum(args[0])) {
+        if (!types.isBignum(args[0]))
+            return primitives.typeError("make-channel", "non-negative exact integer", args[0]);
+        var buf: [128]u8 = undefined;
+        return primitives.argError("make-channel", "capacity must be an exact integer between 0 and 4294967295, got {s}", .{primitives.safeValueDescription(&buf, args[0])});
+    }
     const fx = types.toFixnum(args[0]);
     if (fx < 0 or fx > std.math.maxInt(u32))
-        return primitives.typeError("make-channel", "non-negative exact integer", args[0]);
+        return primitives.argError("make-channel", "capacity must be an exact integer between 0 and 4294967295, got {d}", .{fx});
     const capacity: u32 = @intCast(fx);
     return gc.allocChannelBounded(capacity) catch return PrimitiveError.OutOfMemory;
 }
@@ -164,7 +185,7 @@ fn channelSendFn(args: []const Value) PrimitiveError!Value {
     var has_timeout_val = false;
     var timeout_val: Value = types.VOID;
     if (args.len > 2) {
-        deadline_ns = try srfi18.timeoutToDeadlineNs(args[2]);
+        deadline_ns = try srfi18.timeoutToDeadlineNs("channel-send", args[2]);
         if (args.len > 3) {
             has_timeout_val = true;
             timeout_val = args[3];
@@ -1062,7 +1083,7 @@ fn channelReceiveFn(args: []const Value) PrimitiveError!Value {
     var has_timeout_val = false;
     var timeout_val: Value = types.VOID;
     if (args.len > 1) {
-        deadline_ns = try srfi18.timeoutToDeadlineNs(args[1]);
+        deadline_ns = try srfi18.timeoutToDeadlineNs("channel-receive", args[1]);
         if (args.len > 2) {
             has_timeout_val = true;
             timeout_val = args[2];
