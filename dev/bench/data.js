@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787713335547,
+  "lastUpdate": 1787713403529,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ec875b3f0bb5e53ed94f4b1684d0f5b4db79ae90",
-          "message": "Compact CLAUDE.md into docs/dev, and correct the drift found doing it (#2213)\n\n* Move CLAUDE.md's reference detail into docs/dev\n\nCLAUDE.md had grown to 1623 lines and was being read in full on every\nsession. Most of it was reference material rather than orientation: a\n~650-line SRFI implementation narrative (in places single 20,000-character\nparagraphs), the fiber reactor, the package manager, and file-organization\ntables duplicated from architecture.md.\n\nNone of it is deleted. Each passage moves to the docs/dev document that\nowns the subject, and CLAUDE.md keeps a pointer:\n\n  srfi-implementation-notes.md  new — the whole SRFI narrative\n  fibers-and-reactor.md         new — KEP-0001 reactor and parking\n  thottam.md                    new — package manager and manifest\n  architecture.md               now owns the file-organization tables\n  llvm-backend.md               gains the #1896 gate, the derivation walk,\n                                and the libkaappi_rt.a search path\n  cli-surface.md                gains the annotated flag surface\n  thread-value-sharing.md       gains the implementation map\n  adding-features.md            gains the printer cycle rule (#1954)\n\narchitecture.md's tables were stale enough to mislead — 7 compiler files\nagainst a real 11, 8 VM against 10, 21 primitives against 31 — and it\npointed back at CLAUDE.md for the current version. That cycle is gone.\n\nVerified by extracting every backticked identifier and issue reference\nfrom the old file and confirming each still resolves somewhere in\nCLAUDE.md, docs/dev, or .claude/rules. Also corrects the R7RS suite count\nto the measured 1,395 and points at tools/run-r7rs-suite.sh, since a bare\ninvocation exits 0 with failures (kaappi#2157).\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Correct three README claims that no longer match the code\n\nFound while verifying the README against the implementation rather than\nagainst itself. CLAUDE.md names README the single source of truth for\nKnown limitations, so a wrong entry there is the authority.\n\nThe WASI fiber note said the reactor backend is \"timer-only until\nKEP-0001 Phase 4\". Phase 4 has shipped: reactor.zig's WasiPollBackend\nmakes real poll_oneoff fd subscriptions. The actual behaviour is a\nhost-capability probe (primitives_io.zig:174) — ports flip to\nnon-blocking only if fd_fdstat_set_flags(NONBLOCK) succeeds, and only\nwhen it fails does the reactor fall back to timer-only waits.\n\nThe OS-threads note said threads \"cannot share mutable state directly\".\nThey can: a child thread mutating a top-level vector is observed by the\nparent, because VM.initForThread shares globals by pointer. That is the\nglobals route docs/dev/thread-value-sharing.md describes, and the\n14-tag refusal list does not apply to it. The section now covers both\nroutes, notes that mutexes and condition variables can only be shared\nthrough a global, and keeps the \"prefer channels\" guidance as advice\nrather than a false impossibility.\n\nThe library count said 14. R7RS Appendix A defines 16, confirmed against\ndocs/errata-corrected-r7rs.pdf, and all 16 import and work here —\n(scheme case-lambda) and (scheme r5rs) included, which are the two a\ncount of 14 omits.\n\nAlso folds the five per-OS platform paragraphs into a linked list. Every\nfact is kept; each port doc already carries the detail, and Windows and\nFreeBSD gain the links they were missing.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Teach the release skill to refresh the docs site's counts\n\nStep 5 recomputes the built-in procedure count and greps for stale\ncitations, but only within this repo. The docs site cites the same\nnumbers and is a separate repo, so nothing ever refreshed it: the site\nsat at 601 built-in procedures while this repo was at 689, and at 14\nstandard libraries against a real 16.\n\nAdds a second grep over ../kaappi.github.io, notes that it needs its own\ncommit, and records that the \"600+\" phrasing on prose pages is\ndeliberate — it never goes stale, so only docs/conformance.md, which\nmirrors CONFORMANCE.md, should carry the exact figure.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-04T12:20:09+05:30",
-          "tree_id": "28cc8e16f8ab49dbeb5f93a4c96003ac8a09280f",
-          "url": "https://github.com/kaappi/kaappi/commit/ec875b3f0bb5e53ed94f4b1684d0f5b4db79ae90"
-        },
-        "date": 1785828116638,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.940312,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.542765,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.581398,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.837402,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004997,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.045584,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.297365,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.053876,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.384336,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.156596,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.533936,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.302503,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.736819,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.8518,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044893,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045931,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aba2468011db77d0c944de993d6af39b7e2a7a5d",
+          "message": "control: align tail-position/dynamic-wind error taxonomy; purge %unwind-to-escape (#2036, #2037) (#2343)\n\n* control: align tail-position and dynamic-wind error paths; purge %unwind-to-escape (#2036, #2037)\n\n#2036 — three control-flow error paths diverged from every other\nprimitive:\n\n- tail_call_cc's non-procedure receiver returned a detail-less\n  VMError.NotAProcedure, surfacing as KP3005 with the literal message\n  \"error\"; the same call one position away gave KP3002 naming the value.\n  The else arm now mirrors the non-tail path's typeError.\n- dynamic-wind's argument checks were Scheme-level `(error ...)`, so\n  error-object-code answered #f and the offending value was demoted to\n  an irritant. The checks now go through a native %check-procedure\n  (primitives.typeError), giving KP3002 with the value in the message.\n- compileCallCCTail / compileCallWithValuesTail / compileApplyTail\n  reported a proper-but-wrong-length operand list as KP2001 \"invalid\n  syntax\", abandoning the whole top-level form. Such lists now route\n  through the ordinary call path, so the runtime arity check reports\n  KP3003 exactly as the same form one position away does; improper\n  lists remain genuine syntax errors. The native tier's apply mirror\n  comment (llvm_emit_forms.zig) is updated to match — its <2-operand\n  abandon produces the identical runtime error via the eval fallback.\n\n#2037 — %unwind-to-escape was missing from\nvm_bootstrap.internal_helpers, so user code could pop the wind stack\nand the underflow surfaced as \"type error in '%pop-wind'\". It is purged\nnow, and popWindFn's underflow guard reports KP9001 (\"wind stack\nunderflow in '%pop-wind'\") per gc-safety-and-error-handling.md.\n\nOne deviation from the issue's fix shape, found the hard way: the\nclaimed \"pristine snapshot taken before the purge\" does not exist —\nregisterStandardLibraries snapshots globals into\nlibraries.internal_bindings only AFTER vm_bootstrap.install purges\n(both main.zig init paths and testing_helpers). Purging alone therefore\nbreaks every `guard` with\n`undefined variable '__kaappi_base__%unwind-to-escape'` (verified by\ntemporarily removing the seed). install() now seeds the entry itself,\nbefore the remove, which is order-independent and covers init paths\nthat never register libraries.\n\nTests: 4 disabled audit assertions enabled, plus new purge, guard-path,\nand tail-arity assertions (each fails without its fix — the pre-fix\nvalues KP3005/#f/KP2001/reachable were captured on the baseline\nbinary); the three direct-call %unwind-to-escape audit tests are gone\nwith the reachability they pinned, replaced by a guard-driven\nafter-thunk ordering pin. New Zig unit test in tests_libraries.zig\nlocks the purge+seed pair. Full unit suite, R7RS suite (1395),\nerror-format, error-object-code, continuation, guard-1988, and native\ncompile suites green. BASELINE (bare error-taxonomy returns) unchanged\nat 28.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* vm_dispatch: route tail call/cc type error through primitives.typeError\n\nReview nit on #2343: the tail path formatted the receiver with\nprinter.valueToString (a heap-allocated full print), while the non-tail\nsibling goes through primitives.typeError's safeValueDescription\n(bounded, cycle-safe, no allocation) -- identical for ordinary values\nbut able to diverge for exotic or cyclic receivers. The arm now calls\ntypeError directly and converts through mapNativeError, which passes\nthe already-set detail through untouched. Audit-pinned messages are\nbyte-identical (control audit 200/200; unit suite 1823 passed / 7\nskipped, exit 0).\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-26T06:05:44+05:30",
+          "tree_id": "b6652cb3dbf76875e20f0be10ff0bfd7a9dd9f8d",
+          "url": "https://github.com/kaappi/kaappi/commit/aba2468011db77d0c944de993d6af39b7e2a7a5d"
+        },
+        "date": 1787713401767,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.341755,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.765976,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.568818,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.032259,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004754,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047963,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.306158,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056034,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.778948,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.23307,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.661943,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.285562,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.780573,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.653233,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046993,
             "unit": "seconds"
           }
         ]
