@@ -5,7 +5,8 @@
 ;; Run directly: zig-out/bin/kaappi tests/scheme/srfi/srfi231-assembly.scm
 
 (import (scheme base) (scheme process-context) (srfi 64)
-        (srfi 231 intervals) (srfi 231 arrays) (srfi 231 views) (srfi 231 assembly))
+        (srfi 231 intervals) (srfi 231 arrays) (srfi 231 views)
+        (srfi 231 combinators) (srfi 231 assembly))
 
 (test-begin "srfi-231-assembly")
 
@@ -153,6 +154,25 @@
                   (array-block (make-array (make-interval (vector 2 2))
                                             (lambda (i j) (make-array (make-interval (vector 2)) (lambda (x) 0)))))
                   #f))
+
+;;; --- the spec's once-per-element access guarantee: array-decurry
+;;; evaluates each outer element exactly once (it fired 1 + outer-volume
+;;; + result-volume times before kaappi#2356), and array-block accesses
+;;; each source element exactly once (was twice) ---
+(let ((outer-calls 0))
+  (define d (array-decurry
+             (make-array (make-interval '#(2))
+                         (lambda (i) (set! outer-calls (+ outer-calls 1))
+                           (make-array (make-interval '#(3)) (lambda (j) (+ (* i 10) j)))))))
+  (test-equal '(0 1 2 10 11 12) (array->list d))
+  (test-equal 2 outer-calls))
+(let ((src-calls 0))
+  (define b (array-block
+             (array-tile (make-array (make-interval '#(2 2))
+                                     (lambda (i j) (set! src-calls (+ src-calls 1)) (+ (* i 10) j)))
+                         '#(1 1))))
+  (test-equal '(0 1 10 11) (array->list b))
+  (test-equal 4 src-calls))
 
 (let ((runner (test-runner-current)))
   (test-end "srfi-231-assembly")
