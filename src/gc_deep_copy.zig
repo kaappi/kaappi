@@ -324,11 +324,14 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
             if (rt.parent == null and rt.own_field_count == 0 and rt.uid == null and
                 !rt.sealed and !rt.is_opaque and !rt.has_protocol)
             {
-                // Plain R7RS record type (the common case) -- no SRFI 237
-                // metadata to carry across. `has_protocol` joins the guard
-                // rather than being copied afterwards: allocRecordType makes
-                // a type with no SRFI 237 metadata at all, so a type that has
-                // any must take the slow path below.
+                // Count-only record type (%make-record-type with no field
+                // specs) -- no metadata of any kind to carry across. R7RS
+                // define-record-type types carry field names since #2088,
+                // so they take the slow path below, as SRFI 237 types
+                // always have. `has_protocol` joins the guard rather than
+                // being copied afterwards: allocRecordType makes a type
+                // with no metadata at all, so a type that has any must take
+                // the slow path below.
                 const new_val = try gc.allocRecordType(rt.name, rt.num_fields);
                 carryIdentity(rt, new_val);
                 try visited.put(src_ptr, new_val);

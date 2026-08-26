@@ -52,8 +52,11 @@ pub const RecordType = struct {
     /// RecordInstance.fields. Equals own_field_count for an R7RS record
     /// type (no parent).
     num_fields: u8,
-    /// Length of own_field_names / own_field_mutable below. 0 for a plain
-    /// R7RS record type, which doesn't track individual field metadata.
+    /// Length of own_field_names / own_field_mutable below. 0 only for a
+    /// count-only type (`%make-record-type` without field specs); every
+    /// define-record-type path -- the R7RS positional one included, since
+    /// #2088 -- records its fields, so the SRFI 237/240 inspection layer
+    /// sees them.
     own_field_count: u8 = 0,
     /// SRFI 237 inheritance. The only Value-bearing/heap-pointer field on
     /// this struct -- traced in gc_collect.zig's referencesYoung,

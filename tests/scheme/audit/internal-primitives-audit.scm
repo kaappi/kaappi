@@ -123,9 +123,24 @@
 (test-assert "rt: valid"     (%record-type? (%make-record-type "T" 2)))
 (test-assert "rt: 0 fields"  (%record-type? (%make-record-type "T" 0)))
 (test-assert "rt: 255 max"   (%record-type? (%make-record-type "T" 255)))
-;; arity (KP3003)
+;; arity (KP3003). 3 arguments is legal since #2088 gave the primitive an
+;; optional per-field metadata list -- the same (name . mutable?) pair shape
+;; %make-record-type-descriptor's field-specs use -- so "too many" starts at 4.
 (test-assert "rt: too few"   (raises? (%make-record-type "T")))
-(test-assert "rt: too many"  (raises? (%make-record-type "T" 2 3)))
+(test-assert "rt: too many"  (raises? (%make-record-type "T" 2 '() 4)))
+;; the optional per-field metadata list (#2088)
+(test-assert "rt: field specs make an rtd"
+             (%record-type? (%make-record-type "T" 2 '(("a" . #f) ("b" . #t)))))
+(test-equal "rt: field specs record the names"
+            '(a b)
+            (%record-type-field-names (%make-record-type "T" 2 '(("a" . #f) ("b" . #t)))))
+(test-assert "rt: field specs record mutability"
+             (%record-field-mutable? (%make-record-type "T" 1 '(("a" . #t))) 0))
+(test-assert "rt: field specs see immutability"
+             (not (%record-field-mutable? (%make-record-type "T" 1 '(("a" . #f))) 0)))
+(test-assert "rt: specs disagreeing with the count rejected"
+             (raises? (%make-record-type "T" 2 '(("a" . #f)))))
+(test-assert "rt: specs not a list rejected" (raises? (%make-record-type "T" 2 3)))
 ;; type, each position independently
 (test-assert "rt: name not string" (raises? (%make-record-type 'T 2)))
 (test-assert "rt: count not int"   (raises? (%make-record-type "T" 'x)))

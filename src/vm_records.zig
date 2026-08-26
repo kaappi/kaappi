@@ -26,10 +26,28 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
     const all_field_count = spec.field_count;
     const ctor_field_count = spec.ctor_field_count;
 
-    const num_fields: u8 = @intCast(all_field_count);
+    // Field metadata (#2088): the rtd reports its field names/mutability to
+    // the SRFI 237/240 inspection layer exactly like the R6RS-clause and
+    // procedural paths do, so record-type-field-names answers the real
+    // names instead of #() and record-accessor/record-mutator work. R7RS
+    // 5.5.1: a field is mutable iff its clause names a mutator.
+    var field_mutable_buf: [256]bool = undefined;
+    for (0..all_field_count) |fi| {
+        field_mutable_buf[fi] = spec.mutator_names[fi] != null;
+    }
 
-    // Create the RecordType value
-    var rt_val = vm.gc.allocRecordType(type_name, num_fields) catch return VMError.OutOfMemory;
+    // Create the RecordType value (no parent/uid/sealed/opaque: an R7RS
+    // record type has none of those concepts, so this stays generative and
+    // transparent no matter what metadata it now carries).
+    var rt_val = vm.gc.allocRecordTypeExtended(
+        type_name,
+        null,
+        spec.field_names[0..all_field_count],
+        field_mutable_buf[0..all_field_count],
+        null,
+        false,
+        false,
+    ) catch return VMError.OutOfMemory;
     vm.gc.pushRoot(&rt_val);
     defer vm.gc.popRoot();
 
@@ -1040,12 +1058,30 @@ pub fn expandRecordTypeDefines(
     gc.no_collect += 1;
     errdefer gc.no_collect -= 1;
 
-    // 1. (define __rt (%make-record-type "name" num_fields))
+    // 1. (define __rt (%make-record-type "name" num_fields
+    //      (quote (("fname" . mutable?) ...))))
+    //
+    // The quoted field-specs list is the same (name-string . mutable?)
+    // shape %make-record-type-descriptor's fields argument uses, carrying
+    // this definition's per-field metadata (#2088) so the inspection layer
+    // sees the type's names. Mutable iff the field's clause names a
+    // mutator (R7RS 5.5.1).
     {
         const mrt_sym = globals_mod.baseBindingSymbol(gc, "%make-record-type") catch return CompileError.OutOfMemory;
         const name_str = gc.allocString(spec.type_name) catch return CompileError.OutOfMemory;
         const nf_val = types.makeFixnum(@intCast(spec.field_count));
-        def_inits[count.*] = gc.makeList(&[_]Value{ mrt_sym, name_str, nf_val }) catch return CompileError.OutOfMemory;
+
+        var spec_elems: [256]Value = undefined;
+        for (0..spec.field_count) |fi| {
+            const fname_str = gc.allocString(spec.field_names[fi]) catch return CompileError.OutOfMemory;
+            const fmut = if (spec.mutator_names[fi] != null) types.TRUE else types.FALSE;
+            spec_elems[fi] = gc.allocPair(fname_str, fmut) catch return CompileError.OutOfMemory;
+        }
+        const specs_list = gc.makeList(spec_elems[0..spec.field_count]) catch return CompileError.OutOfMemory;
+        const quote_sym = gc.allocSymbol("quote") catch return CompileError.OutOfMemory;
+        const quoted_specs = gc.makeList(&[_]Value{ quote_sym, specs_list }) catch return CompileError.OutOfMemory;
+
+        def_inits[count.*] = gc.makeList(&[_]Value{ mrt_sym, name_str, nf_val, quoted_specs }) catch return CompileError.OutOfMemory;
         def_names[count.*] = internal_name;
         extra_roots.append(gc.allocator, def_inits[count.*]) catch return CompileError.OutOfMemory;
         count.* += 1;
