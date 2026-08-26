@@ -181,6 +181,17 @@
 (test-equal #t (guard (e (#t #t))
                   (interval-projections (make-interval (vector 2 3)) 5) #f))
 
+;;; --- interval-scale rejects non-positive and non-integer scales up
+;;; front, as the reference does -- a negative scale on a zero-width axis
+;;; and a rational scale both silently produced plausible intervals
+;;; before kaappi#2357 ---
+(test-equal #t (guard (e (#t #t)) (interval-scale (make-interval '#(0)) '#(-1)) #f))
+(test-equal #t (guard (e (#t #t)) (interval-scale (make-interval '#(1)) '#(1/2)) #f))
+(test-equal #t (guard (e (#t #t)) (interval-scale (make-interval '#(3)) '#(0)) #f))
+(test-equal #t (guard (e (#t #t)) (interval-scale (make-interval '#(3)) '#(1.0)) #f))
+;; valid scaling is unchanged (ceiling semantics)
+(test-equal '(2 1) (interval-upper-bounds->list (interval-scale (make-interval '#(3 1)) '#(2 3))))
+
 (let ((runner (test-runner-current)))
   (test-end "srfi-231-intervals")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))
