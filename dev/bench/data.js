@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787715807590,
+  "lastUpdate": 1787716353515,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "b92c85a5346c9274edde8c5ff208b7f8440f1d5e",
-          "message": "Give a joined child's freed slots to the parent's quarantine (#2127) (#2223)\n\n* Give a joined child's freed slots to the parent's quarantine\n\nThe gc-stress use-after-free detector (#1687) could not see the one heap\nteardown that produces cross-heap dangling values in the first place.\nGC.deinit drained its quarantine unconditionally, so a joined SRFI-18\nchild's freed header slots went straight back to the allocator: the\nparent's next allocation recycled one, overwrote the FREED_OWNER\nsentinel, and the parent's next mark found a live-looking object. A\nstress run over a child-heap UAF was byte-identical to a release run and\nexited 0 -- for exactly the bug class the thread model makes most likely.\n\nThe drain itself is right; what was missing is that GC.deinit has two\nkinds of caller. At process exit there is nobody left to hold a dangling\npointer, so the allocator should have the slots back. At thread-join!\nthere is: a live parent with marks still to run. A GC can now name a\nquarantine_heir, and the join path names the parent, so the child's slots\nstay withheld until the parent's own release point -- and the panic that\n#1687 exists to raise actually fires.\n\nThe heir is set at the join site rather than in initForThread because the\nhandoff appends to the heir's quarantine, which has no lock; only the\njoining parent thread, past reapOsThread's thread.join(), knows nothing\nelse is still freeing on either GC.\n\nThis immediately turns #2027 into a deterministic panic in\nsrfi18-deepcopy-matrix-audit.scm, whose section E binds a child-created\nffi_function that the join aliases rather than copies. The file already\ndocuments that cell as `FAIL: #2027` and never dereferences the handle --\nthe collector is what trips, so no assertion can be commented out to\navoid it. It joins KAAPPI_GC_STRESS_SKIP under the existing \"real bugs\nthis gate found\" heading, for #2027's fix to delete.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Say that an heir with a different allocator gets no coverage\n\nThe heir paragraph described the choice as heir-or-drain, but naming an\nheir is only a request: quarantineHandOff refuses a heir whose allocator\nidentity differs, and refuses again if the transfer cannot be recorded,\ndraining in both cases. Neither refusal is reported anywhere, so a future\nteardown path wired across two allocators would read as covered and not\nbe. Say so where the decision is documented.\n\nReview feedback on #2223.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-05T00:51:30Z",
-          "tree_id": "5f7a0b1cba293ac23231838f84181341ce4742d1",
-          "url": "https://github.com/kaappi/kaappi/commit/b92c85a5346c9274edde8c5ff208b7f8440f1d5e"
-        },
-        "date": 1785892995503,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.255621,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.62556,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.583356,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.966901,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00481,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047618,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.315373,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056187,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.817237,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.214982,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.621741,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.292963,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.824601,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.537982,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045839,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045547,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2d4a8a9e0c3b858839254373e463cbb67d9bc8fa",
+          "message": "Finish the SRFI 166 rework: truly lazy trimmed/lazy and immutable state variables (#2344)\n\nThe #2292 rewrite left two specified behaviors unimplemented:\n\n- trimmed/lazy was a non-lazy alias of trimmed/right, so the spec's\n  defining property -- \"safe to use with an infinite amount of output,\n  e.g. from written-simply on an infinite list\" -- did not hold: a\n  circular list under written-simply hit a hard KP3008 stack overflow\n  inside the output capture.  The writer now streams one token at a time\n  (%write-stream; written/-shared/-simply thread each chunk through the\n  output state variable), and trimmed/lazy installs a counting output\n  hook that unwinds the generator itself via call/cc once the width\n  budget is spent, restoring the hook by hand on both exit paths.\n\n- make-state-variable accepted the immutable flag but nothing enforced\n  it; the spec allows an immutable variable to be \"only dynamically\n  bound with with, and not set with with!\", so with! on one is now an\n  error.\n\nTwo stack-safety rewrites came along with the streaming change, both\npinned by the audit: extract-shared-objects is an explicit enter/exit\nworklist (a 50,000-element list no longer overflows -- the exit-event\ntiming preserves the cycle-vs-sharing distinction exactly), and the\nwriter's list/vector spines are tail-recursive.  Dead helpers\n(%shared-ref-prefix/%shared-ref-cdr) were folded into the streamer.\n\nThe audit gains 26 assertions: the two fixed behaviors (which abort the\naudit with KP3008 / fail on the pre-fix tree), plus spec examples the\nsuite never covered -- numeric/fitted's three hash examples, joined/dot,\nthe writer state variable, written's cycle-vs-sharing labelling, the\ncomma-sep and decimal-align state variables, wrapped's word-separator?\ntokenization, escaped's renamer, string-terminal-width/wide, and the\nSRFI's own columnar+pretty+justified worked example.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-26T07:38:20+05:30",
+          "tree_id": "2aee4ebb3b1a41a149fa57d84008b7f5c33c893b",
+          "url": "https://github.com/kaappi/kaappi/commit/2d4a8a9e0c3b858839254373e463cbb67d9bc8fa"
+        },
+        "date": 1787716350594,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.045621,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.458106,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.440654,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.185307,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003767,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.035716,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.22073,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.042084,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.932833,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.879745,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.227929,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.233247,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.307848,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.380305,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.036492,
             "unit": "seconds"
           }
         ]
