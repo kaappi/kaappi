@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787732333518,
+  "lastUpdate": 1787782986379,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9e50a1200f4a6c0dc0adc9bdb48c7f0043ac6c31",
-          "message": "Stop discarding pasted input when the REPL drops out of raw mode (#2227)\n\n* Stop discarding pasted input when the REPL drops out of raw mode\n\nPasting a block with more than one top-level Scheme form into the REPL only\nevaluated the first form; everything after it silently vanished. Terminals\ncommonly deliver a pasted newline as a literal CR, the same byte a real Enter\nkeypress sends, so once the first form was complete on its own,\nisCompleteCallback submitted right there and ic_editline returned before the\nrest of the still-unread paste had even been read from the pty.\ntty_start_raw/tty_end_raw (vendor/isocline/src/tty.c) used TCSAFLUSH on every\nraw-mode transition, which discards exactly that unread input. Switch both to\nTCSADRAIN, which waits for pending output but leaves unread input alone.\n\nFixes #2226\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Detect signal-terminated REPL shutdown in the paste regression test\n\nAlso carry over the skip-vs-fail rationale comment from\nrepl-structural-editing-2216.sh at the same call, so a future reviewer of\nthis file doesn't have to rediscover why a missing prompt after real output\nis a skip rather than a failure.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-05T11:11:17+05:30",
-          "tree_id": "949bd98179fea963b941f6800f56d10e45f13c3a",
-          "url": "https://github.com/kaappi/kaappi/commit/9e50a1200f4a6c0dc0adc9bdb48c7f0043ac6c31"
-        },
-        "date": 1785911131993,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.264674,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.634688,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.590761,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.958973,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004699,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047049,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.312081,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.055955,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.684729,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.224335,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.587427,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.285688,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.793822,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.704496,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044126,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.036916,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f6014f62f5b3dadb34d3520506811f88d0830dec",
+          "message": "Cache .sld libraries and importing programs (#1888) (#2370)\n\n* Cache .sld libraries and importing programs (#1888)\n\nThe bytecode cache never engaged for a program that imports: .sld files\nwere never cached in either direction, and any of the eight top-level\ndeclaration heads refused the main file's cache outright, so 92% of the\ntest corpus recompiled everything it touched on every run.\n\nLibrary loads use \"structure from source, code from cache\": the entry\nstores the compiled body functions, the define-syntax transformers as\ndata, and an ordered event log; a HIT re-parses the (hash-validated)\n.sld and walks its declarations through the ordinary loader — imports\nreally load, exports are re-derived by name, cond-expand re-selects,\ndefine-record-type runs as data — but replays cached functions and\ntransformers wherever the cold path compiled. Running the body against\nthe reconstructed lib_env is what makes this safe where serializing\nvalues cannot be: closures capture the live environment, record types\nand every other runtime value are created exactly as cold, and the\nexport table comes out of the normal export-name lookup, so exports\ncontributed by include-library-declarations or cond-expand are present\nwarm for the same reason they are present cold (the failure mode of the\nold pre-#1888 cache-read path).\n\nInvalidation is layered on the key: each entry records its include\nfiles (path + content hash) and file-backed dependencies (relative\npath, resolved path, content hash), re-validated before a warm replay\nstarts. Editing a dependency stales every entry that transitively\nimported it; a --lib-path change that re-resolves a dependency\nelsewhere misses. Libraries whose cond-expand consulted library\navailability ((library ...) requirements, srfi-<n> feature ids) are\nnever cached — that answer depends on the live registry, not on\nanything a key can hash.\n\nThe two hazards that forced caching off are addressed: collected\nfunctions are rooted in gc.extra_roots for the load's duration (the\nserializer can no longer walk freed memory — the old use-after-free),\nand main files no longer refuse the eight heads: each becomes a\npositional declaration slot (its verbatim source span, re-dispatched\nthrough handleTopLevelForm on a HIT), keeping top-level order so the\n#2200 reorder class cannot arise.\n\nAlso fixes the reader's quadratic span recording: lineColAt rescanned\nfrom byte 0 per datum, so reading one large nested datum (every .sld)\ncost O(n^2) — profiling showed it, not compilation, dominated each\nload. A monotone line/col cursor answers incrementally; cold srfi-64\nloads drop 27.5ms -> 11.4ms and warm runs to 8.5ms on this machine.\n\nFormat v13: entry-kind byte, program slot section, library\ntransformer/event/include/dependency sections, TAG_CLOSURE. Older\nentries read back as ordinary misses. kaappi check / the LSP never\nwrite library entries (analysis-mode placeholder transformers must not\npoison one); --sandbox, --no-ir-opt, WASM and embedded/bundled loads\nstay outside the cache.\n\nTests: tests/scheme/cache/library-cache-1888.sh pins the issue's\nverification checklist (HIT on second run; program/library/include/\ndependency edits miss; --lib-path re-resolution misses; export-set\ncompleteness cold vs warm; exit-code parity); the differential corpus\ngoes from 40/345 files populating the cache to 354/368 with cold==warm\nbyte-identical; unit + gc-stress suites green.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: program-entry staleness, root safety, registry deps\n\nEight findings from the review of #1888, each with a regression check in\ntests/scheme/cache/library-cache-1888.sh (now 34 assertions):\n\n- Program entries carry include/dependency records, validated before a\n  HIT replays anything. A program's compiled slots embed imported-macro\n  expansions exactly like a library body's, so editing an imported\n  library's macros must stale the program entry too — previously only\n  ENTRY_LIBRARY entries tracked this, and the old eight-head refusal had\n  been the (accidental) guard.\n\n- Dependencies found via the registry short-circuit are recorded too:\n  file-backed libraries stamp their resolved path and source hash as\n  Library provenance, so an import order that loads the dependency\n  earlier can no longer hide it from the importer's entry.\n\n- All warm-path root dropping is by pointer identity (funcs and\n  transformers of the deserialized entry), never by truncation — the\n  load's own body execution can append longer-lived roots above the\n  deserialize roots (a fiber awaiting thread-join!, a rootedSlot\n  eval-cache entry) that truncation would silently unroot. The\n  beginWarmLoad miss paths now drop those roots as well instead of\n  pinning one compiled body per stale entry for the process lifetime.\n\n- endWarmLoad's desync path pops the collector frame before erroring, so\n  a swallowed include-form desync cannot leak the frame and shift every\n  enclosing load's collector by one.\n\n- runFile only replays ENTRY_PROGRAM entries with a slot stream: a\n  LIBRARY entry shares its cache key with running the .sld directly, and\n  the old \"legacy no-slots\" fallback was exactly the misfire path (dead\n  code for its stated purpose — the VERSION check rejects pre-v13\n  entries). The kind mismatch now reads as an ordinary miss.\n\n- Declaration slots carry the reader's fold-case state (a #!fold-case\n  directive falls inside an earlier form's span), so a folded\n  (IMPORT ...) is claimed as a declaration on the warm run too.\n\n- The reader's monotone cursor is advanced to the datum's start BEFORE\n  reading it; the old flow queried the start after nested children had\n  pushed the cursor past the end, taking the O(offset) backward rescan\n  for every enclosing list — the quadratic span recording the cursor\n  was meant to remove.\n\nThe include/dependency sections are now shared by the program and\nlibrary entry kinds (layout change within v13; golden/endian and fuzz\nfixtures regenerated).\n\nAll suites green: unit, gc-stress, differential (368/368, cache\nexercised 354/368), full run-all (2114 pass / 0 fail).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address second review round: corrupt-read leaks, run-record completeness\n\nFindings from the second review pass (one new inline comment plus the\nCodeRabbit sweep), each verified before fixing:\n\n- Corrupt-cache reads leaked their partially-read sections: `errdefer`\n  does not fire on `return null`, so every truncation/corruption exit in\n  the deserializer's tail skipped its own cleanup and the outer funnel\n  only freed sections already attached to the result. The tail's corrupt\n  exits now return BytecodeError.CorruptedFile (the errdefers and the\n  funnel both run), with a thin wrapper mapping non-OOM errors back to a\n  plain miss for every caller — readFileWithTopLevel, cache status's\n  loadability dry-run, and the fuzz loader see identical behavior. The\n  include section also reorders its reads so nothing can fail between\n  the path dupe and the assignment that makes the loop's errdefer own\n  it. A truncation-sweep unit test pins leak-freedom (it failed before\n  the fix).\n\n- writeTransformer now enforces the reader's per-slice caps on\n  literal_bound / captured_locals / bound_free_refs /\n  def_site_local_refs — the writer-refuses-what-the-reader-rejects\n  contract (kaappi#2113); an oversized transformer is a loud\n  LimitExceeded, not a permanent silent miss.\n\n- tests_fuzz's freeLoaded double-freed bundled_files/preamble after\n  freeDeserializeResult had already reclaimed them.\n\n- beginWarmLoad's nesting-overflow path now pops the depth marker push()\n  leaves behind; without it one 9-deep import chain permanently shifted\n  every enclosing collector and skipped their root removal.\n\n- Main-file top-level includes feed the run recorder after all: the\n  structure-depth flag is now bumped around runFile's head dispatch, so\n  `#!`-free structure reaches openIncludeFile (a runtime eval's include\n  still records nothing).\n\n- A program's dependency records now inherit each loaded library's own\n  include/dependency closure (recorded where the records are at hand:\n  endWarmLoad and a successful endColdLoad), because a program's slots\n  embed the library's macro expansions, which can change through any\n  file in that closure — an include-file edit now stales the importing\n  program too. When a dependency is unrecordable (a library that\n  declined caching, or whose entry write failed) the run is poisoned and\n  the program entry declines rather than serving stale slots forever\n  (--timings: \"not cached: uncacheable dependency\").\n\n- Library entries moved to their own cache-key namespace\n  (cache.pathForLibrary): running a .sld directly writes a PROGRAM entry\n  at the same source path the import path uses for the LIBRARY entry,\n  and the shared key meant each access pattern clobbered the other's\n  entry every time it ran.\n\n- Declaration-only programs (an import-only script) are cacheable: the\n  reader rejected func_count == 0 for every non-library kind, so those\n  entries could never read back.\n\n- timings: the JSON libcache object carries the decline reason; the\n  library-cache shell test now asserts the PROGRAM entry misses on every\n  transitive invalidation, uses a side-effecting library to discriminate\n  the direct-.sld check from a body-thunk misfire, and covers the new\n  scenarios (39 assertions).\n\nAll suites green: unit, gc-stress, differential (368/368, cache\nexercised 354/368), full run-all (2114 pass / 0 fail), wasm build.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Record run dependencies even when the library entry write fails\n\nRound-3 review finding: endColdLoad's write-failure branch (LimitExceeded,\nUnsupportedConstant, or any other write error) neither recorded the run\ndependency nor poisoned the run, so the program entry was written with no\nrecord of that library at all — editing the library's macros then left\nthe program HIT serving stale compiled slots, exactly the silent-staleness\nclass the surrounding commit closes. The four new writeTransformer caps\nmade oversized transformer fields a fresh trigger for precisely this\nbranch.\n\nThe run records do not depend on the entry existing — recordsValid\nre-resolves and re-hashes the filesystem — so the fix records the\ndependency and inherits the library's include/dependency closure on a\nfailed write instead of poisoning, keeping program caching enabled and\ncorrect (poisoning would have declined the program entry entirely).\n\ntests/scheme/cache/library-cache-1888.sh grows a section for it (44\nassertions now): a library carrying a literal nested past the .sbc depth\ncap (write refused with a reason), whose importer still HITs warm with\nthe dependency recorded, and whose macro edit then misses the program\nentry and runs the new expansion.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-26T21:35:30Z",
+          "tree_id": "a4f712503bb964ed675c3a8b40f2b918d125926a",
+          "url": "https://github.com/kaappi/kaappi/commit/f6014f62f5b3dadb34d3520506811f88d0830dec"
+        },
+        "date": 1787782984042,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.303024,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.985063,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.561909,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.997488,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004941,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047396,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.308388,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055296,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.956209,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.262109,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.628237,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.271723,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.775694,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.701007,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046266,
             "unit": "seconds"
           }
         ]
