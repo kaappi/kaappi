@@ -28,25 +28,28 @@
 ;;;
 ;;; specialized-array-reshape's affine-detectability test is, in the
 ;;; spec's own words, "modeled on the corresponding code in the Python
-;;; library NumPy" and not specified in prose beyond that -- the
-;;; reference implementation's actual algorithm (empirically probing
-;;; strides, filtering size-1 axes, greedily matching adjacent-axis
-;;; volume groups between old and new shapes, verifying C-contiguity
-;;; within each group) is substantially more general than what's
-;;; implemented here. This port deliberately implements a conservative
-;;; special case instead: reshape succeeds zero-copy whenever the SOURCE
-;;; array is already array-packed? (the overwhelmingly common real case,
-;;; e.g. reshaping a fresh array-copy result), using a plain row-major
-;;; reindex; otherwise it behaves exactly as the spec allows for a
-;;; failed detection (error, or a forced copy-then-retry when
-;;; copy-on-failure? is #t). This never wrongly claims an affine map
-;;; exists (so it's never incorrect), but is more conservative than the
-;;; full algorithm for some non-packed-but-still-affinely-reshapable
-;;; arrays (e.g. some genuinely strided views) -- confirmed against both
-;;; of the spec's own worked examples (a packed array reshaping
-;;; successfully; a array-sample'd non-packed array failing without
-;;; copy-on-failure? and succeeding with it), which this simplification
-;;; handles identically to the full algorithm.
+;;; library NumPy" and not specified in prose beyond that. This port
+;;; follows the reference implementation's actual algorithm, derived from
+;;; NumPy's _attempt_nocopy_reshape: empirically probe the source array's
+;;; own (affine) indexer to recover its base and per-axis strides, drop
+;;; the size-1 axes, then greedily match minimal adjacent-axis volume
+;;; groups between the old and new shapes, verifying within each group
+;;; that the old strides are C-contiguous (stride[k] = dim[k+1] *
+;;; stride[k+1]) so a single affine map covers the group. A reversed or
+;;; otherwise negatively-strided view is handled correctly -- its strides
+;;; still satisfy the C-contiguity relation, just with a negative unit --
+;;; which is why a plain packed-only shortcut (the previous port here)
+;;; wrongly rejected e.g. (specialized-array-reshape (array-reverse ...)
+;;; ...). When no affine map exists the procedure behaves exactly as the
+;;; spec allows: error, or a forced copy-then-retry when copy-on-failure?
+;;; is #t (the copy is packed, so the retry always succeeds).
+;;;
+;;; The reshape matching loops (loop-1..loop-4 in %specialized-array-reshape)
+;;; are a line-by-line translation of NumPy's _attempt_nocopy_reshape
+;;; (numpy/core/src/multiarray/shape.c), by way of the SRFI 231 reference
+;;; implementation, which carries the same derivation note. NumPy is
+;;; distributed under the BSD 3-Clause License, Copyright (c) 2005-2024,
+;;; NumPy Developers.
 (define-library (srfi 231 views)
   (import (scheme base)
           (srfi 231 misc) (srfi 231 intervals) (srfi 231 storage-classes) (srfi 231 arrays))
@@ -332,9 +335,40 @@
     (define (array-copy! array . opts) (%array-copy-impl array opts))
 
     ;; --- specialized-array-reshape: see the file header for the
-    ;; documented conservative simplification (packed-check based rather
-    ;; than the reference implementation's full NumPy-derived multi-group
-    ;; stride-matching algorithm). ---
+    ;; algorithm description. ---
+
+    ;; Returns all-lowers first, then one multi-index per axis with that
+    ;; single axis incremented by 1 (staying in-domain if the axis width
+    ;; permits, else left at its lower bound). Probing the array's affine
+    ;; indexer at the base and at each of these recovers base + per-axis
+    ;; strides. Mirrors the reference impl's %%compute-multi-index-increments.
+    (define (%reshape-index-increments lowers uppers)
+      (if (null? lowers)
+          (list lowers)
+          (let* ((rest (%reshape-index-increments (cdr lowers) (cdr uppers)))
+                 (lower (car lowers))
+                 (upper (car uppers))
+                 (next (+ lower 1)))
+            (cons (cons lower (car rest))
+                  (cons (cons (if (< next upper) next lower) (car rest))
+                        (map (lambda (mi) (cons lower mi)) (cdr rest)))))))
+
+    ;; Keep vector element k iff (pred k) -- filters BY INDEX, not by value.
+    (define (%vector-filter-by-index pred v)
+      (let loop ((k 0) (acc '()))
+        (if (= k (vector-length v))
+            (list->vector (reverse acc))
+            (loop (+ k 1) (if (pred k) (cons (vector-ref v k) acc) acc)))))
+
+    ;; base + sum_i strides_i * (index_i - lower_i) -- the generic affine
+    ;; body-offset indexer the NumPy grouping produces.
+    (define (%reshape-affine-indexer base lowers strides)
+      (lambda multi-index
+        (let loop ((acc base) (mi multi-index) (lo lowers) (st strides))
+          (if (null? mi)
+              acc
+              (loop (+ acc (* (car st) (- (car mi) (car lo))))
+                    (cdr mi) (cdr lo) (cdr st))))))
 
     (define (specialized-array-reshape array new-domain . maybe-copy-on-failure)
       (unless (specialized-array? array) (error "specialized-array-reshape: not a specialized array" array))
@@ -342,8 +376,11 @@
       (unless (= (interval-volume new-domain) (interval-volume (array-domain array)))
         (error "specialized-array-reshape: new-domain volume does not match array's volume" new-domain array))
       (let ((copy-on-failure? (if (null? maybe-copy-on-failure) #f (car maybe-copy-on-failure))))
-        (cond
-         ((array-empty? array)
+        (%check-boolean! copy-on-failure? "specialized-array-reshape: copy-on-failure?")
+        (%specialized-array-reshape array new-domain copy-on-failure?)))
+
+    (define (%specialized-array-reshape array new-domain copy-on-failure?)
+      (if (array-empty? array)
           ;; any empty array reshapes trivially to any other same-volume
           ;; (also empty) domain -- its getter/setter can never actually
           ;; be invoked, so a placeholder is safe.
@@ -353,23 +390,80 @@
                             (%safe-setter new-domain (lambda (v) #t)
                                           (lambda (val . multi-index) (error "unreachable: empty array access"))))
                        (array-body array) (lambda multi-index 0)
-                       (array-storage-class array) (array-safe? array)))
-         ((array-packed? array)
-          (let* ((storage-class (array-storage-class array))
-                 (body (array-body array))
-                 (base (apply (array-indexer array) (interval-lower-bounds->list (array-domain array))))
-                 (lex (%make-lex-indexer new-domain))
-                 (new-indexer (lambda multi-index (+ base (apply lex multi-index))))
-                 (safe? (array-safe? array))
-                 (mutable? (mutable-array? array))
-                 (raw-getter (lambda multi-index
-                               ((storage-class-getter storage-class) body (apply new-indexer multi-index))))
-                 (raw-setter (lambda (val . multi-index)
-                               ((storage-class-setter storage-class) body (apply new-indexer multi-index) val)))
-                 (getter (if safe? (%safe-getter new-domain raw-getter) raw-getter))
-                 (setter (and mutable?
-                              (if safe? (%safe-setter new-domain (storage-class-checker storage-class) raw-setter) raw-setter))))
-            (%make-array new-domain getter setter body new-indexer storage-class safe?)))
-         (copy-on-failure? (specialized-array-reshape (array-copy array) new-domain #f))
-         (else (error "specialized-array-reshape: requested reshape is not affinely representable without copying"
-                      array new-domain)))))))
+                       (array-storage-class array) (array-safe? array))
+          (let* ((indexer (array-indexer array))
+                 (domain (array-domain array))
+                 (lowers (interval-lower-bounds->list domain))
+                 (uppers (interval-upper-bounds->list domain))
+                 (sides (interval-widths domain))
+                 (increments (%reshape-index-increments lowers uppers))
+                 (base (apply indexer (car increments)))
+                 (strides (list->vector (map (lambda (mi) (- (apply indexer mi) base))
+                                             (cdr increments))))
+                 ;; drop the size-1 axes: they contribute no stride and
+                 ;; would derail the adjacent-group matching below.
+                 (keep? (lambda (i) (not (eqv? 1 (vector-ref sides i)))))
+                 (olddims (%vector-filter-by-index keep? sides))
+                 (oldstrides (%vector-filter-by-index keep? strides))
+                 (newdims (interval-widths new-domain))
+                 (newnd (vector-length newdims))
+                 (oldnd (vector-length olddims))
+                 ;; Any new axis not assigned a stride by the matching below
+                 ;; is a width-1 axis, whose (index - lower) term is always 0,
+                 ;; so its stride value is never observed -- leaving it 0 is
+                 ;; safe (the reference notes NumPy instead sets these to a
+                 ;; value; "we leave it zero").
+                 (newstrides (make-vector newnd 0))
+                 (fail (lambda ()
+                         (if copy-on-failure?
+                             (%specialized-array-reshape (array-copy array) new-domain #f)
+                             (error "specialized-array-reshape: requested reshape is not affinely representable without copying"
+                                    array new-domain))))
+                 (build
+                  (lambda ()
+                    (let* ((storage-class (array-storage-class array))
+                           (body (array-body array))
+                           (new-indexer (%reshape-affine-indexer
+                                         base
+                                         (interval-lower-bounds->list new-domain)
+                                         (vector->list newstrides)))
+                           (safe? (array-safe? array))
+                           (mutable? (mutable-array? array))
+                           (raw-getter (lambda multi-index
+                                         ((storage-class-getter storage-class) body (apply new-indexer multi-index))))
+                           (raw-setter (lambda (val . multi-index)
+                                         ((storage-class-setter storage-class) body (apply new-indexer multi-index) val)))
+                           (getter (if safe? (%safe-getter new-domain raw-getter) raw-getter))
+                           (setter (and mutable?
+                                        (if safe? (%safe-setter new-domain (storage-class-checker storage-class) raw-setter) raw-setter))))
+                      (%make-array new-domain getter setter body new-indexer storage-class safe?)))))
+            ;; NumPy's _attempt_nocopy_reshape, transcribed. Walk minimal
+            ;; adjacent-axis groups of equal volume in the old and new
+            ;; shapes; within each old group require C-contiguity so one
+            ;; affine stride covers it, then derive the new group's strides.
+            (let loop-1 ((oi 0) (oj 1) (ni 0) (nj 1))
+              (if (and (< ni newnd) (< oi oldnd))
+                  (let loop-2 ((nj nj) (oj oj)
+                               (np (vector-ref newdims ni))
+                               (op (vector-ref olddims oi)))
+                    (if (not (= np op))
+                        (if (< np op)
+                            (loop-2 (+ nj 1) oj (* np (vector-ref newdims nj)) op)
+                            (loop-2 nj (+ oj 1) np (* op (vector-ref olddims oj))))
+                        (let loop-3 ((ok oi))
+                          (if (< ok (- oj 1))
+                              (if (not (= (vector-ref oldstrides ok)
+                                          (* (vector-ref olddims (+ ok 1))
+                                             (vector-ref oldstrides (+ ok 1)))))
+                                  (fail)
+                                  (loop-3 (+ ok 1)))
+                              (begin
+                                (vector-set! newstrides (- nj 1) (vector-ref oldstrides (- oj 1)))
+                                (let loop-4 ((nk (- nj 1)))
+                                  (if (< ni nk)
+                                      (begin
+                                        (vector-set! newstrides (- nk 1)
+                                                     (* (vector-ref newstrides nk) (vector-ref newdims nk)))
+                                        (loop-4 (- nk 1)))
+                                      (loop-1 oj (+ oj 1) nj (+ nj 1)))))))))
+                  (build))))))))
