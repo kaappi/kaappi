@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787687021675,
+  "lastUpdate": 1787709315324,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "72d941a10b95ae9380b4036dbb996ed361acae8e",
-          "message": "Point CONTRIBUTING.md at kaappi/community for get-involved content (#2201)\n\nThe \"How to get involved\" section duplicated kaappi/community's\nCONTRIBUTING.md (and kaappi.github.io/docs/community.md) almost\nverbatim. Link to the canonical version instead so there's one place\nto update the Discussions/org-access/contributor-path guidance.",
-          "timestamp": "2026-08-03T18:13:09+05:30",
-          "tree_id": "a677d00527b500fa34087a319d8685821be39146",
-          "url": "https://github.com/kaappi/kaappi/commit/72d941a10b95ae9380b4036dbb996ed361acae8e"
-        },
-        "date": 1785763451383,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.332802,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.928676,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.571967,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.987321,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004735,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046746,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.31145,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057765,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.656797,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.220524,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.615336,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.276956,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.809151,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.591435,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042694,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045789,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6565e7835a905b22b666feceed3ac1dd766ef6d4",
+          "message": "SRFI 231: validate boolean options and reshape strided views (#2351)\n\n* SRFI 231: validate boolean options and reshape strided views\n\nTwo anomalies reported by Brad Lucier (SRFI 231 author) after v0.24.0, both\n\"it is an error\" conditions the implementation failed to enforce or reshapes\nit wrongly rejected.\n\nlist->array/vector->array accepted a non-boolean mutable?/safe? option and\nspecialized-array-reshape accepted a non-boolean copy-on-failure?, silently\nreturning a wrong-typed array instead of raising. Add %check-boolean! at each\nsite, matching the reference implementation's per-argument checks.\n\nspecialized-array-reshape only handled the array-packed? case, so it raised\n\"not affinely representable\" for a reversed (negatively-strided) view whose\nelements are still affinely reachable by stepping the body backwards. Replace\nthe packed-only shortcut with a faithful port of the reference's NumPy\n_attempt_nocopy_reshape: probe the affine indexer for base + per-axis strides,\ndrop size-1 axes, greedily match adjacent-axis volume groups, and verify\nC-contiguity within each group. Genuinely non-affine reshapes still raise;\nbody sharing is preserved.\n\nRegression tests mirror the reference suite's reversed / per-axis-flipped /\narray-sample'd reshapes and its non-affine test-error cases.\n\nCloses #2350\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* SRFI 231: address reshape review nits (docs + attribution)\n\nFollow the PR review on the reshape port:\n- Trim the stale section banner that still described the old packed-only\n  simplification (contradicting the rewritten file header).\n- Note why unassigned newstrides left at 0 are safe (only width-1 new axes\n  keep 0, whose (index - lower) term is always 0, so the value is unobserved).\n- Add the NumPy BSD 3-Clause attribution the reference carries, since the\n  loop-1..loop-4 matching is a line-by-line translation of\n  _attempt_nocopy_reshape.\n\nComments only; no behavior change.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-26T05:59:48+05:30",
+          "tree_id": "f0e2d146726aca8444a847ad0c1c4ff72933e21b",
+          "url": "https://github.com/kaappi/kaappi/commit/6565e7835a905b22b666feceed3ac1dd766ef6d4"
+        },
+        "date": 1787709313667,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.953683,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.387151,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.57233,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.81978,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004858,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04621,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.282546,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053456,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.52086,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.121562,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.582839,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.309553,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.670991,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.836407,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046431,
             "unit": "seconds"
           }
         ]
