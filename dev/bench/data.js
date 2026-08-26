@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787713302463,
+  "lastUpdate": 1787713335547,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "fbd9f4643a8fe15a94a2951559efdca49a26c5a4",
-          "message": "Give the native backend's re-lowered bodies their lexical scope (#2210)\n\n* Give the native backend's re-lowered bodies their lexical scope\n\nThe LLVM backend does not emit from the IR tree it is handed: every\nlambda, closure and let body is still a raw S-expression there and is\nre-lowered during emission through a scratch IR that has no Compiler.\nTwo IR fields stand in for that Compiler, and both were under-supplied.\n\n`bound_names` held only the immediate frame's parameter names, so a\nbinding one level out was invisible — and it feeds two different\ndecisions, not one: `isRedefined`'s fold gate (#2117) and\n`lowerFormWithMacros`'s special-form-vs-call dispatch (#2118). It is now\n`LLVMEmitter.lexicalNames`, derived from the same locals/boxes/rest/\nparams/upvalues maps `emitGlobalRef` resolves against rather than kept\nas a parallel list, since a parallel list is what drifted.\n\n`set_targets` was never supplied at all, so a `set!` in the enclosing\nbody did not suppress a later fold in that same body (#2117 route 1).\nnative_compiler now runs the interpreter's own `set!` pre-scan — minus\nmacro expansion, which needs a Compiler, and which the backend already\ndeclines a body for (#1807) — and hands the map to the emitter.\n\n`lowerScoped` is now the one way to re-lower a sub-form; the scope-less\n`ir.lowerSingleExpr`/`lowerSingleExprTail` it replaces are deleted so\nthe omission cannot recur. That also closes the let-body and cond/case/do\ncases, which had no shadowing information whatsoever: `(let ((+ -)) (+ 1 2))`\nprinted 3 natively and -1 under the interpreter.\n\nThe three .scm suites that already owned these bugs —\nlambda-param-shadows-keyword-788, lambda-param-shadow-fold-790,\nset-redefine-fold — passed the whole time because no suite ran them\nthrough `kaappi compile`. The new compile script does, alongside 16\nper-route tier comparisons including the issues' own discriminating\ncontrols; against the unfixed backend the three suites fail 9, 1 and 6\nassertions respectively.\n\nCloses #2117\nCloses #2118\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Cover #2211's four scope-less lowering sites in the compile test\n\nThe compile script pinned four of the eleven divergences #2211 reports.\nAdd the other seven — let*, a let-bound `quote`, case, do, an apply\noperand, and a let shadowing seen from a nested let in both nesting\ndirections — plus that issue's own control, a lambda capturing an\nunboxed let-local, which declines native compilation outright and so was\ncorrect on both tiers all along.\n\n18 of the 24 comparisons now diverge against the pre-fix backend; the\nother 6 are the controls.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: pin the tier, compare Part A, cover initializers\n\nThree of CodeRabbit's findings on #2210 were right.\n\nThe tests_native assertions were shaped \"this fold did not happen\",\nwhich a frame that never compiled natively satisfies vacuously. All nine\nprograms do compile natively today (checked: zero eval fallbacks), so\nnothing was passing falsely — but the shape is the bug, not the current\nanswer. expectNativeTier now pins the tier first.\n\nPart A checked only the compiled suites' sentinel and exit status, not\ntier agreement, on the grounds that the VM echoes their bare `#t`\nresults. Stripping exactly those lines makes the comparison work, and it\nis strictly more informative: against the pre-fix backend the three\nsuites now report a stdout mismatch and an exit-status mismatch rather\nthan just a missing sentinel.\n\nThe let/let* binding INITIALIZERS (llvm_emit_let.zig:212 and :264) had\nno coverage — every case exercised the body at :361. Three added; all\nthree diverge pre-fix, including a let* initializer shadowed by an\nearlier binding of its own let*.\n\n24 of the 30 comparisons now diverge against the pre-fix backend.\n\nAlso correct the scanSetTargetsWithoutMacros comment, which claimed its\nmacro-free limit \"lines up\" with the backend's macro-use decline. True\nfor a body; false at top level across forms, where a macro expanding to\n(set! + -) leaves the name unrecorded and a later form still folds it.\nThat is pre-existing (#822's tracker is macro-blind the same way) and\nreproduces identically at 798cb607, so it is filed as #2212 rather than\nfixed here.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-04T05:30:45Z",
-          "tree_id": "7adef1ce2dd485701fadaeb82787d9ad1bd6a010",
-          "url": "https://github.com/kaappi/kaappi/commit/fbd9f4643a8fe15a94a2951559efdca49a26c5a4"
-        },
-        "date": 1785823180872,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.356961,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.33172,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.587946,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.994815,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004701,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047533,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.314747,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.0584,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.698916,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.234025,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.627507,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.286174,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.802624,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.654116,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043819,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.029042,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "92346fabc6076a03b97afbb2e73a9e90013da30f",
+          "message": "thottam: regression tests for state-file name validation (#2144) (#2346)\n\nThe code fix for #2144 — isValidPkgName guarding every read path out of\ninstalled.txt / thottam.lock in list, update and verify — landed with\n#2289, but nothing pinned the behaviour: reverting those five guards\nwould have passed the whole suite.\n\nThis adds the missing regression tests in src/tests_thottam.zig. They\ndrive doList/doUpdate/doVerify (now pub, with Config, so the test file\ncan run them against a throwaway $KAAPPI_HOME) with a traversal-shaped\nname planted in the state files, capture what the commands print via a\npipe swap of fd 1/2 (the commands write straight to the descriptors;\npipe/dup/dup2 are CRT calls on Windows too), and assert:\n\n- doList lists the real package and never prints the hostile line\n- doVerify names a hostile lockfile or installed.txt line as MALFORMED\n  and fails verification (pre-fix: the lockfile form exited clean, the\n  installed.txt form was reported as UNLOCKED after joining the name\n  onto src_dir for getPkgSha)\n- doUpdate rejects a hostile command-line name with the same loud error\n  as install/remove (pre-fix: NotInstalled)\n- update of every package skips hostile names silently (pre-fix: it\n  announced the package and ran git in the directory the traversal\n  names — TmpHome creates that directory as a plain non-repo so a\n  regression fails by assertion instead of killing the runner)\n\nAll five fail with the guards stripped and pass with them.\n\nOne adjacent gap found running the issue's repro: main()'s update\nhandler did not list InvalidPackageName, so 'thottam update <bad-name>'\nprinted the proper message and then Zig's raw 'error:\nInvalidPackageName' line. Install and remove already suppress it that\nway (kaappi#2132); update now does too.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-26T06:02:54+05:30",
+          "tree_id": "4a6dc5e63d355c0cabb4383a684873948a017a90",
+          "url": "https://github.com/kaappi/kaappi/commit/92346fabc6076a03b97afbb2e73a9e90013da30f"
+        },
+        "date": 1787713333464,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.391516,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.651403,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.569769,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.04362,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004603,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048256,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.31099,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057299,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.849959,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.239469,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.659829,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.290388,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.796854,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.647415,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045931,
             "unit": "seconds"
           }
         ]
