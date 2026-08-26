@@ -137,4 +137,41 @@ test "eval nested do with guard capturing the outer loop variable (#2360)" {
         \\  acc)
     ;
     try std.testing.expectEqual(@as(i64, 3), types.toFixnum(try vm.eval(src2)));
+
+    // The same corruption through the OTHER implicit-closure forms (the
+    // #2360 review): let-values and parameterize desugar to internal
+    // lambdas, and a user macro expanding to a capturing lambda is
+    // invisible to any pre-expansion capture scan -- which is why the
+    // scan now boxes every referenced local instead of whitelisting
+    // closure-introducing forms.
+    const lv =
+        \\(let ((acc 0))
+        \\  (do ((n 0 (+ n 1))) ((= n 3))
+        \\    (do ((i 0 (+ i 1))) ((= i n))
+        \\      (set! acc (+ acc (let-values (((x) (values (+ n i)))) x)))))
+        \\  acc)
+    ;
+    try std.testing.expectEqual(@as(i64, 6), types.toFixnum(try vm.eval(lv)));
+
+    const prm =
+        \\(define pr-2360 (make-parameter 0))
+        \\(let ((acc 0))
+        \\  (do ((n 0 (+ n 1))) ((= n 3))
+        \\    (do ((i 0 (+ i 1))) ((= i n))
+        \\      (set! acc (+ acc (parameterize ((pr-2360 0)) (+ n i))))))
+        \\  acc)
+    ;
+    try std.testing.expectEqual(@as(i64, 6), types.toFixnum(try vm.eval(prm)));
+
+    const mac =
+        \\(define-syntax capture-2360
+        \\  (syntax-rules ()
+        \\    ((_ expr) (lambda () expr))))
+        \\(let ((acc 0))
+        \\  (do ((n 0 (+ n 1))) ((= n 3))
+        \\    (do ((i 0 (+ i 1))) ((= i n))
+        \\      (set! acc (+ acc ((capture-2360 (+ n i)))))))
+        \\  acc)
+    ;
+    try std.testing.expectEqual(@as(i64, 6), types.toFixnum(try vm.eval(mac)));
 }
