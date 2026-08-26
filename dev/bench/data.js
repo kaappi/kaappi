@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787713510544,
+  "lastUpdate": 1787715065068,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "48fe81d3f32b71d2f476075df51e7971b6ca0879",
-          "message": "Move the REPL onto isocline for real multi-line editing (#2219)\n\n* Move the REPL onto isocline for real multi-line editing\n\nThe prompt read one physical line per call and joined continuation lines\nitself, so once Enter was pressed that line had left the editor: a typo on\nline 1 of a define, spotted on line 4, meant Ctrl-C and retyping the form.\nThis replaces linenoise with isocline, which holds a whole form in one buffer,\nso up/down move within the form and reach history only at its edges.\n\nThe vendored linenoise fork cannot close that gap. Its refreshMultiLine sizes\nthe screen with pure wrap arithmetic (rows = (pwidth+bufwidth+cols-1)/cols)\nand knows nothing about embedded newlines — which is why it folds pasted\nmulti-line text to \"[... N pasted lines ...]\" rather than drawing it. Teaching\nit newlines means rewriting its refresh engine, cursor motion, and up/down\nhandling. isocline is that rewrite, already done and shipping (it is Koka's\neditor). See kaappi#2218 for the full analysis, including why bestline is not\nthe answer.\n\nThe reader decides what is complete. parenDepth — a second, hand-written\nScheme scanner, 127 lines — drifted from the real one twice: kaappi#358 (char\nliterals and pipe-quoted symbols) and kaappi#542 (`#;` scanned as a line\ncomment). It is replaced by inputIncomplete, which asks\nReader.incomplete_input, the same scanner the file path uses, so the two\ncannot disagree about where a datum ends. The probe restores the newline the\neditor stripped: without it the reader refuses to finalize a token at\nend-of-buffer, since more bytes could extend it, and every bare atom typed at\nthe prompt would report UnexpectedEof and strand the session on \"  ... \". A\nnew record_spans flag keeps the probe from populating gc.source_spans with\ndatums it throws away — that table is never pruned.\n\nVendored at upstream 8d6dc1ef95b1b46711e66eb23d39d4467a0fcdac (v1.1.0), MIT.\nsrc/isocline.c #includes the other translation units, so it is one C file to\nthe build. Two patches, marked KAAPPI PATCH in the source and documented in\nvendor/isocline/PATCHES.md:\n\n  1. An input-completeness callback. Upstream submits on Enter unless the line\n     ends in a continuation character; a Lisp prompt needs the text, not the\n     keystroke, to decide.\n  2. Configurable history size. Upstream clamps every history to 200 entries\n     regardless of the request; repl.history-length defaults to 1000.\n\nEverything else falls out of the one-buffer model:\n\n  - findMatchingOpen and the accumulated_input splice are deleted. That hack\n    reached back across the continuation seam for paren matching; there is no\n    seam now, and isocline matches braces itself — limited to \"()\" because the\n    reader gives brackets no meaning (`0]` is KP1002).\n\n  - ic_highlight takes spans, so ~270 lines of ANSI emission become style\n    names and the c_allocator round-trip behind #234 has nothing left to get\n    wrong. Token rules are unchanged, split into scanHighlight so they stay\n    testable without a terminal, with 13 tests over spans rather than escape\n    substrings.\n\n  - ic_complete_word splits the word out of the buffer and splices the choice\n    back in, dropping the hand-rolled prefix arithmetic and its 1024-byte\n    ceiling, which silently discarded longer candidates. `,load` and `,import`\n    complete filenames now, which they never did.\n\nThree integration decisions, all recorded in docs/dev/repl.md. Brace insertion\nis off: auto-closing a paren makes every buffer balanced, and the completeness\ncallback would submit the moment one was typed — found by testing, not by\nreading. Prompt strings carry no escapes, since isocline measures the prompt\nto place the cursor; the theme reaches it through the ic-prompt style, with a\nnew ansiToIcStyle translating repl.color.*. And history persists on every\nsubmit with newlines escaped, so a crash no longer drops the session and\nmulti-line entries return editable rather than folded.\n\nWindows gets a real REPL for the first time. isocline drives the Windows\nconsole API directly — term.c and tty.c switch on _WIN32 — so the POSIX-only\nexclusion linenoise needed no longer applies; that platform had been falling\nback to a byte-at-a-time stdin loop with no editing, history, completion, or\nhighlighting. The build gate now keeps only WASI, and only so repl.zig still\ncompiles there: main.zig returns before reaching the REPL on that target.\n\nBehavior changes: comma commands now enter history, which isocline manages\nitself (recalling `,load foo.scm` seemed worth more than matching the old\nexclusion), and the \"  ... \" continuation prompt is gone — continuation lines\nare indented under the prompt instead.\n\nBehavior was verified by driving the real binary through a pty, not by\ninspection. The decisive case: type `(+ 1`, Enter, Up to line 1, ctrl-E, ` 10`,\nDown, `2)`, Enter → 13; line 1 was still editable after Enter. Also covered:\nmulti-line define, history recall of a multi-line entry, line/datum/block\ncomments spanning lines, strings across lines, #\\( literals, a stray close\nparen reported rather than hanging, and comma commands. The isocline patches\nwere verified the same way before the port, including running pristine\nupstream to confirm patch 2 is load-bearing (1000 entries stored where stock\nisocline stores 200).\n\nUnit suite, 2075 Scheme tests (0 fail, 1 skip), and zig fmt --check all pass;\ncross-compiles clean for x86_64-windows, aarch64-linux, aarch64-macos, and\nwasm32-wasi. Adds 12 tests for inputIncomplete, which had none, and 13 for\nscanHighlight. Docs: docs/dev/repl.md rewritten, vendor/isocline/PATCHES.md\nadded, plus windows.md, porting.md, architecture.md, understanding-map.md,\nREADME.md, CLAUDE.md, and CONTRIBUTING.md.\n\nNot verified: Windows was only cross-compiled, never run — the claim that its\nREPL works end-to-end rests on isocline's console backend, not on evidence.\n-Dgc-stress=true was also not run; it is worth a pass given the new\nper-keystroke reader allocations in inputIncomplete.\n\nCloses #2218.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01KkyTMuGQGSqM1kpkM2aqGF\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: align the last isocline gate, and test the theme bridge\n\nThree stale-comment/gate fixes and one genuine coverage gap, from the\nreview of this PR.\n\nmain.zig's `ic` still carried linenoise's POSIX-only exclusion, so it\nread `is_wasm or .windows` where build.zig and repl.zig both say\n`!is_wasm`. Three gates for one decision, and this was the odd one out.\nThe practical effect was smaller than it looks — repl.zig imports\nisocline.zig directly and is itself reachable from main.zig, so the\nwrapper compiled and type-checked on Windows regardless, and\nisocline.zig has no test blocks to lose. What the exclusion did cost was\nthe invariant: this import block is how a module's own tests become\nreachable, so the next test added to isocline.zig would have silently\nskipped the one platform the file exists to serve.\n\nTwo comments described code this PR deleted. `readReplLine`'s doc called\nthe plain stdin path \"the Windows fallback\" four lines after the block\nabove it correctly says only WASI falls back. And an inputIncomplete\ntest cited \"the highlighter's findMatchingOpen *does* pair brackets\" —\nfindMatchingOpen went with the linenoise matching-paren code. The\ndivergence it was describing is still real but different: scanHighlight\nstyles brackets with style_paren, and nothing pairs them, because\nsetMatchingBraces is given \"()\" alone.\n\nansiToIcStyle had no tests. It is the only bridge from config.zig's SGR\nescapes to isocline's style names, and every failure path returns \"\" —\nunrecognized escape, unparseable code, and a bufPrintZ that outgrows\napplyTheme's [32]u8 all render unstyled with nothing to notice. Three\ntests: the 16 colours plus the bold form, the inputs that must yield \"\"\n(including `none`'s empty string and a background colour, which must not\nbe mistaken for a foreground one), and — the one that would actually\ncatch drift — both built-in themes driven through the same eight fields\napplyTheme feeds, asserting each still maps. A table of hand-written\nescapes alone would keep passing while config.zig moved on.\n\nVerified: full unit suite, 2076 Scheme assertions, zig fmt --check, and\ncross-compiles for aarch64-windows, x86_64-windows, aarch64-linux and\n`zig build wasm`, plus the aarch64/x86_64 Windows *test* builds, which\nare what the gate change affects. The new tests were mutation-checked:\nthey fail when the expected style is wrong.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-04T17:32:17Z",
-          "tree_id": "58a45b703aaf5c74a4a78a4dd0f18f175423815f",
-          "url": "https://github.com/kaappi/kaappi/commit/48fe81d3f32b71d2f476075df51e7971b6ca0879"
-        },
-        "date": 1785866811672,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.337154,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.487895,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.578788,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.050197,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00465,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046889,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.315182,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.06024,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.729586,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.242704,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.594024,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.283119,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.805151,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.654046,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043744,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.034961,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6ed6eb95f8882bbfe04b4511d1bd76abf9f5dee4",
+          "message": "Preserve fiber fault identity and fix (kaappi fibers) argument diagnostics (#2204, #2002) (#2342)\n\nA VM-level fault in a fiber body lost both its error code and its message\nat the fiber boundary (#2204): the dispatch loop's error arm dropped the\nVMError tag, vm.last_error_detail was never copied into the fiber's saved\nstate, and fiber-join re-raised a substituted KP3007 \"fiber error (no\nexception value)\" — a different condition, so a guard clause discriminating\non the code could never match. The loop now converts the fault into the\nsame coded ErrorObject withExceptionHandlerFn hands a guard (via the\nnewly-pub nativeErrorToErrorObject, the shared error-coding boundary),\nbefore anything can overwrite the detail, and stages it in\nvm.current_exception, the one channel saveCurrentFiber already transports\nto the joiner. Uncatchable errors (StackOverflow, ExecutionTimeout,\nTerminated), continuation jumps, and Scheme-level raises keep their\nexisting behavior. fiber-join now reports e.g.\nKP3002 \"type error in 'car': expected pair, got 5\" for a (car 5) inside a\nspawned fiber, identical to the same fault outside one.\n\nTwo argument-diagnostic mislabels in (kaappi fibers) (#2002):\nmake-channel's u32 capacity range rejection was reported as a type error\nwhose \"expected non-negative exact integer\" text described exactly the\nvalue it got; it is now argError (KP3007) naming the real bound\n(\"an exact integer between 0 and 4294967295\"), with a bignum handled as\nthe range case it is and only genuinely non-integer arguments staying\ntypeError. And a bad timeout to channel-send/channel-receive was blamed on\na procedure named 'thread' — timeoutToDeadlineNs's hardcoded name; the\ncaller now passes its own name through, which also fixes the same message\nfrom thread-join!/mutex-lock!/mutex-unlock! timeouts.\n\nBASELINE for the bare error-taxonomy gate drops 28 -> 27: the reraise\nfallback's return is now annotated bare-ok (it sets its own detail, and\nsince #2204 is only reachable for uncatchable faults and conversion OOM).\n\nTests: +20 assertions in tests/scheme/audit/primitives_fiber-audit.scm\n(129 -> 149 passes) and +5 tests in src/tests_fibers.zig, all verified to\nfail without the fixes and pass with them; full zig build test green,\nfiber filter also green under -Dgc-stress=true.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-26T06:10:09+05:30",
+          "tree_id": "61484c761f9eb0c50cfbf5bbe9e843d9c1ed82bc",
+          "url": "https://github.com/kaappi/kaappi/commit/6ed6eb95f8882bbfe04b4511d1bd76abf9f5dee4"
+        },
+        "date": 1787715063313,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.344221,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.283432,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.565858,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.026977,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004669,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048264,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.305497,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056046,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.876092,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.247431,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.661317,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.274925,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.811027,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.610985,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045315,
             "unit": "seconds"
           }
         ]
