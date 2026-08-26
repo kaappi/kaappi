@@ -990,3 +990,123 @@ test "doUpdate of every package skips hostile names read back from installed.txt
     try std.testing.expect(std.mem.indexOf(u8, cap.out, evil) == null);
     try std.testing.expect(std.mem.indexOf(u8, cap.out, "../") == null);
 }
+
+// ---------------------------------------------------------------------------
+// Ownership-aware removal (issue #2136)
+// ---------------------------------------------------------------------------
+//
+// A network-free end-to-end guard for the bug that motivated the file-
+// ownership manifest: `thottam remove` deleted installed library files by
+// name, so removing one package took a shared file another still-installed
+// package relied on. These drive the real install-side file sync
+// (`syncInstalledFiles`) and the real `doRemove`, both over a throwaway
+// $KAAPPI_HOME with source trees laid out as a clone would leave them — no
+// git, so they run under `zig build test` (the thottam-lifecycle.sh cover of
+// the same scenario needs a git remote and is skipped there).
+
+/// Write `<src_dir>/<pkg>/lib/<rel>` with a trivial library body, creating
+/// parent directories — the shape a cloned package's lib tree has.
+fn writeSrcLib(allocator: std.mem.Allocator, src_dir: []const u8, pkg: []const u8, rel: []const u8, body: []const u8) !void {
+    const full = try std.mem.concat(allocator, u8, &.{ src_dir, "/", pkg, "/lib/", rel });
+    defer allocator.free(full);
+    const dir = full[0..std.mem.lastIndexOfScalar(u8, full, '/').?];
+    try tfs.makeDirRecursive(allocator, dir);
+    try thottam.writeFile(allocator, full, body);
+}
+
+/// True when `<lib_dir>/<rel>` exists.
+fn installedFileExists(allocator: std.mem.Allocator, lib_dir: []const u8, rel: []const u8) bool {
+    const full = std.mem.concat(allocator, u8, &.{ lib_dir, "/", rel }) catch return false;
+    defer allocator.free(full);
+    return thottam.fileExists(allocator, full);
+}
+
+/// Run the real install-side file sync for `pkg` (copy its lib tree into the
+/// shared lib dir and record ownership in thottam.files), returning the
+/// captured stdout+stderr (owned by the caller) so a collision warning can be
+/// asserted — and so the suite stays quiet when it is not.
+fn syncPkg(allocator: std.mem.Allocator, config: thottam.Config, pkg: []const u8) ![]const u8 {
+    const pkg_dir = try std.mem.concat(allocator, u8, &.{ config.src_dir, "/", pkg });
+    defer allocator.free(pkg_dir);
+    const cap = try captureOutput(true, thottam.syncInstalledFiles, .{ allocator, config, pkg, pkg_dir });
+    if (cap.err) |e| {
+        allocator.free(cap.out);
+        return e;
+    }
+    return cap.out;
+}
+
+test "doRemove keeps a file a still-installed package still claims (issue #2136)" {
+    const allocator = std.testing.allocator;
+    var env = try TmpHome.init(allocator, "rmshared");
+    defer env.deinit(allocator);
+
+    // Two packages, each shipping its own library plus a shared one, laid out
+    // in $KAAPPI_HOME/src exactly as a clone would. The shared file lives in
+    // BOTH source trees — the shape that let removal-by-name (which walked the
+    // removed package's own source tree) delete it out from under the other.
+    try writeSrcLib(allocator, env.config.src_dir, "kaappi-one", "kaappi/one.sld", "(define-library (kaappi one) (export a) (import (scheme base)) (begin (define a 1)))");
+    try writeSrcLib(allocator, env.config.src_dir, "kaappi-one", "kaappi/shared.sld", "(define-library (kaappi shared) (export s) (import (scheme base)) (begin (define s 0)))");
+    try writeSrcLib(allocator, env.config.src_dir, "kaappi-two", "kaappi/two.sld", "(define-library (kaappi two) (export b) (import (scheme base)) (begin (define b 2)))");
+    try writeSrcLib(allocator, env.config.src_dir, "kaappi-two", "kaappi/shared.sld", "(define-library (kaappi shared) (export s) (import (scheme base)) (begin (define s 0)))");
+
+    // Install both through the real file-sync path: copies into the shared
+    // lib dir and records ownership in thottam.files.
+    allocator.free(try syncPkg(allocator, env.config, "kaappi-one"));
+    // The second install overwrites a file kaappi-one's manifest already
+    // claims. warnIfClaimed must make that audible on stderr — the "loud, not
+    // silent" half of the #2136 fix, and this is the only unit-tier place that
+    // sees it.
+    const two_out = try syncPkg(allocator, env.config, "kaappi-two");
+    defer allocator.free(two_out);
+    try std.testing.expect(std.mem.indexOf(u8, two_out, "also provided by kaappi-one") != null);
+    try thottam.writeFile(allocator, env.config.installed, "kaappi-one\nkaappi-two\n");
+
+    // All three files landed in the shared lib dir.
+    try std.testing.expect(installedFileExists(allocator, env.config.lib_dir, "kaappi/one.sld"));
+    try std.testing.expect(installedFileExists(allocator, env.config.lib_dir, "kaappi/shared.sld"));
+    try std.testing.expect(installedFileExists(allocator, env.config.lib_dir, "kaappi/two.sld"));
+
+    // Remove kaappi-two. Its own unique file goes; the file kaappi-one's
+    // manifest still claims must NOT — this is the assertion that fails
+    // against removal-by-name (issue #2136).
+    {
+        const cap = try captureOutput(true, thottam.doRemove, .{ allocator, env.config, "kaappi-two" });
+        defer allocator.free(cap.out);
+        try std.testing.expect(cap.err == null);
+    }
+    try std.testing.expect(!installedFileExists(allocator, env.config.lib_dir, "kaappi/two.sld"));
+    try std.testing.expect(installedFileExists(allocator, env.config.lib_dir, "kaappi/one.sld"));
+    try std.testing.expect(installedFileExists(allocator, env.config.lib_dir, "kaappi/shared.sld"));
+
+    // doRemove dropped kaappi-two from installed.txt.
+    try std.testing.expect(!state.isInstalled(allocator, env.config.installed, "kaappi-two"));
+    try std.testing.expect(state.isInstalled(allocator, env.config.installed, "kaappi-one"));
+
+    // And it dropped kaappi-two's lines from thottam.files, while kaappi-one's
+    // claim on the shared file — the reason removal kept it — survives. This
+    // is what removal consulted, asserted directly on the manifest.
+    {
+        const owner = state.fileClaimedBy(allocator, env.config.files, "kaappi/shared.sld", "kaappi-two");
+        defer if (owner) |o| allocator.free(o);
+        try std.testing.expect(owner != null);
+        try std.testing.expectEqualStrings("kaappi-one", owner.?);
+    }
+
+    // Removing the last claimant finally deletes the shared file — removal is
+    // not over-broad, only claim-guarded.
+    {
+        const cap = try captureOutput(true, thottam.doRemove, .{ allocator, env.config, "kaappi-one" });
+        defer allocator.free(cap.out);
+        try std.testing.expect(cap.err == null);
+    }
+    try std.testing.expect(!installedFileExists(allocator, env.config.lib_dir, "kaappi/one.sld"));
+    try std.testing.expect(!installedFileExists(allocator, env.config.lib_dir, "kaappi/shared.sld"));
+
+    // With kaappi-one gone too, nobody claims the shared file in thottam.files.
+    {
+        const owner = state.fileClaimedBy(allocator, env.config.files, "kaappi/shared.sld", "kaappi-two");
+        defer if (owner) |o| allocator.free(o);
+        try std.testing.expect(owner == null);
+    }
+}

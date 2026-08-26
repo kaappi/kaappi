@@ -462,7 +462,7 @@ fn installLibTree(allocator: std.mem.Allocator, lib_src: []const u8, lib_dir: []
 /// nothing, so the guarantee lapsed after any pull (issue #2136).
 ///
 /// Returns the number of native libraries copied.
-fn syncInstalledFiles(allocator: std.mem.Allocator, config: Config, pkg: []const u8, pkg_dir: []const u8) !u32 {
+pub fn syncInstalledFiles(allocator: std.mem.Allocator, config: Config, pkg: []const u8, pkg_dir: []const u8) !u32 {
     const lib_src = try joinPath(allocator, pkg_dir, "lib");
     defer allocator.free(lib_src);
 
@@ -829,7 +829,7 @@ fn doInstall(
     printBuf(&buf, " installed (locked at {s})\n", .{resolved_sha});
 }
 
-fn doRemove(allocator: std.mem.Allocator, config: Config, pkg: []const u8) !void {
+pub fn doRemove(allocator: std.mem.Allocator, config: Config, pkg: []const u8) !void {
     if (!isValidPkgName(pkg)) {
         printErrColor(Color.red, "error: ");
         writeStderr("invalid package name '");
