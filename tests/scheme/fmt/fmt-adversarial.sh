@@ -15,7 +15,7 @@
 #
 # The generator that found the failures below is `tools/fmt_fuzz.py` — it is
 # deliberately *not* run here (it takes minutes; this file takes ~2 seconds).
-# See kaappi#2141, kaappi#2142, kaappi#2143, kaappi#2149.
+# See kaappi#2141, kaappi#2142, kaappi#2143, kaappi#2080, kaappi#2149.
 
 set -uo pipefail
 
@@ -147,6 +147,39 @@ case_ "vector after an identifier, spaced"           '(a b #(1) d)\n'
 case_ "block comment glued to an identifier"         '(a b#|c|# d)\n'
 case_ "datum comment glued to an identifier"         '(list a#;(b) c)\n'
 case_ "vector glued to an identifier"                '(a b#(1) d)\n'
+# The two shapes from #2143's byte-mutation campaign that tripped the round-trip
+# guard outright: a `#(` glued after an identifier once carved `…#` as one atom,
+# leaving a bare `(` that opens a *list* where the reader opens a vector — a
+# different program, so the guard refused and the file was unformattable.
+case_ "vector open glued after import"               '(import#(scheme base))\n'
+case_ "datum labels inside a glued vector"           '(define shared-pair#(#2=(a) #2# #2#))\n'
+
+# ── A user syntax error is the reader's error, not an internal one ─────────
+#
+# The round-trip guard reads the *original* first: when that read fails — a
+# syntax error the CST lexer happened to tolerate — `fmt` must report the
+# reader's own KP1xxx diagnostic with its position, exactly as `kaappi check`
+# does. The "internal error: formatting would change the program" wording is
+# reserved for a genuine mismatch between two successfully-read texts and must
+# never appear on this path (kaappi#2080). All four are the error classes of
+# that issue's table; the file is left untouched in every case.
+
+# assert_reader_error <label> <expected-kp-code> <source-with-\n-escapes>
+assert_reader_error() {
+    local label="$1" kp="$2" src="$3" status=0 err
+    printf '%b' "$src" > "$TMP/e.scm"
+    err="$("$KAAPPI" fmt < "$TMP/e.scm" 2>&1)" || status=$?
+    if [[ "$status" -eq 1 && "$err" == *"read error[$kp]"* && "$err" != *"internal error"* ]]; then
+        pass "$label"
+    else
+        fail "$label" "exit $status, stderr: [$err]"
+    fi
+}
+
+assert_reader_error "user error: invalid character name"       KP1005 '(display #\\qqq)\n'
+assert_reader_error "user error: invalid hex char literal"     KP1005 '(display #\\xZZ)\n'
+assert_reader_error "user error: '.' outside of a list"        KP1008 '(a . . b)\n'
+assert_reader_error "user error: form feed is not whitespace"  KP1002 "(display '(a\fb))\n"
 
 # ── Fit-to-width is measured in columns (Unicode code points) ────────────
 
