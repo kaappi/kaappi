@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787782986379,
+  "lastUpdate": 1787784309543,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "b02ecb256dc8a6adc73a82858145981edc6e0864",
-          "message": "Give records and FFI handles an identity that survives a heap copy (#2229)\n\n* Give records and FFI handles an identity that survives a heap copy\n\nBoth issues are the same mistake in gc_deep_copy.zig, from opposite\ndirections: a value's identity was its address, and every thread boundary\ncopies into a heap where the address is necessarily different.\n\n#1932 — a record type's identity WAS its RecordType pointer, so the copy\nwas a disjoint type. A record returned by thread-join! printed as a\nwell-formed `#<<pt> 1 2>` while `pt?` answered #f and every accessor\nraised, which means a `cond` dispatching on the predicate silently took\nthe wrong branch. RecordType gains an `identity` u64 from a process-global\natomic counter, minted at definition and carried verbatim by the copy;\n`types.sameRecordType` replaces the four pointer comparisons behind\n`%record?`, `%record-ref`, `%record-set!` and SRFI 237's inheritance walk.\nGenerativity is untouched — two evaluations of a define-record-type form\nstill mint two identities — and that is the control the tests pin.\n\n#2027 — the `.ffi_library`/`.ffi_function` arm returned `src`, on the\nreasoning that a dlopen handle cannot be duplicated per-heap. True of the\nhandle; the WRAPPER is an ordinary object owned by one GC, and marking\nskips foreign-owner objects, so the receiver held a reference neither\ncollector could see. The sender's own collector reclaimed it — running or\nnot, so `channel-send` was affected too — and the recycled slot read back\nas `(0.0 . 0.0)`, an ordinary pair that passes every non-FFI type check.\nThe wrapper is now copied like `.native_fn`, with the process-global\nhandle and symbol shared by value. Refusing the tag was the other option\nand is why the parent-owned-handle controls are in the test: they work\ntoday and a refusal would have broken them.\n\nFour disabled audit assertions across three files are re-enabled, and two\nbug-presence pins are replaced rather than inverted (docs/audit-strategy.md:\n\"never assert that a bug is still present\" — #2027's own pin is the\ncautionary case).\n\nCloses #1932\nCloses #2027\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Fix the wasm build and the OpenBSD hang in the new FFI test\n\nTwo CI legs, two separate causes:\n\nwasm32 has no 64-bit atomic RMW, so `std.atomic.Value(u64).fetchAdd` on the\nrecord-type identity counter failed to compile. The counter stays u64 —\nunlike `next_gc_id` and the expander's scope ids it cannot tolerate\nwrapping, since two types sharing an identity are silently interchangeable,\nwhich is the bug this whole change is about. Instead the RMW is skipped\nentirely under `builtin.single_threaded`, which is how `zig build wasm`\nbuilds and where there is no concurrent minter to race with. A future\n32-bit target built WITH threads fails to compile on the atomic branch\nrather than racing silently.\n\nThe new FFI test hung on OpenBSD for 60s. Two things had to go wrong\ntogether: OpenBSD's libm exports no `fabs`, so every handle in the file\nfailed to construct; and the channel section's child then raised BEFORE\nits `channel-send`, leaving the parent blocked in `channel-receive`\nforever. Both are fixed rather than just the first — a test that deadlocks\nwhen its subject is unavailable is a worse failure than the one it was\nwritten to catch. The symbol is now `sqrt`, which ffi/basic.scm already\nproves resolvable on every leg; the child's send is wrapped in a `guard`\nthat sends a sentinel on failure, so a broken cell fails an assertion\ninstead of hanging; and a one-time probe skips the file cleanly where no\nlibm loads, the same shape srfi18-deepcopy-matrix-audit.scm uses.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: one real UAF in a test, two vacuous assertions\n\nFive of the seven review findings were real. Verified each rather than\ntaking it on trust; two are declined with reasons.\n\nThe one that mattered: the new record-identity unit test read a FREED\nRecordType. `rt` is dereferenced for `identity` after two more gc1\nallocations, this bare GC has no root marker, and allocRecordTypeExtended\nroots only its `parent` argument — so under -Dgc-stress=true the header was\nswept before the last assertions. Probed it directly: the tag comes back an\ninvalid enum value. The test passed only because the garbage identity\nhappened not to collide with a real one. `rt_val` and `ext_val` are now\nrooted; re-ran under -Dgc-stress=true -Doptimize=Debug, where freed memory\nis poisoned, to confirm.\n\nTwo assertions could not fail. `(not (mrec2? (join-thunk ...)))` passes when\nthe join RAISES, because mrec2? answers #f to the (RAISED ...) list — and\nthat row is the control that constrains the whole fix. `(on-thread ...)` used\nas a truth value passes on a raise too, since on-thread answers a truthy\n(raised . msg). Demonstrated both against a deliberately raising thunk, then\nre-ran the two audit files against a pre-fix binary: the tightened\nlook-alike row now fails there, where before it passed vacuously.\n\nAlso: the matrix audit's section E header still described the aliasing this\nPR removed, contradicting the file's own class table twelve lines up; and\nthe channel cell's `thread-sleep!` guaranteed nothing about the child still\nrunning, so it could silently degrade into the cell above it — replaced with\na second-channel handshake that cannot deadlock from either side.\n\nDeclined, with reasons in the PR thread: splitting tests_gc_tracing.zig\n(1730 lines before this branch touched it, +1 line here, unrelated to either\nissue), and equating identities on gc_deep_copy's uid-reuse path — the\ndivergence is unobservable because the .record_instance arm retypes the\ninstance to the reused rtd, and overwriting that rtd's identity would\nsilently retype every instance already living under it in the destination\nheap. Probed all five nongenerative shapes, including the rtd and an\ninstance crossing together; all correct.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-05T08:14:56Z",
-          "tree_id": "e0d811a9fab6298001e40c2bdcec8bad01eac78e",
-          "url": "https://github.com/kaappi/kaappi/commit/b02ecb256dc8a6adc73a82858145981edc6e0864"
-        },
-        "date": 1785919425959,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.945144,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.825074,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.564146,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.885943,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004904,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.045246,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.29447,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054313,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.378192,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.162046,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.520384,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.305726,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.695666,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.782346,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045259,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046266,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "767d54ec468a377ecac00f3954b7bc159f0c8fcf",
+          "message": "Release v0.25.0\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-27T03:23:17+05:30",
+          "tree_id": "15f1080975eb314d0b2bdbcb35975a04c367bea1",
+          "url": "https://github.com/kaappi/kaappi/commit/767d54ec468a377ecac00f3954b7bc159f0c8fcf"
+        },
+        "date": 1787784308470,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.080387,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.906551,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.428385,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.193751,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004002,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03581,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.221005,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.041726,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.924844,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.868284,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.239737,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.231373,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.311159,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.403554,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.035889,
             "unit": "seconds"
           }
         ]
