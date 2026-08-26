@@ -144,12 +144,16 @@ jobs:
       # is clean; a backlog of bare IndexOutOfBounds/InvalidArgument in the
       # primitives (kaappi#2020/#2021/#2022) is not, so this is once again a
       # ratchet, exactly as it was for TypeError (91 -> 20 -> 0, cleared by
-      # kaappi#1868). BASELINE may only go DOWN: lower it whenever you remove a
+      # kaappi#1868). The #2020/#2021/#2022 sweep cleared all 18
+      # primitives_string_ext.zig sites (28 -> 10); what remains is
+      # VM-infrastructure guards in vm_calls/vm_dispatch_helpers/
+      # vm_continuations/fiber_wait plus two primitives_io/primitives_fiber
+      # guards. BASELINE may only go DOWN: lower it whenever you remove a
       # bare return, and delete it when it reaches 0. Test files legitimately
       # write `error.TypeError` in `expectError`, so src/tests_*.zig is excluded.
       - name: Check bare error-taxonomy regression
         run: |
-          BASELINE=27
+          BASELINE=9
           hits=$(grep -rnE 'return (PrimitiveError|VMError|error)\.(TypeError|IndexOutOfBounds|InvalidArgument)' src/*.zig \
                  | grep -v '^src/tests_' | grep -v 'bare-ok' || true)
           count=$(printf '%s' "$hits" | grep -c . || true)

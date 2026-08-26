@@ -1029,15 +1029,15 @@
 (test-assert "transcoded-port rejects an unrecognized codec symbol"
   (raises-with? (lambda () (transcoded-port (open-input-bytevector (bytevector 65))
                                             (make-transcoder 'ebcdic 'none 'replace)))
-                "recognized codec"))
+                "codec must be the symbol utf-8"))
 (test-assert "transcoded-port rejects an unrecognized eol-style symbol"
   (raises-with? (lambda () (transcoded-port (open-input-bytevector (bytevector 65))
                                             (make-transcoder (utf-8-codec) 'nel 'replace)))
-                "recognized eol-style"))
+                "eol-style must be one of"))
 (test-assert "transcoded-port rejects an unrecognized error-handling-mode symbol"
   (raises-with? (lambda () (transcoded-port (open-input-bytevector (bytevector 65))
                                             (make-transcoder (utf-8-codec) 'none 'ignore)))
-                "recognized error-handling-mode"))
+                "error-handling-mode must be one of"))
 (test-assert "transcoded-port rejects a TEXTUAL port as its binary-port argument"
   (raises-with? (lambda () (transcoded-port (open-input-string "x") (native-transcoder)))
                 "binary port"))

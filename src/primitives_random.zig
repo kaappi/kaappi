@@ -178,7 +178,7 @@ fn randomSourceStateSetFn(args: []const Value) PrimitiveError!Value {
         state_list = types.cdr(state_list);
     }
     if (new_state[0] == 0 and new_state[1] == 0 and new_state[2] == 0 and new_state[3] == 0) {
-        return primitives.typeError("random-source-state-set!", "non-all-zero state", args[1]);
+        return primitives.argError("random-source-state-set!", "state must not be all zero", .{});
     }
     rs.prng.s = new_state;
     return types.VOID;
@@ -206,13 +206,13 @@ fn openUnitReal(rs: *types.RandomSource) f64 {
 fn randomBelow(proc: []const u8, rs: *types.RandomSource, bound: Value) PrimitiveError!Value {
     if (types.isFixnum(bound)) {
         const n = types.toFixnum(bound);
-        if (n <= 0) return primitives.typeError(proc, "positive integer", bound);
+        if (n <= 0) return primitives.argError(proc, "bound must be a positive integer, got {d}", .{n});
         const r = rs.prng.random();
         return types.makeFixnum(r.intRangeLessThan(i64, 0, n));
     }
     if (types.isBignum(bound)) {
         const bn = types.toBignum(bound);
-        if (!bn.positive or bn.len == 0) return primitives.typeError(proc, "positive integer", bound);
+        if (!bn.positive or bn.len == 0) return primitives.argError(proc, "bound must be a positive integer", .{});
         return randomBignumBelow(rs, bn);
     }
     return primitives.typeError(proc, "integer", bound);
@@ -264,12 +264,12 @@ fn limbsLessThan(a: []const u64, b: []const u64, len: usize) bool {
 fn intToSeedU64(proc: []const u8, v: Value) PrimitiveError!u64 {
     if (types.isFixnum(v)) {
         const n = types.toFixnum(v);
-        if (n < 0) return primitives.typeError(proc, "non-negative integer", v);
+        if (n < 0) return primitives.argError(proc, "seed must be a non-negative integer, got {d}", .{n});
         return @intCast(n);
     }
     if (types.isBignum(v)) {
         const bn = types.toBignum(v);
-        if (!bn.positive) return primitives.typeError(proc, "non-negative integer", v);
+        if (!bn.positive) return primitives.argError(proc, "seed must be a non-negative integer", .{});
         if (bn.len == 0) return 0;
         var result: u64 = 0;
         for (bn.limbs[0..bn.len]) |limb| result ^= limb;

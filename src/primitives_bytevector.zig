@@ -45,13 +45,13 @@ fn makeBytevector(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[0])) return primitives.typeError("make-bytevector", "non-negative integer", args[0]);
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const k = types.toFixnum(args[0]);
-    if (k < 0) return primitives.typeError("make-bytevector", "non-negative integer", args[0]);
+    if (k < 0) return primitives.argError("make-bytevector", "negative length {d}", .{k});
     if (!primitives.fixnumFitsUsize(k)) return PrimitiveError.OutOfMemory; // wasm32: would truncate (kaappi#2153)
     const size: usize = @intCast(k);
     const fill: u8 = if (args.len > 1) blk: {
         if (!types.isFixnum(args[1])) return primitives.typeError("make-bytevector", "exact integer 0-255", args[1]);
         const f = types.toFixnum(args[1]);
-        if (f < 0 or f > 255) return primitives.typeError("make-bytevector", "exact integer 0-255", args[1]);
+        if (f < 0 or f > 255) return primitives.argError("make-bytevector", "fill byte {d} is outside 0-255", .{f});
         break :blk @intCast(@as(u64, @bitCast(f)));
     } else 0;
     return gc.allocBytevectorFill(size, fill) catch return PrimitiveError.OutOfMemory;
@@ -64,7 +64,7 @@ fn bytevectorFn(args: []const Value) PrimitiveError!Value {
     for (args, 0..) |a, i| {
         if (!types.isFixnum(a)) return primitives.typeError("bytevector", "exact integer 0-255", a);
         const n = types.toFixnum(a);
-        if (n < 0 or n > 255) return primitives.typeError("bytevector", "exact integer 0-255", a);
+        if (n < 0 or n > 255) return primitives.argError("bytevector", "byte {d} is outside 0-255", .{n});
         data[i] = @intCast(@as(u64, @bitCast(n)));
     }
     return gc.allocBytevector(data) catch return PrimitiveError.OutOfMemory;
@@ -82,21 +82,21 @@ fn bytevectorU8Ref(args: []const Value) PrimitiveError!Value {
     const bv = types.toBytevector(args[0]);
     const idx = types.toFixnum(args[1]);
     // u64 comparison before narrowing (kaappi#1912): see fixnumIndexInBounds.
-    if (!primitives.fixnumIndexInBounds(idx, bv.data.len)) return primitives.typeError("bytevector-u8-ref", "valid index", args[1]);
+    if (!primitives.fixnumIndexInBounds(idx, bv.data.len)) return primitives.indexError("bytevector-u8-ref", idx, bv.data.len);
     return types.makeFixnum(@intCast(bv.data[@intCast(@as(u64, @bitCast(idx)))]));
 }
 
 fn bytevectorU8Set(args: []const Value) PrimitiveError!Value {
     if (!types.isBytevector(args[0])) return primitives.typeError("bytevector-u8-set!", "bytevector", args[0]);
-    if (types.toObject(args[0]).flags.immutable) return primitives.typeError("bytevector-u8-set!", "mutable bytevector", args[0]);
+    if (types.toObject(args[0]).flags.immutable) return primitives.argError("bytevector-u8-set!", "cannot mutate an immutable bytevector", .{});
     if (!types.isFixnum(args[1])) return primitives.typeError("bytevector-u8-set!", "exact integer", args[1]);
     if (!types.isFixnum(args[2])) return primitives.typeError("bytevector-u8-set!", "exact integer 0-255", args[2]);
     const bv = types.toBytevector(args[0]);
     const idx = types.toFixnum(args[1]);
     const val = types.toFixnum(args[2]);
     // u64 comparison before narrowing (kaappi#1912): see fixnumIndexInBounds.
-    if (!primitives.fixnumIndexInBounds(idx, bv.data.len)) return primitives.typeError("bytevector-u8-set!", "valid index", args[1]);
-    if (val < 0 or val > 255) return primitives.typeError("bytevector-u8-set!", "exact integer 0-255", args[2]);
+    if (!primitives.fixnumIndexInBounds(idx, bv.data.len)) return primitives.indexError("bytevector-u8-set!", idx, bv.data.len);
+    if (val < 0 or val > 255) return primitives.argError("bytevector-u8-set!", "byte {d} is outside 0-255", .{val});
     // Lever D copy-on-write (kaappi#1472): if this bytevector borrows a shared
     // immutable buffer, privatize it before writing. No-op otherwise.
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
@@ -119,16 +119,16 @@ fn bytevectorCopy(args: []const Value) PrimitiveError!Value {
 fn bytevectorCopyBang(args: []const Value) PrimitiveError!Value {
     // (bytevector-copy! to at from [start [end]])
     if (!types.isBytevector(args[0])) return primitives.typeError("bytevector-copy!", "bytevector", args[0]);
-    if (types.toObject(args[0]).flags.immutable) return primitives.typeError("bytevector-copy!", "mutable bytevector", args[0]);
+    if (types.toObject(args[0]).flags.immutable) return primitives.argError("bytevector-copy!", "cannot mutate an immutable bytevector", .{});
     if (!types.isFixnum(args[1])) return primitives.typeError("bytevector-copy!", "exact integer", args[1]);
     if (!types.isBytevector(args[2])) return primitives.typeError("bytevector-copy!", "bytevector", args[2]);
 
     const to = types.toBytevector(args[0]);
     const at_val = types.toFixnum(args[1]);
-    if (at_val < 0) return primitives.typeError("bytevector-copy!", "non-negative integer", args[1]);
+    if (at_val < 0) return primitives.argError("bytevector-copy!", "at index {d} is negative", .{at_val});
     // u64 comparison before narrowing (kaappi#1912): on wasm32 a fixnum-range
     // at would truncate and pass the at+count check against a short bytevector.
-    if (!primitives.fixnumIndexInBoundsInclusive(at_val, to.data.len)) return primitives.typeError("bytevector-copy!", "valid range", args[0]);
+    if (!primitives.fixnumIndexInBoundsInclusive(at_val, to.data.len)) return primitives.indexError("bytevector-copy!", at_val, to.data.len);
     const at: usize = @intCast(@as(u64, @bitCast(at_val)));
     const from = types.toBytevector(args[2]);
 
@@ -136,7 +136,7 @@ fn bytevectorCopyBang(args: []const Value) PrimitiveError!Value {
     const start = range.start;
     const end = range.end;
     const count = end - start;
-    if (at + count > to.data.len) return primitives.typeError("bytevector-copy!", "valid range", args[0]);
+    if (at + count > to.data.len) return primitives.indexError("bytevector-copy!", at_val + @as(i64, @intCast(count)), to.data.len);
 
     // Lever D copy-on-write (kaappi#1472): privatize the destination before
     // writing if it borrows a shared immutable buffer. `from` is read only, so
@@ -203,8 +203,10 @@ fn stringToUtf8(args: []const Value) PrimitiveError!Value {
     const range = try primitives.parseOptionalRange(args, 1, cp_count, "string->utf8");
     const start_cp = range.start;
     const end_cp = range.end;
-    const byte_start = string_mod.utf8IndexToByteOffset(str.data[0..str.len], start_cp) orelse return primitives.typeError("string->utf8", "valid index", args[0]);
-    const byte_end = string_mod.utf8IndexToByteOffset(str.data[0..str.len], end_cp) orelse return primitives.typeError("string->utf8", "valid index", args[0]);
+    const byte_start = string_mod.utf8IndexToByteOffset(str.data[0..str.len], start_cp) orelse
+        return primitives.indexError("string->utf8", @intCast(start_cp), cp_count);
+    const byte_end = string_mod.utf8IndexToByteOffset(str.data[0..str.len], end_cp) orelse
+        return primitives.indexError("string->utf8", @intCast(end_cp), cp_count);
     return gc.allocBytevector(str.data[byte_start..byte_end]) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -272,7 +274,7 @@ fn peekU8Fn(args: []const Value) PrimitiveError!Value {
 fn writeU8Fn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[0])) return primitives.typeError("write-u8", "exact integer 0-255", args[0]);
     const n = types.toFixnum(args[0]);
-    if (n < 0 or n > 255) return primitives.typeError("write-u8", "exact integer 0-255", args[0]);
+    if (n < 0 or n > 255) return primitives.argError("write-u8", "byte {d} is outside 0-255", .{n});
     const port = try getOutputPort(args, 1, "write-u8");
     const byte: u8 = @intCast(@as(u64, @bitCast(n)));
     try portWriteBytes(port, &[_]u8{byte});
@@ -290,7 +292,7 @@ fn readBytevectorFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[0])) return primitives.typeError("read-bytevector", "exact integer", args[0]);
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const k = types.toFixnum(args[0]);
-    if (k < 0) return primitives.typeError("read-bytevector", "non-negative integer", args[0]);
+    if (k < 0) return primitives.argError("read-bytevector", "negative length {d}", .{k});
     const count: usize = @intCast(@as(u64, @bitCast(k)));
     const port = try getInputPort(args, 1, "read-bytevector");
 
@@ -359,7 +361,7 @@ fn getOutputBytevector(args: []const Value) PrimitiveError!Value {
 fn readBytevectorMut(args: []const Value) PrimitiveError!Value {
     // (read-bytevector! bv port [start [end]])
     if (!types.isBytevector(args[0])) return primitives.typeError("read-bytevector!", "bytevector", args[0]);
-    if (types.toObject(args[0]).flags.immutable) return primitives.typeError("read-bytevector!", "mutable bytevector", args[0]);
+    if (types.toObject(args[0]).flags.immutable) return primitives.argError("read-bytevector!", "cannot mutate an immutable bytevector", .{});
     const bv = types.toBytevector(args[0]);
     // Lever D copy-on-write (kaappi#1472): privatize before the read loop writes
     // into it; idempotent across the parked-retry protocol below.

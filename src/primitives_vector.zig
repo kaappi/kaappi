@@ -73,7 +73,7 @@ fn makeVectorFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (!types.isFixnum(args[0])) return primitives.typeError("make-vector", "exact non-negative integer", args[0]);
     const k = types.toFixnum(args[0]);
-    if (k < 0) return primitives.typeError("make-vector", "exact non-negative integer", args[0]);
+    if (k < 0) return primitives.argError("make-vector", "negative length {d}", .{k});
     if (!primitives.fixnumFitsUsize(k)) return PrimitiveError.OutOfMemory; // wasm32: would truncate (kaappi#2153)
     const size: usize = @intCast(k);
     const fill: Value = if (args.len > 1) args[1] else types.UNDEFINED;
@@ -118,7 +118,7 @@ fn vectorRefFn(args: []const Value) PrimitiveError!Value {
 
 fn vectorSetFn(args: []const Value) PrimitiveError!Value {
     if (!types.isVector(args[0])) return primitives.typeError("vector-set!", "vector", args[0]);
-    if (types.toObject(args[0]).flags.immutable) return primitives.typeError("vector-set!", "mutable vector", args[0]);
+    if (types.toObject(args[0]).flags.immutable) return primitives.argError("vector-set!", "cannot mutate an immutable vector", .{});
     if (!types.isFixnum(args[1])) return primitives.typeError("vector-set!", "exact integer", args[1]);
     const vec = types.toVector(args[0]);
     const k = types.toFixnum(args[1]);
@@ -188,7 +188,7 @@ fn listToVectorFn(args: []const Value) PrimitiveError!Value {
 
 fn vectorFillFn(args: []const Value) PrimitiveError!Value {
     if (!types.isVector(args[0])) return primitives.typeError("vector-fill!", "vector", args[0]);
-    if (types.toObject(args[0]).flags.immutable) return primitives.typeError("vector-fill!", "mutable vector", args[0]);
+    if (types.toObject(args[0]).flags.immutable) return primitives.argError("vector-fill!", "cannot mutate an immutable vector", .{});
     const vec = types.toVector(args[0]);
     const len = vec.data.len;
 
@@ -225,16 +225,16 @@ fn vectorCopyFn(args: []const Value) PrimitiveError!Value {
 
 fn vectorCopyBangFn(args: []const Value) PrimitiveError!Value {
     if (!types.isVector(args[0])) return primitives.typeError("vector-copy!", "vector", args[0]);
-    if (types.toObject(args[0]).flags.immutable) return primitives.typeError("vector-copy!", "mutable vector", args[0]);
+    if (types.toObject(args[0]).flags.immutable) return primitives.argError("vector-copy!", "cannot mutate an immutable vector", .{});
     if (!types.isFixnum(args[1])) return primitives.typeError("vector-copy!", "exact non-negative integer", args[1]);
     if (!types.isVector(args[2])) return primitives.typeError("vector-copy!", "vector", args[2]);
 
     const to_vec = types.toVector(args[0]);
     const at_val = types.toFixnum(args[1]);
-    if (at_val < 0) return primitives.typeError("vector-copy!", "exact non-negative integer", args[1]);
+    if (at_val < 0) return primitives.indexError("vector-copy!", at_val, to_vec.data.len);
     // u64 comparison before narrowing (kaappi#1912): on wasm32 a fixnum-range
     // at would truncate and pass the at+count check against a short vector.
-    if (!primitives.fixnumIndexInBoundsInclusive(at_val, to_vec.data.len)) return primitives.typeError("vector-copy!", "valid index range", args[1]);
+    if (!primitives.fixnumIndexInBoundsInclusive(at_val, to_vec.data.len)) return primitives.indexError("vector-copy!", at_val, to_vec.data.len);
     const at: usize = @intCast(at_val);
     const from_vec = types.toVector(args[2]);
     const from_len = from_vec.data.len;
@@ -244,7 +244,7 @@ fn vectorCopyBangFn(args: []const Value) PrimitiveError!Value {
     const end = range.end;
 
     const count = end - start;
-    if (at + count > to_vec.data.len) return primitives.typeError("vector-copy!", "valid index range", args[1]);
+    if (at + count > to_vec.data.len) return primitives.indexError("vector-copy!", at_val + @as(i64, @intCast(count)), to_vec.data.len);
 
     // #1924: a shared parent-heap destination must not come to hold a
     // pointer from this child's heap (or need the owner's remembered-set
@@ -318,7 +318,7 @@ fn vectorToStringFn(args: []const Value) PrimitiveError!Value {
     for (data) |elem| {
         if (!types.isChar(elem)) return primitives.typeError("vector->string", "character", elem);
         const cp = types.toChar(elem);
-        utf8_len += std.unicode.utf8CodepointSequenceLength(cp) catch return primitives.typeError("vector->string", "valid character", elem);
+        utf8_len += std.unicode.utf8CodepointSequenceLength(cp) catch return primitives.argError("vector->string", "character is not a Unicode scalar value", .{});
     }
 
     // Build string
@@ -328,7 +328,7 @@ fn vectorToStringFn(args: []const Value) PrimitiveError!Value {
     for (data) |elem| {
         const cp = types.toChar(elem);
         var tmp: [4]u8 = undefined;
-        const n = std.unicode.utf8Encode(cp, &tmp) catch return primitives.typeError("vector->string", "valid character", elem);
+        const n = std.unicode.utf8Encode(cp, &tmp) catch return primitives.argError("vector->string", "character is not a Unicode scalar value", .{});
         @memcpy(buf[pos .. pos + n], tmp[0..n]);
         pos += n;
     }
@@ -579,17 +579,15 @@ fn vectorSkipRightFn(args: []const Value) PrimitiveError!Value {
 // (vector-swap! vec i j)
 fn vectorSwapFn(args: []const Value) PrimitiveError!Value {
     if (!types.isVector(args[0])) return primitives.typeError("vector-swap!", "vector", args[0]);
-    if (types.toObject(args[0]).flags.immutable) return primitives.typeError("vector-swap!", "mutable vector", args[0]);
+    if (types.toObject(args[0]).flags.immutable) return primitives.argError("vector-swap!", "cannot mutate an immutable vector", .{});
     if (!types.isFixnum(args[1])) return primitives.typeError("vector-swap!", "exact non-negative integer", args[1]);
     if (!types.isFixnum(args[2])) return primitives.typeError("vector-swap!", "exact non-negative integer", args[2]);
     const vec = types.toVector(args[0]);
     const i_raw = types.toFixnum(args[1]);
     const j_raw = types.toFixnum(args[2]);
-    if (i_raw < 0) return primitives.typeError("vector-swap!", "exact non-negative integer", args[1]);
-    if (j_raw < 0) return primitives.typeError("vector-swap!", "exact non-negative integer", args[2]);
     // u64 comparisons before narrowing (kaappi#1912): see fixnumIndexInBounds.
-    if (!primitives.fixnumIndexInBounds(i_raw, vec.data.len)) return primitives.typeError("vector-swap!", "valid index", args[1]);
-    if (!primitives.fixnumIndexInBounds(j_raw, vec.data.len)) return primitives.typeError("vector-swap!", "valid index", args[2]);
+    if (!primitives.fixnumIndexInBounds(i_raw, vec.data.len)) return primitives.indexError("vector-swap!", i_raw, vec.data.len);
+    if (!primitives.fixnumIndexInBounds(j_raw, vec.data.len)) return primitives.indexError("vector-swap!", j_raw, vec.data.len);
     const i: usize = @intCast(i_raw);
     const j: usize = @intCast(j_raw);
     const tmp = vec.data[i];
@@ -601,7 +599,7 @@ fn vectorSwapFn(args: []const Value) PrimitiveError!Value {
 // (vector-reverse! vec [start [end]])
 fn vectorReverseBangFn(args: []const Value) PrimitiveError!Value {
     if (!types.isVector(args[0])) return primitives.typeError("vector-reverse!", "vector", args[0]);
-    if (types.toObject(args[0]).flags.immutable) return primitives.typeError("vector-reverse!", "mutable vector", args[0]);
+    if (types.toObject(args[0]).flags.immutable) return primitives.argError("vector-reverse!", "cannot mutate an immutable vector", .{});
     const vec = types.toVector(args[0]);
     const range = try primitives.parseOptionalRange(args, 1, vec.data.len, "vector-reverse!");
     var lo = range.start;
@@ -637,7 +635,7 @@ fn vectorUnfoldFn(args: []const Value) PrimitiveError!Value {
     const f = args[0];
     if (!types.isFixnum(args[1])) return primitives.typeError("vector-unfold", "exact non-negative integer", args[1]);
     const len_val = types.toFixnum(args[1]);
-    if (len_val < 0) return primitives.typeError("vector-unfold", "exact non-negative integer", args[1]);
+    if (len_val < 0) return primitives.argError("vector-unfold", "negative length {d}", .{len_val});
     const length: usize = @intCast(len_val);
 
     var seeds: std.ArrayList(Value) = .empty;
@@ -693,7 +691,7 @@ fn vectorUnfoldRightFn(args: []const Value) PrimitiveError!Value {
     const f = args[0];
     if (!types.isFixnum(args[1])) return primitives.typeError("vector-unfold-right", "exact non-negative integer", args[1]);
     const len_val = types.toFixnum(args[1]);
-    if (len_val < 0) return primitives.typeError("vector-unfold-right", "exact non-negative integer", args[1]);
+    if (len_val < 0) return primitives.argError("vector-unfold-right", "negative length {d}", .{len_val});
     const length: usize = @intCast(len_val);
 
     var seeds: std.ArrayList(Value) = .empty;
@@ -957,7 +955,7 @@ fn vectorMapBangFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const f = args[0];
     if (!types.isVector(args[1])) return primitives.typeError("vector-map!", "vector", args[1]);
-    if (types.toObject(args[1]).flags.immutable) return primitives.typeError("vector-map!", "mutable vector", args[1]);
+    if (types.toObject(args[1]).flags.immutable) return primitives.argError("vector-map!", "cannot mutate an immutable vector", .{});
 
     const vec_count = args.len - 1;
     var min_len: usize = types.toVector(args[1]).data.len;
@@ -992,16 +990,16 @@ fn vectorMapBangFn(args: []const Value) PrimitiveError!Value {
 // (vector-reverse-copy! to at from [start [end]])
 fn vectorReverseCopyBangFn(args: []const Value) PrimitiveError!Value {
     if (!types.isVector(args[0])) return primitives.typeError("vector-reverse-copy!", "vector", args[0]);
-    if (types.toObject(args[0]).flags.immutable) return primitives.typeError("vector-reverse-copy!", "mutable vector", args[0]);
+    if (types.toObject(args[0]).flags.immutable) return primitives.argError("vector-reverse-copy!", "cannot mutate an immutable vector", .{});
     if (!types.isFixnum(args[1])) return primitives.typeError("vector-reverse-copy!", "exact non-negative integer", args[1]);
     if (!types.isVector(args[2])) return primitives.typeError("vector-reverse-copy!", "vector", args[2]);
 
     const to_vec = types.toVector(args[0]);
     const at_val = types.toFixnum(args[1]);
-    if (at_val < 0) return primitives.typeError("vector-reverse-copy!", "exact non-negative integer", args[1]);
+    if (at_val < 0) return primitives.indexError("vector-reverse-copy!", at_val, to_vec.data.len);
     // u64 comparison before narrowing (kaappi#1912): on wasm32 a fixnum-range
     // at would truncate and pass the at+count check against a short vector.
-    if (!primitives.fixnumIndexInBoundsInclusive(at_val, to_vec.data.len)) return primitives.typeError("vector-reverse-copy!", "valid index range", args[1]);
+    if (!primitives.fixnumIndexInBoundsInclusive(at_val, to_vec.data.len)) return primitives.indexError("vector-reverse-copy!", at_val, to_vec.data.len);
     const at: usize = @intCast(at_val);
     const from_vec = types.toVector(args[2]);
     const from_len = from_vec.data.len;
@@ -1011,7 +1009,7 @@ fn vectorReverseCopyBangFn(args: []const Value) PrimitiveError!Value {
     const end = range.end;
 
     const count = end - start;
-    if (at + count > to_vec.data.len) return primitives.typeError("vector-reverse-copy!", "valid index range", args[1]);
+    if (at + count > to_vec.data.len) return primitives.indexError("vector-reverse-copy!", at_val + @as(i64, @intCast(count)), to_vec.data.len);
 
     // #1924: see vector-copy! — same per-element rejection for a shared
     // destination.
@@ -1032,22 +1030,22 @@ fn vectorUnfoldBangFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const f = args[0];
     if (!types.isVector(args[1])) return primitives.typeError("vector-unfold!", "vector", args[1]);
-    if (types.toObject(args[1]).flags.immutable) return primitives.typeError("vector-unfold!", "mutable vector", args[1]);
+    if (types.toObject(args[1]).flags.immutable) return primitives.argError("vector-unfold!", "cannot mutate an immutable vector", .{});
     if (!types.isFixnum(args[2])) return primitives.typeError("vector-unfold!", "exact non-negative integer", args[2]);
     if (!types.isFixnum(args[3])) return primitives.typeError("vector-unfold!", "exact non-negative integer", args[3]);
 
     const vec = types.toVector(args[1]);
     const start_val = types.toFixnum(args[2]);
     const end_val = types.toFixnum(args[3]);
-    if (start_val < 0) return primitives.typeError("vector-unfold!", "exact non-negative integer", args[2]);
-    if (end_val < 0) return primitives.typeError("vector-unfold!", "exact non-negative integer", args[3]);
+    if (start_val < 0) return primitives.indexError("vector-unfold!", start_val, vec.data.len);
+    if (end_val < 0) return primitives.indexError("vector-unfold!", end_val, vec.data.len);
     // u64 comparisons before narrowing (kaappi#1912): on wasm32 a fixnum-range
     // index would truncate and pass the checks against a short vector.
     if (!primitives.fixnumIndexInBoundsInclusive(start_val, vec.data.len)) return primitives.indexError("vector-unfold!", start_val, vec.data.len);
     if (!primitives.fixnumIndexInBoundsInclusive(end_val, vec.data.len)) return primitives.indexError("vector-unfold!", end_val, vec.data.len);
     const start: usize = @intCast(start_val);
     const end: usize = @intCast(end_val);
-    if (end < start) return primitives.typeError("vector-unfold!", "valid range (end >= start)", args[3]);
+    if (end < start) return primitives.argError("vector-unfold!", "start {d} is greater than end {d}", .{ start, end });
 
     var seeds: std.ArrayList(Value) = .empty;
     defer seeds.deinit(gc.allocator);
@@ -1105,22 +1103,22 @@ fn vectorUnfoldRightBangFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const f = args[0];
     if (!types.isVector(args[1])) return primitives.typeError("vector-unfold-right!", "vector", args[1]);
-    if (types.toObject(args[1]).flags.immutable) return primitives.typeError("vector-unfold-right!", "mutable vector", args[1]);
+    if (types.toObject(args[1]).flags.immutable) return primitives.argError("vector-unfold-right!", "cannot mutate an immutable vector", .{});
     if (!types.isFixnum(args[2])) return primitives.typeError("vector-unfold-right!", "exact non-negative integer", args[2]);
     if (!types.isFixnum(args[3])) return primitives.typeError("vector-unfold-right!", "exact non-negative integer", args[3]);
 
     const vec = types.toVector(args[1]);
     const start_val = types.toFixnum(args[2]);
     const end_val = types.toFixnum(args[3]);
-    if (start_val < 0) return primitives.typeError("vector-unfold-right!", "exact non-negative integer", args[2]);
-    if (end_val < 0) return primitives.typeError("vector-unfold-right!", "exact non-negative integer", args[3]);
+    if (start_val < 0) return primitives.indexError("vector-unfold-right!", start_val, vec.data.len);
+    if (end_val < 0) return primitives.indexError("vector-unfold-right!", end_val, vec.data.len);
     // u64 comparisons before narrowing (kaappi#1912): on wasm32 a fixnum-range
     // index would truncate and pass the checks against a short vector.
     if (!primitives.fixnumIndexInBoundsInclusive(start_val, vec.data.len)) return primitives.indexError("vector-unfold-right!", start_val, vec.data.len);
     if (!primitives.fixnumIndexInBoundsInclusive(end_val, vec.data.len)) return primitives.indexError("vector-unfold-right!", end_val, vec.data.len);
     const start: usize = @intCast(start_val);
     const end: usize = @intCast(end_val);
-    if (end < start) return primitives.typeError("vector-unfold-right!", "valid range (end >= start)", args[3]);
+    if (end < start) return primitives.argError("vector-unfold-right!", "start {d} is greater than end {d}", .{ start, end });
 
     var seeds: std.ArrayList(Value) = .empty;
     defer seeds.deinit(gc.allocator);
@@ -1227,8 +1225,6 @@ fn vectorAppendSubvectorsFn(args: []const Value) PrimitiveError!Value {
         if (!types.isFixnum(args[i + 2])) return primitives.typeError("vector-append-subvectors", "integer", args[i + 2]);
         const s = types.toFixnum(args[i + 1]);
         const e = types.toFixnum(args[i + 2]);
-        if (s < 0) return primitives.typeError("vector-append-subvectors", "non-negative integer", args[i + 1]);
-        if (e < 0) return primitives.typeError("vector-append-subvectors", "non-negative integer", args[i + 2]);
         const vec_len = types.toVector(args[i]).data.len;
         // u64 comparisons before narrowing (kaappi#1912): on wasm32 a
         // fixnum-range index would truncate and pass the checks below.
@@ -1236,7 +1232,7 @@ fn vectorAppendSubvectorsFn(args: []const Value) PrimitiveError!Value {
         if (!primitives.fixnumIndexInBoundsInclusive(e, vec_len)) return primitives.indexError("vector-append-subvectors", e, vec_len);
         const start: usize = @intCast(s);
         const end: usize = @intCast(e);
-        if (end < start) return primitives.typeError("vector-append-subvectors", "valid range (end >= start)", args[i + 2]);
+        if (end < start) return primitives.argError("vector-append-subvectors", "start {d} is greater than end {d}", .{ start, end });
         total += end - start;
     }
 

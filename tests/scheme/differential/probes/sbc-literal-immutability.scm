@@ -8,7 +8,8 @@
 ;; expression) using a mutation procedure like set-car! or string-set!."
 ;; Kaappi *enforces* that: `reader_datum.zig` stamps `Object.flags.immutable`
 ;; on every datum it reads under `mark_immutable`, and the four mutators reject
-;; it with KP3002 "expected mutable <type>".
+;; it with KP3007 "cannot mutate an immutable <type>" (kaappi#2021: the value
+;; has the right type; immutability is a property, not a type).
 ;;
 ;; `writeConstant`/`readConstant` used to carry no immutability bit, so a HIT
 ;; rebuilt every constant through the ordinary allocators, whose `immutable`

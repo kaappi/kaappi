@@ -602,16 +602,16 @@ pub fn parseOptionalRange(args: []const Value, arg_offset: usize, max_len: usize
     if (args.len > arg_offset) {
         if (!types.isFixnum(args[arg_offset])) return typeError(proc_name, "exact integer", args[arg_offset]);
         const s = types.toFixnum(args[arg_offset]);
-        if (!fixnumIndexInBoundsInclusive(s, max_len)) return typeError(proc_name, "valid index", args[arg_offset]);
+        if (!fixnumIndexInBoundsInclusive(s, max_len)) return indexError(proc_name, s, max_len);
         start = @intCast(s);
     }
     if (args.len > arg_offset + 1) {
         if (!types.isFixnum(args[arg_offset + 1])) return typeError(proc_name, "exact integer", args[arg_offset + 1]);
         const e = types.toFixnum(args[arg_offset + 1]);
-        if (!fixnumIndexInBoundsInclusive(e, max_len)) return typeError(proc_name, "valid index", args[arg_offset + 1]);
+        if (!fixnumIndexInBoundsInclusive(e, max_len)) return indexError(proc_name, e, max_len);
         end = @intCast(e);
     }
-    if (start > end) return typeError(proc_name, "start <= end", args[arg_offset]);
+    if (start > end) return argError(proc_name, "start {d} is greater than end {d}", .{ start, end });
     return .{ .start = start, .end = end };
 }
 
@@ -825,7 +825,7 @@ fn cdr(args: []const Value) PrimitiveError!Value {
 
 fn setCar(args: []const Value) PrimitiveError!Value {
     if (!types.isPair(args[0])) return typeError("set-car!", "pair", args[0]);
-    if (types.toObject(args[0]).flags.immutable) return typeError("set-car!", "mutable pair", args[0]);
+    if (types.toObject(args[0]).flags.immutable) return argError("set-car!", "cannot mutate an immutable pair", .{});
     // #1924: reject before the store — a shared parent-heap pair must not
     // come to hold a child-heap object.
     if (memory.crossHeapStoreViolation(types.toObject(args[0]), args[1])) return raiseCrossHeapStore("set-car!");
@@ -836,7 +836,7 @@ fn setCar(args: []const Value) PrimitiveError!Value {
 
 fn setCdr(args: []const Value) PrimitiveError!Value {
     if (!types.isPair(args[0])) return typeError("set-cdr!", "pair", args[0]);
-    if (types.toObject(args[0]).flags.immutable) return typeError("set-cdr!", "mutable pair", args[0]);
+    if (types.toObject(args[0]).flags.immutable) return argError("set-cdr!", "cannot mutate an immutable pair", .{});
     if (memory.crossHeapStoreViolation(types.toObject(args[0]), args[1])) return raiseCrossHeapStore("set-cdr!");
     if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
     types.setCdr(args[0], args[1]);

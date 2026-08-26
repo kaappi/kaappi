@@ -231,9 +231,9 @@ fn transcodedPortPrim(args: []const Value) PrimitiveError!Value {
     const binary_port = types.toObject(args[0]).as(types.Port);
     if (!binary_port.is_binary) return primitives.typeError(TRANSCODED_PORT, "binary port", args[0]);
 
-    const codec = symbolToCodec(args[1]) orelse return primitives.typeError(TRANSCODED_PORT, "recognized codec", args[1]);
-    const eol_style = symbolToEolStyle(args[2]) orelse return primitives.typeError(TRANSCODED_PORT, "recognized eol-style", args[2]);
-    const error_mode = symbolToErrorMode(args[3]) orelse return primitives.typeError(TRANSCODED_PORT, "recognized error-handling-mode", args[3]);
+    const codec = symbolToCodec(args[1]) orelse return primitives.argError(TRANSCODED_PORT, "codec must be the symbol utf-8", .{});
+    const eol_style = symbolToEolStyle(args[2]) orelse return primitives.argError(TRANSCODED_PORT, "eol-style must be one of none, lf, crlf", .{});
+    const error_mode = symbolToErrorMode(args[3]) orelse return primitives.argError(TRANSCODED_PORT, "error-handling-mode must be one of replace, raise", .{});
 
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.allocTranscodedPort(args[0], binary_port.is_input, binary_port.is_output, codec, eol_style, error_mode) catch PrimitiveError.OutOfMemory;

@@ -601,7 +601,13 @@ fn takeFn(args: []const Value) PrimitiveError!Value {
     // already loops this way.
     var i: i64 = 0;
     while (i < k) : (i += 1) {
-        if (!types.isPair(current)) return primitives.typeError("take", "pair", current);
+        // Walking off the end of a proper list is a range failure (KP3006,
+        // like list-ref on the same input, kaappi#2020); a non-pair, non-nil
+        // element means the argument was not a list at all.
+        if (!types.isPair(current)) {
+            if (current == types.NIL) return primitives.indexError("take", k, @intCast(i));
+            return primitives.typeError("take", "pair", current);
+        }
         elems.append(gc.allocator, types.car(current)) catch return PrimitiveError.OutOfMemory;
         current = types.cdr(current);
     }
@@ -618,7 +624,12 @@ fn dropFn(args: []const Value) PrimitiveError!Value {
     var current = args[0];
     var i: i64 = 0;
     while (i < k) : (i += 1) {
-        if (!types.isPair(current)) return primitives.typeError("drop", "pair", current);
+        // See `take`: end-of-proper-list is a range failure (KP3006),
+        // a non-pair element is a type failure (kaappi#2020).
+        if (!types.isPair(current)) {
+            if (current == types.NIL) return primitives.indexError("drop", k, @intCast(i));
+            return primitives.typeError("drop", "pair", current);
+        }
         current = types.cdr(current);
     }
     return current;
@@ -1143,7 +1154,12 @@ fn takeRightFn(args: []const Value) PrimitiveError!Value {
     var lead = args[0];
     var i: i64 = 0;
     while (i < k) : (i += 1) {
-        if (!types.isPair(lead)) return primitives.typeError("take-right", "valid index (k <= length)", args[1]);
+        // k past the walkable prefix is a range failure (KP3006, kaappi#2020);
+        // a non-pair, non-nil tail means the argument was not a list.
+        if (!types.isPair(lead)) {
+            if (lead == types.NIL) return primitives.indexError("take-right", k, @intCast(i));
+            return primitives.typeError("take-right", "pair", lead);
+        }
         lead = types.cdr(lead);
     }
 
@@ -1167,7 +1183,12 @@ fn dropRightFn(args: []const Value) PrimitiveError!Value {
     var lead = args[0];
     var i: i64 = 0;
     while (i < k) : (i += 1) {
-        if (!types.isPair(lead)) return primitives.typeError("drop-right", "valid index (k <= length)", args[1]);
+        // k past the walkable prefix is a range failure (KP3006, kaappi#2020);
+        // a non-pair, non-nil tail means the argument was not a list.
+        if (!types.isPair(lead)) {
+            if (lead == types.NIL) return primitives.indexError("drop-right", k, @intCast(i));
+            return primitives.typeError("drop-right", "pair", lead);
+        }
         lead = types.cdr(lead);
     }
 

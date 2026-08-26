@@ -60,7 +60,13 @@ fn listTailFn(args: []const Value) PrimitiveError!Value {
     var idx: i64 = 0;
     var current = args[0];
     while (idx < k) {
-        if (!types.isPair(current)) return primitives.typeError("list-tail", "pair", current);
+        // Walking off the end of a proper list is a range failure (KP3006,
+        // like list-ref on the same input, kaappi#2020); a non-pair,
+        // non-nil element means the argument was not a list at all.
+        if (!types.isPair(current)) {
+            if (current == types.NIL) return primitives.indexError("list-tail", k, @intCast(idx));
+            return primitives.typeError("list-tail", "pair", current);
+        }
         current = types.cdr(current);
         idx += 1;
     }
@@ -75,7 +81,7 @@ fn listSetFn(args: []const Value) PrimitiveError!Value {
     var current = args[0];
     while (current != types.NIL) {
         if (!types.isPair(current)) return primitives.typeError("list-set!", "pair", current);
-        if (types.toObject(current).flags.immutable) return primitives.typeError("list-set!", "mutable pair", current);
+        if (types.toObject(current).flags.immutable) return primitives.argError("list-set!", "cannot mutate an immutable pair", .{});
         if (idx == k) {
             // #1924: a shared parent-heap list must not be mutated from a
             // child — reject before the store.
@@ -130,7 +136,7 @@ fn makeListFn(args: []const Value) PrimitiveError!Value {
     const gc = getGC() orelse return PrimitiveError.OutOfMemory;
     if (!types.isFixnum(args[0])) return primitives.typeError("make-list", "non-negative integer", args[0]);
     const k = types.toFixnum(args[0]);
-    if (k < 0) return primitives.typeError("make-list", "non-negative integer", args[0]);
+    if (k < 0) return primitives.argError("make-list", "negative length {d}", .{k});
     const fill: Value = if (args.len > 1) args[1] else types.UNDEFINED;
     var result: Value = types.NIL;
     gc.pushRoot(&result);
