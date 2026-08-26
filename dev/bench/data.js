@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787731504696,
+  "lastUpdate": 1787732333518,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9bc2de0dee0c23af91f79cdf0c72349d29f0e106",
-          "message": "Root what the collector cannot see: SRFI-1 accumulators and the uid registry (#2228)\n\nTwo places parked a heap Value where the GC could not reach it and kept\nallocating, so the next collection reclaimed it and the code later read\nfreed memory.\n\nprimitives_srfi1 (#2160). buildList's caller-owned ArrayList(Value) is\ninvisible to the collector. That is harmless for elements the primitive's\nown args still reach, which is most of them -- but not for freshly\nallocated ones. kaappi#1027 rooted four callback-result accumulators and\nleft three siblings: list-tabulate (a callback result), zip (the row it\njust consed) and alist-copy (the entry it just copied). All three abort\nwith \"GC: marking freed object\" at three elements under -Dgc-stress=true;\nlist-tabulate also returns silently wrong data on a default build once the\nlist is long enough to cross the GC threshold.\n\nRooting inside buildList -- the fix the issue first suggested -- would not\nhelp: the element is already freed by the time the list gets built. The\nroot has to go on at the append, so all seven sites now share one\nappendRooted helper and buildList documents why it is not the place.\n\nrecord_uid_registry (#2161). The map does not own its keys, and\n%make-record-type-descriptor keyed off the uid argument's SchemeString\nbytes -- a string lib/srfi/237/base.sld makes fresh with symbol->string on\nevery call. Collect it and the key dangles, so a second definition with\nthe same uid stops finding the first and quietly builds a second,\nnon-interoperable type for one uid: exactly the R6RS guarantee\n`nongenerative` exists to provide, lost silently. Key by the new rtd's own\nowned uid copy instead, whose lifetime is the entry's -- the same thing\ngc_deep_copy.zig already does at its own insert into this map. The\nsyntactic path (vm_records.zig) keys off an interned symbol name and was\nalready safe.\n\nTests: src/tests_gc_runtime_stress.zig turns on the GC's runtime stress\nflag so the #2160 cases are deterministic at n = 3; pre-fix they abort\nunder -Doptimize=Debug and -Dgc-stress=true. #2161 is pinned as pointer\nidentity of the registry key, since observing the miss in-process needs\nthe freed bytes to be reused, which a unit test cannot arrange. Both also\nget corpus assertions that fail pre-fix -- srfi1-gc-stress.scm on a plain\nbuild as well as stressed, srfi237.scm on the stressed leg.\n\nThat lets the six files this gate found the bugs in come off\nKAAPPI_GC_STRESS_SKIP in ci.yml, as that list's own comment requires.\n\nCloses #2160\nCloses #2161\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-05T11:10:53+05:30",
-          "tree_id": "a465307999ebabddc41e0820db232fe1078b4aa1",
-          "url": "https://github.com/kaappi/kaappi/commit/9bc2de0dee0c23af91f79cdf0c72349d29f0e106"
-        },
-        "date": 1785910333181,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.280883,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.964826,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.567328,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.939577,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004636,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047281,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.309849,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.055618,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.655247,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.223715,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.580448,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.27493,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.774589,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.584749,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043005,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.036568,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "75f62d344aa0d4cdc10109826fe7bd2c9efddb1d",
+          "message": "thottam: unit-tier regression guard for ownership-aware removal (#2136) (#2364)\n\n* thottam: unit-tier regression guard for ownership-aware removal (#2136)\n\nThe ownership-manifest fix for #2136 (unlink only files no other installed\npackage still claims) landed in #2289 with coverage in thottam_state.zig and\nthe git-backed thottam-lifecycle.sh. That shell test needs a git remote and\nis skipped by `zig build test`, so the removal path had no guard in the unit\nsuite that runs on every build.\n\nAdd a network-free end-to-end test that lays out two packages sharing\nlib/kaappi/shared.sld in $KAAPPI_HOME/src (as a clone would), installs both\nthrough the real file-sync path, and drives the real doRemove: removing one\npackage must keep the shared file the other still claims, and removing the\nlast claimant finally deletes it. This fails against removal-by-name, which\nwalked the removed package's own source tree and unlinked shared.sld\nunconditionally.\n\ndoRemove and syncInstalledFiles are made pub so the test can drive them,\nmatching doList/doUpdate/doVerify which are already pub for the same reason.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* thottam: assert the collision warning and manifest claim in the #2136 test\n\nAddress two review notes on the ownership-removal regression test:\n\n- The second install overwrites a file kaappi-one's manifest already claims;\n  warnIfClaimed makes that audible on stderr. syncPkg now returns the captured\n  output so the test asserts the \"also provided by kaappi-one\" warning — the\n  only unit-tier place that observes the loud-not-silent half of the fix.\n\n- The test claimed doRemove drops kaappi-two from thottam.files but only\n  observed installed.txt. Assert the manifest directly with state.fileClaimedBy:\n  kaappi-one's claim on the shared file survives kaappi-two's removal, and no\n  claim remains once the last claimant is gone.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-26T07:35:51Z",
+          "tree_id": "24368b540459566ea54f5c65deaeca5fc54cde1a",
+          "url": "https://github.com/kaappi/kaappi/commit/75f62d344aa0d4cdc10109826fe7bd2c9efddb1d"
+        },
+        "date": 1787732332443,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.083313,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.554649,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.442402,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.180971,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003796,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03589,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.220656,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.042321,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.82943,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.882305,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.225069,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.239097,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.310602,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.458601,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.036916,
             "unit": "seconds"
           }
         ]
