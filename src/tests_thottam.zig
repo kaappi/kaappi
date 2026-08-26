@@ -1022,14 +1022,18 @@ fn installedFileExists(allocator: std.mem.Allocator, lib_dir: []const u8, rel: [
 }
 
 /// Run the real install-side file sync for `pkg` (copy its lib tree into the
-/// shared lib dir and record ownership in thottam.files), capturing its
-/// output so the suite stays quiet.
-fn syncPkg(allocator: std.mem.Allocator, config: thottam.Config, pkg: []const u8) !void {
+/// shared lib dir and record ownership in thottam.files), returning the
+/// captured stdout+stderr (owned by the caller) so a collision warning can be
+/// asserted — and so the suite stays quiet when it is not.
+fn syncPkg(allocator: std.mem.Allocator, config: thottam.Config, pkg: []const u8) ![]const u8 {
     const pkg_dir = try std.mem.concat(allocator, u8, &.{ config.src_dir, "/", pkg });
     defer allocator.free(pkg_dir);
     const cap = try captureOutput(true, thottam.syncInstalledFiles, .{ allocator, config, pkg, pkg_dir });
-    defer allocator.free(cap.out);
-    if (cap.err) |e| return e;
+    if (cap.err) |e| {
+        allocator.free(cap.out);
+        return e;
+    }
+    return cap.out;
 }
 
 test "doRemove keeps a file a still-installed package still claims (issue #2136)" {
@@ -1048,8 +1052,14 @@ test "doRemove keeps a file a still-installed package still claims (issue #2136)
 
     // Install both through the real file-sync path: copies into the shared
     // lib dir and records ownership in thottam.files.
-    try syncPkg(allocator, env.config, "kaappi-one");
-    try syncPkg(allocator, env.config, "kaappi-two");
+    allocator.free(try syncPkg(allocator, env.config, "kaappi-one"));
+    // The second install overwrites a file kaappi-one's manifest already
+    // claims. warnIfClaimed must make that audible on stderr — the "loud, not
+    // silent" half of the #2136 fix, and this is the only unit-tier place that
+    // sees it.
+    const two_out = try syncPkg(allocator, env.config, "kaappi-two");
+    defer allocator.free(two_out);
+    try std.testing.expect(std.mem.indexOf(u8, two_out, "also provided by kaappi-one") != null);
     try thottam.writeFile(allocator, env.config.installed, "kaappi-one\nkaappi-two\n");
 
     // All three files landed in the shared lib dir.
@@ -1069,9 +1079,19 @@ test "doRemove keeps a file a still-installed package still claims (issue #2136)
     try std.testing.expect(installedFileExists(allocator, env.config.lib_dir, "kaappi/one.sld"));
     try std.testing.expect(installedFileExists(allocator, env.config.lib_dir, "kaappi/shared.sld"));
 
-    // doRemove dropped kaappi-two from installed.txt and thottam.files itself.
+    // doRemove dropped kaappi-two from installed.txt.
     try std.testing.expect(!state.isInstalled(allocator, env.config.installed, "kaappi-two"));
     try std.testing.expect(state.isInstalled(allocator, env.config.installed, "kaappi-one"));
+
+    // And it dropped kaappi-two's lines from thottam.files, while kaappi-one's
+    // claim on the shared file — the reason removal kept it — survives. This
+    // is what removal consulted, asserted directly on the manifest.
+    {
+        const owner = state.fileClaimedBy(allocator, env.config.files, "kaappi/shared.sld", "kaappi-two");
+        defer if (owner) |o| allocator.free(o);
+        try std.testing.expect(owner != null);
+        try std.testing.expectEqualStrings("kaappi-one", owner.?);
+    }
 
     // Removing the last claimant finally deletes the shared file — removal is
     // not over-broad, only claim-guarded.
@@ -1082,4 +1102,11 @@ test "doRemove keeps a file a still-installed package still claims (issue #2136)
     }
     try std.testing.expect(!installedFileExists(allocator, env.config.lib_dir, "kaappi/one.sld"));
     try std.testing.expect(!installedFileExists(allocator, env.config.lib_dir, "kaappi/shared.sld"));
+
+    // With kaappi-one gone too, nobody claims the shared file in thottam.files.
+    {
+        const owner = state.fileClaimedBy(allocator, env.config.files, "kaappi/shared.sld", "kaappi-two");
+        defer if (owner) |o| allocator.free(o);
+        try std.testing.expect(owner == null);
+    }
 }
