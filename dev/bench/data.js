@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787709367007,
+  "lastUpdate": 1787713242528,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "cc351d020a8251ecb1ab02ee8085d1c58641314b",
-          "message": "Validate arity in the two call paths that build their frames by hand (#2203)\n\ncallClosure checks arity for the `call` opcode. Three other places construct\na frame themselves and inherited none of that: callHandler, callThunk, and the\nfiber scheduler's spawnFiber. Two of them skipped the check entirely, so a\nwrong-arity procedure ran anyway with its surplus parameters reading whatever\nthe register file happened to hold — a live value from a neighbouring frame,\nnot merely an undefined slot, because the hand-built frames also never cleared\npast the argument they staged. A 3-argument exception handler received the\ncaller's `list` procedure as its third argument, deterministically.\n\nRather than add the same check in each caller — which is how it went missing —\nevery re-entrant frame now binds its arguments through one helper on the\ncallReentrant path, bindReentrantArgs, which validates arity and folds surplus\narguments into a variadic callee's rest list. callHandler, callThunk and\ncallWithArgs each collapse to a single call and cannot skip it. That covers\nthe with-exception-handler handler, the call-with-values producer, and the\ncall/cc and call/ec receivers in non-tail position (the tail-position\nsuperinstruction always had its own check).\n\nwith-exception-handler and %call-with-unwind-handler additionally check their\nthunk before installing the handler. Left to callThunk, the thunk's arity\nerror is raised inside the extent of the handler being installed, so the\nhandler catches the report of its own caller's malformed call and the form\nquietly returns the handler's value. Their handler's arity is deliberately\nstill checked at the call, since a handler that is never invoked has nothing\nto report about.\n\nspawnFiber had the same gap plus a second defect: with base = 0, r0 is the\nthunk's first parameter, not a callee slot, so writing the closure there bound\na fiber's own thunk to its first parameter and `#<undefined>` to the rest —\nmaking a rest parameter satisfy neither `list?` nor `null?`, against R7RS\n4.1.4. r0 is now left to the variadic rest list, and the closure stays reachable\nthrough frames[0].closure and fiber.thunk, which the GC already traces. Both\nchecks moved ahead of allocFiber, which used to run first, so a refused thunk\nno longer leaves a fiber and a consumed id behind. spawn also stops relabelling\nevery spawnFiber failure OutOfMemory, which reported a memory problem for what\nis an argument problem and discarded the diagnostic.\n\nA pure-variadic thunk — the natural way to write \"ignore my arguments\" — now\nworks in both places instead of failing outright.\n\nCloses #2034\nCloses #1999\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-03T14:25:15Z",
-          "tree_id": "c5ad4c4ca8b31e6a24e28f4ba614fc8b7719c757",
-          "url": "https://github.com/kaappi/kaappi/commit/cc351d020a8251ecb1ab02ee8085d1c58641314b"
-        },
-        "date": 1785768959479,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.496169,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.188382,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.57032,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.103017,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004675,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047227,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.317864,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.055864,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.686241,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.264175,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.574683,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.283692,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.844568,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.58825,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043139,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.040786,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e510eaaf2acdc1bef4b5afa61961f938649dfd7a",
+          "message": "docs: correct SRFI 248 caveat count and document script top-level echo (#2341)\n\nREADME.md and CONFORMANCE.md claimed SRFI 248's delimited continuations\nhave exactly two observable caveats and asserted the list was complete.\nThere is a third, documented in lib/srfi/248.sld's header and demonstrated\nhere: the prompt is a single metacontinuation cell per thread shared by\nevery fiber, so a with-unwind-handler/guard body must not span a fiber\nsuspension point while another fiber runs delimited control (the prompts\ncross silently), and a user call/cc capture must not cross a\nwith-unwind-handler boundary (the guarded body re-runs exponentially --\n2^n-1 times instead of n, 255 where 8 is correct at n=8 -- and the\nprocess still exits 0).\n\nAlso surface, in user-facing docs, that running a script echoes every\nnon-void top-level expression's value to stdout (previously documented\nonly in docs/dev/fuzzing.md): a top-level guard yielding #f or a map used\nfor effect inserts a datum into otherwise structured output, and no flag\ndisables it. Chibi and Guile print nothing running the same file.\n\n#2252 needs no change: the FORMAL_FLAG comments in\nsrc/expander_instantiate.zig were already scoped to lambda formals only\nby #2251 (6ee91e23), and the behavior matches -- verified via kaappi\nexpand: a case-lambda formal colliding with a builtin is hygiene-renamed\nwhile the identical lambda formal keeps its bare spelling, and\ntests/scheme/hygiene/template-binds-builtin-name.scm passes.\n\nCloses #2038\nCloses #1994\nCloses #2252\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-26T06:06:36+05:30",
+          "tree_id": "f84b2d820aa03659224ac9cc8fa1cdef21b0e312",
+          "url": "https://github.com/kaappi/kaappi/commit/e510eaaf2acdc1bef4b5afa61961f938649dfd7a"
+        },
+        "date": 1787713240286,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.343353,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.754108,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.581159,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.032426,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004695,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047988,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.305184,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055909,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.756664,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.233513,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.6549,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.29183,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.78242,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.642951,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04628,
             "unit": "seconds"
           }
         ]
