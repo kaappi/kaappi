@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787716353515,
+  "lastUpdate": 1787731504696,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e1accbb3173b555540be73512fb2aef4d096b0f9",
-          "message": "Fix REPL comma-command TAB completion appending instead of replacing (#2225)\n\n* Fix REPL comma-command TAB completion appending instead of replacing\n\ncompletionCallback called ic.addCompletion directly for comma-commands\nlike ,help, bypassing ic.completeWord. isocline's ic_add_completion\ndefaults delete_before to 0, so it spliced the replacement in at the\ncursor without deleting the typed prefix first — TAB after ,h produced\n,h,help instead of ,help. Route the command-name branch through\nic.completeWord, same as scheme-identifier completion already does,\nso isocline computes the correct deletion from the word boundary.\n\nFixes #2224\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Bound REPL shutdown reap in the comma-completion regression test\n\nReview feedback on #2225: os.waitpid(pid, 0) after ,quit had no\ndeadline and the child's exit status went unchecked. Poll with\nWNOHANG up to 10s, kill and reap on timeout, and fail the test on a\nnonzero exit — so a future ,quit regression fails this test instead\nof hanging it (and, since the outer shell timeout only kills this\nscript's own pid, potentially the CI worker after it).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-05T04:07:09Z",
-          "tree_id": "6e17d93d8d719afef186bfad13142bf48946c05d",
-          "url": "https://github.com/kaappi/kaappi/commit/e1accbb3173b555540be73512fb2aef4d096b0f9"
-        },
-        "date": 1785904766554,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.245023,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.088833,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.565924,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.95734,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004624,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047225,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.308723,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.055784,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.731792,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.223572,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.604818,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.27998,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.789925,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.598997,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044513,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.036492,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fe924b40fc38bd0031a292d052fbde826a79bbd9",
+          "message": "SRFI 231: fix the spec-audit deviations (#2353-#2362) and vendor the official test suite (#2363)\n\n* SRFI 231: implement u1-storage-class, fix char default and float checkers (#2353, #2354, #2355)\n\nu1 is now a real storage class -- a direct port of the reference\nimplementation's bit-packing over u16vector (body = (vector valid-bit-count\nu16vector), little-endian within each u16, #f copier as in the reference),\nnot a #f stub: the spec mandates uX for X=1, documents exactly this\nrepresentation, and kaappi ships the (srfi 160 u16) substrate it needs\n(#2353). The spec's own board example (reshape of an extracted u16vector\nbit string into the upper-triangular 3x3 matrix) now reproduces exactly.\nf8 stays #f (as in the reference itself); f16 stays #f as a documented\nscope reduction -- the reference implements software half-floats.\n\nchar-storage-class's default is now #\\null (NUL, U+0000) per the\nreference's defaults list and the official test suite; the spec prose's\n#\\0 (digit zero) is stale relative to its own reference (#2354).\n\nf32/f64 checkers accept only inexact reals and c64/c128 only complexes\nwith inexact real and imaginary parts, matching the reference exactly;\nsafe-mode array-set! no longer silently coerces exact values (1/3 into\nc64 used to narrow through f32 precision) (#2355).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* SRFI 231: interval-scale rejects non-positive and non-integer scales (#2357)\n\nThe spec requires a length-d vector of positive exact integers and the\nreference validates scales up front; without the check a negative scale\non a zero-width axis or a rational scale silently produced a\nplausible-looking interval instead of an error.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* SRFI 231: validate plain-array multi-indices, unsafe getter arity, and constructor arguments (#2358, #2362, #2359)\n\nmake-array now wraps its getter and setter in index checks exactly as\nthe reference's %%make-safer-array does: out-of-domain, wrong-arity,\nand empty-domain calls on ANY generalized array (including the lazy\narray-map/translate/permute/curry results built through it) error\ninstead of running the closure on arbitrary input -- this one gap was\n124 of the 138 failures in a full run of the official SRFI 231 test\nsuite (#2362).\n\nThe row-major indexer now rejects multi-indices longer than the array's\ndimension even on the unsafe path, where they were silently dropped --\nthe reference's fixed-arity getters reject wrong arity regardless of\nsafe? (#2358).\n\nmake-specialized-array and make-specialized-array-from-data validate\ntheir storage-class argument up front, and make-specialized-array runs\nthe storage-class checker on an explicit initial-value at construction,\nboth matching the reference (#2359).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* SRFI 4: re-export the missing u64/s64 homogeneous vector family (#2361)\n\nSRFI 4's own surface is all ten kinds (u8..f64 incl. u64/s64); the hub\nre-exported only eight, so a legal (import (srfi 4)) program failed on\nu64vector/s64vector even though the (srfi 160 u64/s64) substrate\nlibraries existed all along.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* SRFI 231: per-procedure argument validation and upfront element checks in the combinators (#2359)\n\nNon-array arguments are now rejected with a message naming the procedure\nat every entry point (array-map, for-each, folds, any/every, outer and\ninner product, the four ->list/->vector conversions, list->array and\nvector->array's non-list/non-vector/bad-storage-class inputs) instead of\nsurfacing as internal %record-ref type errors, matching the reference.\nlist*->array/vector*->array validate the dimension argument up front.\n\nlist->array and vector->array additionally validate every element\nagainst the storage class's checker before filling, as the reference\ndoes -- the raw fill path skips checking, which for bit-packed u1\nsilently corrupted the body instead of erroring (#2353 follow-on).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* SRFI 231: array-decurry and array-block honor the once-per-element access guarantee; array-assign! checks values (#2356, #2359)\n\narray-decurry copies its AofA argument up front (as the reference does)\nbefore validation and fill: the user-visible outer getter now fires\nexactly once per element instead of once per validation probe plus once\nper result element (measured 9x on a 2x3 case, unbounded in the result\nvolume). array-block validates the copy rather than re-reading the\noriginal, restoring once-per-element access (was 2x).\n\narray-assign! validates every source element against the destination's\nstorage-class checker even when the destination is an unsafe specialized\narray -- the raw setter path silently corrupted bit-packed u1 bodies\nwhere the reference errors (\"should check anyway\", per the official\nsuite's commentary).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* compiler: CaptureScan knows guard compiles its body into closures (#2360)\n\nA legal (scheme base) program combining nested do loops with a guard in\nthe inner body failed with a spurious 'type error in arithmetic' at the\ninner loop's termination test. Root cause: guard desugars to\n(with-exception-handler (lambda (var) clauses...) (lambda () body...)),\nso every reference inside a guard is a capture -- but CaptureScan's\nclosure-form whitelist (lambda, case-lambda, delay, delay-force) did\nnot include guard. The do-variable captured by the guard's thunk\ntherefore stayed unboxed until the guard's own lambda was compiled\nmid-loop, emitting box_local INSIDE the loop while the loop test,\ncompiled earlier, still read the register raw; the second inner\niteration then handed the box object itself to =.\n\nFix: add guard to the whitelist so the enclosing do's pre-loop capture\npass (the #803 boxing invariant) boxes the variable before the loop\nstarts. Any compiler form that wraps sub-expressions in an internal\nlambda must be listed there -- the comment now says so.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* tests: vendor the official SRFI 231 suite as a permanent conformance asset\n\ntests/scheme/srfi/srfi231-official.scm is the SRFI's own test suite\n(test-arrays.scm by Bradley J Lucier, MIT license retained; 744 test\nsites, ~8,800 evaluations with the random loops) adapted from its Gambit\nflavor to portable R7RS. It is the broadest single conformance asset in\nthe tree and the one that exposed the #2362 family -- 124 official-suite\nfailures invisible to kaappi's own hand-written SRFI 231 tests.\n\nThe suite is GENERATED, never hand-edited:\n\n    python3 tests/scheme/srfi/srfi231-official-transform.py\n\nreads the pristine upstream source vendored in\nsrfi231-official-fixtures/ (commit recorded in the generated header;\nthe .gambit suffix keeps fmt.sh's corpus sweep from demanding it be\nR7RS-readable) and applies both the Gambit->R7RS adaptation and the\nkaappi vendoring postlude. Fixtures resolve relative to the suite itself\nand PGM convolution outputs go under TMPDIR, so the suite never writes\ninto the tree regardless of cwd.\n\nConventions:\n- Known kaappi-vs-reference divergences are accounted in a table of test\n  ids (f16 deferral, the unsafe-view UB choice, Gambit's immutable-string\n  expectation), each with its issue reference. The suite exits nonzero\n  only on UNEXPECTED failures -- or when a known divergence stops\n  diverging, which means the entry is stale and hiding real coverage\n  (prune it). Current state: 8,769 passed, 231 error-message-only, 9\n  known divergences, 0 unexpected.\n- Error-expecting tests pass on any error; only Gambit's message text\n  differs.\n- run-all.sh gets a per-file timeout override (600s default for this\n  file, KAAPPI_SRFI231_OFFICIAL_TIMEOUT) since the suite runs ~150s\n  cold-cache -- the isolated KAAPPI_HOME compiles the SRFI's libraries\n  fresh every run.\n\nFull run-all.sh with the new suite: 718/718 Scheme files, 1395/1395\nR7RS, exit 0. docs/dev/testing.md documents the asset.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* ci: skip the official SRFI 231 suite on the Debug and gc-stress legs\n\nThe vendored srfi231-official.scm is allocation-heavy at suite scale\n(8,778 evaluations plus PGM convolutions over a 512x512 image; ~77s warm\nReleaseSafe, ~150s cold-cache under run-all's isolated KAAPPI_HOME).\nUnder Debug that is 10-20x -- past even its own 600s run-all timeout\noverride -- and under gc-stress it is the same quadratic\nallocation-against-live-heap shape as the existing TOO SLOW UNDER STRESS\nexclusions. Both legs already have named skip lists for exactly this;\nthe hand-written srfi231*.scm suites keep the SRFI covered on every leg,\nand the official suite still runs on every default-timeout leg.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* compiler: box every do-referenced local -- the capture whitelist was unenumerable (#2360 review)\n\nThe review on #2363 confirmed the guard fix but showed the identical\ncorruption still live through let-values, let*-values, parameterize, and\nreceive -- and the same is true of ANY user macro expanding to a\ncapturing lambda, which no pre-expansion whitelist can see (receive is\nexactly that: a syntax-rules macro over call-with-values + lambda; it\nfails today with the same box-object-to-arithmetic crash). Enumerating\nclosure-introducing forms is unsound by construction, so the scan now\ncollects every symbol referenced in the do's test, commands, steps, and\nresult expressions and boxes each resolvable local before the loop.\n\nOver-boxing is safe: get_box_local/set_box_local lazily box raw\nregisters, so a marked local whose box_local never executed still reads\nand writes correctly (verified: a skipped conditional do followed by a\nread of the captured variable).\n\nCost, measured: the full benchmark suite is flat-to-faster (fib 2.67->\n2.56s, nqueens 2.80->2.77s, primes 0.359->0.343s, tak 1.93->1.80s\nmedians); the worst case is a pure-counting do loop whose only\nreferences are its own step/test -- ~2x on that micro (147ns vs 74ns\nper iteration vs the equivalent named let), one box per variable per\nloop entry, off the back-edge. A future refinement that recovers it\nsoundly would be lowering guard/let-values/parameterize via the\nexpander so a scan over fully-expanded code sees explicit lambdas.\n\nRegression tests extended with the review's let-values, parameterize,\nand macro->lambda cases (all asserted 6).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-26T07:16:09Z",
+          "tree_id": "aca393764bf216fc6f80eed81a1109bed3deb865",
+          "url": "https://github.com/kaappi/kaappi/commit/fe924b40fc38bd0031a292d052fbde826a79bbd9"
+        },
+        "date": 1787731502711,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.131813,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.097724,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.448568,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.184832,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003794,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03598,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.22105,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.042329,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.866176,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.878261,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.234096,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.248468,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.314505,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.457719,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.036568,
             "unit": "seconds"
           }
         ]
