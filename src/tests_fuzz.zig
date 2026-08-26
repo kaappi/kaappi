@@ -157,19 +157,6 @@ const loader_corpus = [_][]const u8{
 fn freeLoaded(allocator: std.mem.Allocator, loaded: bytecode_file.DeserializeResult) void {
     var l = loaded;
     bytecode_file.freeDeserializeResult(allocator, &l);
-    if (loaded.bundled_files) |bf| {
-        var map = bf;
-        var it = map.iterator();
-        while (it.next()) |entry| {
-            allocator.free(entry.key_ptr.*);
-            allocator.free(entry.value_ptr.*);
-        }
-        map.deinit();
-    }
-    if (loaded.preamble) |preamble| {
-        for (preamble) |p| allocator.free(p);
-        allocator.free(preamble);
-    }
 }
 
 // Guards the corpus against silent rot: if the bytecode format VERSION bumps,

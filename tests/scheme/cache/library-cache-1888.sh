@@ -157,6 +157,7 @@ cat > "$LIBDIR/dep1888/base.sld" <<'SLD'
 SLD
 out4="$(run_timed "$PROG")"
 check "edited dependency: dependents go stale and recompile" "libcache: 0 hits, 1 miss, 2 written, 1 stale" "$out4"
+check "edited dependency: the PROGRAM entry misses too" "cache: MISS (wrote" "$out4"
 check "edited dependency: new value propagates" "112
 (7 7)
 r7rs-branch
@@ -174,6 +175,7 @@ r7rs-branch
 echo "(define included-val 70)" > "$LIBDIR/user1888/body.scm"
 out6="$(run_timed "$PROG")"
 check "edited include: library goes stale" "1 stale" "$out6"
+check "edited include: the PROGRAM entry misses too" "cache: MISS (wrote" "$out6"
 check "edited include: new value visible" "175
 (70 70)
 r7rs-branch
@@ -192,6 +194,7 @@ cat > "$OTHER/dep1888/base.sld" <<'SLD'
 SLD
 out7="$(KAAPPI_HOME="$HOMEDIR" "$KAAPPI" --lib-path "$OTHER" --lib-path "$LIBDIR" --timings=text "$PROG" 2>&1)"
 check "lib-path shadowing the dependency: stale, not a silent wrong hit" "1 stale" "$out7"
+check "lib-path shadowing: the PROGRAM entry misses too" "cache: MISS (wrote" "$out7"
 check "lib-path shadowing: output unchanged (same source content)" "175
 (70 70)
 r7rs-branch
@@ -300,11 +303,32 @@ check "dep edit stales registry-order dependents" "cache: MISS (wrote" "$o3"
 check "dep edit: new value everywhere" "(1071 1071)" "$o3"
 
 # --- G: running a .sld directly must not replay its library entry ------------
-# The library entry shares the cache key with `kaappi u.sld`; the direct run
-# must interpret the define-library cleanly (cold behavior), not execute the
-# body thunks as a program.
-d1="$("$KAAPPI" --lib-path "$LIBDIR" "$LIBDIR/user1888/u.sld" 2>&1; echo "rc=$?")"
-check "running the .sld directly stays clean" "rc=0" "$d1"
+# The library entry shares the cache key with `kaappi u.sld`. The fixture's
+# body prints when the library loads (either cold or a warm library-entry
+# replay); a kind-confused PROGRAM replay of the body thunks would instead die
+# on undefined variables — the print discriminates the three outcomes.
+mkdir -p "$LIBDIR/side1888"
+cat > "$LIBDIR/side1888/s.sld" <<'SLD'
+(define-library (side1888 s)
+  (import (scheme base))
+  (export nothing)
+  (begin
+    (display "side-effect-ran")
+    (newline)))
+SLD
+printf '(import (side1888 s))\n' > "$PROGDIR/uses-side.scm"
+# Warm the library entry through an import (writes it), then run the .sld
+# directly twice: each run must load the library and print the side effect.
+"$KAAPPI" --lib-path "$LIBDIR" "$PROGDIR/uses-side.scm" > /dev/null 2>&1
+d1="$("$KAAPPI" --lib-path "$LIBDIR" "$LIBDIR/side1888/s.sld" 2>&1; echo "rc=$?")"
+check "running the .sld directly loads the library" "side-effect-ran
+rc=0" "$d1"
+d2="$("$KAAPPI" --lib-path "$LIBDIR" "$LIBDIR/side1888/s.sld" 2>&1; echo "rc=$?")"
+check "running the .sld directly again (entry warm) still loads it" "side-effect-ran
+rc=0" "$d2"
+# And the program that imported it still hits warm.
+t7="$(run_timed "$PROGDIR/uses-side.scm")"
+check "importer still HITs warm after direct .sld runs" "cache: HIT" "$t7"
 
 # --- H: fold-case declarations replay (#1888 review) -------------------------
 # A #!fold-case directive falls inside an earlier form's span; the declaration

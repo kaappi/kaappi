@@ -517,6 +517,18 @@ pub fn freeDeserializeResult(allocator: std.mem.Allocator, result: *DeserializeR
 }
 
 pub fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?DeserializeResult {
+    return deserializeFromBufferImpl(gc, data, expected_hash) catch |err| switch (err) {
+        // Corrupt-cache exits inside the impl are errors there (so the
+        // errdefer cleanup actually runs — `errdefer` does not fire on
+        // `return null`, and every partially read section would leak,
+        // #1888 review) but plain misses to every caller. OutOfMemory stays
+        // an error: it is a runtime failure, not a cache verdict.
+        error.OutOfMemory => error.OutOfMemory,
+        else => null,
+    };
+}
+
+fn deserializeFromBufferImpl(gc: *GC, data: []const u8, expected_hash: ?u64) BytecodeError!?DeserializeResult {
     const allocator = gc.allocator;
 
     // Enough for the fixed prefix (magic + version + source hash + compiler
@@ -552,9 +564,10 @@ pub fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?D
         return null;
 
     const func_count = r.readU32() catch return null;
-    // A library with no compiled body forms (pure re-export shim) legitimately
-    // has an empty function table; every other kind needs at least one.
-    if ((func_count == 0 and entry_kind != bf.ENTRY_LIBRARY) or func_count > bf.MAX_FUNCTIONS) return null;
+    // A library with no compiled body forms (pure re-export shim) and a
+    // program whose forms are all declarations (an import-only script)
+    // legitimately have empty function tables; a bundle does not.
+    if ((func_count == 0 and entry_kind == bf.ENTRY_BUNDLE) or func_count > bf.MAX_FUNCTIONS) return null;
 
     const top_level_count = r.readU32() catch return null;
     if (top_level_count > func_count or top_level_count > bf.MAX_TOP_LEVEL_FUNCTIONS) return null;
@@ -645,8 +658,8 @@ pub fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?D
     defer if (!ok) freeDeserializeResult(allocator, &result);
 
     if (entry_kind == bf.ENTRY_PROGRAM) {
-        const slot_count = r.readU32() catch return null;
-        if (slot_count > bf.MAX_TOP_LEVEL_FUNCTIONS) return null;
+        const slot_count = r.readU32() catch return BytecodeError.CorruptedFile;
+        if (slot_count > bf.MAX_TOP_LEVEL_FUNCTIONS) return BytecodeError.CorruptedFile;
         const entries = allocator.alloc(ProgramSlot, slot_count) catch return BytecodeError.OutOfMemory;
         var filled: usize = 0;
         errdefer {
@@ -673,7 +686,7 @@ pub fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?D
             } else break;
             filled = i + 1;
         }
-        if (filled != slot_count) return null;
+        if (filled != slot_count) return BytecodeError.CorruptedFile;
         result.slots = entries;
     }
 
@@ -682,13 +695,13 @@ pub fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?D
         result.library = readLibrarySections(&r, gc, all_funcs, top_level_count, &shared) catch |err| switch (err) {
             BytecodeError.OutOfMemory => return BytecodeError.OutOfMemory,
             else => return null,
-        } orelse return null;
+        } orelse return BytecodeError.CorruptedFile;
     }
 
     // Include/dependency records — shared by the program and library kinds.
     if (entry_kind != bf.ENTRY_BUNDLE) {
-        const include_count = r.readU32() catch return null;
-        if (include_count > bf.MAX_LIBRARY_INCLUDES) return null;
+        const include_count = r.readU32() catch return BytecodeError.CorruptedFile;
+        if (include_count > bf.MAX_LIBRARY_INCLUDES) return BytecodeError.CorruptedFile;
         if (include_count > 0) {
             const includes = allocator.alloc(bf.IncludeRecord, include_count) catch return BytecodeError.OutOfMemory;
             var inc_filled: usize = 0;
@@ -697,19 +710,22 @@ pub fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?D
                 allocator.free(includes);
             }
             for (0..include_count) |i| {
-                const len = r.readU16() catch return null;
-                if (len > bf.MAX_HEADER_STR_BYTES) return null;
-                const path_bytes = r.readBytes(len) catch return null;
+                const len = r.readU16() catch return BytecodeError.CorruptedFile;
+                if (len > bf.MAX_HEADER_STR_BYTES) return BytecodeError.CorruptedFile;
+                // Borrowed reads first, dupe last: nothing may fail between
+                // the allocation and the inc_filled assignment that makes the
+                // loop's errdefer own it (#1888 review).
+                const path_bytes = r.readBytes(len) catch return BytecodeError.CorruptedFile;
+                const hash = r.readU64() catch return BytecodeError.CorruptedFile;
                 const path = allocator.dupe(u8, path_bytes) catch return BytecodeError.OutOfMemory;
-                const hash = r.readU64() catch return null;
                 includes[i] = .{ .path = path, .hash = hash };
                 inc_filled = i + 1;
             }
             result.includes = includes;
         }
 
-        const dep_count = r.readU32() catch return null;
-        if (dep_count > bf.MAX_LIBRARY_DEPS) return null;
+        const dep_count = r.readU32() catch return BytecodeError.CorruptedFile;
+        if (dep_count > bf.MAX_LIBRARY_DEPS) return BytecodeError.CorruptedFile;
         if (dep_count > 0) {
             const deps = allocator.alloc(bf.DepRecord, dep_count) catch return BytecodeError.OutOfMemory;
             var dep_filled: usize = 0;
@@ -722,18 +738,18 @@ pub fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?D
                 allocator.free(deps);
             }
             for (0..dep_count) |i| {
-                const rel_len = r.readU16() catch return null;
-                if (rel_len > bf.MAX_HEADER_STR_BYTES) return null;
-                const rel = allocator.dupe(u8, r.readBytes(rel_len) catch return null) catch return BytecodeError.OutOfMemory;
+                const rel_len = r.readU16() catch return BytecodeError.CorruptedFile;
+                if (rel_len > bf.MAX_HEADER_STR_BYTES) return BytecodeError.CorruptedFile;
+                const rel = allocator.dupe(u8, r.readBytes(rel_len) catch return BytecodeError.CorruptedFile) catch return BytecodeError.OutOfMemory;
                 errdefer allocator.free(rel);
-                const res_len = r.readU16() catch return null;
-                if (res_len > bf.MAX_HEADER_STR_BYTES) return null;
-                const resolved = allocator.dupe(u8, r.readBytes(res_len) catch return null) catch return BytecodeError.OutOfMemory;
+                const res_len = r.readU16() catch return BytecodeError.CorruptedFile;
+                if (res_len > bf.MAX_HEADER_STR_BYTES) return BytecodeError.CorruptedFile;
+                const resolved = allocator.dupe(u8, r.readBytes(res_len) catch return BytecodeError.CorruptedFile) catch return BytecodeError.OutOfMemory;
                 errdefer allocator.free(resolved);
-                const hash = r.readU64() catch return null;
-                const name_len = r.readU16() catch return null;
-                if (name_len > bf.MAX_HEADER_STR_BYTES) return null;
-                const lib_name = allocator.dupe(u8, r.readBytes(name_len) catch return null) catch return BytecodeError.OutOfMemory;
+                const hash = r.readU64() catch return BytecodeError.CorruptedFile;
+                const name_len = r.readU16() catch return BytecodeError.CorruptedFile;
+                if (name_len > bf.MAX_HEADER_STR_BYTES) return BytecodeError.CorruptedFile;
+                const lib_name = allocator.dupe(u8, r.readBytes(name_len) catch return BytecodeError.CorruptedFile) catch return BytecodeError.OutOfMemory;
                 deps[i] = .{ .rel_path = rel, .resolved_path = resolved, .source_hash = hash, .lib_name = lib_name };
                 dep_filled = i + 1;
             }
@@ -742,19 +758,19 @@ pub fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?D
     }
 
     // Read bundled files section
-    const bf_count = r.readU32() catch return null;
+    const bf_count = r.readU32() catch return BytecodeError.CorruptedFile;
     var bundled_files: ?std.StringHashMap([]const u8) = null;
     if (bf_count > 0) {
-        if (bf_count > bf.MAX_BUNDLED_FILES) return null;
+        if (bf_count > bf.MAX_BUNDLED_FILES) return BytecodeError.CorruptedFile;
         var bfm = std.StringHashMap([]const u8).init(allocator);
         var bfm_populated = false;
         errdefer if (!bfm_populated) freeBundledFiles(allocator, &bfm);
         for (0..bf_count) |_| {
-            const path_len = r.readU16() catch return null;
-            const path_bytes = r.readBytes(path_len) catch return null;
-            const content_len = r.readU32() catch return null;
-            if (content_len > bf.MAX_STRING_BYTES) return null;
-            const content = r.readBytes(content_len) catch return null;
+            const path_len = r.readU16() catch return BytecodeError.CorruptedFile;
+            const path_bytes = r.readBytes(path_len) catch return BytecodeError.CorruptedFile;
+            const content_len = r.readU32() catch return BytecodeError.CorruptedFile;
+            if (content_len > bf.MAX_STRING_BYTES) return BytecodeError.CorruptedFile;
+            const content = r.readBytes(content_len) catch return BytecodeError.CorruptedFile;
             const key = allocator.dupe(u8, path_bytes) catch return BytecodeError.OutOfMemory;
             const val = allocator.dupe(u8, content) catch {
                 allocator.free(key);
@@ -772,23 +788,23 @@ pub fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?D
     result.bundled_files = bundled_files;
 
     // Read preamble section
-    const preamble_count = r.readU32() catch return null;
-    if (preamble_count > bf.MAX_PREAMBLE_FORMS) return null;
+    const preamble_count = r.readU32() catch return BytecodeError.CorruptedFile;
+    if (preamble_count > bf.MAX_PREAMBLE_FORMS) return BytecodeError.CorruptedFile;
     if (preamble_count > 0) {
         const entries = allocator.alloc([]const u8, preamble_count) catch return BytecodeError.OutOfMemory;
         var pre_filled: usize = 0;
         errdefer freePreambleEntries(allocator, entries, pre_filled);
         for (0..preamble_count) |i| {
-            const src_len = r.readU32() catch return null;
-            if (src_len > bf.MAX_STRING_BYTES) return null;
-            const src = r.readBytes(src_len) catch return null;
+            const src_len = r.readU32() catch return BytecodeError.CorruptedFile;
+            if (src_len > bf.MAX_STRING_BYTES) return BytecodeError.CorruptedFile;
+            const src = r.readBytes(src_len) catch return BytecodeError.CorruptedFile;
             entries[i] = allocator.dupe(u8, src) catch return BytecodeError.OutOfMemory;
             pre_filled = i + 1;
         }
         result.preamble = entries;
     }
 
-    if (r.pos != data.len) return null;
+    if (r.pos != data.len) return BytecodeError.CorruptedFile;
 
     result.funcs = allocator.alloc(*Function, func_count) catch return BytecodeError.OutOfMemory;
     @memcpy(result.funcs, all_funcs);

@@ -783,18 +783,22 @@ fn writeTransformer(w: *Writer, allocator: std.mem.Allocator, tx: *types.Transfo
         try w.writeU8(allocator, 0);
     }
 
+    if (tx.literal_bound.len > bf.MAX_CONSTANTS_PER_FUNCTION) return BytecodeError.LimitExceeded; // writer refuses what the reader rejects (kaappi#2113)
     try w.writeU32(allocator, @intCast(tx.literal_bound.len));
     for (tx.literal_bound) |slot| try w.writeU32(allocator, slot);
 
+    if (tx.captured_locals.len > bf.MAX_CONSTANTS_PER_FUNCTION) return BytecodeError.LimitExceeded; // writer refuses what the reader rejects (kaappi#2113)
     try w.writeU32(allocator, @intCast(tx.captured_locals.len));
     for (tx.captured_locals) |cl| {
         try writeTxStr(w, allocator, cl.name);
         try w.writeU16(allocator, cl.slot);
     }
 
+    if (tx.bound_free_refs.len > bf.MAX_CONSTANTS_PER_FUNCTION) return BytecodeError.LimitExceeded; // writer refuses what the reader rejects (kaappi#2113)
     try w.writeU32(allocator, @intCast(tx.bound_free_refs.len));
     for (tx.bound_free_refs) |name| try writeTxStr(w, allocator, name);
 
+    if (tx.def_site_local_refs.len > bf.MAX_CONSTANTS_PER_FUNCTION) return BytecodeError.LimitExceeded; // writer refuses what the reader rejects (kaappi#2113)
     try w.writeU32(allocator, @intCast(tx.def_site_local_refs.len));
     for (tx.def_site_local_refs) |name| try writeTxStr(w, allocator, name);
 

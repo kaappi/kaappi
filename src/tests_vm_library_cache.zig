@@ -48,7 +48,9 @@ fn makeTransformer(gc: *GC) !*types.Transformer {
     defer gc.popRoot();
 
     const lit = try gc.allocSymbol("if");
-    const pattern = try gc.makeList(&[_]types.Value{ kw, x });
+    var pattern = try gc.makeList(&[_]types.Value{ kw, x });
+    gc.pushRoot(&pattern); // the second makeList allocates and may collect
+    defer gc.popRoot();
     const tmpl = try gc.makeList(&[_]types.Value{ helper, x });
 
     const literals = [_]types.Value{lit};
@@ -148,11 +150,20 @@ test "library entry: transformer, events, includes and deps round-trip" {
     try std.testing.expectEqual(@as(u64, 0xCAFE), r_deps[0].source_hash);
     try std.testing.expectEqualStrings("dep1888.base", r_deps[0].lib_name);
 
-    // The event functions load and their bytecode still executes.
+    // The event functions load and execute through a real VM, returning
+    // their compiled constants (#1888 review: the test must exercise the
+    // behavior, not just the shape).
     try std.testing.expectEqual(@as(u32, 2), loaded.top_level_count);
-    var fv = types.makePointer(&loaded.funcs[0].header);
-    gc.pushRoot(&fv);
-    defer gc.popRoot();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    const want = [_]i64{ 5, 6 };
+    for (loaded.funcs[0..loaded.top_level_count], want) |func, w| {
+        var fv = types.makePointer(&func.header);
+        gc.pushRoot(&fv);
+        defer gc.popRoot();
+        const result = try vm.execute(func);
+        try std.testing.expectEqual(w, types.toFixnum(result));
+    }
 }
 
 test "library entry: a hash mismatch is a miss" {
@@ -197,4 +208,34 @@ test "featureReqTouchesAvailability: only availability-dependent requirements" {
     // ...including nested inside and/or/not.
     try std.testing.expect(vm_library_cache.featureReqTouchesAvailability(F.req(&gc, "(and r7rs (not (library (srfi 1))))")));
     try std.testing.expect(!vm_library_cache.featureReqTouchesAvailability(F.req(&gc, "(or r7rs kaappi)")));
+}
+
+test "library entry: a truncated entry is a miss and leaks nothing" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // bytecode-file writes are gated off on wasm (bytecode_file_write.zig)
+    const allocator = std.testing.allocator;
+    var gc = GC.init(allocator);
+    defer gc.deinit();
+
+    const f0 = try makeReturnConstFunc(&gc, 1);
+    var f0_root = types.makePointer(&f0.header);
+    gc.pushRoot(&f0_root);
+    defer gc.popRoot();
+    var funcs_arr = [_]*Function{f0};
+    const events = [_]bytecode_file.LibEventRecord{.{ .run_lib = 0 }};
+    const includes = [_]bytecode_file.IncludeRecord{.{ .path = "dir/body.scm", .hash = 0xDEADBEEF }};
+    const path = "/tmp/kaappi_test_lib_trunc.sbc";
+    try bytecode_file.writeFileWithLibrary(allocator, &funcs_arr, &events, &includes, &.{}, 0x7EA1, "u.sld", path);
+    defer _ = std.posix.system.unlink(@ptrCast(path));
+
+    const whole = try @import("file_utils.zig").readWholeFile(allocator, path, 1 << 20);
+    defer allocator.free(whole);
+    // Truncate at several points inside the tail sections: every prefix must
+    // read back as a miss, and (under the testing allocator) leak nothing —
+    // the corrupt exits inside the deserializer must reach their errdefer
+    // cleanup rather than returning null straight past it (#1888 review).
+    var len = whole.len - 24;
+    while (len < whole.len) : (len += 1) {
+        const got = try bytecode_file.deserializeFromBuffer(&gc, whole[0..len], 0x7EA1);
+        try std.testing.expect(got == null);
+    }
 }

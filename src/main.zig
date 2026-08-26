@@ -994,6 +994,13 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         // slots: the HIT re-reads the verbatim source span and re-dispatches
         // it, positionally — library loads hit their own .sld entries.
         if (vm.topLevelHead(expr)) |head| {
+            // Structure flag: a top-level include reached from here is the
+            // MAIN file's structure, so its file feeds the run recorder (the
+            // macro an included file defines is baked into later compiled
+            // slots — kaappi#1888 review). A runtime `(eval "(include …)")`
+            // inside a function keeps depth 0 and records nothing.
+            vm.lib_structure_depth += 1;
+            defer vm.lib_structure_depth -= 1;
             if (sbc_path != null and !defines_syntax and !had_compile_error) {
                 const src_copy = allocator.dupe(u8, source[span_start..span_end]) catch return error.OutOfMemory;
                 slots.append(allocator, .{ .declaration = .{ .line = datum_lc.line, .src = src_copy, .fold_case = r.fold_case } }) catch {
@@ -1078,7 +1085,14 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     // `import`/`define-library`/`include` inside them hit the per-.sld library
     // cache. Best-effort: a failed write (read-only home, etc.) just means the
     // next run recompiles.
-    if (!defines_syntax and !had_compile_error and (compiled_funcs.items.len > 0 or slots.items.len > 0)) {
+    // vm.run_cache_ok is false when some imported library declined caching
+    // or could not write its entry: no record would ever validate it, so a
+    // program entry here would serve stale compiled slots forever (#1888
+    // review).
+    if (!vm_library_cache_mod.runCacheOk(vm) and sbc_path != null) {
+        timings.cacheReason("uncacheable dependency");
+    }
+    if (vm_library_cache_mod.runCacheOk(vm) and !defines_syntax and !had_compile_error and (compiled_funcs.items.len > 0 or slots.items.len > 0)) {
         if (sbc_path) |sp| {
             cache.ensureDir();
             if (bytecode_file.writeFileWithSlots(allocator, compiled_funcs.items, slots.items, vm.run_cache_includes.items, vm.run_cache_deps.items, source_hash, path, sp)) |_| {

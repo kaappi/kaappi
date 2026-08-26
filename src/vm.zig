@@ -478,6 +478,10 @@ pub const VM = struct {
     /// Owned by vm_library_cache's run recorder; cleared/freed there.
     run_cache_deps: std.ArrayList(bytecode_file.DepRecord) = .empty,
     run_cache_includes: std.ArrayList(bytecode_file.IncludeRecord) = .empty,
+    /// False once any dependency of the run proved unrecordable (a library
+    /// that declined caching or could not write its entry): a program entry
+    /// would serve stale compiled slots forever, so runFile declines.
+    run_cache_ok: bool = true,
     /// > 0 while the loader walks *structural* forms (a .sld's top-level
     /// datums, a library begin/include body) as opposed to forms a running
     /// program eval'd mid-flight. Only structure-walk include forms become

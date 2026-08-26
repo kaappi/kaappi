@@ -600,7 +600,7 @@ pub fn dropDeserializeRoots(gc: *memory.GC, result: *const bf.DeserializeResult)
 pub fn beginWarmLoad(vm: *VM, source_hash: u64, sld_path: []const u8) bool {
     if (!libCacheEnabled(vm)) return false;
     const allocator = vm.gc.allocator;
-    const sbc_path = cache.pathForSource(allocator, sld_path) orelse return false;
+    const sbc_path = cache.pathForLibrary(allocator, sld_path) orelse return false;
     defer allocator.free(sbc_path);
 
     const loaded = (bf.readFileWithTopLevel(vm.gc, source_hash, sbc_path) catch null) orelse {
@@ -644,6 +644,11 @@ pub fn beginWarmLoad(vm: *VM, source_hash: u64, sld_path: []const u8) bool {
         .top_level_count = result.top_level_count,
     }, .warm_result = result });
     if (!pushed) {
+        // pop() balances the overflow depth marker push() left behind —
+        // without it every enclosing load's collector shifts by one frame
+        // and their endColdLoad early-returns skip both the cache write and
+        // the by-pointer root removal (#1888 review).
+        pop(vm);
         return miss.f(vm, &result, false); // nesting too deep: cold path
     }
     return true;
@@ -654,7 +659,7 @@ pub fn beginWarmLoad(vm: *VM, source_hash: u64, sld_path: []const u8) bool {
 /// desync near-impossible, so it indicates a loader/serializer bug and must
 /// never pass silently. Every path out of here pops the collector frame
 /// (#1888 review: a leaked frame shifts every enclosing load's collector).
-pub fn endWarmLoad(vm: *VM, sld_path: []const u8) VMError!void {
+pub fn endWarmLoad(vm: *VM, sld_path: []const u8, rel_path: []const u8, source_hash: u64, lib_name: []const u8) VMError!void {
     const depth = vm.lib_cache_depth;
     if (depth == 0 or depth > vm.lib_cache_stack.len) return; // overflowed frame
     const c = &vm.lib_cache_stack[depth - 1];
@@ -675,6 +680,15 @@ pub fn endWarmLoad(vm: *VM, sld_path: []const u8) VMError!void {
     }
 
     timings.libCacheHit();
+    // Record the dependency for the MAIN run's entry, inheriting the entry's
+    // own include/dependency records (#1888 review): a program's slots embed
+    // this library's macro expansions, and those can change through an edit
+    // to any file in the library's transitive closure, not just its .sld.
+    noteRunDep(vm, rel_path, sld_path, source_hash, lib_name);
+    if (result_ptr) |rp| {
+        inheritRunIncludes(vm, rp.includes orelse &.{});
+        inheritRunDeps(vm, rp.deps orelse &.{});
+    }
     pop(vm);
 }
 
@@ -706,6 +720,48 @@ pub fn abortWarmLoad(vm: *VM) void {
 /// want is the main file's, not whichever .sld happens to be loading.
 pub fn beginRunRecording(vm: *VM) void {
     clearRunRecords(vm);
+    vm.run_cache_ok = true;
+}
+
+/// The program run can no longer be cached correctly: some dependency is
+/// unrecordable (a library that declined or could not write its entry), so a
+/// program entry would serve stale compiled slots forever. runFile declines.
+pub fn runCacheOk(vm: *VM) bool {
+    return vm.run_cache_ok;
+}
+
+pub fn noteRunPoison(vm: *VM) void {
+    vm.run_cache_ok = false;
+}
+
+/// Fold a loaded library's own include records into the run's — the program's
+/// slots transitively depend on every file in the library's closure, and the
+/// library's records already validated exactly that set (#1888 review).
+fn inheritRunIncludes(vm: *VM, includes: []const bf.IncludeRecord) void {
+    const allocator = vm.gc.allocator;
+    for (includes) |inc| {
+        var dup = false;
+        for (vm.run_cache_includes.items) |existing| {
+            if (std.mem.eql(u8, existing.path, inc.path)) {
+                dup = true;
+                break;
+            }
+        }
+        if (dup) continue;
+        if (vm.run_cache_includes.items.len >= bf.MAX_LIBRARY_INCLUDES) continue;
+        const owned = allocator.dupe(u8, inc.path) catch return;
+        vm.run_cache_includes.append(allocator, .{ .path = owned, .hash = inc.hash }) catch {
+            allocator.free(owned);
+        };
+    }
+}
+
+/// Fold a loaded library's own dependency records into the run's (dedup by
+/// canonical library name, as everywhere else).
+fn inheritRunDeps(vm: *VM, deps: []const bf.DepRecord) void {
+    for (deps) |dep| {
+        noteRunDep(vm, dep.rel_path, dep.resolved_path, dep.source_hash, dep.lib_name);
+    }
 }
 
 /// Free whatever the run recorder holds (end of runFile either way).
@@ -783,7 +839,7 @@ pub fn beginColdLoad(vm: *VM) void {
 /// bailed, or there is nowhere to put it), then drop the roots the collector
 /// added. `ok` is whether `loadLibrarySource` succeeded — a failed load
 /// writes nothing (a HIT would otherwise run a partial library).
-pub fn endColdLoad(vm: *VM, ok: bool, source_hash: u64, sld_path: []const u8) void {
+pub fn endColdLoad(vm: *VM, ok: bool, source_hash: u64, sld_path: []const u8, rel_path: []const u8, lib_name: []const u8) void {
     const allocator = vm.gc.allocator;
     const depth = vm.lib_cache_depth;
     if (depth == 0 or depth > vm.lib_cache_stack.len) {
@@ -794,19 +850,38 @@ pub fn endColdLoad(vm: *VM, ok: bool, source_hash: u64, sld_path: []const u8) vo
     const armed = c.armed and c.warm == null;
 
     if (armed and ok and !c.bail) {
-        if (cache.pathForSource(allocator, sld_path)) |sbc_path| {
+        if (cache.pathForLibrary(allocator, sld_path)) |sbc_path| {
             defer allocator.free(sbc_path);
             cache.ensureDir();
             if (bf.writeFileWithLibrary(allocator, c.funcs.items, c.events.items, c.includes.items, c.deps.items, source_hash, sld_path, sbc_path)) |_| {
                 timings.libCacheWrote();
+                // Record the dependency for the MAIN run's entry, inheriting
+                // this library's own include/dependency records (#1888
+                // review): a program's slots embed this library's macro
+                // expansions, which can change through an edit to any file
+                // in the transitive closure.
+                noteRunDep(vm, rel_path, sld_path, source_hash, lib_name);
+                inheritRunIncludes(vm, c.includes.items);
+                inheritRunDeps(vm, c.deps.items);
             } else |err| switch (err) {
                 error.LimitExceeded => timings.libCacheReason("library exceeds .sbc limits"),
                 error.UnsupportedConstant => timings.libCacheReason("library constant unrepresentable"),
                 else => {},
             }
+        } else {
+            // Nowhere to put the entry: the program entry cannot record this
+            // dependency, so it must decline rather than serve stale slots.
+            noteRunPoison(vm);
         }
     } else if (armed and ok) {
         timings.libCacheReason("library not cacheable");
+        // The library is deliberately uncached (a compile-time side effect or
+        // an availability-dependent cond-expand): no entry will ever validate
+        // its content, so a program entry that embedded its expansions would
+        // be permanently stale — the program run must decline too.
+        noteRunPoison(vm);
+    } else if (armed and !ok) {
+        // The load failed; the caller reports the error. No run records.
     }
 
     // Remove exactly this load's function roots (by pointer), never by

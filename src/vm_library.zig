@@ -558,6 +558,10 @@ pub fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
     const source_hash = bytecode_file.sourceHash(source);
     const depth_before = vm.lib_cache_depth;
 
+    const dep_name_owned = library_mod.libraryNameToString(allocator, name_list) catch null;
+    const dep_name: []const u8 = dep_name_owned orelse rel_path;
+    defer if (dep_name_owned) |dn| allocator.free(dn);
+
     if (lcc.beginWarmLoad(vm, source_hash, sld_path)) {
         loadLibrarySource(vm, source) catch |err| {
             lcc.abortWarmLoad(vm);
@@ -566,7 +570,7 @@ pub fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
             }
             return error.UndefinedVariable;
         };
-        try lcc.endWarmLoad(vm, sld_path);
+        try lcc.endWarmLoad(vm, sld_path, rel_path, source_hash, dep_name);
     } else {
         lcc.beginColdLoad(vm);
         var cold_ok = true;
@@ -579,34 +583,31 @@ pub fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
                 vm.setErrorDetail("{s} while loading library from {s}", .{ @errorName(err), sld_path });
             }
         };
-        lcc.endColdLoad(vm, cold_ok, source_hash, sld_path);
+        lcc.endColdLoad(vm, cold_ok, source_hash, sld_path, rel_path, dep_name);
         if (!cold_ok) return error.UndefinedVariable;
     }
 
     // Record this .sld as a dependency of every enclosing load (not of this
     // one — our own file is the key): an enclosing library's compiled body
     // embeds expansions of the macros we exported, so it must miss when we
-    // change. Also recorded for the MAIN file's own entry, whose compiled
-    // forms embed the same expansions (#1888 review).
-    if (library_mod.libraryNameToString(allocator, name_list)) |dep_name| {
-        defer allocator.free(dep_name);
-        lcc.noteDepLoaded(vm, rel_path, sld_path, source_hash, dep_name, depth_before);
-        lcc.noteRunDep(vm, rel_path, sld_path, source_hash, dep_name);
+    // change. The MAIN run's own entry is recorded inside endWarmLoad /
+    // endColdLoad, where the library's own include/dependency records are at
+    // hand to inherit (#1888 review).
+    lcc.noteDepLoaded(vm, rel_path, sld_path, source_hash, dep_name, depth_before);
 
-        // Stamp provenance so a LATER importer that finds us in the registry
-        // can still record the dependency (the registry short-circuit in
-        // processImportSet never reaches this function).
-        if (vm.libraries.get(dep_name)) |lib| {
-            if (lib.source_path == null) {
-                if (allocator.dupe(u8, sld_path)) |owned| {
-                    lib.source_path = owned;
-                    lib.source_hash = source_hash;
-                } else |_| {}
-            } else {
+    // Stamp provenance so a LATER importer that finds us in the registry can
+    // still record the dependency (the registry short-circuit in
+    // processImportSet never reaches this function).
+    if (vm.libraries.get(dep_name)) |lib| {
+        if (lib.source_path == null) {
+            if (allocator.dupe(u8, sld_path)) |owned| {
+                lib.source_path = owned;
                 lib.source_hash = source_hash;
-            }
+            } else |_| {}
+        } else {
+            lib.source_hash = source_hash;
         }
-    } else |_| {}
+    }
 }
 
 /// Evaluate a feature requirement for cond-expand in define-library.

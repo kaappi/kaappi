@@ -390,7 +390,13 @@ fn renderCacheJson(w: *std.Io.Writer) void {
     }
     w.writeAll("}") catch {};
     if (lib_hits > 0 or lib_misses > 0 or lib_stale > 0 or lib_written > 0) {
-        w.print(",\"libcache\":{{\"hits\":{d},\"misses\":{d},\"written\":{d},\"stale\":{d}}}", .{ lib_hits, lib_misses, lib_written, lib_stale }) catch {};
+        w.print(",\"libcache\":{{\"hits\":{d},\"misses\":{d},\"written\":{d},\"stale\":{d}", .{ lib_hits, lib_misses, lib_written, lib_stale }) catch {};
+        if (lib_reason.len > 0) {
+            w.writeAll(",\"reason\":\"") catch {};
+            writeJsonString(w, lib_reason);
+            w.writeAll("\"") catch {};
+        }
+        w.writeAll("}") catch {};
     }
 }
 
