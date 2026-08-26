@@ -698,6 +698,12 @@ test "every spec name resolves in globals (drift guard)" {
     defer vm.deinit();
 
     for (&primitives_mod.all_specs) |spec| {
+        // A `.wasm = false` spec is deliberately not registered on wasm32-wasi
+        // — registerAll gates it with `if (!is_wasm or spec.wasm)`, so on this
+        // target its absence is the rule, not drift (kaappi#2018).
+        if (comptime platform.is_wasm) {
+            if (!spec.wasm) continue;
+        }
         // The helpers vm_bootstrap.install() removes from globals after the
         // bootstrapped closures capture them (#1375) must NOT resolve —
         // calling %push-wind or a %promise-* mutator out of sequence
