@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787847517165,
+  "lastUpdate": 1787853805900,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ff9fd4c046554762bc456de6e0117b3d912da2a6",
-          "message": "Require a delimiter after prefixed numeric tokens (#2241)\n\nreadNumberPrefixed called the file-local readNumber/readIntegerWithRadix\ndirectly, bypassing the delimiter check the un-prefixed path gets from\nReader.readNumber. The one wrapper that did check, Reader.readIntegerWithRadix,\nhad no callers at all -- its guard had never executed since it was added in\n9e8cf95a. A sweep of 19 prefix spellings x 26 trailing characters found 382 of\n494 cells silently splitting one token into two datums: '#b1p4' read as (1 p4),\nchanging an enclosing list's length, and kaappi check reported such files clean.\n\nA single delimiter check after the body read in readNumberPrefixed closes all\n382 cells: tryReadInfNan already guards its own tail, the radix-10 complex\ngrammar consumes +...i as part of the token, and readHexFloatSuffix rejects\nmalformed float bodies. The dead Reader.readIntegerWithRadix wrapper is\ndeleted. '#x1p4z', '#e34zz', '#b101foo' and '#x1/2+3i' are now read errors,\nmatching string->number and the Chibi differential oracle; hex floats\n('#x1p4'), prefixed rationals ('#x1/2'), decimal-prefixed complex ('#d1+2i'),\nSRFI-169 separators ('#x1_f') and two-prefix combinations ('#e#x1p4') all\nstill read.\n\nEnables the 52 assertions in reader-delimiter-gaps.scm and the 7 in\nreader-exactness-gaps.scm that pinned the gap (the group-3 discriminating\ncontrol is updated: both bignum and fixnum rational tails are guarded now),\nand adds a Zig unit test covering both the rejected and must-keep-working\nspellings.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-06T11:48:26Z",
-          "tree_id": "2e19f06857f5a83d697ac08f0c6d9d64750df735",
-          "url": "https://github.com/kaappi/kaappi/commit/ff9fd4c046554762bc456de6e0117b3d912da2a6"
-        },
-        "date": 1786018976292,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.329314,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.281431,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.576443,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.98353,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004829,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046893,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.313806,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057965,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.739201,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.224271,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.633366,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.284108,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.818796,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.649312,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043514,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045948,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0a7960142146874a33718fbff4199f203fcb0ba8",
+          "message": "Ratify the check/--sandbox compile-time macro execution policy (#2393)\n\ndocs/dev/check.md claimed a same-file macro use expands \"without running\nanything\" — false since er-macro-transformer shipped (v0.22.0, #1811):\nexpandProceduralMacro calls the call_proc_for_macro VM hook\nunconditionally when the transformer spec is statically resolvable, and\nthe spec expression itself is evaluated at definition time. Specs\nunresolvable without execution get a benign placeholder (#2007, #2329).\nKEP-0006 flagged the sentence (Unresolved question 3) and called the\npolicy the one item with security consequences if skipped; its \"As\nimplemented\" Divergence 8 records that the design note was never\nwritten.\n\nThis writes it down. The new decision note ratifies KEP-0006's\ncandidate (a) — macro-defining code is compile-time code, not sandboxed\nprogram code, Racket's stance — which the shipped behavior already\nmatches, and documents the --sandbox capability model: the sandbox is\nenvironmental (a restricted global environment constructed before any\nsource is read), not temporal, so a transformer body running at\nexpansion time — before the program's own top level — is confined by\nexactly the program's capability set. All claims verified against\nsrc/expander.zig, src/vm.zig, src/compiler_define_syntax.zig,\nsrc/primitives.zig, src/vm_library.zig, and empirically with a v0.25.0\nbinary (a file-writing transformer runs under plain check, is refused\nunder check --sandbox, and --timeout bounds a looping transformer).\n\nCloses #2389\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-27T23:26:36+05:30",
+          "tree_id": "d9c5ab5972bde9a7cc238d1e346cc58eaad426c3",
+          "url": "https://github.com/kaappi/kaappi/commit/0a7960142146874a33718fbff4199f203fcb0ba8"
+        },
+        "date": 1787853802570,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.306202,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.526222,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.578246,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.098547,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004904,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048032,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.314801,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05631,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.88824,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.234052,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.655795,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.280353,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.711579,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.620247,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046279,
             "unit": "seconds"
           }
         ]
