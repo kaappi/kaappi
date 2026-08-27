@@ -42,6 +42,17 @@ fi
 # Isolate ~/.kaappi so the suite is hermetic: plain `kaappi <file>` runs write a
 # bytecode cache under $KAAPPI_HOME/cache (kaappi#1516), and we don't want the
 # suite reading or polluting the developer's real cache (or history/config).
+#
+# The fresh (empty) home is also what keeps the suite exercising THIS working
+# tree's `.sld` libraries rather than a stale install: the library search order
+# is (1) the script's own dir, (2) $KAAPPI_HOME/lib, (3) the exe-relative
+# <exe>/../lib (= zig-out/lib, which `zig build` populates from the checkout).
+# Step 2 is checked before step 3 by design, so a from-source binary never
+# shadows a real install (kaappi#1523) — but that means a developer's own
+# ~/.kaappi/lib would silently shadow their checkout edits (kaappi#2352). A
+# throwaway home has no lib/, so step 3 wins and the corpus runs against the
+# tree under test. Do NOT narrow this to a cache-only isolation.
+#
 # Tests that need their own HOME (e.g. exe-relative-lib-1523) override this.
 KAAPPI_HOME_TMP=$(mktemp -d /tmp/kaappi-test-home-XXXXXX)
 export KAAPPI_HOME="$KAAPPI_HOME_TMP"

@@ -326,6 +326,25 @@ bash tools/run-r7rs-suite.sh zig-out/bin/kaappi         # R7RS suite (1,395 test
 bash tests/scheme/run-all.sh                            # everything (build FIRST)
 ```
 
+**An installed `~/.kaappi/lib` shadows the checkout's `lib/` for `.sld`
+resolution.** The library search order is (1) the script's own dir, (2)
+`$KAAPPI_HOME/lib` (default `~/.kaappi/lib`), (3) the exe-relative
+`<exe>/../lib` (= `zig-out/lib`, which `zig build` populates from the checkout).
+Step 2 before step 3 is deliberate — a from-source binary must never shadow a
+user's install (kaappi#1523) — but it means that if you have ever installed
+Kaappi, `~/.kaappi/lib` wins over your working-tree edits, so a change to
+`lib/**/*.sld` tested with a bare `zig-out/bin/kaappi file.scm` can look like a
+no-op no matter how many times you rebuild or `kaappi cache clear` (kaappi#2352).
+Run local `.sld` work with an isolated home so the checkout wins:
+
+```bash
+KAAPPI_HOME=$(mktemp -d) zig-out/bin/kaappi file.scm
+```
+
+`tests/scheme/run-all.sh` already does this (a fresh `mktemp` home per run), so
+the suite always exercises the working tree; only ad-hoc invocations need the
+prefix.
+
 The unit suite must also stay green under `zig build test -Dgc-stress=true`
 (collection on every allocation — kaappi#1401). Tests holding heap values in
 Zig locals across allocations must root them; loop-heavy tests should scale

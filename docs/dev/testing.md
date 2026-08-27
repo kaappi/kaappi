@@ -219,6 +219,37 @@ bash tests/scheme/run-all.sh
 bash tools/run-r7rs-suite.sh zig-out/bin/kaappi
 ```
 
+### An installed `~/.kaappi/lib` shadows the checkout's `lib/`
+
+The library search order is (1) the script's own directory, (2)
+`$KAAPPI_HOME/lib` (default `~/.kaappi/lib`), (3) the exe-relative
+`<exe>/../lib` — which is `zig-out/lib`, populated from the checkout by
+`zig build`. Step 2 is checked before step 3 on purpose, so a from-source
+binary never shadows a real install (kaappi#1523).
+
+The trap for library development (kaappi#2352) falls straight out of that
+order: if you have ever installed Kaappi, `~/.kaappi/lib` holds the last
+release's `.sld` files, and it wins over your working tree. So editing, say,
+`lib/srfi/231/views.sld` and running
+
+```bash
+zig build && zig-out/bin/kaappi /tmp/t.scm
+```
+
+loads the **old** installed copy — the edit looks like a no-op, and neither
+another rebuild nor `kaappi cache clear` helps, because it is the wrong source
+file being read, not a stale cache of the right one. Run local `.sld` work with
+an isolated home so the checkout's `lib/` (via `zig-out/lib`) wins:
+
+```bash
+KAAPPI_HOME=$(mktemp -d) zig-out/bin/kaappi /tmp/t.scm
+```
+
+`run-all.sh` already exports a fresh `mktemp` `KAAPPI_HOME` for the whole run,
+so the suite always exercises the working tree — this only bites ad-hoc
+`zig-out/bin/kaappi file.scm` invocations. CI never has a `~/.kaappi/lib`, which
+is why the hazard is local-only and easy to miss.
+
 ### The official SRFI 231 conformance suite
 
 `tests/scheme/srfi/srfi231-official.scm` is the SRFI's **official** test
