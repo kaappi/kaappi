@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787830015988,
+  "lastUpdate": 1787830450869,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d827dd29e966bc6629992092be5ae368c4701bf8",
-          "message": "Fix bundled-binary argv, stale-bundle failures, and -dirty build id (#2010, #1930, #2097) (#2232)\n\n* Fix bundled-binary argv, stale-bundle failures, and -dirty build id\n\nThree issues in the -Dbundle standalone path and the build-id machinery\nthat feeds it, fixed together because they are the same class:\n\n#2010: a bundled binary is the bundled program, so its whole argv belongs\nto that program's (command-line). cli.parse swallowed subcommand words\n(\"check\", \"fmt\", \"ast\", \"compile\") and pre-VM dispatch ran\n\"explain\"/\"doctor\"/\"test\" instead of the bundled program — silently,\nleaving a shorter argument list. Bundled mode now bypasses kaappi's\nargument parsing entirely (parseBundled) and skips the pre-VM subcommands\nand the --sandbox pre-scan; (command-line) is the full argv after argv[0].\n\n#1930: the .sbc's compiler hash folds in the producing binary's git build\nid, so a tree that moved (new commit, or clean<->dirty flip) between\nproducing a .sbc and building the bundler made the binary reject its own\npayload as foreign — \"invalid embedded bytecode\", which read like a\nserialisation bug. The fatal diagnostic now names the two build ids and\nthe fix (classifyEmbeddedRejection over the .sbc header), and the test\nharness no longer trips on the same mismatch: bundle_fixture_binary and\ncompile-toplevel-side-effects-2156.sh build the interpreter into an\nisolated prefix from the same source as the bundler and produce the .sbc\nwith that binary, so the two steps cannot disagree. New regression test\nbundle-args-2010.sh shares the existing fixture (a cache hit, not a third\nfull rebuild).\n\n#2097: gitBuildId counted untracked files as uncommitted changes, so a\nbrand-new file silently flipped every later build id to -dirty and\ninvalidated an existing zig-out/bin/kaappi built moments earlier. An\nuntracked file is not part of a tracked-source build's output; gitBuildId\nnow uses M  CHANGELOG.md\nM  build.zig\nM  docs/dev/cache.md\nM  docs/dev/test-runner.md\nM  src/bytecode_file.zig\nM  src/cli.zig\nM  src/main.zig\nM  tests/scheme/CLAUDE.md\nA  tests/scheme/compile/bundle-args-2010.sh\nM  tests/scheme/compile/compile-import-error-703.sh\nM  tests/scheme/compile/compile-preamble-gc-700.sh\nM  tests/scheme/compile/compile-toplevel-side-effects-2156.sh\nM  tests/scheme/compile/fixtures/bundle-replay/main.scm\nM  tests/scheme/shell-common.sh, keeping committed-but-modified\nand staged files dirty.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review comments on #2232\n\nTwo CodeRabbit findings, both valid:\n\n- bundle-args-2010.sh: KAAPPI was unused (SC2034). Add the\n  interpreter-as-oracle no-argument baseline via interp_stdout +\n  assert_tiers_agree, per the repo's tier-comparison convention\n  (tests/scheme/CLAUDE.md). With no args the bundled (command-line) is ()\n  and the interpreter's is (\"main.scm\"), so the fixture's conditional\n  cmdline print is silent on both tiers and the two must agree exactly.\n  The per-argument golden assertions stay golden on purpose: bundled\n  (command-line) intentionally differs from direct source execution.\n\n- build-id-untracked-2097.sh (new): the #2097 contract — an untracked\n  file must not mark the git build id -dirty — had no regression test.\n  Exercises gitBuildId end-to-end through {\"version\":\"0.22.2\",\"build_id\":\"006b263\",\"target\":\"aarch64-macos-none\",\"build_mode\":\"ReleaseSafe\",\"gc_stress\":false,\"sandbox_available\":true,\"features\":[\"r7rs\",\"kaappi\",\"ieee-float\",\"exact-closed\",\"exact-complex\",\"kaappi-fibers\",\"kaappi-reactor\",\"kaappi-diagnostics\",\"posix\",\"kaappi-threads\"],\"srfis\":{\"builtin\":[1,9,13,18,39,69,133,170,192,254,258,260],\"portable\":[0,2,4,5,6,7,8,11,14,16,17,19,23,25,26,27,28,29,30,31,34,35,36,37,38,41,42,43,44,45,46,48,51,54,57,59,60,61,62,63,64,66,67,70,71,74,78,86,87,90,94,95,98,101,111,112,113,115,116,117,118,120,123,125,126,127,128,129,130,131,132,134,135,136,137,139,140,141,143,144,145,146,147,148,149,150,151,152,153,156,158,161,162,164,165,166,167,168,169,171,173,174,175,178,180,181,185,188,189,190,193,194,195,196,197,201,202,203,207,209,210,213,214,215,216,217,219,221,222,223,224,225,227,228,229,231,232,233,234,235,236,237,238,239,240,241,242,244,247,248,250,251,252,253,255,257,259,263,264,267,270,271]},\"limits\":{\"initial_frame_capacity\":480,\"initial_register_capacity\":2048,\"gc_initial_threshold\":8192}} on\n  three isolated-prefix builds: pristine -> \"<hash>\", +untracked file\n  -> unchanged, +staged -> \"<hash>-dirty\". Skips when the working tree\n  is not pristine, since the contract is unobservable then.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Fix the oracle baseline's binary path in bundle-args-2010.sh\n\ninterp_stdout cds into its workdir, so the default relative\nzig-out/bin/kaappi path no longer resolved there (exit 127, empty\nstdout) and the new no-argument oracle baseline failed. Resolve an\nabsolute path up front, as the other tier-comparing scripts do.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Move the build-id test to the cache suite so it cannot race compile/ (#2232)\n\nThe new build-id-untracked-2097.sh broke CI (second run: 700/703 timed\nout at 300s, 2156 failed). Two compounding causes, both from putting the\ntest in the compile suite:\n\n- It stages a file in the shared working tree (phase C), which flips the\n  git build id for any OTHER concurrent builder. 2156 builds its .sbc\n  with a clean-tree interpreter and its bundler after, so the staged\n  window made the bundler reject the .sbc as foreign — the exact\n  kaappi#1930 mismatch class this PR fixes, reproduced locally.\n\n- Its three isolated-prefix builds run un-locked and concurrently with\n  the -Dbundle scripts' builds; on a cold 4-core runner the CPU\n  contention pushed the lock-waiting 700/703 past the 300s timeout.\n\nrun-all.sh runs the shell suites sequentially, Cache after Compile, so\nthe cache suite is the right home: the test runs alone (the other cache\nscripts never rebuild) on the ReleaseSafe units the compile suite just\nwarmed, and its staged phase races no one. Verified locally: compile\nsuite back to the first-run passing set, cache suite green, warm-cache\ncost of the three phases 1.3s.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Document why the build-id test lives in the cache suite\n\nAdds the reasoning (staged-phase tree mutation must not race concurrent\nbuilders; Cache runs after Compile in run-all.sh so the ReleaseSafe units\nare warm) to the test's own header, so the placement survives contact\nwith future edits.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Give the compile suite a realistic shell-test budget in CI\n\nThe Debug leg's -Dbundle fixture build is cold: the Build step above\nwarms only this leg's own optimize, so the compile suite rebuilds the\nwhole interpreter as ReleaseSafe from scratch (~180s idle, kaappi#1926)\nand under runner load has sat within seconds of the 300s default shell\ntimeout — passing at 270s in one run, timing out at >300s in the next,\nwith identical code. The per-file KAAPPI_TEST_TIMEOUT comment already\nstates the policy: catch hangs, don't race the slowest legitimate suite.\nRaise KAAPPI_SHELL_TEST_TIMEOUT to 600s for the test job's run-all.sh\n(the compile suite's legitimate budget), leaving the run-all.sh default\nuntouched for local runs and the other shell suites.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-06T10:37:32+05:30",
-          "tree_id": "0fd276b1d9ef47a7767b68823bb553529e7cdd5e",
-          "url": "https://github.com/kaappi/kaappi/commit/d827dd29e966bc6629992092be5ae368c4701bf8"
-        },
-        "date": 1785995065185,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.984792,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.484181,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.575803,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.827121,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004862,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.044854,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.294888,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054604,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.334545,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.279165,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.517563,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.305397,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.711541,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.843427,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.048025,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046571,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b2f908eab5bafcfe04a27a47498218465de198d7",
+          "message": "Skip the root-marked map walk for .owned == false env wrappers (#2377) (#2378)\n\nThe interaction-environment wrapper (the only .owned == false\nconstructor) wraps vm.globals, every value of which markVmRoots marks\neach collection regardless — so the valueIterator walks in\nmarkObjectContents and markValueInner were idempotent redundancy.\nBoth arms now return early on !se.owned, mirroring the referencesYoung\nguard from #2372's review round. A child-thread wrapper's map values\nare foreign to that GC and the owner check skips them anyway.\n\nCost only, never unsafe: the skipped walk could only re-mark values\nanother root had already marked.\n\nRegression test in tests_gc_tracing.zig pins the new semantics — an\n.owned == false wrapper rooted alone no longer keeps its map's values\nalive (fails on main, passes with the skip).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-27T10:44:17Z",
+          "tree_id": "7e546e0785550358cc72cb6037178db89305dfef",
+          "url": "https://github.com/kaappi/kaappi/commit/b2f908eab5bafcfe04a27a47498218465de198d7"
+        },
+        "date": 1787830448197,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.294331,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.27163,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.56319,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.100189,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004996,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048415,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.315689,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056481,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.855385,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.23151,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.647499,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.281258,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.725269,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.683867,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046972,
             "unit": "seconds"
           }
         ]
