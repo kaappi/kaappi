@@ -767,6 +767,14 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
         },
         .scheme_environment => {
             const se = obj.as(types.SchemeEnvironment);
+            // #2377: an .owned == false wrapper's map IS the owning VM's
+            // root-marked globals map (interaction-environment is the only
+            // such constructor) — markVmRoots marks every value in it each
+            // collection regardless, so walking it here was idempotent
+            // redundancy. Mirrors the referencesYoung guard; a child-thread
+            // wrapper's values are foreign to this GC and the owner check
+            // in markValueInner skips them anyway.
+            if (!se.owned) return;
             var vit = se.env.valueIterator();
             while (vit.next()) |val| markValue(gc, val.*);
         },
@@ -1170,6 +1178,11 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
         },
         .scheme_environment => {
             const se = obj.as(types.SchemeEnvironment);
+            // #2377: same rationale as the markObjectContents arm — an
+            // .owned == false wrapper's map is root-marked by markVmRoots
+            // every collection, so queueing its values here was idempotent
+            // redundancy.
+            if (!se.owned) return;
             var vit = se.env.valueIterator();
             while (vit.next()) |val| worklist.append(gc.allocator, val.*) catch @panic("GC mark: worklist OOM");
         },
