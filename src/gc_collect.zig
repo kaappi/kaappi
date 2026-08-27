@@ -56,7 +56,7 @@ pub fn collect(gc: *GC) void {
 fn minorCollect(gc: *GC) void {
     // #1961: the minor mark is generational. `minor_marking` makes
     // markValueInner treat the old generation as opaque, so this mark costs
-    // O(live young) — roots plus remembered-set entries — instead of
+    // O(live young) plus the remembered containers' scanned fields — not
     // O(live heap). Mark-bit invariant, which is why no clearOldMarks pass
     // exists anywhere: the only writes of flags.marked are inside
     // markValueInner (young objects only during a minor — the opacity check

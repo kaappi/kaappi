@@ -101,8 +101,10 @@ keeps it alive.
 
 Minor collections are generational (#1961): the minor mark traces roots
 into the young generation and treats old objects as opaque (`GC.minor_marking`
-gates the check in `markValueInner`), so it costs O(live young) rather than
-O(live heap). An old→young reference — a field of an old heap object holding
+gates the check in `markValueInner`). Its cost is O(live young) plus the
+fields scanned in remembered containers — a large old container with one
+young referent still costs its full capacity to re-scan each minor, which
+is why the dedup and pruning below matter — not O(live heap). An old→young reference — a field of an old heap object holding
 a young object — is therefore invisible to that mark unless it is recorded.
 The remembered set is that record, and it is fed two ways:
 

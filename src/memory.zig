@@ -234,7 +234,8 @@ pub const GC = struct {
     /// #1961: set for the duration of a minor collection's mark phase. While
     /// set, `markValueInner` treats the old generation as opaque — an old
     /// object is never marked or traced, because `sweepYoung` never frees it —
-    /// so the minor mark costs O(live young), not O(live heap). Every live
+    /// so the minor mark costs O(live young) plus the remembered containers'
+    /// scanned fields, not O(live heap). Every live
     /// old→young edge is supplied by the remembered-set walk instead (the
     /// `writeBarrier` calls at each mutation site plus the promotion scan in
     /// `sweepYoung`). False outside a collection and during every full
