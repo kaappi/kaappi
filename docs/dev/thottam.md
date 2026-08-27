@@ -20,7 +20,8 @@ thottam remove kaappi-web                                        # uninstall
 
 - Clones from `github.com/kaappi/<package>` (or a custom `::url`) into
   `$KAAPPI_HOME/src/` (`~/.kaappi/src/` by default).
-- Reads `kaappi.pkg` for dependencies and build commands.
+- Reads `kaappi.pkg` for the package name, dependencies, build command, and
+  declared source.
 - Copies `.sld` files to `~/.kaappi/lib/`, preserving directory structure.
 - Copies `.dylib`/`.so` to `~/.kaappi/lib/`.
 - Records source URLs in the lockfile `~/.kaappi/thottam.lock`, for provenance.
@@ -43,17 +44,31 @@ directory. See the LLVM backend section of `CLAUDE.md`.
 ## The `kaappi.pkg` manifest
 
 ```text
+name: kaappi-web
 depends: kaappi-http kaappi-json
 build: make
+source: https://github.com/someone/kaappi-web
 ```
 
-Only these two fields are read. `name:`, `version:`, `source:` and any other
-key are ignored — a package is identified by the name it is installed under,
-the version is whatever tag or SHA the install requested, and a third-party
-source is given on the command line (`thottam install pkg::url`) or in a
-`depends:` spec, never in the package's own manifest (which thottam can only
-read after it has already cloned the repo) (kaappi#2138).
+Four keys are read: `name:`, `depends:`, `build:`, and `source:`. There is no
+`version:` field — thottam locks by git SHA, so a version written in the
+manifest would mean nothing; it is dropped like any unknown key (kaappi#2138).
 
+- `name`, when present, must match the package being installed. A manifest that
+  names a different package is a packaging error, and the install refuses
+  before recording anything. It is optional — a manifest may omit it — but a
+  mismatching `name:` is never accepted.
+- `source` declares where the package is canonically hosted. On a bare-name
+  install (no `::url` on the command line) it is recorded as the lockfile's
+  provenance, so `thottam list` shows `(from: …)` and a later `--locked`
+  install fetches from it — surfaced with a one-line note at record time, since
+  the manifest is then steering where the package comes from. It **cannot**
+  redirect the *first* clone: thottam can only read the manifest after cloning
+  the repo, so the initial fetch URL is always the `::url` given on the command
+  line or the `KAAPPI_ORG` default. When a `::url` *is* given and disagrees with
+  `source:`, thottam warns (a fork or mirror is legitimate) and records the URL
+  it actually fetched from, never the manifest's claim. In `--locked` mode the
+  lockfile is authoritative and the manifest's `source:` is ignored (#2137).
 - `depends` is space-separated, and may carry an inline custom URL:
   `depends: kaappi-net kaappi-auth::https://github.com/bob/kaappi-auth`.
 - Version constraints use `>=`, `>`, `<=`, `<`, `^` (compatible), `~`

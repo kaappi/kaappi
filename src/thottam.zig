@@ -280,8 +280,10 @@ fn getPkgManifest(allocator: std.mem.Allocator, src_dir: []const u8, pkg: []cons
     const content = readFile(allocator, pkg_file) catch return null;
     defer allocator.free(content);
     var m = parsePkgManifest(content);
+    m.name = if (m.name) |n| allocator.dupe(u8, n) catch null else null;
     m.depends = if (m.depends) |d| allocator.dupe(u8, d) catch null else null;
     m.build_cmd = if (m.build_cmd) |b| allocator.dupe(u8, b) catch null else null;
+    m.source = if (m.source) |s| allocator.dupe(u8, s) catch null else null;
     m.owned = true;
     return m;
 }
@@ -799,9 +801,65 @@ fn doInstall(
         }
     }
 
-    if (getPkgManifest(allocator, config.src_dir, pkg)) |manifest| {
-        defer manifest.deinit(allocator);
-        if (manifest.depends) |deps| {
+    // The manifest is read only now, because it lives in the checkout we just
+    // cloned — so a package's own `source:` can never redirect its *first*
+    // clone (that URL is settled above). It is kept alive until after the
+    // lockfile is written, because `record_source` may alias `manifest.source`.
+    const manifest = getPkgManifest(allocator, config.src_dir, pkg);
+    defer if (manifest) |m| m.deinit(allocator);
+
+    // Provenance to record in the lockfile. In --locked mode the lockfile's own
+    // source is authoritative and must survive the check (#2137); otherwise a
+    // command-line `::url` wins, and absent one the manifest's declared
+    // `source:` is recorded so `thottam list` shows where the package is
+    // hosted (kaappi#2138).
+    var record_source: ?[]const u8 = if (locked_mode) locked_source else parsed.source;
+
+    if (manifest) |m| {
+        // A manifest that names a different package than the one being
+        // installed is a packaging error, not a fetch to silently record
+        // (kaappi#2138). `name:` was documented as the one required field;
+        // this is what finally enforces it.
+        if (m.name) |declared| {
+            if (!std.mem.eql(u8, declared, pkg)) {
+                var msg_buf: [512]u8 = undefined;
+                printErrColor(Color.red, "error: ");
+                const msg = std.fmt.bufPrint(&msg_buf, "manifest declares name '{s}' but installing '{s}'\n", .{ declared, pkg }) catch "manifest name mismatch\n";
+                writeStderr(msg);
+                return error.ManifestNameMismatch;
+            }
+        }
+
+        // Reconcile the declared `source:` with how we actually fetched
+        // (kaappi#2138). A command-line `::url` is authoritative for the
+        // fetch; the manifest only informs provenance.
+        if (!locked_mode) {
+            if (m.source) |declared| {
+                if (parsed.source) |supplied| {
+                    // A fork or mirror sharing history is legitimate, so a
+                    // divergence warns rather than refuses — but it is never
+                    // silent, which is the whole point of the field.
+                    if (!std.mem.eql(u8, supplied, declared)) {
+                        var w: [640]u8 = undefined;
+                        printErrColor(Color.yellow, "  warning: ");
+                        const msg = std.fmt.bufPrint(&w, "{s} declares source '{s}' but was fetched from '{s}'\n", .{ pkg, declared, supplied }) catch "declared source differs from fetch URL\n";
+                        writeStderr(msg);
+                    }
+                } else {
+                    // Installed by bare name: record the declared home as
+                    // provenance so `thottam list` shows it and a later
+                    // --locked install fetches from it. Surfaced, not silent,
+                    // because the manifest now steers where the package comes
+                    // from — the interaction #2138 flags.
+                    record_source = declared;
+                    writeStdout("  note: recording declared source ");
+                    writeStdout(declared);
+                    writeStdout("\n");
+                }
+            }
+        }
+
+        if (m.depends) |deps| {
             var dep_it = std.mem.splitScalar(u8, deps, ' ');
             while (dep_it.next()) |dep| {
                 if (dep.len > 0) {
@@ -810,7 +868,7 @@ fn doInstall(
             }
         }
 
-        if (manifest.build_cmd) |build_cmd| {
+        if (m.build_cmd) |build_cmd| {
             try runBuildCommand(allocator, pkg, build_cmd, pkg_dir);
         }
     }
@@ -821,9 +879,7 @@ fn doInstall(
     }
 
     try addToInstalled(allocator, config.installed, pkg);
-    // A --locked install must not rewrite the lockfile's recorded source: the
-    // provenance it is checking must survive the check (#2137).
-    try updateLockfile(allocator, config.lockfile, pkg, resolved_sha, if (locked_mode) locked_source else parsed.source);
+    try updateLockfile(allocator, config.lockfile, pkg, resolved_sha, record_source);
     writeStdout("  ");
     printColor(Color.green, pkg);
     printBuf(&buf, " installed (locked at {s})\n", .{resolved_sha});

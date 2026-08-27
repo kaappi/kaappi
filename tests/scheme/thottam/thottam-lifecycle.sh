@@ -688,34 +688,73 @@ check "--locked matching-source restore records the same provenance" \
     "$ORG/kaappi-alpha.git" "$(cat "$KAAPPI_HOME/thottam.lock")"
 
 # ---------------------------------------------------------------------------
-# 10. kaappi.pkg's name:/version:/source: fields are inert (issue #2138)
+# 10. kaappi.pkg's name: and source: fields are wired up (issue #2138)
 # ---------------------------------------------------------------------------
 
-# A manifest that lies about its identity or hosting must not change the
-# install: only depends: and build: are read, and every other key is ignored
-# by construction — the parser no longer recognises them.
-mkdir -p "$WORK/kaappi-srcfield/lib/kaappi"
+# name: is consistency-checked against the package being installed. A manifest
+# that names a different package is a packaging error, and the install refuses
+# BEFORE recording anything, rather than cloning under the wrong identity.
+mkdir -p "$WORK/kaappi-badname/lib/kaappi"
 (
-    cd "$WORK/kaappi-srcfield"
+    cd "$WORK/kaappi-badname"
     git init -q .
     printf 'name: WRONG-NAME-ENTIRELY\nsource: https://evil.example.com/not-this-repo\nversion: 99.99.99\n' > kaappi.pkg
-    printf '(define-library (kaappi srcfield) (export tag) (import (scheme base)) (begin (define tag "srcfield")))\n' \
-        > lib/kaappi/srcfield.sld
+    printf '(define-library (kaappi badname) (export tag) (import (scheme base)) (begin (define tag "bad")))\n' \
+        > lib/kaappi/badname.sld
     git add -A
     git_q commit -q -m base
 )
-git clone -q --bare "$WORK/kaappi-srcfield" "$ORG/kaappi-srcfield.git"
+git clone -q --bare "$WORK/kaappi-badname" "$ORG/kaappi-badname.git"
 fresh_home
-out="$("$THOTTAM" install kaappi-srcfield 2>&1)" && ec=0 || ec=$?
-check_exit "a manifest with an unrelated name and source installs" 0 "$ec"
-check_not "a manifest's source: never reaches the lockfile" \
-    "evil.example.com" "$(cat "$KAAPPI_HOME/thottam.lock")"
-check_not "a manifest's source: never shows in list" \
-    "evil.example.com" "$("$THOTTAM" list)"
-check "the installed package is verified under its real name" "OK: kaappi-srcfield" \
-    "$("$THOTTAM" verify)"
+out="$("$THOTTAM" install kaappi-badname 2>&1)" && ec=0 || ec=$?
+check_exit "a manifest naming a different package is refused" 1 "$ec"
+check "the refusal names both the declared and the requested name" \
+    "declares name 'WRONG-NAME-ENTIRELY' but installing 'kaappi-badname'" "$out"
+check_not "the refused package is not recorded in the lockfile" \
+    "kaappi-badname" "$(cat "$KAAPPI_HOME/thottam.lock" 2>/dev/null || true)"
+# version: is not a field — thottam locks by git SHA — so it neither helps nor
+# harms; the refusal above came from name:, never from the bogus version.
 
-# A manifest with only the two read fields installs cleanly too.
+# source: on a bare-name install is recorded as provenance, so `list` shows
+# where the package is hosted. The record is surfaced with a note, never
+# silent, because the manifest now steers where a later --locked install
+# fetches from.
+mkdir -p "$WORK/kaappi-declared/lib/kaappi"
+(
+    cd "$WORK/kaappi-declared"
+    git init -q .
+    printf 'name: kaappi-declared\nsource: https://forge.example.org/kaappi-declared\n' > kaappi.pkg
+    printf '(define-library (kaappi declared) (export tag) (import (scheme base)) (begin (define tag "d")))\n' \
+        > lib/kaappi/declared.sld
+    git add -A
+    git_q commit -q -m base
+)
+git clone -q --bare "$WORK/kaappi-declared" "$ORG/kaappi-declared.git"
+fresh_home
+out="$("$THOTTAM" install kaappi-declared 2>&1)" && ec=0 || ec=$?
+check_exit "a manifest with a valid name and a source installs" 0 "$ec"
+check "the declared source is surfaced with a note at record time" \
+    "note: recording declared source https://forge.example.org/kaappi-declared" "$out"
+check "the declared source reaches the lockfile as provenance" \
+    "https://forge.example.org/kaappi-declared" "$(cat "$KAAPPI_HOME/thottam.lock")"
+check "the declared source shows in list" \
+    "(from: https://forge.example.org/kaappi-declared)" "$("$THOTTAM" list)"
+
+# A command-line ::url is authoritative for the fetch; a manifest source: that
+# disagrees warns (a fork/mirror is legitimate) and the lockfile records the
+# URL actually fetched, not the manifest's claim.
+fresh_home
+out="$("$THOTTAM" install "kaappi-declared::$ORG/kaappi-declared.git" 2>&1)" && ec=0 || ec=$?
+check_exit "an install with a ::url that disagrees with source: still succeeds" 0 "$ec"
+check "the divergence between ::url and manifest source: is warned, not silent" \
+    "declares source 'https://forge.example.org/kaappi-declared' but was fetched from" "$out"
+check "the lockfile records the fetched ::url, not the manifest's claim" \
+    "$ORG/kaappi-declared.git" "$(cat "$KAAPPI_HOME/thottam.lock")"
+check_not "the manifest's claimed source does not override the fetch URL" \
+    "forge.example.org" "$(cat "$KAAPPI_HOME/thottam.lock")"
+
+# A manifest without a name: still installs — name: is checked when present,
+# not required to exist.
 mkdir -p "$WORK/kaappi-minimal/lib/kaappi"
 (
     cd "$WORK/kaappi-minimal"

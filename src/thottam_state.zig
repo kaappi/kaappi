@@ -9,14 +9,18 @@ pub const PkgSpec = struct {
 };
 
 pub const PkgManifest = struct {
+    name: ?[]const u8 = null,
     depends: ?[]const u8 = null,
     build_cmd: ?[]const u8 = null,
+    source: ?[]const u8 = null,
     owned: bool = false,
 
     pub fn deinit(self: PkgManifest, allocator: std.mem.Allocator) void {
         if (!self.owned) return;
+        if (self.name) |n| allocator.free(n);
         if (self.depends) |d| allocator.free(d);
         if (self.build_cmd) |b| allocator.free(b);
+        if (self.source) |s| allocator.free(s);
     }
 };
 
@@ -59,13 +63,21 @@ pub fn parsePkgManifest(content: []const u8) PkgManifest {
     var result: PkgManifest = .{};
     var it = std.mem.splitScalar(u8, content, '\n');
     while (it.next()) |line| {
-        if (parseField(line, "depends:")) |val| {
+        if (parseField(line, "name:")) |val| {
+            // Consistency-checked against the package being installed
+            // (kaappi#2138); an empty `name:` is an absence, not a claim.
+            if (val.len > 0) result.name = val;
+        } else if (parseField(line, "depends:")) |val| {
             result.depends = val;
         } else if (parseField(line, "build:")) |val| {
             // An empty `build:` is an absence, not a command — running
             // `/bin/sh -c ""` behind a "Building <pkg>..." banner helped
             // nobody (kaappi#2132).
             if (val.len > 0) result.build_cmd = val;
+        } else if (parseField(line, "source:")) |val| {
+            // Recorded as provenance and reconciled with any command-line
+            // `::url` (kaappi#2138); an empty `source:` declares nothing.
+            if (val.len > 0) result.source = val;
         }
     }
     return result;
