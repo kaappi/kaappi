@@ -1,9 +1,11 @@
 # `kaappi check` — compile-only static analysis
 
-`kaappi check <file.scm>` answers "will this fail?" without running anything. It
-reads, macro-expands, and compiles every top-level form — surfacing the same
-read/expand/compile diagnostics a real run would, with their stable `KP` codes —
-but executes no program code, and adds the reserved `KP4xxx` lint findings.
+`kaappi check <file.scm>` answers "will this fail?" without running the
+program. It reads, macro-expands, and compiles every top-level form — surfacing
+the same read/expand/compile diagnostics a real run would, with their stable
+`KP` codes — but executes no *program* code, and adds the reserved `KP4xxx`
+lint findings. Compile-time code is a different matter: procedural macro
+transformers do run during a check (see below).
 
 Part of the machine-legibility epic ([#1503](https://github.com/kaappi/kaappi/issues/1503));
 tracked in [#1511](https://github.com/kaappi/kaappi/issues/1511). See also
@@ -106,7 +108,25 @@ code they compile) so later forms see the bindings and macros they introduce.
 Ordinary `define`s and expressions are compiled and analysed but never executed;
 their bound names are gathered structurally in a pre-pass so a forward reference
 is not warned. `define-syntax` registers its macro at *compile* time, so a
-later use of a same-file macro expands correctly without running anything.
+later use of a same-file macro expands correctly.
+
+For a `syntax-rules` macro that expansion is pure Zig and runs no Scheme at
+all. **Procedural transformers (SRFI 211, since v0.22.0) are different:
+their Scheme code runs during a check.** A statically resolvable
+`(define-syntax name (er-macro-transformer expr))` evaluates `expr` at
+definition time, and every same-file use of the macro calls the resulting
+transformer procedure — `expandProceduralMacro` (`src/expander.zig`) invokes
+the `call_proc_for_macro` VM hook unconditionally; there is deliberately no
+check-mode guard. A spec that *cannot* be resolved without executing program
+code (an alias to a run-time-bound global, or a spec expression referencing
+one) is accepted as a benign placeholder transformer instead of a KP2001
+false positive (kaappi#2007 / kaappi#2329). So `check` executes no *program*
+code, but macro-defining code is compile-time code and does run — meaning a
+bare `check` of untrusted source can have side effects; use
+`kaappi check --sandbox` to check untrusted files inside the restricted
+environment. The policy, the `--sandbox` capability model, and why the
+early-running-macro case is contained are ratified in
+[decisions/compile-time-macro-execution.md](decisions/compile-time-macro-execution.md).
 
 Top-level `begin` and `cond-expand` are *spliced*: their bodies are analysed as
 top-level forms, matching how the interpreter treats them (R7RS 5.1 / 4.2.1). A

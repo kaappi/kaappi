@@ -29,7 +29,7 @@ annotated version — what each flag is *for*, and which document explains it.
 | `--compile`, `-o <file>` | Compile to `.sbc`, or name the output |
 | `--disassemble` | |
 | `--no-ir-opt` | Disables the IR optimization passes, and skips the `.sbc` cache in **both** directions. Useful for miscompilation triage and `--disassemble` comparisons. The cache key folds in the git build id, so a rebuilt binary never serves the old binary's bytecode — the old "delete the cache before testing compiler changes" footgun is fixed (`cache.md`) |
-| `--sandbox` | Restricts filesystem and process access |
+| `--sandbox` | Restricts filesystem and process access by constructing a restricted global environment before any source is read — the capability model, and how it covers compile-time macro execution, is in `decisions/compile-time-macro-execution.md` |
 | `--gc-stats`, `--profile` | |
 | `--timings[=text\|json]` | Per-stage pipeline wall time (read/expand/lower/optimize/emit/execute, plus native `llvm-emit`/`link`) and cache HIT/MISS + path, all on stderr. Disjoint self-timed stages, zero overhead when absent — `timings.md` |
 | `--coverage` | |
