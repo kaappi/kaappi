@@ -14,7 +14,13 @@
 ;;;
 ;;; Any FAIL line fails CI.
 
-(import (scheme base) (scheme write) (scheme file))
+;; (srfi 192) is importable by name on WASM (kaappi#2019): all four of its
+;; procedures already worked here via the vm.globals fallback, but the library
+;; was wrongly excluded from `wasmAvailable`, so import-by-name and the derived
+;; `cond-expand` feature id disagreed with the procedures. Importing it in this
+;; file's own import set is itself the positive test -- if the exclusion came
+;; back, this whole file would fail to load on WASM.
+(import (scheme base) (scheme write) (scheme file) (srfi 192))
 
 (define failures 0)
 (define (check label ok)
@@ -101,6 +107,32 @@
 (check "CONTROL: file-exists? degrades to #f instead of raising"
        (equal? (classify (lambda () (file-exists? "gate.txt")))
                '(returned #f)))
+
+;; --- (srfi 192) on WASM (kaappi#2019) --------------------------------------
+;; The import above already proves import-by-name works. Here we confirm the
+;; two cond-expand probes agree with it, and that the string-port half of the
+;; library actually works on this target. The fd-backed half is out of reach on
+;; WASM (open-input-file and fd->port are gated), so coverage is string-port
+;; only -- the honest scope, not a gap.
+
+(check "srfi-192 cond-expand feature id is present on WASM"
+       (eq? 'ok (cond-expand (srfi-192 'ok) (else 'MISSING))))
+
+(check "(library (srfi 192)) cond-expand probe agrees on WASM"
+       (eq? 'ok (cond-expand ((library (srfi 192)) 'ok) (else 'MISSING))))
+
+(check "port-position works on a string input port"
+       (let ((ip (open-input-string "abcd")))
+         (and (= (port-position ip) 0)
+              (begin (read-char ip) (= (port-position ip) 1)))))
+
+(check "port-has-port-position? is #t for a string input port"
+       (port-has-port-position? (open-input-string "abc")))
+
+(check "set-port-position! repositions a string input port"
+       (let ((ip (open-input-string "abcd")))
+         (set-port-position! ip 3)
+         (eqv? (read-char ip) #\d)))
 
 (if (> failures 0)
     (begin (display "PLATFORM GATE TESTS FAILED") (newline) (exit 1))
