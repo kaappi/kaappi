@@ -65,6 +65,14 @@ pub fn compileDefineSyntax(self: *Compiler, args: Value, dst: u16) CompileError!
     if (self.lib_env) |env| {
         tx.def_env = env;
         tx.def_env_val = self.lib_env_val;
+        // #1961 (review): resolveTransformerSpec can return a pre-existing
+        // (possibly promoted) transformer via the SRFI 147/211 alias paths,
+        // so this store may write a young environment into an OLD
+        // transformer — an old→young edge the minor mark reaches only
+        // through the remembered set. No isEnvironment guard needed:
+        // writeBarrier no-ops on the immediate NIL the library-rooted case
+        // carries.
+        self.gc.writeBarrier(types.toObject(transformer), self.lib_env_val);
         globals_mod.assertEnvMapInvariant(env, self.lib_env_val); // #1962
         // #1812: pairs with def_env so renameForHygiene can build a
         // def_env_binding_prefix-marked reference that survives being
@@ -84,6 +92,10 @@ pub fn compileDefineSyntax(self: *Compiler, args: Value, dst: u16) CompileError!
     if (self.body_macro_depth == 0) {
         if (self.lib_env) |env| {
             env.put(name, transformer) catch return CompileError.OutOfMemory;
+            // #1961: the shared envStoreBarrier (mutable eval/environment
+            // objects only — the interaction-environment wrapper's map is
+            // the root-marked globals and enrolls nothing).
+            self.gc.envStoreBarrier(self.lib_env_val, transformer);
         }
     }
 
@@ -262,6 +274,14 @@ pub fn compileLetSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
         };
         tx.let_syntax_peer_names = new_peer_names;
         tx.let_syntax_peer_vals = new_peer_vals;
+        // #1961 (review): resolveTransformerSpec can hand back a
+        // PRE-EXISTING transformer (SRFI 147 alias/bare-symbol specs, SRFI
+        // 211 globals) that was promoted long before this let-syntax — the
+        // peers_computed guard above does not prove freshness, since plain
+        // define-syntax transformers never compute peers. The snapshot is a
+        // fresh bundle of old→young edges on such a transformer; barrier
+        // each value so the generational minor mark can still reach them.
+        for (new_peer_vals) |pv| self.gc.writeBarrier(types.toObject(transformer), pv);
         // Only NOW, once both slices are durably stored, mark this
         // transformer's snapshot complete (CodeRabbit): setting the flag
         // any earlier -- before the fallible appends/dupes above -- would
@@ -685,6 +705,10 @@ fn resolveTransformerSpecRec(self: *Compiler, spec_in: Value, merged_macros: *st
                     const def_tx = types.toObject(def_transformer).as(types.Transformer);
                     def_tx.def_env = env;
                     def_tx.def_env_val = self.lib_env_val;
+                    // #1961 (review): same old→young edge on the transformer
+                    // as compileDefineSyntax's own def_env_val store above —
+                    // begin-wrapped helper definitions are just as aliased.
+                    self.gc.writeBarrier(types.toObject(def_transformer), self.lib_env_val);
                     globals_mod.assertEnvMapInvariant(env, self.lib_env_val); // #1962
                 }
                 try finalizeTransformer(self, def_transformer);
@@ -693,6 +717,9 @@ fn resolveTransformerSpecRec(self: *Compiler, spec_in: Value, merged_macros: *st
                 if (self.body_macro_depth == 0) {
                     if (self.lib_env) |env| {
                         env.put(def_name, def_transformer) catch return CompileError.OutOfMemory;
+                        // #1961: same shared rule as compileDefineSyntax's
+                        // own lib_env store above.
+                        self.gc.envStoreBarrier(self.lib_env_val, def_transformer);
                     }
                 }
                 rest = types.cdr(rest);

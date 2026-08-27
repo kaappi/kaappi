@@ -922,3 +922,96 @@ test "255-argument calls work on every dispatch path; 256 params reject cleanly 
         try std.testing.expectError(vm_mod.VMError.CompileError, vm.eval(def));
     }
 }
+
+// #1961: define/set! into a mutable SchemeEnvironment's map is an old→young
+// edge on the wrapper object once promoted; the opcode handlers barrier it
+// (vm_dispatch.zig). This drives the real opcode path: promote the env, then
+// define and set! a fresh young vector through eval, force a minor
+// collection while the vector's only reference is the env's map, and read it
+// back intact. Without the barrier the minor sweeps the vector (the old env
+// is opaque to the mark) and the read-back dereferences freed memory.
+test "define/set! into a promoted mutable env survive a minor collection (#1961)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // Same construction as the #1269 test above: a mutable env with the
+    // globals' bindings but a distinct map, reachable from Scheme.
+    const env_map = try ctx.gc.allocator.create(std.StringHashMap(types.Value));
+    env_map.* = std.StringHashMap(types.Value).init(ctx.gc.allocator);
+    var git = ctx.vm.globals.iterator();
+    while (git.next()) |entry| {
+        try env_map.put(entry.key_ptr.*, entry.value_ptr.*);
+    }
+    var env_val = try ctx.gc.allocEnvironment(env_map, true, false);
+    ctx.gc.pushRoot(&env_val);
+    defer ctx.gc.popRoot();
+    try ctx.vm.globals.put("__test-mut-env", env_val);
+
+    // Promote the env wrapper: two manual minors, marked through the global.
+    ctx.gc.enabled = false;
+    ctx.gc.minor_cycle_count = 0;
+    ctx.gc.collect();
+    ctx.gc.minor_cycle_count = 0;
+    ctx.gc.collect();
+    try std.testing.expectEqual(@as(u1, 1), types.toEnvironment(env_val).header.flags.generation);
+
+    // Real define_global: a fresh young vector stored into the promoted
+    // env's map, then a minor collection with the map as its only anchor.
+    _ = try ctx.vm.eval("(eval '(define reg-box-1961 (vector 42)) __test-mut-env)");
+    ctx.gc.minor_cycle_count = 0;
+    ctx.gc.collect();
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(try ctx.vm.eval(
+        "(eval '(vector-ref reg-box-1961 0) __test-mut-env)",
+    )));
+
+    // Real set_global through the same env.
+    _ = try ctx.vm.eval("(eval '(set! reg-box-1961 (vector 43)) __test-mut-env)");
+    ctx.gc.minor_cycle_count = 0;
+    ctx.gc.collect();
+    try std.testing.expectEqual(@as(i64, 43), types.toFixnum(try ctx.vm.eval(
+        "(eval '(vector-ref reg-box-1961 0) __test-mut-env)",
+    )));
+}
+
+// #1961 (review follow-up): define-syntax through the interaction-
+// environment must NOT enroll its wrapper in the remembered set — the
+// wrapper's map is the root-marked globals map, and enrolling it would
+// re-walk every global once per minor until process exit. Both routes are
+// pinned: GC.envStoreBarrier owns the barrier-side exclusion, and
+// referencesYoung's .scheme_environment arm returns false for .owned ==
+// false wrappers so the promotion scan and the full-collect re-scan cannot
+// enroll it either. The young global defined between the two promotion
+// collections is what makes the scan route fire deterministically.
+test "define-syntax via interaction-environment does not enroll the wrapper (#1961)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    _ = try ctx.vm.eval("(define ie (interaction-environment))");
+    const ie_val = try ctx.vm.eval("ie");
+
+    // A fresh wrapper per call. First survival...
+    ctx.gc.enabled = false;
+    ctx.gc.minor_cycle_count = 0;
+    ctx.gc.collect();
+    // ...then a young value lands in the wrapper's (root-marked) map...
+    _ = try ctx.vm.eval("(define pin-young-global-1961 (vector 7))");
+    // ...and the second collection promotes the wrapper with that young
+    // value still in the map — exactly the shape that made the promotion
+    // scan enroll the wrapper before referencesYoung learned to skip
+    // .owned == false maps.
+    ctx.gc.minor_cycle_count = 0;
+    ctx.gc.collect();
+    try std.testing.expectEqual(@as(u1, 1), types.toEnvironment(ie_val).header.flags.generation);
+
+    // The barrier route: a top-level define-syntax through the wrapper.
+    _ = try ctx.vm.eval("(eval '(define-syntax k-1961 (syntax-rules () ((_) 1))) ie)");
+
+    const wrapper = types.toObject(ie_val);
+    for (ctx.gc.remembered_set.items) |o| {
+        try std.testing.expect(o != wrapper);
+    }
+    // The store itself happened — only the enrollment is skipped.
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(try ctx.vm.eval("(eval '(k-1961) ie)")));
+}

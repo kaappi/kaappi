@@ -54,7 +54,17 @@ pub fn collect(gc: *GC) void {
 }
 
 fn minorCollect(gc: *GC) void {
-    clearOldMarks(gc);
+    // #1961: the minor mark is generational. `minor_marking` makes
+    // markValueInner treat the old generation as opaque, so this mark costs
+    // O(live young) plus the remembered containers' scanned fields — not
+    // O(live heap). Mark-bit invariant, which is why no clearOldMarks pass
+    // exists anywhere: the only writes of flags.marked are inside
+    // markValueInner (young objects only during a minor — the opacity check
+    // returns before marking an old one — and both generations during a
+    // full), and every sweep clears the marks it observes before the
+    // collection ends, so no collection ever sees a stale mark.
+    gc.minor_marking = true;
+    defer gc.minor_marking = false;
     markRoots(gc);
     for (gc.remembered_set.items) |obj| {
         markObjectContents(gc, obj);
@@ -65,14 +75,6 @@ fn minorCollect(gc: *GC) void {
     gc.quarantineReleaseToCap();
     sweepYoung(gc);
     pruneRememberedSet(gc);
-}
-
-fn clearOldMarks(gc: *GC) void {
-    var obj = gc.old_objects;
-    while (obj) |o| {
-        o.flags.marked = false;
-        obj = o.next;
-    }
 }
 
 fn pruneRememberedSet(gc: *GC) void {
@@ -92,7 +94,11 @@ fn pruneRememberedSet(gc: *GC) void {
     gc.remembered_set.shrinkRetainingCapacity(write_idx);
 }
 
-fn referencesYoung(gc: *GC, obj: *Object) bool {
+/// True iff `obj` (an old container) directly references a young object of
+/// this GC. Drives `pruneRememberedSet` and — since #1961 — the promotion
+/// scan in `sweepYoung`: this is the predicate that decides whether a freshly
+/// promoted object carries old→young edges the remembered set must record.
+pub fn referencesYoung(gc: *GC, obj: *Object) bool {
     switch (obj.tag) {
         .pair => {
             const pair = obj.as(Pair);
@@ -288,14 +294,30 @@ fn referencesYoung(gc: *GC, obj: *Object) bool {
         },
         .scheme_environment => {
             const se = obj.as(types.SchemeEnvironment);
+            // #1961 (review): an .owned == false wrapper's map IS the
+            // owning VM's root-marked globals map (interaction-environment
+            // is the only such constructor) — every value in it is marked
+            // each collection by markVmRoots regardless, so the wrapper
+            // never carries a remembered-set-relevant young edge; for a
+            // child-thread wrapper the values are foreign to this GC and
+            // isYoungPointer would skip them anyway. Returning false here
+            // keeps the promotion scan and the full-collect re-scan from
+            // enrolling the wrapper, which would otherwise re-walk all of
+            // globals (mark + prune) once per minor while any global value
+            // stays young.
+            if (!se.owned) return false;
             var vit = se.env.valueIterator();
             while (vit.next()) |val| {
                 if (isYoungPointer(gc, val.*)) return true;
             }
         },
-        // Weak structures never actually enter the remembered set (they are
-        // never mutated after allocation), but for completeness these report
-        // any young field: an over-approximation is always safe here.
+        // Weak structures reach the remembered set only via the promotion
+        // scan and — for guardians, whose `registered` list grows at every
+        // registration — the writeBarrier in invokeGuardian (an old guardian
+        // registering a young object is an old→young edge like any other,
+        // #1961). Ephemerons and transport cells are immutable after
+        // allocation, so for them the promotion scan is the only route; an
+        // over-approximation is always safe here.
         .ephemeron => {
             const eph = obj.as(Ephemeron);
             if (isYoungPointer(gc, eph.key) or isYoungPointer(gc, eph.value)) return true;
@@ -329,6 +351,11 @@ fn isYoungPointer(gc: *GC, val: Value) bool {
 }
 
 pub fn fullCollect(gc: *GC) void {
+    // #1961: a full collection marks both generations — old objects are
+    // traced and swept here, so they must not be opaque. minorCollect's
+    // defer guarantees the flag is already false; this makes the
+    // requirement local instead of transitive.
+    gc.minor_marking = false;
     // #2196: drain the remembered_set up front. A full collect marks from
     // roots over both generations, so it never consults the set — and doing
     // this before sweepOld frees any old object means every entry is still
@@ -336,7 +363,8 @@ pub fn fullCollect(gc: *GC) void {
     // use-after-free). Every surviving old container is then free to re-queue
     // itself on its next old->young write.
     drainRememberedSet(gc);
-    clearOldMarks(gc);
+    // No clearOldMarks here either — see minorCollect's mark-bit invariant:
+    // the previous collection (minor or full) left every mark clear.
     markRoots(gc);
     processWeakRefs(gc);
     // #1687: see minorCollect.
@@ -562,6 +590,14 @@ fn keptAlive(gc: *GC, v: Value) bool {
             @panic("GC: marking freed object (use-after-free)");
     }
     if (obj.owner != gc.id) return true;
+    // #1961: a minor collection never sweeps the old generation, so every
+    // old object trivially survives one — and none of them carries a mark
+    // (markValueInner leaves the old generation opaque). Answer alive and
+    // defer the weak decision to the next full collection, where old garbage
+    // is unmarked and visible; breaking an ephemeron or resurrecting a
+    // guardian entry over an old key during a minor would be destructive and
+    // wrong.
+    if (gc.minor_marking and obj.flags.generation == 1) return true;
     return obj.flags.marked or gc.weak_resurrected.contains(obj);
 }
 
@@ -582,6 +618,10 @@ fn weakReachable(gc: *GC, v: Value) bool {
             @panic("GC: marking freed object (use-after-free)");
     }
     if (obj.owner != gc.id) return true;
+    // #1961: same as keptAlive — an old object survives every minor
+    // collection, so a guardian entry watching one must stay registered
+    // here instead of being resurrected early.
+    if (gc.minor_marking and obj.flags.generation == 1) return true;
     return obj.flags.marked;
 }
 
@@ -924,6 +964,17 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
         // "already marked" object, skip tracing its children, and sweep live
         // descendants (#958).
         if (obj.owner != gc.id) return;
+        // #1961: during a minor collection the old generation is opaque. Old
+        // objects are never swept by sweepYoung, so they need no mark — and
+        // not tracing them is what makes the minor mark cheap. Every live
+        // old→young edge reaches this phase through the remembered-set walk
+        // instead (writeBarrier at each mutation site plus the promotion
+        // scan in sweepYoung), which is exactly why a missing barrier is a
+        // use-after-free here, not a retention miss.
+        if (gc.minor_marking and obj.flags.generation == 1) {
+            gc.stats.minor_old_skips += 1;
+            return;
+        }
         if (obj.flags.marked) return;
         obj.flags.marked = true;
 

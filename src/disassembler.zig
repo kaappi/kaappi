@@ -359,8 +359,8 @@ test "disassemble all opcodes" {
     func.name = "test-all-opcodes";
 
     const sym = try gc.allocSymbol("test-sym");
-    func.constants.append(allocator, sym) catch unreachable;
-    func.constants.append(allocator, types.makeFixnum(42)) catch unreachable;
+    try gc.appendFunctionConstant(func, sym);
+    try gc.appendFunctionConstant(func, types.makeFixnum(42));
 
     const emit = struct {
         fn op(f: *types.Function, a: std.mem.Allocator, opcode: OpCode) void {

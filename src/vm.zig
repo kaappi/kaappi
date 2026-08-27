@@ -946,6 +946,15 @@ pub const VM = struct {
         const key = @intFromPtr(param);
         if (self.current_fiber) |fiber| {
             fiber.param_overrides.put(key, val) catch return VMError.OutOfMemory;
+            // #1961: belt-and-braces, matching the other fiber-field
+            // barriers. The authoritative mechanism for a resident fiber's
+            // override map is FiberScheduler.markRoots' unconditional
+            // markFiberState pass (see gc_collect.zig's .fiber arm of
+            // referencesYoung, which states this invariant); this barrier
+            // keeps the remembered set complete for the non-resident window
+            // — a retired fiber whose slot was reused — the same way
+            // saveCurrentFiber's enrollment does for the bulk snapshot.
+            self.gc.writeBarrier(&fiber.header, val);
         } else {
             self.param_overrides.put(key, val) catch return VMError.OutOfMemory;
         }

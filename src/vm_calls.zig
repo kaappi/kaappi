@@ -70,6 +70,11 @@ pub fn invokeGuardian(vm: *VM, guardian: Value, args: []const Value) VMError!Val
         }
         const cell = vm.gc.allocTransportCell(args[0], args[1]) catch return VMError.OutOfMemory;
         g.registered.append(vm.gc.allocator, .{ .watched = cell, .payload = types.NIL }) catch return VMError.OutOfMemory;
+        // #1961: `registered` grows at every registration, so a guardian is
+        // a mutated container like any other — an old guardian registering a
+        // fresh young cell is an old→young edge the minor mark reaches only
+        // through the remembered set.
+        vm.gc.writeBarrier(&g.header, cell);
         return cell;
     }
 
@@ -84,6 +89,9 @@ pub fn invokeGuardian(vm: *VM, guardian: Value, args: []const Value) VMError!Val
         return VMError.InvalidArgument;
     }
     g.registered.append(vm.gc.allocator, .{ .watched = obj, .payload = rep }) catch return VMError.OutOfMemory;
+    // #1961: same old→young edge as the transport-cell branch above.
+    vm.gc.writeBarrier(&g.header, obj);
+    vm.gc.writeBarrier(&g.header, rep);
     return types.VOID;
 }
 

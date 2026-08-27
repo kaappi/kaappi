@@ -99,24 +99,83 @@ keeps it alive.
 
 ### The write barrier
 
-Because the collector is generational, minor collections scan only the
-young generation plus a remembered set of old objects that point into
-it. Mutating a field of a heap object (set-car!, set-cdr!, vector-set!,
-hash-table-set!, record field mutation) can create an old→young
-reference the minor collection would otherwise never see — the young
-object would be freed while still reachable.
+Minor collections are generational (#1961): the minor mark traces roots
+into the young generation and treats old objects as opaque (`GC.minor_marking`
+gates the check in `markValueInner`). Its cost is O(live young) plus the
+fields scanned in remembered containers — a large old container with one
+young referent still costs its full capacity to re-scan each minor, which
+is why the dedup and pruning below matter — not O(live heap). An old→young reference — a field of an old heap object holding
+a young object — is therefore invisible to that mark unless it is recorded.
+The remembered set is that record, and it is fed two ways:
 
-After storing a Value into a heap object field, call:
+- `gc.writeBarrier(container, new_val)` after storing a Value into a heap
+  object field (set-car!, set-cdr!, vector-set!, hash-table-set!, record
+  field mutation, guardian registration, a function's `global_cache`
+  slots, …). The barrier is load-bearing: a missing one is a
+  **use-after-free** — the young referent is swept while the old container
+  still points at it — not a leak. Two shared funnels keep the discipline
+  in one place: `GC.appendFunctionConstant` (every `Function.constants`
+  append — compiler, `.sbc` deserializer, tests) and `GC.rememberObject`
+  (every wholesale enrollment of an owned container outside the
+  store+barrier pattern — `writeBarrier`'s owned branch, both sweep-phase
+  scans, `saveCurrentFiber`'s bulk snapshot).
+- The **promotion scan** in `sweepYoung`: the barrier only fires for a
+  container that is *already* old, so an edge created while the container
+  was young (a barrier there is a correct no-op) is recorded when the
+  container is promoted, by scanning it with `referencesYoung` at that
+  moment. The dual **full-collect re-scan** in `sweepOld` re-records every
+  surviving old→young edge after a full collection, whose up-front drain
+  would otherwise leave the next minor without the entry (full collections
+  never promote, so the referent is still young).
 
-```zig
-gc.writeBarrier(container, new_val);
-```
+During the minor mark, the remembered-set walk (`markObjectContents`) marks
+the young referents of every remembered container; `pruneRememberedSet`
+drops entries whose referents have all aged into the old generation, so a
+later old→young write re-queues the container (the write barrier does).
 
-where `container` is the heap object being mutated. The barrier records
-the old→young edge in the remembered set. Omitting it does not fail
-immediately — it corrupts the heap only when a minor collection happens
-to run before the next full collection, which is why these bugs surface
-as rare, allocation-pattern-sensitive crashes.
+Two things deliberately do **not** rely on the barrier:
+
+- Bulk state the GC re-traces wholesale: every resident fiber — the running
+  one included — gets an explicit `markFiberState` pass from
+  `FiberScheduler.markRoots` each collection (authoritative; the fiber-field
+  barriers are belt-and-braces). That covers a suspended fiber's saved
+  registers/frames and, for a running fiber, both its mutable fields
+  (`waiting_on`, parameter overrides, held mutexes, …) and its *stale* saved
+  snapshot — which must stay traced because full collections still walk it
+  through `markValueInner`'s `.fiber` arm, and a value freed by an
+  intervening minor would turn that walk into a use-after-free. A fiber
+  retired from its scheduler slot loses that pass while staying
+  heap-reachable, so `saveCurrentFiber` also enrolls an old fiber in the
+  remembered set wholesale (`GC.rememberObject`): its bulk snapshot has no
+  per-field barriers, and `pruneRememberedSet` drops the entry once the
+  snapshot has aged.
+- The root-marked maps (`vm.globals`, library `lib_env`s): their values are
+  marked directly as roots every collection, so `set!`/`define` into them
+  needs no barrier — nor into the interaction-environment wrapper, whose
+  map *is* `vm.globals`. That exclusion and the barrier it gates live once,
+  in `GC.envStoreBarrier`: a *mutable* `SchemeEnvironment` (the `eval`/
+  `environment` objects) is a heap object, not a root-marked map, so the
+  `define`/`set!`/`define-syntax` stores into its map carry a write barrier
+  on the wrapper object — the `.owned == false` wrapper does not, and
+  `referencesYoung` answers false for it too, so neither scan enrolls it.
+  The compiler's `def_env_val`/`let_syntax_peer_vals` stores into a
+  possibly-promoted aliased transformer (SRFI 147/211) carry one on the
+  transformer.
+
+Weak structures follow the same rule with one addition: a guardian's
+`registered` list grows at every registration, so `invokeGuardian` barriers
+the append (the old "weak structures never enter the remembered set" claim
+was wrong for guardians). The weak probes (`keptAlive`/`weakReachable`)
+treat every old object as alive during a minor collection — the old
+generation is never swept by one, so an ephemeron with an old key must not
+break and a guardian watching an old object must not resurrect; the
+decision is deferred to the next full collection, where old garbage is
+unmarked and visible.
+
+Omitting a barrier does not fail immediately — it corrupts the heap only
+when a minor collection happens to run before the next full collection,
+which is why these bugs surface as rare, allocation-pattern-sensitive
+crashes.
 
 ### Stress testing
 

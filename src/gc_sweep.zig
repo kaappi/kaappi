@@ -13,6 +13,7 @@ const builtin = @import("builtin");
 const types = @import("types.zig");
 const types_port = @import("types_port.zig");
 const memory_mod = @import("memory.zig");
+const gc_collect = @import("gc_collect.zig");
 const shared_channel = @import("shared_channel.zig");
 const shared_buffer = @import("shared_buffer.zig");
 const instrument = @import("channel_instrument.zig");
@@ -68,6 +69,18 @@ pub fn sweepYoung(gc: *GC) void {
                 o.flags.survive_count = 0;
                 o.next = gc.old_objects;
                 gc.old_objects = o;
+                // #1961 promotion scan: the write barrier only fires for a
+                // container that is *already* old, so an old→young edge
+                // created while the container was young (a barrier there is
+                // a correct no-op) would go unrecorded at promotion — and
+                // since the minor mark stopped tracing through old objects,
+                // that edge is the referent's only route to survival. Scan
+                // at promotion and remember the container. The dedup flag is
+                // provably clear here: this object was young a moment ago,
+                // and writeBarrier only ever enqueues old containers.
+                if (gc_collect.referencesYoung(gc, o)) {
+                    gc.rememberObject(o);
+                }
                 obj = next;
             } else {
                 prev = o;
@@ -98,6 +111,19 @@ pub fn sweepOld(gc: *GC) void {
     while (obj) |o| {
         if (o.flags.marked) {
             o.flags.marked = false;
+            // #1961 full-collect re-scan: the drain at the top of this
+            // collection emptied the remembered set, and a full collection
+            // never promotes (young survivors stay generation 0), so an old
+            // container whose young referent just survived this full would
+            // otherwise face the next minor with no remembered-set entry —
+            // and the generational minor mark would sweep the referent.
+            // Re-record every surviving old→young edge here, where the old
+            // heap is already being walked. Objects freed below never had a
+            // live referent to protect. All owned flags were cleared by the
+            // drain, so rememberObject's dedup guard is exact.
+            if (gc_collect.referencesYoung(gc, o)) {
+                gc.rememberObject(o);
+            }
             prev = o;
             obj = o.next;
         } else {

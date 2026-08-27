@@ -630,7 +630,11 @@ fn deserializeFromBufferImpl(gc: *GC, data: []const u8, expected_hash: ?u64) Byt
         if (const_count > bf.MAX_CONSTANTS_PER_FUNCTION) return null;
         for (0..const_count) |_| {
             const val = readConstant(&r, gc, all_funcs, &shared, 0) catch return null;
-            func.constants.append(allocator, val) catch return BytecodeError.OutOfMemory;
+            // #1961: appendFunctionConstant write-barriers the store —
+            // all_funcs are extra-rooted from the start of deserialization,
+            // so by now `func` is long promoted while its constants list is
+            // still growing.
+            gc.appendFunctionConstant(func, val) catch return BytecodeError.OutOfMemory;
         }
 
         // Debug info: source_line and line_table (added in v7; col added in v9)

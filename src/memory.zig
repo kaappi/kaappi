@@ -52,6 +52,10 @@ pub const GcStats = struct {
     peak_bytes_allocated: usize = 0,
     allocs_by_type: [64]usize = .{0} ** 64,
     no_collect_deferred: usize = 0,
+    /// #1961: times a minor collection's mark phase stopped at an old object
+    /// (the generational boundary). Watching this stay > 0 while a large old
+    /// heap exists is how tests pin that a minor mark really is generational.
+    minor_old_skips: usize = 0,
 };
 
 pub var symbol_mutex: std.atomic.Mutex = .unlocked;
@@ -227,6 +231,19 @@ pub const GC = struct {
     source_spans: std.AutoHashMap(Value, types.Span) = undefined,
     stats: GcStats = .{},
     minor_cycle_count: u32 = 0,
+    /// #1961: set for the duration of a minor collection's mark phase. While
+    /// set, `markValueInner` treats the old generation as opaque — an old
+    /// object is never marked or traced, because `sweepYoung` never frees it —
+    /// so the minor mark costs O(live young) plus the remembered containers'
+    /// scanned fields, not O(live heap). Every live
+    /// old→young edge is supplied by the remembered-set walk instead (the
+    /// `writeBarrier` calls at each mutation site plus the promotion scan in
+    /// `sweepYoung`). False outside a collection and during every full
+    /// collection. The weak-reference probes (`keptAlive`/`weakReachable`)
+    /// also read it: an old object trivially survives a minor collection, so
+    /// it must answer "alive" there and defer its weak fate to the next full
+    /// collection.
+    minor_marking: bool = false,
     mark_worklist: std.ArrayList(Value) = .empty,
     marking: bool = false,
     /// SRFI-254 weak references reached during the current mark phase. Filled
@@ -366,6 +383,34 @@ pub const GC = struct {
         self.source_spans.deinit();
     }
 
+    /// #1961: enroll an OWNED container in the remembered set, idempotently
+    /// (the #2196 dedup flag is the in-set mark for owned objects: set iff
+    /// present, cleared by pruneRememberedSet/drainRememberedSet on exit).
+    /// Shared by writeBarrier's owned path, the promotion scan and
+    /// full-collect re-scan in gc_sweep, and saveCurrentFiber's bulk
+    /// snapshot — every site that creates or re-creates an old→young edge
+    /// outside the ordinary store+barrier pattern. Callers must have
+    /// established `obj.owner == self.id`; foreign containers carry no flag
+    /// and stay in writeBarrier's unconditional-append branch.
+    pub fn rememberObject(self: *GC, obj: *Object) void {
+        if (obj.flags.in_remembered_set) return;
+        obj.flags.in_remembered_set = true;
+        self.remembered_set.append(self.allocator, obj) catch
+            @panic("GC rememberObject: remembered set OOM");
+    }
+
+    /// #1961: barrier a store into a mutable SchemeEnvironment's map (the
+    /// eval/environment objects) — an old→young edge on the wrapper once it
+    /// promotes. The interaction-environment wrapper (.owned == false) is
+    /// excluded: its map IS the root-marked globals map, and enrolling it
+    /// would re-walk every global once per minor, forever. Shared by the
+    /// set_global/define_global handlers and the compiler's define-syntax
+    /// env stores, so the exclusion rule lives in exactly one place.
+    pub fn envStoreBarrier(self: *GC, env_val: Value, val: Value) void {
+        if (types.isEnvironment(env_val) and types.toEnvironment(env_val).owned)
+            self.writeBarrier(types.toObject(env_val), val);
+    }
+
     pub fn writeBarrier(self: *GC, container: *Object, new_val: Value) void {
         if (container.flags.generation == 1 and types.isPointer(new_val)) {
             const child = types.toObject(new_val);
@@ -388,9 +433,8 @@ pub const GC = struct {
                 // written here and no reference this GC must track is dropped.
                 if (container.owner != self.id) {
                     self.remembered_set.append(self.allocator, container) catch @panic("GC writeBarrier: remembered set OOM");
-                } else if (!container.flags.in_remembered_set) {
-                    self.remembered_set.append(self.allocator, container) catch @panic("GC writeBarrier: remembered set OOM");
-                    container.flags.in_remembered_set = true;
+                } else {
+                    self.rememberObject(container);
                 }
             }
         }
@@ -449,6 +493,7 @@ pub const GC = struct {
     pub const allocUninternedSymbol = gc_alloc.allocUninternedSymbol;
     pub const allocString = gc_alloc.allocString;
     pub const allocFunction = gc_alloc.allocFunction;
+    pub const appendFunctionConstant = gc_alloc.appendFunctionConstant;
     pub const allocClosure = gc_alloc.allocClosure;
     pub const allocNativeFn = gc_alloc.allocNativeFn;
     pub const allocNativeClosure = gc_alloc.allocNativeClosure;

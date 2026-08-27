@@ -9,8 +9,16 @@ When mutating heap objects (set-car!, set-cdr!, vector-set!, hash-table-set!,
 string-set!, record field mutation):
 
 - **Write barrier required**: call `gc.writeBarrier(container, new_val)` after
-  storing a Value into a heap object field. Omitting this corrupts the
-  generational GC during minor collections.
+  storing a Value into a heap object field. Since #1961 the minor mark is
+  generational: it stops at old objects and reaches their young referents
+  only through the remembered set, so the barrier is load-bearing — omitting
+  it means the young referent is swept while the old container still points
+  at it (a use-after-free, not a leak). Edges created while the container is
+  still young need no barrier at the store; the GC's promotion scan records
+  them when the container is promoted. Bulk stores into a container the GC
+  re-traces wholesale (a fiber's saved execution state, the root-marked
+  globals/library maps) are covered by explicit root marking instead — when
+  in doubt, add the barrier; it is cheap and deduplicated.
 
 - **Root before allocating**: if you hold a pointer to a heap object and then
   allocate (which may trigger GC), root the value first with

@@ -271,6 +271,15 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         func.global_cache = cache;
                         func.cache_version = self.global_version;
                     }
+                    // #1961 (review): the cached value is root-marked right
+                    // now (it is also in the globals map), but a later
+                    // rebinding by another function orphans this slot — only
+                    // this function's own next global op clears it — and the
+                    // generational minor mark reaches the orphaned young
+                    // value only through the remembered set. The function
+                    // itself may already be promoted, including on the
+                    // fresh-cache path.
+                    self.gc.writeBarrier(&func.header, val);
                 }
             },
             .set_global => {
@@ -336,7 +345,19 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     }
                     break :blk null;
                 };
-                if (ptr) |p| p.* = val;
+                if (ptr) |p| {
+                    p.* = val;
+                    // #1961: when the target map belongs to a mutable
+                    // SchemeEnvironment (func.env_val — the eval/environment
+                    // objects), this store is an old→young edge on that heap
+                    // object once it promotes. envStoreBarrier applies the
+                    // one exclusion rule: the interaction-environment wrapper
+                    // and the root-marked maps (globals, library lib_envs)
+                    // are marked as roots every collection and enroll
+                    // nothing. Nothing allocates between the store and the
+                    // barrier, so this order is as safe as barrier-first.
+                    self.gc.envStoreBarrier(func.env_val, val);
+                }
                 self.unlockGlobalsShared();
                 if (ptr == null) {
                     self.setErrorDetail("set!: unbound variable '{s}'", .{name});
@@ -354,6 +375,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         @memset(cache, types.VOID);
                         if (sym_idx < cache.len) cache[sym_idx] = val;
                         func.cache_version = self.global_version;
+                        // #1961 (review): same orphaned-slot hazard as
+                        // get_global's cache fill.
+                        self.gc.writeBarrier(&func.header, val);
                     }
                 }
             },
@@ -389,6 +413,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     env.put(name, val) catch return VMError.OutOfMemory;
                 } else {
                     env.put(name, val) catch return VMError.OutOfMemory;
+                    // #1961: same rule as set_global, via the shared helper
+                    // (envStoreBarrier) so the exclusion lives once.
+                    self.gc.envStoreBarrier(func.env_val, val);
                 }
                 if (func.env == null) {
                     self.global_version +%= 1;
@@ -399,6 +426,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         @memset(cache, types.VOID);
                         if (sym_idx < cache.len) cache[sym_idx] = val;
                         func.cache_version = self.global_version;
+                        // #1961 (review): same orphaned-slot hazard as
+                        // get_global's cache fill.
+                        self.gc.writeBarrier(&func.header, val);
                     }
                 }
             },
@@ -978,6 +1008,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                                 vm_mod.globals_mod.parseDefEnvBindingSymbolName(name) == null)
                             {
                                 if (sym_idx < cache.len) cache[sym_idx] = val;
+                                // #1961 (review): same orphaned-slot hazard
+                                // as get_global's cache fill.
+                                self.gc.writeBarrier(&the_func.header, val);
                             }
                         }
                     } else {
@@ -1004,6 +1037,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             cache[sym_idx] = val;
                             the_func.global_cache = cache;
                             the_func.cache_version = self.global_version;
+                            // #1961 (review): fresh caches too — the function
+                            // can already be promoted by its first global op.
+                            self.gc.writeBarrier(&the_func.header, val);
                         }
                     }
                 } else {
@@ -1103,6 +1139,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             func.global_cache = cache;
                             func.cache_version = self.global_version;
                         }
+                        // #1961 (review): same orphaned-slot hazard as
+                        // get_global's cache fill.
+                        self.gc.writeBarrier(&func.header, callee);
                     }
                 }
 

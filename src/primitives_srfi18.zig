@@ -1546,6 +1546,11 @@ fn trackOwnedMutex(fiber: *fiber_mod.Fiber, m_val: Value) void {
     // The lock itself already succeeded, so failing the primitive now would
     // be worse — the caller would believe the lock failed while it is held.
     fiber.owned_mutexes.append(gc.allocator, m_val) catch {};
+    // #1961: this list is also an old→young edge when a promoted fiber locks
+    // a fresh mutex — FiberScheduler.markRoots' explicit markFiberState pass
+    // covers it as a root, and this keeps the remembered set complete for it
+    // like every other Value store into an old container.
+    gc.writeBarrier(&fiber.header, m_val);
 }
 
 fn mutexLockFn(args: []const Value) PrimitiveError!Value {

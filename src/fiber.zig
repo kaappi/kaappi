@@ -606,6 +606,22 @@ pub const FiberScheduler = struct {
         fiber.current_exception = vm.current_exception;
         fiber.continuation_invoked = vm.continuation_invoked;
         fiber.continuation_value = vm.continuation_value;
+        // #1961 (review): the retire paths (vm_calls.zig, fiber_wait.zig)
+        // run this save AFTER retireSlot has queued the slot for reuse, so
+        // the fiber may stop being scheduler-resident — losing the
+        // unconditional markFiberState pass in FiberScheduler.markRoots —
+        // while staying heap-reachable through a joiner's waiting_on or any
+        // variable holding the handle. This save writes a whole snapshot
+        // (memcpy'd registers/frames/handlers/winds, current_exception,
+        // continuation_value) with no per-field barriers, so an old fiber's
+        // fresh snapshot is otherwise an unrecorded bundle of old→young
+        // edges; the errored path's young ErrorObject is exactly one. Enroll
+        // the whole container: the remembered-set walk re-traces the
+        // snapshot, and pruneRememberedSet drops the entry once every
+        // snapshot value has aged into the old generation. Resident fibers
+        // keep their markFiberState pass regardless — this is additive.
+        if (fiber.header.flags.generation == 1)
+            vm.gc.rememberObject(&fiber.header);
     }
 
     pub fn restoreFiber(self: *FiberScheduler, idx: usize) VMError!void {
@@ -1032,7 +1048,17 @@ pub const FiberScheduler = struct {
         for (self.fibers.items) |f| {
             if (f) |fiber| {
                 gc.markValue(types.makePointer(&fiber.header));
-                if (fiber.status == .running) continue;
+                // #1961: once promoted, a fiber is opaque to the generational
+                // minor mark — markValue above no longer traces it — so every
+                // resident fiber gets this explicit pass, the running one
+                // included. For a running fiber the saved registers/frames are
+                // stale (the VM holds the live copies, marked by markVmRoots),
+                // but they must stay *traced* anyway: markValueInner's .fiber
+                // arm still walks them during full collections, and a value
+                // freed by a minor in between would turn that walk into a
+                // use-after-free. Retaining the stale snapshot until the next
+                // save overwrites it is the same conservatism the pre-#1961
+                // full transitive minor mark provided.
                 markFiberState(gc, fiber);
             }
         }
