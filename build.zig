@@ -607,7 +607,9 @@ fn kaappiModule(b: *std.Build, options_mod: *std.Build.Module, opts: struct {
     // (srfi 128): (channel-comparator) (kaappi#2394) builds the channel
     // identity comparator through the real (make-comparator ...), on demand,
     // so the library must stay loadable where file loads are blocked
-    // (--sandbox) or unreliable (WASM) — same embedded-copy fix as above.
+    // (--sandbox), unreliable (WASM), or absent entirely (no lib tree on the
+    // deployment machine — the last-resort fallback) — same embedded-copy
+    // fix as above.
     const srfi_128_sld_wf = b.addWriteFiles();
     _ = srfi_128_sld_wf.addCopyFile(b.path("lib/srfi/128.sld"), "128.sld");
     const srfi_128_sld_embed = srfi_128_sld_wf.add("kaappi_srfi_128_sld.zig", "pub const source = @embedFile(\"128.sld\");\n");

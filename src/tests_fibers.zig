@@ -790,10 +790,10 @@ test "a bad channel timeout names the channel primitive, not 'thread' (#2002)" {
 // and dedup channel handles — the comparator contract the reply-channel and
 // registry idioms need.
 test "channel=? and channel-hash on local channels (#2394)" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
 
     const result = try vm.eval(
         \\(define a (make-channel))
@@ -902,10 +902,10 @@ test "channel-keyed hash tables dedup stubs via channel=?/channel-hash (#2394)" 
 // field accessors agree with every hand-built (make-comparator ...) result —
 // and it builds even when (srfi 128) was never imported (lazy load).
 test "channel-comparator is a SRFI-128 comparator built on demand (#2394)" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
 
     // No (import (srfi 128)) here: the construction lazy-loads it, and the
     // result is already usable through the native comparator bridge —
@@ -934,4 +934,54 @@ test "channel-comparator is a SRFI-128 comparator built on demand (#2394)" {
     const s2 = try printer.valueToString(std.testing.allocator, result2, .write);
     defer std.testing.allocator.free(s2);
     try std.testing.expectEqualStrings("(#t #f #t #t)", s2);
+}
+
+// CodeRabbit's #2394 review scenario: a channel keyed into a table BEFORE
+// its first cross-thread send must stay reachable after promotion rewrites
+// the original in place — the hash input is the channel's identity for its
+// whole life (SharedChannel.identity_seed preserves the pre-promotion
+// Value), not the representation-of-the-moment.
+test "channel-hash is stable across promotion: insert, promote, lookup (#2394)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // needs real OS threads
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    const result = try ctx.vm.eval(
+        \\(import (kaappi fibers) (srfi 18) (srfi 69))
+        \\(let ((ch   (make-channel))
+        \\      (to-w (make-channel))
+        \\      (to-p (make-channel)))
+        \\  (define ht (make-hash-table channel=? channel-hash))
+        \\  (hash-table-set! ht ch 'early)
+        \\  (define worker
+        \\    (thread-start! (make-thread
+        \\      (lambda ()
+        \\        (let ((c (channel-receive to-w)))
+        \\          (channel-send to-p c)
+        \\          (channel-send to-p c))))))
+        \\  (channel-send to-w ch)
+        \\  (thread-join! worker)
+        \\  (let ((a (channel-receive to-p))
+        \\        (b (channel-receive to-p)))
+        \\    (list (hash-table-size ht)
+        \\          (hash-table-ref/default ht a 'MISS)
+        \\          (hash-table-ref/default ht b 'MISS)
+        \\          (hash-table-ref/default ht ch 'MISS))))
+    );
+    const printer = @import("printer.zig");
+    const s = try printer.valueToString(std.testing.allocator, result, .write);
+    defer std.testing.allocator.free(s);
+    try std.testing.expectEqualStrings("(1 early early early)", s);
+}
+
+// The comparator is a per-VM constant cached on the VM like
+// default_random_source — repeat calls must return the same record.
+test "channel-comparator is cached: repeat calls return the same record (#2394)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    const result = try ctx.vm.eval("(eq? (channel-comparator) (channel-comparator))");
+    try std.testing.expectEqual(types.TRUE, result);
 }

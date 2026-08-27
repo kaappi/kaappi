@@ -12,7 +12,7 @@
 ;; export string-hash/string-ci-hash, so the table and comparator names are
 ;; imported with `only` rather than wholesale.
 (import (scheme base) (scheme write) (scheme process-context)
-        (kaappi fibers) (srfi 18) (srfi 64)
+        (kaappi fibers) (srfi 18) (srfi 64) (srfi 113)
         (only (srfi 69) make-hash-table hash-table-set! hash-table-size
               hash-table-ref/default hash)
         (only (srfi 128) comparator? comparator-type-test-predicate
@@ -90,6 +90,40 @@
     (list (hash-table-size registry)
           (hash-table-ref/default registry (cadr triple) 'MISS))))
 
+;; (srfi 113) sets honor their comparator since the %make-empty-set fix —
+;; the idiom the issue's option-1b comment advertised.
+(test-equal "SRFI-113 sets dedup channel stubs via channel-comparator"
+  '(1 #t)
+  (let* ((triple (make-stub-pair))
+         (seen (set (channel-comparator) (car triple) (cadr triple) (cddr triple))))
+    (list (set-size seen)
+          (set-contains? seen (cadr triple)))))
+
+;; The hash input is the channel's identity for its whole life: a table
+;; keyed BEFORE the first cross-thread send still finds its entry after
+;; promotion rewrites the original in place (CodeRabbit's insert → promote
+;; → lookup scenario).
+(test-equal "channel-hash is stable across promotion: insert, promote, lookup"
+  '(1 early early)
+  (let* ((ch (make-channel))
+         (to-w (make-channel))
+         (to-p (make-channel))
+         (registry (make-hash-table channel=? channel-hash)))
+    (hash-table-set! registry ch 'early)
+    (define worker
+      (thread-start! (make-thread
+        (lambda ()
+          (let ((c (channel-receive to-w)))
+            (channel-send to-p c)
+            (channel-send to-p c))))))
+    (channel-send to-w ch)
+    (thread-join! worker)
+    (let ((a (channel-receive to-p))
+          (b (channel-receive to-p)))
+      (list (hash-table-size registry)
+            (hash-table-ref/default registry a 'MISS)
+            (hash-table-ref/default registry b 'MISS)))))
+
 ;; --- channel-comparator is a real SRFI-128 comparator ---
 (test-equal "comparator fields agree with their channel=?/channel-hash sources"
   '(#t #t #f #f #t)
@@ -106,6 +140,9 @@
   (let* ((triple (make-stub-pair)))
     ((comparator-equality-predicate (channel-comparator))
      (cadr triple) (cddr triple))))
+
+(test-equal "channel-comparator is cached: repeat calls return the same record"
+  #t (eq? (channel-comparator) (channel-comparator)))
 
 ;; --- argument discipline ---
 (define (code-of thunk) (guard (e (#t (error-object-code e))) (thunk) 'no-raise))

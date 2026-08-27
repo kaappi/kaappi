@@ -141,17 +141,16 @@ is what SRFI-128 comparators exist for:
   `SharedChannel` (or the same unpromoted local channel; the mixed case only
   arises for genuinely different channels, since promotion rewrites the
   original in place and every stub is born promoted).
-- `channel-hash ch [bound]` — hashes the `shared` pointer, consistent with
+- `channel-hash ch [bound]` — hashes the channel's identity, consistent with
   `channel=?` by construction; mirrors `(hash obj [bound])` (SRFI 69).
 - `channel-comparator` — `(make-comparator channel? channel=? #f
   channel-hash)`, built by calling the **real** `(srfi 128)`
-  `make-comparator`. That library lazy-loads on first use (the `environment`
-  procedure's on-demand route; an `embedded_libraries` entry keeps it
-  loadable under `--sandbox` and on WASM, like `(srfi 181)`), so
-  `comparator?` and the field accessors agree with every hand-built
-  comparator, and the native `extractComparatorFns` bridge recognizes the
-  record. The three procedures are `(kaappi fibers)`'s pristine registry
-  exports, immune to top-level shadowing of those names.
+  `make-comparator`, so `comparator?` and the field accessors agree with
+  every hand-built comparator and the native `extractComparatorFns` bridge
+  recognizes the record. It is cached on the VM like
+  `default_random_source` — repeat calls return the same record — and its
+  three procedures are `(kaappi fibers)`'s pristine registry exports,
+  immune to top-level shadowing of those names.
 
 The reply-channel/registry idiom:
 
@@ -160,21 +159,45 @@ The reply-channel/registry idiom:
 (hash-table-set! registry stub 'reply-to) ; any stub of the channel finds it
 ```
 
-Two caveats:
-
-- **Hash stability across promotion.** A channel hashed before its first
-  cross-thread send hashes its local address; after promotion (sticky) the
-  `SharedChannel`'s. Key a channel into a table only after sharing it.
-- **`(srfi 113)` sets do not honor comparators in this port**: `113.sld`'s
-  `%make-empty-set` builds its backing table with a zero-argument
-  `make-hash-table` (default `equal?`), so `(set channel-comparator …)`
-  still dedups by pointer. Use `make-hash-table` (SRFI 69/125) directly for
-  channel-keyed tables.
+The hash input is the channel's identity **for its whole life**, not the
+representation-of-the-moment: its own tagged Value while unpromoted, and —
+once promoted — the `SharedChannel.identity_seed` `promoteChannel` preserved
+from exactly that Value before publishing. A table keyed before the first
+cross-thread send therefore still finds its entry after promotion rewrites
+the original in place, and every stub hashes the one seed. If the original
+object is later collected and its address reused, the collision is benign —
+equality still compares `shared` pointers. (Unpromoted channels hash through
+the same `valueHash` as plain `(hash ch)`, so the two agree on every target,
+wasm32's 32-bit `usize` included.)
 
 `channel=?` and `channel-hash` read channel fields, so they carry the same
-foreign-owner check as `channel-send` (a channel reached through a shared
+foreign-owner check as `channel-send`, now factored as
+`primitives_fiber.checkChannelOwner` (a channel reached through a shared
 global is a diagnosis, not a comparison); `channel?` stays exempt as a total
 predicate.
+
+`(srfi 113)` sets honor their comparator since kaappi#2394: `113.sld`'s
+`%make-empty-set`/`%make-empty-bag` pass the comparator to
+`make-hash-table`, which unwraps the record into its equality/hash pair —
+and the native `detectMode` keeps the fast path for the standard
+comparators, whose equality fields hold the real `eq?`/`eqv?`/`equal?`, so
+`make-eq-comparator` sets pay nothing for the fix. Before it, every set's
+backing table was built with a zero-argument `make-hash-table` (default
+`equal?`) and any non-`equal?` comparator silently deduped by pointer.
+
+**Loading `(srfi 128)` safely across threads.** `vm.libraries` reaches
+child VMs as a struct copy (unlike `globals`, which got the pointer+lock
+treatment — see `vm.zig`'s `initForThread`), and `markVmRoots` gates
+library marking behind `owns_globals`. A lazy library load from a worker
+thread would therefore put() into bucket storage the root reads unlocked
+and leave child-heap exports unmarked by every collector.
+`threadStartImpl` closes this by pre-loading `(srfi 128)` on the spawning
+VM before any child exists (`ensureComparatorLibraryLoaded` — best-effort;
+the process's first `make-thread` is necessarily the root, so the load is
+always pre-children and read-only afterwards), and an
+`embedded_libraries` entry keeps the library loadable under `--sandbox`,
+on WASM, and — as the last resort after a disk miss — on a binary with no
+lib tree to read at all.
 
 ## The globals route
 
@@ -366,6 +389,8 @@ thread gets its own VM and GC with an independent heap.
 | `markLiveChildRoots` | `src/primitives_srfi18.zig` | kaappi#1933: registered on the **root** GC as `gc.child_marker`; the root's collector stops every live child at a dispatch-loop safepoint (or finds it already parked / in an FFI call) and marks its roots with the root's gc, so a parent-heap object referenced only from a live child's registers is never freed under it. Children spawned mid-collection spin on `collection_in_progress` before their first shared-globals read. The child side reports `collection_state` (`.running`/`.parked`/`.stopped`/`.in_native`) from the safepoint (`stopForCollection`), the park (`parkOnReactor`) and FFI (`callFfi`) sites |
 | `crossHeapStoreViolation` | `src/memory.zig` | kaappi#1924: the rejection predicate checked before every general store into a heap object — a store into a container owned by another GC is allowed only when the value is owned by that same GC. The `mutex-lock!` owner pair is the deliberate exception |
 | `Object.owner` vs `GC.id` | `src/gc_collect.zig` | Every heap object records its owning GC; marking skips objects owned by another GC, so a child's collections never write mark bits on parent-heap objects reached through shared globals (kaappi#958) |
+| `SharedChannel.identity_seed` | `src/shared_channel.zig` | kaappi#2394: the promoting channel's tagged Value, written before `ch.shared` publishes — the hash identity every stub of the channel shares for its whole life |
+| `ensureComparatorLibraryLoaded` | `src/primitives_fiber.zig`, called from `threadStartImpl` | kaappi#2394: best-effort pre-load of `(srfi 128)` on the spawning VM, so no child VM ever lazy-loads into the struct-copied registry (see the channel-identity section) |
 
 The deep copy happens at exactly three boundaries: the thunk closure at
 `thread-start!`, the result (or uncaught exception) at `thread-join!`, and a

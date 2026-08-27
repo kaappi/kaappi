@@ -262,6 +262,20 @@ pub const SharedChannel = struct {
     /// KEP-0002 §6, `channel-close!`. Set once (true), by promoteChannel
     /// (carried over from an already-closed local channel) or by close().
     closed: bool = false,
+    /// The raw NaN-boxed bits of the promoting channel's Value
+    /// (`makePointer(&ch.header)` at promotion, kaappi#2394): the channel's
+    /// hash identity for its whole life. `channel-hash` hashes the live
+    /// channel's own Value while unpromoted and this seed once promoted, so
+    /// a hash-table entry keyed before the first cross-thread send stays
+    /// reachable after it, and every stub of the channel hashes the one
+    /// value. Write-once (set before `ch.shared` publishes `sc`), never
+    /// dereferenced -- a hash input only; if the original object is later
+    /// collected and its address reused, the collision is benign because
+    /// `channel=?` still compares `shared` pointers. The explicit alignment
+    /// keeps this field from raising the struct's alignment above the
+    /// header's -- on wasm32-baseline a natural u64 demands align 8 against
+    /// Header's 4, and destroyHook's @fieldParentPtr refuses to widen.
+    identity_seed: u64 align(@alignOf(shared_object.Header)) = 0,
     recv_waiters: std.ArrayList(*ThreadNotifier) = .empty,
     send_waiters: std.ArrayList(*ThreadNotifier) = .empty,
 
@@ -499,6 +513,10 @@ pub fn promoteChannel(gc: *memory.GC, ch: *types.Channel) !*SharedChannel {
     sc.capacity = ch.capacity;
     sc.closed = ch.closed;
     sc.rv_demand = ch.rv_demand;
+    // Before publish, like the fields above: `channel-hash` on any later
+    // stub of this channel must see the seed the moment it can see `sc`
+    // (kaappi#2394).
+    sc.identity_seed = @bitCast(types.makePointer(&ch.header));
     // Publish before draining (§2 step 2): a queued local message may
     // contain this very channel (e.g. (channel-send ch (list ch))). With
     // `shared` already set, the drain's own Envelope.create -> deepCopy
