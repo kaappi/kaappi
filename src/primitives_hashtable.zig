@@ -912,7 +912,10 @@ fn hashTableUpdateDefaultFn(args: []const Value) PrimitiveError!Value {
 /// #31 and #16). 47 bits is the widest value that survives the round trip.
 const HASH_FIXNUM_MASK: u64 = 0x7FFF_FFFF_FFFF;
 
-fn unboundedHash(h: u64) Value {
+/// A u64 hash rendered as a non-negative fixnum (masked into the 47-bit
+/// range). Shared by every hash procedure that returns an unbounded hash —
+/// and by channel-hash in primitives_fiber.zig.
+pub fn unboundedHash(h: u64) Value {
     return types.makeFixnum(@intCast(h & HASH_FIXNUM_MASK));
 }
 

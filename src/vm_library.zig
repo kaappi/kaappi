@@ -389,6 +389,11 @@ const embedded_libraries = [_]struct { rel_path: []const u8, source: []const u8 
     // .srfi_181_primitives) -- without this entry, --sandbox and WASM would
     // silently lose access to the already-shipped custom-port constructors.
     .{ .rel_path = "srfi/181.sld", .source = @import("kaappi_srfi_181_sld").source },
+    // (srfi 128): (channel-comparator) (kaappi#2394) builds the channel
+    // identity comparator through the real make-comparator, on demand, so
+    // the library must stay loadable where file loads are blocked (--sandbox)
+    // or unreliable (WASM).
+    .{ .rel_path = "srfi/128.sld", .source = @import("kaappi_srfi_128_sld").source },
 };
 
 fn findEmbeddedLibrary(rel_path: []const u8) ?[]const u8 {

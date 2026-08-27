@@ -783,3 +783,155 @@ test "a bad channel timeout names the channel primitive, not 'thread' (#2002)" {
     defer std.testing.allocator.free(s2);
     try std.testing.expectEqualStrings("ok", s2);
 }
+
+// kaappi#2394 (KEP-0002 §2): channel identity across stubs. eqv?/equal?
+// deliberately stay stub-identity (the KEP's as-implemented amendment), so
+// channel=?/channel-hash/channel-comparator are the supported way to compare
+// and dedup channel handles — the comparator contract the reply-channel and
+// registry idioms need.
+test "channel=? and channel-hash on local channels (#2394)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(define a (make-channel))
+        \\(define b (make-channel))
+        \\(list (channel=? a a) (channel=? a b) (channel=? b a)
+        \\      (= (channel-hash a) (channel-hash a))
+        \\      (< (channel-hash a 100) 100)
+        \\      (= (channel-hash a 100) (channel-hash a 100)))
+    );
+    const printer = @import("printer.zig");
+    const s = try printer.valueToString(std.testing.allocator, result, .write);
+    defer std.testing.allocator.free(s);
+    try std.testing.expectEqualStrings("(#t #f #f #t #t #t)", s);
+
+    // Argument discipline matches the rest of the file: a non-channel is a
+    // KP3002 type error, a non-positive bound a KP3007 range rejection.
+    const codes = try vm.eval(
+        \\(define (code-of thunk) (guard (e (#t (error-object-code e))) (thunk) 'no-raise))
+        \\(list (code-of (lambda () (channel=? a 5)))
+        \\      (code-of (lambda () (channel-hash "x")))
+        \\      (code-of (lambda () (channel-hash a 0))))
+    );
+    const s2 = try printer.valueToString(std.testing.allocator, codes, .write);
+    defer std.testing.allocator.free(s2);
+    try std.testing.expectEqualStrings("(KP3002 KP3002 KP3007)", s2);
+}
+
+// The core #2394 scenario: one channel arrives twice through a thread and
+// lands as two stubs. eq? cannot unify them (distinct heap objects); the
+// comparator route must — against each other AND against the original
+// handle, whose in-place promotion gives it the same `shared` pointer.
+test "channel=? unifies stubs of one promoted channel across threads (#2394)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // needs real OS threads
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    const result = try ctx.vm.eval(
+        \\(import (kaappi fibers) (srfi 18) (srfi 69))
+        \\(let ((ch   (make-channel))
+        \\      (to-w (make-channel))
+        \\      (to-p (make-channel)))
+        \\  (define worker
+        \\    (thread-start! (make-thread
+        \\      (lambda ()
+        \\        (let ((c (channel-receive to-w)))
+        \\          (channel-send to-p c)
+        \\          (channel-send to-p c))))))
+        \\  (channel-send to-w ch)
+        \\  (thread-join! worker)
+        \\  (let ((a (channel-receive to-p))
+        \\        (b (channel-receive to-p)))
+        \\    (list (channel=? a b) (channel=? a ch) (channel=? b ch)
+        \\          (eq? a b) (eqv? a b))))
+    );
+    const printer = @import("printer.zig");
+    const s = try printer.valueToString(std.testing.allocator, result, .write);
+    defer std.testing.allocator.free(s);
+    // eq?/eqv? on the two stubs: distinct heap objects, so #f — the KEP-0002
+    // §2 divergence this issue records. The channel=? column is the promise,
+    // kept where the KEP's amendment says it lives.
+    try std.testing.expectEqualStrings("(#t #t #t #f #f)", s);
+}
+
+// The dedup the issue exists for: a reply-channel registry keyed by channel
+// identity. Both table flavors (two procedures, comparator record) must
+// collapse a/b/ch to one entry and find it under any of the three handles.
+test "channel-keyed hash tables dedup stubs via channel=?/channel-hash (#2394)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // needs real OS threads
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    const result = try ctx.vm.eval(
+        \\(import (kaappi fibers) (srfi 18) (srfi 69))
+        \\(let ((ch   (make-channel))
+        \\      (to-w (make-channel))
+        \\      (to-p (make-channel)))
+        \\  (define worker
+        \\    (thread-start! (make-thread
+        \\      (lambda ()
+        \\        (let ((c (channel-receive to-w)))
+        \\          (channel-send to-p c)
+        \\          (channel-send to-p c))))))
+        \\  (channel-send to-w ch)
+        \\  (thread-join! worker)
+        \\  (let ((a (channel-receive to-p))
+        \\        (b (channel-receive to-p)))
+        \\    (define ht  (make-hash-table channel=? channel-hash))
+        \\    (define ht2 (make-hash-table (channel-comparator)))
+        \\    (hash-table-set! ht a 'first)
+        \\    (hash-table-set! ht b 'second)
+        \\    (hash-table-set! ht2 a 1)
+        \\    (hash-table-set! ht2 b 2)
+        \\    (hash-table-set! ht2 ch 3)
+        \\    (list (hash-table-size ht)  (hash-table-ref/default ht  ch 'MISS)
+        \\          (hash-table-size ht2) (hash-table-ref/default ht2 b 'MISS))))
+    );
+    const printer = @import("printer.zig");
+    const s = try printer.valueToString(std.testing.allocator, result, .write);
+    defer std.testing.allocator.free(s);
+    try std.testing.expectEqualStrings("(1 second 1 3)", s);
+}
+
+// (channel-comparator) is a real SRFI-128 comparator — comparator? and the
+// field accessors agree with every hand-built (make-comparator ...) result —
+// and it builds even when (srfi 128) was never imported (lazy load).
+test "channel-comparator is a SRFI-128 comparator built on demand (#2394)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // No (import (srfi 128)) here: the construction lazy-loads it, and the
+    // result is already usable through the native comparator bridge —
+    // make-hash-table unwraps a <comparator> record's equality/hash fields.
+    const result = try vm.eval(
+        \\(define cmp (channel-comparator))
+        \\(define ht (make-hash-table cmp))
+        \\(define ch (make-channel))
+        \\(hash-table-set! ht ch 'v)
+        \\(list (hash-table-size ht)
+        \\      (hash-table-ref/default ht ch 'MISS))
+    );
+    const printer = @import("printer.zig");
+    const s = try printer.valueToString(std.testing.allocator, result, .write);
+    defer std.testing.allocator.free(s);
+    try std.testing.expectEqualStrings("(1 v)", s);
+
+    // With (srfi 128) imported, comparator? and the hash contract agree.
+    const result2 = try vm.eval(
+        \\(import (srfi 128))
+        \\(list (comparator? cmp)
+        \\      (comparator-ordered? cmp)
+        \\      (comparator-hashable? cmp)
+        \\      (= (comparator-hash cmp ch) (channel-hash ch)))
+    );
+    const s2 = try printer.valueToString(std.testing.allocator, result2, .write);
+    defer std.testing.allocator.free(s2);
+    try std.testing.expectEqualStrings("(#t #f #t #t)", s2);
+}
