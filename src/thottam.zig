@@ -602,6 +602,19 @@ pub fn sourcesEquivalent(a: []const u8, b: []const u8) bool {
     return std.mem.eql(u8, canonicalSource(a), canonicalSource(b));
 }
 
+/// Whether a manifest-declared `source:` is safe to record in the lockfile and
+/// later hand to `git clone` under --locked. It is attacker-controlled (it
+/// comes from the cloned repo), and git's remote-helper transports use the
+/// `<transport>::<address>` form to run an arbitrary command (`ext::<cmd>`,
+/// `fd::…`), so any `::` is refused; so is a leading `-`, which `git clone`
+/// would read as an option (kaappi#2138, CWE-78). A command-line `::url` is
+/// user-chosen and not gated here; the clone itself disables `ext` regardless.
+pub fn isRecordableSource(s: []const u8) bool {
+    if (s.len == 0 or s[0] == '-') return false;
+    if (std.mem.indexOf(u8, s, "::") != null) return false;
+    return true;
+}
+
 fn doInstall(
     allocator: std.mem.Allocator,
     config: Config,
@@ -788,7 +801,14 @@ fn doInstall(
         writeStdout("...\n");
         const url_copy = try allocator.dupe(u8, clone_url);
         defer allocator.free(url_copy);
-        runGit(allocator, &.{ "clone", "--quiet", "--", url_copy, pkg_dir }) catch |err| switch (err) {
+        // `protocol.ext.allow=never` disables git's `ext::` remote helper,
+        // which runs an arbitrary command from a `ext::<cmd>` URL. A clone URL
+        // can reach here from a manifest's `source:` (recorded in the lockfile
+        // and cloned under --locked), so this closes the OS-command-injection
+        // vector at the git call regardless of where the URL came from
+        // (kaappi#2138, CWE-78). Local file paths use the `file` transport and
+        // are unaffected.
+        runGit(allocator, &.{ "-c", "protocol.ext.allow=never", "clone", "--quiet", "--", url_copy, pkg_dir }) catch |err| switch (err) {
             error.GitNotFound => return missingGit("install packages"),
             else => {
                 printErrColor(Color.red, "  Failed to clone repository\n");
@@ -876,7 +896,7 @@ fn doInstall(
                     const msg = std.fmt.bufPrint(&w, "{s} declares source '{s}' but was fetched from '{s}'\n", .{ pkg, declared, supplied }) catch "declared source differs from fetch URL\n";
                     writeStderr(msg);
                 }
-            } else {
+            } else if (isRecordableSource(declared)) {
                 // Installed by bare name: record the declared home as
                 // provenance so `thottam list` shows it and a later --locked
                 // install fetches from it. Surfaced on stderr, alongside the
@@ -886,6 +906,15 @@ fn doInstall(
                 writeStderr("  note: recording declared source ");
                 writeStderr(declared);
                 writeStderr("\n");
+            } else {
+                // A manifest source that could execute a command as a git
+                // remote helper (or inject a clone option) is refused rather
+                // than recorded; the package still installs from where it was
+                // actually fetched (kaappi#2138, CWE-78).
+                var w: [640]u8 = undefined;
+                printErrColor(Color.yellow, "  warning: ");
+                const msg = std.fmt.bufPrint(&w, "{s} declares an unsupported source transport '{s}'; not recording it\n", .{ pkg, declared }) catch "unsupported source transport in manifest\n";
+                writeStderr(msg);
             }
         }
     };

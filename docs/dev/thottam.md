@@ -74,7 +74,12 @@ manifest would mean nothing; it is dropped like any unknown key (kaappi#2138).
   trailing `/` and a `.git` suffix — those are cosmetic spellings of one
   remote — but a scheme difference (`http` vs `https`) is a real downgrade and
   still warns. In `--locked` mode the lockfile is authoritative and the
-  manifest's `source:` is ignored (#2137).
+  manifest's `source:` is ignored (#2137). Because a manifest is
+  attacker-controlled and its `source:` is later handed to `git clone`, a
+  declared source that uses a git remote-helper transport (`ext::<cmd>` runs a
+  command) or is option-shaped (leading `-`) is refused rather than recorded;
+  the clone itself also runs with `protocol.ext.allow=never`, so the
+  OS-command-injection vector is closed at both ends (CWE-78).
 - `depends` is space-separated, and may carry an inline custom URL:
   `depends: kaappi-net kaappi-auth::https://github.com/bob/kaappi-auth`.
 - Version constraints use `>=`, `>`, `<=`, `<`, `^` (compatible), `~`

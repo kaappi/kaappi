@@ -509,6 +509,22 @@ test "sourcesEquivalent ignores trailing slash and .git, keeps scheme (#2138)" {
     try std.testing.expect(!eq("https://h/p", "https://h/q"));
 }
 
+test "isRecordableSource refuses remote-helper transports and option-shaped URLs (#2138)" {
+    const ok = thottam.isRecordableSource;
+    // Ordinary remotes and local paths are recordable.
+    try std.testing.expect(ok("https://github.com/foo/bar.git"));
+    try std.testing.expect(ok("git@github.com:foo/bar.git"));
+    try std.testing.expect(ok("/srv/git/bar.git"));
+    // A `<transport>::<address>` remote helper runs a command -> refused.
+    try std.testing.expect(!ok("ext::sh -c 'touch /tmp/pwned'"));
+    try std.testing.expect(!ok("fd::17"));
+    try std.testing.expect(!ok("transport::whatever"));
+    // A leading '-' would be read by `git clone` as an option -> refused.
+    try std.testing.expect(!ok("--upload-pack=evil"));
+    // Empty is not a source.
+    try std.testing.expect(!ok(""));
+}
+
 test "parsePkgManifest tolerates CRLF line endings" {
     // thottam runs on Windows under Git Bash; a manifest checked out with
     // core.autocrlf=true has \r before every \n.

@@ -791,6 +791,65 @@ out="$("$THOTTAM" install "kaappi-cosmetic::$ORG/kaappi-cosmetic.git" 2>&1)" && 
 check_exit "a cosmetic ::url-vs-source: difference installs" 0 "$ec"
 check_not "a trailing-.git-only difference does not warn" "declares source" "$out"
 
+# A later --locked install actually consumes the recorded source: it clones
+# from the manifest-declared remote, not the org default. The default's own
+# repo declares an alternate remote (a byte-identical bare clone, so the SHA
+# matches); a bare-name install records the alternate as provenance; then the
+# default is made unavailable and a --locked restore must still succeed —
+# proving it fetched from the recorded alternate.
+mkdir -p "$WORK/kaappi-mirror/lib/kaappi"
+(
+    cd "$WORK/kaappi-mirror"
+    git init -q .
+    printf 'name: kaappi-mirror\nsource: %s/kaappi-mirror-alt.git\n' "$ORG" > kaappi.pkg
+    printf '(define-library (kaappi mirror) (export tag) (import (scheme base)) (begin (define tag "m")))\n' \
+        > lib/kaappi/mirror.sld
+    git add -A
+    git_q commit -q -m base
+)
+git clone -q --bare "$WORK/kaappi-mirror" "$ORG/kaappi-mirror.git"
+# The alternate is a byte-identical bare clone, so its HEAD SHA matches.
+git clone -q --bare "$ORG/kaappi-mirror.git" "$ORG/kaappi-mirror-alt.git"
+fresh_home
+"$THOTTAM" install kaappi-mirror > /dev/null 2>&1
+check "the recorded provenance is the declared alternate remote" \
+    "kaappi-mirror-alt.git" "$(cat "$KAAPPI_HOME/thottam.lock")"
+# Wipe the checkout and make the org default unreachable; only the recorded
+# alternate can satisfy the restore now.
+rm -rf "$KAAPPI_HOME/src/kaappi-mirror" "$KAAPPI_HOME/lib/kaappi/mirror.sld"
+: > "$KAAPPI_HOME/installed.txt"
+mv "$ORG/kaappi-mirror.git" "$ORG/kaappi-mirror.git.unavailable"
+out="$("$THOTTAM" install --locked kaappi-mirror 2>&1)" && ec=0 || ec=$?
+check_exit "--locked restore clones from the recorded source (org default gone)" 0 "$ec"
+check_file "the locked restore actually fetched the library" \
+    "$KAAPPI_HOME/lib/kaappi/mirror.sld"
+mv "$ORG/kaappi-mirror.git.unavailable" "$ORG/kaappi-mirror.git"
+
+# A manifest source that is a git remote-helper transport (ext::<cmd> executes
+# a command) is refused, never recorded, and never executed — the package still
+# installs from where it was actually fetched (kaappi#2138, CWE-78).
+evilmarker="$WORK/evil-ran"
+mkdir -p "$WORK/kaappi-evilsrc/lib/kaappi"
+(
+    cd "$WORK/kaappi-evilsrc"
+    git init -q .
+    printf "name: kaappi-evilsrc\nsource: ext::sh -c 'touch %s'\n" "$evilmarker" > kaappi.pkg
+    printf '(define-library (kaappi evilsrc) (export tag) (import (scheme base)) (begin (define tag "e")))\n' \
+        > lib/kaappi/evilsrc.sld
+    git add -A
+    git_q commit -q -m base
+)
+git clone -q --bare "$WORK/kaappi-evilsrc" "$ORG/kaappi-evilsrc.git"
+fresh_home
+out="$("$THOTTAM" install kaappi-evilsrc 2>&1)" && ec=0 || ec=$?
+check_exit "a manifest with an ext:: source still installs from the fetched remote" 0 "$ec"
+check "the unsupported transport is refused with a warning" \
+    "unsupported source transport" "$out"
+check_not "the ext:: source is not recorded in the lockfile" \
+    "ext::" "$(cat "$KAAPPI_HOME/thottam.lock")"
+[[ -e "$evilmarker" ]] && evilran=yes || evilran=no
+check "the ext:: command is never executed" "no" "$evilran"
+
 # A manifest without a name: still installs — name: is checked when present,
 # not required to exist.
 mkdir -p "$WORK/kaappi-minimal/lib/kaappi"
