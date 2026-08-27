@@ -161,53 +161,59 @@
     ;; never boxed -- so this is a change of type tag, not of memory
     ;; shape; the spec explicitly allows either representation ("another
     ;; implementation ... might make another choice"), and reference
-    ;; fidelity is what interoperates. Consequence: the copier's element
-    ;; granularity is FLOATS (2 per complex element), and
+    ;; fidelity is what interoperates. Consequence:
     ;; c64vector/c128vector data is no longer accepted -- convert with
-    ;; make-specialized-array's maker or a copy loop if needed.
+    ;; make-specialized-array's maker or a copy loop if needed. Like the
+    ;; reference's own c64vector-copy!/c128vector-copy! wrappers, the
+    ;; copier takes LOGICAL complex-element offsets and scales by 2
+    ;; internally -- the same units as every other storage-class field.
     (define (%complex-storage-class float-ref float-set! make-float-vector
                                     float-copy! float-length vec?
                                     class-name type-name)
-      (make-storage-class
-       ;; getter -- reassemble the interleaved pair (an inexact zero
-       ;; imag stays complex, kaappi#2269, exactly like the native
-       ;; c64vector decode)
-       (lambda (body i)
-         (make-rectangular (float-ref body (* 2 i))
-                           (float-ref body (+ (* 2 i) 1))))
-       ;; setter -- explode into the interleaved pair (f32 storage rounds)
-       (lambda (body i obj)
-         (float-set! body (* 2 i) (real-part obj))
-         (float-set! body (+ (* 2 i) 1) (imag-part obj)))
-       ;; checker
-       %inexact-complex-checker
-       ;; maker -- the fill exploded into alternating re/im
-       (lambda (n val)
-         (let* ((l (* 2 n))
-                (re (real-part val))
-                (im (imag-part val))
-                (result (make-float-vector l)))
-           (do ((i 0 (+ i 2)))
-               ((= i l) result)
-             (float-set! result i re)
-             (float-set! result (+ i 1) im))))
-       ;; copier
-       float-copy!
-       ;; length -- half the physical float count
-       (lambda (body) (quotient (float-length body) 2))
-       ;; default
-       (make-rectangular 0.0 0.0)
-       ;; data?
-       (lambda (data)
-         (and (vec? data) (even? (float-length data))))
-       ;; data->body -- identity on even-length float vectors
-       (lambda (data)
-         (if (and (vec? data) (even? (float-length data)))
-             data
-             (error (string-append "Expecting a " type-name
-                                   " with an even number of elements passed to (storage-class-data->body "
-                                   class-name "): ")
-                    data)))))
+      (let ((complex-data?
+             (lambda (data) (and (vec? data) (even? (float-length data))))))
+        (make-storage-class
+         ;; getter -- reassemble the interleaved pair (an inexact zero
+         ;; imag stays complex, kaappi#2269, exactly like the native
+         ;; c64vector decode)
+         (lambda (body i)
+           (make-rectangular (float-ref body (* 2 i))
+                             (float-ref body (+ (* 2 i) 1))))
+         ;; setter -- explode into the interleaved pair (f32 storage rounds)
+         (lambda (body i obj)
+           (float-set! body (* 2 i) (real-part obj))
+           (float-set! body (+ (* 2 i) 1) (imag-part obj)))
+         ;; checker
+         %inexact-complex-checker
+         ;; maker -- the fill exploded into alternating re/im; a uniform
+         ;; fill (eqv?: the default 0.0+0.0i is the overwhelmingly common
+         ;; case, and -0.0/0.0 or NaN mismatches still take the loop)
+         ;; collapses to one native fill
+         (lambda (n val)
+           (let* ((l (* 2 n))
+                  (re (real-part val))
+                  (im (imag-part val)))
+             (if (eqv? re im)
+                 (make-float-vector l re)
+                 (let ((result (make-float-vector l)))
+                   (do ((i 0 (+ i 2)))
+                       ((= i l) result)
+                     (float-set! result i re)
+                     (float-set! result (+ i 1) im))))))
+         ;; copier -- the reference's c64vector-copy! wrapper: logical
+         ;; element offsets, scaled by 2 onto the float block copy
+         (lambda (to at from start end)
+           (float-copy! to (* 2 at) from (* 2 start) (* 2 end)))
+         ;; length -- half the physical float count
+         (lambda (body) (quotient (float-length body) 2))
+         ;; default
+         (make-rectangular 0.0 0.0)
+         ;; data?
+         complex-data?
+         ;; data->body -- identity on even-length float vectors
+         (%checked-data->body complex-data? class-name
+                              (string-append type-name
+                                             " with an even number of elements")))))
 
     (define c64-storage-class
       (%complex-storage-class f32vector-ref f32vector-set! make-f32vector

@@ -123,8 +123,9 @@ OTHER DEALINGS IN THE SOFTWARE.
 ;;; epilogue fails the suite unless every entry accounts exactly: an id
 ;;; that never executes, zero observed (stale -- prune it), more
 ;;; divergences than expected (an undocumented failure is hiding under
-;;; the id, e.g. an f16 regression absorbed by the c64/c128 entry), or
-;;; fewer but nonzero (over-accounting -- re-count it).
+;;; the id, e.g. a third unsafe-view evaluation absorbed by the 351
+;;; entry, whose site legitimately fires twice), or fewer but nonzero
+;;; (over-accounting -- re-count it).
 (define divergent-tests 0)
 (define diverged-counts (make-vector 10000 0))
 (define known-divergences

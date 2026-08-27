@@ -34,8 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   unchanged — the spec's `data?` contract (shares, never copies) makes
   this the only spec-legal way to accept that data shape. Consequences:
   `(array-body A)` for a c64/c128 array now reports the float vector,
-  the storage-class copier counts floats (2 per complex element), and
-  `c64vector`/`c128vector` data is no longer accepted directly.
+  and `c64vector`/`c128vector` data is no longer accepted directly.
   Official-suite divergence id 150 pruned; the known-divergence table is
   down to the two unavoidable entries (string mutability, unsafe-view
   checking).

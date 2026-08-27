@@ -25,15 +25,10 @@
 ;;; otherwise spuriously fail despite both sides being the same number.
 ;;; bad-value has no meaningful "checker rejects this" case for
 ;;; generic-storage-class (its checker always returns #t), so that
-;;; assertion is a separate, optional check. A second optional is the
-;;; copier's body-units per logical element -- 1 everywhere except the
-;;; complex classes, whose interleaved-float bodies hold 2 (see the c64
-;;; section below). ---
+;;; assertion is a separate, optional check. ---
 (define (%same? a b) (if (and (number? a) (number? b)) (= a b) (equal? a b)))
 
-(define (check-storage-class sc value bad-value expected-default . opts)
-  (let ((rejects-bad? (or (null? opts) (car opts)))
-        (units-per-element (if (or (null? opts) (null? (cdr opts))) 1 (cadr opts))))
+(define (check-storage-class sc value bad-value expected-default . rejects-bad?)
   (let* ((maker (storage-class-maker sc))
          (getter (storage-class-getter sc))
          (setter (storage-class-setter sc))
@@ -45,17 +40,24 @@
     (test-assert (%same? expected-default (getter body 0)))
     (setter body 1 value)
     (test-assert (%same? value (getter body 1)))
-    ;; exercise the copier field too -- otherwise a wrong copy procedure
-    ;; would pass every other assertion here undetected; the copier counts
-    ;; BODY units, so complex classes copy 2 floats per logical element
+    ;; exercise the copier field twice -- otherwise a wrong copy procedure
+    ;; would pass every other assertion here undetected. The second call
+    ;; uses non-zero at/start on purpose: a copier whose offsets are in
+    ;; the wrong units (e.g. raw floats instead of logical elements for
+    ;; the complex classes) can pass an aligned full-range copy while
+    ;; misplacing data at every other offset
     (let ((copied (maker 3 (storage-class-default sc))))
-      ((storage-class-copier sc) copied 0 body 0 (* 3 units-per-element))
+      ((storage-class-copier sc) copied 0 body 0 3)
       (test-assert (%same? value (getter copied 1))))
+    (let ((shifted (maker 3 (storage-class-default sc))))
+      ((storage-class-copier sc) shifted 1 body 1 3)
+      (test-assert (%same? value (getter shifted 1)))
+      (test-assert (%same? expected-default (getter shifted 2))))
     (test-equal #t (checker value))
-    (when rejects-bad?
+    (when (or (null? rejects-bad?) (car rejects-bad?))
       (test-equal #f (checker bad-value)))
     (test-equal #t ((storage-class-data? sc) body))
-    (test-equal #t (eq? body ((storage-class-data->body sc) body))))))
+    (test-equal #t (eq? body ((storage-class-data->body sc) body)))))
 
 ;; generic's checker accepts everything, including bad-value, by design;
 ;; its default fill value is #f (per the spec's own reference definition)
@@ -76,9 +78,8 @@
 ;; f16 stores 3.5 exactly (binary16 has plenty of precision there), so
 ;; the setter/getter round-trip inside check-storage-class holds as-is
 (check-storage-class f16-storage-class 3.5 "not a number" 0.0)
-;; complex classes: the copier counts FLOATS (2 per complex element)
-(check-storage-class c64-storage-class (make-rectangular 1.0 2.0) "not a number" 0.0 #t 2)
-(check-storage-class c128-storage-class (make-rectangular 1.0 2.0) "not a number" 0.0 #t 2)
+(check-storage-class c64-storage-class (make-rectangular 1.0 2.0) "not a number" 0.0)
+(check-storage-class c128-storage-class (make-rectangular 1.0 2.0) "not a number" 0.0)
 
 ;;; --- generic checker specifically accepts anything, unlike every typed one ---
 (test-equal #t ((storage-class-checker generic-storage-class) (vector 1 2 3)))
