@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787840433562,
+  "lastUpdate": 1787842837070,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "74b8d03b4d3c7cd66dc89d9c4ef99b6ea5039169",
-          "message": "Bounds-check fixnum indices in u64 before narrowing to usize (#1912) (#2239)\n\n* Bounds-check fixnum indices in u64 before narrowing to usize (#1912)\n\nOn wasm32 (usize = u32) every vector-like accessor narrowed its index\nargument to usize INSIDE the bounds comparison, so a fixnum-range index\n(up to 2^47) wrapped to its low 32 bits before the check and could alias\nan in-range element: (vector-ref v 4294967297) silently read element 1,\nand vector-set! silently WROTE it. Native 64-bit builds were unaffected\nbecause usize is 64 bits there.\n\nFix by comparing in u64 before the narrowing, via two shared helpers\n(primitives.fixnumIndexInBounds / ...Inclusive) that carry the wasm32\nrationale in one place, applied at every affected site:\n\n  vector-ref/set!, vector-swap!, vector-copy!/reverse-copy!, substring,\n  string-ref/set!, string-copy!, bytevector-u8-ref/set!, bytevector-copy!,\n  parseOptionalRange (covers vector->list, string->vector, fill!,\n  reverse!, utf8->string, etc.), write-string, string-take/drop/-right,\n  string-replace, %record-ref/set! (+ /inherit and field-mutable?),\n  %numeric-vector-ref/set!, %record-split-args.\n\ntake and split-at walked their list in a narrowed usize counter; they now\nloop in i64 like drop already did, so a huge k walks to the end and raises\ninstead of silently returning a short list.\n\nNative error messages are unchanged on 64-bit: each site keeps its\noriginal error call and check order.\n\nLeft alone deliberately (separate class): large count/size arguments to\nallocation and read procedures (make-vector/string/bytevector,\nvector-unfold, string-pad, read-bytevector/string, iota), where the\nnative behavior is OOM or a huge overcommit rather than a clean catchable\nerror, so there is no native behavior to preserve.\n\ntests/scheme/smoke/large-index-bounds-1912.scm is extended from the\nvector-only probe to every fixed accessor, stays import-free so it runs\non wasm32, and is byte-identical across tiers (verified under wasmtime\n46.0.0); its KNOWN_DIFFS entry in run-wasm-differential.sh is deleted,\nas the harness's STALE check directs once the tiers agree. The\n% primitive half is covered by the internal-primitives audit, whose\n'(fails on wasm32)' annotations are now '(kaappi#1912)'.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Defer index narrowing until after bounds checks in write-string and %record-split-args; probe the right-side string accessors\n\nCodeRabbit review follow-up on #2239.\n\nwrite-string narrowed start_cp/end_cp to usize before the u64 bounds\nchecks, and %record-split-args narrowed suffix_len before its check. On\nthe shipped wasm32 build (.optimize = .ReleaseSmall) @intCast truncates\nsilently, and the raw-value checks still fire — correct there — but on a\nsafety-checked wasm32 build (usize = u32) the same @intCast would panic\nuncatchably, exactly the hazard makeNumericVectorFn's guard comment\nwarns about. Move both narrowings to after their checks pass; error\nmessages and check order are unchanged.\n\nThe probe test also gains string-take-right and string-drop-right, the\ntwo right-side accessors changed by the fix that the cases list omitted.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-06T08:15:42Z",
-          "tree_id": "ca132050ec70e49e536a0330c1752a3cabc82118",
-          "url": "https://github.com/kaappi/kaappi/commit/74b8d03b4d3c7cd66dc89d9c4ef99b6ea5039169"
-        },
-        "date": 1786005712286,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.07921,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.41116,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.425376,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.201529,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004498,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.036027,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.232559,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.040681,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.079896,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.920825,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.198917,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.231835,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.325188,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.737407,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.033435,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045551,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fb703515a36e8fa280c482ce579496b9487fa00a",
+          "message": "Close the last srfi231-official divergence-accounting gaps (#2383 review) (#2385)\n\n* Close the last srfi231-official divergence-accounting gaps (#2383 review)\n\nTwo CodeRabbit threads were still open when #2383 merged; the reviewer's\npost-merge assessment verdicts both valid (and declines the third, the\nsigned-zero eqv? finding, with rationale on the PR):\n\n- testing.md described only the zero-observed and greater-than-recorded\n  mismatch cases; the epilogue's third case -- fewer than recorded but\n  nonzero, \"the entry over-accounts (re-count it)\" -- is now documented\n  too, alongside the never-executed case added here.\n\n- The epilogue's (when (vector-ref executed-tests id) ...) guard skipped\n  entries whose id never executes: if a future regeneration drops a\n  test form entirely, its table entry passes silently -- observed count\n  zero, but neither DIVERGENCE-RESOLVED nor a mismatch fires. An\n  unexecuted id is now a failure with its own wording,\n  DIVERGENCE-NEVER-EXECUTED (\"its test form is gone from the suite;\n  prune the entry\"), counted into the mismatch total that gates the\n  exit status. Suite regenerated from the transform, never hand-edited.\n\nValidated: the real suite is unchanged-green (10922 passed, 5 known\ndivergences, 0 unexpected, 0 resolved, 0 count mismatches -- all three\nreal ids execute); a negative scratch-copy with a correctly-quoted\nbogus entry '(9999 2 . ...) prints DIVERGENCE-NEVER-EXECUTED 9999 and\nexits 1, where the old guard exited 0 silently; fmt corpus 938 files\nzero-drift idempotent.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Add generation-time known-divergence id guard to the transform (#2385 review)\n\nReview suggestion (non-blocking) on #2385: the scanner already collects\nevery generated test id in test_meta, so a generation-time assertion --\nevery known-divergence id must appear in the scanned set -- catches the\ndropped/renamed-upstream-form case instantly at the regeneration step,\ninstead of one ~150 s suite run later. Complement, not replacement: the\nruntime DIVERGENCE-NEVER-EXECUTED epilogue stays authoritative for CI\n(it guards the committed artifact even when nobody regenerates).\n\nThe ids are parsed out of NEW_REPORT's table with a strict regex; an\nempty parse fails too, so the guard cannot rot silently if the entry\nformat drifts. The assertion runs before open(OUT, 'w'), so a failed\nregeneration writes nothing and cannot clobber a good artifact.\n\nValidated: normal regeneration exits 0 and leaves the committed\nsrfi231-official.scm byte-identical; a scratch copy of the transform\nwith id 351 renumbered to 9999 aborts with 'known-divergence ids with\nno test form in the generated suite: [9999]', exit 1, no output file.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-27T14:20:34Z",
+          "tree_id": "dfeabc4cc62b491ed23a0e18ff664fd15d36f30f",
+          "url": "https://github.com/kaappi/kaappi/commit/fb703515a36e8fa280c482ce579496b9487fa00a"
+        },
+        "date": 1787842835723,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.96592,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.072512,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.558886,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.823802,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005222,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.045807,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.281678,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053563,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.328285,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.121549,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.625957,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.306616,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.636005,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.839095,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046091,
             "unit": "seconds"
           }
         ]
