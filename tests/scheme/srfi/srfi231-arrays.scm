@@ -5,6 +5,7 @@
 ;; Run directly: zig-out/bin/kaappi tests/scheme/srfi/srfi231-arrays.scm
 
 (import (scheme base) (scheme process-context) (srfi 64)
+        (srfi 160 f32)
         (srfi 231 intervals) (srfi 231 storage-classes) (srfi 231 arrays))
 
 (test-begin "srfi-231-arrays")
@@ -93,6 +94,24 @@
 ;; data incompatible with the given storage-class is rejected
 (test-equal #t (guard (e (#t #t))
                   (make-specialized-array-from-data "a string" s8-storage-class) #f))
+
+;; c64 wraps the reference's data shape -- an even-length f32vector of
+;; interleaved re/im pairs -- zero-copy, exactly like the reference
+;; implementation does (#2382)
+(let* ((v (f32vector 1.0 2.0 3.0 4.0))
+       (A (make-specialized-array-from-data v c64-storage-class)))
+  (test-equal 2 ((storage-class-length c64-storage-class) (array-body A)))
+  (test-equal 1.0+2.0i (array-ref A 0))
+  (test-equal 3.0+4.0i (array-ref A 1))
+  (test-equal #t (eq? (array-body A) v))
+  ;; mutation through the caller's vector is visible through the array --
+  ;; the sharing the spec's data? contract promises
+  (f32vector-set! v 0 9.0)
+  (test-equal 9.0+2.0i (array-ref A 0))
+  ;; and the odd-length shape is rejected
+  (test-equal #t (guard (e (#t #t))
+                    (make-specialized-array-from-data (make-f32vector 5) c64-storage-class)
+                    #f)))
 
 ;;; --- specialized-array-default-safe?/mutable? are genuine SRFI 39
 ;;; parameters, honored by make-specialized-array when safe?/... omitted ---

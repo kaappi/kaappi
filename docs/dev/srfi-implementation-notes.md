@@ -884,7 +884,15 @@ reference's own bit-packing and software half-floats over `u16vector`) is a
 9-field record
 (getter/setter/checker/maker/copier/length/default/data?/data->body) that a
 specialized array's `body`/`indexer` pair delegates to for the actual
-backing-store representation. The single most-reused implementation pattern
+backing-store representation. c64/c128 bodies follow the reference's
+interleaved-float representation — an f32/f64vector of twice the logical
+length holding re/im pairs — rather than native `c64vector`/`c128vector`
+(whose byte layout is identical: 2 consecutive f32s/f64s per element): the
+spec's `data?` contract ("`#t` iff `data->body` returns a body sharing the
+data, without copying") makes accepting the reference's even-length float
+vectors possible only by actually using them as the body, and that shape is
+what reference-coupled code and the official suite's fixtures feed to
+`make-specialized-array-from-data` (#2382). The single most-reused implementation pattern
 across the views/combinators/assembly phases: build a lazy virtual array via
 `make-array` with a computed getter over the target domain, then delegate to
 `array-copy` (which already owns all storage-class/mutable?/safe? option

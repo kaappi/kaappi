@@ -278,9 +278,8 @@ Conventions specific to this suite:
   the generated file maps each documented kaappi-vs-reference divergence to
   its reason, issue reference, and the *exact* number of evaluations
   expected to diverge under it (shared test forms run once per storage
-  class, so one id can account several rows) — the c64/c128
-  native-vector representation choice, the unsafe-view UB choice, the
-  Gambit string-mutability expectation. The suite exits nonzero only on
+  class, so one id can account several rows) — the unsafe-view UB choice,
+  the Gambit string-mutability expectation. The suite exits nonzero only on
   *unexpected* failures — or when an entry's divergence count doesn't match
   exactly: zero observed means the entry is stale and hiding real coverage
   (prune it); more than recorded means an undocumented failure is absorbing

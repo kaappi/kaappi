@@ -5,7 +5,8 @@
 ;; Run directly: zig-out/bin/kaappi tests/scheme/srfi/srfi231-storage-classes.scm
 
 (import (scheme base) (scheme inexact) (scheme process-context) (srfi 64)
-        (srfi 160 u16) (srfi 231 storage-classes))
+        (srfi 160 u16) (srfi 160 f32) (srfi 160 f64) (srfi 160 c64)
+        (srfi 231 storage-classes))
 
 (test-begin "srfi-231-storage-classes")
 
@@ -39,11 +40,19 @@
     (test-assert (%same? expected-default (getter body 0)))
     (setter body 1 value)
     (test-assert (%same? value (getter body 1)))
-    ;; exercise the copier field too -- otherwise a wrong copy procedure
-    ;; would pass every other assertion here undetected
+    ;; exercise the copier field twice -- otherwise a wrong copy procedure
+    ;; would pass every other assertion here undetected. The second call
+    ;; uses non-zero at/start on purpose: a copier whose offsets are in
+    ;; the wrong units (e.g. raw floats instead of logical elements for
+    ;; the complex classes) can pass an aligned full-range copy while
+    ;; misplacing data at every other offset
     (let ((copied (maker 3 (storage-class-default sc))))
       ((storage-class-copier sc) copied 0 body 0 3)
       (test-assert (%same? value (getter copied 1))))
+    (let ((shifted (maker 3 (storage-class-default sc))))
+      ((storage-class-copier sc) shifted 1 body 1 3)
+      (test-assert (%same? value (getter shifted 1)))
+      (test-assert (%same? expected-default (getter shifted 2))))
     (test-equal #t (checker value))
     (when (or (null? rejects-bad?) (car rejects-bad?))
       (test-equal #f (checker bad-value)))
@@ -212,6 +221,49 @@
 (test-equal #f ((storage-class-checker c64-storage-class) (make-rectangular 3 4)))
 (test-equal #f ((storage-class-checker c64-storage-class) 1/3))
 (test-equal #f ((storage-class-checker c128-storage-class) (make-rectangular 1/2 2)))
+
+;;; --- c64/c128 use the reference's interleaved-float representation
+;;; (#2382): the body is an f32/f64vector of twice the logical length
+;;; with real and imaginary parts alternating, and even-length float
+;;; vectors are accepted as data ZERO-COPY (the spec's data? contract --
+;;; "#t if and only if data->body returns a body sharing data with data,
+;;; without copying" -- is what lets the reference's data shape
+;;; interoperate, which a converting data->body would violate). Bodies
+;;; are no longer native c64vectors/c128vectors, though the byte layout
+;;; is identical (2 consecutive f32s/f64s per element either way). ---
+(test-equal #t ((storage-class-data? c64-storage-class) (make-f32vector 10)))
+(test-equal #t ((storage-class-data? c128-storage-class) (make-f64vector 10)))
+;; odd-length float vectors cannot be complex bodies
+(test-equal #f ((storage-class-data? c64-storage-class) (make-f32vector 5)))
+(test-equal #f ((storage-class-data? c128-storage-class) (make-f64vector 7)))
+;; and the native complex vectors are no longer the body type
+(test-equal #f ((storage-class-data? c64-storage-class) (make-c64vector 4)))
+;; data->body shares (does not copy) the reference's data shape
+(let ((v (make-f32vector 6 0.0)))
+  (test-equal #t (eq? v ((storage-class-data->body c64-storage-class) v))))
+(test-equal #t (guard (e (#t #t))
+                  ((storage-class-data->body c64-storage-class) (make-f32vector 5))
+                  #f))
+;; interleave: getter/setter/length across the re/im pairs
+(let* ((v (f32vector 1.0 2.0 3.0 4.0 5.0 6.0))
+       (body ((storage-class-data->body c64-storage-class) v))
+       (get (storage-class-getter c64-storage-class))
+       (put! (storage-class-setter c64-storage-class)))
+  (test-equal 3 ((storage-class-length c64-storage-class) body))
+  (test-equal 1.0+2.0i (get body 0))
+  (test-equal 3.0+4.0i (get body 1))
+  (test-equal 5.0+6.0i (get body 2))
+  ;; the setter explodes the complex into the two float slots
+  (put! body 1 (make-rectangular 7.0 8.0))
+  (test-equal 7.0 (f32vector-ref v 2))
+  (test-equal 8.0 (f32vector-ref v 3))
+  (test-equal 7.0+8.0i (get body 1)))
+;; the maker fills alternating re/im across the whole body
+(let* ((body ((storage-class-maker c64-storage-class) 2 (make-rectangular -1.5 2.5)))
+       (get (storage-class-getter c64-storage-class)))
+  (test-equal -1.5+2.5i (get body 0))
+  (test-equal -1.5+2.5i (get body 1))
+  (test-equal 4 (f32vector-length body)))
 
 ;;; --- make-storage-class is a fully general public constructor, not just
 ;;; internal machinery for the 14 named singletons ---
