@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787814954193,
+  "lastUpdate": 1787823486287,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "65bc8ff84bb335765b4ab28f2c972e9d23e024ba",
-          "message": "Retire a joined thread's resources while its descendants are live (#2129)\n\nthread-join! unconditionally destroyed the joined thread's GC and VM\n(freeChildResources) even when that thread had itself started other\nthreads. A descendant dereferences its own fiber handle -- the\ndispatch-loop safepoint polls its `terminated` flag every 1024\ninstructions, and the terminal `status` store happens at exit -- for its\nwhole life, not just its startup prologue. That handle lives in the\nspawning thread's heap, so the join freed the grandchild's handle out\nfrom under it: a use-after-free for the grandchild's entire remaining\nlifetime, silent under the default allocator and a live crash under\nGuard Malloc. Reachable from any \"worker kicks off a background task and\nreports back\" shape, and from (srfi 120)'s make-timer inside a thread\n(the timer thread is meant to outlive make-timer, so the middle thread\ncannot join it -- which is why the crash was 24/30, not a corner).\n\nThe previous fix (PR #2230) chained every thread's shared symbol tables\nand maps to the ROOT VM, closing the prologue half. This closes the\nhandle half:\n\n- Fiber gains `live_descendants`, incremented in threadStartImpl on the\n  SPAWNING thread's own handle (vm.thread_handle, now set unconditionally\n  so the count is maintained for every thread, whatever heap the handle\n  lives in) and released by the child's threadEntryFn defer once the\n  child's OWN subtree has drained. The drain matters: my descendants'\n  defers dereference my fiber, so releasing my spawner's count early\n  would let its join free the heap I live in under a still-running\n  descendant. The wait cannot hang the spawner's join -- the join does\n  not join me, and the threads I wait for make progress independently.\n\n- reapOsThread now RETIRES the child_registry entry when the joined\n  thread has live descendants instead of freeing it; the last\n  descendant's defer frees the retired entry (fetchRemoveIfRetired) once\n  the subtree drains. thread-join! itself still returns immediately, and\n  retirement is bounded unless a descendant genuinely never finishes\n  (then the resources last until process exit, the #1792 pattern). The\n  markRetired re-read closes the race where the last descendant already\n  passed its fetchRemoveIfRetired window before the entry was retired.\n\n- mutex-lock!'s owner_thread reporting now guards the (now-unconditional)\n  thread_handle with a root-ownership check (reportableOwnerHandle), so a\n  middle-heap handle still never escapes into a mutex that can outlive\n  the middle's join -- the #2125 behavior is unchanged.\n\nTests: srfi18-join-spawn-grandchild-2129.scm grows a busy-grandchild\nvariant (safepoints + symbol interning past the join) and a deep-chain\ncontrol (middle joins g where g spawned an unjoined gg; the join chain\nmust wait for gg -- pinned observably, and it fails without this fix).\nsrfi120-thread-boundary.scm now asserts the make-timer-inside-a-thread\nshape live instead of commenting it out: the join raises the documented\n\"uncopyable type\" error cleanly instead of aborting the process.\n\nVerified: m7.scm 25/25 and the srfi-120 repro 25/25 clean on ReleaseSafe\nand under -Dgc-stress (issue measured 22/25 and 24/30 crashes pre-fix);\nfull run-all.sh 2085/2085; unit suite green including -Dgc-stress=true;\nWASM build still compiles.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-05T21:49:44+05:30",
-          "tree_id": "0b3ba722908755f4a8f449f6443cb1fae2643698",
-          "url": "https://github.com/kaappi/kaappi/commit/65bc8ff84bb335765b4ab28f2c972e9d23e024ba"
-        },
-        "date": 1785948710012,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.301459,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.813651,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.561917,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.944593,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004633,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04646,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.308392,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.05736,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.636149,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.237584,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.57093,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.275066,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.822825,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.602592,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043048,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.036304,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e07d9b8a7f5d29f022b59677727e3d3ead3ef830",
+          "message": "Check %make-record field count; import (srfi 192) on WASM (#2374)\n\n* Check %make-record field count; import (srfi 192) on WASM\n\nTwo independent internal-primitive/library fixes.\n\n%make-record ignored the supplied field count against the record type's\nnum_fields: too few values padded the instance with #<undefined> -- a\ntruthy, printable value that escaped into user code and only misbehaved\nfar from the cause -- and too many were silently dropped, neither raising\n(kaappi#1915). It now raises argError (KP3007) naming both counts. The\nportable record SRFIs (57/131/136/150/237) always build a full positional\nfield list, so an exact check leaves them untouched (verified).\n\n(srfi 192) was excluded from wasmAvailable for no reason: all four of its\nprocedures already worked on WASM through the vm.globals fallback, so only\nimport-by-name and the derived cond-expand feature id were broken, and a\nportable probe-then-fallback took the wrong branch for a working feature\n(kaappi#2019). Dropped from the exclusion switch, leaving its three\nneighbours (kaappi_ffi/srfi_18/srfi_170), which have real reasons.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Flip the SRFI 237 audit's #1915 arity pins to the fixed behavior\n\nThe SRFI 237 audit pinned the pre-fix behavior of the no-protocol subtype\nconstructor, which funnels through %make-record: it asserted that an extra\nconstructor argument was accepted and shifted the layout, and that too few\nleaked an uninitialized field. Now that %make-record checks its field count,\nthat constructor raises catchably on the wrong count, so those two pins fail\nand the two disabled \"raises catchably\" assertions are the correct ones.\n\nFlip them, matching the internal-primitives audit already updated in this\nbranch. Missed on the first pass because the fix's local check ran only the\nunit suite and internal-primitives audit, not the full Scheme corpus that\nCI's `test` legs run; verified now with a full run-all.sh (2114 pass, 0 fail).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: TestContext + pin the KP3007 message counts\n\nTwo CodeRabbit findings on the #1915 tests:\n\n- Convert the tests_records.zig regression to th.TestContext, the\n  documented setup for a multi-eval test (src/CLAUDE.md), instead of a\n  hand-rolled GC/VM pair.\n\n- The audit's mismatch tests only checked that evaluation raised, so they\n  would pass even if the KP3007 message named neither count. Add assertions\n  that the message names the expected and the supplied count in both\n  directions (2/1 too few, 2/3 too many) -- the substantive half of #1915.\n\nDeclined the suggestion to move the audit assertions to a bug-named file:\nthe audit suite is the home #1915 itself designates (\"Add both directions to\ntests/scheme/audit/internal-primitives-audit.scm, where they currently sit\ndisabled behind ;; FAIL: TBD markers\"), and the bug-named regression is the\ntests_records.zig unit test.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-27T14:26:01+05:30",
+          "tree_id": "ac7251a597f9e449c1ff4a510b82a994e949624e",
+          "url": "https://github.com/kaappi/kaappi/commit/e07d9b8a7f5d29f022b59677727e3d3ead3ef830"
+        },
+        "date": 1787823484991,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.995914,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.737226,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.55246,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.83026,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005111,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046307,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.288104,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053357,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.318631,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.122584,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.597827,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.298178,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.685927,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.78335,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046632,
             "unit": "seconds"
           }
         ]
