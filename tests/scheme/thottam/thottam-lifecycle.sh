@@ -712,8 +712,27 @@ check "the refusal names both the declared and the requested name" \
     "declares name 'WRONG-NAME-ENTIRELY' but installing 'kaappi-badname'" "$out"
 check_not "the refused package is not recorded in the lockfile" \
     "kaappi-badname" "$(cat "$KAAPPI_HOME/thottam.lock" 2>/dev/null || true)"
+# The refusal exits cleanly: no raw `error.ManifestNameMismatch` second line
+# from Zig's default handler (the #2132 duplicate-message pattern).
+check_not "the refusal prints no raw Zig error name" "error.ManifestNameMismatch" "$out"
+# And it leaves no unrecorded checkout behind for a later install to reuse.
+[[ -d "$KAAPPI_HOME/src/kaappi-badname" ]] && leftover=present || leftover=absent
+check "the refused install leaves no checkout behind" "absent" "$leftover"
 # version: is not a field — thottam locks by git SHA — so it neither helps nor
 # harms; the refusal above came from name:, never from the bogus version.
+
+# In --locked mode the lockfile vouches for the exact SHA, so the manifest is
+# not re-litigated: a name: that mismatches does NOT refuse a locked restore
+# (the check is scoped to unlocked installs, matching source: being ignored
+# under --locked). Seed a lockfile pointing at the badname repo, then restore.
+fresh_home
+badsha="$(git -C "$ORG/kaappi-badname.git" rev-parse HEAD)"
+printf 'kaappi-badname %s\n' "$badsha" > "$KAAPPI_HOME/thottam.lock"
+mkdir -p "$KAAPPI_HOME"
+out="$("$THOTTAM" install --locked kaappi-badname 2>&1)" && ec=0 || ec=$?
+check_exit "--locked does not enforce name: (lockfile vouches for the SHA)" 0 "$ec"
+check_not "the locked restore does not raise a name mismatch" \
+    "declares name" "$out"
 
 # source: on a bare-name install is recorded as provenance, so `list` shows
 # where the package is hosted. The record is surfaced with a note, never
@@ -752,6 +771,25 @@ check "the lockfile records the fetched ::url, not the manifest's claim" \
     "$ORG/kaappi-declared.git" "$(cat "$KAAPPI_HOME/thottam.lock")"
 check_not "the manifest's claimed source does not override the fetch URL" \
     "forge.example.org" "$(cat "$KAAPPI_HOME/thottam.lock")"
+
+# A ::url that differs from source: only by a trailing slash or a `.git` suffix
+# is the same remote, so it must NOT warn — otherwise the warning trains users
+# to ignore it. Manifest declares the bare path; install via the `.git` spelling.
+mkdir -p "$WORK/kaappi-cosmetic/lib/kaappi"
+(
+    cd "$WORK/kaappi-cosmetic"
+    git init -q .
+    printf 'name: kaappi-cosmetic\nsource: %s/kaappi-cosmetic\n' "$ORG" > kaappi.pkg
+    printf '(define-library (kaappi cosmetic) (export tag) (import (scheme base)) (begin (define tag "c")))\n' \
+        > lib/kaappi/cosmetic.sld
+    git add -A
+    git_q commit -q -m base
+)
+git clone -q --bare "$WORK/kaappi-cosmetic" "$ORG/kaappi-cosmetic.git"
+fresh_home
+out="$("$THOTTAM" install "kaappi-cosmetic::$ORG/kaappi-cosmetic.git" 2>&1)" && ec=0 || ec=$?
+check_exit "a cosmetic ::url-vs-source: difference installs" 0 "$ec"
+check_not "a trailing-.git-only difference does not warn" "declares source" "$out"
 
 # A manifest without a name: still installs — name: is checked when present,
 # not required to exist.

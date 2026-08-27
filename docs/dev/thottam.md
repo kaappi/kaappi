@@ -56,8 +56,11 @@ manifest would mean nothing; it is dropped like any unknown key (kaappi#2138).
 
 - `name`, when present, must match the package being installed. A manifest that
   names a different package is a packaging error, and the install refuses
-  before recording anything. It is optional — a manifest may omit it — but a
-  mismatching `name:` is never accepted.
+  before recording anything (removing the checkout it just cloned, so nothing
+  unrecorded is left for a later install to reuse). It is optional — a manifest
+  may omit it — but a mismatching `name:` is never accepted. The check is scoped
+  to unlocked installs: in `--locked` mode the lockfile already vouches for the
+  exact SHA, so the manifest at that SHA is not re-litigated.
 - `source` declares where the package is canonically hosted. On a bare-name
   install (no `::url` on the command line) it is recorded as the lockfile's
   provenance, so `thottam list` shows `(from: …)` and a later `--locked`
@@ -67,8 +70,11 @@ manifest would mean nothing; it is dropped like any unknown key (kaappi#2138).
   the repo, so the initial fetch URL is always the `::url` given on the command
   line or the `KAAPPI_ORG` default. When a `::url` *is* given and disagrees with
   `source:`, thottam warns (a fork or mirror is legitimate) and records the URL
-  it actually fetched from, never the manifest's claim. In `--locked` mode the
-  lockfile is authoritative and the manifest's `source:` is ignored (#2137).
+  it actually fetched from, never the manifest's claim. The comparison ignores a
+  trailing `/` and a `.git` suffix — those are cosmetic spellings of one
+  remote — but a scheme difference (`http` vs `https`) is a real downgrade and
+  still warns. In `--locked` mode the lockfile is authoritative and the
+  manifest's `source:` is ignored (#2137).
 - `depends` is space-separated, and may carry an inline custom URL:
   `depends: kaappi-net kaappi-auth::https://github.com/bob/kaappi-auth`.
 - Version constraints use `>=`, `>`, `<=`, `<`, `^` (compatible), `~`

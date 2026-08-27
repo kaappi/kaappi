@@ -496,6 +496,19 @@ test "parsePkgManifest treats empty name: and source: as absent (#2138)" {
     try std.testing.expectEqualStrings("dep", m.depends.?);
 }
 
+test "sourcesEquivalent ignores trailing slash and .git, keeps scheme (#2138)" {
+    const eq = thottam.sourcesEquivalent;
+    // Cosmetic differences — the same remote — do not warn.
+    try std.testing.expect(eq("https://h/p", "https://h/p.git"));
+    try std.testing.expect(eq("https://h/p", "https://h/p/"));
+    try std.testing.expect(eq("https://h/p.git", "https://h/p/"));
+    try std.testing.expect(eq("https://h/p", "https://h/p"));
+    // A scheme downgrade is NOT cosmetic — it still warns.
+    try std.testing.expect(!eq("https://h/p", "http://h/p"));
+    // A genuinely different repository still warns.
+    try std.testing.expect(!eq("https://h/p", "https://h/q"));
+}
+
 test "parsePkgManifest tolerates CRLF line endings" {
     // thottam runs on Windows under Git Bash; a manifest checked out with
     // core.autocrlf=true has \r before every \n.

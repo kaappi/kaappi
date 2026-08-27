@@ -586,6 +586,22 @@ fn freeVisited(allocator: std.mem.Allocator, visited: *std.StringHashMap(void)) 
     visited.deinit();
 }
 
+/// A source URL with a trailing `/` and a `.git` suffix trimmed — the
+/// cosmetic spellings of one canonical remote. A scheme difference (http vs
+/// https) is deliberately NOT normalized: it is a downgrade, not cosmetic.
+fn canonicalSource(s: []const u8) []const u8 {
+    var t = s;
+    while (t.len > 0 and t[t.len - 1] == '/') t = t[0 .. t.len - 1];
+    if (std.mem.endsWith(u8, t, ".git")) t = t[0 .. t.len - 4];
+    return t;
+}
+
+/// Whether two source URLs name the same repository, ignoring a trailing slash
+/// and a `.git` suffix (kaappi#2138).
+pub fn sourcesEquivalent(a: []const u8, b: []const u8) bool {
+    return std.mem.eql(u8, canonicalSource(a), canonicalSource(b));
+}
+
 fn doInstall(
     allocator: std.mem.Allocator,
     config: Config,
@@ -762,7 +778,11 @@ fn doInstall(
         break :blk std.fmt.bufPrint(&buf, "{s}/{s}.git", .{ config.org, pkg }) catch return error.OutOfMemory;
     };
 
-    if (!dirExists(allocator, pkg_dir)) {
+    // Whether this invocation created the checkout. A later refusal (a manifest
+    // name mismatch) removes it only when we made it, never an already-installed
+    // package's tree (kaappi#2138).
+    const did_clone = !dirExists(allocator, pkg_dir);
+    if (did_clone) {
         writeStdout("  Cloning ");
         writeStdout(clone_url);
         writeStdout("...\n");
@@ -815,13 +835,23 @@ fn doInstall(
     // hosted (kaappi#2138).
     var record_source: ?[]const u8 = if (locked_mode) locked_source else parsed.source;
 
-    if (manifest) |m| {
+    // name: and source: reconciliation both run only outside --locked mode. In
+    // --locked mode the lockfile vouches for the exact SHA and is authoritative
+    // for provenance (#2137), so the manifest at that SHA is not re-litigated —
+    // this is what makes "--locked mode is untouched" true rather than nearly
+    // true (kaappi#2138).
+    if (manifest) |m| if (!locked_mode) {
         // A manifest that names a different package than the one being
         // installed is a packaging error, not a fetch to silently record
         // (kaappi#2138). `name:` was documented as the one required field;
         // this is what finally enforces it.
         if (m.name) |declared| {
             if (!std.mem.eql(u8, declared, pkg)) {
+                // Don't leave an unrecorded checkout behind: `list`/`verify`
+                // would not know about it, and a later fixed install would
+                // silently reuse it (the dirExists guard skips re-cloning).
+                // Only remove what this invocation created.
+                if (did_clone) removeDir(allocator, pkg_dir) catch {};
                 var msg_buf: [512]u8 = undefined;
                 printErrColor(Color.red, "error: ");
                 const msg = std.fmt.bufPrint(&msg_buf, "manifest declares name '{s}' but installing '{s}'\n", .{ declared, pkg }) catch "manifest name mismatch\n";
@@ -830,35 +860,37 @@ fn doInstall(
             }
         }
 
-        // Reconcile the declared `source:` with how we actually fetched
-        // (kaappi#2138). A command-line `::url` is authoritative for the
-        // fetch; the manifest only informs provenance.
-        if (!locked_mode) {
-            if (m.source) |declared| {
-                if (parsed.source) |supplied| {
-                    // A fork or mirror sharing history is legitimate, so a
-                    // divergence warns rather than refuses — but it is never
-                    // silent, which is the whole point of the field.
-                    if (!std.mem.eql(u8, supplied, declared)) {
-                        var w: [640]u8 = undefined;
-                        printErrColor(Color.yellow, "  warning: ");
-                        const msg = std.fmt.bufPrint(&w, "{s} declares source '{s}' but was fetched from '{s}'\n", .{ pkg, declared, supplied }) catch "declared source differs from fetch URL\n";
-                        writeStderr(msg);
-                    }
-                } else {
-                    // Installed by bare name: record the declared home as
-                    // provenance so `thottam list` shows it and a later
-                    // --locked install fetches from it. Surfaced, not silent,
-                    // because the manifest now steers where the package comes
-                    // from — the interaction #2138 flags.
-                    record_source = declared;
-                    writeStdout("  note: recording declared source ");
-                    writeStdout(declared);
-                    writeStdout("\n");
+        // Reconcile the declared `source:` with how we actually fetched. A
+        // command-line `::url` is authoritative for the fetch; the manifest
+        // only informs provenance.
+        if (m.source) |declared| {
+            if (parsed.source) |supplied| {
+                // A fork or mirror sharing history is legitimate, so a
+                // divergence warns rather than refuses — but it is never
+                // silent, which is the whole point of the field. Trailing `/`
+                // and a `.git` suffix are cosmetic and do not warn; a scheme
+                // difference (http vs https) is a real downgrade and still does.
+                if (!sourcesEquivalent(supplied, declared)) {
+                    var w: [640]u8 = undefined;
+                    printErrColor(Color.yellow, "  warning: ");
+                    const msg = std.fmt.bufPrint(&w, "{s} declares source '{s}' but was fetched from '{s}'\n", .{ pkg, declared, supplied }) catch "declared source differs from fetch URL\n";
+                    writeStderr(msg);
                 }
+            } else {
+                // Installed by bare name: record the declared home as
+                // provenance so `thottam list` shows it and a later --locked
+                // install fetches from it. Surfaced on stderr, alongside the
+                // warning above, not silent — the manifest now steers where the
+                // package comes from, the interaction #2138 flags.
+                record_source = declared;
+                writeStderr("  note: recording declared source ");
+                writeStderr(declared);
+                writeStderr("\n");
             }
         }
+    };
 
+    if (manifest) |m| {
         if (m.depends) |deps| {
             var dep_it = std.mem.splitScalar(u8, deps, ' ');
             while (dep_it.next()) |dep| {
@@ -1366,8 +1398,9 @@ pub fn main(init: std.process.Init.Minimal) !void {
             // InvalidPackageName already printed its own message; exiting here
             // keeps Zig's default handler from printing the raw error name as a
             // second line (kaappi#2132). GitNotFound likewise prints its own
-            // message at the clone site (kaappi#2152).
-            if (err == error.GitFailed or err == error.BuildFailed or err == error.CopyFailed or err == error.InvalidPackageName or err == error.GitNotFound) std.process.exit(1);
+            // message at the clone site (kaappi#2152), and ManifestNameMismatch
+            // at the name check (kaappi#2138).
+            if (err == error.GitFailed or err == error.BuildFailed or err == error.CopyFailed or err == error.InvalidPackageName or err == error.GitNotFound or err == error.ManifestNameMismatch) std.process.exit(1);
             return err;
         };
     } else if (std.mem.eql(u8, cmd, "remove")) {
