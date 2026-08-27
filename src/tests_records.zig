@@ -394,31 +394,30 @@ test "wide records: 27 and 255 fields instantiate; 256 fields error cleanly" {
 // instance with #<undefined> (a truthy, printable value escaping into user
 // code) and too many were silently dropped -- neither raised.
 test "%make-record rejects a field-count mismatch (#1915)" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
 
     // Exact count still succeeds.
-    _ = try vm.eval("(define __rt (%make-record-type \"T\" 2))");
-    const ok = try vm.eval("(%record-ref (%make-record __rt 1 2) 1 __rt)");
+    _ = try ctx.vm.eval("(define __rt (%make-record-type \"T\" 2))");
+    const ok = try ctx.vm.eval("(%record-ref (%make-record __rt 1 2) 1 __rt)");
     try std.testing.expectEqual(@as(i64, 2), types.toFixnum(ok));
 
     // Too few field values: KP3007 argError -> InvalidArgument.
     try std.testing.expectError(
         vm_mod.VMError.InvalidArgument,
-        vm.eval("(%make-record __rt 1)"),
+        ctx.vm.eval("(%make-record __rt 1)"),
     );
 
     // Too many field values: same error, no silent drop.
     try std.testing.expectError(
         vm_mod.VMError.InvalidArgument,
-        vm.eval("(%make-record __rt 1 2 3 4)"),
+        ctx.vm.eval("(%make-record __rt 1 2 3 4)"),
     );
 
     // A 0-field type built with no values still works.
-    _ = try vm.eval("(define __rt0 (%make-record-type \"E\" 0))");
-    try std.testing.expect((try vm.eval("(%record?/any (%make-record __rt0))")) != types.FALSE);
+    _ = try ctx.vm.eval("(define __rt0 (%make-record-type \"E\" 0))");
+    try std.testing.expect((try ctx.vm.eval("(%record?/any (%make-record __rt0))")) != types.FALSE);
 }
 
 // equal? recurses into record fields (kaappi#2293): two distinct instances of

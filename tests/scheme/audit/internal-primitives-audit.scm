@@ -160,11 +160,19 @@
 ;; %make-record checks the supplied field count against rt.num_fields
 ;; (kaappi#1915). Too few args no longer pad with types.UNDEFINED (which
 ;; escaped into Scheme as a truthy, printable, unreadable `#<undefined>`)
-;; and too many are no longer silently dropped -- both directions raise.
+;; and too many are no longer silently dropped -- both directions raise, and
+;; the KP3007 message names the expected and the supplied count (a bare
+;; "raised" check would pass even if the message named neither).
 (test-assert "mr: too few field values rejected"
              (raises? (%make-record (%make-record-type "T" 2) 1)))
+(test-assert "mr: too few names expected (2) and supplied (1) counts"
+             (let ((m (raised-message (%make-record (%make-record-type "T" 2) 1))))
+               (and (has-substring? m "2 field") (has-substring? m "1 value"))))
 (test-assert "mr: too many field values rejected"
              (raises? (%make-record (%make-record-type "T" 2) 1 2 3)))
+(test-assert "mr: too many names expected (2) and supplied (3) counts"
+             (let ((m (raised-message (%make-record (%make-record-type "T" 2) 1 2 3))))
+               (and (has-substring? m "2 field") (has-substring? m "3 value"))))
 
 ;;; --- %record? / %record-ref / %record-set! ---
 (test-equal "r?: non-record is #f"
