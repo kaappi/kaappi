@@ -357,13 +357,13 @@
 ;;; Arity mismatches.
 ;;;
 ;;; A protocol-built constructor is a plain lambda of declared arity, so it
-;;; checks. The no-protocol path funnels through %make-record, which ignores
-;;; the declared field count (#1915) — so a subtype constructor accepts any
-;;; number of arguments and silently mis-lays-out the fields.
+;;; checks. The no-protocol path funnels through %make-record, which since
+;;; #1915 also checks the supplied field count against the declared one — so a
+;;; subtype constructor now raises catchably on the wrong argument count
+;;; instead of accepting any count and silently mis-laying-out the fields.
 (test-assert "protocol: too few constructor arguments raises catchably"
              (raises? (lambda () ((cdr (build-chain 15)) 1 2))))
 
-;; Enabled controls pinning the current behaviour so #1915's fix flips them.
 (let* ((A (make-record-type-descriptor 'AR #f #f #f #f #((immutable a))))
        (B (make-record-type-descriptor 'BR A #f #f #f #((immutable b))))
        (ctor (record-constructor (make-record-descriptor B (make-record-descriptor A #f #f) #f)))
@@ -373,19 +373,11 @@
        (a+b (lambda (inst) (list ((record-accessor A 0) inst) ((record-accessor B 0) inst)))))
   (test-equal "arity control: the correct argument count lays fields out correctly" '(1 2)
               (a+b (ctor 1 2)))
-  (test-equal "arity: an EXTRA constructor argument is accepted and shifts the layout (#1915)"
-              '(1 3)
-              (a+b (ctor 1 2 3)))
-  (test-assert "arity: too FEW constructor arguments leaks an uninitialized field (#1915)"
-               (not (equal? 1 ((record-accessor A 0) (ctor 1)))))
-
-  ;; FAIL: #1915 (%make-record ignores the declared field count)
-  ;; (test-assert "arity: too many subtype constructor arguments raises catchably"
-  ;;              (raises? (lambda () (ctor 1 2 3))))
-  ;; FAIL: #1915 (%make-record ignores the declared field count)
-  ;; (test-assert "arity: too few subtype constructor arguments raises catchably"
-  ;;              (raises? (lambda () (ctor 1))))
-  )
+  ;; #1915: the no-protocol subtype constructor checks its argument count.
+  (test-assert "arity: too many subtype constructor arguments raises catchably"
+               (raises? (lambda () (ctor 1 2 3))))
+  (test-assert "arity: too few subtype constructor arguments raises catchably"
+               (raises? (lambda () (ctor 1)))))
 
 
 ;;; ===================================================================

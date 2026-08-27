@@ -216,7 +216,7 @@ pub const Lib = enum {
 
     pub fn wasmAvailable(self: Lib) bool {
         return switch (self) {
-            .kaappi_ffi, .srfi_18, .srfi_170, .srfi_192 => false,
+            .kaappi_ffi, .srfi_18, .srfi_170 => false,
             else => true,
         };
     }
@@ -1336,6 +1336,20 @@ fn makeRecordFn(args: []const Value) PrimitiveError!Value {
     // args[0] = record_type, args[1..] = field values
     if (!types.isRecordType(args[0])) return typeError("%make-record", "record-type", args[0]);
     const rt = types.toObject(args[0]).as(types.RecordType);
+    // The supplied field values must match the type's field count exactly.
+    // Without this, too few args padded with #<undefined> (a truthy,
+    // printable value that escapes into user code) and too many were
+    // silently dropped -- neither raised (kaappi#1915). The portable record
+    // SRFIs (57/131/136/150/237) always build a full positional list, so an
+    // exact check does not disturb them.
+    const supplied = args.len - 1;
+    if (supplied != rt.num_fields) {
+        return argError(
+            "%make-record",
+            "record type {s} has {d} field(s) but {d} value(s) were supplied",
+            .{ rt.name, rt.num_fields, supplied },
+        );
+    }
     return gc.allocRecordInstance(rt, args[1..]) catch return PrimitiveError.OutOfMemory;
 }
 

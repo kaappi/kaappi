@@ -389,6 +389,37 @@ test "wide records: 27 and 255 fields instantiate; 256 fields error cleanly" {
     }
 }
 
+// %make-record raises when the supplied field count does not match the record
+// type's num_fields (kaappi#1915). Before the fix, too few values padded the
+// instance with #<undefined> (a truthy, printable value escaping into user
+// code) and too many were silently dropped -- neither raised.
+test "%make-record rejects a field-count mismatch (#1915)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // Exact count still succeeds.
+    _ = try ctx.vm.eval("(define __rt (%make-record-type \"T\" 2))");
+    const ok = try ctx.vm.eval("(%record-ref (%make-record __rt 1 2) 1 __rt)");
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(ok));
+
+    // Too few field values: KP3007 argError -> InvalidArgument.
+    try std.testing.expectError(
+        vm_mod.VMError.InvalidArgument,
+        ctx.vm.eval("(%make-record __rt 1)"),
+    );
+
+    // Too many field values: same error, no silent drop.
+    try std.testing.expectError(
+        vm_mod.VMError.InvalidArgument,
+        ctx.vm.eval("(%make-record __rt 1 2 3 4)"),
+    );
+
+    // A 0-field type built with no values still works.
+    _ = try ctx.vm.eval("(define __rt0 (%make-record-type \"E\" 0))");
+    try std.testing.expect((try ctx.vm.eval("(%record?/any (%make-record __rt0))")) != types.FALSE);
+}
+
 // equal? recurses into record fields (kaappi#2293): two distinct instances of
 // the same record type with equal? fields are equal?, while eq?/eqv? stay
 // identity-based.
