@@ -877,8 +877,11 @@ simple/shared/virtual union — confirmed as a genuine hybrid of prior
 conventions on two independent axes: `array?` is disjoint from vector/string
 (matching 25/164, not 63), while `array-set!`'s new-value argument is
 *second*, right after the array (matching 63, not 25/164's value-last). A
-storage class (17 singletons — 14 real, 3 deferred to `#f`: `u1`/`f8`/`f16` —
-plus `make-storage-class` for custom ones) is a 9-field record
+storage class (17 singletons, 16 real, plus `make-storage-class` for custom
+ones; only `f8` is deferred to `#f` — even the reference leaves it `#f`,
+since no standard 8-bit float type exists. `u1` and `f16` are ports of the
+reference's own bit-packing and software half-floats over `u16vector`) is a
+9-field record
 (getter/setter/checker/maker/copier/length/default/data?/data->body) that a
 specialized array's `body`/`indexer` pair delegates to for the actual
 backing-store representation. The single most-reused implementation pattern

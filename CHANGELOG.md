@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **SRFI 231 `f16-storage-class`** (#2379) — software IEEE 754 binary16
+  half-floats over `u16vector`, a faithful transliteration of the reference
+  implementation's own arithmetic codec (round-to-nearest-even, subnormals,
+  signed zeros, ±inf, and the 65520.0 tie rounding up to `+inf.0`), keeping
+  `(srfi 231)` pure R7RS-small. Verified by an exhaustive 65536-pattern
+  round-trip sweep; official-suite divergence ids 98/148/149 pruned (id 150
+  re-scoped to the pre-existing c64/c128 representation divergence it was
+  also hiding, #2382).
+
 ## [0.25.0] - 2026-08-27
 
 ### Added

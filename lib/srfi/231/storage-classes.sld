@@ -23,10 +23,11 @@
 ;;; spec gives their exact reference definitions verbatim, reused here
 ;;; unchanged. u1 is a direct port of the reference's own bit-packing over
 ;;; u16vector (the representation the spec itself documents for bit
-;;; arrays). f8 is left #f even in the SRFI's OWN reference implementation
-;;; (no standard 8-bit-float Scheme type exists anywhere), and f16 -- which
-;;; the reference implements as software half-floats -- remains #f as a
-;;; documented scope reduction (#2353).
+;;; arrays), and f16 a faithful port of its software half-floats over
+;;; u16vector (#2379) -- the spec's #f escape clause is for implementations
+;;; lacking the substrate, which neither port is. f8 alone is left #f,
+;;; even in the SRFI's OWN reference implementation (no standard 8-bit
+;;; float Scheme type exists anywhere).
 (define-library (srfi 231 storage-classes)
   (import (scheme base)
           (srfi 160 s8) (srfi 160 s16) (srfi 160 s32) (srfi 160 s64)
@@ -34,7 +35,9 @@
           (srfi 160 f32) (srfi 160 f64) (srfi 160 c64) (srfi 160 c128)
           ;; bitwise-and/ior/not for u1's bit-packing (R7RS-small has no
           ;; bitwise primitives of its own)
-          (srfi 60))
+          (srfi 60)
+          ;; finite?/nan? for the f16 codec's special-value classification
+          (scheme inexact))
   (export make-storage-class storage-class?
           storage-class-getter storage-class-setter storage-class-checker
           storage-class-maker storage-class-copier storage-class-length
@@ -199,8 +202,142 @@
              (error "Expecting a u16vector passed to (storage-class-data->body u1-storage-class): " data)
              (vector (* 16 (u16vector-length data)) data)))))
 
+    ;; f8 -- #f even in the SRFI's OWN reference implementation: no
+    ;; standard 8-bit float format exists to conform to.
     (define f8-storage-class #f)
-    ;; f16 stays #f for now: the reference implements software half-floats
-    ;; over u16vectors, which is a deliberate port of its own to make, not
-    ;; a mechanical substrate mapping like u1's (#2353 tracks the call).
-    (define f16-storage-class #f)))
+
+    ;; f16 -- software half-floats over a u16vector: a faithful
+    ;; transliteration of the reference implementation's own codec
+    ;; (generic-arrays.scm's f16->double / double->f16), hand-expanded
+    ;; from its defining macro for the single instantiation (mantissa-width
+    ;; 10, exponent-width 5, bias 15) the class needs (#2379). The codec
+    ;; is pure arithmetic -- no host bit-reinterpretation anywhere -- which
+    ;; is exactly why it ports to R7RS-small. Gambit-ism substitutions,
+    ;; each semantics-preserving:
+    ;;   ##flonum->fixnum (flround x) -> (exact (round x))
+    ;;     (R7RS round IS ties-to-even, the required rounding mode)
+    ;;   flscalbn x n -> (* x (expt 2.0 n))
+    ;;     (every scale factor here is a power of two within f64's exact
+    ;;     range, so the scale-exactly-then-round-ONCE shape -- no double
+    ;;     rounding -- is preserved)
+    ;;   ##flcopysign sign test -> (or (< x 0.0) (eqv? x -0.0))
+    ;;     (comparisons don't distinguish -0.0; eqv? does, per R7RS)
+    ;;   flfinite?/flnan? -> finite?/nan? from (scheme inexact)
+    ;; The two structural properties that make this codec correct, both
+    ;; from the reference and both preserved:
+    ;;   - the subnormal branch scales by 2^24 directly: ONE rounding at
+    ;;     the subnormal ulp (a normalize-then-shift formula would round
+    ;;     twice, at the wrong ulp);
+    ;;   - mantissa carry after rounding: a significand that rounds up to
+    ;;     exactly 2048 bumps the exponent -- exact, no re-round; at the
+    ;;     top binade it overflows to infinity. This is what rounds the
+    ;;     tie 65520.0 UP to +inf.0 while 65519.9 stays 65504.0.
+    ;; -0.0 round-trips both ways (#x8000 <-> -0.0); |x| below 2^-25
+    ;; rounds to signed zero, with the tie 2^-25 exactly going to 0 (even)
+    ;; and the subnormal tie 1.5*2^-24 to mantissa 2. NaN payloads are
+    ;; not preserved -- decode yields +nan.0 and encode canonicalizes
+    ;; every NaN to #x7FFF -- since a NaN's sign and payload are not
+    ;; portable across implementations (decode yields +nan.0 either way).
+    (define (%f16-decode x)   ;; exact integer in [0,65536) -> real
+      (let ((e (bitwise-and 31 (arithmetic-shift x -10)))
+            (m (bitwise-and 1023 x))
+            (s (arithmetic-shift x -15)))
+        (cond ((= e 31)
+               (if (= m 0)
+                   (if (= s 0) +inf.0 -inf.0)
+                   +nan.0))
+              ((> e 0)
+               (let ((n (if (= s 0) (+ 1024 m) (- (+ 1024 m)))))
+                 (* n (expt 2.0 (- e 25)))))
+              ((= m 0)
+               (if (= s 0) +0.0 -0.0))
+              (else
+               (let ((n (if (= s 0) m (- m))))
+                 (* n (expt 2.0 -24)))))))
+
+    ;; floor(log2|x|) for a finite, nonzero real x -- the reference's
+    ;; flilogb, written fresh as a halving/doubling loop (exact at every
+    ;; step: multiplying by 2.0 or 0.5 never rounds). Only the
+    ;; classification against [-14,15] and the exact exponent feeding the
+    ;; scale factor matter to the codec.
+    (define (%ilogb x)
+      (let ((ax (abs x)))
+        (if (>= ax 1.0)
+            (let loop ((e 0) (v ax))
+              (if (< v 2.0) e (loop (+ e 1) (* v 0.5))))
+            (let loop ((e -1) (v (* ax 2.0)))
+              (if (>= v 1.0) e (loop (- e 1) (* v 2.0)))))))
+
+    (define (%f16-encode x)   ;; real -> exact integer in [0,65536)
+      (define (%construct sign-bit biased-exponent mantissa)
+        (bitwise-ior (arithmetic-shift sign-bit 15)
+                     (bitwise-ior (arithmetic-shift biased-exponent 10)
+                                  mantissa)))
+      (let ((sign-bit (if (or (< x 0.0) (eqv? x -0.0)) 1 0)))
+        (cond ((not (finite? x))
+               (if (nan? x)
+                   ;; canonical NaN: the sign bit of a NaN is unobservable
+                   (%construct 0 31 1023)
+                   ;; an infinity
+                   (%construct sign-bit 31 0)))
+              ((zero? x)
+               ;; a zero (sign preserved)
+               (%construct sign-bit 0 0))
+              (else
+               (let ((exponent (%ilogb x)))
+                 (cond ((<= 16 exponent)
+                        ;; infinity: the exponent is too large
+                        (%construct sign-bit 31 0))
+                       ((< -15 exponent)
+                        ;; probably normal, finite in representation,
+                        ;; unless the rounded mantissa carries
+                        (let ((possible-mantissa
+                               (exact (round (* (abs x)
+                                                (expt 2.0 (- 10 exponent)))))))
+                          (if (< possible-mantissa 2048)
+                              ;; no overflow
+                              (%construct sign-bit
+                                          (+ exponent 15)
+                                          (bitwise-and possible-mantissa 1023))
+                              (if (= exponent 15)
+                                  ;; maximum finite exponent: overflow to
+                                  ;; infinity
+                                  (%construct sign-bit 31 0)
+                                  ;; increase exponent by 1, mantissa is
+                                  ;; zero, no double rounding
+                                  (%construct sign-bit (+ exponent 16) 0)))))
+
+                       (else
+                        ;; usually subnormal
+                        (let ((possible-mantissa
+                               (exact (round (* (abs x) (expt 2.0 24))))))
+                          (if (< possible-mantissa 1024)
+                              ;; doesn't overflow to normal
+                              (%construct sign-bit 0 possible-mantissa)
+                              ;; overflow to smallest normal
+                              (%construct sign-bit 1 0))))))))))
+
+    ;; Class wiring mirrors the reference's f16 entry exactly: the same
+    ;; checker acceptance as f32/f64 (flonum? -- the setter ROUNDS, never
+    ;; rejects), the fill encoded once by the maker, and the identity
+    ;; data->body contract of every u16vector-backed class.
+    (define f16-storage-class
+      (make-storage-class
+       ;; getter
+       (lambda (body i) (%f16-decode (u16vector-ref body i)))
+       ;; setter
+       (lambda (body i obj) (u16vector-set! body i (%f16-encode obj)))
+       ;; checker
+       %flonum-checker
+       ;; maker
+       (lambda (n val) (make-u16vector n (%f16-encode val)))
+       ;; copier
+       u16vector-copy!
+       ;; length
+       u16vector-length
+       ;; default
+       0.0
+       ;; data?
+       u16vector?
+       ;; data->body
+       (%checked-data->body u16vector? "f16-storage-class" "u16vector")))))

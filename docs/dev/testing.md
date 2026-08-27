@@ -276,10 +276,11 @@ Conventions specific to this suite:
 
 - **Known divergences are accounted, not failed.** A table of test ids in
   the generated file maps each documented kaappi-vs-reference divergence to
-  its reason and issue reference (f16 deferral, the unsafe-view UB choice,
-  the Gambit string-mutability expectation). The suite exits nonzero only
-  on *unexpected* failures — or when a known divergence stops diverging,
-  which means its entry is stale and hiding real coverage: prune it.
+  its reason and issue reference (the c64/c128 native-vector representation
+  choice, the unsafe-view UB choice, the Gambit string-mutability
+  expectation). The suite exits nonzero only on *unexpected* failures — or
+  when a known divergence stops diverging, which means its entry is stale
+  and hiding real coverage: prune it.
 - **Error-expecting tests pass on any error** — only the Gambit message
   text differs from kaappi's (counted separately as "error-message-only").
 - **It runs ~150 s** (the isolated `KAAPPI_HOME` compiles the SRFI's
