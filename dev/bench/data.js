@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787842837070,
+  "lastUpdate": 1787847517165,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "cec32b6cab3e04c67041b85061fd35fae7b4aae3",
-          "message": "Make the register file grow to its documented cap and report the limit as KP3008 (#2035) (#2240)\n\n* Make the register file grow to its documented cap and report the limit as KP3008 (#2035)\n\nA tail-position call replaces the current frame's code in place, but the\nframe's register window is unchanged — and until now nothing re-ensured\nroom for the callee's locals_count. The register file therefore silently\nstopped growing at the replaced frame's smaller window: 819 nested\ndynamic-wind extents (or a pure-Scheme stand-in of the same shape)\naborted an ordinary program at 4096 registers, 6% of the documented\n65536, and registerIndex reported the overrun as InvalidBytecode — a\ncatchable KP9001 \"internal error\" whose guard-swallowed error object\ncarried the bare message \"error\".\n\nEvery in-place replacement site now re-ensures the same bound callClosure\nguarantees when it builds a fresh frame — base + max(arg_count,\nlocals_count) + 1, so a variadic callee's rest slot is covered too:\ntail_call, tail_apply, tail_call_global, tail_call_cc's receiver, and\ntail eval. registerIndex returns StackOverflow (KP3008) for a register-\nfile overrun instead of InvalidBytecode, matching ensureRegisterCapacity\nand the frame stack, so the failure is uncatchable like every other VM\nlimit (#1886).\n\nTwo tests had been relying on the bug: \"re-entrant force is catchable\"\nin gc-root-growth.scm and the audit's \"direct re-entrant force\" case\npassed because (delay (force selfp)) died early at the 4096 cliff with a\ncatchable-but-degenerate error. That recursion is genuinely unbounded —\nthe SRFI-45 re-entrancy check only sees cycles whose thunk returns — so\nit now correctly runs to the register-file cap and is reported as an\nuncatchable stack overflow; the unbounded half moved to error-format.sh\nand the terminating R7RS 4.2.5 form is pinned instead. The 1000-deep\ndynamic-wind audit test is re-enabled, and error-format.sh pins that a\nregister-file exhaustion reports KP3008 and no guard swallows it.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Split the #2035 smoke coverage out of the #1191 regression file\n\ngc-root-growth.scm is a regression test for #1191 (native re-entrancy must\nnot panic with \"GC root stack overflow\") and now contains only that test.\nThe re-entrant promise and deep-dynamic-wind checks that pin the #2035\nregister-growth fix move to a dedicated smoke file named for the issue,\nkeeping each file scoped to the regression it guards.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-06T16:43:51+05:30",
-          "tree_id": "c6036c47768dc6356f8b82f7ad8541e126c3f3ab",
-          "url": "https://github.com/kaappi/kaappi/commit/cec32b6cab3e04c67041b85061fd35fae7b4aae3"
-        },
-        "date": 1786016914325,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.241049,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.346542,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.567431,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.953034,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004637,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046424,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.309902,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056168,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.692858,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.223638,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.571575,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.281156,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.798022,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.626779,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043803,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046091,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1503d1d4d639c62c84f7bf0573545d4a9aeab4f0",
+          "message": "Switch SRFI 231 c64/c128 bodies to the reference representation (#2387)\n\n* Switch SRFI 231 c64/c128 bodies to the reference representation (#2382)\n\nc64/c128 storage classes were backed by native c64vector/c128vector,\nso the reference implementation's data shape -- an even-length\nf32/f64vector of interleaved re/im pairs -- was rejected by\nmake-specialized-array-from-data, diverging on the official suite's\ntest-150 fixtures (known-divergence id 150, kaappi#2382).\n\nTwo findings settled the design. First, the spec's data? contract --\n\"returns #t if and only if data->body returns a body sharing data with\ndata, without copying\" -- makes a converting data->body illegal, so\naccepting that data shape is possible only by actually using it as the\nbody; the spec explicitly allows either representation (\"another\nimplementation ... might make another choice\"). Second, Kaappi's\nc64vector/c128vector already use the identical byte layout (2\nconsecutive f32s/f64s per element, never boxed, per\nsrc/types_numeric.zig), so switching is a change of type tag, not of\nmemory shape -- and reference fidelity is what reference-coupled\nportable code and the official suite's fixtures interoperate with, the\nsame philosophy as the u1 and f16 ports.\n\nImplementation: a %complex-storage-class helper ports the reference's\nmake-complex-storage-classes -- getter reassembles the interleaved\npair (an inexact zero imag stays complex, kaappi#2269, exactly like\nthe native decode), setter explodes into the two float slots, maker\nfills alternating re/im, length halves the physical float count,\ncopier is the float-vector block copy, and data?/data->body accept\nexactly the even-length float vectors, zero-copy identity. The\nnow-unused (srfi 160 c64)/(srfi 160 c128) imports are dropped.\n\nUser-visible consequences (CHANGELOG Changed entry): (array-body A)\nfor a c64/c128 array reports the float vector; the storage-class\ncopier counts floats (2 per complex element); c64vector/c128vector\ndata is no longer accepted directly.\n\nTests: check-storage-class learns a body-units-per-element option\n(2 for the complex classes) for its copier exercise; a dedicated\nrepresentation section in srfi231-storage-classes.scm pins data?\nacceptance/rejection (even, odd, c64vector), data->body identity,\ninterleave round-trips, setter explosion, and maker fill; and\nsrfi231-arrays.scm adds the end-to-end zero-copy proof --\nmake-specialized-array-from-data over an f32vector shares so\nthoroughly that mutating the caller's vector is visible through the\narray.\n\nOfficial suite: divergence id 150 pruned and the suite regenerated.\nBefore pruning, the #2385 accounting flagged the resolution on its\nown -- 'DIVERGENCE-RESOLVED 150 -- prune it from known-divergences' --\nthe enforcement working as designed. The known-divergence table is\nnow down to the two unavoidable entries: 147 (Gambit string\nmutability) and 351 (unsafe-view checking).\n\nValidated: srfi231-storage-classes 219 passes, srfi231-arrays 90,\nofficial suite 10924 passed / 3 known divergences / 0 unexpected /\n0 resolved / 0 count mismatches, fmt corpus 938 files zero-drift\nidempotent, run-all.sh 2115 pass 0 fail (720 Scheme files, R7RS\n1395/1395).\n\nCloses #2382\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: complex copier takes logical-element offsets (#2387)\n\nAll seven review comments were valid; the substantive one is a real\nbug in the port. The reference does NOT install the raw float copier\nfor c64/c128 -- generic-arrays.scm:137-140 defines\nc64vector-copy!/c128vector-copy! as x2-scaling wrappers over the float\nblock copy, and the class macro installs those wrappers, so its copier\ntakes LOGICAL complex-element offsets, the same units as every other\nstorage-class field. Installing float-copy! raw made kaappi's complex\ncopier the only field in the only class indexed in a different unit:\nreference-coupled code doing (copier to 1 from 0 2) would silently\ncopy half the data at an odd float offset -- real parts landing in\nimaginary slots, no error. Nothing in-tree calls the copier, so no\nsuite caught it. Fixed with the reference's own wrapper shape:\n  (lambda (to at from start end)\n    (float-copy! to (* 2 at) from (* 2 start) (* 2 end)))\n\nThe review also showed the units-per-element test knob had adapted\nthe suite to the bug rather than detecting it. check-storage-class is\nreverted to its original shape (logical units, no knob) and its\ncopier exercise now runs twice -- the full aligned range AND a\nnon-zero at/start copy (shifted 1 body 1 3), which distinguishes the\ntwo granularities: a raw-float copier passes the aligned copy while\nmisplacing data at every other offset. Pinned across all 15\ncopier-bearing classes (storage-classes suite 219 -> 249 passes); the\nreviewer's exact repro (copier to 1 from 0 2) verified by hand.\n\nAlso from the review:\n- maker: a uniform fill (eqv? on re/im -- the default 0.0+0.0i, the\n  overwhelmingly common make-specialized-array path) collapses to one\n  native make-float-vector fill instead of 2n interpreted stores;\n  -0.0/0.0 and NaN mismatches still take the loop.\n- data?/data->body: the even-length predicate is hoisted once and\n  data->body reuses %checked-data->body (byte-identical message), so\n  the two can no longer drift apart -- the spec's iff-contract the\n  comment quotes.\n- transform: the NEW_REPORT example still named the id-150 entry this\n  PR deletes; reworded to a live one (a third unsafe-view evaluation\n  under the 351 entry) and regenerated -- never hand-edited.\n- CHANGELOG: dropped the 'copier counts floats' consequence; with the\n  wrapper there is no user-visible copier divergence at all.\n\nValidated: all 231 suites green (storage-classes 249, arrays 90);\nofficial suite 10924 passed / 3 known divergences / 0 unexpected /\n0 resolved / 0 count mismatches; fmt corpus 938 files zero-drift\nidempotent.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-27T15:38:15Z",
+          "tree_id": "d601c4261085798376a808a2434ef5206645accd",
+          "url": "https://github.com/kaappi/kaappi/commit/1503d1d4d639c62c84f7bf0573545d4a9aeab4f0"
+        },
+        "date": 1787847515362,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.325732,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.955668,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.557387,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.123148,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004925,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048469,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.313929,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056253,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.803286,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.26452,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.638343,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.274732,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.707719,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.628584,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045948,
             "unit": "seconds"
           }
         ]
