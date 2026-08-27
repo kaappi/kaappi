@@ -52,6 +52,10 @@ pub const GcStats = struct {
     peak_bytes_allocated: usize = 0,
     allocs_by_type: [64]usize = .{0} ** 64,
     no_collect_deferred: usize = 0,
+    /// #1961: times a minor collection's mark phase stopped at an old object
+    /// (the generational boundary). Watching this stay > 0 while a large old
+    /// heap exists is how tests pin that a minor mark really is generational.
+    minor_old_skips: usize = 0,
 };
 
 pub var symbol_mutex: std.atomic.Mutex = .unlocked;
@@ -227,6 +231,18 @@ pub const GC = struct {
     source_spans: std.AutoHashMap(Value, types.Span) = undefined,
     stats: GcStats = .{},
     minor_cycle_count: u32 = 0,
+    /// #1961: set for the duration of a minor collection's mark phase. While
+    /// set, `markValueInner` treats the old generation as opaque — an old
+    /// object is never marked or traced, because `sweepYoung` never frees it —
+    /// so the minor mark costs O(live young), not O(live heap). Every live
+    /// old→young edge is supplied by the remembered-set walk instead (the
+    /// `writeBarrier` calls at each mutation site plus the promotion scan in
+    /// `sweepYoung`). False outside a collection and during every full
+    /// collection. The weak-reference probes (`keptAlive`/`weakReachable`)
+    /// also read it: an old object trivially survives a minor collection, so
+    /// it must answer "alive" there and defer its weak fate to the next full
+    /// collection.
+    minor_marking: bool = false,
     mark_worklist: std.ArrayList(Value) = .empty,
     marking: bool = false,
     /// SRFI-254 weak references reached during the current mark phase. Filled

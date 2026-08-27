@@ -381,23 +381,31 @@ test "bytecode round-trip: various constant types" {
     // Add various constant types
     func.constants.append(allocator, types.makeFixnum(-100)) catch unreachable;
     func.constants.append(allocator, types.TRUE) catch unreachable;
+    gc.writeBarrier(&func.header, types.TRUE); // #1961: func may be promoted already
     func.constants.append(allocator, types.FALSE) catch unreachable;
+    gc.writeBarrier(&func.header, types.FALSE); // #1961: func may be promoted already
     func.constants.append(allocator, types.NIL) catch unreachable;
+    gc.writeBarrier(&func.header, types.NIL); // #1961: func may be promoted already
     func.constants.append(allocator, types.VOID) catch unreachable;
+    gc.writeBarrier(&func.header, types.VOID); // #1961: func may be promoted already
     func.constants.append(allocator, types.makeChar('Z')) catch unreachable;
 
     const sym = try gc.allocSymbol("hello");
     func.constants.append(allocator, sym) catch unreachable;
+    gc.writeBarrier(&func.header, sym); // #1961: func may be promoted already
 
     const str = try gc.allocString("world");
     func.constants.append(allocator, str) catch unreachable;
+    gc.writeBarrier(&func.header, str); // #1961: func may be promoted already
 
     const flo = types.makeFlonum(3.14);
     func.constants.append(allocator, flo) catch unreachable;
+    gc.writeBarrier(&func.header, flo); // #1961: func may be promoted already
 
     const bv_data = [_]u8{ 1, 2, 3 };
     const bv = try gc.allocBytevector(&bv_data);
     func.constants.append(allocator, bv) catch unreachable;
+    gc.writeBarrier(&func.header, bv); // #1961: func may be promoted already
 
     func.arity = 0;
     func.locals_count = 1;
@@ -467,6 +475,7 @@ test "bytecode round-trip: nested functions" {
     parent_func.code.append(allocator, 0) catch unreachable; // src high
     parent_func.code.append(allocator, 0) catch unreachable; // src low
     parent_func.constants.append(allocator, types.makePointer(&child_func.header)) catch unreachable;
+    gc.writeBarrier(&parent_func.header, types.makePointer(&child_func.header)); // #1961: func may be promoted already
     parent_func.arity = 0;
     parent_func.locals_count = 1;
 
@@ -592,6 +601,7 @@ test "bytecode round-trip: datum-label sharing preserved via backrefs (kaappi#21
     gc.pushRoot(&tail);
     const outer = try gc.allocPair(shared_pair, tail);
     func.constants.append(allocator, outer) catch unreachable;
+    gc.writeBarrier(&func.header, outer); // #1961: func may be promoted already
 
     var shared_str = try gc.allocString("s");
     gc.pushRoot(&shared_str);
@@ -603,6 +613,7 @@ test "bytecode round-trip: datum-label sharing preserved via backrefs (kaappi#21
     gc.writeBarrier(types.toObject(vec), shared_pair);
     gc.writeBarrier(types.toObject(vec), shared_str);
     func.constants.append(allocator, vec) catch unreachable;
+    gc.writeBarrier(&func.header, vec); // #1961: func may be promoted already
     gc.popRoot(); // shared_str
     gc.popRoot(); // tail
     gc.popRoot(); // shared_pair
@@ -642,6 +653,7 @@ test "bytecode round-trip: cyclic literal terminates and re-ties the knot (kaapp
     types.toObject(head).as(types.Pair).cdr = second;
     gc.writeBarrier(types.toObject(head), second);
     func.constants.append(allocator, head) catch unreachable;
+    gc.writeBarrier(&func.header, head); // #1961: func may be promoted already
     gc.popRoot();
 
     // A self-referential vector too: #0=#(1 #0#).
@@ -650,6 +662,7 @@ test "bytecode round-trip: cyclic literal terminates and re-ties the knot (kaapp
     types.toVector(cyc_vec).data[1] = cyc_vec;
     gc.writeBarrier(types.toObject(cyc_vec), cyc_vec);
     func.constants.append(allocator, cyc_vec) catch unreachable;
+    gc.writeBarrier(&func.header, cyc_vec); // #1961: func may be promoted already
     gc.popRoot();
 
     var loaded = try roundTrip(&gc, func, "/tmp/kaappi_test_cycle.sbc");
@@ -684,6 +697,7 @@ test "bytecode round-trip: a long quoted list costs no nesting depth (kaappi#211
         list = try gc.allocPair(types.makeFixnum(i), list);
     }
     func.constants.append(allocator, list) catch unreachable;
+    gc.writeBarrier(&func.header, list); // #1961: func may be promoted already
     gc.popRoot();
 
     var loaded = try roundTrip(&gc, func, "/tmp/kaappi_test_longlist.sbc");
@@ -778,6 +792,7 @@ test "bytecode write: refuses what the reader would reject (kaappi#2113)" {
         nested = try gc.allocPair(nested, types.NIL);
     }
     func.constants.append(allocator, nested) catch unreachable;
+    gc.writeBarrier(&func.header, nested); // #1961: func may be promoted already
     gc.popRoot();
 
     var funcs_arr = [_]*Function{func};
@@ -792,7 +807,9 @@ test "bytecode write: refuses what the reader would reject (kaappi#2113)" {
     const big = allocator.alloc(u8, MAX_STRING_BYTES + 1) catch unreachable;
     defer allocator.free(big);
     @memset(big, 'x');
-    func.constants.append(allocator, try gc.allocString(big)) catch unreachable;
+    const big_str = try gc.allocString(big);
+    func.constants.append(allocator, big_str) catch unreachable;
+    gc.writeBarrier(&func.header, big_str); // #1961: func may be promoted already
     try std.testing.expectError(BytecodeError.LimitExceeded, writeFileWithTopLevel(allocator, &funcs_arr, 0x1234, "test.scm", path));
 
     // And exactly AT the cap still round-trips — the two halves agree on the
@@ -805,6 +822,7 @@ test "bytecode write: refuses what the reader would reject (kaappi#2113)" {
         at_cap = try gc.allocPair(at_cap, types.NIL);
     }
     func.constants.append(allocator, at_cap) catch unreachable;
+    gc.writeBarrier(&func.header, at_cap); // #1961: func may be promoted already
     gc.popRoot();
     var loaded = try roundTrip(&gc, func, path);
     read.freeDeserializeResult(allocator, &loaded);
@@ -1037,21 +1055,26 @@ test "bytecode round-trip: vector pair bignum rational complex constants" {
     const vec_data = [_]Value{ types.makeFixnum(10), types.makeFixnum(20), types.makeFixnum(30) };
     const vec = try gc.allocVector(&vec_data);
     func.constants.append(allocator, vec) catch unreachable;
+    gc.writeBarrier(&func.header, vec); // #1961: func may be promoted already
 
     const pair = try gc.allocPair(types.makeFixnum(1), types.makeFixnum(2));
     func.constants.append(allocator, pair) catch unreachable;
+    gc.writeBarrier(&func.header, pair); // #1961: func may be promoted already
 
     const limbs = [_]u64{ 0xDEADBEEF, 0xCAFEBABE };
     const bn = try gc.allocBignumFromLimbs(&limbs, 2, true);
     func.constants.append(allocator, bn) catch unreachable;
+    gc.writeBarrier(&func.header, bn); // #1961: func may be promoted already
 
     const rat_num = types.makeFixnum(22);
     const rat_den = types.makeFixnum(7);
     const rat = try gc.allocRational(rat_num, rat_den);
     func.constants.append(allocator, rat) catch unreachable;
+    gc.writeBarrier(&func.header, rat); // #1961: func may be promoted already
 
     const cx = try gc.allocComplex(types.makeFlonum(3.0), types.makeFlonum(4.0));
     func.constants.append(allocator, cx) catch unreachable;
+    gc.writeBarrier(&func.header, cx); // #1961: func may be promoted already
 
     // Exact components (bignum real, rational imag) must survive the .sbc
     // round trip digit-exactly (kaappi#2166). The bignum must stay rooted
@@ -1062,6 +1085,7 @@ test "bytecode round-trip: vector pair bignum rational complex constants" {
     defer gc.popRoot();
     const cx_exact = try gc.allocComplex(cx_bn_root, try gc.allocRational(types.makeFixnum(3), types.makeFixnum(4)));
     func.constants.append(allocator, cx_exact) catch unreachable;
+    gc.writeBarrier(&func.header, cx_exact); // #1961: func may be promoted already
 
     func.arity = 0;
     func.locals_count = 1;

@@ -84,6 +84,13 @@ pub fn compileDefineSyntax(self: *Compiler, args: Value, dst: u16) CompileError!
     if (self.body_macro_depth == 0) {
         if (self.lib_env) |env| {
             env.put(name, transformer) catch return CompileError.OutOfMemory;
+            // #1961: for a mutable SchemeEnvironment (eval/environment
+            // objects — assertEnvMapInvariant's env_val case) this store is
+            // an old→young edge on that heap object once it promotes; the
+            // VM-rooted library lib_envs (env_val NIL) are marked as roots
+            // every collection, where the barrier is simply a no-op.
+            if (types.isEnvironment(self.lib_env_val))
+                self.gc.writeBarrier(types.toObject(self.lib_env_val), transformer);
         }
     }
 

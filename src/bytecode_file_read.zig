@@ -631,6 +631,12 @@ fn deserializeFromBufferImpl(gc: *GC, data: []const u8, expected_hash: ?u64) Byt
         for (0..const_count) |_| {
             const val = readConstant(&r, gc, all_funcs, &shared, 0) catch return null;
             func.constants.append(allocator, val) catch return BytecodeError.OutOfMemory;
+            // #1961: all_funcs are extra-rooted from the start of
+            // deserialization, so by now `func` is long promoted — an old
+            // container whose constants list is still growing. The
+            // generational minor mark reaches the freshly appended young
+            // constants only through the remembered set.
+            gc.writeBarrier(&func.header, val);
         }
 
         // Debug info: source_line and line_table (added in v7; col added in v9)

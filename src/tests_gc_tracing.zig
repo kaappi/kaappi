@@ -1310,23 +1310,17 @@ test "gc write barrier: an entry whose young referent is gone is pruned" {
     try expectDead(&gc, ref(a, 1));
 }
 
-// Pins a property that is easy to assume the other way round, and that
-// decides how dangerous a *missing* `gc.writeBarrier` call is anywhere in
-// the tree: a minor collection here is a **full transitive mark** from the
-// roots. `minorCollect` calls `clearOldMarks` and then `markRoots`, and
-// `markValueInner` never stops at the young/old boundary — only the *sweep*
-// is generational (`sweepYoung` vs `sweep` + `sweepOld`).
-//
-// So an old object that is reachable from any root has its young children
-// traced whether or not it is in the remembered set, and the remembered set
-// only ever adds young children of old objects that are *not* root-reachable
-// — floating garbage a minor collection cannot free anyway. A forgotten
-// barrier is therefore a conservative-retention miss, not a lost live object.
-//
-// If `minorCollect` ever becomes a true generational mark that stops at old
-// objects, this test flips to failing — which is exactly the moment every
-// heap-mutation site in the tree needs auditing for a missing barrier.
-test "gc write barrier: a minor collection marks through an old object with no remembered-set entry" {
+// Pins the property #1961 established: a minor collection is a
+// **generational** mark. `markValueInner` treats the old generation as
+// opaque, so an old container is traced by a minor collection only through
+// the remembered set — which makes `gc.writeBarrier` (plus the promotion
+// scan in sweepYoung) load-bearing. A forgotten barrier is a
+// use-after-free: the young referent is swept while the old container still
+// points at it. (Before #1961 the minor mark was a full transitive mark, and
+// this test asserted the exact opposite — that the referent survived — which
+// is what told whoever made the mark generational that every mutation site
+// needed auditing first.)
+test "gc write barrier: a minor collection does not mark through an old object with no remembered-set entry" {
     var gc = newGc();
     defer gc.deinit();
     const c = try gc.allocPair(types.NIL, types.NIL);
@@ -1341,7 +1335,166 @@ test "gc write barrier: a minor collection marks through an old object with no r
     try std.testing.expect(!inRemembered(&gc, types.toObject(c)));
 
     forceMinor(&gc);
+    // The root keeps `c` itself alive (old objects survive every minor),
+    // but the old generation is opaque to the mark and `c` is not
+    // remembered, so `a` has no route to survival. It is freed, not merely
+    // unmarked — reading it back here would be the use-after-free this test
+    // exists to pin, so liveness is checked by list membership only.
+    try expectDead(&gc, ref(a, 1));
+}
+
+// The companion to the case above: the same store WITH the barrier keeps the
+// referent alive — the remembered-set walk (markObjectContents) is its only
+// route to survival, since the container is old and unrooted-reachable.
+test "gc write barrier: a remembered old container keeps its young referent through a minor collection" {
+    var gc = newGc();
+    defer gc.deinit();
+    const c = try gc.allocPair(types.NIL, types.NIL);
+    try promoteToOld(&gc, c);
+
+    var root = c;
+    gc.pushRoot(&root);
+
+    const a = try young(&gc, 1);
+    types.toObject(c).as(types.Pair).car = a;
+    gc.writeBarrier(types.toObject(c), a);
+    try std.testing.expect(inRemembered(&gc, types.toObject(c)));
+
+    gc.popRoot();
+    forceMinor(&gc);
     try expectAlive(&gc, ref(a, 1));
+}
+
+// #1961 promotion scan: the write barrier only fires for a container that is
+// already old, so an old→young edge created while the container was young (a
+// barrier there is a correct no-op) would go unrecorded when sweepYoung
+// promotes it. The scan at promotion records it, keeping the remembered set
+// complete without any barrier change at the mutation sites.
+test "gc promotion scan: a promoted container with young referents enters the remembered set" {
+    var gc = newGc();
+    defer gc.deinit();
+    const c = try gc.allocPair(types.NIL, types.NIL);
+    var root = c;
+    gc.pushRoot(&root);
+
+    // One survival leaves c young with survive_count 1...
+    forceMinor(&gc);
+    // ...then a fresh young referent is stored (still correctly barrier-less:
+    // c is young, so a minor collection traces it from the root anyway)...
+    const a = try young(&gc, 1);
+    types.toObject(c).as(types.Pair).car = a;
+    // ...and the next minor promotes c while a — one survival so far — stays
+    // young. The promotion scan must record the edge.
+    forceMinor(&gc);
+    try std.testing.expectEqual(@as(u1, 1), types.toObject(c).flags.generation);
+    try std.testing.expectEqual(@as(u1, 0), types.toObject(a).flags.generation);
+    try std.testing.expect(inRemembered(&gc, types.toObject(c)));
+
+    // With the root dropped, the remembered-set walk is a's only anchor.
+    gc.popRoot();
+    forceMinor(&gc);
+    try expectAlive(&gc, ref(a, 1));
+
+    // a survived that minor, so both ends of the edge are now old and
+    // referencesYoung says no — the entry is pruned and the flag cleared, so
+    // a later old→young write to c is free to re-queue it (#2196).
+    try std.testing.expect(!inRemembered(&gc, types.toObject(c)));
+    try std.testing.expect(!types.toObject(c).flags.in_remembered_set);
+}
+
+// #1961: the whole point of the generational minor mark, pinned directly off
+// the skip counter — a minor collection whose roots reach old objects must
+// not trace them, while a full collection (which sweeps the old generation)
+// still must.
+test "gc minor mark: skips the old generation, full mark does not (#1961)" {
+    var gc = newGc();
+    defer gc.deinit();
+    // A chain of old pairs hanging off one old head.
+    var head = try gc.allocPair(types.NIL, types.NIL);
+    gc.pushRoot(&head);
+    var tail = head;
+    for (0..64) |i| {
+        const next = try gc.allocPair(types.makeFixnum(@intCast(i)), types.NIL);
+        types.toObject(tail).as(types.Pair).cdr = next;
+        tail = next;
+    }
+    try promoteToOld(&gc, head);
+
+    const skips_before = gc.stats.minor_old_skips;
+    forceMinor(&gc);
+    // The root walk reached `head` (and only `head` — the cdr chain is old
+    // and opaque), so the boundary fired at least once...
+    try std.testing.expect(gc.stats.minor_old_skips > skips_before);
+    // ...and exactly once per old object the walk attempted: the head only,
+    // because the chain behind it is never entered.
+    try std.testing.expectEqual(skips_before + 1, gc.stats.minor_old_skips);
+
+    forceFull(&gc);
+    // A full collection marks both generations — no new skips.
+    try std.testing.expectEqual(skips_before + 1, gc.stats.minor_old_skips);
+    gc.popRoot();
+}
+
+// #1961: a minor collection never sweeps the old generation, so the weak
+// probes must treat every old object as alive — an ephemeron whose key is
+// old must not break (breaking is destructive: both fields are cleared)
+// just because the key carries no mark during a minor.
+test "gc weak refs: an old ephemeron key does not break in a minor collection (#1961)" {
+    var gc = newGc();
+    defer gc.deinit();
+    const key = try young(&gc, 1);
+    try promoteToOld(&gc, key);
+
+    const val = try young(&gc, 2);
+    const eph_val = try gc.allocEphemeron(key, val);
+    const eph = types.toEphemeron(eph_val);
+    var root = eph_val;
+    gc.pushRoot(&root);
+
+    // The key is old garbage-in-waiting (only the ephemeron's weak field
+    // references it), but a minor collection cannot free it — so the
+    // ephemeron must not break and the value must stay retained.
+    forceMinor(&gc);
+    try std.testing.expect(!eph.broken);
+    try expectAlive(&gc, ref(val, 2));
+
+    // Control: the next FULL collection sweeps the old generation, sees the
+    // key as the garbage it is, and breaks the ephemeron — proving the minor
+    // above deferred the decision rather than losing it.
+    forceFull(&gc);
+    try std.testing.expect(eph.broken);
+    gc.popRoot();
+}
+
+// #1961: same rule for guardians — a registered element watching an old
+// object must stay registered through a minor collection (the object cannot
+// die in one), instead of being resurrected early.
+test "gc weak refs: a guardian watching an old object does not resurrect in a minor collection (#1961)" {
+    var gc = newGc();
+    defer gc.deinit();
+    const watched = try young(&gc, 1);
+    try promoteToOld(&gc, watched);
+
+    const rep = try young(&gc, 2);
+    const g_val = try gc.allocGuardian(false);
+    const g = types.toGuardian(g_val);
+    try g.registered.append(gc.allocator, .{ .watched = watched, .payload = rep });
+    gc.writeBarrier(types.toObject(g_val), watched);
+    gc.writeBarrier(types.toObject(g_val), rep);
+
+    var root = g_val;
+    gc.pushRoot(&root);
+    forceMinor(&gc);
+    try std.testing.expectEqual(@as(usize, 0), g.ready.items.len);
+    try std.testing.expectEqual(@as(usize, 1), g.registered.items.len);
+
+    // Control: the next FULL collection sees the old watched object as the
+    // garbage it is and resurrects the element — the deferred decision,
+    // taken exactly when the object can actually die.
+    forceFull(&gc);
+    try std.testing.expectEqual(@as(usize, 1), g.ready.items.len);
+    try std.testing.expectEqual(@as(usize, 0), g.registered.items.len);
+    gc.popRoot();
 }
 
 // ---------------------------------------------------------------------------
@@ -1913,10 +2066,12 @@ test "gc remembered set (#2196): a full collect drain resets every dedup flag" {
     gc.writeBarrier(&vec.header, a);
     try std.testing.expect(vec.header.flags.in_remembered_set);
 
-    // fullCollect drains the whole remembered_set. The flag must be cleared
-    // there too -- otherwise a surviving container that keeps its stale flag
-    // would refuse to re-queue, silently dropping a later old->young write.
-    // Root the container so the full collect keeps it.
+    // Repoint at an immediate so the #1961 sweepOld re-scan has no old→young
+    // edge to re-record. fullCollect drains the whole remembered_set and the
+    // flag must be cleared there too — otherwise a surviving container that
+    // keeps its stale flag would refuse to re-queue, silently dropping a
+    // later old->young write. Root the container so the full collect keeps it.
+    vec.data[0] = types.makeFixnum(0);
     var root = c;
     gc.pushRoot(&root);
     forceFull(&gc);
@@ -1930,6 +2085,36 @@ test "gc remembered set (#2196): a full collect drain resets every dedup flag" {
     gc.writeBarrier(&vec.header, b);
     try std.testing.expectEqual(@as(usize, 1), gc.remembered_set.items.len);
     try std.testing.expect(vec.header.flags.in_remembered_set);
+}
+
+// #1961: a full collection drains the remembered set before marking but
+// never promotes — young survivors stay generation 0 — so an old container
+// whose young referent just survived the full would face the next minor
+// with no entry. sweepOld re-records every surviving old→young edge while
+// it already walks the old generation.
+test "gc remembered set (#1961): a full collect re-records surviving old→young edges" {
+    var gc = newGc();
+    defer gc.deinit();
+    const c = try gc.allocVectorFill(1, types.NIL);
+    try promoteToOld(&gc, c);
+    const vec = types.toObject(c).as(types.Vector);
+
+    const a = try young(&gc, 1);
+    vec.data[0] = a;
+    gc.writeBarrier(&vec.header, a);
+
+    var root = c;
+    gc.pushRoot(&root);
+    forceFull(&gc);
+    // The vector survived the full still referencing young `a`, so the
+    // re-scan must have re-queued it: the next minor's mark reaches `a` only
+    // through that entry.
+    try std.testing.expectEqual(@as(usize, 1), gc.remembered_set.items.len);
+    try std.testing.expect(vec.header.flags.in_remembered_set);
+
+    gc.popRoot();
+    forceMinor(&gc);
+    try expectAlive(&gc, ref(a, 1));
 }
 
 // ---------------------------------------------------------------------------

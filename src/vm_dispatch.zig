@@ -337,6 +337,14 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     break :blk null;
                 };
                 if (ptr) |p| p.* = val;
+                // #1961: when the target map belongs to a mutable
+                // SchemeEnvironment (func.env_val — the eval/environment
+                // objects), this store is an old→young edge on that heap
+                // object once it promotes. The VM-rooted maps (globals,
+                // library lib_envs — env_val NIL there) are marked as roots
+                // every collection and need no barrier.
+                if (types.isEnvironment(func.env_val))
+                    self.gc.writeBarrier(types.toObject(func.env_val), val);
                 self.unlockGlobalsShared();
                 if (ptr == null) {
                     self.setErrorDetail("set!: unbound variable '{s}'", .{name});
@@ -389,6 +397,11 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     env.put(name, val) catch return VMError.OutOfMemory;
                 } else {
                     env.put(name, val) catch return VMError.OutOfMemory;
+                    // #1961: same as set_global — a define into a mutable
+                    // SchemeEnvironment's map is an old→young edge on the
+                    // wrapper object once promoted.
+                    if (types.isEnvironment(func.env_val))
+                        self.gc.writeBarrier(types.toObject(func.env_val), val);
                 }
                 if (func.env == null) {
                     self.global_version +%= 1;

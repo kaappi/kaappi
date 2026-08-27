@@ -946,6 +946,11 @@ pub const VM = struct {
         const key = @intFromPtr(param);
         if (self.current_fiber) |fiber| {
             fiber.param_overrides.put(key, val) catch return VMError.OutOfMemory;
+            // #1961: an old running fiber's override map holding a young
+            // value is an old→young edge the generational minor mark reaches
+            // only through the remembered set (FiberScheduler.markRoots'
+            // explicit markFiberState pass is the belt-and-braces backstop).
+            self.gc.writeBarrier(&fiber.header, val);
         } else {
             self.param_overrides.put(key, val) catch return VMError.OutOfMemory;
         }

@@ -466,6 +466,58 @@ test "fiber suspend does not save stale gap registers (#1529)" {
     try std.testing.expectEqual(@as(i64, 16), types.toFixnum(result));
 }
 
+// #1961: a generational minor mark treats a promoted fiber as opaque, so
+// every resident fiber — the running one included — gets an explicit
+// markFiberState pass in FiberScheduler.markRoots. The store below
+// deliberately skips the write barrier its real mutation sites carry: the
+// explicit pass, not remembered-set bookkeeping, is what must keep the young
+// value alive. Without it the value is swept and the field dangles — the
+// use-after-free shape the pre-#1961 full transitive minor mark used to
+// absorb silently.
+test "a running old fiber's mutable state survives a minor collection (#1961)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try fiber_mod.ensureScheduler(vm);
+    const main_fiber = vm.current_fiber.?;
+    const main_val = types.makePointer(&main_fiber.header);
+
+    // Manual collections only, so the promotion below is deterministic.
+    gc.enabled = false;
+    gc.minor_cycle_count = 0;
+    gc.collect();
+    gc.minor_cycle_count = 0;
+    gc.collect();
+    try std.testing.expectEqual(@as(u1, 1), types.toObject(main_val).flags.generation);
+
+    const skips_before = gc.stats.minor_old_skips;
+    const held = try gc.allocPair(types.makeFixnum(42), types.NIL);
+    main_fiber.waiting_on = held; // no writeBarrier, on purpose
+
+    gc.minor_cycle_count = 0;
+    gc.collect();
+
+    // The fiber itself was skipped as opaque — proof the minor mark really
+    // stopped at the generational boundary instead of tracing the fiber.
+    try std.testing.expect(gc.stats.minor_old_skips > skips_before);
+
+    // Yet the young value survived: markFiberState reached it through
+    // the scheduler's root pass. Liveness by list membership only — reading
+    // the value back would be the dangling-read this test pins.
+    var live = false;
+    var cur = gc.objects;
+    while (cur) |o| : (cur = o.next) {
+        if (o == types.toObject(held)) live = true;
+    }
+    cur = gc.old_objects;
+    while (cur) |o| : (cur = o.next) {
+        if (o == types.toObject(held)) live = true;
+    }
+    try std.testing.expect(live);
+}
+
 // #1530: the by-object waiter index (waiter_index / enrollWaiter). These
 // drive the index directly — parking a spawned fiber is simulated by setting
 // its status/waiting_on and calling enrollWaiter, exactly as the real park

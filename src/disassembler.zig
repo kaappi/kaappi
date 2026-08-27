@@ -360,6 +360,7 @@ test "disassemble all opcodes" {
 
     const sym = try gc.allocSymbol("test-sym");
     func.constants.append(allocator, sym) catch unreachable;
+    gc.writeBarrier(&func.header, sym); // #1961: func may be promoted already
     func.constants.append(allocator, types.makeFixnum(42)) catch unreachable;
 
     const emit = struct {

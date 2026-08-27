@@ -160,13 +160,13 @@ test "guardian: keeps a still-reachable registered object registered" {
 }
 
 test "guardian: resurrects a young object registered on an old guardian" {
-    // Promote the guardian into the old generation, then register a fresh young
-    // object and run a minor collection. No write barrier is applied on
-    // registration (the registered list is weak and reprocessed every cycle);
-    // this passes only because a minor collection re-traces every reachable
-    // guardian, so the old->young reference is seen without a remembered-set
-    // entry. If that invariant regressed, the young object would be swept
-    // instead of resurrected.
+    // Promote the guardian into the old generation, then register a fresh
+    // young object and run a minor collection. Since #1961 the minor mark
+    // treats the old guardian as opaque, so registration is an ordinary
+    // old→young edge: invokeGuardian barriers it into the remembered set,
+    // which is the mark's only route to the entry. The store+barrier pair
+    // below mirrors invokeGuardian's; without the barrier the young object
+    // would be swept instead of resurrected.
     var gc = GC.init(std.testing.allocator);
     defer gc.deinit();
     gc.enabled = false;
@@ -175,7 +175,8 @@ test "guardian: resurrects a young object registered on an old guardian" {
     gc.pushRoot(&g);
     defer gc.popRoot();
 
-    // Two surviving collections promote the guardian to the old generation.
+    // Two surviving collections promote the guardian to the old generation
+    // (with an empty registered list, so the promotion scan adds nothing).
     gc.collect();
     gc.collect();
     try expect(types.toObject(g).flags.generation == 1);
@@ -184,11 +185,12 @@ test "guardian: resurrects a young object registered on an old guardian" {
     {
         const obj = try gc.allocPair(fix(7), types.NIL); // young, weak-only ref
         try types.toGuardian(g).registered.append(gc.allocator, .{ .watched = obj, .payload = obj });
+        gc.writeBarrier(types.toObject(g), obj);
     }
-    // Registration took no write barrier, so the remembered set is still empty.
-    try expectEqual(@as(usize, 0), gc.remembered_set.items.len);
+    // The barrier recorded the old→young edge.
+    try expectEqual(@as(usize, 1), gc.remembered_set.items.len);
 
-    gc.collect(); // minor: old guardian, young registered object
+    gc.collect(); // minor: remembered old guardian, young registered object
 
     try expectEqual(@as(usize, 1), types.toGuardian(g).ready.items.len);
     const readied = types.toGuardian(g).ready.items[0].payload;
