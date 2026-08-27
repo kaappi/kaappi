@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787831853769,
+  "lastUpdate": 1787837869288,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e935fd49fd5193ccab48c9f23cba0dc7aed87c63",
-          "message": "Replace /parallel-issues with /pr-groups (#2236)\n\n/parallel-issues optimised for file disjointness at issue granularity, so\nthat N concurrent sessions could work N issues without conflicts. Applied to\nthe 0.22.2 milestone it puts #1932 and #2027 in different sets — they touch\nthe same file — even though they are adjacent arms of one switch in\ndeepCopyValue. That buys parallelism at the price of two reviews of one diff\nand a conflict between the author's own branches.\n\n/pr-groups inverts the objective: group by cohesion so each set lands as a\nsingle PR, then run the same disjointness analysis one level up, across\ngroups. The parallelism verdict survives at the granularity where it is\nactually true, and the old paste-able launcher lines survive as wave output.\n\nThree steps carry the value, all of them learned grouping the 0.22.2 and\n0.22.3 milestones by hand:\n\nVerify before grouping. #2043 was scheduled into 0.22.3 and had in fact been\nfixed by #2174, which closed its four siblings (#1893, #1920, #1940, #1945)\nand missed it. Running the issue's own reproduction is what caught it, and\nscheduling fixed work discredits the rest of the plan.\n\nGround the file claims. An issue's diagnosis is a hypothesis and its line\nnumbers age; grep the named sites before pairing on them.\n\nCheck what a group blows in aggregate. Four issues grouped into\nprimitives_srfi18.zig would have pushed it past the 1500-line policy cap\nfrom 1472, so the group has to plan its split or become two PRs.\n\nOrdering keeps two land-first categories that were load-bearing in both\nmilestones: instrument before subject (a broken detector for the bug class\nthe others are in, #2127) and signal before work (anything making CI produce\nfalse reds, #1870/#1930/#2097).\n\nEvals are grounded in the two real milestones rather than invented, including\none asserting that a no-longer-reproducing issue is reported for closing and\nnot closed unilaterally.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-06T11:35:40+05:30",
-          "tree_id": "de8748d4c70e9eab92e487c0aa9081822ac358bf",
-          "url": "https://github.com/kaappi/kaappi/commit/e935fd49fd5193ccab48c9f23cba0dc7aed87c63"
-        },
-        "date": 1785999677996,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.247484,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.12465,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.451582,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.291704,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00454,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.037899,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.244831,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.04192,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.162115,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.003369,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.238346,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.251785,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.384251,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.775599,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.035216,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045501,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a6cf52dba05c70fe7f4ef999b1dda2457b44b585",
+          "message": "Implement SRFI 231 f16-storage-class as software half-floats (#2383)\n\n* Implement SRFI 231 f16-storage-class as software half-floats (#2379)\n\nf16-storage-class was bound to #f — a scope reduction carried over from\n#2353 — even though the u16vector substrate it needs is shipped and the\nreference implementation's codec (generic-arrays.scm 1449-1601) is pure\narithmetic over it: no host bit-reinterpretation anywhere, so it ports\nto R7RS-small directly. The spec's #f escape clause is written for\nimplementations *lacking* the substrate, which this is not.\n\nThe codec is a faithful transliteration of the reference's\nf16->double/double->f16, hand-expanded from its defining macro for the\none instantiation (mantissa-width 10, exponent-width 5, bias 15):\n%f16-decode/%f16-encode as library-internal defines plus a fresh %ilogb\nloop (halving/doubling, exact at every step). Gambit-ism substitutions,\neach semantics-preserving: ##flonum->fixnum (flround x) -> (exact\n(round x)) since R7RS round IS ties-to-even; flscalbn x n -> (* x\n(expt 2.0 n)) since every scale factor is a power of two within f64's\nexact range, preserving the scale-exactly-then-round-ONCE shape; the\n##flcopysign sign test -> (or (< x 0.0) (eqv? x -0.0)); flfinite?/\nflnan? -> finite?/nan?. The structure that makes the reference correct\nis preserved: the subnormal branch scales by 2^24 directly (one\nrounding at the subnormal ulp), mantissa carry after rounding bumps\nthe exponent exactly (sending the 65520.0 tie up to +inf.0 while\n65519.9 stays 65504), -0.0 round-trips both ways, and 2^-25 ties to\neven -> 0. NaN payloads canonicalize to #x7FFF (sign/payload not\nportable; decode yields +nan.0 either way). Class wiring mirrors the\nf32/u16 entries: %flonum-checker, fill encoded once by the maker,\nu16vector-copy!, data->body via %checked-data->body.\n\nTests: exhaustive 65536-pattern round-trip in\nsrfi231-storage-classes.scm through the public getter/setter (the\nreference's own validation strategy, tightened to a full sweep — every\nnon-NaN pattern re-encodes exactly, 2046 NaN payloads identified), plus\ndirected edges (1.0/#x3C00, -0.0/#x8000, ±inf, NaN, max finite,\n65520.0 overflow tie, subnormal and carry ties, negatives). The old\n(test-equal #f f16-storage-class) is replaced by check-storage-class\ncoverage.\n\nOfficial suite: divergence ids 98/148/149 pruned. Id 150 turned out to\nbe overloaded — it was hiding two pre-existing c64/c128 row failures\n(the reference backs complex classes with even-length f32/f64vector\npairs, kaappi uses native c64vector/c128vector) alongside its f16 row;\nit stays, re-scoped to that accurate reason (#2382). Regenerated, never\nhand-edited: 10922 passed, 231 error-message-only, 5 known divergences,\n0 unexpected failures, 0 resolved divergences — evaluation count up\nfrom 8879 now that f16 paths complete (array-copy/appends with real\nhalf-float rounding through the random-builder blocks are the external\noracle the issue asked for). arrays.sld needs no widening table: this\nport's array-copy goes through the generic checker/setter path.\n\nDocs: storage-classes.sld header and srfi-implementation-notes.md now\nsay 16 real / 1 deferred (f8); testing.md's divergence-reason examples\nupdated; CHANGELOG Added entry.\n\nValidated: srfi231-storage-classes.scm 202 passes, the official suite\ngreen as above, and tests/scheme/run-all.sh (720 Scheme files, R7RS\n1395/1395; 2115 pass, 0 fail).\n\nCloses #2379\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Harden srfi231-official divergence accounting with exact counts (review)\n\nBoth reviewers flagged the same gap on #2383: known-divergence matched\nby numeric id alone, but test id 150's form runs once per storage-class\nrow (16 evaluations), so its c64/c128 entry would absorb a failure in\nANY row under the id — including the f16 row this PR just made live. A\nregressed f16 would print DIVERGENT-EXPECTED and still exit 0; the\nepilogue only gated on failed-tests and resolved-divergences, so the\ndivergence count silently going 5 -> 6 failed nothing.\n\nThe granularity limitation is pre-existing (the old entry lumped\nf16+c64+c128 the same way), but before this PR every row under the id\nwas expected to fail, so nothing could hide; rows expected to PASS\nunder a shared id is the new situation.\n\nFix, per the review's suggested shape (stays inside the existing\narchitecture, no renumbering of upstream ids): each entry becomes\n(id expected-count . reason) — 147/1, 150/2, 351/2 — report-failure\ncounts per-id observations into diverged-counts, and the epilogue\nfails the suite on any mismatch in either direction: zero observed is\nthe existing stale-entry DIVERGENCE-RESOLVED; more than expected is a\nnew DIVERGENCE-COUNT-MISMATCH (an undocumented failure is hiding under\nthe id); fewer is the same mismatch with an over-accounting message\n(re-count it). The suite is deterministic (fixed SRFI 27 seeds), so\nthe counts are stable run to run.\n\nNegative test (scratch copy, not committed): corrupting the f16 row's\ngood-data fixture to an s16vector — the exact hiding scenario — now\nyields 'DIVERGENCE-COUNT-MISMATCH 150: expected 2 diverging\nevaluations, observed 3' and exit 1; before this commit it exited 0.\n\nAlso takes the optional %ilogb review nit: clamp the halving/doubling\nloop to [-15, 16] (bail once the classification — '<= -15', 'in\n[-14,15]', '>= 16' — is decided), bounding it to ~31 iterations for\nastronomical doubles instead of ~1000. No observable change: the\nexhaustive sweep and all directed edges are byte-identical, and\nencode of 1e300/-1e300/5e-324/-5e-324 lands on ±inf/±0 as before.\n\nValidated: storage-classes 202 passes; official suite 10922 passed /\n0 unexpected / 0 resolved / 0 count mismatches; fmt corpus 938 files\nzero-drift idempotent.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-27T12:58:53Z",
+          "tree_id": "1b7c41c6c055a3bc9e61c2b45e2f3a2a168c0c51",
+          "url": "https://github.com/kaappi/kaappi/commit/a6cf52dba05c70fe7f4ef999b1dda2457b44b585"
+        },
+        "date": 1787837863987,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.986192,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.634608,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.540421,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.770797,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005287,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.045077,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.283947,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054324,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.871038,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.113995,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.504158,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.26428,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.642391,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.057461,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041804,
             "unit": "seconds"
           }
         ]
