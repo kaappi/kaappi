@@ -92,13 +92,10 @@ pub fn compileDefineSyntax(self: *Compiler, args: Value, dst: u16) CompileError!
     if (self.body_macro_depth == 0) {
         if (self.lib_env) |env| {
             env.put(name, transformer) catch return CompileError.OutOfMemory;
-            // #1961: for a mutable SchemeEnvironment (eval/environment
-            // objects — assertEnvMapInvariant's env_val case) this store is
-            // an old→young edge on that heap object once it promotes; the
-            // VM-rooted library lib_envs (env_val NIL) are marked as roots
-            // every collection, where the barrier is simply a no-op.
-            if (types.isEnvironment(self.lib_env_val))
-                self.gc.writeBarrier(types.toObject(self.lib_env_val), transformer);
+            // #1961: the shared envStoreBarrier (mutable eval/environment
+            // objects only — the interaction-environment wrapper's map is
+            // the root-marked globals and enrolls nothing).
+            self.gc.envStoreBarrier(self.lib_env_val, transformer);
         }
     }
 
@@ -720,11 +717,9 @@ fn resolveTransformerSpecRec(self: *Compiler, spec_in: Value, merged_macros: *st
                 if (self.body_macro_depth == 0) {
                     if (self.lib_env) |env| {
                         env.put(def_name, def_transformer) catch return CompileError.OutOfMemory;
-                        // #1961: same old→young edge on a mutable
-                        // SchemeEnvironment as compileDefineSyntax's own
-                        // lib_env store above.
-                        if (types.isEnvironment(self.lib_env_val))
-                            self.gc.writeBarrier(types.toObject(self.lib_env_val), def_transformer);
+                        // #1961: same shared rule as compileDefineSyntax's
+                        // own lib_env store above.
+                        self.gc.envStoreBarrier(self.lib_env_val, def_transformer);
                     }
                 }
                 rest = types.cdr(rest);

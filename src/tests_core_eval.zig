@@ -973,3 +973,35 @@ test "define/set! into a promoted mutable env survive a minor collection (#1961)
         "(eval '(vector-ref reg-box-1961 0) __test-mut-env)",
     )));
 }
+
+// #1961 (review follow-up): define-syntax through the interaction-
+// environment must NOT enroll its wrapper in the remembered set — the
+// wrapper's map is the root-marked globals map, and enrolling it would
+// re-walk every global once per minor until process exit. GC.envStoreBarrier
+// is the one place that exclusion lives; this is the reviewer's reachable
+// path (mutable wrapper, top-level depth, lib_env = vm.globals).
+test "define-syntax via interaction-environment does not enroll the wrapper (#1961)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    _ = try ctx.vm.eval("(define ie (interaction-environment))");
+    const ie_val = try ctx.vm.eval("ie");
+
+    // A fresh wrapper per call; promote this one.
+    ctx.gc.enabled = false;
+    ctx.gc.minor_cycle_count = 0;
+    ctx.gc.collect();
+    ctx.gc.minor_cycle_count = 0;
+    ctx.gc.collect();
+    try std.testing.expectEqual(@as(u1, 1), types.toEnvironment(ie_val).header.flags.generation);
+
+    _ = try ctx.vm.eval("(eval '(define-syntax k-1961 (syntax-rules () ((_) 1))) ie)");
+
+    const wrapper = types.toObject(ie_val);
+    for (ctx.gc.remembered_set.items) |o| {
+        try std.testing.expect(o != wrapper);
+    }
+    // The store itself happened — only the enrollment is skipped.
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(try ctx.vm.eval("(eval '(k-1961) ie)")));
+}

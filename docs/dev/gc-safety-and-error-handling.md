@@ -150,10 +150,11 @@ Two things deliberately do **not** rely on the barrier:
 - The root-marked maps (`vm.globals`, library `lib_env`s): their values are
   marked directly as roots every collection, so `set!`/`define` into them
   needs no barrier — nor into the interaction-environment wrapper, whose
-  map *is* `vm.globals` (the `.owned == false` case the handlers skip). A
-  *mutable* `SchemeEnvironment` (the `eval`/`environment` objects) is a
-  heap object, not a root-marked map — the `define`/`set!`/`define-syntax`
-  stores into its map carry a write barrier on the wrapper object, and the
+  map *is* `vm.globals`. That exclusion and the barrier it gates live once,
+  in `GC.envStoreBarrier`: a *mutable* `SchemeEnvironment` (the `eval`/
+  `environment` objects) is a heap object, not a root-marked map, so the
+  `define`/`set!`/`define-syntax` stores into its map carry a write barrier
+  on the wrapper object — the `.owned == false` wrapper does not. The
   compiler's `def_env_val`/`let_syntax_peer_vals` stores into a
   possibly-promoted aliased transformer (SRFI 147/211) carry one on the
   transformer.

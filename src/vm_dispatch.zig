@@ -350,16 +350,13 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     // #1961: when the target map belongs to a mutable
                     // SchemeEnvironment (func.env_val — the eval/environment
                     // objects), this store is an old→young edge on that heap
-                    // object once it promotes. The VM-rooted maps (globals,
-                    // library lib_envs — env_val NIL there) are marked as
-                    // roots every collection and need no barrier; so does the
-                    // interaction-environment wrapper, whose .owned == false
-                    // map IS the root-marked globals map (enrolling it would
-                    // re-walk every global once per minor, forever). Nothing
-                    // allocates between the store and the barrier, so this
-                    // order is as safe as barrier-first.
-                    if (types.isEnvironment(func.env_val) and types.toEnvironment(func.env_val).owned)
-                        self.gc.writeBarrier(types.toObject(func.env_val), val);
+                    // object once it promotes. envStoreBarrier applies the
+                    // one exclusion rule: the interaction-environment wrapper
+                    // and the root-marked maps (globals, library lib_envs)
+                    // are marked as roots every collection and enroll
+                    // nothing. Nothing allocates between the store and the
+                    // barrier, so this order is as safe as barrier-first.
+                    self.gc.envStoreBarrier(func.env_val, val);
                 }
                 self.unlockGlobalsShared();
                 if (ptr == null) {
@@ -416,14 +413,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     env.put(name, val) catch return VMError.OutOfMemory;
                 } else {
                     env.put(name, val) catch return VMError.OutOfMemory;
-                    // #1961: same as set_global — a define into a mutable
-                    // SchemeEnvironment's map is an old→young edge on the
-                    // wrapper object once promoted (the .owned guard skips
-                    // the interaction-environment wrapper, which borrows the
-                    // root-marked globals map; this branch can't see it, but
-                    // the guard keeps the two opcodes' rule identical).
-                    if (types.isEnvironment(func.env_val) and types.toEnvironment(func.env_val).owned)
-                        self.gc.writeBarrier(types.toObject(func.env_val), val);
+                    // #1961: same rule as set_global, via the shared helper
+                    // (envStoreBarrier) so the exclusion lives once.
+                    self.gc.envStoreBarrier(func.env_val, val);
                 }
                 if (func.env == null) {
                     self.global_version +%= 1;

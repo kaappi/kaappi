@@ -398,6 +398,18 @@ pub const GC = struct {
             @panic("GC rememberObject: remembered set OOM");
     }
 
+    /// #1961: barrier a store into a mutable SchemeEnvironment's map (the
+    /// eval/environment objects) — an old→young edge on the wrapper once it
+    /// promotes. The interaction-environment wrapper (.owned == false) is
+    /// excluded: its map IS the root-marked globals map, and enrolling it
+    /// would re-walk every global once per minor, forever. Shared by the
+    /// set_global/define_global handlers and the compiler's define-syntax
+    /// env stores, so the exclusion rule lives in exactly one place.
+    pub fn envStoreBarrier(self: *GC, env_val: Value, val: Value) void {
+        if (types.isEnvironment(env_val) and types.toEnvironment(env_val).owned)
+            self.writeBarrier(types.toObject(env_val), val);
+    }
+
     pub fn writeBarrier(self: *GC, container: *Object, new_val: Value) void {
         if (container.flags.generation == 1 and types.isPointer(new_val)) {
             const child = types.toObject(new_val);
