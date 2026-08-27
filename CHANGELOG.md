@@ -22,6 +22,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   test id (16 storage-class rows re-use one id) can no longer hide behind a
   documented divergence.
 
+### Changed
+
+- **SRFI 231 c64/c128 array bodies use the reference implementation's
+  interleaved-float representation** (#2382) — an `f32vector`/`f64vector`
+  of twice the logical length holding real/imaginary pairs, instead of
+  native `c64vector`/`c128vector` (the byte layout is identical either
+  way: 2 consecutive f32s/f64s per element). Even-length float vectors
+  are now accepted zero-copy by `make-specialized-array-from-data`, so
+  reference-coupled portable code and the official suite's fixtures work
+  unchanged — the spec's `data?` contract (shares, never copies) makes
+  this the only spec-legal way to accept that data shape. Consequences:
+  `(array-body A)` for a c64/c128 array now reports the float vector,
+  the storage-class copier counts floats (2 per complex element), and
+  `c64vector`/`c128vector` data is no longer accepted directly.
+  Official-suite divergence id 150 pruned; the known-divergence table is
+  down to the two unavoidable entries (string mutability, unsafe-view
+  checking).
+
 ## [0.25.0] - 2026-08-27
 
 ### Added

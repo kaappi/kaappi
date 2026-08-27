@@ -741,7 +741,6 @@ NEW_REPORT = ''';;; --- kaappi vendoring: known-divergence accounting ----------
 (define diverged-counts (make-vector 10000 0))
 (define known-divergences
   (list '(147 1 . "R7RS strings are mutable; the suite encodes Gambit's immutable-string expectation")
-        '(150 2 . "c64/c128 are backed by native (srfi 160) c64vector/c128vector, not the reference's even-length f32/f64vector pairs, so those fixtures are rejected (kaappi#2382)")
         '(351 2 . "unsafe specialized views are unchecked per the spec text; the reference happens to check (see kaappi#2362)")))
 (define (known-divergence id) (assq id known-divergences))
 
