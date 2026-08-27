@@ -857,6 +857,19 @@ NEW_SUM = '''
           0 1))'''
 src = src.replace(OLD_SUM, NEW_SUM)
 
+# --- P6: generation-time guard (complement to the runtime epilogue): every
+# known-divergence id must belong to a test form the scanner actually found
+# and numbered. A dropped/renamed upstream form would otherwise surface only
+# as the committed suite's DIVERGENCE-NEVER-EXECUTED after a ~150 s run;
+# here it fails the regeneration itself, instantly. The runtime check stays
+# authoritative for CI -- it guards the committed artifact, not the step.
+div_ids = [int(m) for m in re.findall(r"'\((\d+) \d+ \. \"", NEW_REPORT)]
+assert div_ids, 'no known-divergence ids parsed from NEW_REPORT (regex drifted?)'
+missing_ids = [i for i in div_ids if i not in {m['id'] for m in test_meta}]
+assert not missing_ids, (
+    'known-divergence ids with no test form in the generated suite '
+    '(dropped or renumbered upstream?): %r' % missing_ids)
+
 open(OUT, 'w').write(src)
 # The id->original-line map is debugging metadata for triaging failures;
 # write it only on request so regeneration leaves no untracked droppings.
