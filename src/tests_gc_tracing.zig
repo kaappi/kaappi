@@ -518,6 +518,50 @@ test "gc tracing: scheme_environment traces every binding" {
     try expectTraced(&gc, env, &.{ ref(a, 1), ref(b, 2) });
 }
 
+test "gc tracing: .owned == false environment wrapper skips its map (#2377)" {
+    var gc = newGc();
+    defer gc.deinit();
+    // interaction-environment shape: the map plays the owning VM's globals,
+    // whose values are root-marked every collection (markVmRoots) — the
+    // wrapper's own trace must not walk it. The map stays the test's to
+    // free: freeObject leaves an .owned == false wrapper's map alone.
+    const a = try young(&gc, 1);
+    const b = try young(&gc, 2);
+    const map = try gc.allocator.create(std.StringHashMap(Value));
+    map.* = std.StringHashMap(Value).init(gc.allocator);
+    try map.put("a", a);
+    try map.put("b", b);
+    defer {
+        map.deinit();
+        gc.allocator.destroy(map);
+    }
+    const env = try gc.allocEnvironment(map, false, false);
+    try std.testing.expect(!types.toObject(env).as(types.SchemeEnvironment).owned);
+
+    // Root-marked simulation: the wrapper and one separately-rooted map
+    // value survive minor and full collections with both mark arms
+    // skipping the walk.
+    var env_root = env;
+    gc.pushRoot(&env_root);
+    var a_root = a;
+    gc.pushRoot(&a_root);
+    forceMinor(&gc);
+    try expectAlive(&gc, ref(a, 1));
+    forceFull(&gc);
+    try expectAlive(&gc, ref(a, 1));
+    gc.popRoot();
+    gc.popRoot();
+
+    // Discriminating control: with only the wrapper rooted, the un-rooted
+    // map value must be reclaimed — before #2377 the wrapper's redundant
+    // walk re-marked it through every collection.
+    var only_wrapper = env;
+    gc.pushRoot(&only_wrapper);
+    forceFull(&gc);
+    try expectDead(&gc, ref(b, 2));
+    gc.popRoot();
+}
+
 test "gc tracing: transport_cell traces value, holds key weakly (#2006)" {
     var gc = newGc();
     defer gc.deinit();
