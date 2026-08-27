@@ -283,8 +283,11 @@ Conventions specific to this suite:
   Gambit string-mutability expectation. The suite exits nonzero only on
   *unexpected* failures — or when an entry's divergence count doesn't match
   exactly: zero observed means the entry is stale and hiding real coverage
-  (prune it), and more than recorded means an undocumented failure is
-  absorbing into the entry.
+  (prune it); more than recorded means an undocumented failure is absorbing
+  into the entry; fewer than recorded but nonzero means the entry
+  over-accounts and must be re-counted; and an id that never executes at
+  all fails too, so an entry whose test form a future regeneration drops
+  cannot pass silently.
 - **Error-expecting tests pass on any error** — only the Gambit message
   text differs from kaappi's (counted separately as "error-message-only").
 - **It runs ~150 s** (the isolated `KAAPPI_HOME` compiles the SRFI's
