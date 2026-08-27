@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787823703491,
+  "lastUpdate": 1787830015988,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "bc7cad87bbb16eeb2d6c78b9ddb5c41dc420110e",
-          "message": "Add a pi harness porting the Claude Code hooks (#2234)\n\nPorts the repo's .claude/hooks/* enforcement to pi extensions, so pi\nsessions get the same guards with pi's strengths on top:\n\n- zig fmt on every edit/write of a .zig file (zig-fmt-post.sh), skipped\n  for vendor/ and .zig-cache/\n- destructive bash command gate (bash-guard-pre.sh) with the same five\n  patterns, upgraded from a hard block to a confirm dialog (and still\n  blocked outright when there is no UI to ask)\n- DCO: every git commit gets -s injected before execution — the repo's\n  commit convention, previously advisory only\n- zig build test when the agent settles, run only when a .zig file\n  changed since session start (test-on-stop.sh, using agent_settled\n  which fires only when no retry/compaction/follow-up is left)\n\n.pi/settings.json enables /skill:name commands. The repo's Claude skills\nare already discovered by pi through the existing .agents/skills symlink,\nso no duplicate skills entry is needed.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-06T01:01:27+05:30",
-          "tree_id": "e011a113132273899cab71c5a0edf0349310e994",
-          "url": "https://github.com/kaappi/kaappi/commit/bc7cad87bbb16eeb2d6c78b9ddb5c41dc420110e"
-        },
-        "date": 1785961436920,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.07159,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.915831,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.442244,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.187533,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00376,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.034823,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.23137,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.041772,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.853427,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.902043,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.180289,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.238592,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.323716,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.399445,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.035545,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046205,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "18d97ce33861f09bc09fb67e7a38eea73caaa3d6",
+          "message": "Wire up kaappi.pkg name: and source:; drop version: from the grammar (#2376)\n\n* Wire up kaappi.pkg name: and source:; drop version: from the grammar\n\nThe manifest documented four fields but thottam read only depends: and\nbuild:, so name: and source: were inert -- a manifest could name a\ndifferent package, or declare a source, and the install neither checked\nnor recorded either (kaappi#2138). version: was never a field at all.\n\nname: is now consistency-checked against the package being installed: a\nmanifest that names a different package is a packaging error and the\ninstall refuses before recording anything. It stays optional, but a\nmismatching name: is never accepted.\n\nsource: is recorded as the lockfile's provenance on a bare-name install\n(no ::url), so `thottam list` shows `(from: ...)` and a later --locked\ninstall fetches from it -- surfaced with a one-line note, since the\nmanifest is then steering where the package comes from. It cannot redirect\nthe first clone: thottam reads the manifest only after cloning, so the\ninitial fetch URL is always the command-line ::url or the KAAPPI_ORG\ndefault. A ::url that disagrees with source: warns (a fork/mirror is\nlegitimate) and the URL actually fetched is what reaches the lockfile,\nnever the manifest's claim. --locked mode is untouched: the lockfile stays\nauthoritative and the manifest's source: is ignored (#2137).\n\nversion: is dropped from the documented grammar -- thottam locks by git\nSHA, so a manifest version means nothing -- and it keeps being ignored\nlike any unknown key.\n\nRegression tests: the parser unit tests now pin all four read fields (and\nthe empty-value-is-absent rule); the lifecycle shell suite's #2138 scenario\nis rewritten from \"these fields are inert\" to cover the name-mismatch\nrefusal, provenance recording with its note, the ::url-vs-source warning,\nand the no-name install.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: name-check clean exit, locked scoping, URL normalize\n\nFive findings from @baijum on the #2138 wire-up:\n\n- [P2] ManifestNameMismatch was not in the install command's top-level exit\n  set, so it fell through to `return err` and Zig's default handler printed\n  the raw error name as a second line -- the #2132 duplicate-message pattern.\n  Add it to the std.process.exit(1) set, and pin the raw name's absence in\n  the lifecycle test.\n\n- Scope the name: and source: reconciliation to unlocked installs. In\n  --locked mode the lockfile vouches for the exact SHA, so the manifest at\n  that SHA is not re-litigated -- this makes \"--locked mode is untouched\"\n  actually true (the name check previously ran in every mode). Pinned both\n  directions in the lifecycle suite.\n\n- [P3] The source: comparison was a strict string equal, so a trailing `/`\n  or a `.git` suffix -- the same remote -- warned as a divergence, training\n  users to ignore the warning. Compare canonicalized (trailing slash and\n  .git stripped); a scheme difference (http vs https) is a real downgrade\n  and still warns. Unit-tested in tests_thottam.zig.\n\n- [P4] The provenance note went to stdout while the reconciliation warning\n  went to stderr; send the note to stderr too so `install > log` keeps both.\n\n- [P4] A refused install left its fresh checkout in $KAAPPI_HOME/src, which\n  `list`/`verify` don't know about and a later install would reuse via the\n  dirExists guard. Remove it on the refusal path -- but only when this\n  invocation created it, never an already-installed package's tree.\n\nDeclined nothing; all five addressed. docs/dev/thottam.md updated for the\nlocked-mode scoping and the URL normalization.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-27T10:43:28Z",
+          "tree_id": "3a687b4ca3e26d7161ae8c1c41967c064e1a2b43",
+          "url": "https://github.com/kaappi/kaappi/commit/18d97ce33861f09bc09fb67e7a38eea73caaa3d6"
+        },
+        "date": 1787830012743,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.364157,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.945943,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.55972,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.145532,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004891,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048268,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.313407,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057111,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.838049,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.23486,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.631478,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.282315,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.728052,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.63627,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046571,
             "unit": "seconds"
           }
         ]
