@@ -688,34 +688,170 @@ check "--locked matching-source restore records the same provenance" \
     "$ORG/kaappi-alpha.git" "$(cat "$KAAPPI_HOME/thottam.lock")"
 
 # ---------------------------------------------------------------------------
-# 10. kaappi.pkg's name:/version:/source: fields are inert (issue #2138)
+# 10. kaappi.pkg's name: and source: fields are wired up (issue #2138)
 # ---------------------------------------------------------------------------
 
-# A manifest that lies about its identity or hosting must not change the
-# install: only depends: and build: are read, and every other key is ignored
-# by construction — the parser no longer recognises them.
-mkdir -p "$WORK/kaappi-srcfield/lib/kaappi"
+# name: is consistency-checked against the package being installed. A manifest
+# that names a different package is a packaging error, and the install refuses
+# BEFORE recording anything, rather than cloning under the wrong identity.
+mkdir -p "$WORK/kaappi-badname/lib/kaappi"
 (
-    cd "$WORK/kaappi-srcfield"
+    cd "$WORK/kaappi-badname"
     git init -q .
     printf 'name: WRONG-NAME-ENTIRELY\nsource: https://evil.example.com/not-this-repo\nversion: 99.99.99\n' > kaappi.pkg
-    printf '(define-library (kaappi srcfield) (export tag) (import (scheme base)) (begin (define tag "srcfield")))\n' \
-        > lib/kaappi/srcfield.sld
+    printf '(define-library (kaappi badname) (export tag) (import (scheme base)) (begin (define tag "bad")))\n' \
+        > lib/kaappi/badname.sld
     git add -A
     git_q commit -q -m base
 )
-git clone -q --bare "$WORK/kaappi-srcfield" "$ORG/kaappi-srcfield.git"
+git clone -q --bare "$WORK/kaappi-badname" "$ORG/kaappi-badname.git"
 fresh_home
-out="$("$THOTTAM" install kaappi-srcfield 2>&1)" && ec=0 || ec=$?
-check_exit "a manifest with an unrelated name and source installs" 0 "$ec"
-check_not "a manifest's source: never reaches the lockfile" \
-    "evil.example.com" "$(cat "$KAAPPI_HOME/thottam.lock")"
-check_not "a manifest's source: never shows in list" \
-    "evil.example.com" "$("$THOTTAM" list)"
-check "the installed package is verified under its real name" "OK: kaappi-srcfield" \
-    "$("$THOTTAM" verify)"
+out="$("$THOTTAM" install kaappi-badname 2>&1)" && ec=0 || ec=$?
+check_exit "a manifest naming a different package is refused" 1 "$ec"
+check "the refusal names both the declared and the requested name" \
+    "declares name 'WRONG-NAME-ENTIRELY' but installing 'kaappi-badname'" "$out"
+check_not "the refused package is not recorded in the lockfile" \
+    "kaappi-badname" "$(cat "$KAAPPI_HOME/thottam.lock" 2>/dev/null || true)"
+# The refusal exits cleanly: no raw `error.ManifestNameMismatch` second line
+# from Zig's default handler (the #2132 duplicate-message pattern).
+check_not "the refusal prints no raw Zig error name" "error.ManifestNameMismatch" "$out"
+# And it leaves no unrecorded checkout behind for a later install to reuse.
+[[ -d "$KAAPPI_HOME/src/kaappi-badname" ]] && leftover=present || leftover=absent
+check "the refused install leaves no checkout behind" "absent" "$leftover"
+# version: is not a field — thottam locks by git SHA — so it neither helps nor
+# harms; the refusal above came from name:, never from the bogus version.
 
-# A manifest with only the two read fields installs cleanly too.
+# In --locked mode the lockfile vouches for the exact SHA, so the manifest is
+# not re-litigated: a name: that mismatches does NOT refuse a locked restore
+# (the check is scoped to unlocked installs, matching source: being ignored
+# under --locked). Seed a lockfile pointing at the badname repo, then restore.
+fresh_home
+badsha="$(git -C "$ORG/kaappi-badname.git" rev-parse HEAD)"
+printf 'kaappi-badname %s\n' "$badsha" > "$KAAPPI_HOME/thottam.lock"
+mkdir -p "$KAAPPI_HOME"
+out="$("$THOTTAM" install --locked kaappi-badname 2>&1)" && ec=0 || ec=$?
+check_exit "--locked does not enforce name: (lockfile vouches for the SHA)" 0 "$ec"
+check_not "the locked restore does not raise a name mismatch" \
+    "declares name" "$out"
+
+# source: on a bare-name install is recorded as provenance, so `list` shows
+# where the package is hosted. The record is surfaced with a note, never
+# silent, because the manifest now steers where a later --locked install
+# fetches from.
+mkdir -p "$WORK/kaappi-declared/lib/kaappi"
+(
+    cd "$WORK/kaappi-declared"
+    git init -q .
+    printf 'name: kaappi-declared\nsource: https://forge.example.org/kaappi-declared\n' > kaappi.pkg
+    printf '(define-library (kaappi declared) (export tag) (import (scheme base)) (begin (define tag "d")))\n' \
+        > lib/kaappi/declared.sld
+    git add -A
+    git_q commit -q -m base
+)
+git clone -q --bare "$WORK/kaappi-declared" "$ORG/kaappi-declared.git"
+fresh_home
+out="$("$THOTTAM" install kaappi-declared 2>&1)" && ec=0 || ec=$?
+check_exit "a manifest with a valid name and a source installs" 0 "$ec"
+check "the declared source is surfaced with a note at record time" \
+    "note: recording declared source https://forge.example.org/kaappi-declared" "$out"
+check "the declared source reaches the lockfile as provenance" \
+    "https://forge.example.org/kaappi-declared" "$(cat "$KAAPPI_HOME/thottam.lock")"
+check "the declared source shows in list" \
+    "(from: https://forge.example.org/kaappi-declared)" "$("$THOTTAM" list)"
+
+# A command-line ::url is authoritative for the fetch; a manifest source: that
+# disagrees warns (a fork/mirror is legitimate) and the lockfile records the
+# URL actually fetched, not the manifest's claim.
+fresh_home
+out="$("$THOTTAM" install "kaappi-declared::$ORG/kaappi-declared.git" 2>&1)" && ec=0 || ec=$?
+check_exit "an install with a ::url that disagrees with source: still succeeds" 0 "$ec"
+check "the divergence between ::url and manifest source: is warned, not silent" \
+    "declares source 'https://forge.example.org/kaappi-declared' but was fetched from" "$out"
+check "the lockfile records the fetched ::url, not the manifest's claim" \
+    "$ORG/kaappi-declared.git" "$(cat "$KAAPPI_HOME/thottam.lock")"
+check_not "the manifest's claimed source does not override the fetch URL" \
+    "forge.example.org" "$(cat "$KAAPPI_HOME/thottam.lock")"
+
+# A ::url that differs from source: only by a trailing slash or a `.git` suffix
+# is the same remote, so it must NOT warn — otherwise the warning trains users
+# to ignore it. Manifest declares the bare path; install via the `.git` spelling.
+mkdir -p "$WORK/kaappi-cosmetic/lib/kaappi"
+(
+    cd "$WORK/kaappi-cosmetic"
+    git init -q .
+    printf 'name: kaappi-cosmetic\nsource: %s/kaappi-cosmetic\n' "$ORG" > kaappi.pkg
+    printf '(define-library (kaappi cosmetic) (export tag) (import (scheme base)) (begin (define tag "c")))\n' \
+        > lib/kaappi/cosmetic.sld
+    git add -A
+    git_q commit -q -m base
+)
+git clone -q --bare "$WORK/kaappi-cosmetic" "$ORG/kaappi-cosmetic.git"
+fresh_home
+out="$("$THOTTAM" install "kaappi-cosmetic::$ORG/kaappi-cosmetic.git" 2>&1)" && ec=0 || ec=$?
+check_exit "a cosmetic ::url-vs-source: difference installs" 0 "$ec"
+check_not "a trailing-.git-only difference does not warn" "declares source" "$out"
+
+# A later --locked install actually consumes the recorded source: it clones
+# from the manifest-declared remote, not the org default. The default's own
+# repo declares an alternate remote (a byte-identical bare clone, so the SHA
+# matches); a bare-name install records the alternate as provenance; then the
+# default is made unavailable and a --locked restore must still succeed —
+# proving it fetched from the recorded alternate.
+mkdir -p "$WORK/kaappi-mirror/lib/kaappi"
+(
+    cd "$WORK/kaappi-mirror"
+    git init -q .
+    printf 'name: kaappi-mirror\nsource: %s/kaappi-mirror-alt.git\n' "$ORG" > kaappi.pkg
+    printf '(define-library (kaappi mirror) (export tag) (import (scheme base)) (begin (define tag "m")))\n' \
+        > lib/kaappi/mirror.sld
+    git add -A
+    git_q commit -q -m base
+)
+git clone -q --bare "$WORK/kaappi-mirror" "$ORG/kaappi-mirror.git"
+# The alternate is a byte-identical bare clone, so its HEAD SHA matches.
+git clone -q --bare "$ORG/kaappi-mirror.git" "$ORG/kaappi-mirror-alt.git"
+fresh_home
+"$THOTTAM" install kaappi-mirror > /dev/null 2>&1
+check "the recorded provenance is the declared alternate remote" \
+    "kaappi-mirror-alt.git" "$(cat "$KAAPPI_HOME/thottam.lock")"
+# Wipe the checkout and make the org default unreachable; only the recorded
+# alternate can satisfy the restore now.
+rm -rf "$KAAPPI_HOME/src/kaappi-mirror" "$KAAPPI_HOME/lib/kaappi/mirror.sld"
+: > "$KAAPPI_HOME/installed.txt"
+mv "$ORG/kaappi-mirror.git" "$ORG/kaappi-mirror.git.unavailable"
+out="$("$THOTTAM" install --locked kaappi-mirror 2>&1)" && ec=0 || ec=$?
+check_exit "--locked restore clones from the recorded source (org default gone)" 0 "$ec"
+check_file "the locked restore actually fetched the library" \
+    "$KAAPPI_HOME/lib/kaappi/mirror.sld"
+mv "$ORG/kaappi-mirror.git.unavailable" "$ORG/kaappi-mirror.git"
+
+# A manifest source that is a git remote-helper transport (ext::<cmd> executes
+# a command) is refused, never recorded, and never executed — the package still
+# installs from where it was actually fetched (kaappi#2138, CWE-78).
+evilmarker="$WORK/evil-ran"
+mkdir -p "$WORK/kaappi-evilsrc/lib/kaappi"
+(
+    cd "$WORK/kaappi-evilsrc"
+    git init -q .
+    printf "name: kaappi-evilsrc\nsource: ext::sh -c 'touch %s'\n" "$evilmarker" > kaappi.pkg
+    printf '(define-library (kaappi evilsrc) (export tag) (import (scheme base)) (begin (define tag "e")))\n' \
+        > lib/kaappi/evilsrc.sld
+    git add -A
+    git_q commit -q -m base
+)
+git clone -q --bare "$WORK/kaappi-evilsrc" "$ORG/kaappi-evilsrc.git"
+fresh_home
+out="$("$THOTTAM" install kaappi-evilsrc 2>&1)" && ec=0 || ec=$?
+check_exit "a manifest with an ext:: source still installs from the fetched remote" 0 "$ec"
+check "the unsupported transport is refused with a warning" \
+    "unsupported source transport" "$out"
+check_not "the ext:: source is not recorded in the lockfile" \
+    "ext::" "$(cat "$KAAPPI_HOME/thottam.lock")"
+[[ -e "$evilmarker" ]] && evilran=yes || evilran=no
+check "the ext:: command is never executed" "no" "$evilran"
+
+# A manifest without a name: still installs — name: is checked when present,
+# not required to exist.
 mkdir -p "$WORK/kaappi-minimal/lib/kaappi"
 (
     cd "$WORK/kaappi-minimal"

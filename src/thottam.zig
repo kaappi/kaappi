@@ -280,8 +280,10 @@ fn getPkgManifest(allocator: std.mem.Allocator, src_dir: []const u8, pkg: []cons
     const content = readFile(allocator, pkg_file) catch return null;
     defer allocator.free(content);
     var m = parsePkgManifest(content);
+    m.name = if (m.name) |n| allocator.dupe(u8, n) catch null else null;
     m.depends = if (m.depends) |d| allocator.dupe(u8, d) catch null else null;
     m.build_cmd = if (m.build_cmd) |b| allocator.dupe(u8, b) catch null else null;
+    m.source = if (m.source) |s| allocator.dupe(u8, s) catch null else null;
     m.owned = true;
     return m;
 }
@@ -584,6 +586,35 @@ fn freeVisited(allocator: std.mem.Allocator, visited: *std.StringHashMap(void)) 
     visited.deinit();
 }
 
+/// A source URL with a trailing `/` and a `.git` suffix trimmed — the
+/// cosmetic spellings of one canonical remote. A scheme difference (http vs
+/// https) is deliberately NOT normalized: it is a downgrade, not cosmetic.
+fn canonicalSource(s: []const u8) []const u8 {
+    var t = s;
+    while (t.len > 0 and t[t.len - 1] == '/') t = t[0 .. t.len - 1];
+    if (std.mem.endsWith(u8, t, ".git")) t = t[0 .. t.len - 4];
+    return t;
+}
+
+/// Whether two source URLs name the same repository, ignoring a trailing slash
+/// and a `.git` suffix (kaappi#2138).
+pub fn sourcesEquivalent(a: []const u8, b: []const u8) bool {
+    return std.mem.eql(u8, canonicalSource(a), canonicalSource(b));
+}
+
+/// Whether a manifest-declared `source:` is safe to record in the lockfile and
+/// later hand to `git clone` under --locked. It is attacker-controlled (it
+/// comes from the cloned repo), and git's remote-helper transports use the
+/// `<transport>::<address>` form to run an arbitrary command (`ext::<cmd>`,
+/// `fd::…`), so any `::` is refused; so is a leading `-`, which `git clone`
+/// would read as an option (kaappi#2138, CWE-78). A command-line `::url` is
+/// user-chosen and not gated here; the clone itself disables `ext` regardless.
+pub fn isRecordableSource(s: []const u8) bool {
+    if (s.len == 0 or s[0] == '-') return false;
+    if (std.mem.indexOf(u8, s, "::") != null) return false;
+    return true;
+}
+
 fn doInstall(
     allocator: std.mem.Allocator,
     config: Config,
@@ -760,13 +791,24 @@ fn doInstall(
         break :blk std.fmt.bufPrint(&buf, "{s}/{s}.git", .{ config.org, pkg }) catch return error.OutOfMemory;
     };
 
-    if (!dirExists(allocator, pkg_dir)) {
+    // Whether this invocation created the checkout. A later refusal (a manifest
+    // name mismatch) removes it only when we made it, never an already-installed
+    // package's tree (kaappi#2138).
+    const did_clone = !dirExists(allocator, pkg_dir);
+    if (did_clone) {
         writeStdout("  Cloning ");
         writeStdout(clone_url);
         writeStdout("...\n");
         const url_copy = try allocator.dupe(u8, clone_url);
         defer allocator.free(url_copy);
-        runGit(allocator, &.{ "clone", "--quiet", "--", url_copy, pkg_dir }) catch |err| switch (err) {
+        // `protocol.ext.allow=never` disables git's `ext::` remote helper,
+        // which runs an arbitrary command from a `ext::<cmd>` URL. A clone URL
+        // can reach here from a manifest's `source:` (recorded in the lockfile
+        // and cloned under --locked), so this closes the OS-command-injection
+        // vector at the git call regardless of where the URL came from
+        // (kaappi#2138, CWE-78). Local file paths use the `file` transport and
+        // are unaffected.
+        runGit(allocator, &.{ "-c", "protocol.ext.allow=never", "clone", "--quiet", "--", url_copy, pkg_dir }) catch |err| switch (err) {
             error.GitNotFound => return missingGit("install packages"),
             else => {
                 printErrColor(Color.red, "  Failed to clone repository\n");
@@ -799,9 +841,86 @@ fn doInstall(
         }
     }
 
-    if (getPkgManifest(allocator, config.src_dir, pkg)) |manifest| {
-        defer manifest.deinit(allocator);
-        if (manifest.depends) |deps| {
+    // The manifest is read only now, because it lives in the checkout we just
+    // cloned — so a package's own `source:` can never redirect its *first*
+    // clone (that URL is settled above). It is kept alive until after the
+    // lockfile is written, because `record_source` may alias `manifest.source`.
+    const manifest = getPkgManifest(allocator, config.src_dir, pkg);
+    defer if (manifest) |m| m.deinit(allocator);
+
+    // Provenance to record in the lockfile. In --locked mode the lockfile's own
+    // source is authoritative and must survive the check (#2137); otherwise a
+    // command-line `::url` wins, and absent one the manifest's declared
+    // `source:` is recorded so `thottam list` shows where the package is
+    // hosted (kaappi#2138).
+    var record_source: ?[]const u8 = if (locked_mode) locked_source else parsed.source;
+
+    // name: and source: reconciliation both run only outside --locked mode. In
+    // --locked mode the lockfile vouches for the exact SHA and is authoritative
+    // for provenance (#2137), so the manifest at that SHA is not re-litigated —
+    // this is what makes "--locked mode is untouched" true rather than nearly
+    // true (kaappi#2138).
+    if (manifest) |m| if (!locked_mode) {
+        // A manifest that names a different package than the one being
+        // installed is a packaging error, not a fetch to silently record
+        // (kaappi#2138). `name:` was documented as the one required field;
+        // this is what finally enforces it.
+        if (m.name) |declared| {
+            if (!std.mem.eql(u8, declared, pkg)) {
+                // Don't leave an unrecorded checkout behind: `list`/`verify`
+                // would not know about it, and a later fixed install would
+                // silently reuse it (the dirExists guard skips re-cloning).
+                // Only remove what this invocation created.
+                if (did_clone) removeDir(allocator, pkg_dir) catch {};
+                var msg_buf: [512]u8 = undefined;
+                printErrColor(Color.red, "error: ");
+                const msg = std.fmt.bufPrint(&msg_buf, "manifest declares name '{s}' but installing '{s}'\n", .{ declared, pkg }) catch "manifest name mismatch\n";
+                writeStderr(msg);
+                return error.ManifestNameMismatch;
+            }
+        }
+
+        // Reconcile the declared `source:` with how we actually fetched. A
+        // command-line `::url` is authoritative for the fetch; the manifest
+        // only informs provenance.
+        if (m.source) |declared| {
+            if (parsed.source) |supplied| {
+                // A fork or mirror sharing history is legitimate, so a
+                // divergence warns rather than refuses — but it is never
+                // silent, which is the whole point of the field. Trailing `/`
+                // and a `.git` suffix are cosmetic and do not warn; a scheme
+                // difference (http vs https) is a real downgrade and still does.
+                if (!sourcesEquivalent(supplied, declared)) {
+                    var w: [640]u8 = undefined;
+                    printErrColor(Color.yellow, "  warning: ");
+                    const msg = std.fmt.bufPrint(&w, "{s} declares source '{s}' but was fetched from '{s}'\n", .{ pkg, declared, supplied }) catch "declared source differs from fetch URL\n";
+                    writeStderr(msg);
+                }
+            } else if (isRecordableSource(declared)) {
+                // Installed by bare name: record the declared home as
+                // provenance so `thottam list` shows it and a later --locked
+                // install fetches from it. Surfaced on stderr, alongside the
+                // warning above, not silent — the manifest now steers where the
+                // package comes from, the interaction #2138 flags.
+                record_source = declared;
+                writeStderr("  note: recording declared source ");
+                writeStderr(declared);
+                writeStderr("\n");
+            } else {
+                // A manifest source that could execute a command as a git
+                // remote helper (or inject a clone option) is refused rather
+                // than recorded; the package still installs from where it was
+                // actually fetched (kaappi#2138, CWE-78).
+                var w: [640]u8 = undefined;
+                printErrColor(Color.yellow, "  warning: ");
+                const msg = std.fmt.bufPrint(&w, "{s} declares an unsupported source transport '{s}'; not recording it\n", .{ pkg, declared }) catch "unsupported source transport in manifest\n";
+                writeStderr(msg);
+            }
+        }
+    };
+
+    if (manifest) |m| {
+        if (m.depends) |deps| {
             var dep_it = std.mem.splitScalar(u8, deps, ' ');
             while (dep_it.next()) |dep| {
                 if (dep.len > 0) {
@@ -810,7 +929,7 @@ fn doInstall(
             }
         }
 
-        if (manifest.build_cmd) |build_cmd| {
+        if (m.build_cmd) |build_cmd| {
             try runBuildCommand(allocator, pkg, build_cmd, pkg_dir);
         }
     }
@@ -821,9 +940,7 @@ fn doInstall(
     }
 
     try addToInstalled(allocator, config.installed, pkg);
-    // A --locked install must not rewrite the lockfile's recorded source: the
-    // provenance it is checking must survive the check (#2137).
-    try updateLockfile(allocator, config.lockfile, pkg, resolved_sha, if (locked_mode) locked_source else parsed.source);
+    try updateLockfile(allocator, config.lockfile, pkg, resolved_sha, record_source);
     writeStdout("  ");
     printColor(Color.green, pkg);
     printBuf(&buf, " installed (locked at {s})\n", .{resolved_sha});
@@ -1310,8 +1427,9 @@ pub fn main(init: std.process.Init.Minimal) !void {
             // InvalidPackageName already printed its own message; exiting here
             // keeps Zig's default handler from printing the raw error name as a
             // second line (kaappi#2132). GitNotFound likewise prints its own
-            // message at the clone site (kaappi#2152).
-            if (err == error.GitFailed or err == error.BuildFailed or err == error.CopyFailed or err == error.InvalidPackageName or err == error.GitNotFound) std.process.exit(1);
+            // message at the clone site (kaappi#2152), and ManifestNameMismatch
+            // at the name check (kaappi#2138).
+            if (err == error.GitFailed or err == error.BuildFailed or err == error.CopyFailed or err == error.InvalidPackageName or err == error.GitNotFound or err == error.ManifestNameMismatch) std.process.exit(1);
             return err;
         };
     } else if (std.mem.eql(u8, cmd, "remove")) {

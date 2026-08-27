@@ -466,20 +466,63 @@ test "isValidPkgName accepts the shapes the ecosystem actually uses" {
 // kaappi.pkg manifest parsing
 // ---------------------------------------------------------------------------
 
-test "parsePkgManifest reads the two read fields and ignores the rest" {
-    // Only depends and build are read. name, source and version are
-    // documented as ignored — a manifest that lies about its identity or
-    // hosting must not change the install (issue #2138).
+test "parsePkgManifest reads name, depends, build and source; version is ignored" {
+    // Since #2138 the parser reads four fields: `name:` (consistency-checked
+    // against the package being installed), `depends:`, `build:`, and
+    // `source:` (recorded as provenance). `version:` is not a field — thottam
+    // locks by git SHA, so a manifest version means nothing and is dropped
+    // like any unknown key.
     const m = state.parsePkgManifest(
         \\name: kaappi-web
-        \\source: https://evil.example.com/not-this-repo
+        \\source: https://github.com/someone/kaappi-web
         \\version: 99.99.99
         \\depends: kaappi-http kaappi-json
         \\build: make
         \\
     );
+    try std.testing.expectEqualStrings("kaappi-web", m.name.?);
     try std.testing.expectEqualStrings("kaappi-http kaappi-json", m.depends.?);
     try std.testing.expectEqualStrings("make", m.build_cmd.?);
+    try std.testing.expectEqualStrings("https://github.com/someone/kaappi-web", m.source.?);
+}
+
+test "parsePkgManifest treats empty name: and source: as absent (#2138)" {
+    // An empty value is an absence, not a claim — the same rule `build:`
+    // already follows — so a blank `name:`/`source:` does not trigger the
+    // install-time mismatch check or a provenance record.
+    const m = state.parsePkgManifest("name:\nsource:  \ndepends: dep\n");
+    try std.testing.expect(m.name == null);
+    try std.testing.expect(m.source == null);
+    try std.testing.expectEqualStrings("dep", m.depends.?);
+}
+
+test "sourcesEquivalent ignores trailing slash and .git, keeps scheme (#2138)" {
+    const eq = thottam.sourcesEquivalent;
+    // Cosmetic differences — the same remote — do not warn.
+    try std.testing.expect(eq("https://h/p", "https://h/p.git"));
+    try std.testing.expect(eq("https://h/p", "https://h/p/"));
+    try std.testing.expect(eq("https://h/p.git", "https://h/p/"));
+    try std.testing.expect(eq("https://h/p", "https://h/p"));
+    // A scheme downgrade is NOT cosmetic — it still warns.
+    try std.testing.expect(!eq("https://h/p", "http://h/p"));
+    // A genuinely different repository still warns.
+    try std.testing.expect(!eq("https://h/p", "https://h/q"));
+}
+
+test "isRecordableSource refuses remote-helper transports and option-shaped URLs (#2138)" {
+    const ok = thottam.isRecordableSource;
+    // Ordinary remotes and local paths are recordable.
+    try std.testing.expect(ok("https://github.com/foo/bar.git"));
+    try std.testing.expect(ok("git@github.com:foo/bar.git"));
+    try std.testing.expect(ok("/srv/git/bar.git"));
+    // A `<transport>::<address>` remote helper runs a command -> refused.
+    try std.testing.expect(!ok("ext::sh -c 'touch /tmp/pwned'"));
+    try std.testing.expect(!ok("fd::17"));
+    try std.testing.expect(!ok("transport::whatever"));
+    // A leading '-' would be read by `git clone` as an option -> refused.
+    try std.testing.expect(!ok("--upload-pack=evil"));
+    // Empty is not a source.
+    try std.testing.expect(!ok(""));
 }
 
 test "parsePkgManifest tolerates CRLF line endings" {
@@ -503,6 +546,8 @@ test "parsePkgManifest ignores unknown keys and near-miss key names" {
         \\depends: real-dep
         \\
     );
+    try std.testing.expectEqualStrings("real", m.name.?);
+    try std.testing.expectEqualStrings("https://h/real", m.source.?);
     try std.testing.expectEqualStrings("real-dep", m.depends.?);
     try std.testing.expect(m.build_cmd == null);
 }
