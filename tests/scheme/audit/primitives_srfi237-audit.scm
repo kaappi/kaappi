@@ -373,11 +373,26 @@
        (a+b (lambda (inst) (list ((record-accessor A 0) inst) ((record-accessor B 0) inst)))))
   (test-equal "arity control: the correct argument count lays fields out correctly" '(1 2)
               (a+b (ctor 1 2)))
-  ;; #1915: the no-protocol subtype constructor checks its argument count.
+  ;; #1915: the no-protocol subtype constructor checks its argument count, and
+  ;; raises the count-naming KP3007 message rather than any catchable error --
+  ;; so the assertion pins the diagnostic shape, not merely that it raised. The
+  ;; layered constructor fills the parent level first, so the message names the
+  ;; parent rtd's sub-construction (its field count vs. the values routed to
+  ;; it), which is why the counts differ from the subtype's own arity.
   (test-assert "arity: too many subtype constructor arguments raises catchably"
                (raises? (lambda () (ctor 1 2 3))))
+  (test-assert "arity: too many is the count-naming KP3007 message"
+               (let ((m (message-of (lambda () (ctor 1 2 3)))))
+                 (and (string? m)
+                      (string-search m "field(s) but")
+                      (string-search m "value(s) were supplied"))))
   (test-assert "arity: too few subtype constructor arguments raises catchably"
-               (raises? (lambda () (ctor 1)))))
+               (raises? (lambda () (ctor 1))))
+  (test-assert "arity: too few is the count-naming KP3007 message"
+               (let ((m (message-of (lambda () (ctor 1)))))
+                 (and (string? m)
+                      (string-search m "field(s) but")
+                      (string-search m "value(s) were supplied")))))
 
 
 ;;; ===================================================================
