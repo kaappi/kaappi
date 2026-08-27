@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787837869288,
+  "lastUpdate": 1787840433562,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c7b762025b870722df65d18568e91f2c321cf3c6",
-          "message": "Classify a skill's evals.json as an inert docs-only path (#2238)\n\nThe format job's changed-path classifier lets a docs-only PR skip the\n~194 runner-minutes of build/test matrix. Its allowlist covers *.md,\ndocs/* and LICENSE, but not a skill's evals/evals.json, so a PR touching\nonly a SKILL.md and its sibling evals file runs the whole matrix for\ncontent no CI job reads.\n\nNothing in build.zig, tools/, .github/workflows or src/tests_*.zig\nreferences evals.json; the only hit in the tree is a prose comment. The\nglob is deliberately narrow (.claude/skills/*/evals/*.json) so\n.claude/settings.json, hook scripts and any other .json keep falling\nthrough to the full matrix, preserving the allowlist-never-denylist\nproperty.\n\nCloses #2237\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-06T12:33:25+05:30",
-          "tree_id": "db41386510be2146478f2a2a02fbede7477c8df4",
-          "url": "https://github.com/kaappi/kaappi/commit/c7b762025b870722df65d18568e91f2c321cf3c6"
-        },
-        "date": 1786001781619,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.972554,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.873839,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.561373,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.838432,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004838,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.045067,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.294873,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.0544,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.334562,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.16902,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.519562,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.303304,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.713985,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.815574,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.047369,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041804,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "901309c499aae85764509d3134d3ff75c58467f7",
+          "message": "docs(windows): point the aarch64 strip/native unblock at Zig 0.18.0 (#2386)\n\nThe upstream fix for the aarch64-windows private-threadlocal miscompile\n(ziglang#31865, #1607/#1613) missed the 0.17.0 window: the issue is now\nclosed and re-milestoned to 0.18.0, and 0.17.0 has still not shipped as\nof 2026-08 (latest stable remains 0.16.0). Update every \"0.17.0 bump\"\nreference in the Windows dev doc accordingly.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-27T19:42:34+05:30",
+          "tree_id": "890c128ab91b8ae46681d0b9a159734ca0a14a6d",
+          "url": "https://github.com/kaappi/kaappi/commit/901309c499aae85764509d3134d3ff75c58467f7"
+        },
+        "date": 1787840432098,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.284665,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.522068,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.581453,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.112719,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005067,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048376,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.316386,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057124,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.854131,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.234076,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.651303,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.282006,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.726699,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.708487,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045551,
             "unit": "seconds"
           }
         ]
