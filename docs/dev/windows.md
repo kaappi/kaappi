@@ -29,8 +29,10 @@ aarch64-windows (ziglang#31865 on Codeberg), and the shipped zig.exe —
 itself a stripped, LLVM-built aarch64-windows binary — carries the
 miscompile. The LLVM fix landed ~2026-06 and Zig master nightlies
 compile natively on the box; kaappi native builds unblock when the
-first fixed release (0.17.0) ships and the pinned toolchain moves to
-it.
+first fixed release (0.18.0) ships and the pinned toolchain moves to
+it. (ziglang#31865 is closed and milestoned **0.18.0** — the fix
+missed the 0.17.0 window, which as of 2026-08 has still not shipped;
+latest stable is 0.16.0.)
 
 On **x86_64**, none of that applies: #1613 is a bug in LLVM's aarch64
 COFF backend, and the standard Zig 0.16.0 x86_64-windows toolchain
@@ -234,7 +236,7 @@ natively and match the interpreter's output, and `kaappi doctor`'s
 smoke-link passes. Verified on Windows 11 ARM64 (build 26100) with a Zig
 master toolchain as the linker (#1610); with the 0.16.0 toolchain,
 `zig cc` on the box access-violates like every native toolchain use
-(#1613), so aarch64 end users get this at the 0.17.0 bump. On x86_64
+(#1613), so aarch64 end users get this at the 0.18.0 bump. On x86_64
 the stock 0.16.0 toolchain already works as the linker: the same e2e
 suite passes on the reference VM under x64 emulation with
 zig-x86_64-windows-0.16.0 on PATH, and the `windows-x64-test` CI job
@@ -280,7 +282,7 @@ toolchain itself (#1613), on x64 so both jobs exercise identical
 no-toolchain conditions. The x64 job then installs the (natively
 working) x86_64 Zig and runs the native-backend e2e suite
 (`tests/e2e/run-e2e.ps1`, #1610) — the one leg the arm job cannot
-have until the 0.17.0 bump. The FFI suite runs against a fixture DLL
+have until the 0.18.0 bump. The FFI suite runs against a fixture DLL
 that `windows-cross` cross-compiles into each artifact
 (`zig cc -target <arch>-windows-gnu -shared`).
 
@@ -307,7 +309,7 @@ exiting 77 (the shell analogue of the `cond-expand (windows ...)` gate
 the `.scm` tests use); run-all.sh and the CI loop report those as SKIP.
 Today that is the `compile/` suite (each script rebuilds the runtime
 archive or interpreter with a native `zig` on the box — #1613, so the
-gates lift work at the 0.17.0 toolchain bump),
+gates lift work at the 0.18.0 toolchain bump),
 `profile-json-escaping.sh` (it plants `"`/`\` in a real directory name,
 which Windows filenames cannot contain), `thottam-lifecycle.sh` (its
 fixture builds local git repos at POSIX paths) and
@@ -421,15 +423,16 @@ smoke-test it manually per the github-release skill's Step 10.
   project, #1613) — aarch64 builds must cross-compile, and `kaappi
   compile` needs a fixed toolchain on the box for its link step
   (verified end-to-end with Zig master, see "Native backend" above).
-  Fixed upstream (ziglang#31865); everything unblocks at the 0.17.0
-  toolchain bump. x86_64 Windows is unaffected.
+  Fixed upstream (ziglang#31865, closed and milestoned 0.18.0);
+  everything unblocks at the 0.18.0 toolchain bump. x86_64 Windows is
+  unaffected.
 * The `compile/` shell suite self-skips on Windows: every script
   rebuilds the runtime archive or the interpreter with a native `zig`
   on the box, which #1613 breaks on aarch64. The `skip_on_windows`
   gates (tests/scheme/shell-common.sh) are OS-level, so they also skip
   on x86_64 where a native zig would actually work — the scripts
   themselves have never been ported to Windows path/exe-suffix
-  conventions. Lifting the gates (per-arch or wholesale at the 0.17.0
+  conventions. Lifting the gates (per-arch or wholesale at the 0.18.0
   bump) is open; the native-compile path on x64 is covered by
   run-e2e.ps1 in `windows-x64-test` meanwhile. (The rest of the
   shell-based suites run in CI — #1612.)
