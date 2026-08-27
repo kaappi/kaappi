@@ -700,6 +700,11 @@ fn resolveTransformerSpecRec(self: *Compiler, spec_in: Value, merged_macros: *st
                 if (self.body_macro_depth == 0) {
                     if (self.lib_env) |env| {
                         env.put(def_name, def_transformer) catch return CompileError.OutOfMemory;
+                        // #1961: same old→young edge on a mutable
+                        // SchemeEnvironment as compileDefineSyntax's own
+                        // lib_env store above.
+                        if (types.isEnvironment(self.lib_env_val))
+                            self.gc.writeBarrier(types.toObject(self.lib_env_val), def_transformer);
                     }
                 }
                 rest = types.cdr(rest);
