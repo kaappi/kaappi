@@ -16,7 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `(srfi 231)` pure R7RS-small. Verified by an exhaustive 65536-pattern
   round-trip sweep; official-suite divergence ids 98/148/149 pruned (id 150
   re-scoped to the pre-existing c64/c128 representation divergence it was
-  also hiding, #2382).
+  also hiding, #2382). The suite's known-divergence table now records the
+  exact expected divergence count per id, and the verdict epilogue fails on
+  any mismatch in either direction — an undocumented failure under a shared
+  test id (16 storage-class rows re-use one id) can no longer hide behind a
+  documented divergence.
 
 ## [0.25.0] - 2026-08-27
 

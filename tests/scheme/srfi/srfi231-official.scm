@@ -14,10 +14,13 @@
 ;;; are dropped -- the public procedures they underlie are covered directly.
 ;;;
 ;;; Known kaappi divergences are accounted, not failed: a small table of test
-;;; ids whose failure encodes a documented kaappi-vs-reference divergence
-;;; (each with an issue reference). The suite exits nonzero only on
-;;; UNEXPECTED failures -- or when a known divergence stops diverging, which
-;;; means its table entry is stale and hiding real coverage (prune it).
+;;; ids whose failure encodes a documented kaappi-vs-reference divergence,
+;;; each with an issue reference and the exact number of evaluations expected
+;;; to diverge under it (shared test forms run once per storage class). The
+;;; suite exits nonzero only on UNEXPECTED failures -- or when an entry's
+;;; divergence count does not match exactly: zero observed means the entry is
+;;; stale and hiding real coverage (prune it), and more than recorded means
+;;; an undocumented failure is absorbing into the entry.
 ;;; Error-EXPECTING tests count as passes when any error is raised; only the
 ;;; Gambit message text differs.
 ;;;
@@ -111,15 +114,22 @@ OTHER DEALINGS IN THE SOFTWARE.
 
 ;;; --- kaappi vendoring: known-divergence accounting ------------------
 ;;; Test ids whose failure encodes a DOCUMENTED kaappi-vs-reference
-;;; divergence rather than a bug. Each entry: (id . "reason"). A divergence
-;;; that stops diverging is reported at the end and fails the suite -- the
-;;; entry is stale and must be pruned (it hides real coverage).
+;;; divergence rather than a bug. Each entry: (id expected-count
+;;; . "reason") -- expected-count is the EXACT number of evaluations
+;;; under that id expected to diverge (a shared test form runs once per
+;;; storage class, so one id can legitimately account several rows; the
+;;; suite is deterministic, so the count is stable run to run). The
+;;; epilogue fails the suite on any mismatch in either direction: more
+;;; divergences than expected means an undocumented failure is hiding
+;;; under the id (e.g. an f16 regression absorbed by the c64/c128
+;;; entry); fewer means the entry is stale and hiding real coverage --
+;;; prune or re-count it.
 (define divergent-tests 0)
-(define diverged-ids (make-vector 10000 #f))
+(define diverged-counts (make-vector 10000 0))
 (define known-divergences
-  (list '(147 . "R7RS strings are mutable; the suite encodes Gambit's immutable-string expectation")
-        '(150 . "c64/c128 are backed by native (srfi 160) c64vector/c128vector, not the reference's even-length f32/f64vector pairs, so those fixtures are rejected (kaappi#2382)")
-        '(351 . "unsafe specialized views are unchecked per the spec text; the reference happens to check (see kaappi#2362)")))
+  (list '(147 1 . "R7RS strings are mutable; the suite encodes Gambit's immutable-string expectation")
+        '(150 2 . "c64/c128 are backed by native (srfi 160) c64vector/c128vector, not the reference's even-length f32/f64vector pairs, so those fixtures are rejected (kaappi#2382)")
+        '(351 2 . "unsafe specialized views are unchecked per the spec text; the reference happens to check (see kaappi#2362)")))
 (define (known-divergence id) (assq id known-divergences))
 
 (define (report-failure id line result expected)
@@ -127,9 +137,9 @@ OTHER DEALINGS IN THE SOFTWARE.
     (if kd
         (begin
           (set! divergent-tests (+ divergent-tests 1))
-          (vector-set! diverged-ids id #t)
+          (vector-set! diverged-counts id (+ 1 (vector-ref diverged-counts id)))
           (display "DIVERGENT-EXPECTED ") (display id)
-          (display " ") (display (cdr kd)) (newline))
+          (display " ") (display (cddr kd)) (newline))
         (begin
           (set! failed-tests (+ failed-tests 1))
           (display "FAIL ")
@@ -6146,24 +6156,47 @@ that computes the componentwise products when we need them, the times are
 
 
 ;;; --- kaappi vendoring: final verdict ---------------------------------
-;;; Exit nonzero on any UNEXPECTED failure, and on any known divergence
-;;; that no longer diverges (stale entry -- prune it above).
+;;; Exit nonzero on any UNEXPECTED failure, and on any known-divergence
+;;; entry whose observed count does not EXACTLY match its recorded
+;;; expected-count: zero observed means the divergence is gone (stale
+;;; entry -- prune it), more than expected means an undocumented
+;;; failure is hiding under the id, fewer means the entry over-accounts
+;;; (re-count it).
 (define resolved-divergences 0)
+(define divergence-count-mismatches 0)
 (for-each (lambda (entry)
-            (let ((id (car entry)))
-              (when (and (vector-ref executed-tests id)
-                         (not (vector-ref diverged-ids id)))
-                (set! resolved-divergences (+ resolved-divergences 1))
-                (display "DIVERGENCE-RESOLVED ") (display id)
-                (display " -- prune it from known-divergences (")
-                (display (cdr entry)) (display ")") (newline))))
+            (let ((id (car entry))
+                  (expected (cadr entry)))
+              (when (vector-ref executed-tests id)
+                (let ((observed (vector-ref diverged-counts id)))
+                  (cond ((= observed 0)
+                         (set! resolved-divergences (+ resolved-divergences 1))
+                         (display "DIVERGENCE-RESOLVED ") (display id)
+                         (display " -- prune it from known-divergences (")
+                         (display (cddr entry)) (display ")") (newline))
+                        ((not (= observed expected))
+                         (set! divergence-count-mismatches
+                               (+ divergence-count-mismatches 1))
+                         (display "DIVERGENCE-COUNT-MISMATCH ") (display id)
+                         (display ": expected ") (display expected)
+                         (display " diverging evaluations, observed ")
+                         (display observed) (display " -- ")
+                         (display (if (> observed expected)
+                                      "an undocumented failure is hiding under this id"
+                                      "the entry over-accounts (re-count it)"))
+                         (display " (")
+                         (display (cddr entry)) (display ")") (newline)))))))
           known-divergences)
 (display "srfi231-official: ")
 (display (- total-tests failed-tests divergent-tests)) (display " passed, ")
 (display error-string-tests) (display " error-message-only, ")
 (display divergent-tests) (display " known divergences, ")
 (display failed-tests) (display " unexpected failures, ")
-(display resolved-divergences) (display " resolved divergences, out of ")
+(display resolved-divergences) (display " resolved divergences, ")
+(display divergence-count-mismatches) (display " count mismatches, out of ")
 (display total-tests) (display " evaluations")
 (newline)
-(exit (if (and (= failed-tests 0) (= resolved-divergences 0)) 0 1))
+(exit (if (and (= failed-tests 0)
+               (= resolved-divergences 0)
+               (= divergence-count-mismatches 0))
+          0 1))

@@ -255,18 +255,24 @@
                (let ((n (if (= s 0) m (- m))))
                  (* n (expt 2.0 -24)))))))
 
-    ;; floor(log2|x|) for a finite, nonzero real x -- the reference's
-    ;; flilogb, written fresh as a halving/doubling loop (exact at every
-    ;; step: multiplying by 2.0 or 0.5 never rounds). Only the
-    ;; classification against [-14,15] and the exact exponent feeding the
-    ;; scale factor matter to the codec.
+    ;; floor(log2|x|), clamped to [-15, 16], for a finite, nonzero real
+    ;; x -- the reference's flilogb, written fresh as a halving/doubling
+    ;; loop (exact at every step: multiplying by 2.0 or 0.5 never
+    ;; rounds). The clamp loses nothing: %f16-encode only ever consumes
+    ;; the classification ("<= -15", "in [-14,15]", ">= 16") plus the
+    ;; exact exponent inside the normal range, and it bounds the loop to
+    ;; ~31 iterations even for astronomically large or tiny doubles.
     (define (%ilogb x)
       (let ((ax (abs x)))
         (if (>= ax 1.0)
             (let loop ((e 0) (v ax))
-              (if (< v 2.0) e (loop (+ e 1) (* v 0.5))))
+              (cond ((< v 2.0) e)
+                    ((>= e 16) 16)
+                    (else (loop (+ e 1) (* v 0.5)))))
             (let loop ((e -1) (v (* ax 2.0)))
-              (if (>= v 1.0) e (loop (- e 1) (* v 2.0)))))))
+              (cond ((>= v 1.0) e)
+                    ((<= e -15) -15)
+                    (else (loop (- e 1) (* v 2.0))))))))
 
     (define (%f16-encode x)   ;; real -> exact integer in [0,65536)
       (define (%construct sign-bit biased-exponent mantissa)
