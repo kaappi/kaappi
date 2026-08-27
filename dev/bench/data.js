@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787823486287,
+  "lastUpdate": 1787823703491,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "006b263e53a6ba8ec6b460d1019240be929c2ef0",
-          "message": "Release v0.22.2\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-05T23:00:19+05:30",
-          "tree_id": "ca31edb5295e922e75cd3ebf59cb381daa97c52a",
-          "url": "https://github.com/kaappi/kaappi/commit/006b263e53a6ba8ec6b460d1019240be929c2ef0"
-        },
-        "date": 1785953281921,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.334868,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.979594,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.566515,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.954446,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00463,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04699,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.308918,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057278,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.641668,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.22866,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.586526,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.278009,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.831381,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.456433,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043538,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046632,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "efafe15dee36b3b30ba5ad5fbaaa724669251f96",
+          "message": "Make the minor collection's mark generational (#2372)\n\n* Make the minor collection's mark generational (#1961)\n\nA minor collection used to perform a full transitive mark —\nmarkValueInner had no generation check, so minor and full collections\ncost the same to mark and only the sweep differed. This makes the minor\nmark actually generational, gated on the prerequisites the issue's\ndesign analysis identified, plus the further edge-audit the gc-stress\nsuite demanded.\n\nCore:\n- GC.minor_marking: while set, markValueInner treats the old generation\n  as opaque (old objects are never swept by sweepYoung, so they need no\n  mark) — the minor mark now costs O(live young) instead of O(live\n  heap). clearOldMarks is dropped from minorCollect: nothing marks an\n  old object during a minor and every sweep clears the marks it sees.\n- keptAlive/weakReachable answer \"alive\" for old objects during a\n  minor: the old generation survives every minor, so an ephemeron with\n  an old key must not break and a guardian watching an old object must\n  not resurrect — the decision defers to the next full collection.\n\nRemembered-set completeness (what makes the above safe):\n- Promotion scan (sweepYoung): the write barrier only fires for\n  containers already old, so edges created while a container was young\n  are recorded when the container is promoted (referencesYoung scan).\n- Full-collect re-scan (sweepOld): a full collection drains the\n  remembered set up front and never promotes, so surviving old→young\n  edges are re-recorded while the old heap is walked anyway.\n- Missing write barriers found by the audit and fixed: guardian\n  registration in invokeGuardian (registered grows at every\n  registration), Function.constants appends (compiler addConstant,\n  .sbc deserializer, gc-stress test helpers), define/set!/define-syntax\n  into a mutable SchemeEnvironment's map (opcode handlers and\n  compileDefineSyntax — the root-marked globals/lib_env maps need no\n  barrier), the running fiber's param_overrides put, and\n  trackOwnedMutex's append.\n- FiberScheduler.markRoots now calls markFiberState for every resident\n  fiber, the running one included: a promoted fiber is opaque to the\n  minor mark, and a running fiber's stale saved snapshot must stay\n  traced because full collections still walk it through the .fiber arm\n  — a value freed by an intervening minor would turn that walk into a\n  use-after-free.\n\nTests: the pre-#1961 sentinel (a minor marks through an old object with\nno remembered-set entry) flips to pin the opposite — the barrier is\nload-bearing and a missing one is a use-after-free; new pins for the\npromotion scan, the full-collect re-scan, the weak-predicate deferral\n(old ephemeron key / guardian entry through a minor), the running old\nfiber, and the minor_old_skips counter proving the mark stops at the\ngenerational boundary while a full mark does not; end-to-end smoke test\nfor an old guardian's registered entry, a parameterize'd value on the\npromoted main fiber, and a large old heap under young churn.\n\nDocs: .claude/rules/gc-safety.md and\ndocs/dev/gc-safety-and-error-handling.md now describe the mechanisms\nthat make the barrier load-bearing (they previously read as though it\nalready were); the wrong \"weak structures never enter the remembered\nset\" comment in gc_collect.zig is corrected.\n\nValidated: zig build test and -Dgc-stress=true (1862/1863 tests), the\nR7RS suite (1395/1395, also under a gc-stress binary), and\ntests/scheme/run-all.sh (2115 pass, 0 fail).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: barrier the begin-wrapped define-syntax env store; scope set_global's barrier to the successful store\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: global_cache, retired-fiber, and transformer barriers; shared helpers; regression pins\n\nFour confirmed correctness holes the review found in the barrier audit:\n- Function.global_cache stores (get/set/define/call/tail_call global, all\n  six sites incl. fresh-cache allocation): a cached value can be orphaned\n  by a later rebinding before this function's own next global op clears\n  the slot, and the generational minor mark reaches the orphaned young\n  value only through the remembered set. Barrier every cache store.\n- The retire paths run saveCurrentFiber AFTER retireSlot queued the slot\n  for reuse, so a retired fiber can lose its scheduler residency — and\n  with it markFiberState's unconditional pass — while staying\n  heap-reachable. saveCurrentFiber now enrolls an old fiber in the\n  remembered set wholesale via the new GC.rememberObject (the bulk\n  snapshot has no per-field barriers; the errored path's young\n  ErrorObject is exactly one such edge).\n- tx.def_env_val stores (both the plain and begin-wrapped paths):\n  resolveTransformerSpec can hand back a pre-existing promoted\n  transformer via the SRFI 147/211 alias paths, so the store can write a\n  young environment into an old transformer.\n- tx.let_syntax_peer_vals snapshot stores: same aliased-transformer\n  hazard; barrier each peer value.\n\nEfficiency/consistency/altitude from the review:\n- The env-map barriers now skip the interaction-environment wrapper\n  (.owned == false — its map IS the root-marked globals map), whose\n  enrollment would have re-walked every global once per minor, forever;\n  both opcodes now apply the identical rule.\n- GC.rememberObject: one flag-checked enrollment helper for\n  writeBarrier's owned branch, the promotion scan, the full-collect\n  re-scan, and saveCurrentFiber — the #2196 dedup contract lives in one\n  place instead of three hand-rolled blocks.\n- GC.appendFunctionConstant: one append+barrier funnel for\n  Function.constants across the compiler, the .sbc deserializer, and the\n  tests; the ~28 hand-copied pairs (five of them provable no-ops on\n  immediates) collapse onto it.\n- clearOldMarks deleted everywhere — minorCollect's mark-bit invariant\n  makes it dead in fullCollect too — and minorCollect resets\n  minor_marking via defer so the invariant is structural. The vm.zig\n  param_overrides comment no longer inverts which mechanism (markFiberState\n  vs the barrier) is authoritative.\n\nRegression tests per the every-fix-needs-a-test rule: real-path pins for\ninvokeGuardian's registration (eval + manual promotion + minor → the\nentry is probed and resurrected) and for define/set! into a promoted\nmutable SchemeEnvironment (eval through the real opcode path, minor, read\nback intact); mechanism pins for the constants funnel\n(appendFunctionConstant vs raw append), the global_cache store shape, and\nthe retired-fiber enrollment (rememberObject vs none), each with a\ndiscriminating control.\n\nValidated: zig build test and -Dgc-stress=true green, R7RS 1395/1395,\nthe #1961 smoke test, markdownlint.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Apply the shared envStoreBarrier rule to the compiler's env stores (review nit)\n\nThe two compile-time lib_env.put barriers in compileDefineSyntax (plain\nand begin-wrapped) kept the bare isEnvironment test after f78f3ee4 gave\nthe opcode handlers the .owned exclusion — and the path is reachable:\n(eval '(define-syntax k rules) (interaction-environment)) enrolls the\nwrapper, whose map IS the root-marked globals map, after which every\nminor re-walks all of globals (mark + prune) until process exit.\n\nThe rule now lives once, in GC.envStoreBarrier (isEnvironment and\n.owned, then writeBarrier on the wrapper): both opcode handlers and both\ncompiler sites call it. Pinned by the reviewer's exact repro in\ntests_core_eval.zig — a promoted interaction-environment wrapper takes a\ndefine-syntax through eval and must not appear in the remembered set,\nwhile the store itself lands (the macro expands afterwards).\n\nValidated: zig build test and -Dgc-stress=true green, R7RS 1395/1395,\nthe #1961 smoke test, markdownlint.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* referencesYoung: never enroll the borrowed-globals environment wrapper (review follow-up)\n\nenvStoreBarrier closed the barrier route onto the interaction-environment\nwrapper, but the promotion scan and the full-collect re-scan could still\nenroll it: referencesYoung's .scheme_environment arm walked the whole map\nwith no .owned check, so a promoted wrapper was enrolled the moment any\nglobals value was young at promotion or full-collect time — the common\ncase in a real program — after which the entry never prunes while any\nglobal stays young, reintroducing the O(#globals) walk per minor that the\nbarrier exclusion exists to prevent (markVmRoots already marks every\nglobals value each collection; the walk is pure redundancy).\n\nThe arm now returns false for .owned == false wrappers, which by\nconstruction (interaction-environment is the only such constructor) borrow\nthe owning VM's root-marked globals map; a child-thread wrapper's map\nvalues are foreign to that GC and isYoungPointer skips them anyway. This\nalso drops any stale wrapper entry at the next prune.\n\nThe wrapper-exclusion test now pins both routes deterministically: a young\nglobal is defined between the wrapper's two promotion collections, so the\npromotion-scan moment really sees a young value in the wrapper's map —\nthe exact shape that enrolled the wrapper before this fix (the previous\nversion passed only because every other global happened to be old at\npromotion time).\n\nValidated: zig build test and -Dgc-stress=true green, R7RS 1395/1395,\nthe #1961 smoke test, markdownlint.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* State the minor mark's cost precisely: live young plus remembered-container fields (review nit)\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-27T14:28:23+05:30",
+          "tree_id": "989d2e73d9ac02b8a2e026b9bb159a125245c142",
+          "url": "https://github.com/kaappi/kaappi/commit/efafe15dee36b3b30ba5ad5fbaaa724669251f96"
+        },
+        "date": 1787823700766,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.314465,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.817311,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.560875,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.134962,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004904,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048632,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.309812,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056454,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.829494,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.238903,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.630116,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.277685,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.724786,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.641182,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046205,
             "unit": "seconds"
           }
         ]
