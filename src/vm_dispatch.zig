@@ -271,6 +271,15 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         func.global_cache = cache;
                         func.cache_version = self.global_version;
                     }
+                    // #1961 (review): the cached value is root-marked right
+                    // now (it is also in the globals map), but a later
+                    // rebinding by another function orphans this slot — only
+                    // this function's own next global op clears it — and the
+                    // generational minor mark reaches the orphaned young
+                    // value only through the remembered set. The function
+                    // itself may already be promoted, including on the
+                    // fresh-cache path.
+                    self.gc.writeBarrier(&func.header, val);
                 }
             },
             .set_global => {
@@ -342,11 +351,14 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     // SchemeEnvironment (func.env_val — the eval/environment
                     // objects), this store is an old→young edge on that heap
                     // object once it promotes. The VM-rooted maps (globals,
-                    // library lib_envs — env_val NIL there) are marked as roots
-                    // every collection and need no barrier. Nothing allocates
-                    // between the store and the barrier, so this order is as
-                    // safe as barrier-first.
-                    if (types.isEnvironment(func.env_val))
+                    // library lib_envs — env_val NIL there) are marked as
+                    // roots every collection and need no barrier; so does the
+                    // interaction-environment wrapper, whose .owned == false
+                    // map IS the root-marked globals map (enrolling it would
+                    // re-walk every global once per minor, forever). Nothing
+                    // allocates between the store and the barrier, so this
+                    // order is as safe as barrier-first.
+                    if (types.isEnvironment(func.env_val) and types.toEnvironment(func.env_val).owned)
                         self.gc.writeBarrier(types.toObject(func.env_val), val);
                 }
                 self.unlockGlobalsShared();
@@ -366,6 +378,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         @memset(cache, types.VOID);
                         if (sym_idx < cache.len) cache[sym_idx] = val;
                         func.cache_version = self.global_version;
+                        // #1961 (review): same orphaned-slot hazard as
+                        // get_global's cache fill.
+                        self.gc.writeBarrier(&func.header, val);
                     }
                 }
             },
@@ -403,8 +418,11 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     env.put(name, val) catch return VMError.OutOfMemory;
                     // #1961: same as set_global — a define into a mutable
                     // SchemeEnvironment's map is an old→young edge on the
-                    // wrapper object once promoted.
-                    if (types.isEnvironment(func.env_val))
+                    // wrapper object once promoted (the .owned guard skips
+                    // the interaction-environment wrapper, which borrows the
+                    // root-marked globals map; this branch can't see it, but
+                    // the guard keeps the two opcodes' rule identical).
+                    if (types.isEnvironment(func.env_val) and types.toEnvironment(func.env_val).owned)
                         self.gc.writeBarrier(types.toObject(func.env_val), val);
                 }
                 if (func.env == null) {
@@ -416,6 +434,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         @memset(cache, types.VOID);
                         if (sym_idx < cache.len) cache[sym_idx] = val;
                         func.cache_version = self.global_version;
+                        // #1961 (review): same orphaned-slot hazard as
+                        // get_global's cache fill.
+                        self.gc.writeBarrier(&func.header, val);
                     }
                 }
             },
@@ -995,6 +1016,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                                 vm_mod.globals_mod.parseDefEnvBindingSymbolName(name) == null)
                             {
                                 if (sym_idx < cache.len) cache[sym_idx] = val;
+                                // #1961 (review): same orphaned-slot hazard
+                                // as get_global's cache fill.
+                                self.gc.writeBarrier(&the_func.header, val);
                             }
                         }
                     } else {
@@ -1021,6 +1045,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             cache[sym_idx] = val;
                             the_func.global_cache = cache;
                             the_func.cache_version = self.global_version;
+                            // #1961 (review): fresh caches too — the function
+                            // can already be promoted by its first global op.
+                            self.gc.writeBarrier(&the_func.header, val);
                         }
                     }
                 } else {
@@ -1120,6 +1147,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             func.global_cache = cache;
                             func.cache_version = self.global_version;
                         }
+                        // #1961 (review): same orphaned-slot hazard as
+                        // get_global's cache fill.
+                        self.gc.writeBarrier(&func.header, callee);
                     }
                 }
 

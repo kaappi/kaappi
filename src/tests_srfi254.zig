@@ -562,3 +562,43 @@ test "srfi 254: component libraries import in isolation" {
     // reference-barrier is exported by both ephemerons and guardians.
     _ = try ctx.vm.eval("(reference-barrier 'x)");
 }
+
+// #1961: invokeGuardian's registration barrier, driven through the real
+// primitive path (the mirror-level pin lives above, next to its
+// "resurrects a young object registered on an old guardian" sibling). An old
+// guardian registering a fresh young object is an old→young edge the
+// generational minor mark reaches only through the remembered set; without
+// the barrier the next minor never even probes the entry (an old guardian is
+// opaque unless remembered), the young object is swept, and the guardian
+// yields #f instead of resurrecting it.
+test "guardian: registration through the real primitive survives a minor collection (#1961)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    _ = try ctx.vm.eval("(import (srfi 254)) (define g (make-guardian))");
+    const g_val = try ctx.vm.eval("g");
+
+    // Promote the guardian: two manual minors, marked through the global.
+    ctx.gc.enabled = false;
+    ctx.gc.minor_cycle_count = 0;
+    ctx.gc.collect();
+    ctx.gc.minor_cycle_count = 0;
+    ctx.gc.collect();
+    try expectEqual(@as(u1, 1), types.toObject(g_val).flags.generation);
+
+    // Real registration path: a fresh young object through invokeGuardian.
+    _ = try ctx.vm.eval("(g (vector 'a 'b 'c))");
+
+    // The vector is now unreachable except through the guardian's weak
+    // queue; the minor must probe the entry and resurrect it.
+    ctx.gc.minor_cycle_count = 0;
+    ctx.gc.collect();
+
+    const g = types.toGuardian(g_val);
+    try expectEqual(@as(usize, 1), g.ready.items.len);
+    // Retrieve through the real API; contents must be intact, and the queue
+    // must drain.
+    try expectEqual(try ctx.vm.eval("'b"), try ctx.vm.eval("(vector-ref (g) 1)"));
+    try expect(!types.isTruthy(try ctx.vm.eval("(g)")));
+}

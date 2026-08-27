@@ -1402,6 +1402,114 @@ test "gc promotion scan: a promoted container with young referents enters the re
     try std.testing.expect(!types.toObject(c).flags.in_remembered_set);
 }
 
+// #1961 (review): an old function's constants list is a barriered container.
+// The compiler's addConstant, the .sbc deserializer, and the bytecode-file
+// tests all funnel through GC.appendFunctionConstant, so this drives the
+// real mechanism; the control half pins why it must — a function can be
+// promoted long before its constants list stops growing.
+test "gc: an old function's constants list is a barriered container (#1961)" {
+    var gc = newGc();
+    defer gc.deinit();
+    const f1 = try gc.allocFunction();
+    const f1_val = types.makePointer(&f1.header);
+    try promoteToOld(&gc, f1_val);
+    const f2 = try gc.allocFunction();
+    const f2_val = types.makePointer(&f2.header);
+    try promoteToOld(&gc, f2_val);
+
+    // The store every producer makes: append + barrier on the function.
+    const a = try young(&gc, 1);
+    try gc.appendFunctionConstant(f1, a);
+    // The old function survives every minor unrooted; the barrier's entry is
+    // a's only route to survival.
+    forceMinor(&gc);
+    try expectAlive(&gc, ref(a, 1));
+
+    // Control — the same store without the barrier (the pre-#1961 shape)
+    // loses the referent.
+    const b = try young(&gc, 2);
+    f2.constants.append(gc.allocator, b) catch unreachable;
+    forceMinor(&gc);
+    try expectDead(&gc, ref(b, 2));
+}
+
+// #1961 (review): a function's global_cache is a barriered container for the
+// same reason — a cached value can be orphaned by a later rebinding before
+// this function's own next global op clears the slot, and the minor mark
+// reaches the orphan only through the remembered set. The opcode handlers
+// barrier each cache store; this pins that store shape at the mechanism
+// level (the dispatch path itself is exercised end-to-end by gc-stress).
+test "gc: an old function's global_cache is a barriered container (#1961)" {
+    var gc = newGc();
+    defer gc.deinit();
+    const f1 = try gc.allocFunction();
+    const f1_val = types.makePointer(&f1.header);
+    try promoteToOld(&gc, f1_val);
+    const f2 = try gc.allocFunction();
+    const f2_val = types.makePointer(&f2.header);
+    try promoteToOld(&gc, f2_val);
+
+    const cache1 = try gc.allocator.alloc(Value, 1);
+    @memset(cache1, types.VOID);
+    f1.global_cache = cache1;
+    const a = try young(&gc, 1);
+    cache1[0] = a;
+    gc.writeBarrier(types.toObject(f1_val), a); // the handlers' store shape
+    forceMinor(&gc);
+    try expectAlive(&gc, ref(a, 1));
+
+    const cache2 = try gc.allocator.alloc(Value, 1);
+    @memset(cache2, types.VOID);
+    f2.global_cache = cache2;
+    const b = try young(&gc, 2);
+    cache2[0] = b; // no barrier — the pre-fix shape
+    forceMinor(&gc);
+    try expectDead(&gc, ref(b, 2));
+}
+
+// #1961 (review): a fiber retired from its scheduler slot (retireSlot queues
+// the slot for reuse, then the retire paths run saveCurrentFiber AFTER it)
+// loses the unconditional markFiberState pass while staying heap-reachable
+// through a joiner's waiting_on or any handle. saveCurrentFiber's answer is
+// to enroll an old fiber in the remembered set wholesale — its bulk snapshot
+// (memcpy'd registers/frames/handlers/winds, current_exception,
+// continuation_value) has no per-field barriers. This pins that mechanism:
+// an unbarriered snapshot store into a non-resident old fiber survives only
+// via rememberObject.
+test "gc: a retired old fiber's snapshot survives via the remembered set (#1961)" {
+    var gc = newGc();
+    defer gc.deinit();
+    const fiber = try gc.allocFiber(types.NIL, 1);
+    const fiber_val = types.makePointer(&fiber.header);
+    try promoteToOld(&gc, fiber_val);
+
+    // Simulate the retire-path save: young values written straight into the
+    // fiber's snapshot fields, no per-field barriers (saveCurrentFiber's
+    // memcpy shape), then the wholesale enrollment.
+    const exc = try young(&gc, 1);
+    fiber.current_exception = exc;
+    fiber.registers[3] = try young(&gc, 2);
+    fiber.frames[0] = .{ .closure = null, .code = &.{}, .ip = 0, .base = 0, .dst = 0 };
+    fiber.frame_count = 1;
+    gc.rememberObject(types.toObject(fiber_val));
+
+    // The fiber is not scheduler-resident and nothing roots it; it survives
+    // every minor anyway (old), and the remembered entry keeps the snapshot
+    // values alive with it.
+    forceMinor(&gc);
+    try expectAlive(&gc, ref(exc, 1));
+
+    // Control: the same snapshot store without the enrollment loses the
+    // values — the old fiber is opaque and nothing else references them.
+    const fiber2 = try gc.allocFiber(types.NIL, 2);
+    const fiber2_val = types.makePointer(&fiber2.header);
+    try promoteToOld(&gc, fiber2_val);
+    const lost = try young(&gc, 3);
+    fiber2.current_exception = lost; // no rememberObject
+    forceMinor(&gc);
+    try expectDead(&gc, ref(lost, 3));
+}
+
 // #1961: the whole point of the generational minor mark, pinned directly off
 // the skip counter — a minor collection whose roots reach old objects must
 // not trace them, while a full collection (which sweeps the old generation)

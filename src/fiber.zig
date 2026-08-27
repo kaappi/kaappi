@@ -606,6 +606,22 @@ pub const FiberScheduler = struct {
         fiber.current_exception = vm.current_exception;
         fiber.continuation_invoked = vm.continuation_invoked;
         fiber.continuation_value = vm.continuation_value;
+        // #1961 (review): the retire paths (vm_calls.zig, fiber_wait.zig)
+        // run this save AFTER retireSlot has queued the slot for reuse, so
+        // the fiber may stop being scheduler-resident — losing the
+        // unconditional markFiberState pass in FiberScheduler.markRoots —
+        // while staying heap-reachable through a joiner's waiting_on or any
+        // variable holding the handle. This save writes a whole snapshot
+        // (memcpy'd registers/frames/handlers/winds, current_exception,
+        // continuation_value) with no per-field barriers, so an old fiber's
+        // fresh snapshot is otherwise an unrecorded bundle of old→young
+        // edges; the errored path's young ErrorObject is exactly one. Enroll
+        // the whole container: the remembered-set walk re-traces the
+        // snapshot, and pruneRememberedSet drops the entry once every
+        // snapshot value has aged into the old generation. Resident fibers
+        // keep their markFiberState pass regardless — this is additive.
+        if (fiber.header.flags.generation == 1)
+            vm.gc.rememberObject(&fiber.header);
     }
 
     pub fn restoreFiber(self: *FiberScheduler, idx: usize) VMError!void {

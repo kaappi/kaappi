@@ -382,6 +382,22 @@ pub const GC = struct {
         self.source_spans.deinit();
     }
 
+    /// #1961: enroll an OWNED container in the remembered set, idempotently
+    /// (the #2196 dedup flag is the in-set mark for owned objects: set iff
+    /// present, cleared by pruneRememberedSet/drainRememberedSet on exit).
+    /// Shared by writeBarrier's owned path, the promotion scan and
+    /// full-collect re-scan in gc_sweep, and saveCurrentFiber's bulk
+    /// snapshot — every site that creates or re-creates an old→young edge
+    /// outside the ordinary store+barrier pattern. Callers must have
+    /// established `obj.owner == self.id`; foreign containers carry no flag
+    /// and stay in writeBarrier's unconditional-append branch.
+    pub fn rememberObject(self: *GC, obj: *Object) void {
+        if (obj.flags.in_remembered_set) return;
+        obj.flags.in_remembered_set = true;
+        self.remembered_set.append(self.allocator, obj) catch
+            @panic("GC rememberObject: remembered set OOM");
+    }
+
     pub fn writeBarrier(self: *GC, container: *Object, new_val: Value) void {
         if (container.flags.generation == 1 and types.isPointer(new_val)) {
             const child = types.toObject(new_val);
@@ -404,9 +420,8 @@ pub const GC = struct {
                 // written here and no reference this GC must track is dropped.
                 if (container.owner != self.id) {
                     self.remembered_set.append(self.allocator, container) catch @panic("GC writeBarrier: remembered set OOM");
-                } else if (!container.flags.in_remembered_set) {
-                    self.remembered_set.append(self.allocator, container) catch @panic("GC writeBarrier: remembered set OOM");
-                    container.flags.in_remembered_set = true;
+                } else {
+                    self.rememberObject(container);
                 }
             }
         }
@@ -465,6 +480,7 @@ pub const GC = struct {
     pub const allocUninternedSymbol = gc_alloc.allocUninternedSymbol;
     pub const allocString = gc_alloc.allocString;
     pub const allocFunction = gc_alloc.allocFunction;
+    pub const appendFunctionConstant = gc_alloc.appendFunctionConstant;
     pub const allocClosure = gc_alloc.allocClosure;
     pub const allocNativeFn = gc_alloc.allocNativeFn;
     pub const allocNativeClosure = gc_alloc.allocNativeClosure;

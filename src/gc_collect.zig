@@ -57,11 +57,14 @@ fn minorCollect(gc: *GC) void {
     // #1961: the minor mark is generational. `minor_marking` makes
     // markValueInner treat the old generation as opaque, so this mark costs
     // O(live young) — roots plus remembered-set entries — instead of
-    // O(live heap). No clearOldMarks here: nothing marks an old object while
-    // minor_marking is set, and every sweep (sweepYoung/sweep/sweepOld)
-    // clears the marks it observes, so old marks are always false between
-    // collections.
+    // O(live heap). Mark-bit invariant, which is why no clearOldMarks pass
+    // exists anywhere: the only writes of flags.marked are inside
+    // markValueInner (young objects only during a minor — the opacity check
+    // returns before marking an old one — and both generations during a
+    // full), and every sweep clears the marks it observes before the
+    // collection ends, so no collection ever sees a stale mark.
     gc.minor_marking = true;
+    defer gc.minor_marking = false;
     markRoots(gc);
     for (gc.remembered_set.items) |obj| {
         markObjectContents(gc, obj);
@@ -72,15 +75,6 @@ fn minorCollect(gc: *GC) void {
     gc.quarantineReleaseToCap();
     sweepYoung(gc);
     pruneRememberedSet(gc);
-    gc.minor_marking = false;
-}
-
-fn clearOldMarks(gc: *GC) void {
-    var obj = gc.old_objects;
-    while (obj) |o| {
-        o.flags.marked = false;
-        obj = o.next;
-    }
 }
 
 fn pruneRememberedSet(gc: *GC) void {
@@ -346,8 +340,9 @@ fn isYoungPointer(gc: *GC, val: Value) bool {
 
 pub fn fullCollect(gc: *GC) void {
     // #1961: a full collection marks both generations — old objects are
-    // traced and swept here, so they must not be opaque. Also the defensive
-    // reset if a panic path ever left the flag set.
+    // traced and swept here, so they must not be opaque. minorCollect's
+    // defer guarantees the flag is already false; this makes the
+    // requirement local instead of transitive.
     gc.minor_marking = false;
     // #2196: drain the remembered_set up front. A full collect marks from
     // roots over both generations, so it never consults the set — and doing
@@ -356,7 +351,8 @@ pub fn fullCollect(gc: *GC) void {
     // use-after-free). Every surviving old container is then free to re-queue
     // itself on its next old->young write.
     drainRememberedSet(gc);
-    clearOldMarks(gc);
+    // No clearOldMarks here either — see minorCollect's mark-bit invariant:
+    // the previous collection (minor or full) left every mark clear.
     markRoots(gc);
     processWeakRefs(gc);
     // #1687: see minorCollect.

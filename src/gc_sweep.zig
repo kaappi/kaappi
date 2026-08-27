@@ -75,13 +75,11 @@ pub fn sweepYoung(gc: *GC) void {
                 // a correct no-op) would go unrecorded at promotion — and
                 // since the minor mark stopped tracing through old objects,
                 // that edge is the referent's only route to survival. Scan
-                // at promotion and remember the container. The flag is
+                // at promotion and remember the container. The dedup flag is
                 // provably clear here: this object was young a moment ago,
                 // and writeBarrier only ever enqueues old containers.
                 if (gc_collect.referencesYoung(gc, o)) {
-                    o.flags.in_remembered_set = true;
-                    gc.remembered_set.append(gc.allocator, o) catch
-                        @panic("GC promotion scan: remembered set OOM");
+                    gc.rememberObject(o);
                 }
                 obj = next;
             } else {
@@ -122,11 +120,9 @@ pub fn sweepOld(gc: *GC) void {
             // Re-record every surviving old→young edge here, where the old
             // heap is already being walked. Objects freed below never had a
             // live referent to protect. All owned flags were cleared by the
-            // drain, so the dedup guard is exact.
-            if (!o.flags.in_remembered_set and gc_collect.referencesYoung(gc, o)) {
-                o.flags.in_remembered_set = true;
-                gc.remembered_set.append(gc.allocator, o) catch
-                    @panic("GC full-collect re-scan: remembered set OOM");
+            // drain, so rememberObject's dedup guard is exact.
+            if (gc_collect.referencesYoung(gc, o)) {
+                gc.rememberObject(o);
             }
             prev = o;
             obj = o.next;

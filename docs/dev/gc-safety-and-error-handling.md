@@ -108,9 +108,15 @@ The remembered set is that record, and it is fed two ways:
 
 - `gc.writeBarrier(container, new_val)` after storing a Value into a heap
   object field (set-car!, set-cdr!, vector-set!, hash-table-set!, record
-  field mutation, guardian registration, …). The barrier is load-bearing:
-  a missing one is a **use-after-free** — the young referent is swept while
-  the old container still points at it — not a leak.
+  field mutation, guardian registration, a function's `global_cache`
+  slots, …). The barrier is load-bearing: a missing one is a
+  **use-after-free** — the young referent is swept while the old container
+  still points at it — not a leak. Two shared funnels keep the discipline
+  in one place: `GC.appendFunctionConstant` (every `Function.constants`
+  append — compiler, `.sbc` deserializer, tests) and `GC.rememberObject`
+  (every wholesale enrollment of an owned container outside the
+  store+barrier pattern — `writeBarrier`'s owned branch, both sweep-phase
+  scans, `saveCurrentFiber`'s bulk snapshot).
 - The **promotion scan** in `sweepYoung`: the barrier only fires for a
   container that is *already* old, so an edge created while the container
   was young (a barrier there is a correct no-op) is recorded when the
@@ -129,29 +135,38 @@ Two things deliberately do **not** rely on the barrier:
 
 - Bulk state the GC re-traces wholesale: every resident fiber — the running
   one included — gets an explicit `markFiberState` pass from
-  `FiberScheduler.markRoots` each collection. That covers a suspended
-  fiber's saved registers/frames (written by `saveCurrentFiber`'s memcpy,
-  with no per-slot barriers) and, for a running fiber, both its mutable
-  fields (`waiting_on`, parameter overrides, held mutexes, …) and its
-  *stale* saved snapshot — which must stay traced because full collections
-  still walk it through `markValueInner`'s `.fiber` arm, and a value freed
-  by an intervening minor would turn that walk into a use-after-free.
+  `FiberScheduler.markRoots` each collection (authoritative; the fiber-field
+  barriers are belt-and-braces). That covers a suspended fiber's saved
+  registers/frames and, for a running fiber, both its mutable fields
+  (`waiting_on`, parameter overrides, held mutexes, …) and its *stale* saved
+  snapshot — which must stay traced because full collections still walk it
+  through `markValueInner`'s `.fiber` arm, and a value freed by an
+  intervening minor would turn that walk into a use-after-free. A fiber
+  retired from its scheduler slot loses that pass while staying
+  heap-reachable, so `saveCurrentFiber` also enrolls an old fiber in the
+  remembered set wholesale (`GC.rememberObject`): its bulk snapshot has no
+  per-field barriers, and `pruneRememberedSet` drops the entry once the
+  snapshot has aged.
 - The root-marked maps (`vm.globals`, library `lib_env`s): their values are
   marked directly as roots every collection, so `set!`/`define` into them
-  needs no barrier. A *mutable* `SchemeEnvironment` (the `eval`/
-  `environment` objects) is a heap object, not a root-marked map — the
-  `define`/`set!`/`define-syntax` stores into its map carry a write barrier
-  on the wrapper object.
+  needs no barrier — nor into the interaction-environment wrapper, whose
+  map *is* `vm.globals` (the `.owned == false` case the handlers skip). A
+  *mutable* `SchemeEnvironment` (the `eval`/`environment` objects) is a
+  heap object, not a root-marked map — the `define`/`set!`/`define-syntax`
+  stores into its map carry a write barrier on the wrapper object, and the
+  compiler's `def_env_val`/`let_syntax_peer_vals` stores into a
+  possibly-promoted aliased transformer (SRFI 147/211) carry one on the
+  transformer.
 
 Weak structures follow the same rule with one addition: a guardian's
 `registered` list grows at every registration, so `invokeGuardian` barriers
-the append, and `processWeakRefs` re-queues an old guardian that still
-references young objects after a full collection (which drains the set).
-The weak probes (`keptAlive`/`weakReachable`) treat every old object as
-alive during a minor collection — the old generation is never swept by one,
-so an ephemeron with an old key must not break and a guardian watching an
-old object must not resurrect; the decision is deferred to the next full
-collection, where old garbage is unmarked and visible.
+the append (the old "weak structures never enter the remembered set" claim
+was wrong for guardians). The weak probes (`keptAlive`/`weakReachable`)
+treat every old object as alive during a minor collection — the old
+generation is never swept by one, so an ephemeron with an old key must not
+break and a guardian watching an old object must not resurrect; the
+decision is deferred to the next full collection, where old garbage is
+unmarked and visible.
 
 Omitting a barrier does not fail immediately — it corrupts the heap only
 when a minor collection happens to run before the next full collection,

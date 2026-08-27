@@ -177,6 +177,19 @@ pub fn allocFunction(self: *GC) !*Function {
     return func;
 }
 
+/// Append `v` to `func.constants`, write-barriering the store (#1961): a
+/// function can already be promoted while its constants list is still
+/// growing — compiling a large body spans collections, and the .sbc
+/// deserializer extra-roots its functions from the start — so the appended
+/// value may be a young referent only the remembered set can reach. Shared
+/// by the compiler, the deserializer, and the tests so the barrier is a
+/// property of adding a constant rather than of each call site. The barrier
+/// no-ops for immediates.
+pub fn appendFunctionConstant(self: *GC, func: *Function, v: Value) error{OutOfMemory}!void {
+    try func.constants.append(self.allocator, v);
+    self.writeBarrier(&func.header, v);
+}
+
 pub fn allocClosure(self: *GC, func: *Function) !Value {
     self.rootArgs1(types.makePointer(&func.header));
     try self.maybeCollect();

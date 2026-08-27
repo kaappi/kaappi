@@ -287,12 +287,10 @@ pub const Compiler = struct {
             if (c == value) return @intCast(i);
         }
         if (self.func.constants.items.len >= 65536) return CompileError.TooManyConstants;
-        self.func.constants.append(self.gc.allocator, value) catch return CompileError.OutOfMemory;
-        // #1961: compiling a large body spans collections, so `func` may
-        // already be promoted while its constants list is still growing —
-        // an old container taking young values, which the generational
-        // minor mark reaches only through the remembered set.
-        self.gc.writeBarrier(&self.func.header, value);
+        // #1961: appendFunctionConstant write-barriers the store — compiling
+        // a large body spans collections, so `func` may already be promoted
+        // while its constants list is still growing.
+        self.gc.appendFunctionConstant(self.func, value) catch return CompileError.OutOfMemory;
         return @intCast(self.func.constants.items.len - 1);
     }
 
