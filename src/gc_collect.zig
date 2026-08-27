@@ -294,6 +294,18 @@ pub fn referencesYoung(gc: *GC, obj: *Object) bool {
         },
         .scheme_environment => {
             const se = obj.as(types.SchemeEnvironment);
+            // #1961 (review): an .owned == false wrapper's map IS the
+            // owning VM's root-marked globals map (interaction-environment
+            // is the only such constructor) — every value in it is marked
+            // each collection by markVmRoots regardless, so the wrapper
+            // never carries a remembered-set-relevant young edge; for a
+            // child-thread wrapper the values are foreign to this GC and
+            // isYoungPointer would skip them anyway. Returning false here
+            // keeps the promotion scan and the full-collect re-scan from
+            // enrolling the wrapper, which would otherwise re-walk all of
+            // globals (mark + prune) once per minor while any global value
+            // stays young.
+            if (!se.owned) return false;
             var vit = se.env.valueIterator();
             while (vit.next()) |val| {
                 if (isYoungPointer(gc, val.*)) return true;

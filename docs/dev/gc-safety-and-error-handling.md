@@ -154,8 +154,9 @@ Two things deliberately do **not** rely on the barrier:
   in `GC.envStoreBarrier`: a *mutable* `SchemeEnvironment` (the `eval`/
   `environment` objects) is a heap object, not a root-marked map, so the
   `define`/`set!`/`define-syntax` stores into its map carry a write barrier
-  on the wrapper object — the `.owned == false` wrapper does not. The
-  compiler's `def_env_val`/`let_syntax_peer_vals` stores into a
+  on the wrapper object — the `.owned == false` wrapper does not, and
+  `referencesYoung` answers false for it too, so neither scan enrolls it.
+  The compiler's `def_env_val`/`let_syntax_peer_vals` stores into a
   possibly-promoted aliased transformer (SRFI 147/211) carry one on the
   transformer.
 
