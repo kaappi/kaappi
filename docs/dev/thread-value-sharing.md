@@ -164,11 +164,15 @@ representation-of-the-moment: its own tagged Value while unpromoted, and —
 once promoted — the `SharedChannel.identity_seed` `promoteChannel` preserved
 from exactly that Value before publishing. A table keyed before the first
 cross-thread send therefore still finds its entry after promotion rewrites
-the original in place, and every stub hashes the one seed. If the original
-object is later collected and its address reused, the collision is benign —
-equality still compares `shared` pointers. (Unpromoted channels hash through
-the same `valueHash` as plain `(hash ch)`, so the two agree on every target,
-wasm32's 32-bit `usize` included.)
+the original in place, and every stub hashes the one seed. The seed is
+hashed with `identityHash` — a pure function of the bits that never
+dereferences them (the original object may since have been swept or live on
+another heap; `valueHash` would be wrong there, its dispatch reads `.tag`
+through pointer bits) — so if the original is later collected and its
+address reused, the collision is benign and deterministic: equality still
+compares `shared` pointers. For a live unpromoted channel the result equals
+plain `(hash ch)`'s identity arm on every target, wasm32's 32-bit `usize`
+included.
 
 `channel=?` and `channel-hash` read channel fields, so they carry the same
 foreign-owner check as `channel-send`, now factored as
@@ -188,16 +192,17 @@ backing table was built with a zero-argument `make-hash-table` (default
 **Loading `(srfi 128)` safely across threads.** `vm.libraries` reaches
 child VMs as a struct copy (unlike `globals`, which got the pointer+lock
 treatment — see `vm.zig`'s `initForThread`), and `markVmRoots` gates
-library marking behind `owns_globals`. A lazy library load from a worker
-thread would therefore put() into bucket storage the root reads unlocked
-and leave child-heap exports unmarked by every collector.
-`threadStartImpl` closes this by pre-loading `(srfi 128)` on the spawning
-VM before any child exists (`ensureComparatorLibraryLoaded` — best-effort;
-the process's first `make-thread` is necessarily the root, so the load is
-always pre-children and read-only afterwards), and an
-`embedded_libraries` entry keeps the library loadable under `--sandbox`,
-on WASM, and — as the last resort after a disk miss — on a binary with no
-lib tree to read at all.
+library marking behind `owns_globals`. A library load from a non-root
+VM would therefore put() into bucket storage the root reads unlocked
+and leave non-root exports unmarked by every collector.
+`threadStartImpl` closes this by pre-loading `(srfi 128)` on the root
+VM before any child exists (`ensureComparatorLibraryLoaded`, which
+refuses to load off-root; best-effort — the process's first
+`thread-start!` is necessarily the root, so the load is always
+pre-children, and a read-only no-op afterwards once it succeeded), and
+an `embedded_libraries` entry keeps the library loadable under
+`--sandbox`, on WASM, and — as the last resort after a disk miss — on a
+binary with no lib tree to read at all.
 
 ## The globals route
 

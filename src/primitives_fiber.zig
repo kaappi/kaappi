@@ -1474,15 +1474,17 @@ fn channelHashFn(args: []const Value) PrimitiveError!Value {
     // promoteChannel preserved from exactly that Value (SharedChannel.
     // identity_seed). A table keyed before the first cross-thread send
     // therefore still finds its entry afterwards, and every stub of the
-    // channel hashes the one seed. Routed through valueHash, not a local
-    // mixing constant, so an unpromoted channel hashes identically here
-    // and under plain (hash ch) on every target — wasm32's 32-bit usize
-    // truncation included.
-    const seed: Value = if (ch.shared) |raw| blk: {
+    // channel hashes the one seed. identityHash, not valueHash: it is a
+    // pure function of the bits, and the seed must never be dereferenced —
+    // the original object may since have been swept or live on another
+    // heap, and valueHash's dispatch reads .tag through pointer bits
+    // (kaappi#2394 review). For a live channel the two agree exactly, so
+    // (channel-hash ch) = (hash ch) while unpromoted, on every target.
+    const bits: u64 = if (ch.shared) |raw| blk: {
         const sc: *shared_channel.SharedChannel = @ptrCast(@alignCast(raw));
-        break :blk @bitCast(sc.identity_seed);
+        break :blk sc.identity_seed;
     } else args[0];
-    const h: u64 = primitives_hashtable.valueHash(seed);
+    const h: u64 = primitives_hashtable.identityHash(bits);
 
     if (args.len > 1) {
         if (!types.isFixnum(args[1])) return primitives.typeError("channel-hash", "integer", args[1]);
@@ -1496,29 +1498,31 @@ fn channelHashFn(args: []const Value) PrimitiveError!Value {
 /// (srfi 128) pre-load, best-effort, for threadStartImpl: the library must
 /// be in the registry BEFORE any child VM struct-copies it (kaappi#2394
 /// review). `vm.libraries` is copied by value on child creation — unlike
-/// globals, which got the pointer+lock treatment — so a lazy load from a
-/// worker thread would put() into bucket storage the parent reads
-/// unlocked, and a child-side rehash would free buckets the parent's copy
-/// still names; the child-side exports would also be unmarked by every
-/// collector (markVmRoots gates library marking behind owns_globals).
-/// Loading at the first make-thread is always pre-children — children
-/// exist only inside threadStartImpl — and read-only afterwards. Failures
-/// are swallowed: channel-comparator's own lazy load then reports the
-/// described error instead.
-pub fn ensureComparatorLibraryLoaded(vm: *vm_mod.VM) void {
-    if (vm.libraries.get("srfi.128") != null) return;
-    const gc = memory.gc_instance orelse return;
-    var iset = vm_library.buildSrfiNameList(gc, 128) catch return;
+/// globals, which got the pointer+lock treatment — so a load from a non-root
+/// VM would put() into bucket storage the root reads unlocked, and a rehash
+/// would free buckets the root's copy still names; non-root exports would
+/// also be unmarked by every collector (markVmRoots gates library marking
+/// behind owns_globals). Hence the root_vm guard: only the root ever loads.
+/// The process's first `thread-start!` is necessarily the root (children
+/// exist only inside threadStartImpl), so the load is always pre-children;
+/// once it succeeds every later spawn's registry copy contains the library
+/// and this is a read-only no-op. Returns whether the library is present
+/// afterwards — on failure, `last_error_detail` holds the loader's own
+/// diagnosis for the caller to surface or clear (it must not be left stale).
+pub fn ensureComparatorLibraryLoaded(vm: *vm_mod.VM) bool {
+    if (vm.libraries.get("srfi.128") != null) return true;
+    if (vm.root_vm != null) return false; // never load off-root
+    const gc = memory.gc_instance orelse return false;
+    var iset = vm_library.buildSrfiNameList(gc, 128) catch return false;
     gc.pushRoot(&iset);
     defer gc.popRoot();
-    // Clear-then-clear-again: the loader's setErrorDetail sites only write
-    // when no detail is set, so a stale one would both suppress the
-    // loader's own message and — once swallowed here — mis-attach to the
-    // next unrelated error (the ffi.zig callFfi precedent for the reset).
+    // Clear first: the loader's setErrorDetail sites only write when no
+    // detail is set, so a stale one would suppress the loader's own message
+    // (the ffi.zig callFfi precedent for the reset). On failure the detail
+    // is the loader's, deliberately left for the caller.
     vm.last_error_detail_len = 0;
-    vm_imports.ensureLibraryLoaded(vm, iset, "srfi.128") catch {
-        vm.last_error_detail_len = 0;
-    };
+    vm_imports.ensureLibraryLoaded(vm, iset, "srfi.128") catch return false;
+    return true;
 }
 
 /// (channel-comparator) — (make-comparator channel? channel=? #f
@@ -1536,11 +1540,24 @@ fn channelComparatorFn(_: []const Value) PrimitiveError!Value {
 
     if (vm.default_channel_comparator != types.VOID) return vm.default_channel_comparator;
 
-    // ensureComparatorLibraryLoaded is a no-op once loaded — threadStartImpl
-    // pre-loads on the root VM precisely so a worker thread never performs
-    // this load (see its doc comment for the registry/marking hazards).
-    ensureComparatorLibraryLoaded(vm);
-
+    // ensureComparatorLibraryLoaded never loads off-root — threadStartImpl
+    // pre-loads on the root VM at the process's first thread-start! so a
+    // worker never needs to (see its doc comment for the registry/marking
+    // hazards a non-root load would carry).
+    if (!ensureComparatorLibraryLoaded(vm)) {
+        // Fold the loader's own diagnosis (which file, what error) into the
+        // raised message, then clear it so it cannot attach to the next
+        // unrelated error (kaappi#2394 review).
+        var buf: [320]u8 = undefined;
+        const detail = vm.last_error_detail[0..vm.last_error_detail_len];
+        const msg = if (detail.len > 0)
+            std.fmt.bufPrint(&buf, "channel-comparator: failed to load (srfi 128): {s}", .{detail}) catch
+                "channel-comparator: failed to load (srfi 128)"
+        else
+            "channel-comparator: failed to load (srfi 128)";
+        vm.last_error_detail_len = 0;
+        return raiseFiberError(msg);
+    }
     const lib128 = vm.libraries.get("srfi.128") orelse
         return raiseFiberError("channel-comparator: failed to load (srfi 128)");
     const make_comparator = lib128.exports.get("make-comparator") orelse

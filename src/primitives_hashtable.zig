@@ -95,6 +95,25 @@ fn extractComparatorFns(val: Value) ?struct { equiv: Value, hash_fn: Value } {
     return .{ .equiv = ri.fields[1], .hash_fn = ri.fields[3] };
 }
 
+/// (srfi 128)'s `make-default-comparator` while `comparator-register-default!`
+/// has not been used: its equality closure is then observably `equal?` (and
+/// its hash `default-hash`, also `equal?`-consistent), so the table can run
+/// the native `.equal` fast path instead of paying two VM-bridge closure
+/// calls per probe (kaappi#2394 review — routing SRFI-113 sets through their
+/// comparator made this the common portable case). A non-empty registry opts
+/// out: a late registration changes the default comparator's meaning, and a
+/// table captures its construction-time behavior, which SRFI 128 permits.
+/// Degrades silently to `.custom` if (srfi 128)'s internals ever rename —
+/// slower, never wrong.
+fn isUnregisteredDefaultComparator(vm: *vm_mod.VM, equiv: Value) bool {
+    const lib = vm.libraries.get("srfi.128") orelse return false;
+    const env = lib.lib_env orelse return false;
+    const default_eq = env.get("default-equality") orelse return false;
+    if (equiv != default_eq) return false;
+    const reg = env.get("registered-comparators") orelse return false;
+    return reg == types.NIL;
+}
+
 fn configureHashTable(ht: *HashTable, ht_val: Value, gc: *GC, vm: *vm_mod.VM, args: []const Value) void {
     if (args.len > 0) {
         var equiv_val = args[0];
@@ -107,6 +126,10 @@ fn configureHashTable(ht: *HashTable, ht_val: Value, gc: *GC, vm: *vm_mod.VM, ar
             if (!has_hash) {
                 hash_val = cmp.hash_fn;
                 has_hash = true;
+            }
+            if (isUnregisteredDefaultComparator(vm, cmp.equiv)) {
+                equiv_val = lookupGlobal(vm, "equal?");
+                hash_val = lookupGlobal(vm, "hash");
             }
         }
 
@@ -188,8 +211,15 @@ fn equalForTable(proc: []const u8, ht: *HashTable, a: Value, b: Value) Primitive
     };
 }
 
-fn identityHash(key: Value) usize {
-    return @truncate(key *% 2654435761);
+/// The identity arm of `valueHash`: a pure function of the Value's *bits* —
+/// never dereferences them. That matters when the bits are not a live
+/// pointer to dereference: `channel-hash` feeds it `SharedChannel.
+/// identity_seed`, the raw tagged bits of a channel object that may since
+/// have been swept or live on another heap (kaappi#2394 review — `valueHash`
+/// itself would be wrong there, its dispatch reads `.tag` through the bits).
+/// For a live value the result equals `valueHash`'s fall-through arm exactly.
+pub fn identityHash(bits: u64) usize {
+    return @truncate(bits *% 2654435761);
 }
 
 fn stringContentHash(data: []const u8) usize {

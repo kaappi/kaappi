@@ -70,10 +70,15 @@
     ;; The backing table uses the comparator's own equality/hash (kaappi#2394):
     ;; the native make-hash-table unwraps a <comparator> record into its two
     ;; procedures, and detectMode keeps the native fast path for the standard
-    ;; comparators, whose equality fields hold the real eq?/eqv?/equal?. Until
+    ;; comparators, whose equality fields hold the real eq?/eqv?/equal? --
+    ;; make-default-comparator included while nothing is registered via
+    ;; comparator-register-default! (the hashtable bridge recognizes that
+    ;; case natively). A user comparator with closure equality runs the
+    ;; generic custom mode: correct, with a procedure call per probe. Until
     ;; this fix the comparator was stored in the record but every membership
-    ;; test ran through the default equal? table, so any non-equal? comparator
-    ;; — (set (channel-comparator) a b) included — silently deduped by pointer.
+    ;; test ran through the default equal? table, so any non-equal?
+    ;; comparator -- (set (channel-comparator) a b) included -- silently
+    ;; deduped by pointer.
     (define (%make-empty-set comparator)
       (%make-set comparator (make-hash-table comparator)))
 

@@ -16,7 +16,8 @@
         (only (srfi 69) make-hash-table hash-table-set! hash-table-size
               hash-table-ref/default hash)
         (only (srfi 128) comparator? comparator-type-test-predicate
-              comparator-equality-predicate comparator-ordered? comparator-hash))
+              comparator-equality-predicate comparator-ordered? comparator-hash
+              make-default-comparator comparator-register-default!))
 
 (test-begin "channel-identity-2394")
 
@@ -143,6 +144,28 @@
 
 (test-equal "channel-comparator is cached: repeat calls return the same record"
   #t (eq? (channel-comparator) (channel-comparator)))
+
+;; make-default-comparator tables: while nothing is registered, the
+;; hashtable bridge runs them on the native equal? fast path — the swap
+;; must be observably identical to the closures it replaces.
+(test-equal "default-comparator sets behave as equal? tables (fast path)"
+  '(2 #t #f)
+  (let ((s (set (make-default-comparator) '(1 2) '(1 2) "x")))
+    (list (set-size s)
+          (set-contains? s '(1 2))
+          (set-contains? s '(1 3)))))
+
+;; Registration opts the default comparator out of the fast path (back to
+;; its closures), and the closures consult the registry: channel stubs now
+;; unify through the REGISTERED channel-comparator. Must be last —
+;; comparator-register-default! is process-global srfi-128 state.
+(test-equal "a registered channel-comparator extends the default comparator"
+  '(1 #t)
+  (let* ((triple (make-stub-pair)))
+    (comparator-register-default! (channel-comparator))
+    (let ((s (set (make-default-comparator) (car triple) (cadr triple))))
+      (list (set-size s)
+            (set-contains? s (cddr triple))))))
 
 ;; --- argument discipline ---
 (define (code-of thunk) (guard (e (#t (error-object-code e))) (thunk) 'no-raise))
