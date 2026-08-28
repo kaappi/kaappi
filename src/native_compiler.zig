@@ -191,6 +191,11 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
     // interpreter gets the second half from Compiler.compile's own per-form
     // pre-scan; this is the same scan, minus macro expansion.
     var redefined_names = std.StringHashMap(void).init(allocator);
+    // Set when a form's structure-only set! scan truncated (depth/spine
+    // cap): from that form to the end of the file, every top-level form is
+    // eval-fallbacked — see the scan site below for why one form's
+    // truncation poisons the whole rest of the program.
+    var native_scan_truncated = false;
     defer redefined_names.deinit();
     ir_instance.set_targets = &redefined_names;
 
@@ -246,11 +251,21 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
         // map, and continuing with a partial set would silently fold a call
         // the scan had not finished proving unsafe. A truncated scan (depth
         // or spine cap — e.g. a datum-label cycle in the form) means the
-        // partial map cannot gate folding or inline dispatch either, and
-        // this tier has no set_targets_all switch: eval-fallback the whole
-        // form (same action as #2119's continuation forms), where the full
-        // compiler's own conservative machinery applies (#2401 review).
-        if (try compiler.scanSetTargetsWithoutMacros(expr, &redefined_names)) {
+        // partial map cannot gate folding or inline dispatch — and not just
+        // for this form: the form may rebind a primitive at run time (it is
+        // about to be VM-evaluated), and collectRedefinedNamesMacroAware
+        // below can no more see through the truncation than the scan could,
+        // so later forms' folds would go stale (#2212's divergence class).
+        // This tier has no set_targets_all switch, so the conservative
+        // action is to eval-fallback this form AND every remaining
+        // top-level form of the file (same action as #2119's continuation
+        // forms; execution order is preserved, so forms lowered before the
+        // truncation stay temporally correct). Only pathological inputs
+        // reach the caps, so ordinary files keep their native lowering.
+        if (!native_scan_truncated) {
+            native_scan_truncated = try compiler.scanSetTargetsWithoutMacros(expr, &redefined_names);
+        }
+        if (native_scan_truncated) {
             const passthrough_node = ir_instance.makePassthrough(expr) catch continue;
             ir_nodes.append(allocator, passthrough_node) catch continue;
             continue;
