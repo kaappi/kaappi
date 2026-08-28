@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787853805900,
+  "lastUpdate": 1787887123841,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "220e31a23b575d7e1dae4b66294c3a768a483995",
-          "message": "Bound fmt's prefix-chain depth and name dangling #; errors (#2242)\n\nkaappi fmt's CST parser capped recursion for lists only: parseList\nchecked max_nesting, but a reader-prefix chain (' ` , ,@ #N=) or a #;\ndatum comment recursed through parsePrefixTarget without touching\nself.depth, so ~158000 prefixes overflowed the native stack and fmt\nexited 134 — and fmt --check, the documented CI gate, died the same\nway. Every prefix kind reached it, verified at 200000.\n\nThe prefix/datum-comment path now draws from the same max_nesting\nbudget as parseList, sharing one counter so mixed prefix+list nesting\nis rejected at the reader's own 1025 level; the printer's emitNode /\ncomputeMeasure recursion over the same chain is bounded by that cap.\nA dangling #; at end of input is reported as 'datum comment with no\ndatum' instead of being mislabelled 'quote/unquote with no datum'\n(ParseError gains DanglingDatumComment).\n\nRe-enables the disabled #2141 adversarial shell tests across all six\nprefix kinds and adds unit tests: every kind rejects cleanly past the\ncap, prefix and list nesting share one depth budget, and the dangling\n\n\n#; error is distinct from a dangling quote.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-06T13:55:25Z",
-          "tree_id": "c866c3ea6705ea1db16f43ffa8c59e9345cbdad6",
-          "url": "https://github.com/kaappi/kaappi/commit/220e31a23b575d7e1dae4b66294c3a768a483995"
-        },
-        "date": 1786026503515,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.26675,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.379281,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.582946,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.97866,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004771,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047292,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.314889,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057835,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.664012,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.22185,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.653961,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.279655,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.815122,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.632844,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043844,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046279,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "10a5be17f03f637e9a8a17406f97f2b3e26bfe82",
+          "message": "Add channel identity comparators to (kaappi fibers) (#2397)\n\n* Add channel identity comparators to (kaappi fibers) (kaappi#2394)\n\nKEP-0002 §2 promised that eqv?/equal? compare the SharedChannel pointer\nfor promoted channel stubs; none of that shipped, and the issue's\ndiscussion settled the promise as the SRFI-128 comparator surface\n(option 1b) instead of extending the global predicates:\n\n- channel=? — #t iff both operands are channels backing the same\n  SharedChannel (or the same unpromoted local channel); carries the\n  same foreign-owner check as channel-send, like channel-closed?.\n- channel-hash ch [bound] — hashes the shared pointer, consistent with\n  channel=? by construction; mirrors (hash obj [bound]) (SRFI 69).\n- channel-comparator — (make-comparator channel? channel=? #f\n  channel-hash) built by calling the real (srfi 128) make-comparator,\n  lazy-loaded on demand (embedded for --sandbox and WASM, like\n  (srfi 181)); the three procedures are the (kaappi fibers) registry's\n  pristine exports, immune to top-level shadowing of those names.\n\nunboundedHash is now pub so channel-hash shares the exact unbounded\nhash rendering. eq?/eqv?/equal? stay stub-identity, as the KEP's\n2026-08-27 as-implemented amendment records.\n\nTests: unit tests in src/tests_fibers.zig (local identity, stub\nunification across threads, hash-table dedup both ways, lazy\ncomparator construction) plus tests/scheme/smoke/channel-identity-2394.scm\nfor the end-to-end scenario. Docs: new section in\ndocs/dev/thread-value-sharing.md covering the comparator surface, the\npromotion/hash-stability caveat, and the SRFI-113 sets-don't-honor-\ncomparators gap.\n\n* Signed-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* DCO remediation commit for Baiju Muthukadan <baiju.m.mail@gmail.com>\n\nI, Baiju Muthukadan <baiju.m.mail@gmail.com>, hereby add my Signed-off-by to this commit: 68cb86effcbeed04329e659a91f84fef8fe4877a\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: promotion-stable hash, thread-safe comparator, SRFI-113 fix (kaappi#2394)\n\nEvery finding from the #2397 review, verified against the code first:\n\n- Promotion-stable channel hash (CodeRabbit, baijum): promoteChannel\n  preserves the promoting channel's tagged Value as\n  SharedChannel.identity_seed (written before publish), and channel-hash\n  hashes that seed in every representation -- a table keyed before the\n  first cross-thread send stays reachable after promotion rewrites the\n  original in place, and every stub hashes the one seed. The unpromoted\n  path routes through valueHash, so (channel-hash ch) = (hash ch) on\n  every target including wasm32's 32-bit usize; the copied mixing\n  constant is gone.\n- Worker-thread lazy-load hazards (baijum): threadStartImpl pre-loads\n  (srfi 128) on the spawning VM before any child can struct-copy the\n  registry (ensureComparatorLibraryLoaded, best-effort). The process's\n  first make-thread is necessarily the root, so the load is always\n  pre-children and read-only afterwards -- no child ever lazy-loads\n  into the shared bucket storage, and the loaded exports live on the\n  root heap where markVmRoots marks them.\n- channel-comparator is cached on the VM like default_random_source\n  (default_channel_comparator, marked unconditionally in markVmRoots):\n  repeat calls return the same record.\n- The embedded (srfi 128) is now the last-resort source on native after\n  a disk miss too (baijum): a release binary or -Dbundle-src standalone\n  with no lib tree loads it from the binary; disk keeps precedence.\n- A stale last_error_detail no longer misroutes the lazy-load error\n  (reset before the load, ffi.zig callFfi precedent; the swallow path\n  clears again so nothing leaks to the next unrelated error).\n- checkChannelOwner extracted (baijum): the sixth and seventh inline\n  copies of the foreign-owner gate became the helper's call sites, and\n  channel=? binds each operand exactly once.\n- SRFI-113 sets/bags honor their comparator (baijum):\n  %make-empty-set/%make-empty-bag pass it to make-hash-table, so\n  (set (channel-comparator) a b) dedups stubs; detectMode keeps the\n  native fast path for the standard comparators, whose equality fields\n  hold the real eq?/eqv?/equal?.\n- wasm32-baseline: a natural u64 demands align 8 against Header's 4,\n  breaking destroyHook's @fieldParentPtr -- identity_seed carries an\n  explicit header-matching alignment.\n- Tests: insert-promote-lookup regression, comparator caching, SRFI-113\n  set dedup, worker-thread-first comparator use; the two multi-step\n  unit tests moved to th.TestContext. Docs rewritten accordingly.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address round-2 review: seed never dereferenced, off-root load refused, default-comparator fast path (kaappi#2394)\n\nThe four #2397 round-2 findings, each verified before fixing:\n\n- valueHash dereferenced identity_seed (baijum): the dispatch chain\n  (isString/isSymbol/isPair/...) reads .tag through pointer bits, so the\n  seed -- which may point at a swept object, a foreign-heap object, or a\n  reused address -- was a racy read at best and content-hashing of an\n  unrelated object at worst. channel-hash now routes through\n  primitives_hashtable.identityHash (now pub, u64 bits): the pure\n  fall-through arm, bit-identical to valueHash for a live channel on\n  every target, zero dereference.\n- make-default-comparator regression (baijum): routing SRFI-113 sets\n  through their comparator put the default comparator -- the common\n  portable case -- on .custom with two closure bridges per probe. The\n  hashtable bridge now recognizes an unregistered default comparator\n  (equality is srfi.128's default-equality binding and\n  registered-comparators is '()) and installs the native equal?/hash\n  pair instead; late registrations opt out (a table captures its\n  construction-time behavior, which SRFI 128 permits) and a rename of\n  the library internals degrades silently to .custom. Smoke tests pin\n  both directions: equal?-table behavior before registration, and a\n  registered channel-comparator extending the default comparator after.\n- residual off-root load (baijum): ensureComparatorLibraryLoaded now\n  refuses to load on a non-root VM (root_vm guard) and returns success;\n  threadStartImpl clears the loader detail on the swallowed failure, and\n  channel-comparator folds that detail into its raised message before\n  clearing it -- so a broken disk 128.sld yields \"channel-comparator:\n  failed to load (srfi 128): LibrarySourceReadError while loading\n  library from .../128.sld\" and the next unrelated error stays clean.\n  Comments corrected: the hook is thread-start!, not make-thread.\n- Verified end to end with a shadowed broken 128.sld via --lib-path.\n\nFull suite: unit 1873 pass / 7 skipped, fibers green under gc-stress,\nrun-all.sh 2116 pass / 0 fail, wasm builds, fmt and markdownlint clean.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-28T08:08:36+05:30",
+          "tree_id": "90fe886bacebd6c541f283d06be5a7694a9cb2c1",
+          "url": "https://github.com/kaappi/kaappi/commit/10a5be17f03f637e9a8a17406f97f2b3e26bfe82"
+        },
+        "date": 1787887120690,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.103453,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.90543,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.415272,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.266449,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004812,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.045195,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.234533,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.044868,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.307939,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.902232,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.253664,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.254068,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.301656,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.911931,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.037892,
             "unit": "seconds"
           }
         ]
