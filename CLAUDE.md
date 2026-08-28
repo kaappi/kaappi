@@ -1,7 +1,7 @@
 # Kaappi — R7RS Scheme in Zig
 
 Complete R7RS-small Scheme implementation. Zig 0.16, ~100k lines, 695 built-in
-procedures, 179 SRFIs.
+procedures, 180 SRFIs.
 
 This file is the orientation map. Detail lives in `docs/dev/` — every section
 below names the document that owns it. `docs/dev/README.md` is the full index.
@@ -186,8 +186,8 @@ Exceptions: auto-generated data files (`unicode_tables.zig`) are exempt.
 
 ## Libraries and SRFIs
 
-179 SRFIs supported: 12 built-in as Zig primitives (1, 9, 13, 18, 39, 69, 133,
-170, 192, 254, 258, 260), 163 portable `.sld` files under `lib/srfi/` loaded on
+180 SRFIs supported: 12 built-in as Zig primitives (1, 9, 13, 18, 39, 69, 133,
+170, 192, 254, 258, 260), 164 portable `.sld` files under `lib/srfi/` loaded on
 demand, plus SRFI 261 (an import-resolver convention with no library file) and
 the sub-library-only 160, 211 and 226. Every supported SRFI is also a
 `cond-expand` feature identifier `srfi-<n>`, derived rather than listed.
