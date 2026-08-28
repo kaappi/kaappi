@@ -38,7 +38,7 @@
          (define r-vector? (rename 'vector?))
          (define r-vector->list (rename 'vector->list))
 
-         ;; Keyword recognition is name-based compare (kaappi#2388).
+         ;; Keyword recognition is binding-aware compare (kaappi#2388).
          (define (kw? x sym) (and (symbol? x) (compare x (rename sym))))
          (define (qq-form? x)
            (and (pair? x) (kw? (car x) 'quasiquote)

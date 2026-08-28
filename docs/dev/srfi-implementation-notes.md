@@ -1400,7 +1400,42 @@ save/restore discipline as the syntax-rules `active_*` context), and
 `rename` reuses `renameForHygiene` — so ER macros get exactly the hygiene
 strength syntax-rules templates have, including the shared pre-existing
 limitation that a use-site top-level redefinition of a referenced name
-reaches the expansion (verified equivalent on both paths). A bare-symbol
+reaches the expansion (verified equivalent on both paths). Since kaappi#2388
+(KEP-0006's resolved direction), `compare` is binding-aware
+free-identifier=? built from the same machinery syntax-rules literal
+matching uses — `UseSiteBindingCheck.resolve` for use-site binding slots,
+`rename`'s per-invocation scope-table identity entries to recognize the
+definition-side bare spelling, def-env-prefixed names agreeing with a
+use-site reference the use site can resolve to the same exported binding
+— which makes "an ER macro is exactly as hygienic as a syntax-rules one"
+(KEP-0018 unresolved question 6) a pinned guarantee for the
+auxiliary-keyword spellings (reserved forms and macro keywords, plus
+gensym-marked renames of any other spelling): the KEP-0006 four-quadrant
+test in `tests/scheme/srfi/srfi211.scm` asserts every quadrant against
+BOTH systems with the same expected value. The guarantee's boundary is
+pinned there too: spellings whose bare rename comes from
+renameForHygiene's other bare-returning branches (the VOID sentinel for a
+name defined later in the use-site body) keep compare's reflexive
+use-token view where a literal refuses — a pre-existing divergence.
+One approximation is inherent to
+interned symbols as syntax: a bare-rename product (reserved forms and
+keywords rename to themselves) is the same object as a use-site token of
+that spelling, so compare recognizes the classic
+`(compare <token> (rename 'kw))` shape from the invocation's rename
+record plus whether the spelling occurs in the macro-use input (a walk
+bounded by a node budget and depth cap — datum labels make inputs
+genuinely circular, kaappi#2404 — with exhaustion counting
+conservatively as occurrence) — order-independent, reflexive for two
+plain use-site tokens and for the invocation's own rename products
+whenever the spelling is absent from the input. The unsettled shape,
+stated plainly: a spelling that occurs in the input AND was bare-renamed
+this invocation, compared under a use-site local shadow — the refusal is
+free-identifier=?'s demanded answer when one argument is that input
+token, and known-wrong (broken reflexivity) when both arguments were the
+invocation's own rename products; a distinguishable wrapper for bare
+rename products would break the compiler's bare matching of the reserved
+forms macros emit. A
+bare-symbol
 spec falls back to a globals lookup holding a Transformer value, so
 `(define t (er-macro-transformer p))` + `(define-syntax m t)` works. Two
 non-obvious integration points: (1) `vm_imports.copyTransformerFreeRefs`
@@ -1479,9 +1514,14 @@ check):
   per-expansion counter, then renamed.
 - **Keyword recognition (`...`, `_`, `->`, `guard`, `unquote`,
   `quasiquote`, `values`) is `compare` against `rename` of the keyword —
-  hygiene-stripped name equality.** That strength suffices for these
-  macros (kaappi#2388 records the evidence); a use inside another
-  er-macro's output whose keywords arrive renamed still compares equal.
+  binding-aware free-identifier=? since kaappi#2388 (name-stripped
+  equality before it; that strength is what the #2398 re-port evidence
+  validated).** A use inside another er-macro's output whose keywords
+  arrive renamed still compares equal (both sides unbound); a use-site
+  local rebinding of a keyword spelling now opts out of keyword-hood
+  exactly as a syntax-rules literal refuses the same shadowing — nothing
+  in either library's own test suite does that, so the port is unaffected
+  (the one bound keyword, 202's `values` claw, gains the refusal).
   The known edge: a match form produced by a *syntax-rules* template is
   subject to that template's own ellipsis processing first, and a
   template-renamed `quasiquote` in a clause body resolves to the

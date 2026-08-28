@@ -60,6 +60,84 @@ test "SRFI 211: compare answers free-identifier equality for else" {
     );
 }
 
+// kaappi#2388: compare is binding-aware free-identifier=? — the same
+// machinery syntax-rules literal matching runs on (literal_bound +
+// use_check.resolve), so the KEP-0006 four-quadrant answers hold: a
+// use-site local rebinding of a keyword spelling is refused for both the
+// reserved (bare-rename) and renamed (global-name) keyword shapes, while
+// an unshadowed use still compares equal. End-to-end parity against a
+// syntax-rules cond-style transformer is pinned in
+// tests/scheme/srfi/srfi211.scm (KEP-0018 UQ6). The macro names carry a
+// q2388- prefix because a vm.eval'd define-syntax re-using a keyword
+// already defined by an earlier test in this process trips a pre-existing
+// quirk unrelated to compare (kaappi#2400).
+test "SRFI 211: compare refuses a locally rebound keyword spelling (#2388)" {
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax q2388-else?
+        \\    (er-macro-transformer
+        \\     (lambda (form rename compare)
+        \\       (list (rename 'quote) (compare (car (cdr form)) (rename 'else))))))
+        \\  (define-syntax q2388-arrow?
+        \\    (er-macro-transformer
+        \\     (lambda (form rename compare)
+        \\       (list (rename 'quote) (compare (car (cdr form)) (rename '=>))))))
+        \\  (and (q2388-else? else)
+        \\       (q2388-arrow? =>)
+        \\       (not (let ((else 1)) (q2388-else? else)))
+        \\       (not (let ((=> 1)) (q2388-arrow? =>)))))
+    );
+}
+
+test "SRFI 211: compare refuses a locally rebound rename of a global name (#2388)" {
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax q2388-values?
+        \\    (er-macro-transformer
+        \\     (lambda (form rename compare)
+        \\       (list (rename 'quote) (compare (car (cdr form)) (rename 'values))))))
+        \\  (and (q2388-values? values)
+        \\       (not (let ((values 1)) (q2388-values? values)))))
+    );
+}
+
+// Pairwise comparison of two USE-SITE tokens (the duplicate-key idiom)
+// must stay reflexive even when the spelling is locally bound at the use
+// site: with no bare rename of that spelling in the invocation, compare
+// sees the same identifier on both sides.
+test "SRFI 211: compare stays reflexive on plain use-site tokens (#2388)" {
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax q2388-tok=?
+        \\    (er-macro-transformer
+        \\     (lambda (form rename compare)
+        \\       (list (rename 'quote)
+        \\             (compare (car (cdr form)) (car (cddr form)))))))
+        \\  (and (q2388-tok=? vv vv)
+        \\       (let ((vv 1)) (q2388-tok=? vv vv))))
+    );
+}
+
+// A macro-INTRODUCED keyword (rename product, gensym-marked) compares
+// equal to the definition-side keyword even where a use-site local
+// shadows the bare spelling — the hygiene quadrant reserved-form
+// spellings cannot express (they stay bare, so both systems refuse under
+// shadowing; see the srfi211.scm parity suite).
+test "SRFI 211: a macro-introduced keyword stays hygienic under shadowing (#2388)" {
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax q2388-arrow2?
+        \\    (er-macro-transformer
+        \\     (lambda (form rename compare)
+        \\       (list (rename 'quote) (compare (car (cdr form)) (rename '=>))))))
+        \\  (define-syntax q2388-probe
+        \\    (er-macro-transformer
+        \\     (lambda (form rename compare)
+        \\       (list 'q2388-arrow2? (rename '=>)))))
+        \\  (and (q2388-probe) (let ((=> 1)) (q2388-probe))))
+    );
+}
+
 test "SRFI 211: lisp-transformer receives the whole use datum, unhygienically" {
     try th.expectEval(
         \\(begin

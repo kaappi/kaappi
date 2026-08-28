@@ -758,11 +758,15 @@
   (er-macro-transformer (lambda (form rename compare) (list (rename 'quote) (compare (cadr form) (rename '=>))))))
 (test-assert "SRFI 211 compare matches the => literal" (er-is-arrow =>))
 (test-assert "SRFI 211 compare distinguishes => from else" (not (er-is-arrow else)))
-;; compare is name-based (hygiene-stripped equality), so a use-site LOCAL
-;; rebinding of the literal still compares equal. That is the engine's
-;; documented strength limit, pinned here so a stronger compare shows up.
-(test-assert "SRFI 211 compare is name-based: a locally rebound else still matches"
-             (let ((else 1)) (er-is-else else)))
+;; compare is binding-aware free-identifier=? (kaappi#2388): a use-site
+;; LOCAL rebinding of the literal is a different binding and no longer
+;; compares equal, exactly as a syntax-rules literal refuses the same
+;; shadowing. The old name-based compare answered #t here; this pin is the
+;; one test the stronger semantics was designed to flip.
+(test-assert "SRFI 211 compare is binding-aware: a locally rebound else no longer matches"
+             (not (let ((else 1)) (er-is-else else))))
+(test-assert "SRFI 211 compare is binding-aware: a locally rebound => no longer matches"
+             (not (let ((=> 1)) (er-is-arrow =>))))
 
 ;;; --- lisp-transformer is deliberately UNhygienic; that is the feature ---
 
