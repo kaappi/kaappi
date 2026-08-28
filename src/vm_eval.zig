@@ -355,9 +355,22 @@ fn handleTopLevelCondExpand(vm: *VM, clauses_val: Value) VMError!Value {
 /// branch selection without running the body (#2156) — selection is the only
 /// part of a `cond-expand` that is a compile-time question.
 fn selectCondExpandBody(vm: *VM, clauses_val: Value) VMError!Value {
-    var clauses = clauses_val;
-    while (types.isPair(clauses)) : (clauses = types.cdr(clauses)) {
-        const clause = types.car(clauses);
+    // #2405: a datum-label cycle through the clause list with no matching
+    // clause spun this walk forever — the compiler-side twin
+    // (compiler_conditionals.compileCondExpand) is guarded; this top-level
+    // selector needs the same tortoise-and-hare. The named diagnosis is
+    // recorded through the compiler's detail channel so the reporter shows
+    // the cause rather than a bare compile error.
+    var clauses = compiler_mod.SpineWalk.init(clauses_val);
+    while (types.isPair(clauses.cur)) : (clauses.next()) {
+        if (clauses.cyclic()) {
+            // Through the VM's own detail channel: this path reports via the
+            // runtime reporter, which prefers the VM detail over the code's
+            // registry template.
+            vm.setErrorDetail("circular form in code position: the form contains itself (datum-label cycle)", .{});
+            return VMError.CompileError;
+        }
+        const clause = types.car(clauses.cur);
         if (!types.isPair(clause)) return VMError.CompileError;
         const feature_req = types.car(clause);
         const is_else = types.isSymbol(feature_req) and std.mem.eql(u8, types.symbolName(feature_req), "else");
@@ -367,13 +380,15 @@ fn selectCondExpandBody(vm: *VM, clauses_val: Value) VMError!Value {
             return body;
         }
     }
-    if (clauses != types.NIL) return VMError.CompileError;
+    if (clauses.cur != types.NIL) return VMError.CompileError;
     return types.NIL;
 }
 
 // A proper (nil-terminated) list? Used to reject improper clause bodies before
 // splicing them, matching the compiler's rejection of the same malformed form.
+// #2405: a cyclic body is not a proper list — spineCyclic bounds the walk.
 fn isProperList(list: Value) bool {
+    if (compiler_mod.spineCyclic(list)) return false;
     var rest = list;
     while (types.isPair(rest)) rest = types.cdr(rest);
     return rest == types.NIL;

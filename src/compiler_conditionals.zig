@@ -138,13 +138,13 @@ pub fn compileCond(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compil
 
     var end_jumps: std.ArrayList(usize) = .empty;
     defer end_jumps.deinit(self.gc.allocator);
-    var current = args;
+    var current = compiler_mod.SpineWalk.init(args);
     var had_else = false;
 
-    while (current != types.NIL) {
-        if (!types.isPair(current)) return CompileError.InvalidSyntax;
-        const clause = types.car(current);
-        current = types.cdr(current);
+    while (current.cur != types.NIL) : (current.next()) {
+        if (!types.isPair(current.cur)) return CompileError.InvalidSyntax;
+        if (current.cyclic()) return compiler_mod.circularFormError();
+        const clause = types.car(current.cur);
         if (!types.isPair(clause)) return CompileError.InvalidSyntax;
 
         const test_expr = types.car(clause);
@@ -225,12 +225,14 @@ pub fn compileCond(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compil
 }
 
 pub fn compileCondBody(self: *Compiler, body: Value, dst: u16, is_tail: bool) CompileError!void {
-    var current = body;
-    while (current != types.NIL) {
-        if (!types.isPair(current)) return CompileError.InvalidSyntax;
-        const expr = types.car(current);
-        current = types.cdr(current);
-        const tail = is_tail and current == types.NIL;
+    // #2405: a cond/else clause body is a raw spine — cyclic tails spun
+    // this loop forever.
+    var current = compiler_mod.SpineWalk.init(body);
+    while (current.cur != types.NIL) : (current.next()) {
+        if (!types.isPair(current.cur)) return CompileError.InvalidSyntax;
+        if (current.cyclic()) return compiler_mod.circularFormError();
+        const expr = types.car(current.cur);
+        const tail = is_tail and types.cdr(current.cur) == types.NIL;
         try self.compileExprViaIR(expr, dst, tail);
     }
 }
@@ -241,11 +243,14 @@ pub fn compileCondBody(self: *Compiler, body: Value, dst: u16, is_tail: bool) Co
 /// of the first matching clause. Features are checked against a hardcoded
 /// list and the library registry.
 pub fn compileCondExpand(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
-    var current = args;
-    while (current != types.NIL) {
-        if (!types.isPair(current)) return CompileError.InvalidSyntax;
-        const clause = types.car(current);
-        current = types.cdr(current);
+    // #2405: guarded — a cyclic clause list with no matching clause spun
+    // this loop forever (a match returns early, which is why the common
+    // case only terminates by luck).
+    var current = compiler_mod.SpineWalk.init(args);
+    while (current.cur != types.NIL) : (current.next()) {
+        if (!types.isPair(current.cur)) return CompileError.InvalidSyntax;
+        if (current.cyclic()) return compiler_mod.circularFormError();
+        const clause = types.car(current.cur);
 
         if (!types.isPair(clause)) return CompileError.InvalidSyntax;
         const feature_req = types.car(clause);

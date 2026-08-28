@@ -344,6 +344,14 @@ pub const IR = struct {
     // pointing that threadlocal at it, so trusting it here risked rooting
     // onto a stale or unrelated GC.
     gc: ?*memory.GC = null,
+    // Pairs on the active lowering path (#2405), keyed on Object address
+    // (stable across collections in this non-moving GC, and holding no
+    // Values so the GC never needs to trace it). STANDALONE lowering only
+    // (no Compiler: the LLVM native backend's scratch instances, IR unit
+    // tests) — lowering inside a Compiler uses the Compiler's shared
+    // code_path so the guard also spans compileQQ's template walk. See
+    // Compiler.code_path and Compiler.code_roots for the two halves.
+    lower_path: std.AutoHashMapUnmanaged(usize, void) = .empty,
 
     pub fn init(allocator: std.mem.Allocator) IR {
         return .{
@@ -413,6 +421,7 @@ pub const IR = struct {
             self.freeNode(node);
         }
         self.nodes.deinit(self.allocator);
+        self.lower_path.deinit(self.allocator);
     }
 
     fn freeNode(self: *IR, node: *Node) void {
@@ -626,6 +635,46 @@ pub fn lowerWithMacros(ir: *IR, expr: Value, macros: ?*std.StringHashMap(Value))
     }
 
     if (types.isPair(expr)) {
+        // #2405: a car-side datum-label cycle (`(display #1=(p #1# q))`)
+        // re-enters this function on the same pair at ever-increasing depth
+        // — every recursive position routes through this one funnel — until
+        // the native stack aborts, uncatchably. Membership on the active
+        // path means exactly that back-edge; a cycle has no leaves to
+        // bottom out at, so it is a named compile error, not an internal
+        // one. Quoted data never passes through here — lowerQuote makes the
+        // whole datum a constant without walking it — so circular *data*
+        // keeps working (#1954 controls).
+        //
+        // Review of PR #2413: the path is the Compiler's shared set when
+        // lowering happens inside one (so compileQQ's template walk and
+        // this funnel see each other's spans); the IR-local set still
+        // guards standalone lowering with no Compiler — the LLVM backend's
+        // scratch instances, IR unit tests.
+        const path_key = @intFromPtr(types.toObject(expr));
+        // The push/pop must straddle lowerFormWithMacros below, so the defer
+        // lives in THIS function's scope — a defer inside either branch block
+        // would pop at the branch's closing brace, before the walk happens.
+        const shared_path = ir.compiler != null;
+        if (shared_path) {
+            // ir.compiler is a *const Compiler (lowering was read-only on it
+            // until now); the code-path bookkeeping is lowering state, so the
+            // mutations go through the chain helpers (which reach the parent
+            // chain's root — a lambda body compiles in a child compiler and
+            // is a descendant of every enclosing unit; review of PR #2413).
+            const c: *compiler_mod.Compiler = @constCast(ir.compiler.?);
+            if (c.codePathContains(path_key)) return compiler_mod.circularFormError();
+            c.codePathPush(path_key);
+        } else {
+            // Standalone lowering with no Compiler: the LLVM native backend's
+            // scratch instances, IR unit tests.
+            if (ir.lower_path.contains(path_key)) return compiler_mod.circularFormError();
+            ir.lower_path.put(ir.allocator, path_key, {}) catch return CompileError.OutOfMemory;
+        }
+        defer if (shared_path) {
+            @constCast(ir.compiler.?).codePathPop(path_key);
+        } else {
+            _ = ir.lower_path.remove(path_key);
+        };
         const node = lowerFormWithMacros(ir, expr, macros) catch |err| {
             // Record the failing form's span for the compile-error reporter.
             // Lowering is post-order, so the innermost pair fails first on the
@@ -787,6 +836,15 @@ fn lowerIf(ir: *IR, args: Value, macros: ?*std.StringHashMap(Value)) CompileErro
     const consequent = types.car(rest);
     const rest2 = types.cdr(rest);
 
+    // #2405: `if` consumes its alternate from a position and never walks
+    // what follows — `(if a b c . junk)` has always been silently accepted —
+    // but a CYCLIC tail means the form contains itself, and compiling the
+    // `if` symbol as the alternate is garbage-in-garbage-out (#0=(if #t 1
+    // . #0#) printed 1). Detection-only: the lax acceptance of extra
+    // non-cyclic forms is unchanged.
+    if (rest2 != types.NIL and compiler_mod.spineCyclic(types.cdr(rest2)))
+        return compiler_mod.circularFormError();
+
     const test_node = try lowerWithMacros(ir, test_expr, macros);
     const cons_node = try lowerWithMacros(ir, consequent, macros);
     const alt_node: ?*Node = if (rest2 != types.NIL)
@@ -839,14 +897,14 @@ fn lowerBegin(ir: *IR, args: Value, macros: ?*std.StringHashMap(Value)) CompileE
         }
     }
 
-    var current = args;
-    while (current != types.NIL) {
-        if (!types.isPair(current)) return CompileError.InvalidSyntax;
-        const form = types.car(current);
+    var walk = compiler_mod.SpineWalk.init(args);
+    while (types.isPair(walk.cur)) : (walk.next()) {
+        if (walk.cyclic()) return compiler_mod.circularFormError();
+        const form = types.car(walk.cur);
         try reserveLiteralDefineSyntax(ir, form, macros, &reserved);
         nodes.append(ir.allocator, try lowerWithMacros(ir, form, macros)) catch return CompileError.OutOfMemory;
-        current = types.cdr(current);
     }
+    if (walk.cur != types.NIL) return CompileError.InvalidSyntax;
     return ir.makeBegin(nodes.items);
 }
 
@@ -945,11 +1003,14 @@ fn lowerSet(ir: *IR, args: Value) CompileError!*Node {
         // Collect proc_args + val into argument list
         var arg_nodes: std.ArrayList(*Node) = .empty;
         defer arg_nodes.deinit(ir.allocator);
-        var cur = proc_args;
-        while (cur != types.NIL) {
-            if (!types.isPair(cur)) return CompileError.InvalidSyntax;
-            arg_nodes.append(ir.allocator, try lowerWithMacros(ir, types.car(cur), null)) catch return CompileError.OutOfMemory;
-            cur = types.cdr(cur);
+        // #2405 (CodeRabbit on PR #2413): the SRFI-17 target's operand spine
+        // is a raw walk — `(set! #0=(f 1 . #0#) 3)` spun it forever, the one
+        // cycle shape that never routes through lowerWithMacros.
+        var cur = compiler_mod.SpineWalk.init(proc_args);
+        while (cur.cur != types.NIL) : (cur.next()) {
+            if (!types.isPair(cur.cur)) return CompileError.InvalidSyntax;
+            if (cur.cyclic()) return compiler_mod.circularFormError();
+            arg_nodes.append(ir.allocator, try lowerWithMacros(ir, types.car(cur.cur), null)) catch return CompileError.OutOfMemory;
         }
         arg_nodes.append(ir.allocator, try lowerWithMacros(ir, val_expr, null)) catch return CompileError.OutOfMemory;
 
@@ -962,12 +1023,13 @@ fn lowerSet(ir: *IR, args: Value) CompileError!*Node {
 fn lowerList(ir: *IR, args: Value, tag: NodeTag, macros: ?*std.StringHashMap(Value)) CompileError!*Node {
     var nodes: std.ArrayList(*Node) = .empty;
     defer nodes.deinit(ir.allocator);
-    var current = args;
-    while (current != types.NIL) {
-        if (!types.isPair(current)) return CompileError.InvalidSyntax;
-        nodes.append(ir.allocator, try lowerWithMacros(ir, types.car(current), macros)) catch return CompileError.OutOfMemory;
-        current = types.cdr(current);
+    // #2405: and/or bodies are spines — a datum-label cycle spins forever.
+    var walk = compiler_mod.SpineWalk.init(args);
+    while (types.isPair(walk.cur)) : (walk.next()) {
+        if (walk.cyclic()) return compiler_mod.circularFormError();
+        nodes.append(ir.allocator, try lowerWithMacros(ir, types.car(walk.cur), macros)) catch return CompileError.OutOfMemory;
     }
+    if (walk.cur != types.NIL) return CompileError.InvalidSyntax;
     return switch (tag) {
         .and_form => ir.makeAnd(nodes.items),
         .or_form => ir.makeOr(nodes.items),
@@ -981,12 +1043,13 @@ fn lowerCondBody(ir: *IR, args: Value, tag: NodeTag, macros: ?*std.StringHashMap
 
     var nodes: std.ArrayList(*Node) = .empty;
     defer nodes.deinit(ir.allocator);
-    var current = types.cdr(args);
-    while (current != types.NIL) {
-        if (!types.isPair(current)) return CompileError.InvalidSyntax;
-        nodes.append(ir.allocator, try lowerWithMacros(ir, types.car(current), macros)) catch return CompileError.OutOfMemory;
-        current = types.cdr(current);
+    // #2405: when/unless bodies are spines — a datum-label cycle spins forever.
+    var walk = compiler_mod.SpineWalk.init(types.cdr(args));
+    while (types.isPair(walk.cur)) : (walk.next()) {
+        if (walk.cyclic()) return compiler_mod.circularFormError();
+        nodes.append(ir.allocator, try lowerWithMacros(ir, types.car(walk.cur), macros)) catch return CompileError.OutOfMemory;
     }
+    if (walk.cur != types.NIL) return CompileError.InvalidSyntax;
     return switch (tag) {
         .when_form => ir.makeWhen(test_expr, nodes.items),
         .unless_form => ir.makeUnless(test_expr, nodes.items),
@@ -1002,14 +1065,18 @@ fn lowerCall(ir: *IR, expr: Value, macros: ?*std.StringHashMap(Value)) CompileEr
 
     var arg_buf: [256]*Node = undefined;
     var nargs: usize = 0;
-    var arg_list = types.cdr(expr);
-    while (arg_list != types.NIL) {
-        if (!types.isPair(arg_list)) return CompileError.InvalidSyntax;
+    // #2405: a spine cycle (`#0=(display 1 . #0#)`) used to spin this walk
+    // until the 256-argument cap reported KP9001 "internal error"; the
+    // tortoise-and-hare guard names the cycle instead, and finite improper
+    // tails still fail the isPair check exactly as before.
+    var walk = compiler_mod.SpineWalk.init(types.cdr(expr));
+    while (types.isPair(walk.cur)) : (walk.next()) {
+        if (walk.cyclic()) return compiler_mod.circularFormError();
         if (nargs >= 256) return CompileError.InternalLimit;
-        arg_buf[nargs] = try lowerWithMacros(ir, types.car(arg_list), macros);
+        arg_buf[nargs] = try lowerWithMacros(ir, types.car(walk.cur), macros);
         nargs += 1;
-        arg_list = types.cdr(arg_list);
     }
+    if (walk.cur != types.NIL) return CompileError.InvalidSyntax;
 
     return ir.makeCall(op_node, arg_buf[0..nargs]);
 }

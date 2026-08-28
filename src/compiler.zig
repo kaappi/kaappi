@@ -127,6 +127,27 @@ pub const Compiler = struct {
     // constant folders (IR and legacy) to avoid folding calls to a name that
     // may be reassigned before the call executes.
     set_targets: ?*std.StringHashMap(void) = null,
+    // Pairs (and quasiquote vectors) on the active code-compilation path
+    // (#2405, review of PR #2413), keyed on Object address — stable in this
+    // non-moving GC, holding no Values so the GC never traces it. Two maps,
+    // because the two halves of the guard must not see each other's entries:
+    //
+    //   - `code_roots` spans the lower+emit phases of one compile unit (the
+    //     entry points in this file push around both). A datum-label cycle
+    //     crosses that boundary — `#0=(let ((x #0#)) x)` lowers the let,
+    //     then compiles its own init through compileExprViaIR, forever, each
+    //     round a fresh IR whose own state is empty — so re-entering a
+    //     compilation unit whose root is still live IS the cycle, checked at
+    //     the entry itself.
+    //   - `code_path` spans one lowering/qq-walk tree (ir.lowerWithMacros,
+    //     compileQQ); it catches back-edges that stay within a single
+    //     lowering, which never reach an entry point.
+    //
+    // Membership in either means "this exact form object is an ancestor of
+    // itself" — a real cycle for any legitimate program: shared-but-acyclic
+    // structure renews as a sibling, sequentially, never nested.
+    code_roots: std.AutoHashMapUnmanaged(usize, void) = .empty,
+    code_path: std.AutoHashMapUnmanaged(usize, void) = .empty,
     // True when the pre-scan that built `set_targets` had to stop early (see
     // SetScanBudget), making that map an under-approximation. Both consumers
     // then behave as if *every* name were a `set!` target: box every local and
@@ -170,6 +191,66 @@ pub const Compiler = struct {
         self.upvalues.deinit(self.gc.allocator);
         self.macros.deinit();
         self.body_macros.deinit(self.gc.allocator);
+        self.code_roots.deinit(self.gc.allocator);
+        self.code_path.deinit(self.gc.allocator);
+    }
+
+    /// #2405: the root of this compiler's parent chain. The cycle-guard maps
+    /// live on it and are consulted through the chain: a lambda body compiles
+    /// in a CHILD compiler (initChild), and it is a descendant of every
+    /// enclosing unit, so the child must see the ancestors' spans and add
+    /// its own to the same maps.
+    fn cycleRoot(self: *Compiler) *Compiler {
+        var c = self;
+        while (c.parent) |p| c = p;
+        return c;
+    }
+
+    fn codeRootsContains(self: *Compiler, key: usize) bool {
+        var c: ?*Compiler = self;
+        while (c) |cc| : (c = cc.parent) {
+            if (cc.code_roots.contains(key)) return true;
+        }
+        return false;
+    }
+
+    /// #2405 lowering-path primitives, shared with ir.zig and compileQQ
+    /// through the parent chain (see cycleRoot).
+    pub fn codePathContains(self: *Compiler, key: usize) bool {
+        var c: ?*Compiler = self;
+        while (c) |cc| : (c = cc.parent) {
+            if (cc.code_path.contains(key)) return true;
+        }
+        return false;
+    }
+
+    pub fn codePathPush(self: *Compiler, key: usize) void {
+        // OOM: guard silently off for this span — better a missed diagnosis
+        // than a wrong error.
+        self.cycleRoot().code_path.put(self.gc.allocator, key, {}) catch {};
+    }
+
+    pub fn codePathPop(self: *Compiler, key: usize) void {
+        _ = self.cycleRoot().code_path.remove(key);
+    }
+
+    /// #2405: enter a compile unit — the root stays on `code_roots` for the
+    /// span of one lower+emit (the caller pops with leaveCodeRoot). Meeting
+    /// a root that is already live — anywhere up the compiler chain, since a
+    /// lambda body is a descendant of every enclosing unit — is the
+    /// cross-boundary back-edge itself and is diagnosed here. Non-pairs are
+    /// a no-op.
+    pub fn enterCodeRoot(self: *Compiler, expr: Value) CompileError!void {
+        if (!types.isPair(expr)) return;
+        const key = @intFromPtr(types.toObject(expr));
+        if (self.codeRootsContains(key)) return circularFormError();
+        self.cycleRoot().code_roots.put(self.gc.allocator, key, {}) catch return;
+    }
+
+    /// #2405: leave a compile unit entered by enterCodeRoot.
+    pub fn leaveCodeRoot(self: *Compiler, expr: Value) void {
+        if (!types.isPair(expr)) return;
+        _ = self.cycleRoot().code_roots.remove(@intFromPtr(types.toObject(expr)));
     }
 
     pub fn unrootFunction(gc: *memory.GC, func: *types.Function) void {
@@ -609,6 +690,11 @@ pub const Compiler = struct {
         }
 
         // Lower AST to IR, run analysis and optimizations, then emit bytecode.
+        // #2405: the root stays on code_roots across BOTH phases — a datum
+        // label cycle crosses the lower/emit boundary (a fresh IR per
+        // sub-form), and re-entering a live root is the back-edge.
+        try self.enterCodeRoot(expr_root);
+        defer self.leaveCodeRoot(expr_root);
         var ir = ir_mod.IR.init(self.gc.allocator);
         ir.globals = self.globals;
         ir.restricted_env = self.restricted_env;
@@ -651,6 +737,9 @@ pub const Compiler = struct {
         var dst: u16 = 0;
         for (exprs, 0..) |expr, i| {
             // Lower each expression through the IR pipeline.
+            // #2405: Compiler-scoped root span, same as compile().
+            try self.enterCodeRoot(expr);
+            defer self.leaveCodeRoot(expr);
             var ir = ir_mod.IR.init(self.gc.allocator);
             ir.globals = self.globals;
             ir.restricted_env = self.restricted_env;
@@ -683,6 +772,9 @@ pub const Compiler = struct {
     }
 
     pub fn compileExprViaIR(self: *Compiler, expr: Value, dst: u16, is_tail: bool) CompileError!void {
+        // #2405: same Compiler-scoped root span as compile() — see there.
+        try self.enterCodeRoot(expr);
+        defer self.leaveCodeRoot(expr);
         var ir = ir_mod.IR.init(self.gc.allocator);
         ir.globals = self.globals;
         ir.restricted_env = self.restricted_env;
@@ -1067,6 +1159,96 @@ fn formatSyntaxError(args: Value) void {
         rest = types.cdr(rest);
     }
     syntax_error_detail_len = w.buffered().len;
+}
+
+// -- Circular-form guards (#2405) ---------------------------------------------
+//
+// A datum label (R7RS 7.1.2 `#n=`/`#n#`) can put a genuine cycle in *code*
+// position — `(display #1=(p #1# q))`, `#0=(display 1 . #0#)` — and several
+// compile-side walks assumed forms are acyclic: the IR lowerer recursed until
+// the native stack aborted, arg/body spine walks spun forever, and the one
+// walk with a cap reported KP9001 "internal error". Quoted circular data is
+// and stays fine everywhere (the printer detects cycles, #1954); only the
+// code-position walks need guards. Two shapes, mirroring what #2403 did in
+// the expander and the `set!` pre-scan:
+//
+//   - a spine walk (advance exactly one cdr per iteration) takes a `SpineWalk`
+//     below — Floyd tortoise-and-hare, exact and allocation-free;
+//   - a walk that recurses through arbitrary sub-form positions cannot use the
+//     tortoise (the recursion is not a single cdr iteration) and instead keeps
+//     an active-path set keyed on the pair's Object address, which the
+//     non-moving GC keeps stable across collections (#2403's erRenameDatum
+//     discipline). Only path membership counts: shared-but-acyclic structure
+//     — the same `#1=` sub-datum used twice — renews legitimately.
+//
+// Both report through `circularFormError`, which records the detail string the
+// compile-error reporter prefers over the registry template, so the user sees
+// `syntax-error[KP2002]: circular form in code position ...` instead of an
+// abort, a hang, or KP9001.
+
+/// One tortoise-and-hare step state for a cdr-spine walk. Exact: a tortoise
+/// advancing every other step can only re-meet the walk head on a real cycle,
+/// and an acyclic spine costs one extra `cdr` per two elements.
+///
+/// ```zig
+/// var walk = SpineWalk.init(args);
+/// while (types.isPair(walk.cur)) : (walk.next()) {
+///     if (walk.cyclic()) return circularFormError();
+///     ... use walk.cur ...
+/// }
+/// ```
+///
+/// `next` must be the ONLY way `cur` advances — the guard is sound exactly
+/// when every iteration advances one cdr (same contract as the pre-scan's
+/// spine guard from #2403, which this generalizes). The tortoise is only ever
+/// advanced to a position the walk head already occupied and survived, so its
+/// own `cdr` never dereferences a non-pair.
+pub const SpineWalk = struct {
+    cur: Value,
+    tortoise: Value,
+    step: usize = 0,
+
+    pub fn init(start: Value) SpineWalk {
+        return .{ .cur = start, .tortoise = start };
+    }
+
+    /// True when the head has come back around to a previously visited spine
+    /// position — a datum-label cycle. Only consulted at the top of an
+    /// iteration whose `cur` passed the caller's own isPair test.
+    pub fn cyclic(self: *const SpineWalk) bool {
+        return self.step > 0 and self.cur == self.tortoise;
+    }
+
+    /// Advance the head one cdr and, every second step, the tortoise one cdr.
+    pub fn next(self: *SpineWalk) void {
+        self.cur = types.cdr(self.cur);
+        self.step += 1;
+        if (self.step % 2 == 0) self.tortoise = types.cdr(self.tortoise);
+    }
+};
+
+/// Detection-only variant, for fixed-arity forms that consume positions
+/// without walking the rest (`if` takes its alternate from a possibly
+/// improper tail and historically ignores what follows): true when the
+/// spine starting at `start` contains a datum-label cycle (#2405).
+pub fn spineCyclic(start: Value) bool {
+    var walk = SpineWalk.init(start);
+    while (types.isPair(walk.cur)) : (walk.next()) {
+        if (walk.cyclic()) return true;
+    }
+    return false;
+}
+
+/// Diagnose a datum-label cycle met in code position: a catchable
+/// InvalidSyntax whose recorded detail the reporter renders as
+/// `syntax-error[KP2002]` with a named cause. Finite improper lists never
+/// reach this — the spine guards detect cycles only, and existing
+/// `!isPair` checks already reject non-cyclic improper tails.
+pub fn circularFormError() CompileError {
+    const msg = "circular form in code position: the form contains itself (datum-label cycle)";
+    @memcpy(syntax_error_detail[0..msg.len], msg);
+    syntax_error_detail_len = msg.len;
+    return CompileError.InvalidSyntax;
 }
 
 /// Work limit for one top-level `set!` pre-scan (kaappi#1775).

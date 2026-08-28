@@ -153,13 +153,13 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compil
 
     var end_jumps: std.ArrayList(usize) = .empty;
     defer end_jumps.deinit(self.gc.allocator);
-    var current = clauses;
+    var current = compiler_mod.SpineWalk.init(clauses);
     var had_else = false;
 
-    while (current != types.NIL) {
-        if (!types.isPair(current)) return CompileError.InvalidSyntax;
-        const clause = types.car(current);
-        current = types.cdr(current);
+    while (current.cur != types.NIL) : (current.next()) {
+        if (!types.isPair(current.cur)) return CompileError.InvalidSyntax;
+        if (current.cyclic()) return compiler_mod.circularFormError();
+        const clause = types.car(current.cur);
         if (!types.isPair(clause)) return CompileError.InvalidSyntax;
 
         const datums = types.car(clause);
@@ -313,6 +313,14 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compil
 pub fn compileQuasiquote(self: *Compiler, args: Value, dst: u16) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const template = types.car(args);
+    // #2405: a datum-label cycle in the template recursed through compileQQ's
+    // car/cdr (and vector re-wrapping) forever — the template is rebuilt with
+    // runtime conses, which a cycle has no finite form of. The path is the
+    // Compiler's SHARED set (see Compiler.code_path): the splicing desugar
+    // re-wraps a template element as a fresh `(quasiquote elem)` pair and
+    // compiles it through compileExprViaIR, which re-enters compileQuasiquote
+    // with a new wrapper each round — only an address set that survives the
+    // re-wrap catches the element coming back around (review of PR #2413).
     try compileQQ(self, template, dst, 0);
 }
 
@@ -327,6 +335,13 @@ fn isQQKeyword(head: Value, comptime kw: []const u8) bool {
 
 fn compileQQ(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileError!void {
     if (types.isVector(tmpl)) {
+        // #2405: key the path on the VECTOR too — its fresh list wrapper gets
+        // a new address each visit, so only the vector's own address catches
+        // the vector↔pair cycle (`#0=#((x . #0#))`).
+        const vec_key = @intFromPtr(types.toObject(tmpl));
+        if (self.codePathContains(vec_key)) return compiler_mod.circularFormError();
+        self.codePathPush(vec_key);
+        defer self.codePathPop(vec_key);
         // Vector quasiquote: compile elements as a list at the current depth,
         // then call list->vector. This preserves the nesting level so that
         // inner unquotes at depth > 0 remain literal (#850).
@@ -380,6 +395,13 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileError!voi
         try self.emitU16(idx);
         return;
     }
+
+    // #2405: the active-path membership test for the pair branches below —
+    // see compileQuasiquote.
+    const tmpl_key = @intFromPtr(types.toObject(tmpl));
+    if (self.codePathContains(tmpl_key)) return compiler_mod.circularFormError();
+    self.codePathPush(tmpl_key);
+    defer self.codePathPop(tmpl_key);
 
     const head = types.car(tmpl);
 
@@ -514,7 +536,7 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileError!voi
     }
 
     // Check if any element uses unquote-splicing
-    if (hasUnquoteSplicing(tmpl, depth)) {
+    if (try hasUnquoteSplicing(tmpl, depth)) {
         try compileQQSplicing(self, tmpl, dst, depth);
         return;
     }
@@ -536,10 +558,12 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileError!voi
 }
 
 /// Check if a list template contains any (unquote-splicing ...) at the current depth.
-fn hasUnquoteSplicing(tmpl: Value, depth: u8) bool {
-    var current = tmpl;
-    while (types.isPair(current)) {
-        const elem = types.car(current);
+/// #2405: spine-guarded — a cyclic template spine spun this scan forever.
+fn hasUnquoteSplicing(tmpl: Value, depth: u8) CompileError!bool {
+    var walk = compiler_mod.SpineWalk.init(tmpl);
+    while (types.isPair(walk.cur)) : (walk.next()) {
+        if (walk.cyclic()) return compiler_mod.circularFormError();
+        const elem = types.car(walk.cur);
         if (types.isPair(elem)) {
             const elem_head = types.car(elem);
             if (types.isSymbol(elem_head) and
@@ -549,7 +573,6 @@ fn hasUnquoteSplicing(tmpl: Value, depth: u8) bool {
                 return true;
             }
         }
-        current = types.cdr(current);
     }
     return false;
 }
@@ -579,20 +602,23 @@ fn compileQQSplicing(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileE
     var segments_buf: [64]Value = undefined;
     var seg_count: usize = 0;
 
-    var current = tmpl;
+    var current = compiler_mod.SpineWalk.init(tmpl);
     var group_buf: [64]Value = undefined;
     var group_count: usize = 0;
 
-    while (types.isPair(current)) {
+    while (types.isPair(current.cur)) : (current.next()) {
+        // #2405: a cyclic template spine overflowed the 64-segment buffers
+        // as a KP9001; name the cycle instead.
+        if (current.cyclic()) return compiler_mod.circularFormError();
         // Detect dotted unquote tail (#852): when the current pair looks
         // like (unquote <expr>) — car is the unquote symbol and cdr is a
         // one-element list — this is `. ,<expr>` in the template. Flush
         // the pending group and add the evaluated expression as the final
         // segment so that `append` uses it as the tail.
-        if (depth == 0 and types.isSymbol(types.car(current))) {
-            const maybe_uq_name = types.symbolName(types.car(current));
+        if (depth == 0 and types.isSymbol(types.car(current.cur))) {
+            const maybe_uq_name = types.symbolName(types.car(current.cur));
             if (std.mem.eql(u8, types.stripHygienicPrefix(maybe_uq_name), "unquote")) {
-                const uq_args = types.cdr(current);
+                const uq_args = types.cdr(current.cur);
                 if (types.isPair(uq_args) and types.cdr(uq_args) == types.NIL) {
                     // Flush pending group
                     if (group_count > 0) {
@@ -604,14 +630,13 @@ fn compileQQSplicing(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileE
                     if (seg_count >= 64) return CompileError.TooManyLocals;
                     segments_buf[seg_count] = types.car(uq_args);
                     seg_count += 1;
-                    current = types.NIL;
+                    current.cur = types.NIL;
                     break;
                 }
             }
         }
 
-        const elem = types.car(current);
-        current = types.cdr(current);
+        const elem = types.car(current.cur);
 
         // Check if this element is (unquote-splicing expr)
         if (types.isPair(elem) and depth == 0) {
@@ -665,11 +690,11 @@ fn compileQQSplicing(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileE
     }
 
     // Handle dotted tail
-    if (current != types.NIL and !types.isPair(current)) {
+    if (current.cur != types.NIL and !types.isPair(current.cur)) {
         // This shouldn't normally happen with splicing, but handle it
         if (seg_count >= 64) return CompileError.TooManyLocals;
         // Wrap as (quote tail)
-        const quoted_tail = gc.allocPair(quote_sym, gc.allocPair(current, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        const quoted_tail = gc.allocPair(quote_sym, gc.allocPair(current.cur, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
         segments_buf[seg_count] = quoted_tail;
         seg_count += 1;
     }
