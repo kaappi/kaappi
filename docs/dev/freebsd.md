@@ -33,7 +33,8 @@ FreeBSD is a POSIX platform — there is no `freebsd` identifier, just as
 macOS builds expose no `darwin`. The triple in `kaappi features` and the
 crash banner (`aarch64-freebsd-none`) distinguishes the OS when it
 matters. All capability identifiers (`kaappi-threads`, `kaappi-fibers`,
-`kaappi-reactor`, `kaappi-diagnostics`) are present — nothing is gated.
+`kaappi-reactor`, `kaappi-diagnostics`, `kaappi-shared-channels`) are
+present — nothing is gated.
 
 ## Native backend (`kaappi compile`)
 

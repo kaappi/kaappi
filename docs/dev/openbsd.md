@@ -124,7 +124,8 @@ identifier per build, and OpenBSD is a POSIX platform (there is no `openbsd`
 identifier, just as macOS exposes no `darwin`). The triple in `kaappi features`
 and the crash banner (`aarch64-openbsd-none`) distinguishes the OS when it
 matters. All capability identifiers (`kaappi-threads`, `kaappi-fibers`,
-`kaappi-reactor`, `kaappi-diagnostics`) are present — nothing is gated.
+`kaappi-reactor`, `kaappi-diagnostics`, `kaappi-shared-channels`) are
+present — nothing is gated.
 
 ## Testing on an OpenBSD machine
 
