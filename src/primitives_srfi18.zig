@@ -4,6 +4,7 @@ const is_wasm = @import("builtin").os.tag == .wasi;
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
+const primitives_fiber = @import("primitives_fiber.zig");
 const fiber_mod = @import("fiber.zig");
 const memory = @import("memory.zig");
 const shared_channel = @import("shared_channel.zig");
@@ -659,6 +660,20 @@ fn threadStartImpl(args: []const Value) PrimitiveError!Value {
     // then read freed memory (#2129). The root VM lives for the whole
     // process, so every descendant chains its shared state to it.
     const root_vm = vm.root_vm orelse vm;
+    // kaappi#2394: (srfi 128) must be registered before ANY child VM
+    // struct-copies vm.libraries (threadEntryFn's VM.initForThread) — the
+    // copy shares bucket storage with the owner's map, so an off-root lazy
+    // load would race it, and off-root exports would be unmarked by every
+    // collector. Loading at the process's first thread-start! is always
+    // pre-children (the first spawn is necessarily the root: children exist
+    // only inside this function) and a read-only no-op for every later one
+    // whose registry copy postdates the root's load. Best-effort by design:
+    // on failure the loader's detail is cleared so it cannot leak into the
+    // next unrelated error — channel-comparator then reports the load
+    // failure with its own described message when actually used.
+    if (!primitives_fiber.ensureComparatorLibraryLoaded(vm)) {
+        vm.last_error_detail_len = 0;
+    }
     // #1933: from here on, the root's collector must stop-and-mark live
     // children so a parent-heap object referenced only from a running
     // child's registers is not freed under it. Atomic: threadStartImpl can

@@ -194,8 +194,10 @@ pub fn libraryIsAvailableSrfi261(vm: *VM, lib_name: []const u8, lib_name_list: V
     return libraryIsAvailable(vm, norm_name, norm);
 }
 
-/// Fresh `(srfi <n>)` library-name list.
-fn buildSrfiNameList(gc: *memory.GC, n: i64) !Value {
+/// Fresh `(srfi <n>)` library-name list. Roots its intermediates; the caller
+/// must root the result across anything that can collect (library loading
+/// can).
+pub fn buildSrfiNameList(gc: *memory.GC, n: i64) !Value {
     var srfi_sym = try gc.allocSymbol("srfi");
     gc.pushRoot(&srfi_sym);
     defer gc.popRoot();
@@ -389,6 +391,12 @@ const embedded_libraries = [_]struct { rel_path: []const u8, source: []const u8 
     // .srfi_181_primitives) -- without this entry, --sandbox and WASM would
     // silently lose access to the already-shipped custom-port constructors.
     .{ .rel_path = "srfi/181.sld", .source = @import("kaappi_srfi_181_sld").source },
+    // (srfi 128): (channel-comparator) (kaappi#2394) builds the channel
+    // identity comparator through the real make-comparator, on demand, so
+    // the library must stay loadable where file loads are blocked
+    // (--sandbox), unreliable (WASM), or absent entirely (a binary with no
+    // lib tree -- the last-resort fallback in tryLoadLibraryFromFile).
+    .{ .rel_path = "srfi/128.sld", .source = @import("kaappi_srfi_128_sld").source },
 };
 
 fn findEmbeddedLibrary(rel_path: []const u8) ?[]const u8 {
@@ -526,8 +534,16 @@ pub fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
     }
 
     // Resolve the .sld file path
-    const sld_path = resolveLibraryPath(allocator, rel_path, vm.lib_paths) orelse
+    const sld_path = resolveLibraryPath(allocator, rel_path, vm.lib_paths) orelse {
+        // No lib tree anywhere this binary can see -- a release binary
+        // copied to a machine without an exe-relative/ex-home lib, or a
+        // -Dbundle-src standalone whose compile run never read this .sld
+        // (bundled_files records only files the bundling run touched).
+        // Disk keeps first precedence; the embedded copy is the last
+        // resort, not a shadow (kaappi#2394 review).
+        if (findEmbeddedLibrary(rel_path)) |source| return loadEmbeddedLibrary(vm, rel_path, source);
         return error.UndefinedVariable;
+    };
     defer allocator.free(sld_path);
 
     // Extract the directory of the .sld file for include path resolution

@@ -250,6 +250,7 @@ pub fn markVmRoots(gc: *memory.GC, vm: *VM) void {
     if (vm.callback_error_value) |exc| gc.markValue(exc);
     gc.markValue(vm.continuation_value);
     gc.markValue(vm.default_random_source);
+    gc.markValue(vm.default_channel_comparator);
     // Foreign (parent-heap) for a child thread, so markValue skips it; the
     // parent roots the handle. Marked here for the same reason every other
     // Value field is: a same-heap value would be kept alive by it (#2125).
@@ -570,6 +571,14 @@ pub const VM = struct {
     compile_collect_files: ?*std.StringHashMap([]const u8) = null,
     param_overrides: std.AutoHashMap(usize, Value) = undefined,
     default_random_source: Value = types.VOID,
+    /// Lazily built by `channel-comparator` (kaappi#2394): the
+    /// `(make-comparator channel? channel=? #f channel-hash)` record. A
+    /// per-VM constant -- cached like default_random_source so repeat calls
+    /// don't re-enter (srfi 128)'s make-comparator. Each VM builds its own
+    /// (a child's lives on the child heap; VM.initForThread does not copy
+    /// this field), and markVmRoots marks it unconditionally -- markValue
+    /// skips foreign-heap values, same as thread_handle.
+    default_channel_comparator: Value = types.VOID,
     /// Set by the pthread_atfork child handler (primitives_random.zig): this
     /// process inherited the default source's PRNG state from its parent at
     /// fork(2), and the next use must reseed it in place before drawing.

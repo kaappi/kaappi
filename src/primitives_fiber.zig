@@ -1,7 +1,10 @@
 const std = @import("std");
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
+const vm_imports = @import("vm_imports.zig");
+const vm_library = @import("vm_library.zig");
 const primitives = @import("primitives.zig");
+const primitives_hashtable = @import("primitives_hashtable.zig");
 const memory = @import("memory.zig");
 const fiber_mod = @import("fiber.zig");
 const shared_channel = @import("shared_channel.zig");
@@ -24,6 +27,12 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "channel?", .func = &channelPredFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.kaappi_fibers) },
     .{ .name = "channel-close!", .func = &channelCloseFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.kaappi_fibers) },
     .{ .name = "channel-closed?", .func = &channelClosedFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.kaappi_fibers) },
+    // KEP-0002 §2 identity across stubs (kaappi#2394): eqv?/equal? stay
+    // stub-identity (the KEP's 2026-08-27 as-implemented amendment); this
+    // comparator surface is the supported way to compare and hash channels.
+    .{ .name = "channel=?", .func = &channelEqFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.kaappi_fibers) },
+    .{ .name = "channel-hash", .func = &channelHashFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.kaappi_fibers) },
+    .{ .name = "channel-comparator", .func = &channelComparatorFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.kaappi_fibers) },
     .{ .name = "channel-timeout-exception?", .func = &channelTimeoutPredFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.kaappi_fibers) },
 };
 
@@ -164,15 +173,7 @@ fn channelSendFn(args: []const Value) PrimitiveError!Value {
     if (!types.isChannel(args[0]))
         return primitives.typeError("channel-send", "channel", args[0]);
 
-    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const ch_obj = types.toObject(args[0]);
-    // KEP-0002 §2: the only legal cross-thread handle is a locally owned
-    // stub created by deepCopy. A foreign object -- reached through a
-    // shared global, promoted or not -- is what silently corrupted memory
-    // before this check existed (Motivation Path 2); now it's a diagnosis.
-    if (ch_obj.owner != gc.id)
-        return raiseFiberError("channel belongs to another thread; pass it through the thread thunk to share it");
-    const ch = ch_obj.as(types.Channel);
+    const ch = try checkChannelOwner(args[0]);
 
     // KEP-0002 §6: the one backward-compat carve-out. Checked before any
     // dispatch (both representations, no lock): a *sent* eof-object would
@@ -1074,10 +1075,7 @@ fn channelReceiveFn(args: []const Value) PrimitiveError!Value {
         return primitives.typeError("channel-receive", "channel", args[0]);
 
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const ch_obj = types.toObject(args[0]);
-    if (ch_obj.owner != gc.id)
-        return raiseFiberError("channel belongs to another thread; pass it through the thread thunk to share it");
-    const ch = ch_obj.as(types.Channel);
+    const ch = try checkChannelOwner(args[0]);
 
     var deadline_ns: ?u64 = null;
     var has_timeout_val = false;
@@ -1385,11 +1383,7 @@ fn channelCloseFn(args: []const Value) PrimitiveError!Value {
     if (!types.isChannel(args[0]))
         return primitives.typeError("channel-close!", "channel", args[0]);
 
-    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const ch_obj = types.toObject(args[0]);
-    if (ch_obj.owner != gc.id)
-        return raiseFiberError("channel belongs to another thread; pass it through the thread thunk to share it");
-    const ch = ch_obj.as(types.Channel);
+    const ch = try checkChannelOwner(args[0]);
 
     if (ch.shared) |raw| {
         const sc: *shared_channel.SharedChannel = @ptrCast(@alignCast(raw));
@@ -1412,17 +1406,193 @@ fn channelClosedFn(args: []const Value) PrimitiveError!Value {
     if (!types.isChannel(args[0]))
         return primitives.typeError("channel-closed?", "channel", args[0]);
 
-    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const ch_obj = types.toObject(args[0]);
-    if (ch_obj.owner != gc.id)
-        return raiseFiberError("channel belongs to another thread; pass it through the thread thunk to share it");
-    const ch = ch_obj.as(types.Channel);
+    const ch = try checkChannelOwner(args[0]);
 
     if (ch.shared) |raw| {
         const sc: *shared_channel.SharedChannel = @ptrCast(@alignCast(raw));
         return if (sc.isClosed()) types.TRUE else types.FALSE;
     }
     return if (ch.closed) types.TRUE else types.FALSE;
+}
+
+/// The KEP-0002 §2 entitlement gate shared by every channel primitive that
+/// dereferences a channel (all but the total predicate `channel?`): the only
+/// legal cross-thread handle is a locally owned stub created by deepCopy. A
+/// foreign object -- reached through a shared global, promoted or not -- is
+/// what silently corrupted memory before this check existed (Motivation Path
+/// 2); now it's a diagnosis. The message is load-bearing beyond this file
+/// (asserted in tests_shared_channel.zig, quoted in thread-value-sharing.md's
+/// owner-check table) -- the sibling shape is primitives_srfi18's
+/// checkThreadOwner.
+fn checkChannelOwner(val: Value) PrimitiveError!*types.Channel {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const ch_obj = types.toObject(val);
+    if (ch_obj.owner != gc.id)
+        return raiseFiberError("channel belongs to another thread; pass it through the thread thunk to share it");
+    return ch_obj.as(types.Channel);
+}
+
+/// KEP-0002 §2 (kaappi#2394): channel identity across stubs. Two stubs for
+/// one SharedChannel are distinct heap objects, so `eq?` reports #f for
+/// "the same channel" seen from two receipts — this compares the `shared`
+/// pointer when both operands are promoted, the one representation of
+/// identity every thread agrees on. The mixed case (one promoted, one not)
+/// only arises for genuinely different channels — promotion rewrites the
+/// original in place and every stub is born promoted — so the pointer
+/// fallback says exactly what `eq?` would. Like channel-closed?, this
+/// dereferences the channel, so it carries the foreign-owner check rather
+/// than channel?'s total-predicate convention.
+fn channelEqFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isChannel(args[0]))
+        return primitives.typeError("channel=?", "channel", args[0]);
+    if (!types.isChannel(args[1]))
+        return primitives.typeError("channel=?", "channel", args[1]);
+
+    const a_ch = try checkChannelOwner(args[0]);
+    const b_ch = try checkChannelOwner(args[1]);
+    const same = if (a_ch.shared != null and b_ch.shared != null)
+        a_ch.shared == b_ch.shared
+    else
+        args[0] == args[1];
+    return if (same) types.TRUE else types.FALSE;
+}
+
+/// The hash half of the channel identity comparator (kaappi#2394):
+/// consistent with `channel=?` by construction — the `shared` pointer
+/// decides equality, and every representation of one channel hashes the
+/// same `identity_seed`. `(channel-hash ch [bound])` mirrors
+/// `(hash obj [bound])` (SRFI 69): a non-negative fixnum, reduced mod
+/// `bound` when given.
+fn channelHashFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isChannel(args[0]))
+        return primitives.typeError("channel-hash", "channel", args[0]);
+
+    const ch = try checkChannelOwner(args[0]);
+
+    // The hash input is the channel's identity for its whole life: its own
+    // tagged Value while unpromoted, and — once promoted — the seed
+    // promoteChannel preserved from exactly that Value (SharedChannel.
+    // identity_seed). A table keyed before the first cross-thread send
+    // therefore still finds its entry afterwards, and every stub of the
+    // channel hashes the one seed. identityHash, not valueHash: it is a
+    // pure function of the bits, and the seed must never be dereferenced —
+    // the original object may since have been swept or live on another
+    // heap, and valueHash's dispatch reads .tag through pointer bits
+    // (kaappi#2394 review). For a live channel the two agree exactly, so
+    // (channel-hash ch) = (hash ch) while unpromoted, on every target.
+    const bits: u64 = if (ch.shared) |raw| blk: {
+        const sc: *shared_channel.SharedChannel = @ptrCast(@alignCast(raw));
+        break :blk sc.identity_seed;
+    } else args[0];
+    const h: u64 = primitives_hashtable.identityHash(bits);
+
+    if (args.len > 1) {
+        if (!types.isFixnum(args[1])) return primitives.typeError("channel-hash", "integer", args[1]);
+        const bound = types.toFixnum(args[1]);
+        if (bound <= 0) return primitives.argError("channel-hash", "bound must be a positive integer, got {d}", .{bound});
+        return types.makeFixnum(@intCast(@mod(h, @as(u64, @intCast(bound)))));
+    }
+    return primitives_hashtable.unboundedHash(h);
+}
+
+/// (srfi 128) pre-load, best-effort, for threadStartImpl: the library must
+/// be in the registry BEFORE any child VM struct-copies it (kaappi#2394
+/// review). `vm.libraries` is copied by value on child creation — unlike
+/// globals, which got the pointer+lock treatment — so a load from a non-root
+/// VM would put() into bucket storage the root reads unlocked, and a rehash
+/// would free buckets the root's copy still names; non-root exports would
+/// also be unmarked by every collector (markVmRoots gates library marking
+/// behind owns_globals). Hence the root_vm guard: only the root ever loads.
+/// The process's first `thread-start!` is necessarily the root (children
+/// exist only inside threadStartImpl), so the load is always pre-children;
+/// once it succeeds every later spawn's registry copy contains the library
+/// and this is a read-only no-op. Returns whether the library is present
+/// afterwards — on failure, `last_error_detail` holds the loader's own
+/// diagnosis for the caller to surface or clear (it must not be left stale).
+pub fn ensureComparatorLibraryLoaded(vm: *vm_mod.VM) bool {
+    if (vm.libraries.get("srfi.128") != null) return true;
+    if (vm.root_vm != null) return false; // never load off-root
+    const gc = memory.gc_instance orelse return false;
+    var iset = vm_library.buildSrfiNameList(gc, 128) catch return false;
+    gc.pushRoot(&iset);
+    defer gc.popRoot();
+    // Clear first: the loader's setErrorDetail sites only write when no
+    // detail is set, so a stale one would suppress the loader's own message
+    // (the ffi.zig callFfi precedent for the reset). On failure the detail
+    // is the loader's, deliberately left for the caller.
+    vm.last_error_detail_len = 0;
+    vm_imports.ensureLibraryLoaded(vm, iset, "srfi.128") catch return false;
+    return true;
+}
+
+/// (channel-comparator) — (make-comparator channel? channel=? #f
+/// channel-hash) built by the real (srfi 128), so `comparator?` and the
+/// field accessors agree with every other comparator in the image and
+/// (make-hash-table channel-comparator) works through the native comparator
+/// bridge (kaappi#2394, KEP-0002 §2). Cached on the VM like
+/// default_random_source: a per-VM constant, so repeat calls return the
+/// same record. The three procedures come from (kaappi fibers)'s pristine
+/// registry exports, immune to any later top-level shadowing of those
+/// names.
+fn channelComparatorFn(_: []const Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+
+    if (vm.default_channel_comparator != types.VOID) return vm.default_channel_comparator;
+
+    // ensureComparatorLibraryLoaded never loads off-root — threadStartImpl
+    // pre-loads on the root VM at the process's first thread-start! so a
+    // worker never needs to (see its doc comment for the registry/marking
+    // hazards a non-root load would carry).
+    if (!ensureComparatorLibraryLoaded(vm)) {
+        // Fold the loader's own diagnosis (which file, what error) into the
+        // raised message, then clear it so it cannot attach to the next
+        // unrelated error (kaappi#2394 review).
+        var buf: [320]u8 = undefined;
+        const detail = vm.last_error_detail[0..vm.last_error_detail_len];
+        const msg = if (detail.len > 0)
+            std.fmt.bufPrint(&buf, "channel-comparator: failed to load (srfi 128): {s}", .{detail}) catch
+                "channel-comparator: failed to load (srfi 128)"
+        else
+            "channel-comparator: failed to load (srfi 128)";
+        vm.last_error_detail_len = 0;
+        return raiseFiberError(msg);
+    }
+    const lib128 = vm.libraries.get("srfi.128") orelse
+        return raiseFiberError("channel-comparator: failed to load (srfi 128)");
+    const make_comparator = lib128.exports.get("make-comparator") orelse
+        return raiseFiberError("channel-comparator: (srfi 128) does not export make-comparator");
+
+    const fibers = vm.libraries.get("kaappi.fibers") orelse
+        return raiseFiberError("channel-comparator: (kaappi fibers) is not registered");
+    const type_test = fibers.exports.get("channel?") orelse
+        return raiseFiberError("channel-comparator: channel? is not registered");
+    const equality = fibers.exports.get("channel=?") orelse
+        return raiseFiberError("channel-comparator: channel=? is not registered");
+    const hash_fn = fibers.exports.get("channel-hash") orelse
+        return raiseFiberError("channel-comparator: channel-hash is not registered");
+
+    // Rooted across the call. On the root VM the export maps are themselves
+    // marked, so this is belt-and-suspenders; on a child VM library marking
+    // is gated behind owns_globals, and these locals are what keeps the
+    // values reachable across the call's allocations.
+    var type_test_r = type_test;
+    var equality_r = equality;
+    var hash_r = hash_fn;
+    var mc_r = make_comparator;
+    gc.pushRoot(&type_test_r);
+    gc.pushRoot(&equality_r);
+    gc.pushRoot(&hash_r);
+    gc.pushRoot(&mc_r);
+    defer gc.popRoot();
+    defer gc.popRoot();
+    defer gc.popRoot();
+    defer gc.popRoot();
+
+    const call_args = [_]Value{ type_test_r, equality_r, types.FALSE, hash_r };
+    const result = vm.callWithArgs(mc_r, &call_args) catch |err| return err;
+    vm.default_channel_comparator = result;
+    return result;
 }
 
 fn channelTimeoutPredFn(args: []const Value) PrimitiveError!Value {
