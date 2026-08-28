@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787922068988,
+  "lastUpdate": 1787932638979,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "c6082f8730c93ead7efd3f570b2c11ad310c47cd",
-          "message": "Release v0.22.3\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-07T19:54:33+05:30",
-          "tree_id": "ead42f58d21b287eaf026f8500443984e775065d",
-          "url": "https://github.com/kaappi/kaappi/commit/c6082f8730c93ead7efd3f570b2c11ad310c47cd"
-        },
-        "date": 1786115160675,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.982831,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.215154,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.578042,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.880784,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004928,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.045269,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.300209,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.05424,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.55728,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.182648,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.534682,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.307483,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.712279,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.796729,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044809,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.035017,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c92284a63b5a287a5d563785ccf8d2d75de7ed0c",
+          "message": "Make er rename reject a circular datum instead of aborting (#2403) (#2406)\n\n* Make er rename reject a circular datum instead of aborting (#2403)\n\n`rename` on a circular macro-use input recursed forever, pushing two GC\nroots per level, until the root stack panicked — uncatchable, process\ngone, from five ordinary lines (`(m #0=(zz . #0#))`).\n\n- expander.erRenameDatum walks with a visited-on-active-path set keyed on\n  Object address (stable in this non-moving GC). Only a back-edge is\n  refused: shared-but-acyclic `#1=` data still renames. A cycle raises a\n  catchable InvalidArgument whose message reaches the user through the\n  new globals.set_error_detail_for_macro hook (write-side sibling of\n  error_detail_for_macro; the expander cannot import vm.zig), so a\n  transformer's own guard sees the condition and an uncaught one reports\n  as syntax-error[KP2002] instead of aborting.\n- compiler.collectSetTargets needed guards for that diagnosis to surface\n  at all: the set! pre-scan expands macros best-effort, swallows the\n  rejection, and kept walking the same cycle. Rebased over #2401 (whose\n  SET_SCAN_SPINE_CAP bounded the spine with a step count): the main\n  spine walk now runs Floyd's tortoise-and-hare instead — exact (a cycle\n  is caught in ~2λ steps, not after a million, and a legal over-cap\n  spine is walked fully rather than truncated), since every body path\n  that resumes iteration advances exactly one cdr (the let-syntax\n  two-cdr jump became a sub-walk for that reason); the bindings loop\n  keeps #2404's step cap (the one inner spine the tortoise does not\n  cover); and the walk's self-recursions charge the depth cap so a\n  car-side cycle stops at the cap instead of overflowing the native\n  stack.\n\nThe macro-free circular-code-in-code-position family (IR fold abort,\ncompileSyntaxBody hang) is unchanged and tracked as #2405. #2404 itself\nwas fixed in #2401 (bounded erFormMentionsSymbol) and is regression-\ncovered here only through that PR's tests, which this rebase keeps\ngreen.\n\nTests: unit (tests_macros_procedural, tests_prescan), Scheme\n(srfi211.scm guard/shared cases, errors/er-rename-circular-2403.sh\nmessage+exit pin). Full suites green on the rebased tree: unit\n1890/1897 (+7 skip), gc-stress 1897/1897, run-all 2121/2121, R7RS\n1395/1395.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Tighten circular-rename exit assertion to require status 1 (#2406 review)\n\nThe uncaught KP2002 path must be fatal: a CLI regression that printed\nthe diagnostic but returned success (exit 0) would have passed the old\n0-or-1 check.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-28T20:46:22+05:30",
+          "tree_id": "84b9cac364a44000602a256a9d75b308c03ad479",
+          "url": "https://github.com/kaappi/kaappi/commit/c92284a63b5a287a5d563785ccf8d2d75de7ed0c"
+        },
+        "date": 1787932636792,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.222731,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.365049,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.584309,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.99759,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005004,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047454,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.304817,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055216,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.837522,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.183098,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.650956,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.283234,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.709,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.596906,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045399,
             "unit": "seconds"
           }
         ]
