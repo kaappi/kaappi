@@ -293,9 +293,16 @@ pub fn runCachedForm(vm: *VM, func_val: Value) VMError!Value {
 
 fn handleTopLevelBegin(vm: *VM, body: Value) VMError!Value {
     var last: Value = types.VOID;
-    var rest = body;
-    while (types.isPair(rest)) {
-        const form = types.car(rest);
+    // #2405 (CodeRabbit re-review): a cyclic top-level begin compiled and
+    // executed its rotation forever — same guard as selectCondExpandBody,
+    // reported through the VM's detail channel.
+    var rest = compiler_mod.SpineWalk.init(body);
+    while (types.isPair(rest.cur)) : (rest.next()) {
+        if (rest.cyclic()) {
+            vm.setErrorDetail("circular form in code position: the form contains itself (datum-label cycle)", .{});
+            return VMError.CompileError;
+        }
+        const form = types.car(rest.cur);
         if (handleTopLevelForm(vm, form)) |result| {
             last = result catch |err| return err;
         } else {
@@ -312,7 +319,6 @@ fn handleTopLevelBegin(vm: *VM, body: Value) VMError!Value {
             // at true top level. func is rooted above, as it requires.
             last = runTopLevelFunction(vm, func) catch |err| return err;
         }
-        rest = types.cdr(rest);
     }
     return last;
 }

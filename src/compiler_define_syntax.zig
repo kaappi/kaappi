@@ -834,24 +834,28 @@ pub fn parseSyntaxRules(self: *Compiler, spec: Value, extra_bound: []const []con
     // these loops without rooting the spec first.
     var literals: std.ArrayList(Value) = .empty;
     defer literals.deinit(self.gc.allocator);
-    var lit = literals_list;
-    while (lit != types.NIL) {
-        if (!types.isPair(lit)) return CompileError.InvalidSyntax;
+    // #2405 (CodeRabbit re-review): a cyclic literal or rule list spun these
+    // collection loops forever. SpineWalk is allocation-free, keeping the
+    // no-GC-call constraint documented above.
+    var lit = compiler_mod.SpineWalk.init(literals_list);
+    while (lit.cur != types.NIL) : (lit.next()) {
+        if (!types.isPair(lit.cur)) return CompileError.InvalidSyntax;
+        if (lit.cyclic()) return compiler_mod.circularFormError();
         // A generating macro may splice a user identifier into this spec's
         // literal list (SRFI 257's if-new-var) — unwrap the provenance
         // marker so the literal is the bare identifier.
-        literals.append(self.gc.allocator, expander.unwrapUsertext(types.car(lit))) catch return CompileError.OutOfMemory;
-        lit = types.cdr(lit);
+        literals.append(self.gc.allocator, expander.unwrapUsertext(types.car(lit.cur))) catch return CompileError.OutOfMemory;
     }
 
     var patterns: std.ArrayList(Value) = .empty;
     defer patterns.deinit(self.gc.allocator);
     var templates: std.ArrayList(Value) = .empty;
     defer templates.deinit(self.gc.allocator);
-    var rule = rules;
-    while (rule != types.NIL) {
-        if (!types.isPair(rule)) return CompileError.InvalidSyntax;
-        const r = types.car(rule);
+    var rule = compiler_mod.SpineWalk.init(rules);
+    while (rule.cur != types.NIL) : (rule.next()) {
+        if (!types.isPair(rule.cur)) return CompileError.InvalidSyntax;
+        if (rule.cyclic()) return compiler_mod.circularFormError();
+        const r = types.car(rule.cur);
         if (!types.isPair(r)) return CompileError.InvalidSyntax;
         const rule_pattern = types.car(r);
         // R7RS 4.3.2 (kaappi#2082): the <pattern> grammar admits at
@@ -866,7 +870,6 @@ pub fn parseSyntaxRules(self: *Compiler, spec: Value, extra_bound: []const []con
         const r_rest = types.cdr(r);
         if (r_rest == types.NIL) return CompileError.InvalidSyntax;
         templates.append(self.gc.allocator, types.car(r_rest)) catch return CompileError.OutOfMemory;
-        rule = types.cdr(rule);
     }
 
     if (patterns.items.len == 0) return CompileError.InvalidSyntax;
