@@ -11,8 +11,11 @@
 ;;;                      that cannot capture (or be captured by) use-site
 ;;;                      names. Renaming the same symbol twice within one
 ;;;                      expansion yields the same identifier.
-;;;   (compare a b)    — free-identifier=? to the strength this engine can
-;;;                      answer (see limitations below).
+;;;   (compare a b)    — free-identifier=?: the two identifiers denote the
+;;;                      same binding, or both are unbound — the rule a
+;;;                      syntax-rules literal matches by (R7RS 4.3.2), at
+;;;                      the same strength this engine answers it for
+;;;                      literals (see the compare paragraph below).
 ;;;
 ;;; SRFI 211 permits providing only some of its libraries but each provided
 ;;; one whole; this library's full export set is er-macro-transformer plus
@@ -35,22 +38,42 @@
 ;;;     whole environment is the honest static over-approximation).
 ;;;
 ;;;   * Hygiene strength equals this engine's own syntax-rules hygiene
-;;;     exactly — rename routes through the same renameForHygiene the
-;;;     template instantiator uses. The shared, pre-existing limitation:
-;;;     a use-site TOP-LEVEL redefinition of a name the macro's output
-;;;     references (e.g. redefining a library helper's name after import)
-;;;     reaches the expansion, for procedural and syntax-rules macros
-;;;     alike. compare is name-based (hygiene-stripped equality), which
-;;;     answers the classic literal checks (else, =>) correctly but cannot
-;;;     distinguish two same-named bindings.
+;;;     exactly — the documented guarantee (KEP-0018 unresolved question 6,
+;;;     decided with kaappi#2388): rename routes through the same
+;;;     renameForHygiene the template instantiator uses, and compare
+;;;     through the same binding machinery literal matching uses, so the
+;;;     two macro systems answer every keyword-check quadrant identically
+;;;     (regression-pinned, quadrant for quadrant, by the KEP-0006
+;;;     four-quadrant test in tests/scheme/srfi/srfi211.scm). Shared,
+;;;     pre-existing limitations, identical on both paths: a use-site
+;;;     TOP-LEVEL redefinition of a name the macro's output references
+;;;     reaches the expansion; and a reserved-form spelling the hygiene
+;;;     engine keeps bare (else, _, ...) is shadowed by a use-site local of
+;;;     that spelling for a macro-INTRODUCED occurrence just as surely as
+;;;     for a user-typed one, while identifiers the engine CAN mark (any
+;;;     non-reserved spelling, e.g. =>) stay hygienic.
+;;;
+;;;   * compare is binding-aware (kaappi#2388): (compare x (rename 'kw))
+;;;     answers whether the use-site identifier x and the definition-side
+;;;     keyword denote the same binding — an unshadowed use is #t, a
+;;;     use-site local rebinding of the spelling is #f, and a renamed
+;;;     (macro-introduced or global-name) keyword never resolves to a
+;;;     use-site local. Symbols are interned, so a bare-rename product is
+;;;     the same object as a use-site token of that spelling; compare
+;;;     recognizes the classic (compare <token> (rename 'kw)) shape by the
+;;;     invocation's rename record, which makes the answer independent of
+;;;     argument order, and stays reflexive for two plain use-site tokens
+;;;     (the pairwise input-comparison idiom).
 ;;;
 ;;;   * `(rename 'x)` used to BIND x when x names a global procedure
 ;;;     returns x unrenamed (reference semantics win); rename fresh names
 ;;;     for binders — the classic ER idiom — and they gensym correctly.
 ;;;
-;;; Verified: tests/scheme/srfi/srfi211.scm and the "SRFI 211" tests in
-;;; src/tests_macros.zig (swap!/my-or hygiene, compare on else, rename of
-;;; whole trees, library-helper resolution, let-syntax bodies).
+;;; Verified: tests/scheme/srfi/srfi211.scm (including the KEP-0006
+;;; four-quadrant acceptance test and the ER/syntax-rules parity suite)
+;;; and the "SRFI 211" tests in src/tests_macros_procedural.zig
+;;; (swap!/my-or hygiene, compare quadrants, rename of whole trees,
+;;; library-helper resolution, let-syntax bodies).
 (define-library (srfi 211 explicit-renaming)
   (import (scheme base)
           (srfi 211 primitives))

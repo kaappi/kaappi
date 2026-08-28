@@ -1400,7 +1400,24 @@ save/restore discipline as the syntax-rules `active_*` context), and
 `rename` reuses `renameForHygiene` — so ER macros get exactly the hygiene
 strength syntax-rules templates have, including the shared pre-existing
 limitation that a use-site top-level redefinition of a referenced name
-reaches the expansion (verified equivalent on both paths). A bare-symbol
+reaches the expansion (verified equivalent on both paths). Since kaappi#2388
+(KEP-0006's resolved direction), `compare` is binding-aware
+free-identifier=? built from the same machinery syntax-rules literal
+matching uses — `UseSiteBindingCheck.resolve` for use-site binding slots,
+`rename`'s per-invocation scope-table identity entries to recognize the
+definition-side bare spelling, def-env-prefixed names as binding identity
+for renamed library references — which makes "an ER macro is exactly as
+hygienic as a syntax-rules one" (KEP-0018 unresolved question 6) a pinned
+guarantee rather than an aspiration: the KEP-0006 four-quadrant test in
+`tests/scheme/srfi/srfi211.scm` asserts every quadrant against BOTH
+systems with the same expected value. One approximation is inherent to
+interned symbols as syntax: a bare-rename product (reserved forms and
+keywords rename to themselves) is the same object as a use-site token of
+that spelling, so compare recognizes the classic
+`(compare <token> (rename 'kw))` shape by the invocation's rename record
+— order-independent, but not reflexive for that one spelling when a
+use-site local shadows it (two plain use-site tokens stay reflexive). A
+bare-symbol
 spec falls back to a globals lookup holding a Transformer value, so
 `(define t (er-macro-transformer p))` + `(define-syntax m t)` works. Two
 non-obvious integration points: (1) `vm_imports.copyTransformerFreeRefs`
@@ -1479,9 +1496,14 @@ check):
   per-expansion counter, then renamed.
 - **Keyword recognition (`...`, `_`, `->`, `guard`, `unquote`,
   `quasiquote`, `values`) is `compare` against `rename` of the keyword —
-  hygiene-stripped name equality.** That strength suffices for these
-  macros (kaappi#2388 records the evidence); a use inside another
-  er-macro's output whose keywords arrive renamed still compares equal.
+  binding-aware free-identifier=? since kaappi#2388 (name-stripped
+  equality before it; that strength is what the #2398 re-port evidence
+  validated).** A use inside another er-macro's output whose keywords
+  arrive renamed still compares equal (both sides unbound); a use-site
+  local rebinding of a keyword spelling now opts out of keyword-hood
+  exactly as a syntax-rules literal refuses the same shadowing — nothing
+  in either library's own test suite does that, so the port is unaffected
+  (the one bound keyword, 202's `values` claw, gains the refusal).
   The known edge: a match form produced by a *syntax-rules* template is
   subject to that template's own ellipsis processing first, and a
   template-renamed `quasiquote` in a clause body resolves to the

@@ -106,6 +106,128 @@
      (list (rename 'quote) (compare 1 1)))))
 (test-equal #f (compare-nums))
 
+;;; --- KEP-0006 four-quadrant acceptance test (kaappi#2388): compare is
+;;; binding-aware free-identifier=? ---
+;;; Against an ER cond-style transformer, the else/=> keyword checks must
+;;; answer exactly what a syntax-rules literal with the same keywords
+;;; answers -- the same binding, or both unbound (R7RS 4.3.2). Every
+;;; quadrant below runs BOTH systems against the SAME expected value; that
+;;; equivalence is the KEP-0018 unresolved-question-6 guarantee (an ER
+;;; macro is exactly as hygienic as a syntax-rules one), pinned here as a
+;;; contract.
+
+(define-syntax erq-cond
+  (er-macro-transformer
+   (lambda (form rename compare)
+     (let loop ((cs (cdr form)))
+       (cond
+         ((null? cs) (list (rename 'quote) 'no-clause))
+         ((and (pair? (car cs)) (compare (caar cs) (rename 'else)))
+          (cadr (car cs)))
+         ((and (pair? (car cs)) (pair? (cdr (car cs)))
+               (compare (cadr (car cs)) (rename '=>)))
+          (list (rename 'let)
+                (list (list (rename 't) (caar cs)))
+                (list (rename 'if) (rename 't)
+                      (list (caddr (car cs)) (rename 't))
+                      (loop (cdr cs)))))
+         (else (list (rename 'if) (caar cs) (cadr (car cs))
+                     (loop (cdr cs)))))))))
+
+(define-syntax srq-cond
+  (syntax-rules (else =>)
+    ((_ (else expr) rest ...) expr)
+    ((_ (test => proc) rest ...)
+     (let ((t test)) (if t (proc t) (srq-cond rest ...))))
+    ((_ (test expr) rest ...) (if test expr (srq-cond rest ...)))
+    ((_) 'no-clause)))
+
+;; Quadrant 1: the else clause fires in both systems.
+(test-equal 'q1 (erq-cond (#f 'a) (else 'q1)))
+(test-equal 'q1 (srq-cond (#f 'a) (else 'q1)))
+
+;; Quadrant 2: a use-site local rebinding of the keyword is a different
+;; binding, so the clause is NOT an else clause in either system. With
+;; else bound to #f the refused clause falls through to (#t 'q2); the
+;; name-based compare this replaces answered 'wrong here.
+(test-equal 'q2 (let ((else #f)) (erq-cond (#f 'a) (else 'wrong) (#t 'q2))))
+(test-equal 'q2 (let ((else #f)) (srq-cond (#f 'a) (else 'wrong) (#t 'q2))))
+
+;; Quadrant 3: an outer macro that introduces else into the cond it emits.
+;; Unshadowed, it fires in both systems...
+(define-syntax q3-er-wrap (syntax-rules () ((_) (erq-cond (#f 'x) (else 'q3)))))
+(define-syntax q3-sr-wrap (syntax-rules () ((_) (srq-cond (#f 'x) (else 'q3)))))
+(test-equal 'q3 (q3-er-wrap))
+(test-equal 'q3 (q3-sr-wrap))
+;; ...and under a same-spelling use-site local, both systems agree the
+;; clause falls through: `else` is a reserved form the hygiene engine
+;; keeps bare, so a user local of that spelling shadows a macro-introduced
+;; one in syntax-rules literals and ER compare alike -- the one shared,
+;; documented reserved-form deviation (identifiers the engine CAN mark,
+;; like => in quadrant 4, stay hygienic).
+(define-syntax q3b-er-wrap
+  (syntax-rules () ((_) (erq-cond (#f 'x) (else 'wrong) (#t 'q3b)))))
+(define-syntax q3b-sr-wrap
+  (syntax-rules () ((_) (srq-cond (#f 'x) (else 'wrong) (#t 'q3b)))))
+(test-equal 'q3b (let ((else #f)) (q3b-er-wrap)))
+(test-equal 'q3b (let ((else #f)) (q3b-sr-wrap)))
+
+;; Quadrant 4: the => variants. Unshadowed, the arrow fires in both...
+(test-equal 1 (erq-cond ((- 1) => abs) (else 'no)))
+(test-equal 1 (srq-cond ((- 1) => abs) (else 'no)))
+;; ...a use-site local rebinding of => is refused by compare exactly as
+;; the literal is refused, so the clause compiles as (test expr) whose
+;; expr is the local's value in both systems...
+(test-equal 7 (let ((=> 7)) (erq-cond (#t =>) (#t 'q4c))))
+(test-equal 7 (let ((=> 7)) (srq-cond (#t =>) (#t 'q4c))))
+;; ...and a macro-INTRODUCED => stays hygienic in both: the introducing
+;; rename/template marks the identifier, and the shadowing local cannot
+;; reach it.
+(define-syntax q4d-er-wrap
+  (er-macro-transformer
+   (lambda (form rename compare)
+     (list 'erq-cond
+           (list 42 (rename '=>) (list 'lambda (list 'x)
+                                       (list 'list ''arrow-er 'x)))
+           (list #t ''fallback)))))
+(define-syntax q4d-sr-wrap
+  (syntax-rules ()
+    ((_) (srq-cond (42 => (lambda (x) (list 'arrow-sr x)))
+                   (#t 'fallback)))))
+(test-equal '(arrow-er 42) (let ((=> #f)) (q4d-er-wrap)))
+(test-equal '(arrow-sr 42) (let ((=> #f)) (q4d-sr-wrap)))
+
+;; compare stays reflexive on plain use-site tokens (the pairwise
+;; input-token comparison idiom, e.g. duplicate-key checks)...
+(define-syntax er-token=?
+  (er-macro-transformer
+   (lambda (form rename compare)
+     (list (rename 'quote) (compare (cadr form) (caddr form))))))
+(test-assert "two identical use-site tokens compare equal" (er-token=? zz zz))
+(test-assert "... even when the spelling is locally rebound at the use site"
+             (let ((zz 1)) (er-token=? zz zz)))
+;; ...but a token against the definition-side keyword of the same spelling
+;; is refused under that rebinding regardless of argument order.
+(define-syntax er-is-arrow-rev
+  (er-macro-transformer
+   (lambda (form rename compare)
+     (list (rename 'quote) (compare (rename '=>) (cadr form))))))
+(test-assert "reversed-argument compare under rebinding is also refused"
+             (not (let ((=> 1)) (er-is-arrow-rev =>))))
+
+;; The bound-keyword case from the #2398 evidence (SRFI 202's values
+;; claw): renaming a GLOBAL-bound name yields a marked identifier, so an
+;; unshadowed use still compares equal while a use-site local rebinding
+;; of the spelling is refused.
+(define-syntax er-is-values
+  (er-macro-transformer
+   (lambda (form rename compare)
+     (list (rename 'quote) (compare (cadr form) (rename 'values))))))
+(test-assert "unshadowed values compares equal to its rename"
+             (er-is-values values))
+(test-assert "a locally rebound values is refused"
+             (not (let ((values 1)) (er-is-values values))))
+
 ;;; --- identifier?: symbols (renamed or not) are identifiers ---
 (test-assert "plain symbol" (identifier? 'x))
 (test-assert "not a number" (not (identifier? 3)))
