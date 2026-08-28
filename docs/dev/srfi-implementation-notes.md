@@ -1435,3 +1435,54 @@ identifier macros, or output-provenance tracking a symbol-based expander
 cannot honestly provide — implicit renaming specifically cannot
 distinguish injected from macro-generated symbols when both are the same
 interned object.
+
+### SRFI 241 and SRFI 202 — match and pattern and-let*, on explicit renaming
+
+Both libraries were re-ported from pure `syntax-rules` onto
+`er-macro-transformer` (kaappi#2391, KEP-0006 step 5 — the acceptance
+test for SRFI 211). The old ports' template gymnastics — a custom `%%%`
+ellipsis identifier in every helper macro so the literal `...` token
+could be matched as data — are gone; each library is now one procedural
+transformer that compiles the pattern language by ordinary list
+processing. The re-port lifted all four of the old 241 port's documented
+limitations: arbitrary (compound/nested/cata) sub-patterns under an
+ellipsis, mandatory patterns after the ellipsis in lists and vectors
+(`(,x ... ,y . ,r)`, `#(,a ,m ... ,z)`), the SRFI's ellipsis-aware
+quasiquote inside clause bodies, and the spec's cata evaluation order
+(cata operators run only after the guard passes — hidden temporaries are
+bound during the structural match, then applied through the
+`%match-cata` runtime helper, which also transposes per-ellipsis-level
+result lists so one cata can bind several variables under `...`). The
+202 re-port additionally gained SRFI 2's bare bound-variable claw and
+vector patterns in quasiquoted claws.
+
+Engine facts the port depends on (each probed before use, all
+regression-covered by `tests/scheme/srfi/srfi241.scm` / `srfi202.scm`):
+
+- **A macro expansion can rebind `quasiquote` via `let-syntax` with a
+  bare-symbol transformer spec.** `match` wraps each clause body in
+  `(let-syntax ((quasiquote <renamed %match-qq>)) body ...)`, where
+  `%match-qq` is a library-level `(define %match-qq
+  (er-macro-transformer ...))` global holding a Transformer value; the
+  renamed reference resolves at the use site through the whole-def-env
+  import copy, and the binding shadows the built-in quasiquote for
+  exactly the body's scope. The binding NAME is the bare symbol
+  `quasiquote` (deliberately unhygienic — it must capture the body's
+  use-site backticks).
+- **Fresh temporaries are `rename` of counter-distinct symbols.**
+  Renaming the same symbol twice in one expansion yields the same
+  identifier, so every temporary is minted as `%mN.<base>` with a
+  per-expansion counter, then renamed.
+- **Keyword recognition (`...`, `_`, `->`, `guard`, `unquote`,
+  `quasiquote`, `values`) is `compare` against `rename` of the keyword —
+  hygiene-stripped name equality.** That strength suffices for these
+  macros (kaappi#2388 records the evidence); a use inside another
+  er-macro's output whose keywords arrive renamed still compares equal.
+  The known edge: a match form produced by a *syntax-rules* template is
+  subject to that template's own ellipsis processing first, and a
+  template-renamed `quasiquote` in a clause body resolves to the
+  built-in quasiquote, not the match-body one.
+- **A worktree's `.sld` edit is invisible until `zig-out/lib` is
+  refreshed** — the exe-relative library dir is populated at `zig build`
+  time, so rebuild (or re-copy) after editing, on top of the usual
+  `KAAPPI_HOME=$(mktemp -d)` isolation (kaappi#2352).

@@ -8,10 +8,11 @@
 ;; needed by 148.scm's own em-syntax-rules definition, and 148.macros.scm's
 ;; combinators build on 148.scm's CK-machine core. The reference's Chibi
 ;; er-macro-transformer branch (a faster, non-portable identifier-comparison
-;; implementation) is not used here -- Kaappi always takes the reference's
-;; portable "else" branch (148.identifier.scm) since it has no
-;; er-macro-transformer support (that mechanism is SRFI 72's, a much larger,
-;; deferred undertaking -- see docs/dev/srfi-exclusions.md).
+;; implementation) is not used here -- Kaappi has er-macro-transformer since
+;; v0.22.0 (SRFI 211, KEP-0006), but that branch relies on a binding-aware
+;; compare, and Kaappi's compare is hygiene-stripped name equality (see
+;; kaappi#2388), so this port keeps the reference's portable "else" branch
+;; (148.identifier.scm).
 ;;
 ;; em-syntax-rules resolves through SRFI 147 (custom macro transformers):
 ;; its own definition, and several combinators built on top of it (e.g.
