@@ -13,8 +13,8 @@ Companions:
 
 ## What ships
 
-179 SRFIs supported. 12 built-in (Zig primitives): 1, 9, 13, 18, 39, 69, 133,
-170, 192, 254, 258, 260. 163 portable R7RS .sld files loaded on demand via
+180 SRFIs supported. 12 built-in (Zig primitives): 1, 9, 13, 18, 39, 69, 133,
+170, 192, 254, 258, 260. 164 portable R7RS .sld files loaded on demand via
 `(import (srfi N))`, plus SRFI 261 (Portable SRFI Library References) as an
 import-resolver convention with no library file, and SRFI 226, SRFI 160, and
 SRFI 211 (see below) as sub-libraries only with no bare `(srfi 226)`/`(srfi
@@ -29,14 +29,19 @@ features`' scan): 0, 2, 4, 5, 6, 7, 8, 11, 14, 16, 17, 19, 23, 25, 26, 27, 28,
 201, 202, 203, 207, 209, 210, 213, 214, 215, 216, 217, 219, 221, 222, 223,
 224, 225, 227, 228, 229, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240,
 241, 242, 244, 247, 248, 250, 251, 252, 253, 255, 257, 259, 263, 264, 267,
-270, 271, 273. Sub-libraries: (srfi 146 hash), (srfi 171 meta), (srfi 166 pretty),
+270, 271, 273, 274. Sub-libraries: (srfi 146 hash), (srfi 171 meta), (srfi 166 pretty),
 (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 211
 explicit-renaming), (srfi 211 define-macro), (srfi 211 syntax-parameter),
 (srfi 226 control prompts), (srfi 226 control continuations), (srfi 226
 control times), (srfi 254 ephemerons), (srfi 254 guardians), (srfi 254
 transport-cell-guardians), (srfi 254 ephemerons-and-guardians), (srfi 257
 misc), (srfi 257 box), (srfi 257 rx), (srfi 263 syntax), (srfi 271
-randomized), (srfi 271 determinized), (srfi 248 primitives).
+randomized), (srfi 271 determinized), (srfi 248 primitives), (srfi 274 base),
+(srfi 274 41), (srfi 274 134), (srfi 274 158),
+(srfi 274 160 base), (srfi 274 160 u8), (srfi 274 160 s8), (srfi 274 160 u16),
+(srfi 274 160 s16), (srfi 274 160 u32), (srfi 274 160 s32), (srfi 274 160 u64),
+(srfi 274 160 s64), (srfi 274 160 f32), (srfi 274 160 f64), (srfi 274 160 c64),
+(srfi 274 160 c128).
 
 ## Per-SRFI notes
 
@@ -1619,3 +1624,54 @@ syntax) plus a re-export of the whole `(srfi 253)` vocabulary, so importing
   recognitions, SRFIs 235/26/43/1) are not statically recognized; they work
   as ordinary predicates, which is all compliance requires. The tests import
   `(srfi 235)` and `(srfi 26)` to pin that composition.
+
+### SRFI 274 — extended list conversion procedures
+
+Portable port of the reference implementation (Peter McGoron, MIT); no engine
+changes. Every conversion takes `(im-list [start [end]])`, never inspects the
+cdr of the endth pair, and works on dotted and circular lists whenever `end`
+is supplied. Ships as `lib/srfi/274.sld` (a bare alias re-exporting the base
+conversions, so `srfi-274` answers as a cond-expand feature id and the SRFI
+counts in `kaappi features`), plus sub-libraries `(srfi 274 base)` for
+`list-copy`/`list->string`/`list->vector`, `(srfi 274 41)`/`(srfi 274 134)`/
+`(srfi 274 158)` for the stream/ideque/generator conversions, `(srfi 274 160
+base)` and twelve `(srfi 274 160 <type>)` re-exports for the homogeneous
+vectors, and `(srfi 274 internal)` (not itself in the importable
+sub-library catalogue — it is plumbing) holding the shared `argcheck!` and
+`range-list`.
+
+- **The extended conversions deliberately shadow existing names**, so the
+  sub-libraries are separate rather than extensions of `(scheme base)` etc. —
+  a program imports `(srfi 274 base)` alongside `(except (scheme base)
+  list-copy list->string list->vector)`, exactly as the SRFI's own test
+  suite does. Kaappi diagnoses a bare double import (KP2001), which is what
+  forces the `except` pattern.
+- **Improper lists without an explicit `end` are an error** everywhere except
+  wholesale `list-copy`. Kaappi diagnoses this through the underlying
+  builtins' proper-list checks (`list->vector`, `list->string`, and every
+  `list-><type>vector` walks the list) and through the laziness of streams
+  and generators — but laziness only catches *dotted* input, where forcing
+  past the tail eventually raises in `car`. Three paths are silent, all
+  pinned as documented leniencies in `tests/scheme/srfi/srfi274.scm`:
+  `(srfi 274 134)`'s `list->ideque` on a start-only improper list (Kaappi's
+  simplified `(srfi 134)` builds an ideque as `(cons lst '())` and never
+  walks its input — a leniency inherited from that port, not from SRFI 274),
+  and `list->stream`/`list->generator` on *circular* input without `end`,
+  where laziness means nothing ever walks off the end: the result is an
+  infinite stream/generator cycling forever instead of the spec's "it is an
+  error". The no-argument circular cases are inherited from `(srfi 41)` /
+  `(srfi 158)` themselves; the start-only cases are this port's
+  `list-tail` handoff.
+- **The reference's `ideque-unfold` and `<type>vector-unfold` constructions
+  are not used.** Kaappi's `(srfi 134)` does not export `ideque-unfold`, and
+  importing all twelve full `(srfi 160 <type>)` surfaces just for their
+  unfold would be heavy; both start+end cases instead hand the bounded,
+  always-proper range from `(srfi 274 internal)`'s `range-list` — which
+  validates the range once under the caller's name and copies it — to the
+  underlying one-argument converter. Same results, one intermediate list
+  each — the allocation the SRFI asks *native* implementations to avoid,
+  acceptable in a portable port.
+- **`argcheck!`'s length check is bounded by `end`** (a named-`let` loop in
+  `(srfi 274 internal)`; the reference recurses, also properly tail-recursive).
+  Boundedness is the point: the check terminates on circular lists and is
+  what lets every `end`-supplied conversion accept them.

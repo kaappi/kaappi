@@ -16,7 +16,7 @@ must stay clean. See README.md "Known limitations → Script output".
 
 ## SRFI conformance
 
-179 SRFIs supported. 12 built-in (native Zig), 163 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file, and SRFI 226, SRFI 160, and SRFI 211 as sub-libraries only with no bare `(srfi 226)`/`(srfi 160)`/`(srfi 211)` file (so none appears as a bare number in `kaappi features`' scan, unlike every other portable SRFI). `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
+180 SRFIs supported. 12 built-in (native Zig), 164 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file, and SRFI 226, SRFI 160, and SRFI 211 as sub-libraries only with no bare `(srfi 226)`/`(srfi 160)`/`(srfi 211)` file (so none appears as a bare number in `kaappi features`' scan, unlike every other portable SRFI). `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
 
 ### SRFI 1 — List Library
 
@@ -168,9 +168,9 @@ Each call returns a fresh symbol whose name is unique "for all practical purpose
 
 String ports track their own position directly (the read cursor and the SRFI 192 write cursor), with the read cursor corrected for a pushed-back peek byte — `read-line`'s CR handling pushes one back on string ports too, and a seek discards it, exactly as on fd ports (#1941). Fd-backed ports get a real `lseek`-equivalent (POSIX `lseek`, Windows `_lseeki64`, WASI `fd_seek`), with the OS's raw offset corrected for whatever software buffering this port has read ahead of (peek/read-ahead buffers) or not yet flushed behind (the write buffer) — otherwise the reported position would drift from what a subsequent read or seek expects. `set-port-position!` on an output port flushes pending writes first, per spec, even when the position won't change.
 
-### Portable SRFIs (166 SRFIs: 163 importable as bare `(srfi N)`, plus SRFI 160, 211, and 226 as sub-libraries only)
+### Portable SRFIs (167 SRFIs: 164 importable as bare `(srfi N)`, plus SRFI 160, 211, and 226 as sub-libraries only)
 
-Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 171 meta), (srfi 211 explicit-renaming), (srfi 211 define-macro), (srfi 211 syntax-parameter), (srfi 226 control prompts), (srfi 226 control continuations), (srfi 226 control times), (srfi 248 primitives), (srfi 254 ephemerons), (srfi 254 guardians), (srfi 254 transport-cell-guardians), (srfi 254 ephemerons-and-guardians), (srfi 257 misc), (srfi 257 box), (srfi 257 rx), (srfi 263 syntax), (srfi 271 randomized), (srfi 271 determinized).
+Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 171 meta), (srfi 211 explicit-renaming), (srfi 211 define-macro), (srfi 211 syntax-parameter), (srfi 226 control prompts), (srfi 226 control continuations), (srfi 226 control times), (srfi 248 primitives), (srfi 254 ephemerons), (srfi 254 guardians), (srfi 254 transport-cell-guardians), (srfi 254 ephemerons-and-guardians), (srfi 257 misc), (srfi 257 box), (srfi 257 rx), (srfi 263 syntax), (srfi 271 randomized), (srfi 271 determinized), (srfi 274 base), (srfi 274 41), (srfi 274 134), (srfi 274 158), (srfi 274 160 base), (srfi 274 160 u8), (srfi 274 160 s8), (srfi 274 160 u16), (srfi 274 160 s16), (srfi 274 160 u32), (srfi 274 160 s32), (srfi 274 160 u64), (srfi 274 160 s64), (srfi 274 160 f32), (srfi 274 160 f64), (srfi 274 160 c64), (srfi 274 160 c128).
 
 | SRFI | Title |
 |------|-------|
@@ -340,6 +340,7 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 270 | Hexadecimal Floating-Point Constants |
 | 271 | Random port libraries |
 | 273 | Extensions to data (type) checking |
+| 274 | Extended list conversion procedures |
 
 § SRFI 115 is matched by a backtracking interpreter, not by the reference
 implementation's NFA, so it shares the cost profile of every backtracking

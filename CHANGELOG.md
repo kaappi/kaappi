@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **SRFI 274, extended list conversion procedures (#2409)** — `list-copy`, `list->string`, `list->vector`, `list->stream`, `list->ideque`, `list->generator`, and all twelve `list-><type>vector` conversions extended with optional `start`/`end` range arguments that operate on dotted and circular lists whenever `end` is supplied (the cdr of the endth pair is never inspected). Portable port of the reference implementation; ships as a bare `(srfi 274)` alias plus the `(srfi 274 base)`, `(srfi 274 41)`, `(srfi 274 134)`, `(srfi 274 158)`, and `(srfi 274 160 <type>)` sub-libraries, mirroring the SRFI's own layout so the extended names never displace the built-ins a program already imports.
 - **SRFI 231 `f16-storage-class`** (#2379) — software IEEE 754 binary16
   half-floats over `u16vector`, a faithful transliteration of the reference
   implementation's own arithmetic codec (round-to-nearest-even, subnormals,
