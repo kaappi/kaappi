@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787902772270,
+  "lastUpdate": 1787921431376,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "31532732e36c75d52d28d017cb289333a940737b",
-          "message": "Clamp the completion subcommand-scan slice against a negative length (#2248)\n\nThe generated bash and zsh completion functions scan the words typed so\nfar — offset 1, up to the word before the cursor — to decide which\nsubcommand's flags to offer. The length is `cursor-index - 1`, which goes\nnegative when the cursor is still on the command word itself.\n\nbash's `${COMP_WORDS[@]:1:COMP_CWORD-1}` then errors outright (\"substring\nexpression < 0\"). zsh is worse: `${words[@]:1:$((CURRENT-2))}` feeds a\nnegative length, which zsh reads as \"count from the end\", so the loop scans\nnearly the whole line and misdetects a later word as the subcommand —\ncompleting that subcommand's arguments instead of the top level. Clamp both\nlengths to 0 in that case.\n\nThe completions suite gains a structural check that both scripts emit the\nclamp (runs on every CI leg, no shell needed) and a functional zsh drive\nthat sources the real `_kaappi` at CURRENT=1 and asserts it offers the top\nlevel rather than a subcommand's arguments. Reverting either guard fails\nthe new checks.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-07T12:32:45Z",
-          "tree_id": "f38896a9636ca852524ad46bc119b02777726689",
-          "url": "https://github.com/kaappi/kaappi/commit/31532732e36c75d52d28d017cb289333a940737b"
-        },
-        "date": 1786108068060,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.023063,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.055392,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.562703,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.913031,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004925,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.044602,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.294827,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.053869,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.311318,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.165629,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.513986,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.302772,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.716036,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.781843,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044309,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041699,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a12406bde7f741bfe9a01041bf87ff4f68cf211b",
+          "message": "Make er-macro compare binding-aware free-identifier=? and land the four-quadrant test (#2401)\n\n* Make er-macro compare binding-aware free-identifier=? (#2388)\n\nKEP-0006 (as amended 2026-08-27) resolved Unresolved question 2 against\nSRFI 211's contract: compare is free-identifier=? — \"the two identifiers\ndenote the same binding, or both are unbound.\" The shipped compare was\nhygiene-stripped name equality. The #2398 re-port evidence (SRFI 241/202)\nshowed name-based compare held up in real library code but recorded\nconcrete observable weaknesses (a shadowed values claw, macro-generated\nsame-spelled identifiers), so this implements option (a): reuse the\nliteral-matching machinery syntax-rules already has, exposed a second\nway.\n\n- erCompareFn now classifies each argument (use-site local slot via\n  UseSiteBindingCheck.resolve / def-env binding identity / free) and\n  compares, mirroring matchPattern's literal branch outcome for outcome.\n  Because symbols are interned, a bare-rename product is the same object\n  as a use-site token of that spelling, so erRenameSymbol records\n  identity entries under the invocation scope: the classic\n  (compare <token> (rename 'kw)) shape is recognized from the rename\n  record (order-independent), and two plain use-site tokens stay\n  reflexive — the pairwise input-comparison idiom keeps working.\n- Lands the KEP-0006 four-quadrant acceptance test that was never\n  written, as an ER/syntax-rules parity suite: every quadrant (else\n  fires; shadowed else refuses; macro-introduced else; the => variants\n  including macro-introduced => under shadowing) runs BOTH systems\n  against the same expected value — pinning KEP-0018 UQ6 (\"an ER macro\n  is exactly as hygienic as a syntax-rules one\") as a contract.\n- Flips the audit pin that existed precisely so a stronger compare\n  shows up as a test change, and updates the SRFI 211 .sld header and\n  srfi-implementation-notes accordingly (including the 241/202 keyword\n  bullet and the shared reserved-form deviation: a spelling the hygiene\n  engine keeps bare — else, _, ... — is shadowed by a use-site local for\n  macro-introduced occurrences in both systems; identifiers the engine\n  can mark, like =>, stay hygienic).\n\nA pre-existing vm.eval quirk uncovered while writing the Zig tests\n(keyword-name reuse across evals in one process -> bare CompileError;\nreproduces on origin/main) is filed separately as kaappi#2400; the new\ntests use unique names with a comment pointing there.\n\nCloses #2388\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>\n\n* Qualify the compare reflexivity claim in the docs (#2388)\n\nCodeRabbit review: two plain use-site tokens stay reflexive only for a\nspelling this invocation did not also bare-rename — a transformer that\nboth renames 'kw for its keyword checks and pairwise-compares use tokens\nof that same spelling under a local shadowing gets #f. The expander\ncomment already stated the qualified rule; align the .sld header and the\nimplementation notes with it.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: def-env rename agreement, rename-vs-rename reflexivity (#2388)\n\nTwo behavior fixes from the #2401 review:\n\n- A def-env-marked rename (#1812 branch of renameForHygiene, taken for a\n  name bound in the transformer's own library when used outside it) never\n  compared equal to a bare use-site reference, though both denote the\n  same imported binding. erCompareFn now answers that pair from the bare\n  side: equal when the use site can resolve the spelling (it is in the\n  use-site globals — the library was imported) and no local shadows it.\n  Regression-tested with a library-defined transformer in srfi211.scm's\n  t211 helperlib.\n- (compare (rename 'kw) (rename 'kw)) answered #f under a use-site local\n  shadow of the spelling, breaking free-identifier=? reflexivity for the\n  hoisted-rename style the 241/202 ports use. The naive args-equal guard\n  cannot work (the use token and the bare rename product are the same\n  interned object — that identity is quadrant 2's whole problem), so the\n  bare/bare branch instead consults whether the spelling occurs in the\n  macro-use input: occurrence means a use-site token is in play (the\n  quadrant rule applies); absence means both arguments are the\n  invocation's own rename products and compare is reflexive. The input is\n  reached through a pointer to expandProceduralMacro's rooted slot, so a\n  moving GC updates it.\n\nAlso from the review: the ER/syntax-rules parity guarantee is now stated\nfor the auxiliary-keyword spellings it actually covers (reserved forms,\nmacro keywords, gensym-marked renames), with the VOID-sentinel divergence\npinned as the boundary in srfi211.scm; and the three stale name-based\ncompare claims in lib/srfi/241.sld and lib/srfi/202.sld — which cited\nkaappi#2388 for the opposite semantics — are flipped, with 241's\nexported-bindings non-effect note re-reasoned (an exported binding is a\nglobal, and globals are not use-site local slots).\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address second review round: bounded input walk, plainer docs (#2388)\n\n- erFormMentionsSymbol now hangs no more: R7RS datum labels make the\n  macro-use input genuinely circular (#2404), so the walk carries a node\n  budget and a depth cap (both non-allocating), with exhaustion counted\n  conservatively as occurrence — the quadrant rule then applies, refusing\n  under shadowing and never wrongly accepting. Regression test pins\n  termination on a circular input (a define initializer, not a\n  test-assert operand: wrapping a cyclic datum in a body-position macro\n  hits the pre-existing collectSetTargets hang, reproduced on origin/main\n  and noted on #2404).\n- The unsettled compare shape is now stated plainly instead of being\n  called \"the quadrant-2 case\": a spelling that occurs in the input AND\n  was bare-renamed this invocation, compared under a use-site local\n  shadow, is the demanded refusal when one argument is that input token\n  and a known-wrong (broken reflexivity) answer when both arguments were\n  the invocation's own rename products — interned symbols make the two\n  representationally identical, and a distinguishable wrapper for bare\n  rename products would break the compiler's bare matching of the\n  reserved forms macros emit (.sld header + implementation notes +\n  erCompareFn doc).\n- erDefEnvAgreesWithBare's comment no longer asserts an import that may\n  not have happened: the globals hit is the same class of\n  over-approximation the whole-def-env import copy makes (an unrelated\n  same-named use-site global answers #t too; verified against the\n  review's testlib4 probe).\n- lib-bound-var is now actually exported from (t211 helperlib), so the\n  def-env regression test covers the exported-binding path its label\n  claims (the free-ref planting path stays covered by lib-twice).\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Fix #2404 completely: bound collectSetTargets against cyclic macro inputs\n\nThe #2404 instance filed from the #2401 review (erFormMentionsSymbol)\nwas fixed by the previous commit; this closes the pre-existing member of\nthe same class found while verifying it: compiler.collectSetTargets\nwalks the macro-use form's cdr spine with no bound — the scan's depth\ncap counts only car recursion — so a cyclic macro operand re-emitted\ninto a body position (e.g. a test-assert operand) hung the compiler,\nreproducible on origin/main.\n\nBoth spine loops (the main walk and the let-syntax bindings walk) now\ncarry SET_SCAN_SPINE_CAP = 1M steps per list level. Exhausting it marks\nthe scan truncated on budgeted paths — the same\nloses-optimization-never-correctness degradation the expansion budget\nalready takes (set_targets_all boxing), with Part B correcting misses at\nreal-expansion time; null-budget callers (define-syntax specs, the LLVM\nbackend's scanSetTargetsWithoutMacros) just stop, taking the same\ncorrect-late path. One million per level is far beyond any real form\n(the suites' p99.99 prescan count is ~1.7k).\n\nFixed-arity patterns terminate at the pattern's end and ellipsis\npatterns at matchEllipsis's MAX_ELLIPSIS_VALUES cap — probed, both fine.\nRegression test: tests/scheme/hygiene/cyclic-macro-input-2404.scm covers\nthe scanner (fixed and ellipsis patterns), the compare walk, and the\ncombined test-assert wrapper shape; srfi211.scm's circular-compare test\nkeeps its define-initializer shape so it pins compare's walk alone.\n\n#2403 (erRenameDatum's root-stack abort on circular input) remains\ndeliberately untouched: rename has no finite answer for an unfoldable\ncycle, so its fix is a semantic decision belonging to that issue.\n\nCloses #2404\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Propagate set!-scan truncation on every caller (#2401 review)\n\nCodeRabbit review of the SET_SCAN_SPINE_CAP change: a null-budget scan\nthat hit the cap kept a partial target set with no signal — and a missed\nset! target leaves a local unboxed (continuation-unsafe, #1168) and\nfoldable (IR.isRedefined). The same exposure pre-dates the spine cap:\nthe depth cap also reported nothing on null-budget paths. Both are now\nclosed.\n\nSetScanBudget gains an `expand` flag, so a non-null budget no longer\nimplies \"speculatively expanding\": structure-only scans walk literally\n(the define-syntax/let-syntax shortcuts are outcome-equivalent there)\nand report depth/spine truncation like any budgeted scan. The callers:\n\n- Part B (Compiler.scanSetTargets in expandAndCompileMacroUse) now\n  propagates truncation to set_targets_all — the same\n  every-name-is-a-target conservatism the top-level pre-scan uses.\n- scanSetTargetsWithoutMacros (LLVM backend) returns the truncation and\n  its caller eval-fallbacks the whole form via makePassthrough — the\n  tier has no set_targets_all switch, and a passthrough form is compiled\n  by the full VM compiler with its own conservative machinery (same\n  action #2119 takes for continuation-capturing forms).\n\nThe define-syntax/let-syntax spec walks keep their structure-only,\nnon-propagating budget: a set! that only materializes when the spec's\nown macros run is caught at the macro's real use site, the documented\ncorrect-late path.\n\nTests (tests_prescan.zig): scanSetTargetsWithoutMacros reports\ntruncation on a cyclic form and does not hair-trigger on an ordinary\none; a wrapper-shape cyclic macro operand (the minimal form verified to\nhang origin/main — a plain top-level use never reaches the scan) keeps\nset! boxing correct under continuation capture. The cyclic hygiene\nsuite gains the wrapper shape and its comment now names it as the\ndiscriminator.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Native tier: a truncated scan falls back for the rest of the program\n\nCodeRabbit follow-up on the truncation propagation: eval-fallbacking only\nthe truncated form left later forms folding against a possibly-stale\nprimitive table. The truncated form is VM-executed, so a macro-produced\n(set! + *) inside it rebinds at run time — but collectRedefinedNamesMacro\nAware can no more see through the truncation than the scan could, and\nkaappi compile never executes forms to find out; a later natively lowered\n(+ 5 2) then folded to 7 while the interpreter printed 10 (#2212's\ndivergence class, reopened through the truncation path).\n\nFrom the first truncated scan to the end of the file, every top-level\nform is now a passthrough (VM-evaluated; execution order preserved, so\nforms lowered before the truncation stay temporally correct). Only\npathological inputs reach the caps, so ordinary files keep their native\nlowering.\n\nRegression: tests/scheme/compile/native-truncated-scan-fallback-2404.sh —\ncyclic wrapper operand (the minimal scan-truncating shape), then a macro\nrebinding +, then a fold-sensitive (+ 5 2): both tiers must print 10.\nControls pin that the fallback is engagement-gated (no cyclic form ->\nunchanged lowering) and that plain arithmetic after a truncated form\nstill evaluates correctly.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-28T17:34:32+05:30",
+          "tree_id": "c675e38c7acc25374ee11d43e3fbf7f854691f84",
+          "url": "https://github.com/kaappi/kaappi/commit/a12406bde7f741bfe9a01041bf87ff4f68cf211b"
+        },
+        "date": 1787921429527,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.327067,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.829078,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.565135,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.964981,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004915,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047647,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.303829,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055613,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.812526,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.233283,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.65896,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.275451,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.70655,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.607185,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045183,
             "unit": "seconds"
           }
         ]
