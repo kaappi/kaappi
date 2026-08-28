@@ -38,7 +38,7 @@
 (test-assert (begin (check-arg integer? 3) #t))
 (test-error (check-arg integer? "hello"))
 (test-equal 3 (values-checked (integer?) 3))
-(test-assert (check-case 3 (integer? 'int) (else 'other)))
+(test-equal 'int (check-case 3 (integer? 'int) (else 'other)))
 (test-assert ((lambda-checked ((a integer?)) #t) 3))
 (test-assert (case-lambda-checked
               (((a integer?)) #t)
@@ -209,8 +209,8 @@
 (test-equal #\k (str-ref "kaappi" 0))
 
 ;; In check-case clauses.
-(test-assert (check-case 3 ((check-impl? integer?) 'int) (else 'other)))
-(test-assert (check-case "x" ((check-impl? integer?) 'int) (else 'other)))
+(test-equal 'int (check-case 3 ((check-impl? integer?) 'int) (else 'other)))
+(test-equal 'other (check-case "x" ((check-impl? integer?) 'int) (else 'other)))
 (test-error (check-case "x" ((check-impl? no-such-check) 'int)))
 
 ;; A defined check from define-check composes through check-impl? too.
@@ -253,10 +253,34 @@
 (test-error
  ((lambda-checked ((n string?)) => (integer? string?) (values n "x")) "n"))
 ;; The number of values must match the number of predicates — in either
-;; direction, as with values-checked.
+;; direction, as with values-checked. The count is rejected up front, so the
+;; error is the documented arity one whatever the predicates are: a short
+;; value list must not pair predicate k with value k-M and fail inside a
+;; predicate check instead.
+(define (count-mismatch-error? thunk)
+  (guard (ex ((and (error-object? ex)
+                   (string=? (error-object-message ex)
+                             "number of values and predicates should match"))
+             #t))
+    (thunk)
+    #f))
+(test-assert
+ (count-mismatch-error?
+  (lambda () ((lambda-checked () => (integer? string? symbol?) (values 1 'two))))))
+(test-assert
+ (count-mismatch-error?
+  (lambda () ((lambda-checked () => (integer? string?) (values 1))))))
+(test-assert
+ (count-mismatch-error?
+  (lambda () ((lambda-checked () => (integer? string?) (values))))))
+(test-assert
+ (count-mismatch-error?
+  (lambda () ((lambda-checked () => (integer? string? symbol?)
+                (values 1 'two "three" 'four))))))
+;; A single predicate goes through its own fast path — any count other than
+;; one is still an error.
 (test-error
  ((lambda-checked () => (integer?) (values 1 'two "three"))))
-(test-error ((lambda-checked () => (integer? integer?) (values 1))))
 
 ;; define-checked
 (define-checked (re-checked (n integer?)) => (integer?) (* n 2))
@@ -319,8 +343,8 @@
 (test-error (check-arg (conjoin integer? positive?) -1))
 (test-assert (begin (check-arg (cut every integer? <>) '(1 2)) #t))
 (test-error (begin (check-arg (cut every integer? <>) '(1 #\a)) #t))
-(test-assert (check-case 3 ((cut memv <> '(1 2 3)) 'small) (else 'other)))
-(test-assert (check-case 9 ((cut memv <> '(1 2 3)) 'small) (else 'other)))
+(test-equal 'small (check-case 3 ((cut memv <> '(1 2 3)) 'small) (else 'other)))
+(test-equal 'other (check-case 9 ((cut memv <> '(1 2 3)) 'small) (else 'other)))
 
 (test-end "optimizable-patterns")
 

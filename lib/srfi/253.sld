@@ -54,23 +54,51 @@
     ;; corresponding predicate, preserving count and order (SRFI 273's =>
     ;; clauses). values-checked cannot be reused here: it pairs N predicate
     ;; *expressions* with N value expressions, while a body is one
-    ;; expression returning N values. syntax-rules cannot mint N distinct
-    ;; identifiers for a fixed-arity receiver, so instead each predicate
-    ;; wraps one value-passing layer ((v . more) — hygiene gives every
-    ;; recursive expansion's v/more a distinct binding) that checks its
-    ;; layer's first value and rotates it to the tail on the way out. The
-    ;; rotation lines value k up with predicate k and restores the original
-    ;; order at the outermost layer — which is why %cr-rev first reverses
-    ;; the predicates: the innermost layer must carry the first predicate.
-    ;; Rotation is a full cycle (identity) only when the counts match, so
-    ;; %cr-finish rejects any other count, as values-checked's "number of
-    ;; values and predicates should match" already does.
+    ;; expression returning N values.
+    ;;
+    ;; A single predicate — by far the common shape — takes the same cheap
+    ;; let shape values-checked uses: no call-with-values, no closures per
+    ;; call. Like values-checked, it does not itself count values; a body
+    ;; returning zero or several still fails the predicate, because Kaappi
+    ;; propagates multiple values through a single-variable let binding and
+    ;; no predicate matches the resulting values object.
+    ;;
+    ;; Several predicates go through %cr-gate and a layer tower.
+    ;; syntax-rules cannot mint N distinct identifiers for a fixed-arity
+    ;; receiver, so each predicate wraps one value-passing layer
+    ;; ((v . more) — hygiene gives every recursive expansion's v/more a
+    ;; distinct binding) that checks its layer's first value and rotates it
+    ;; to the tail on the way out. The rotation lines value k up with
+    ;; predicate k and restores the original order at the outermost layer —
+    ;; which is why %cr-rev first reverses the predicates: the innermost
+    ;; layer must carry the first predicate. Rotation is a full cycle
+    ;; (identity) only when the counts match, and a short value list would
+    ;; otherwise pair predicate k with value k-M and fail with a misleading
+    ;; predicate message, so %cr-gate checks the count up front and rejects
+    ;; a mismatch, as values-checked's "number of values and predicates
+    ;; should match" already does.
     (define-syntax %check-results
       (syntax-rules ()
+        ((_ caller (predicate) body ...)
+         (let ((v (begin body ...)))
+           (check-arg predicate v caller)
+           v))
         ((_ caller (predicate ...) body ...)
          (call-with-values
-             (lambda () (%cr-rev caller () (predicate ...) body ...))
-           (%cr-finish caller (predicate ...))))))
+             (lambda () body ...)
+           (%cr-gate caller (predicate ...))))))
+    (define-syntax %cr-gate
+      (syntax-rules ()
+        ((_ caller (predicate ...))
+         (let ((expected (length '(predicate ...))))
+           (lambda received
+             (if (= (length received) expected)
+                 ;; The tower rides in the gate's body — as a receiver
+                 ;; operand it would be evaluated eagerly, running the
+                 ;; checks before any values exist.
+                 (%cr-rev caller () (predicate ...) (apply values received))
+                 (error "number of values and predicates should match"
+                        caller)))))))
     (define-syntax %cr-rev
       (syntax-rules ()
         ((_ caller (rev ...) () body ...)
@@ -87,15 +115,6 @@
            (lambda (v . more)
              (check-arg predicate v caller)
              (apply values (append more (list v))))))))
-    (define-syntax %cr-finish
-      (syntax-rules ()
-        ((_ caller (predicate ...))
-         (let ((expected (length '(predicate ...))))
-           (lambda received
-             (if (= (length received) expected)
-                 (apply values received)
-                 (error "number of values and predicates should match"
-                        caller)))))))
 
     ;; check-case — predicate dispatch.
     (define-syntax %check-case

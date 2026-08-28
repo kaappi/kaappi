@@ -70,9 +70,12 @@
     ;; inform, and re-wrapping an already-defined procedure — possibly an
     ;; imported one, e.g. (declare-checked (negative? (x real?)) =>
     ;; (boolean?)) — cannot be done portably from syntax-rules. Later
-    ;; modifications of a declared value are likewise left unchecked.
+    ;; modifications of a declared value are likewise left unchecked. `=>`
+    ;; is declared as a literal (as in every other =>-aware macro of this
+    ;; port) so the third clause cannot silently capture an unrelated
+    ;; form in that position.
     (define-syntax declare-checked
-      (syntax-rules ()
+      (syntax-rules (=>)
         ((_ name predicate)
          (when #f #f))
         ((_ (name . args))

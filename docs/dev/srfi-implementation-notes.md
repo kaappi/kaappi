@@ -1516,19 +1516,28 @@ syntax) plus a re-export of the whole `(srfi 253)` vocabulary, so importing
   predicate *expressions* with 1 value expression, an ellipsis-count mismatch
   that compiled to garbage. `values-checked` checks N expressions pairwise;
   it cannot check the N values of one expression. The fix is `%check-results`
-  in `253.sld`: syntax-rules cannot mint N distinct identifiers for a
-  fixed-arity receiver, so each predicate wraps one `(lambda (v . more))`
-  layer (hygiene gives every recursive level a fresh `v`/`more`) that checks
-  its layer's first value and rotates it to the tail on the way out, with the
-  predicate list reversed first (`%cr-rev`) so the innermost layer carries
-  the first predicate. Rotation is a full cycle — identity — only when value
-  and predicate counts match, so `%cr-finish` rejects any other count, as
-  `values-checked`'s "number of values and predicates should match" already
-  does. A first cut of this layering without the reversal checked *every*
-  predicate against the *first* value and left the rest unchecked — the
-  srfi273 test suite pins the pairing (`(=> (integer? string?) (values 7
-  "x"))` passes while the swapped predicate list errors) so that cannot
-  return.
+  in `253.sld`: a single predicate — the common shape — takes the same cheap
+  `let` shape `values-checked` uses (no per-call closures; and like
+  `values-checked` it does not count values itself — a body returning zero or
+  several still fails the predicate, because Kaappi propagates multiple
+  values through a single-variable `let` binding and no predicate matches
+  the resulting values object); several
+  predicates go through `%cr-gate` and a layer tower. syntax-rules cannot
+  mint N distinct identifiers for a fixed-arity receiver, so each predicate
+  wraps one `(lambda (v . more))` layer (hygiene gives every recursive level
+  a fresh `v`/`more`) that checks its layer's first value and rotates it to
+  the tail on the way out, with the predicate list reversed first (`%cr-rev`)
+  so the innermost layer carries the first predicate. Rotation is a full
+  cycle — identity — only when value and predicate counts match, and a short
+  value list would otherwise pair predicate k with value k-M and fail inside
+  a predicate check with a misleading message, so `%cr-gate` compares the
+  count *before* the tower runs and rejects a mismatch, as `values-checked`'s
+  "number of values and predicates should match" already does. A first cut
+  of the layering without the reversal checked *every* predicate against the
+  *first* value and left the rest unchecked — the srfi273 test suite pins
+  the pairing (`(=> (integer? string?) (values 7 "x"))` passes while the
+  swapped predicate list errors, and the count-mismatch tests assert on the
+  error message) so that cannot return.
 - **`declare-checked` is advisory** and expands to `(when #f #f)`, as in the
   SRFI's reference implementation: there is no static checker to inform, and
   re-wrapping an already-defined (possibly imported) procedure cannot be done
