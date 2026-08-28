@@ -37,7 +37,7 @@ control times), (srfi 254 ephemerons), (srfi 254 guardians), (srfi 254
 transport-cell-guardians), (srfi 254 ephemerons-and-guardians), (srfi 257
 misc), (srfi 257 box), (srfi 257 rx), (srfi 263 syntax), (srfi 271
 randomized), (srfi 271 determinized), (srfi 248 primitives), (srfi 274 base),
-(srfi 274 internal), (srfi 274 41), (srfi 274 134), (srfi 274 158),
+(srfi 274 41), (srfi 274 134), (srfi 274 158),
 (srfi 274 160 base), (srfi 274 160 u8), (srfi 274 160 s8), (srfi 274 160 u16),
 (srfi 274 160 s16), (srfi 274 160 u32), (srfi 274 160 s32), (srfi 274 160 u64),
 (srfi 274 160 s64), (srfi 274 160 f32), (srfi 274 160 f64), (srfi 274 160 c64),
@@ -1619,7 +1619,9 @@ counts in `kaappi features`), plus sub-libraries `(srfi 274 base)` for
 `list-copy`/`list->string`/`list->vector`, `(srfi 274 41)`/`(srfi 274 134)`/
 `(srfi 274 158)` for the stream/ideque/generator conversions, `(srfi 274 160
 base)` and twelve `(srfi 274 160 <type>)` re-exports for the homogeneous
-vectors, and `(srfi 274 internal)` holding the shared `argcheck!`.
+vectors, and `(srfi 274 internal)` (not itself in the importable
+sub-library catalogue — it is plumbing) holding the shared `argcheck!` and
+`range-list`.
 
 - **The extended conversions deliberately shadow existing names**, so the
   sub-libraries are separate rather than extensions of `(scheme base)` etc. —
@@ -1631,19 +1633,27 @@ vectors, and `(srfi 274 internal)` holding the shared `argcheck!`.
   wholesale `list-copy`. Kaappi diagnoses this through the underlying
   builtins' proper-list checks (`list->vector`, `list->string`, and every
   `list-><type>vector` walks the list) and through the laziness of streams
-  and generators (forcing one past the tail raises in `car`). The one silent
-  path is `(srfi 274 134)`'s `list->ideque` on a start-only improper list:
-  Kaappi's simplified `(srfi 134)` builds an ideque as `(cons lst '())` and
-  so never walks the list — a leniency inherited from that port, not from
-  SRFI 274. `tests/scheme/srfi/srfi274.scm` pins all the diagnosed paths.
+  and generators — but laziness only catches *dotted* input, where forcing
+  past the tail eventually raises in `car`. Three paths are silent, all
+  pinned as documented leniencies in `tests/scheme/srfi/srfi274.scm`:
+  `(srfi 274 134)`'s `list->ideque` on a start-only improper list (Kaappi's
+  simplified `(srfi 134)` builds an ideque as `(cons lst '())` and never
+  walks its input — a leniency inherited from that port, not from SRFI 274),
+  and `list->stream`/`list->generator` on *circular* input without `end`,
+  where laziness means nothing ever walks off the end: the result is an
+  infinite stream/generator cycling forever instead of the spec's "it is an
+  error". The no-argument circular cases are inherited from `(srfi 41)` /
+  `(srfi 158)` themselves; the start-only cases are this port's
+  `list-tail` handoff.
 - **The reference's `ideque-unfold` and `<type>vector-unfold` constructions
   are not used.** Kaappi's `(srfi 134)` does not export `ideque-unfold`, and
   importing all twelve full `(srfi 160 <type>)` surfaces just for their
   unfold would be heavy; both start+end cases instead hand the bounded,
-  always-proper range from `(srfi 274 base)`'s `list-copy` to the underlying
-  one-argument converter. Same results, one intermediate list each — the
-  allocation the SRFI asks *native* implementations to avoid, acceptable in
-  a portable port.
+  always-proper range from `(srfi 274 internal)`'s `range-list` — which
+  validates the range once under the caller's name and copies it — to the
+  underlying one-argument converter. Same results, one intermediate list
+  each — the allocation the SRFI asks *native* implementations to avoid,
+  acceptable in a portable port.
 - **`argcheck!`'s length check is bounded by `end`** (a named-`let` loop in
   `(srfi 274 internal)`; the reference recurses, also properly tail-recursive).
   Boundedness is the point: the check terminates on circular lists and is

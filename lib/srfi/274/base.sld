@@ -33,13 +33,7 @@
         ;; defines this as (list-copy (drop im-list start)).
         ((lst start) (r7rs:list-copy (list-tail lst start)))
         ((lst start end)
-         (argcheck! 'list-copy start end lst)
-         (let ((returned (make-list (- end start))))
-           (do ((head returned (cdr head))
-                (i 0 (+ i 1))
-                (lst (list-tail lst start) (cdr lst)))
-               ((null? head) returned)
-             (set-car! head (car lst)))))))
+         (range-list 'list-copy lst start end))))
 
     (define list->string
       (case-lambda
@@ -48,7 +42,8 @@
         ((lst start end)
          ;; Bounded copy first (terminates on any im-list given end), then
          ;; the builtin does the character validation and string build.
-         (r7rs:list->string (list-copy lst start end)))))
+         ;; range-list checks the range under this procedure's own name.
+         (r7rs:list->string (range-list 'list->string lst start end)))))
 
     (define list->vector
       (case-lambda

@@ -17,6 +17,11 @@
 
 (import (except (scheme base) list-copy list->string list->vector)
         (scheme write)
+        ;; The bare (srfi 274) alias re-exports the same bindings as
+        ;; (srfi 274 base), so loading both side by side is legal (R7RS 5.2)
+        ;; and actually exercises the alias's import/export wiring —
+        ;; cond-expand's (library ...) clause only probes existence.
+        (srfi 274)
         (srfi 274 base)
         (except (srfi 41) list->stream) (srfi 274 41)
         (except (srfi 134) list->ideque) (srfi 274 134)
@@ -43,6 +48,7 @@
         (srfi 274 160 u16) (srfi 274 160 s32) (srfi 274 160 u32)
         (srfi 274 160 s64) (srfi 274 160 u64) (srfi 274 160 f32)
         (srfi 274 160 f64) (srfi 274 160 c64) (srfi 274 160 c128)
+        (prefix (only (srfi 274 160 u8) list->u8vector) u8lib:)
         (srfi 64))
 
 (test-begin "srfi-274")
@@ -64,11 +70,12 @@
 (test-equal "library (srfi 274 160 u8)" #t
             (cond-expand ((library (srfi 274 160 u8)) #t) (else #f)))
 
-;;; The per-type libraries carry the same binding as (srfi 274 160 base),
-;;; so both can be imported side by side (R7RS 5.2) and give equal results.
-(test-equal "per-type library re-exports base binding"
-            (s8vector->list (list->s8vector '(1 2 3 4 5) 1 4))
-            (s8vector->list ((lambda args (apply list->s8vector args)) '(1 2 3 4 5) 1 4)))
+;;; The per-type libraries carry the same binding as (srfi 274 160 base):
+;;; u8lib:list->u8vector is the prefixed import from (srfi 274 160 u8),
+;;; list->u8vector the plain one from (srfi 274 160 base) — the identical
+;;; procedure object, which is also why importing both is legal (R7RS 5.2).
+(test-assert "per-type library carries base's binding"
+             (eqv? u8lib:list->u8vector list->u8vector))
 
 ;;; ====================================================================
 ;;; list-copy
@@ -162,7 +169,17 @@
   (test-error "improper list with start but no end" (list->vector '(1 2 3 4 5 . 6) 2))
   (test-error "end beyond length" (list->vector '(1 2 3) 0 4))
   (test-error "start greater than end" (list->vector '(1 2 3) 2 1))
-  (test-error "non-integer start" (list->vector '(1 2 3) 'a 2)))
+  (test-error "non-integer start" (list->vector '(1 2 3) 'a 2))
+  ;; The range check reports a string message carrying its own procedure
+  ;; name (R7RS 6.11), and each conversion attributes its own errors.
+  (test-equal "range error message is a string naming the procedure"
+              "list->vector: list is not long enough"
+              (guard (e ((error-object? e) (error-object-message e)))
+                (list->vector '(1 2 3) 0 5)))
+  (test-equal "list->string range errors attributed to list->string"
+              "list->string: list is not long enough"
+              (guard (e ((error-object? e) (error-object-message e)))
+                (list->string '(#\a #\b) 0 5))))
 
 ;;; ====================================================================
 ;;; Collection conversions: ranges round-trip through the collection's
@@ -204,10 +221,23 @@
               (*->list (list->* '#5= (1.0+1.0i 2.0+2.0i . #5#) 1 8))))
 
 (test-group "srfi 41 streams"
-  (test-to-from list->stream stream->list))
+  (test-to-from list->stream stream->list)
+  ;; Circular input without `end` is an error per the spec, but laziness
+  ;; makes it silent here: nothing walks far enough to notice. These pin
+  ;; the documented leniency (see srfi-implementation-notes.md, SRFI 274)
+  ;; — an infinite stream whose elements cycle forever. stream-ref is used
+  ;; because stream->list would not terminate.
+  (test-equal "circular list without end: lenient infinite stream"
+              1 (stream-ref (list->stream clist) 6))
+  (test-equal "circular list with start only: lenient infinite stream"
+              2 (stream-ref (list->stream clist 1) 6)))
 
 (test-group "srfi 134 ideques"
-  (test-to-from list->ideque ideque->list))
+  (test-to-from list->ideque ideque->list)
+  ;; Same leniency as above for the start-only improper case: Kaappi's
+  ;; simplified (srfi 134) never walks its input, so no error is raised.
+  (test-assert "improper list with start only: lenient (see notes)"
+               (begin (list->ideque '(1 2 . 3) 1) #t)))
 
 (test-group "srfi 158 generators"
   (test-to-from list->generator generator->list)
@@ -215,7 +245,17 @@
   (test-equal "generator returns eof past end"
               (eof-object)
               (let ((g (list->generator clist 0 3)))
-                (g) (g) (g) (g))))
+                (g) (g) (g) (g)))
+  ;; Circular input without `end`: same laziness leniency as streams —
+  ;; an infinite generator cycling forever, pinned (see notes).
+  (test-equal "circular list without end: lenient infinite generator"
+              '(1 2 1 2 1)
+              (let ((g (list->generator clist)))
+                (list (g) (g) (g) (g) (g))))
+  (test-equal "circular list with start only: lenient infinite generator"
+              '(2 1 2 1 2)
+              (let ((g (list->generator clist 1)))
+                (list (g) (g) (g) (g) (g)))))
 
 (test-group "srfi 160 homogeneous vectors"
   (test-group "s8vector"  (test-to-from list->s8vector s8vector->list))
