@@ -1010,6 +1010,7 @@ test "srfi-N feature: number parser requires the srfi- prefix (#1649)" {
     try std.testing.expectEqual(@as(?i64, null), f("vectors-133"));
     // Non-srfi platform features never look like one.
     try std.testing.expectEqual(@as(?i64, null), f("kaappi-threads"));
+    try std.testing.expectEqual(@as(?i64, null), f("kaappi-shared-channels"));
     try std.testing.expectEqual(@as(?i64, null), f("r7rs"));
     // Malformed / noncanonical srfi- forms.
     try std.testing.expectEqual(@as(?i64, null), f("srfi-")); // no digits
