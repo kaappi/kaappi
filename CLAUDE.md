@@ -193,7 +193,7 @@ the sub-library-only 160, 211 and 226. Every supported SRFI is also a
 `cond-expand` feature identifier `srfi-<n>`, derived rather than listed.
 
 Re-derive the counts after each release with `kaappi features --json` — it
-reports only the 12 + 163, since it scans just the top-level `lib/srfi/N.sld`
+reports only the 12 + 164, since it scans just the top-level `lib/srfi/N.sld`
 files; add the other four by hand.
 
 The library loader in `vm_library.zig` supports `cond-expand`, `include` (paths
