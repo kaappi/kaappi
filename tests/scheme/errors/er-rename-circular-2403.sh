@@ -44,11 +44,11 @@ fi
 
 status=0
 "$KAAPPI" "$REPRO" > /dev/null 2>&1 || status=$?
-if [[ "$status" -ne 0 && "$status" -ne 1 ]]; then
-    echo "FAIL: expected exit 0 (success) or 1 (error), got $status — abort or signal?"
+if [[ "$status" -ne 1 ]]; then
+    echo "FAIL: expected exit 1 (uncaught syntax error), got $status — silent success, abort or signal?"
     FAIL=$((FAIL + 1))
 else
-    echo "PASS: exits with an ordinary error status (got $status)"
+    echo "PASS: exits with the ordinary uncaught-error status 1"
     PASS=$((PASS + 1))
 fi
 
