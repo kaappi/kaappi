@@ -9,6 +9,10 @@
 ;;; Reference: https://srfi.schemers.org/srfi-253/srfi-253.html
 ;;; License: MIT
 ;;; Author: Artyom Bologov (reference impl); ported to Kaappi
+;;;
+;;; The `=>` return-value checking that SRFI 273 adds to these forms lives
+;;; here too (the SRFI 253 sample implementation carries it); (srfi 273)
+;;; re-exports this library and layers its own forms on top.
 
 (define-library (srfi 253)
   (import (scheme base)
@@ -46,6 +50,53 @@
         ((_ (predicate ...) value ...)
          (values (values-checked (predicate) value) ...))))
 
+    ;; %check-results — check each value returned by a body against the
+    ;; corresponding predicate, preserving count and order (SRFI 273's =>
+    ;; clauses). values-checked cannot be reused here: it pairs N predicate
+    ;; *expressions* with N value expressions, while a body is one
+    ;; expression returning N values. syntax-rules cannot mint N distinct
+    ;; identifiers for a fixed-arity receiver, so instead each predicate
+    ;; wraps one value-passing layer ((v . more) — hygiene gives every
+    ;; recursive expansion's v/more a distinct binding) that checks its
+    ;; layer's first value and rotates it to the tail on the way out. The
+    ;; rotation lines value k up with predicate k and restores the original
+    ;; order at the outermost layer — which is why %cr-rev first reverses
+    ;; the predicates: the innermost layer must carry the first predicate.
+    ;; Rotation is a full cycle (identity) only when the counts match, so
+    ;; %cr-finish rejects any other count, as values-checked's "number of
+    ;; values and predicates should match" already does.
+    (define-syntax %check-results
+      (syntax-rules ()
+        ((_ caller (predicate ...) body ...)
+         (call-with-values
+             (lambda () (%cr-rev caller () (predicate ...) body ...))
+           (%cr-finish caller (predicate ...))))))
+    (define-syntax %cr-rev
+      (syntax-rules ()
+        ((_ caller (rev ...) () body ...)
+         (%cr-check caller (rev ...) body ...))
+        ((_ caller (rev ...) (predicate . remaining) body ...)
+         (%cr-rev caller (predicate rev ...) remaining body ...))))
+    (define-syntax %cr-check
+      (syntax-rules ()
+        ((_ caller () body ...)
+         (begin body ...))
+        ((_ caller (predicate . remaining) body ...)
+         (call-with-values
+             (lambda () (%cr-check caller remaining body ...))
+           (lambda (v . more)
+             (check-arg predicate v caller)
+             (apply values (append more (list v))))))))
+    (define-syntax %cr-finish
+      (syntax-rules ()
+        ((_ caller (predicate ...))
+         (let ((expected (length '(predicate ...))))
+           (lambda received
+             (if (= (length received) expected)
+                 (apply values received)
+                 (error "number of values and predicates should match"
+                        caller)))))))
+
     ;; check-case — predicate dispatch.
     (define-syntax %check-case
       (syntax-rules (else)
@@ -80,9 +131,7 @@
         ((_ name (=> (returns ...) body ...) args (checks ...))
          (lambda args
            checks ...
-           (values-checked
-            (returns ...)
-            (begin body ...))))
+           (%check-results 'name (returns ...) body ...)))
         ;; Terminal: without return check
         ((_ name (body ...) args (checks ...))
          (lambda args
@@ -106,11 +155,17 @@
 
     ;; lambda-checked — lambda with type-checked arguments.
     (define-syntax lambda-checked
-      (syntax-rules ()
+      (syntax-rules (=>)
+        ;; Empty formals with a return-value check (SRFI 273)
+        ((_ () => (returns ...) body ...)
+         (lambda () (%check-results 'lambda-checked (returns ...) body ...)))
         ((_ () body ...)
          (lambda () body ...))
         ((_ (arg . args) body ...)
          (%lambda-checked lambda-checked (body ...) () () arg . args))
+        ;; Rest-arg lambda with a return-value check (SRFI 273)
+        ((_ arg => (returns ...) body ...)
+         (lambda arg (%check-results 'lambda-checked (returns ...) body ...)))
         ;; Rest-arg lambda (no-op, can't check)
         ((_ arg body ...)
          (lambda arg body ...))))
@@ -146,7 +201,7 @@
           (done ...
            (formals
             checks ...
-            (values-checked (returns ...) (begin body ...))))
+            (%check-results 'case-lambda-checked (returns ...) body ...)))
           remaining ...))
         ;; All args consumed — plain body
         ((_ (done ...) (remaining ...)
@@ -199,7 +254,7 @@
             remaining ...)
          (%clc-clauses
           (done ...
-           (() (values-checked (returns ...) (begin body ...))))
+           (() (%check-results 'case-lambda-checked (returns ...) body ...)))
           remaining ...))
         ;; Clause with empty formals, plain body
         ((_ (done ...)

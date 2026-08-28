@@ -13,8 +13,8 @@ Companions:
 
 ## What ships
 
-178 SRFIs supported. 12 built-in (Zig primitives): 1, 9, 13, 18, 39, 69, 133,
-170, 192, 254, 258, 260. 162 portable R7RS .sld files loaded on demand via
+179 SRFIs supported. 12 built-in (Zig primitives): 1, 9, 13, 18, 39, 69, 133,
+170, 192, 254, 258, 260. 163 portable R7RS .sld files loaded on demand via
 `(import (srfi N))`, plus SRFI 261 (Portable SRFI Library References) as an
 import-resolver convention with no library file, and SRFI 226, SRFI 160, and
 SRFI 211 (see below) as sub-libraries only with no bare `(srfi 226)`/`(srfi
@@ -29,7 +29,7 @@ features`' scan): 0, 2, 4, 5, 6, 7, 8, 11, 14, 16, 17, 19, 23, 25, 26, 27, 28,
 201, 202, 203, 207, 209, 210, 213, 214, 215, 216, 217, 219, 221, 222, 223,
 224, 225, 227, 228, 229, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240,
 241, 242, 244, 247, 248, 250, 251, 252, 253, 255, 257, 259, 263, 264, 267,
-270, 271. Sub-libraries: (srfi 146 hash), (srfi 171 meta), (srfi 166 pretty),
+270, 271, 273. Sub-libraries: (srfi 146 hash), (srfi 171 meta), (srfi 166 pretty),
 (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 211
 explicit-renaming), (srfi 211 define-macro), (srfi 211 syntax-parameter),
 (srfi 226 control prompts), (srfi 226 control continuations), (srfi 226
@@ -1494,3 +1494,62 @@ check):
   are regression-covered by `tests/scheme/cache/library-cache-1888.sh`;
   the zig-out/lib refresh step is not covered by any test — it is a
   local-workflow footgun to remember.
+
+### SRFI 273 — extensions to data (type-)checking
+
+Pure `syntax-rules` port layered on `(srfi 253)`; no engine changes. Ships as
+`lib/srfi/273.sld` exporting the new forms (`define-check`,
+`declare-checked`, `define-values-checked`, and the `check-impl?` auxiliary
+syntax) plus a re-export of the whole `(srfi 253)` vocabulary, so importing
+`(srfi 273)` alone is enough.
+
+- **Where the `=>` return-value checks live.** The issue asked for a recorded
+  decision: fold them into `253.sld` or serve them from a re-exporting
+  `(srfi 273)`. They were already folded into `253.sld` — the SRFI 253 sample
+  implementation carries them, and Kaappi's port inherited that — so `(srfi
+  253)` remains the owner of the extended forms and `(srfi 273)` only
+  re-exports them. What this port added to `253.sld`: the two missing
+  `lambda-checked` `=>` shapes (empty formals, rest formals) and correct
+  multi-value checking (below).
+- **Multi-value `=>` checks (the `values-checked` trap).** The naive
+  expansion — `(values-checked (pred ...) (begin body ...))` — pairs N
+  predicate *expressions* with 1 value expression, an ellipsis-count mismatch
+  that compiled to garbage. `values-checked` checks N expressions pairwise;
+  it cannot check the N values of one expression. The fix is `%check-results`
+  in `253.sld`: syntax-rules cannot mint N distinct identifiers for a
+  fixed-arity receiver, so each predicate wraps one `(lambda (v . more))`
+  layer (hygiene gives every recursive level a fresh `v`/`more`) that checks
+  its layer's first value and rotates it to the tail on the way out, with the
+  predicate list reversed first (`%cr-rev`) so the innermost layer carries
+  the first predicate. Rotation is a full cycle — identity — only when value
+  and predicate counts match, so `%cr-finish` rejects any other count, as
+  `values-checked`'s "number of values and predicates should match" already
+  does. A first cut of this layering without the reversal checked *every*
+  predicate against the *first* value and left the rest unchecked — the
+  srfi273 test suite pins the pairing (`(=> (integer? string?) (values 7
+  "x"))` passes while the swapped predicate list errors) so that cannot
+  return.
+- **`declare-checked` is advisory** and expands to `(when #f #f)`, as in the
+  SRFI's reference implementation: there is no static checker to inform, and
+  re-wrapping an already-defined (possibly imported) procedure cannot be done
+  from `syntax-rules`. All three declaration shapes evaluate without error,
+  including declarations for imported identifiers, which the spec "highly
+  recommends" accepting.
+- **`define-values-checked` checks for real**, unlike the minimal reference
+  implementation: it routes the form through `call-with-values` so the values
+  are received exactly once (a `values-checked` splice would evaluate the
+  form once per value) and applies `check-arg` to each in order.
+- **`check-impl?` strips to its datum**: `(define-syntax check-impl?
+  (syntax-rules () ((_ datum) datum)))`. Kaappi defines no
+  implementation-specific check datatypes, so the datum is used unaltered as
+  the check expression — a bound name behaves as itself and an unknown one
+  (`uint`, `pointer`) is an unbound variable, which is why the spec's
+  `(values-checked ((check-impl? uint)) -1)` is an error here too. Because
+  Kaappi's `check-arg` is a macro, the form also works in its operand
+  position, which the spec explicitly does not guarantee.
+- **`check-case` arrow clauses are deliberately absent** — the SRFI waives
+  them ("portable code must not rely on it working in check-case").
+- The optimizable patterns (`disjoin`/`conjoin`/`complement`/`cut ...`
+  recognitions, SRFIs 235/26/43/1) are not statically recognized; they work
+  as ordinary predicates, which is all compliance requires. The tests import
+  `(srfi 235)` and `(srfi 26)` to pin that composition.

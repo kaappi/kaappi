@@ -212,6 +212,13 @@
 (set! c "whatever")
 (test-assert c)
 
+;; Return value checks
+(define-checked (c-return (a integer?)) => (integer?) (* a 2))
+(test-equal 6 (c-return 3))
+(test-error (c-return "hello"))
+(define-checked (c-return-bad (a integer?)) => (string?) (* a 2))
+(test-error (c-return-bad 3))
+
 (test-end "define-checked")
 
 
