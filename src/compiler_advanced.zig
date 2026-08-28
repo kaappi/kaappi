@@ -202,7 +202,10 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compil
 
         var body_jumps: std.ArrayList(usize) = .empty;
         defer body_jumps.deinit(self.gc.allocator);
-        var datum_list = datums;
+        // #2405 (CodeRabbit re-review): a cyclic datum list emitted eqv?
+        // comparisons forever — the clause walk's guard does not reach the
+        // datums inside one clause.
+        var datum_list = compiler_mod.SpineWalk.init(datums);
 
         // Allocate 3 contiguous temp registers for eqv? calls:
         // cmp_base (function + result), cmp_base+1 (arg1), cmp_base+2 (arg2)
@@ -212,10 +215,10 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compil
         const cmp_arg1 = try self.allocReg();
         const cmp_arg2 = try self.allocReg();
 
-        while (datum_list != types.NIL) {
-            if (!types.isPair(datum_list)) return CompileError.InvalidSyntax;
-            const datum = types.car(datum_list);
-            datum_list = types.cdr(datum_list);
+        while (datum_list.cur != types.NIL) : (datum_list.next()) {
+            if (!types.isPair(datum_list.cur)) return CompileError.InvalidSyntax;
+            if (datum_list.cyclic()) return compiler_mod.circularFormError();
+            const datum = types.car(datum_list.cur);
 
             const datum_idx = try self.addConstant(datum);
 
