@@ -626,6 +626,25 @@ test "cond-expand kaappi-threads feature" {
     try std.testing.expectEqualStrings(want, types.symbolName(result));
 }
 
+// KEP-0004 Phase 2: kaappi-shared-channels advertises KEP-0002 cross-thread
+// channel promotion. Same platform gate as kaappi-threads — promotion needs
+// OS threads, which wasm32-wasi doesn't have (KEP-0002 §5: notify is a no-op
+// there and nothing ever calls it).
+test "cond-expand kaappi-shared-channels feature" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(cond-expand
+        \\  (kaappi-shared-channels 'yes)
+        \\  (else 'no))
+    );
+    const want: []const u8 = if (comptime platform.is_wasm) "no" else "yes";
+    try std.testing.expectEqualStrings(want, types.symbolName(result));
+}
+
 // Regression: libraryIsAvailable must not let cond-expand report a
 // disk-only library as available under --sandbox, since
 // tryLoadLibraryFromFile rejects every file-backed load there — the

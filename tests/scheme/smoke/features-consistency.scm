@@ -21,6 +21,10 @@
 (test-assert "kaappi-fibers in features" (and (memq 'kaappi-fibers (features)) #t))
 (test-assert "kaappi-reactor in features" (and (memq 'kaappi-reactor (features)) #t))
 (test-assert "kaappi-threads in features" (and (memq 'kaappi-threads (features)) #t))
+;; KEP-0004 Phase 2: cross-thread channel promotion (KEP-0002). Same
+;; non-wasm gate as kaappi-threads — promotion needs OS threads.
+(test-assert "kaappi-shared-channels in features"
+  (and (memq 'kaappi-shared-channels (features)) #t))
 
 ;; Expression-level cond-expand must agree
 (test-equal "expr cond-expand exact-closed" 'yes
@@ -33,6 +37,8 @@
   (cond-expand (kaappi-reactor 'yes) (else 'no)))
 (test-equal "expr cond-expand kaappi-threads" 'yes
   (cond-expand (kaappi-threads 'yes) (else 'no)))
+(test-equal "expr cond-expand kaappi-shared-channels" 'yes
+  (cond-expand (kaappi-shared-channels 'yes) (else 'no)))
 
 (let ((runner (test-runner-current)))
   (test-end "features-consistency")

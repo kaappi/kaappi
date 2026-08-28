@@ -1532,7 +1532,10 @@ const is_wasm_target = builtin.os.tag == .wasi;
 /// accessor, KEP-0005 §4) is likewise always compiled in — no platform
 /// carve-out. `kaappi-threads` is omitted on wasm, matching
 /// Lib.wasmAvailable()'s `srfi_18 => false` gate (primitives.zig) — no OS
-/// threads there. (KEP-0004)
+/// threads there. `kaappi-shared-channels` (KEP-0002 cross-thread channel
+/// promotion; gate cleared when kaappi#1487/#1489 closed) rides the same
+/// non-wasm branch: promotion needs OS threads, and on wasi `notify` is a
+/// no-op that nothing ever calls (KEP-0002 §5). (KEP-0004)
 const is_windows_target = builtin.os.tag == .windows;
 const base_platform_features = [_][]const u8{ "r7rs", "kaappi", "ieee-float", "exact-closed", "exact-complex", "kaappi-fibers", "kaappi-reactor", "kaappi-diagnostics" };
 // R7RS appendix B feature identifiers: exactly one OS-class identifier —
@@ -1542,7 +1545,7 @@ const os_feature = [_][]const u8{if (is_windows_target) "windows" else "posix"};
 pub const platform_features = if (is_wasm_target)
     base_platform_features ++ os_feature
 else
-    base_platform_features ++ os_feature ++ [_][]const u8{"kaappi-threads"};
+    base_platform_features ++ os_feature ++ [_][]const u8{ "kaappi-threads", "kaappi-shared-channels" };
 
 test "nil is not a pointer" {
     try std.testing.expect(!isPointer(NIL));

@@ -156,7 +156,8 @@ OS-class identifier per build, and NetBSD is a POSIX platform (there is no
 `kaappi features` and the crash banner (`aarch64-netbsd-none`)
 distinguishes the OS when it matters. All capability identifiers
 (`kaappi-threads`, `kaappi-fibers`, `kaappi-reactor`,
-`kaappi-diagnostics`) are present — nothing is gated.
+`kaappi-diagnostics`, `kaappi-shared-channels`) are present — nothing is
+gated.
 
 ## Testing on a NetBSD machine
 

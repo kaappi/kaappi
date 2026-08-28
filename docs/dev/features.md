@@ -41,7 +41,8 @@ native-only; WASM's entry point just runs a file.
   "sandbox_available": true,
   "features": ["r7rs", "kaappi", "ieee-float", "posix", "exact-closed",
                "exact-complex", "kaappi-fibers", "kaappi-reactor",
-               "kaappi-diagnostics", "kaappi-threads"],
+               "kaappi-diagnostics", "kaappi-threads",
+               "kaappi-shared-channels"],
   "srfis": { "builtin": [1, 9, 13, …], "portable": [0, 2, 4, …] },
   "limits": {
     "initial_frame_capacity": 480,
