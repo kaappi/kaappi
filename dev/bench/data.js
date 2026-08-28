@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787921431376,
+  "lastUpdate": 1787922068988,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "da4072cb2d96d471ff4950c85d7756ef3ead1955",
-          "message": "Fix cross-thread heap safety: reject cross-heap stores (#1924) and mark live children's roots (#1933) (#2247)\n\n* Fix cross-thread heap safety: reject cross-heap stores (#1924) and mark live children's roots (#1933)\n\nTwo halves of the same gap: each SRFI-18 OS thread has its own GC heap,\ntop-level bindings are shared by pointer, and nothing coordinates the\ntwo collectors on the mutation path. Both were deterministic\nuse-after-frees — #1924 on every run, #1933 wrong values or a hard\n\"GC: marking freed object\" panic under -Dgc-stress.\n\n#1924 — a child storing one of its own heap's objects into a shared\nparent-heap container (a record field, vector slot, pair, hash-table\nentry, promise's memoised value, or the globals map) left a pointer the\nparent's collector skips as foreign and the child's collector cannot\nsee a reference to; the value was freed by the child's GC or at its\njoin while the container still held it. The store is now rejected\nBEFORE it happens (memory.crossHeapStoreViolation, checked at every\ngeneral mutation site: set-car!/set-cdr!, vector-set!/vector-fill!,\n%record-set!/inherit, hash-table-set!, %promise-complete!/-merge!, the\nset_upvalue/set_box_local bytecode ops, and set_global/define_global),\nunless the value belongs to the container's own heap. The mutex-lock!\nowner pair is the one sanctioned exception and is exempt.\n\n#1933 — a parent-heap object referenced only from a live child's\nregisters was unreachable to both markers, so the parent's collection\nfreed it under the running child. The root's collector now stops every\nlive child at the dispatch-loop safepoint (or finds it already parked /\nin an FFI call) and marks its roots with the root's gc\n(markLiveChildRoots, wired as gc.child_marker; markVMRoots extracted\ninto the shared markVmRoots). Children report a quiescence state\n(CollectionState) from the safepoint, the park and callFfi; children\nspawned mid-collection wait on collection_in_progress before their\nfirst shared-globals read; dead (retired) children are skipped via a\nregistry thread_exited flag. The symbol-mutex section of markRoots no\nlonger wraps the child-marking, which would have deadlocked a child\nblocked in allocSymbol while deep-copying its thunk.\n\nRegression tests: srfi18-cross-heap-mutation-1924.scm (the full\nrejection matrix plus the immediate/Direction-B/mutex controls) and\nsrfi18-child-registers-1933.scm (the issue's hash-table + channel\nhandshake shape, with a guardian control proving the churn collects).\nsrfi18-sharing-model.scm pins the new mutation-refused rows;\nthread-value-sharing.md documents both fixes and the residuals.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review + fix gc-stress hang: cover all mutation sites, pin quiescent states, speed up stop-the-world\n\nSecond round on the #1924/#1933 PR. Three CI gc-stress timeouts were\ntraced to the stop-the-world dance: a child joining its own child blocks\nin a raw pthread join that never reached a safepoint, so the parent's\ncollector waited on it forever while the grandchild spun on\ncollection_in_progress (a livelock — channel-promoted-owner-1934 went\nfrom 0.15s to >40min); and the 1ms poll in the wait made every parent\ncollection with a live child cost ~1ms (pathological under -Dgc-stress,\nwhere collections run per allocation). The third timeout\n(srfi146-differential) is pre-existing — 3m on base, no threads.\n\nFixes:\n\n- reapOsThread's thread.join() reports the in-native quiescent state\n  (function-scope defer — a block-scoped one fired before the join, the\n  same trap as the park/FFI sites), so a joining child is marked, not\n  waited on.\n- The parent's wait spin-yields instead of sleeping 1ms; a running\n  child reaches its next safepoint within 1024 instructions.\n- setCollectionRunning is now guarded: resuming from a quiescent state\n  re-checks collection_stop and spins (publishing .stopped) until the\n  parent clears it, closing the TOCTOU where a .parked/.in_native child\n  resumed bytecode between the parent's observation and its mark.\n  callWithArgs' FFI-callback guard and the threadEntryFn startup\n  handshake route through it.\n- crossHeapStoreViolation now rejects ALL foreign-container stores (not\n  just foreign-heap values): a parent-owned value into a parent-owned\n  container needs the OWNER's generational write barrier for a young\n  value, and the owner's remembered set cannot be touched cross-thread.\n  Interned symbols stay allowed (permanent, promoted, never dangle).\n  The store check is also added at the six previously-missed general\n  mutation sites: list-set!, vector-copy!, vector-reverse-copy!,\n  hash-table-update!, hash-table-update!/default, hash-table-merge!.\n- Exited children's collection_stop is always released (separate armed\n  list); child_marker is stored/loaded atomically.\n- Tests: the rejection matrix now covers the six new sites, set-cdr!,\n  child-allocated hash keys, define via eval, and the\n  parent-value-into-parent-container rejection; the audit characterisation\n  tests that asserted the old store-anything behaviour are updated.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Narrow the parked window, cover vector-unfold!/map! and define-env writes\n\nThird round on the #1924/#1933 PR, from the second CodeRabbit pass.\n\n- parkOnReactor reports .parked across the blocking poll ONLY: the\n  post-poll code (sweepSharedWaiters, wakeReadyFiber, markRunnable)\n  mutates scheduler state that markVmRoots traverses, so reporting\n  quiescence there would race the parent's mark. The resume goes through\n  the guarded setCollectionRunning as before.\n- vector-map!/vector-unfold!/vector-unfold-right! write their step\n  procedure results into a caller-supplied destination; a shared\n  parent-heap destination now gets the same cross-heap store rejection\n  as vector-copy! (per result, so all-immediate runs stay legal).\n- define_global now applies the child-store rejection before the env\n  branch, matching set_global - covering a child eval-define into a\n  shared library or eval environment, not just the globals map.\n- The child-registers-1933 test churn is reduced 4x (100k iterations,\n  still verified to turn the pre-fix read into garbage) to keep the\n  gc-stress run at ~40s instead of ~160s.\n- docs/dev/thread-value-sharing.md globals row reworded to match the\n  strengthened predicate (any store into a not-owned container is\n  rejected, interned symbols excepted).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Validate the promise-merge inner back-pointer store too\n\nThe %promise-merge! outer store (outer.value = inner.value) was checked,\nbut the matching inner store (inner.value = outer) was not: the comment\nclaimed the predicate's container-owner rule covered it, yet the check was\nnever actually called for that direction. Both directions now go through\ncrossHeapStoreViolation before any store or barrier, so the code matches\nits own comment. (In practice both promises come from one force chain and\nshare a heap; the added check is defensive and consistent.)\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-07T14:15:28Z",
-          "tree_id": "92c0e6be16c055c9282805341ed216a33bec2df4",
-          "url": "https://github.com/kaappi/kaappi/commit/da4072cb2d96d471ff4950c85d7756ef3ead1955"
-        },
-        "date": 1786114164589,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.99191,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.525925,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.564421,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.885064,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00496,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.045257,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.300292,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054104,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.403467,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.182557,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.535297,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.298248,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.708702,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.75971,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044294,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045183,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cfbc99f036a6fe57512e5604893d0d5c2889fe4d",
+          "message": "Implement SRFI 273: extensions to data (type-)checking (#2411)\n\n* Implement SRFI 273: extensions to data (type-)checking\n\nPortable (srfi 273) layered on (srfi 253): define-check, advisory\ndeclare-checked, define-values-checked (with real per-value checks,\nreceiving the form's values exactly once via call-with-values), and the\ncheck-impl? auxiliary syntax, which strips to its datum so an unknown\nimplementation-specific name is an unbound variable — the spec's\n(values-checked ((check-impl? uint)) -1) is an error here too. The\nlibrary re-exports the whole (srfi 253) vocabulary so importing it alone\nsuffices.\n\nThe => return-value checking SRFI 273 specifies for the 253 forms was\nalready folded into 253.sld by the original port (the SRFI 253 sample\nimplementation carries it) — the decision is recorded in\ndocs/dev/srfi-implementation-notes.md. What it lacked, now fixed there:\n\n- lambda-checked with empty or rest formals dropped the => clause on\n  the floor ((lambda-checked () => (integer?) ...)) expanded to a body\n  with a bare => in it); both shapes now check their returns.\n- Multi-value => checks never worked: the terminal expansion spliced N\n  predicates into values-checked against a single value expression —\n  an ellipsis-count mismatch that compiled to garbage. New\n  %check-results wraps one (lambda (v . more)) layer per predicate\n  (hygiene gives each recursive level fresh names), rotating each\n  checked value to the tail so value k meets predicate k and the order\n  is restored at the outermost layer; the predicate list is reversed\n  first so the innermost layer carries the first predicate. A count\n  mismatch is an error, as values-checked's own \"number of values and\n  predicates should match\" already is.\n\nTests: new tests/scheme/srfi/srfi273.scm (102 assertions incl. the\npairing pins that fail under the old layering), plus define-checked =>\ncoverage in srfi253.scm. Counts updated everywhere (179 SRFIs, 163\nportable); kaappi features and the final-status guard both pick 273 up\nfrom the .sld.\n\nCloses #2408\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: => fast path, count-first gate, message-pinned tests\n\n- Single-predicate => now expands to the same let shape values-checked\n  uses instead of the call-with-values tower: the common case is back at\n  parity with main (46k vs 39k jiffies per 300k calls here, was 989k).\n  Like values-checked it does not count values itself — a body returning\n  zero or several still fails the predicate, because Kaappi propagates\n  multiple values through a single-variable let binding and no predicate\n  matches the resulting values object.\n- %cr-gate now checks the value/predicate count BEFORE the rotation\n  tower runs, so a short or long value list is diagnosed as \"number of\n  values and predicates should match\" whatever the predicates are,\n  instead of a mispaired predicate firing first with a misleading\n  message. The tower rides in the gate's body — as a receiver operand\n  it would be evaluated eagerly, running checks before values exist\n  (caught by the suite on the first cut).\n- The count-mismatch tests assert on that error message (via a guard\n  helper, since test-error matches conditions, not messages) with\n  distinct predicates in both directions, so neither can pass via a\n  predicate failure instead.\n- check-case assertions now use test-equal on the dispatched symbol —\n  'int/'other and 'small/'other pairs — so a wrong clause choice fails\n  the test instead of passing on any truthy body (five sites).\n- declare-checked declares => as a literal, matching every other\n  =>-aware macro of the port, so the return-check clause cannot\n  silently capture an unrelated form in that position.\n\nrun-all.sh: 724 scheme files + R7RS 1395 pass; srfi273 105, srfi253 108.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-28T17:37:08+05:30",
+          "tree_id": "5455288fbaa1e7c9f7012f50b7bdb0249cb5ea1d",
+          "url": "https://github.com/kaappi/kaappi/commit/cfbc99f036a6fe57512e5604893d0d5c2889fe4d"
+        },
+        "date": 1787922065661,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.919182,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 5.685519,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.384854,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.081951,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004374,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03477,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.207867,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.038399,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.171258,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.827322,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.167911,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.223173,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.222642,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.804942,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.035017,
             "unit": "seconds"
           }
         ]
