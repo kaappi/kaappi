@@ -10,6 +10,7 @@ test {
     _ = @import("tests_ellipsis.zig");
     _ = @import("tests_macro_chains.zig");
     _ = @import("tests_prescan.zig");
+    _ = @import("tests_circular_code.zig");
     _ = @import("tests_libraries.zig");
     _ = @import("tests_exceptions.zig");
     _ = @import("tests_records.zig");

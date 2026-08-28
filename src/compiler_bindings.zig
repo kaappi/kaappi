@@ -19,44 +19,60 @@ fn makeUniqueLoopName(gc: *memory.GC, original: []const u8) CompileError!Value {
     return gc.allocSymbol(name) catch return CompileError.OutOfMemory;
 }
 
-fn renameInBody(gc: *memory.GC, expr: Value, old_name: []const u8, new_sym: Value) CompileError!Value {
+// #2405: renameInBody/renameInQuasiquote rebuild every pair they walk, so a
+// datum-label cycle in a named-let body has no leaves to bottom out at — the
+// active-path set keyed on Object address (stable in this non-moving GC, holds
+// no Values) turns the back-edge into the shared circular-form diagnosis
+// instead of unbounded recursion. Path membership, not prior visitation:
+// shared-but-acyclic body structure renews legitimately.
+const RenamePath = std.AutoHashMapUnmanaged(usize, void);
+
+fn renameInBody(gc: *memory.GC, expr: Value, old_name: []const u8, new_sym: Value, path: *RenamePath) CompileError!Value {
     if (types.isSymbol(expr)) {
         if (std.mem.eql(u8, types.symbolName(expr), old_name)) return new_sym;
         return expr;
     }
     if (types.isPair(expr)) {
+        const path_key = @intFromPtr(types.toObject(expr));
+        if (path.contains(path_key)) return compiler_mod.circularFormError();
+        try path.put(gc.allocator, path_key, {});
+        defer _ = path.remove(path_key);
         const head = types.car(expr);
         if (types.isSymbol(head)) {
             const hname = types.symbolName(head);
             if (std.mem.eql(u8, hname, "quote"))
                 return expr;
             if (std.mem.eql(u8, hname, "quasiquote")) {
-                const new_tmpl = try renameInQuasiquote(gc, types.cdr(expr), old_name, new_sym);
+                const new_tmpl = try renameInQuasiquote(gc, types.cdr(expr), old_name, new_sym, path);
                 if (new_tmpl == types.cdr(expr)) return expr;
                 return gc.allocPair(head, new_tmpl) catch return CompileError.OutOfMemory;
             }
         }
-        const new_car = try renameInBody(gc, types.car(expr), old_name, new_sym);
-        const new_cdr = try renameInBody(gc, types.cdr(expr), old_name, new_sym);
+        const new_car = try renameInBody(gc, types.car(expr), old_name, new_sym, path);
+        const new_cdr = try renameInBody(gc, types.cdr(expr), old_name, new_sym, path);
         if (new_car == types.car(expr) and new_cdr == types.cdr(expr)) return expr;
         return gc.allocPair(new_car, new_cdr) catch return CompileError.OutOfMemory;
     }
     return expr;
 }
 
-fn renameInQuasiquote(gc: *memory.GC, template: Value, old_name: []const u8, new_sym: Value) CompileError!Value {
+fn renameInQuasiquote(gc: *memory.GC, template: Value, old_name: []const u8, new_sym: Value, path: *RenamePath) CompileError!Value {
     if (!types.isPair(template)) return template;
+    const path_key = @intFromPtr(types.toObject(template));
+    if (path.contains(path_key)) return compiler_mod.circularFormError();
+    try path.put(gc.allocator, path_key, {});
+    defer _ = path.remove(path_key);
     const head = types.car(template);
     if (types.isSymbol(head)) {
         const hname = types.symbolName(head);
         if (std.mem.eql(u8, hname, "unquote") or std.mem.eql(u8, hname, "unquote-splicing")) {
-            const new_cdr = try renameInBody(gc, types.cdr(template), old_name, new_sym);
+            const new_cdr = try renameInBody(gc, types.cdr(template), old_name, new_sym, path);
             if (new_cdr == types.cdr(template)) return template;
             return gc.allocPair(head, new_cdr) catch return CompileError.OutOfMemory;
         }
     }
-    const new_car = try renameInQuasiquote(gc, head, old_name, new_sym);
-    const new_cdr = try renameInQuasiquote(gc, types.cdr(template), old_name, new_sym);
+    const new_car = try renameInQuasiquote(gc, head, old_name, new_sym, path);
+    const new_cdr = try renameInQuasiquote(gc, types.cdr(template), old_name, new_sym, path);
     if (new_car == head and new_cdr == types.cdr(template)) return template;
     return gc.allocPair(new_car, new_cdr) catch return CompileError.OutOfMemory;
 }
@@ -101,10 +117,11 @@ pub fn compileLet(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compile
     var names: [MAX_LET_BINDINGS][]const u8 = undefined;
     var count: usize = 0;
 
-    var binding_list = bindings;
-    while (binding_list != types.NIL) {
-        if (!types.isPair(binding_list)) return CompileError.InvalidSyntax;
-        const binding = types.car(binding_list);
+    var binding_list = compiler_mod.SpineWalk.init(bindings);
+    while (binding_list.cur != types.NIL) : (binding_list.next()) {
+        if (!types.isPair(binding_list.cur)) return CompileError.InvalidSyntax;
+        if (binding_list.cyclic()) return compiler_mod.circularFormError();
+        const binding = types.car(binding_list.cur);
         if (!types.isPair(binding)) return CompileError.InvalidSyntax;
 
         const var_name = types.car(binding);
@@ -118,8 +135,6 @@ pub fn compileLet(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compile
         slots[count] = slot;
         names[count] = types.symbolName(var_name);
         count += 1;
-
-        binding_list = types.cdr(binding_list);
     }
 
     // Phase 2: add all locals at once
@@ -143,10 +158,11 @@ pub fn compileLetStar(self: *Compiler, args: Value, dst: u16, is_tail: bool) Com
 
     self.beginScope();
 
-    var binding_list = bindings;
-    while (binding_list != types.NIL) {
-        if (!types.isPair(binding_list)) return CompileError.InvalidSyntax;
-        const binding = types.car(binding_list);
+    var binding_list = compiler_mod.SpineWalk.init(bindings);
+    while (binding_list.cur != types.NIL) : (binding_list.next()) {
+        if (!types.isPair(binding_list.cur)) return CompileError.InvalidSyntax;
+        if (binding_list.cyclic()) return compiler_mod.circularFormError();
+        const binding = types.car(binding_list.cur);
         if (!types.isPair(binding)) return CompileError.InvalidSyntax;
 
         const var_name = types.car(binding);
@@ -159,8 +175,6 @@ pub fn compileLetStar(self: *Compiler, args: Value, dst: u16, is_tail: bool) Com
         const vname = types.symbolName(var_name);
         try self.addLocal(vname, slot);
         try self.boxIfSetTarget(vname, slot);
-
-        binding_list = types.cdr(binding_list);
     }
 
     try compileLetBody(self, body, dst, is_tail);
@@ -183,10 +197,11 @@ fn compileLetrecImpl(self: *Compiler, args: Value, dst: u16, is_tail: bool) Comp
     var count: usize = 0;
 
     // Parse bindings
-    var binding_list = bindings;
-    while (binding_list != types.NIL) {
-        if (!types.isPair(binding_list)) return CompileError.InvalidSyntax;
-        const binding = types.car(binding_list);
+    var binding_list = compiler_mod.SpineWalk.init(bindings);
+    while (binding_list.cur != types.NIL) : (binding_list.next()) {
+        if (!types.isPair(binding_list.cur)) return CompileError.InvalidSyntax;
+        if (binding_list.cyclic()) return compiler_mod.circularFormError();
+        const binding = types.car(binding_list.cur);
         if (!types.isPair(binding)) return CompileError.InvalidSyntax;
         const var_name = types.car(binding);
         if (!types.isSymbol(var_name)) return CompileError.InvalidSyntax;
@@ -196,7 +211,6 @@ fn compileLetrecImpl(self: *Compiler, args: Value, dst: u16, is_tail: bool) Comp
         names[count] = types.symbolName(var_name);
         inits[count] = types.car(types.cdr(binding));
         count += 1;
-        binding_list = types.cdr(binding_list);
     }
 
     self.beginScope();
@@ -241,10 +255,11 @@ pub fn compileNamedLet(self: *Compiler, args: Value, dst: u16, is_tail: bool) Co
     var init_exprs: [MAX_LET_BINDINGS]Value = undefined;
     var param_count: usize = 0;
 
-    var binding_list = bindings;
-    while (binding_list != types.NIL) {
-        if (!types.isPair(binding_list)) return CompileError.InvalidSyntax;
-        const binding = types.car(binding_list);
+    var binding_list = compiler_mod.SpineWalk.init(bindings);
+    while (binding_list.cur != types.NIL) : (binding_list.next()) {
+        if (!types.isPair(binding_list.cur)) return CompileError.InvalidSyntax;
+        if (binding_list.cyclic()) return compiler_mod.circularFormError();
+        const binding = types.car(binding_list.cur);
         if (!types.isPair(binding)) return CompileError.InvalidSyntax;
         if (!types.isPair(types.cdr(binding))) return CompileError.InvalidSyntax;
 
@@ -252,7 +267,6 @@ pub fn compileNamedLet(self: *Compiler, args: Value, dst: u16, is_tail: bool) Co
         var_names[param_count] = types.car(binding);
         init_exprs[param_count] = types.car(types.cdr(binding));
         param_count += 1;
-        binding_list = types.cdr(binding_list);
     }
 
     // Bind the loop procedure to a boxed local (single-binding letrec) so the
@@ -279,7 +293,9 @@ pub fn compileNamedLet(self: *Compiler, args: Value, dst: u16, is_tail: bool) Co
             i -= 1;
             formals = self.gc.allocPair(var_names[i], formals) catch return CompileError.OutOfMemory;
         }
-        const renamed_body = try renameInBody(self.gc, body, types.symbolName(loop_name), unique_sym);
+        var rename_path: RenamePath = .empty;
+        defer rename_path.deinit(self.gc.allocator);
+        const renamed_body = try renameInBody(self.gc, body, types.symbolName(loop_name), unique_sym, &rename_path);
         renamed_lambda_args = self.gc.allocPair(formals, renamed_body) catch return CompileError.OutOfMemory;
     }
     self.gc.pushRoot(&renamed_lambda_args);
@@ -345,6 +361,11 @@ pub fn compileNamedLet(self: *Compiler, args: Value, dst: u16, is_tail: bool) Co
 const CaptureScan = struct {
     names: *std.ArrayList([]const u8),
     alloc: std.mem.Allocator,
+    // #2405: pairs on the active recursion path, keyed on Object address
+    // (stable in this non-moving GC, holds no Values). A car-side datum-label
+    // cycle recursed forever; path membership — not prior visitation — is
+    // what a cycle is, and shared-but-acyclic sub-datum renews legitimately.
+    path: std.AutoHashMapUnmanaged(usize, void) = .empty,
 
     fn addName(self: *@This(), name: []const u8) error{OutOfMemory}!void {
         for (self.names.items) |n| {
@@ -353,7 +374,7 @@ const CaptureScan = struct {
         try self.names.append(self.alloc, name);
     }
 
-    fn walk(self: *@This(), expr: Value) error{OutOfMemory}!void {
+    fn walk(self: *@This(), expr: Value) CompileError!void {
         if (types.isSymbol(expr)) {
             try self.addName(types.symbolName(expr));
             return;
@@ -366,12 +387,19 @@ const CaptureScan = struct {
             if (std.mem.eql(u8, types.symbolName(head), "quote")) return;
         }
 
-        var p = expr;
-        while (types.isPair(p)) : (p = types.cdr(p)) {
-            try self.walk(types.car(p));
+        const path_key = @intFromPtr(types.toObject(expr));
+        if (self.path.contains(path_key)) return compiler_mod.circularFormError();
+        try self.path.put(self.alloc, path_key, {});
+        defer _ = self.path.remove(path_key);
+
+        // #2405: spine guard — a cyclic command list spun this loop forever.
+        var p = compiler_mod.SpineWalk.init(expr);
+        while (types.isPair(p.cur)) : (p.next()) {
+            if (p.cyclic()) return compiler_mod.circularFormError();
+            try self.walk(types.car(p.cur));
         }
         // Improper (dotted) tail: a bare symbol is still a reference.
-        if (types.isSymbol(p)) try self.addName(types.symbolName(p));
+        if (types.isSymbol(p.cur)) try self.addName(types.symbolName(p.cur));
     }
 };
 
@@ -396,10 +424,11 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileE
     var has_step: [MAX_LET_BINDINGS]bool = undefined;
     var var_count: usize = 0;
 
-    var spec_list = var_specs;
-    while (spec_list != types.NIL) {
-        if (!types.isPair(spec_list)) return CompileError.InvalidSyntax;
-        const spec = types.car(spec_list);
+    var spec_list = compiler_mod.SpineWalk.init(var_specs);
+    while (spec_list.cur != types.NIL) : (spec_list.next()) {
+        if (!types.isPair(spec_list.cur)) return CompileError.InvalidSyntax;
+        if (spec_list.cyclic()) return compiler_mod.circularFormError();
+        const spec = types.car(spec_list.cur);
         if (!types.isPair(spec)) return CompileError.InvalidSyntax;
 
         const var_name = types.car(spec);
@@ -423,7 +452,6 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileE
         }
 
         var_count += 1;
-        spec_list = types.cdr(spec_list);
     }
 
     // Phase 2: add all locals at once (let semantics, not let*)
@@ -452,6 +480,7 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileE
         var referenced: std.ArrayList([]const u8) = .empty;
         defer referenced.deinit(self.gc.allocator);
         var scan = CaptureScan{ .names = &referenced, .alloc = self.gc.allocator };
+        defer scan.path.deinit(self.gc.allocator);
         try scan.walk(test_expr);
         try scan.walk(commands);
         for (0..var_count) |j| {
@@ -488,11 +517,11 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileE
     try self.emitI16(0);
 
     // Commands
-    var cmd = commands;
-    while (cmd != types.NIL) {
-        if (!types.isPair(cmd)) return CompileError.InvalidSyntax;
-        try self.compileExprViaIR(types.car(cmd), dst, false);
-        cmd = types.cdr(cmd);
+    var cmd = compiler_mod.SpineWalk.init(commands);
+    while (cmd.cur != types.NIL) : (cmd.next()) {
+        if (!types.isPair(cmd.cur)) return CompileError.InvalidSyntax;
+        if (cmd.cyclic()) return compiler_mod.circularFormError();
+        try self.compileExprViaIR(types.car(cmd.cur), dst, false);
     }
 
     // Step: evaluate all steps to temp registers, then assign back
@@ -540,12 +569,12 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileE
         try self.emitOp(.load_void);
         try self.emitU16(dst);
     } else {
-        var result = result_exprs;
-        while (result != types.NIL) {
-            if (!types.isPair(result)) return CompileError.InvalidSyntax;
-            const expr = types.car(result);
-            result = types.cdr(result);
-            const tail = is_tail and result == types.NIL;
+        var result = compiler_mod.SpineWalk.init(result_exprs);
+        while (result.cur != types.NIL) : (result.next()) {
+            if (!types.isPair(result.cur)) return CompileError.InvalidSyntax;
+            if (result.cyclic()) return compiler_mod.circularFormError();
+            const expr = types.car(result.cur);
+            const tail = is_tail and types.cdr(result.cur) == types.NIL;
             try self.compileExprViaIR(expr, dst, tail);
         }
     }

@@ -68,15 +68,17 @@ pub fn compileCall(self: *Compiler, expr: Value, dst: u16, is_tail: bool) Compil
     }
 
     var nargs_count: usize = 0;
-    var arg_list = types.cdr(expr);
     var args_valid = true;
-    while (arg_list != types.NIL) {
-        if (!types.isPair(arg_list)) {
+    // #2405: a datum-label cycle in the argument spine spun this counting
+    // loop forever; the tortoise-and-hare guard names it instead.
+    var count_walk = compiler_mod.SpineWalk.init(types.cdr(expr));
+    while (count_walk.cur != types.NIL) : (count_walk.next()) {
+        if (!types.isPair(count_walk.cur)) {
             args_valid = false;
             break;
         }
+        if (count_walk.cyclic()) return compiler_mod.circularFormError();
         nargs_count += 1;
-        arg_list = types.cdr(arg_list);
     }
 
     if (nargs_count > 255) return CompileError.InternalLimit;
@@ -115,12 +117,11 @@ pub fn compileCall(self: *Compiler, expr: Value, dst: u16, is_tail: bool) Compil
 
     try self.compileExprViaIR(operator, base, false);
 
-    arg_list = types.cdr(expr);
-    while (arg_list != types.NIL) {
-        const arg = types.car(arg_list);
+    var arg_walk = compiler_mod.SpineWalk.init(types.cdr(expr));
+    while (arg_walk.cur != types.NIL) : (arg_walk.next()) {
+        const arg = types.car(arg_walk.cur);
         const arg_reg = try self.allocReg();
         try self.compileExprViaIR(arg, arg_reg, false);
-        arg_list = types.cdr(arg_list);
     }
 
     if (is_tail) {
@@ -242,12 +243,11 @@ fn compileSelfTailCall(self: *Compiler, expr: Value, dst: u16, nargs: u8) Compil
     const needs_rebase = (dst + 1 != self.next_register);
     const base = if (needs_rebase) try self.allocReg() else dst;
 
-    var arg_list = types.cdr(expr);
-    while (arg_list != types.NIL) {
-        const arg = types.car(arg_list);
+    var arg_list = compiler_mod.SpineWalk.init(types.cdr(expr));
+    while (arg_list.cur != types.NIL) : (arg_list.next()) {
+        const arg = types.car(arg_list.cur);
         const arg_reg = try self.allocReg();
         try self.compileExprViaIR(arg, arg_reg, false);
-        arg_list = types.cdr(arg_list);
     }
 
     try self.emitOp(.self_tail_call);
@@ -270,12 +270,15 @@ pub fn compileApplyTail(self: *Compiler, expr: Value, dst: u16) CompileError!voi
     // not a syntax question: route the form through the ordinary call path so
     // the native apply's runtime arity check reports KP3003 exactly as the
     // same form one position away does (#2036). Only an improper list is
-    // malformed syntax.
+    // malformed syntax. #2405: guarded — a cyclic operand spine spun forever.
     {
         var count: usize = 0;
-        var cur = arg_list;
-        while (types.isPair(cur)) : (cur = types.cdr(cur)) count += 1;
-        if (cur != types.NIL) return CompileError.InvalidSyntax;
+        var walk = compiler_mod.SpineWalk.init(arg_list);
+        while (types.isPair(walk.cur)) : (walk.next()) {
+            if (walk.cyclic()) return compiler_mod.circularFormError();
+            count += 1;
+        }
+        if (walk.cur != types.NIL) return CompileError.InvalidSyntax;
         if (count < 2) return compileCall(self, expr, dst, true);
     }
 
@@ -286,7 +289,7 @@ pub fn compileApplyTail(self: *Compiler, expr: Value, dst: u16) CompileError!voi
     arg_list = types.cdr(arg_list);
 
     var nargs_count: usize = 0;
-    while (arg_list != types.NIL) {
+    while (types.isPair(arg_list)) {
         const arg_reg = try self.allocReg();
         try self.compileExprViaIR(types.car(arg_list), arg_reg, false);
         nargs_count += 1;
@@ -323,12 +326,16 @@ pub fn compileCallWithValuesTail(self: *Compiler, expr: Value, dst: u16) Compile
     // A *proper* argument list of the wrong length is an arity question, not a
     // syntax question: route the form through the ordinary call path so the
     // runtime arity check reports KP3003 exactly as the same form one position
-    // away does (#2036). Only an improper list is malformed syntax.
+    // away does (#2036). Only an improper list is malformed syntax. #2405:
+    // guarded — a cyclic argument spine spun the count forever.
     {
         var count: usize = 0;
-        var cur = types.cdr(expr);
-        while (types.isPair(cur)) : (cur = types.cdr(cur)) count += 1;
-        if (cur != types.NIL) return CompileError.InvalidSyntax;
+        var walk = compiler_mod.SpineWalk.init(types.cdr(expr));
+        while (types.isPair(walk.cur)) : (walk.next()) {
+            if (walk.cyclic()) return compiler_mod.circularFormError();
+            count += 1;
+        }
+        if (walk.cur != types.NIL) return CompileError.InvalidSyntax;
         if (count != 2) return compileCall(self, expr, dst, true);
     }
     const args = types.cdr(expr);
@@ -368,12 +375,16 @@ pub fn compileCallCCTail(self: *Compiler, expr: Value, dst: u16) CompileError!vo
     // A *proper* argument list of the wrong length is an arity question, not a
     // syntax question: route the form through the ordinary call path so the
     // runtime arity check reports KP3003 exactly as the same form one position
-    // away does (#2036). Only an improper list is malformed syntax.
+    // away does (#2036). Only an improper list is malformed syntax. #2405:
+    // guarded — a cyclic argument spine spun the count forever.
     {
         var count: usize = 0;
-        var cur = types.cdr(expr);
-        while (types.isPair(cur)) : (cur = types.cdr(cur)) count += 1;
-        if (cur != types.NIL) return CompileError.InvalidSyntax;
+        var walk = compiler_mod.SpineWalk.init(types.cdr(expr));
+        while (types.isPair(walk.cur)) : (walk.next()) {
+            if (walk.cyclic()) return compiler_mod.circularFormError();
+            count += 1;
+        }
+        if (walk.cur != types.NIL) return CompileError.InvalidSyntax;
         if (count != 1) return compileCall(self, expr, dst, true);
     }
     const receiver = types.car(types.cdr(expr));
@@ -429,14 +440,14 @@ fn compileCallGlobal(self: *Compiler, expr: Value, operator: Value, dst: u16, is
     };
 
     var nargs_count: usize = 0;
-    var arg_list = types.cdr(expr);
-    while (arg_list != types.NIL) {
-        if (!types.isPair(arg_list)) return CompileError.InvalidSyntax;
-        const arg = types.car(arg_list);
+    var arg_list = compiler_mod.SpineWalk.init(types.cdr(expr));
+    while (arg_list.cur != types.NIL) : (arg_list.next()) {
+        if (!types.isPair(arg_list.cur)) return CompileError.InvalidSyntax;
+        if (arg_list.cyclic()) return compiler_mod.circularFormError();
+        const arg = types.car(arg_list.cur);
         const arg_reg = try self.allocReg();
         try self.compileExprViaIR(arg, arg_reg, false);
         nargs_count += 1;
-        arg_list = types.cdr(arg_list);
     }
     if (nargs_count > 255) return CompileError.InternalLimit;
     const nargs: u8 = @intCast(nargs_count);

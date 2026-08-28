@@ -199,16 +199,33 @@ fn isSpliceableBegin(compiler: *const Compiler, form: Value) bool {
 /// spliceable `begin` contributes its (recursively spliced) children, any
 /// other form contributes itself. Called under no_collect (see
 /// spliceLeadingBegins).
-fn appendSplicedBodyElement(compiler: *Compiler, elems: *std.ArrayList(Value), form: Value) CompileError!void {
+///
+/// #2405: both the child spine and the nested-begin recursion must be
+/// cycle-aware — a datum-label cycle through a begin (`#0=(begin #0#)`)
+/// recurses on the same form forever otherwise. The spine takes the
+/// tortoise-and-hare guard; the recursion takes an active-path set keyed on
+/// Object address (stable in this non-moving GC, holds no Values), exactly
+/// the erRenameDatum discipline from #2403: path membership, not prior
+/// visitation, so shared-but-acyclic begins still splice.
+fn appendSplicedBodyElement(
+    compiler: *Compiler,
+    elems: *std.ArrayList(Value),
+    form: Value,
+    path: *std.AutoHashMapUnmanaged(usize, void),
+) CompileError!void {
     if (isSpliceableBegin(compiler, form)) {
-        var child = types.cdr(form);
-        while (types.isPair(child)) {
-            try appendSplicedBodyElement(compiler, elems, types.car(child));
-            child = types.cdr(child);
+        const path_key = @intFromPtr(types.toObject(form));
+        if (path.contains(path_key)) return compiler_mod.circularFormError();
+        path.put(compiler.gc.allocator, path_key, {}) catch return CompileError.OutOfMemory;
+        defer _ = path.remove(path_key);
+        var walk = compiler_mod.SpineWalk.init(types.cdr(form));
+        while (types.isPair(walk.cur)) : (walk.next()) {
+            if (walk.cyclic()) return compiler_mod.circularFormError();
+            try appendSplicedBodyElement(compiler, elems, types.car(walk.cur), path);
         }
         // An improper begin `(begin e1 . tail)` is invalid syntax — reject
         // it rather than silently dropping the tail from the spliced body.
-        if (child != types.NIL) return CompileError.InvalidSyntax;
+        if (walk.cur != types.NIL) return CompileError.InvalidSyntax;
     } else {
         elems.append(compiler.gc.allocator, form) catch return CompileError.OutOfMemory;
     }
@@ -274,15 +291,17 @@ fn spliceLeadingBegins(compiler: *Compiler, body: Value) CompileError!?Value {
     const gc = compiler.gc;
 
     // Fast path: a body with no spliceable begin element allocates nothing.
+    // #2405: guarded — this walk scans the whole spine with no `break`, so a
+    // cyclic body (`#0=(let ((x 1)) . #0#)`) spun here forever.
     var any_begin = false;
     {
-        var cur = body;
-        while (types.isPair(cur)) {
-            if (isSpliceableBegin(compiler, types.car(cur))) {
+        var walk = compiler_mod.SpineWalk.init(body);
+        while (types.isPair(walk.cur)) : (walk.next()) {
+            if (walk.cyclic()) return compiler_mod.circularFormError();
+            if (isSpliceableBegin(compiler, types.car(walk.cur))) {
                 any_begin = true;
                 break;
             }
-            cur = types.cdr(cur);
         }
     }
     if (!any_begin) return null;
@@ -292,13 +311,17 @@ fn spliceLeadingBegins(compiler: *Compiler, body: Value) CompileError!?Value {
 
     var elems: std.ArrayList(Value) = .empty;
     defer elems.deinit(gc.allocator);
-    var cur = body;
-    while (types.isPair(cur)) {
-        try appendSplicedBodyElement(compiler, &elems, types.car(cur));
-        cur = types.cdr(cur);
+    var path: std.AutoHashMapUnmanaged(usize, void) = .empty;
+    defer path.deinit(gc.allocator);
+    {
+        var walk = compiler_mod.SpineWalk.init(body);
+        while (types.isPair(walk.cur)) : (walk.next()) {
+            if (walk.cyclic()) return compiler_mod.circularFormError();
+            try appendSplicedBodyElement(compiler, &elems, types.car(walk.cur), &path);
+        }
+        // An improper body tail must not be silently dropped either.
+        if (walk.cur != types.NIL) return CompileError.InvalidSyntax;
     }
-    // An improper body tail must not be silently dropped either.
-    if (cur != types.NIL) return CompileError.InvalidSyntax;
 
     var result = types.NIL;
     var i = elems.items.len;
@@ -347,9 +370,10 @@ pub fn scanBodyDefs(compiler: *Compiler, body: Value, handle_define_syntax: bool
     if (compiler.globals) |globals| {
         const glk = globals_mod.acquireGlobalsWrite(globals);
         defer globals_mod.releaseGlobalsWrite(glk);
-        var scan = effective_body;
-        while (scan != types.NIL and types.isPair(scan)) {
-            const form = types.car(scan);
+        var walk = compiler_mod.SpineWalk.init(effective_body);
+        while (walk.cur != types.NIL and types.isPair(walk.cur)) : (walk.next()) {
+            if (walk.cyclic()) return compiler_mod.circularFormError();
+            const form = types.car(walk.cur);
             if (types.isPair(form)) {
                 const head = types.car(form);
                 if (types.isSymbol(head)) {
@@ -398,7 +422,6 @@ pub fn scanBodyDefs(compiler: *Compiler, body: Value, handle_define_syntax: bool
                     }
                 }
             }
-            scan = types.cdr(scan);
         }
     }
 
@@ -407,9 +430,10 @@ pub fn scanBodyDefs(compiler: *Compiler, body: Value, handle_define_syntax: bool
     var all_def_names: [BodyScan.MAX_DEFS][]const u8 = undefined;
     var all_def_count: usize = 0;
     {
-        var scan = effective_body;
-        while (scan != types.NIL and types.isPair(scan)) {
-            const expr = types.car(scan);
+        var walk = compiler_mod.SpineWalk.init(effective_body);
+        while (walk.cur != types.NIL and types.isPair(walk.cur)) : (walk.next()) {
+            if (walk.cyclic()) return compiler_mod.circularFormError();
+            const expr = types.car(walk.cur);
             if (!types.isPair(expr)) break;
             const head = types.car(expr);
             if (!types.isSymbol(head)) break;
@@ -459,7 +483,6 @@ pub fn scanBodyDefs(compiler: *Compiler, body: Value, handle_define_syntax: bool
             } else if (!(handle_define_syntax and std.mem.eql(u8, hn, "define-syntax"))) {
                 break;
             }
-            scan = types.cdr(scan);
         }
     }
 
@@ -469,9 +492,10 @@ pub fn scanBodyDefs(compiler: *Compiler, body: Value, handle_define_syntax: bool
     // the rest of this scan and the caller's compilation phase allocate, so a
     // collection would sweep the not-yet-compiled inits (issue #1010). Mirror
     // them into extra_roots (by value, realloc-safe) for the duration.
-    var current = effective_body;
-    while (current != types.NIL and types.isPair(current)) {
-        const expr = types.car(current);
+    var second = compiler_mod.SpineWalk.init(effective_body);
+    while (second.cur != types.NIL and types.isPair(second.cur)) : (second.next()) {
+        if (second.cyclic()) return compiler_mod.circularFormError();
+        const expr = types.car(second.cur);
         if (!types.isPair(expr)) break;
         const head = types.car(expr);
         if (!types.isSymbol(head)) break;
@@ -602,10 +626,9 @@ pub fn scanBodyDefs(compiler: *Compiler, body: Value, handle_define_syntax: bool
         } else {
             break;
         }
-        current = types.cdr(current);
     }
 
-    scan_result.remaining = current;
+    scan_result.remaining = second.cur;
     return scan_result;
 }
 
@@ -701,11 +724,21 @@ pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileErr
 }
 
 pub fn compileExprSequence(self: *Compiler, current: *Value, last_dst: *u16, allocates_regs: bool, caller_tail: ?bool) CompileError!void {
-    while (current.* != types.NIL) {
-        if (!types.isPair(current.*)) return CompileError.InvalidSyntax;
-        const expr = types.car(current.*);
-        current.* = types.cdr(current.*);
-        const is_last = current.* == types.NIL;
+    // #2405: this is the generic body-sequence walker (lambda/let-family
+    // bodies, clause bodies), so a cyclic body spine spins it forever —
+    // the tortoise-and-hare guard names the cycle instead. `current` stays
+    // a pointer out to the caller (set to the stopping position) even
+    // though no caller reads it, preserving the old contract.
+    var walk = compiler_mod.SpineWalk.init(current.*);
+    defer current.* = walk.cur;
+    while (walk.cur != types.NIL) : (walk.next()) {
+        if (!types.isPair(walk.cur)) return CompileError.InvalidSyntax;
+        if (walk.cyclic()) return compiler_mod.circularFormError();
+        const expr = types.car(walk.cur);
+        // Equivalent to the old advance-then-peek: the element is last iff
+        // its cdr is NIL. An improper or cyclic rest simply reads non-last,
+        // and the walk's own guards reject that tail.
+        const is_last = types.cdr(walk.cur) == types.NIL;
         if (allocates_regs) {
             last_dst.* = try self.allocReg();
             if (is_last) {

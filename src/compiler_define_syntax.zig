@@ -160,11 +160,11 @@ pub fn compileLetSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
     // so pushRoot pointers into its backing buffer stay valid across
     // subsequent appends (GC safety: no reallocation after rooting).
     var bind_count: usize = 0;
-    var count_list = bindings;
-    while (count_list != types.NIL) {
-        if (!types.isPair(count_list)) return CompileError.InvalidSyntax;
+    var count_walk = compiler_mod.SpineWalk.init(bindings);
+    while (count_walk.cur != types.NIL) : (count_walk.next()) {
+        if (!types.isPair(count_walk.cur)) return CompileError.InvalidSyntax;
+        if (count_walk.cyclic()) return compiler_mod.circularFormError();
         bind_count += 1;
-        count_list = types.cdr(count_list);
     }
 
     var kw_names: std.ArrayList([]const u8) = .empty;
@@ -181,10 +181,11 @@ pub fn compileLetSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
     // exactly one pop here, and nothing after the loop pushes.
     defer for (0..roots_pushed) |_| self.gc.popRoot();
 
-    var binding_list = bindings;
-    while (binding_list != types.NIL) {
-        if (!types.isPair(binding_list)) return CompileError.InvalidSyntax;
-        const binding = types.car(binding_list);
+    var binding_list = compiler_mod.SpineWalk.init(bindings);
+    while (binding_list.cur != types.NIL) : (binding_list.next()) {
+        if (!types.isPair(binding_list.cur)) return CompileError.InvalidSyntax;
+        if (binding_list.cyclic()) return compiler_mod.circularFormError();
+        const binding = types.car(binding_list.cur);
         if (!types.isPair(binding)) return CompileError.InvalidSyntax;
         const keyword = types.car(binding);
         if (!types.isSymbol(keyword)) return CompileError.InvalidSyntax;
@@ -201,7 +202,6 @@ pub fn compileLetSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
         self.gc.pushRoot(&tx_vals.items[tx_vals.items.len - 1]);
         roots_pushed += 1;
         kw_names.appendAssumeCapacity(types.symbolName(keyword));
-        binding_list = types.cdr(binding_list);
     }
 
     // Build peer snapshot: each keyword's outer macro value (NIL = unbound).
@@ -307,10 +307,11 @@ pub fn compileLetrecSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool
     var saved_values: std.ArrayList(?Value) = .empty;
     defer saved_values.deinit(self.gc.allocator);
 
-    var binding_list = bindings;
-    while (binding_list != types.NIL) {
-        if (!types.isPair(binding_list)) return CompileError.InvalidSyntax;
-        const binding = types.car(binding_list);
+    var binding_list = compiler_mod.SpineWalk.init(bindings);
+    while (binding_list.cur != types.NIL) : (binding_list.next()) {
+        if (!types.isPair(binding_list.cur)) return CompileError.InvalidSyntax;
+        if (binding_list.cyclic()) return compiler_mod.circularFormError();
+        const binding = types.car(binding_list.cur);
         if (!types.isPair(binding)) return CompileError.InvalidSyntax;
         const keyword = types.car(binding);
         if (!types.isSymbol(keyword)) return CompileError.InvalidSyntax;
@@ -331,7 +332,6 @@ pub fn compileLetrecSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool
         saved_values.append(self.gc.allocator, self.macros.get(name)) catch return CompileError.OutOfMemory;
         try finalizeTransformer(self, transformer);
         self.macros.put(name, transformer) catch return CompileError.OutOfMemory;
-        binding_list = types.cdr(binding_list);
     }
 
     try compileSyntaxBody(self, body, dst, is_tail);
@@ -370,12 +370,17 @@ fn compileSyntaxBody(self: *Compiler, body: Value, dst: u16, is_tail: bool) Comp
     self.in_body_scope = true;
     const macro_mark = self.beginBodyMacroScope();
     errdefer self.endBodyMacroScope(macro_mark) catch {};
-    var current = body;
-    while (current != types.NIL) {
-        if (!types.isPair(current)) return CompileError.InvalidSyntax;
-        const expr = types.car(current);
-        current = types.cdr(current);
-        const tail = is_tail and current == types.NIL;
+    // #2405: a let-syntax/letrec-syntax body is a raw spine, and a datum-label
+    // cycle through it (`#0=(let-syntax () . #0#)`, whose body IS the whole
+    // form) used to spin this loop forever, emitting an unbounded instruction
+    // stream. The tortoise-and-hare guard names the cycle instead; `tail`
+    // peeks one cdr ahead rather than consuming, which the guarded walk needs.
+    var current = compiler_mod.SpineWalk.init(body);
+    while (current.cur != types.NIL) : (current.next()) {
+        if (!types.isPair(current.cur)) return CompileError.InvalidSyntax;
+        if (current.cyclic()) return compiler_mod.circularFormError();
+        const expr = types.car(current.cur);
+        const tail = is_tail and types.cdr(current.cur) == types.NIL;
         try self.compileExprViaIR(expr, dst, tail);
     }
     try self.endBodyMacroScope(macro_mark);

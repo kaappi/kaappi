@@ -1069,6 +1069,84 @@ fn formatSyntaxError(args: Value) void {
     syntax_error_detail_len = w.buffered().len;
 }
 
+// -- Circular-form guards (#2405) ---------------------------------------------
+//
+// A datum label (R7RS 7.1.2 `#n=`/`#n#`) can put a genuine cycle in *code*
+// position — `(display #1=(p #1# q))`, `#0=(display 1 . #0#)` — and several
+// compile-side walks assumed forms are acyclic: the IR lowerer recursed until
+// the native stack aborted, arg/body spine walks spun forever, and the one
+// walk with a cap reported KP9001 "internal error". Quoted circular data is
+// and stays fine everywhere (the printer detects cycles, #1954); only the
+// code-position walks need guards. Two shapes, mirroring what #2403 did in
+// the expander and the `set!` pre-scan:
+//
+//   - a spine walk (advance exactly one cdr per iteration) takes a `SpineWalk`
+//     below — Floyd tortoise-and-hare, exact and allocation-free;
+//   - a walk that recurses through arbitrary sub-form positions cannot use the
+//     tortoise (the recursion is not a single cdr iteration) and instead keeps
+//     an active-path set keyed on the pair's Object address, which the
+//     non-moving GC keeps stable across collections (#2403's erRenameDatum
+//     discipline). Only path membership counts: shared-but-acyclic structure
+//     — the same `#1=` sub-datum used twice — renews legitimately.
+//
+// Both report through `circularFormError`, which records the detail string the
+// compile-error reporter prefers over the registry template, so the user sees
+// `syntax-error[KP2002]: circular form in code position ...` instead of an
+// abort, a hang, or KP9001.
+
+/// One tortoise-and-hare step state for a cdr-spine walk. Exact: a tortoise
+/// advancing every other step can only re-meet the walk head on a real cycle,
+/// and an acyclic spine costs one extra `cdr` per two elements.
+///
+/// ```zig
+/// var walk = SpineWalk.init(args);
+/// while (types.isPair(walk.cur)) : (walk.next()) {
+///     if (walk.cyclic()) return circularFormError();
+///     ... use walk.cur ...
+/// }
+/// ```
+///
+/// `next` must be the ONLY way `cur` advances — the guard is sound exactly
+/// when every iteration advances one cdr (same contract as the pre-scan's
+/// spine guard from #2403, which this generalizes). The tortoise is only ever
+/// advanced to a position the walk head already occupied and survived, so its
+/// own `cdr` never dereferences a non-pair.
+pub const SpineWalk = struct {
+    cur: Value,
+    tortoise: Value,
+    step: usize = 0,
+
+    pub fn init(start: Value) SpineWalk {
+        return .{ .cur = start, .tortoise = start };
+    }
+
+    /// True when the head has come back around to a previously visited spine
+    /// position — a datum-label cycle. Only consulted at the top of an
+    /// iteration whose `cur` passed the caller's own isPair test.
+    pub fn cyclic(self: *const SpineWalk) bool {
+        return self.step > 0 and self.cur == self.tortoise;
+    }
+
+    /// Advance the head one cdr and, every second step, the tortoise one cdr.
+    pub fn next(self: *SpineWalk) void {
+        self.cur = types.cdr(self.cur);
+        self.step += 1;
+        if (self.step % 2 == 0) self.tortoise = types.cdr(self.tortoise);
+    }
+};
+
+/// Diagnose a datum-label cycle met in code position: a catchable
+/// InvalidSyntax whose recorded detail the reporter renders as
+/// `syntax-error[KP2002]` with a named cause. Finite improper lists never
+/// reach this — the spine guards detect cycles only, and existing
+/// `!isPair` checks already reject non-cyclic improper tails.
+pub fn circularFormError() CompileError {
+    const msg = "circular form in code position: the form contains itself (datum-label cycle)";
+    @memcpy(syntax_error_detail[0..msg.len], msg);
+    syntax_error_detail_len = msg.len;
+    return CompileError.InvalidSyntax;
+}
+
 /// Work limit for one top-level `set!` pre-scan (kaappi#1775).
 ///
 /// The pre-scan expands macros so it can see a `set!` a template introduces
