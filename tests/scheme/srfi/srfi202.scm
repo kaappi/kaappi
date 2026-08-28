@@ -92,6 +92,37 @@
              (z (* x y)))
     z))
 
+;;; --- er-port additions (kaappi#2391) ---
+
+;; SRFI 2's bare BOUND-VARIABLE claw, missing from the syntax-rules port.
+(define %srfi202-bound-var 7)
+(define %srfi202-bound-false #f)
+
+(test-equal "srfi 2: bare bound-variable claw, truthy"
+  14
+  (and-let* (%srfi202-bound-var) (* %srfi202-bound-var 2)))
+
+(test-equal "srfi 2: bare bound-variable claw, falsy short-circuits"
+  #f
+  (and-let* (%srfi202-bound-false) 'never))
+
+(test-equal "srfi 2: bare bound-variable claw combines with bindings"
+  21
+  (and-let* ((x 3) %srfi202-bound-var (y (* x %srfi202-bound-var))) y))
+
+;; Vector patterns inside quasiquoted claws.
+(test-equal "pattern binding: vector pattern"
+  '(1 2)
+  (and-let* ((`#(,a ,b) (vector 1 2))) (list a b)))
+
+(test-equal "pattern binding: vector pattern wrong length fails"
+  #f
+  (and-let* ((`#(,a ,b) (vector 1 2 3))) (list a b)))
+
+(test-equal "pattern binding: vector pattern on non-vector fails"
+  #f
+  (and-let* ((`#(,a ,b) (list 1 2))) (list a b)))
+
 (let ((runner (test-runner-current)))
   (test-end "srfi-202")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))

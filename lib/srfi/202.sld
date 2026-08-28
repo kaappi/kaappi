@@ -6,118 +6,170 @@
 ;;; (var expr), since a bare identifier is otherwise ambiguous between "bind
 ;;; this variable" and "match this symbol literally". Self-contained (does
 ;;; not import (srfi 241)): and-let* claws only ever need wildcard/variable/
-;;; pair/literal patterns, not 241's ellipsis, cata, or vector patterns.
+;;; pair/vector/literal patterns, not 241's ellipsis or cata patterns.
+;;;
+;;; An er-macro-transformer port (KEP-0006 step 5): the claw list is walked
+;;; by ordinary list processing and each claw compiled directly. Relative to
+;;; the previous pure-syntax-rules port this also adds SRFI 2's bare
+;;; BOUND-VARIABLE claw (a claw that is just an identifier, tested for
+;;; truthiness) and vector patterns inside quasiquoted claws. The claw
+;;; keywords (quasiquote, unquote, _, values) are recognized by
+;;; hygiene-stripped name comparison — see kaappi#2388.
 
 (define-library (srfi 202)
-  (import (scheme base))
+  (import (scheme base)
+          (srfi 211 explicit-renaming))
   (export and-let*)
   (begin
 
-    ;; Structural matcher for a single quasiquoted pattern.
-    (define-syntax %qpat
-      (syntax-rules (unquote _)
-        ((_ val (unquote _) kt kf) kt)
-        ((_ val (unquote var) kt kf) (let ((var val)) kt))
-        ((_ val () kt kf) (if (null? val) kt kf))
-        ((_ val (p1 . p2) kt kf)
-         (if (pair? val)
-             (%qpat (car val) p1 (%qpat (cdr val) p2 kt kf) kf)
-             kf))
-        ((_ val k kt kf) (if (equal? val (quote k)) kt kf))))
-
-    ;; Peels patterns off an already-collected value list one at a time.
-    ;; Running out of vals before the pattern list is exhausted means "too
-    ;; few values" (kf). tailvar = #f means surplus values are discarded;
-    ;; any other identifier means they're collected and bound to it.
-    (define-syntax %match-vals
-      (syntax-rules (quasiquote)
-        ((_ vals () #f kt kf) kt)
-        ((_ vals () tailvar kt kf) (let ((tailvar vals)) kt))
-        ((_ vals ((quasiquote p1) p2 ...) tailvar kt kf)
-         (if (pair? vals)
-             (%qpat (car vals) p1 (%match-vals (cdr vals) (p2 ...) tailvar kt kf) kf)
-             kf))
-        ((_ vals (var p2 ...) tailvar kt kf)
-         (if (pair? vals)
-             (let ((var (car vals))) (%match-vals (cdr vals) (p2 ...) tailvar kt kf))
-             kf))))
-
-    ;; Like %match-vals, but the FIRST pattern additionally requires a
-    ;; truthy value when it's a bare identifier — SRFI 202's rule for the
-    ;; leading pattern of a multi-value (non-"values"-keyword) claw.
-    (define-syntax %match-vals-first
-      (syntax-rules (quasiquote)
-        ((_ vals ((quasiquote p1) p2 ...) kt kf)
-         (if (pair? vals)
-             (%qpat (car vals) p1 (%match-vals (cdr vals) (p2 ...) #f kt kf) kf)
-             kf))
-        ((_ vals (var p2 ...) kt kf)
-         (if (pair? vals)
-             (let ((var (car vals)))
-               (and var (%match-vals (cdr vals) (p2 ...) #f kt kf)))
-             kf))))
-
-    ;; Standard syntax-rules "peel off the last element" idiom: splits a
-    ;; claw's raw (pat1 pat2 ... expr) into ((pat1 pat2 ...) expr), since
-    ;; a general multi-pattern claw has no keyword to anchor the split on
-    ;; (unlike the "values" form below).
-    (define-syntax %split-claw
-      (syntax-rules ()
-        ((_ (last) (pat ...) (k more ...))
-         (k (pat ...) last more ...))
-        ((_ (p1 p2 more ...) (pat ...) k)
-         (%split-claw (p2 more ...) (pat ... p1) k))))
-
-    ;; Dispatches on the shape of the dotted tail captured from
-    ;; (values p1 p2 ... . v*): when the claw is written without an
-    ;; explicit collector (a proper list, e.g. (values a b)), that tail is
-    ;; the literal () rather than a bindable identifier — %match-vals's #f
-    ;; sentinel must be substituted in that case instead.
-    (define-syntax %claw-values
-      (syntax-rules ()
-        ((_ (p ...) () expr cont)
-         (call-with-values
-           (lambda () expr)
-           (lambda vals (%match-vals vals (p ...) #f cont #f))))
-        ((_ (p ...) v* expr cont)
-         (call-with-values
-           (lambda () expr)
-           (lambda vals (%match-vals vals (p ...) v* cont #f))))))
-
-    (define-syntax %claw-multi
-      (syntax-rules ()
-        ((_ (pat ...) expr cont)
-         (call-with-values
-           (lambda () expr)
-           (lambda vals (%match-vals-first vals (pat ...) cont #f))))))
-
-    (define-syntax %and-let*-claws
-      (syntax-rules (values quasiquote)
-        ((_ ()) #t)
-        ((_ () body1 body2 ...) (let () body1 body2 ...))
-
-        ;; guard-only: (expr)
-        ((_ ((gexpr) rest ...) body ...)
-         (and gexpr (%and-let*-claws (rest ...) body ...)))
-
-        ;; values-collecting: ((values p1 p2 ... . v*) expr)
-        ((_ (((values p1 p2 ... . v*) expr) rest ...) body ...)
-         (%claw-values (p1 p2 ...) v* expr (%and-let*-claws (rest ...) body ...)))
-
-        ;; single quasiquoted pattern: (`pat expr)
-        ((_ (((quasiquote pat) expr) rest ...) body ...)
-         (%qpat expr pat (%and-let*-claws (rest ...) body ...) #f))
-
-        ;; single bare-identifier claw: (var expr)  [SRFI 2, truthiness applies]
-        ((_ ((var expr) rest ...) body ...)
-         (let ((var expr)) (and var (%and-let*-claws (rest ...) body ...))))
-
-        ;; general multi-value pattern claw: (pat1 pat2 pat3 ... expr)
-        ((_ ((pat1 pat2 pat3 more ...) rest ...) body ...)
-         (%split-claw (pat1 pat2 pat3 more ...) ()
-                      (%claw-multi (%and-let*-claws (rest ...) body ...))))))
-
     (define-syntax and-let*
-      (syntax-rules ()
-        ((_ (claw ...) body ...)
-         (%and-let*-claws (claw ...) body ...))))))
+      (er-macro-transformer
+       (lambda (form rename compare)
+         (define r-if (rename 'if))
+         (define r-let (rename 'let))
+         (define r-lambda (rename 'lambda))
+         (define r-quote (rename 'quote))
+         (define r-cwv (rename 'call-with-values))
+         (define r-car (rename 'car))
+         (define r-cdr (rename 'cdr))
+         (define r-pair? (rename 'pair?))
+         (define r-null? (rename 'null?))
+         (define r-equal? (rename 'equal?))
+         (define r-vector? (rename 'vector?))
+         (define r-vector->list (rename 'vector->list))
+
+         ;; Keyword recognition is name-based compare (kaappi#2388).
+         (define (kw? x sym) (and (symbol? x) (compare x (rename sym))))
+         (define (qq-form? x)
+           (and (pair? x) (kw? (car x) 'quasiquote)
+                (pair? (cdr x)) (null? (cddr x))))
+         (define (unquote-form? x)
+           (and (pair? x) (kw? (car x) 'unquote)))
+
+         (define counter 0)
+         (define (fresh base)
+           (set! counter (+ counter 1))
+           (rename (string->symbol
+                    (string-append "%al" (number->string counter)
+                                   "." base))))
+
+         (define (verr msg what)
+           (error (string-append "and-let*: " msg) what))
+
+         ;; Structural matcher for one quasiquoted pattern. SK is a thunk
+         ;; returning the success expression; failure yields #f.
+         (define (qpat pat val sk)
+           (cond
+            ((unquote-form? pat)
+             (if (not (and (pair? (cdr pat)) (null? (cddr pat))))
+                 (verr "invalid unquote pattern" pat))
+             (let ((sub (cadr pat)))
+               (cond
+                ((kw? sub '_) (sk))
+                ((symbol? sub) (list r-let (list (list sub val)) (sk)))
+                (else (verr "invalid unquote pattern" pat)))))
+            ((pair? pat)
+             (let ((a (fresh "a")) (d (fresh "d")))
+               (list r-if (list r-pair? val)
+                     (list r-let (list (list a (list r-car val))
+                                       (list d (list r-cdr val)))
+                           (qpat (car pat) a
+                                 (lambda () (qpat (cdr pat) d sk))))
+                     #f)))
+            ((null? pat)
+             (list r-if (list r-null? val) (sk) #f))
+            ((vector? pat)
+             (let ((lst (fresh "v")))
+               (list r-if (list r-vector? val)
+                     (list r-let (list (list lst (list r-vector->list val)))
+                           (qpat (vector->list pat) lst sk))
+                     #f)))
+            (else
+             (list r-if (list r-equal? val (list r-quote pat)) (sk) #f))))
+
+         ;; Match the patterns PS (bare identifiers or quasiquoted
+         ;; patterns) against successive elements of the value list LST.
+         ;; Too few values fails; surplus values are bound to TAILVAR when
+         ;; it is a symbol, discarded when it is #f. FIRST? applies SRFI
+         ;; 202's truthiness rule to a leading bare-identifier pattern.
+         (define (match-vals ps lst tailvar first? sk)
+           (cond
+            ((null? ps)
+             (if tailvar
+                 (list r-let (list (list tailvar lst)) (sk))
+                 (sk)))
+            (else
+             (let ((p (car ps)) (a (fresh "x")) (d (fresh "r")))
+               (list r-if (list r-pair? lst)
+                     (list r-let (list (list a (list r-car lst))
+                                       (list d (list r-cdr lst)))
+                           (cond
+                            ((qq-form? p)
+                             (qpat (cadr p) a
+                                   (lambda ()
+                                     (match-vals (cdr ps) d tailvar #f sk))))
+                            ((symbol? p)
+                             (list r-let (list (list p a))
+                                   (if first?
+                                       (list r-if p
+                                             (match-vals (cdr ps) d tailvar #f sk)
+                                             #f)
+                                       (match-vals (cdr ps) d tailvar #f sk))))
+                            (else (verr "invalid claw pattern" p))))
+                     #f)))))
+
+         ;; Bind EXPR's values to a fresh rest-list and match PS over it.
+         (define (values-claw ps tailvar first? expr cont)
+           (let ((vals (fresh "vals")))
+             (list r-cwv
+                   (list r-lambda '() expr)
+                   (list r-lambda vals
+                         (match-vals ps vals tailvar first? cont)))))
+
+         (define (expand-claws claws body)
+           (cond
+            ((null? claws)
+             (if (null? body) #t (cons r-let (cons '() body))))
+            ((not (pair? claws)) (verr "invalid claw list" claws))
+            (else
+             (let ((claw (car claws))
+                   (cont (lambda () (expand-claws (cdr claws) body))))
+               (cond
+                ;; bare BOUND-VARIABLE claw (SRFI 2)
+                ((symbol? claw) (list r-if claw (cont) #f))
+                ((not (and (pair? claw) (list? claw)))
+                 (verr "invalid claw" claw))
+                ;; guard-only claw: (expr)
+                ((null? (cdr claw))
+                 (list r-if (car claw) (cont) #f))
+                ;; (var expr)  [SRFI 2, truthiness applies]
+                ((and (null? (cddr claw)) (symbol? (car claw)))
+                 (list r-let (list (list (car claw) (cadr claw)))
+                       (list r-if (car claw) (cont) #f)))
+                ;; (`pat expr)  single quasiquoted pattern
+                ((and (null? (cddr claw)) (qq-form? (car claw)))
+                 (let ((v (fresh "t")))
+                   (list r-let (list (list v (cadr claw)))
+                         (qpat (cadr (car claw)) v cont))))
+                ;; ((values p1 p2 ... . v*) expr)  values-collecting
+                ((and (null? (cddr claw)) (pair? (car claw))
+                      (kw? (car (car claw)) 'values))
+                 (let split ((ps (cdr (car claw))) (acc '()))
+                   (if (pair? ps)
+                       (split (cdr ps) (cons (car ps) acc))
+                       (let ((tailvar (cond ((null? ps) #f)
+                                            ((symbol? ps) ps)
+                                            (else (verr "invalid values claw"
+                                                        claw)))))
+                         (values-claw (reverse acc) tailvar #f
+                                      (cadr claw) cont)))))
+                ;; general multi-value pattern claw: (pat1 pat2 ... expr)
+                (else
+                 (let split ((items claw) (acc '()))
+                   (if (null? (cdr items))
+                       (values-claw (reverse acc) #f #t (car items) cont)
+                       (split (cdr items) (cons (car items) acc))))))))))
+
+         (if (not (and (pair? (cdr form)) (list? (cadr form))))
+             (verr "invalid claw list" form))
+         (expand-claws (cadr form) (cddr form)))))))
