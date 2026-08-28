@@ -1104,6 +1104,21 @@ const SetScanBudget = struct {
     truncated: bool = false,
 };
 
+/// Per-list-level cap on cdr-spine steps in collectSetTargets (#2404).
+/// The depth cap bounds only car recursion; a datum-label cycle
+/// (`#0=(zz . #0#)`, R7RS §7.1.2) lives in the spine, where the walk used
+/// to spin forever — reached from a cyclic macro operand re-emitted into a
+/// body position. One million steps per level is far beyond any real form
+/// (the whole repo's suites stay under ~1.7k expansions per top-level
+/// form); exhausting it stops that level's scan, and on a budgeted path
+/// marks `truncated` — the same loses-optimization-never-correctness
+/// degradation the expansion budget already takes, with Part B
+/// (scanSetTargets in expandAndCompileMacroUse) catching anything missed
+/// at real-expansion time. The null-budget callers (define-syntax specs,
+/// the native backend) have no flag to set and just stop: their misses
+/// take the same correct-late path.
+const SET_SCAN_SPINE_CAP: usize = 1_000_000;
+
 /// Recursively collect the symbol names that appear as the target of a
 /// `(set! <name> ...)` anywhere in `expr` into `out`. Used to suppress
 /// constant folding of those names within the enclosing form (see
@@ -1133,7 +1148,16 @@ fn collectSetTargets(self: ?*Compiler, expr: Value, out: *std.StringHashMap(void
         return;
     }
     var cur = expr;
+    var spine_steps: usize = 0;
     while (types.isPair(cur)) {
+        // #2404: a datum-label cycle makes this spine infinite; the step
+        // cap turns it into the scan's ordinary loses-optimization
+        // truncation (see SET_SCAN_SPINE_CAP).
+        spine_steps += 1;
+        if (spine_steps > SET_SCAN_SPINE_CAP) {
+            if (budget) |b| b.truncated = true;
+            return;
+        }
         const head = types.car(cur);
         if (types.isSymbol(head)) {
             const hname = types.stripHygienicPrefix(types.symbolName(head));
@@ -1235,7 +1259,13 @@ fn collectSetTargets(self: ?*Compiler, expr: Value, out: *std.StringHashMap(void
                     const rest = types.cdr(cur);
                     if (!types.isPair(rest)) return;
                     var bindings_cur = types.car(rest);
+                    var binding_steps: usize = 0;
                     while (types.isPair(bindings_cur)) {
+                        binding_steps += 1;
+                        if (binding_steps > SET_SCAN_SPINE_CAP) {
+                            budget.?.truncated = true;
+                            return;
+                        }
                         const binding = types.car(bindings_cur);
                         if (types.isPair(binding)) {
                             try collectSetTargets(self, types.cdr(binding), out, depth, null);

@@ -387,10 +387,9 @@
 ;; absent means the walk cannot short-circuit before reaching the cycle
 ;; (#2404). Exhausting the walk's budget counts conservatively as
 ;; occurrence, so the answer here is the quadrant rule's unshadowed #t.
-;; The use is a define initializer, NOT a test-assert operand: wrapping a
-;; cyclic datum in a body-position macro triggers the pre-existing
-;; collectSetTargets hang (reproduced on origin/main; noted on #2404),
-;; which would mask what this test pins.
+;; Kept as a define initializer so this test pins compare's walk alone;
+;; the cyclic input through wrapper macros (collectSetTargets, ellipsis
+;; matching) is pinned by tests/scheme/hygiene/cyclic-macro-input-2404.scm.
 (define er-cyclic-result (er-self-else? #0=(zz . #0#)))
 (test-assert "compare terminates on a circular macro-use input (datum labels)"
              er-cyclic-result)
