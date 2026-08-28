@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787887485119,
+  "lastUpdate": 1787888695779,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "2d593e3c736ccc1235db3f27a4ab6bad2d439d10",
-          "message": "Read radix-prefixed complex numbers per R7RS <complex R> (#2243) (#2245)\n\n* Read radix-prefixed complex numbers per R7RS <complex R> (#2243)\n\nThe #1929 delimiter fix turned every non-decimal radix complex spelling\ninto a read error, but #x1/2+3i, #x1+2i, #x1+i and #b1+1i are valid\nR7RS 7.1.1: <complex R> -> <real R> + <ureal R> i and its -/+i twins\nhold in every radix, and guile, Chez 10.4.1 and the project's own\nradix-10 path all read them. readIntegerWithRadix now consumes a complex\ntail with radix-valid digits and optional rational parts, producing an\nexact complex token exactly like the decimal path does for 1/2+3i, so\nread and string->number agree (6.2.7). The radix-10 complex branch of\nparseNumberText was the only parser gate on radix 10; it now parses the\nsplit forms in every radix, which also closes the documented TBD where\nstring->number returned #f for the valid R7RS complex 1/2+3i (Chibi and\nguile both accept it).\n\nThe guard rails stay: #b1+2i (2 is not a binary digit), #o1+8i, #x1+2\n(no i), #x1+2iz (glued tail) and the signless #x3i/#xi all still error\nin both parsers, and bignum components stay a loud error (kaappi#2182\nstance: an exact bignum part has no honest f64 value). The bare-sign\npure imaginary #x+i is grammar and reads as 0+1i, matching Chez.\n\nEnables the group-7 TBD assertions in reader-delimiter-gaps.scm, flips\nthe #x1/2+3i pins to accept-whole, and adds a new group-8 matrix\ncovering the accepted and rejected spellings plus string->number\nagreement. Extends the Zig unit test with the radix complex cells.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address #2243 review: full <complex R> production, exactness honesty, radix-19 i-digit\n\nReview of the radix-complex change (kaappi#2243) found five valid issues;\nthis closes them all.\n\n- The signed pure imaginary with an explicit magnitude (+ <ureal R> i /\n  - <ureal R> i, e.g. #x+3i, #x+3/4i) is a genuine R7RS production that\n  readIntegerWithRadix and readNumber both missed -- #x+i read but the\n  identical-valued #x+1i errored, and #x0+3i read but #x+3i did not.\n  Both readers and string->number now accept it in every radix (Chez and\n  guile agree); the signless #x3i/#x3/4i spellings stay rejected.\n- string->number with an explicit radix argument (19-36) treats 'i' as an\n  ordinary digit (value 18), so the trailing-'i' complex detection is\n  gated on radix <= 18 in both the rational-branch guard and the complex\n  branch -- (string->number \"1/2i\" 19) is the rational 1/56 again.\n- The imaginary marker is case-insensitive in both parsers now: the\n  reader always accepted 1+2I, string->number only 'i' (a pre-existing\n  radix-10 divergence the new code extended to every radix).\n- string->number derives complex component exactness from the text\n  (integer/rational parts exact, decimals/exponents inexact) so its\n  tokens match the reader's exact-flagged ones; #e/#i still override.\n- Exact-flagged components can no longer silently carry a rounded value:\n  integer parts in (2^53, 2^63] (and non-representable bignums) and\n  rational parts beyond the exact-complex printer's recovery granularity\n  (floatToRational searches denominators up to 1e6) are rejected loudly\n  in both parsers, the kaappi#2182 stance, applied to the radix-10 paths\n  too. Shared radix-<ureal> parsing and the f64 round-trip tests now\n  live in bignum.zig so the two parsers cannot drift.\n\nPins: group 8 of reader-delimiter-gaps.scm grows the signed-magnitude,\ncase, and round-trip cells plus a new group 9 for the radix-19 digit\nbehavior; the Zig unit test covers #x+3i/#x+3/4i, #x1+2I, the 2^53 band,\nand the #e1e19+1i round-trip.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Fix critical f64ExactI64 panic and close the remaining review divergences\n\nThe second review round found a process abort reachable from a one-line\nprogram: f64ExactI64 did @intFromFloat(@floatFromInt(n)) and the top 512\ni64 values (2^63-512 .. 2^63-1) round UP to 2^63, which overflows the i64\ndestination -- a ReleaseSafe panic in (string->number\n\"9223372036854775807+2i\") and (read \"#x7fffffffffffffff+2i\"). Those\nvalues never round-trip, so they are rejected before the conversion now;\n-i64 range and 2^63 itself (a power of two) still pass.\n\nThe same review round also found four smaller read/string->number\ndivergences, all closed:\n\n- The signless pure-imaginary integer path in string->number lacked the\n  bignum fallback, so (string->number \"10000000000000000000i\") returned\n  #f while the reader read 0+1e19i exactly (45 significant bits). It now\n  falls back to parseBignumString + bignumExactInF64 like every other\n  integer component path.\n- Special-float imaginary parts: 3.0+inf.0i / +inf.0i read in the reader\n  but string->number's components used Zig parseFloat, which rejects\n  +inf.0. parseComplexComponent now names the four special spellings\n  explicitly, matching the reader's grammar.\n- The #1929 CHANGELOG entry still listed #x1/2+3i as a read error while\n  the new #2243 entry reinstated it; the list now names #x1zzz instead and\n  points at #2243.\n- The remaining complex?-wrapped string->number assertions were\n  strengthened to real-part/imag-part equality checks, and new cells pin\n  the inf/nan and bignum-magnitude agreement.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-07T00:29:45Z",
-          "tree_id": "87f11dd3cb81bd0f850f9f161f0def341668c1e0",
-          "url": "https://github.com/kaappi/kaappi/commit/2d593e3c736ccc1235db3f27a4ab6bad2d439d10"
-        },
-        "date": 1786064553141,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 2.842505,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 5.668575,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.389466,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.013899,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00434,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033748,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.21135,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.038783,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.041654,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.82342,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.131106,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.224874,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.225699,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.823334,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.033924,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045658,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5e1680f22dd435085b7c500e5c24c21dd2da60db",
+          "message": "Add the -Dgc-stress rooting tests for procedural-transformer calls (#2399)\n\n* Add the -Dgc-stress rooting tests for procedural-transformer calls\n\nKEP-0006 step 1 shipped its reentrant-VM-during-compile machinery for\ner-macro-transformer without the exit-criterion test proving the rooting\nholds under forced collection. The no-collect window in\ncompiler_macro.zig, the pushRoot discipline in\nexpander.expandProceduralMacro, the extra_roots append, and the\ndefine-time rooting around vm.evalDatumForMacro all existed, but nothing\nexercised them with collections firing around the transformer call.\n\nThree new tests drive an allocation storm (scaled down under\n-Dgc-stress=true, where every allocation collects) through each rooting\nseam: the use path (transformer conses heavily, then re-reads the input\nform and embeds fresh material in the expansion the compiler keeps\nwalking after the deferred collections fire), the define-time path\n(transformer-spec eval allocates with collections live), and the SRFI\n213 procedure-result re-entry hop (both hops allocate across the rooted\nform and lookup values).\n\nThe SRFI 211/213 engine-seam block moves from tests_macros.zig (already\nover the 1500-line policy) into the new tests_macros_procedural.zig so\nthe new tests do not grow the oversized file.\n\nCloses #2390\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Reword the #2390 test banner to what mutation testing actually pinned\n\nThe PR #2399 review mutation-tested the claim that a single unrooted\nvalue in the transformer-call stretches panics deterministically: it\nholds for the no-collect window (bypassing it panics all three tests),\nbut removing the three individually-named explicit roots at once still\npasses, because each value stays reachable through a redundant cover.\nPresent the window as the primary protection and the explicit roots as\ndefense-in-depth these tests corroborate but do not isolate, and record\nwhy an exclusive-hold construction is not reachable from Scheme-level\ntest code: the covers are the compile boundary's source-tree rooting and\nthe allocators' argument auto-rooting custody chain (not the VM register\nfile, which markVmRoots only marks for live frames), and breaking that\nchain depends on compiler-internal allocation ordering.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-28T08:09:16+05:30",
+          "tree_id": "cb8dcefde91d6010b05361c4e1f8a0eecdce795d",
+          "url": "https://github.com/kaappi/kaappi/commit/5e1680f22dd435085b7c500e5c24c21dd2da60db"
+        },
+        "date": 1787888694526,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 5.301568,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.070496,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.571073,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.012681,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004882,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04755,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.306029,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055188,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.751077,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.234147,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.6415,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.280347,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.715589,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.673485,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044967,
             "unit": "seconds"
           }
         ]
