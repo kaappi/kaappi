@@ -38,33 +38,50 @@
 ;;;     whole environment is the honest static over-approximation).
 ;;;
 ;;;   * Hygiene strength equals this engine's own syntax-rules hygiene
-;;;     exactly — the documented guarantee (KEP-0018 unresolved question 6,
-;;;     decided with kaappi#2388): rename routes through the same
-;;;     renameForHygiene the template instantiator uses, and compare
-;;;     through the same binding machinery literal matching uses, so the
-;;;     two macro systems answer every keyword-check quadrant identically
+;;;     exactly for the auxiliary-keyword spellings — the documented
+;;;     guarantee (KEP-0018 unresolved question 6, decided with
+;;;     kaappi#2388): rename routes through the same renameForHygiene the
+;;;     template instantiator uses, and compare through the same binding
+;;;     machinery literal matching uses, so for reserved forms and macro
+;;;     keywords (the spellings rename keeps bare and records) and for
+;;;     gensym-marked renames of any other spelling, the two macro systems
+;;;     answer every keyword-check quadrant identically
 ;;;     (regression-pinned, quadrant for quadrant, by the KEP-0006
-;;;     four-quadrant test in tests/scheme/srfi/srfi211.scm). Shared,
-;;;     pre-existing limitations, identical on both paths: a use-site
-;;;     TOP-LEVEL redefinition of a name the macro's output references
-;;;     reaches the expansion; and a reserved-form spelling the hygiene
-;;;     engine keeps bare (else, _, ...) is shadowed by a use-site local of
-;;;     that spelling for a macro-INTRODUCED occurrence just as surely as
-;;;     for a user-typed one, while identifiers the engine CAN mark (any
-;;;     non-reserved spelling, e.g. =>) stay hygienic.
+;;;     four-quadrant test in tests/scheme/srfi/srfi211.scm). The
+;;;     guarantee does NOT extend to spellings whose bare rename comes
+;;;     from renameForHygiene's other bare-returning branches (e.g. the
+;;;     VOID sentinel for a name defined later in the use-site body):
+;;;     there compare keeps the reflexive use-token view while a
+;;;     syntax-rules literal refuses — a pre-existing divergence, pinned
+;;;     as such by the same suite. Shared, pre-existing limitations,
+;;;     identical on both paths: a use-site TOP-LEVEL redefinition of a
+;;;     name the macro's output references reaches the expansion; and a
+;;;     reserved-form spelling the hygiene engine keeps bare (else, _,
+;;;     ...) is shadowed by a use-site local of that spelling for a
+;;;     macro-INTRODUCED occurrence just as surely as for a user-typed
+;;;     one, while identifiers the engine CAN mark (any non-reserved
+;;;     spelling, e.g. =>) stay hygienic.
 ;;;
 ;;;   * compare is binding-aware (kaappi#2388): (compare x (rename 'kw))
 ;;;     answers whether the use-site identifier x and the definition-side
 ;;;     keyword denote the same binding — an unshadowed use is #t, a
 ;;;     use-site local rebinding of the spelling is #f, and a renamed
 ;;;     (macro-introduced or global-name) keyword never resolves to a
-;;;     use-site local. Symbols are interned, so a bare-rename product is
+;;;     use-site local. A rename of a name bound in the transformer's own
+;;;     library (def-env-marked outside it) compares equal to a use-site
+;;;     reference of the same exported binding, refusing only under a
+;;;     local shadow. Symbols are interned, so a bare-rename product is
 ;;;     the same object as a use-site token of that spelling; compare
-;;;     recognizes the classic (compare <token> (rename 'kw)) shape by the
-;;;     invocation's rename record, which makes the answer independent of
-;;;     argument order. Two plain use-site tokens stay reflexive unless
-;;;     this invocation also renamed that spelling bare and a use-site
-;;;     local shadows it (the pairwise input-comparison idiom).
+;;;     recognizes the classic (compare <token> (rename 'kw)) shape from
+;;;     the invocation's rename record together with whether the spelling
+;;;     occurs in the macro-use input — which makes the answer independent
+;;;     of argument order, and reflexive both for two of the invocation's
+;;;     own rename products (the hoisted-rename style) and for two plain
+;;;     use-site tokens (the pairwise input-comparison idiom). The one
+;;;     non-reflexive shape: a spelling that occurs in the input, renamed
+;;;     bare this invocation, compared under a use-site local shadow of
+;;;     it — the quadrant-2 case, where the shadowing local is a
+;;;     different binding.
 ;;;
 ;;;   * `(rename 'x)` used to BIND x when x names a global procedure
 ;;;     returns x unrenamed (reference semantics win); rename fresh names

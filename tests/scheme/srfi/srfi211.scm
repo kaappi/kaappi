@@ -113,8 +113,10 @@
 ;;; answers -- the same binding, or both unbound (R7RS 4.3.2). Every
 ;;; quadrant below runs BOTH systems against the SAME expected value; that
 ;;; equivalence is the KEP-0018 unresolved-question-6 guarantee (an ER
-;;; macro is exactly as hygienic as a syntax-rules one), pinned here as a
-;;; contract.
+;;; macro is exactly as hygienic as a syntax-rules one) for the
+;;; auxiliary-keyword spellings, pinned here as a contract. The guarantee's
+;;; boundary — spellings whose bare rename comes from renameForHygiene's
+;;; other bare-returning branches — is pinned separately below.
 
 (define-syntax erq-cond
   (er-macro-transformer
@@ -228,6 +230,46 @@
 (test-assert "a locally rebound values is refused"
              (not (let ((values 1)) (er-is-values values))))
 
+;; Reflexivity of a rename against itself (the hoisted `r-*` rename style
+;; the 241/202 ports use): free-identifier=? is an equivalence relation,
+;; so a transformer comparing two of its OWN rename products must get #t
+;; even where a use-site local shadows the bare spelling (#2401 review).
+;; The spelling nowhere occurs in the macro-use input, which is what
+;; separates this from the quadrant-2 shape above.
+(define-syntax er-self-else?
+  (er-macro-transformer
+   (lambda (form rename compare)
+     (list (rename 'quote) (compare (rename 'else) (rename 'else))))))
+(test-assert "a rename compares equal to itself" (er-self-else?))
+(test-assert "... even under a use-site shadow of the bare spelling"
+             (let ((else 1)) (er-self-else?)))
+(define-syntax er-self-arrow?
+  (er-macro-transformer
+   (lambda (form rename compare)
+     (list (rename 'quote) (compare (rename '=>) (rename '=>))))))
+(test-assert "a renamed (gensym-marked) keyword compares equal to itself"
+             (let ((=> 1)) (er-self-arrow?)))
+
+;; Boundary of the ER/syntax-rules parity guarantee, pinned as-is: a
+;; spelling whose bare rename comes from renameForHygiene's OTHER
+;; bare-returning branches (here: the VOID sentinel for a later internal
+;; define in the use-site body) records no identity entry, so compare
+;; answers the (reflexive) use-token view while a syntax-rules literal
+;; refuses. Pre-existing divergence, not covered by the parity contract --
+;; see the .sld header's qualified guarantee statement (#2401 review).
+(define-syntax er-is-laterdef?
+  (er-macro-transformer
+   (lambda (form rename compare)
+     (list (rename 'quote) (compare (cadr form) (rename 'laterdef))))))
+(define-syntax sr-is-laterdef?
+  (syntax-rules (laterdef) ((_ laterdef) #t) ((_ x) #f)))
+(define (er-laterdef-probe)
+  (define result
+    (list (er-is-laterdef? laterdef) (let ((laterdef 1)) (er-is-laterdef? laterdef))))
+  (define laterdef 9)
+  result)
+(test-equal '(#t #t) (er-laterdef-probe))
+
 ;;; --- identifier?: symbols (renamed or not) are identifiers ---
 (test-assert "plain symbol" (identifier? 'x))
 (test-assert "not a number" (not (identifier? 3)))
@@ -313,19 +355,33 @@
 ;;; own non-exported helper at the use site ---
 (define-library (t211 helperlib)
   (import (scheme base) (srfi 211 explicit-renaming))
-  (export lib-twice combo)
+  (export lib-twice combo is-lib-bound?)
   (begin
     (define (t211-helper x) (* x 2))
+    (define lib-bound-var 'marker)
     (define-syntax lib-twice
       (er-macro-transformer
        (lambda (form rename compare)
          (list (rename 't211-helper) (cadr form)))))
+    ;; compare against a rename of a name bound in the transformer's OWN
+    ;; definition environment: outside that library, renameForHygiene's
+    ;; #1812 branch marks it def-env-prefixed, and the marked identifier
+    ;; must still compare equal to a use-site reference of the exported
+    ;; binding (#2401 review -- this was the def_env/free regression).
+    (define-syntax is-lib-bound?
+      (er-macro-transformer
+       (lambda (form rename compare)
+         (list (rename 'quote) (compare (cadr form) (rename 'lib-bound-var))))))
     (define-syntax combo
       (syntax-rules ()
         ((_ e) (list (lib-twice e) e))))))
 (import (t211 helperlib))
 (test-equal 42 (lib-twice 21))
 (test-equal '(20 10) (combo 10))
+(test-assert "a def-env-marked rename compares equal to the use-site reference of the same exported binding"
+             (is-lib-bound? lib-bound-var))
+(test-assert "... but not under a use-site local rebinding of the spelling"
+             (not (let ((lib-bound-var 1)) (is-lib-bound? lib-bound-var))))
 
 (let ((runner (test-runner-current)))
   (test-end "srfi-211")

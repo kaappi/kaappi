@@ -219,6 +219,16 @@ pub threadlocal var active_use_check: UseSiteBindingCheck = .{};
 pub threadlocal var active_def_env: ?*std.StringHashMap(Value) = null;
 pub threadlocal var active_def_lib_name: ?[]const u8 = null;
 
+// Per-invocation context for erCompareFn (#2388): the rooted slot holding
+// the macro-use input (a pointer to expandProceduralMacro's rooted local,
+// so a moving GC updates it through the root). compare consults it to
+// tell "both arguments are this invocation's own rename products" (the
+// spelling nowhere occurs in the input — a hoisted-rename self-compare,
+// which free-identifier=? must answer reflexively) from the classic
+// (compare <input-token> (rename 'kw)) shape, where the spelling does
+// occur in the input and the use-site view is the one that must agree.
+pub threadlocal var er_input_slot: ?*Value = null;
+
 pub fn expandMacro(gc: *GC, expr: Value, transformer_val: Value, globals: ?*std.StringHashMap(Value), macros: ?*const std.StringHashMap(Value), use_check: UseSiteBindingCheck) !Value {
     // The rule-matching bindings buffer is ~1MB and only entries below
     // bind_count are ever read, so it must not be filled per call: Zig 0.16
@@ -390,6 +400,7 @@ fn expandProceduralMacro(gc: *GC, expr: Value, transformer: *types.Transformer, 
     const saved_refs = active_def_local_refs;
     const saved_def_env = active_def_env;
     const saved_def_lib_name = active_def_lib_name;
+    const saved_input_slot = er_input_slot;
     er_scope = freshScope();
     er_globals = globals;
     er_macros = macros;
@@ -405,6 +416,7 @@ fn expandProceduralMacro(gc: *GC, expr: Value, transformer: *types.Transformer, 
         active_def_local_refs = saved_refs;
         active_def_env = saved_def_env;
         active_def_lib_name = saved_def_lib_name;
+        er_input_slot = saved_input_slot;
     }
     // The rename dedup cache entries belong to this invocation only (the
     // scope id is globally fresh); release them on return like expandMacro.
@@ -419,6 +431,8 @@ fn expandProceduralMacro(gc: *GC, expr: Value, transformer: *types.Transformer, 
     var input_root = input;
     gc.pushRoot(&input_root);
     pushed += 1;
+    // compare reads the input through the rooted slot (see er_input_slot).
+    er_input_slot = &input_root;
 
     var result: Value = undefined;
     if (transformer.kind == .er_macro) {
@@ -566,6 +580,22 @@ fn erIdentifierBinding(full: []const u8) ErIdentifierBinding {
     return .free;
 }
 
+/// A def-env-marked rename (#1812) and a bare use-site reference of the
+/// same effective spelling denote the same binding when the use site can
+/// actually resolve the spelling — the library was imported, planting the
+/// binding in the use-site globals — and no local shadows it (#2401
+/// review: an exported library binding must still compare equal to a
+/// use-site reference of that spelling; a shadowing local, or a spelling
+/// the use site never imported, is a different binding or none).
+fn erDefEnvAgreesWithBare(bare_full: []const u8) bool {
+    if (active_use_check.resolve(bare_full) != LITERAL_UNBOUND) return false;
+    const g = er_globals orelse return false;
+    const gmod = @import("globals.zig");
+    const glk = gmod.acquireGlobalsRead(g);
+    defer gmod.releaseGlobalsRead(glk);
+    return g.contains(bare_full);
+}
+
 fn erBindingsAgree(a: ErIdentifierBinding, b: ErIdentifierBinding) bool {
     return switch (a) {
         .free => b == .free,
@@ -585,18 +615,45 @@ fn erRenamedBareThisInvocation(name: []const u8) bool {
     return false;
 }
 
+/// Does the interned symbol `sym` occur anywhere in the macro-use input
+/// (pairs, dotted tails, vectors)? Read-only and allocation-free, so it is
+/// safe from compare at any point of the transformer call. Used only for
+/// bare spellings this invocation also renamed: occurrence in the input
+/// is what separates a use-site token from the invocation's own rename
+/// products when the two are representationally identical (interned).
+fn erFormMentionsSymbol(form: Value, sym: Value) bool {
+    if (types.isSymbol(form)) return form == sym;
+    if (types.isPair(form)) {
+        var cur = form;
+        while (types.isPair(cur)) : (cur = types.cdr(cur)) {
+            if (erFormMentionsSymbol(types.car(cur), sym)) return true;
+        }
+        return erFormMentionsSymbol(cur, sym);
+    }
+    if (types.isVector(form)) {
+        for (types.toObject(form).as(types.Vector).data) |el| {
+            if (erFormMentionsSymbol(el, sym)) return true;
+        }
+    }
+    return false;
+}
+
 /// The `compare` procedure handed to explicit-renaming transformers:
 /// free-identifier=? — "the two identifiers denote the same binding, or
-/// both are unbound" (SRFI 211) — reusing the binding machinery
-/// syntax-rules literal matching already runs on, so an ER macro is
-/// exactly as hygienic as a syntax-rules one (KEP-0018 UQ6, kaappi#2388).
-/// Non-symbols compare #f. Two approximations are inherent to symbols as
-/// syntax: different effective names never denote the same binding (the
-/// one global table shared by use site and definition site), and a
-/// bare-rename product is the same interned object as a use-site token of
-/// that spelling, so the classic (compare <token> (rename 'kw)) shape is
-/// recognized by the invocation's rename record rather than by the
-/// argument position — which also makes it order-independent.
+/// both are unbound" (SRFI 211, an equivalence relation) — reusing the
+/// binding machinery syntax-rules literal matching already runs on, so an
+/// ER macro is exactly as hygienic as a syntax-rules one for the
+/// auxiliary-keyword spellings (KEP-0018 UQ6, kaappi#2388). Non-symbols
+/// compare #f. One approximation is inherent to symbols as syntax:
+/// different effective names never denote the same binding (the one
+/// global table shared by use site and definition site). A bare-rename
+/// product is the same interned object as a use-site token of that
+/// spelling, so the classic (compare <token> (rename 'kw)) shape is
+/// recognized from the invocation's rename record plus whether the
+/// spelling occurs in the macro-use input — never from the argument
+/// position, which keeps the answer order-independent AND reflexive for
+/// two of the invocation's own rename products (a hoisted-rename
+/// self-compare; #2401 review).
 fn erCompareFn(args: []const Value) anyerror!Value {
     if (!types.isSymbol(args[0]) or !types.isSymbol(args[1])) return types.FALSE;
     const full_a = types.symbolName(args[0]);
@@ -604,21 +661,38 @@ fn erCompareFn(args: []const Value) anyerror!Value {
     const eff_a = types.stripHygienicPrefix(full_a);
     const eff_b = types.stripHygienicPrefix(full_b);
     if (!std.mem.eql(u8, eff_a, eff_b)) return types.FALSE;
-    if (std.mem.eql(u8, full_a, eff_a) and std.mem.eql(u8, full_b, eff_b)) {
+    const a_bare = std.mem.eql(u8, full_a, eff_a);
+    const b_bare = std.mem.eql(u8, full_b, eff_b);
+    if (a_bare and b_bare) {
         // Both bare: interned symbols make same-spelling identifiers one
         // object, so "which side is the rename product" is unanswerable
-        // from the values. When this invocation renamed the spelling bare,
-        // assume the classic shape — one side the definition-site keyword,
-        // the other a use-site token — and answer whether the two sites'
-        // views agree: a use-site local rebinding of the spelling is a
-        // different binding, exactly as a syntax-rules literal refuses the
-        // same shadowing. Otherwise the arguments are two use-site tokens
-        // — the same identifier — and compare is reflexive (the pairwise
-        // input-token idiom, e.g. duplicate-key checks, keeps working).
-        if (erRenamedBareThisInvocation(eff_a))
-            return if (active_use_check.resolve(eff_a) == LITERAL_UNBOUND) types.TRUE else types.FALSE;
+        // from the values alone. When this invocation renamed the spelling
+        // bare AND it occurs in the macro-use input, assume the classic
+        // shape — one side the definition-site keyword, the other a
+        // use-site token — and answer whether the two sites' views agree:
+        // a use-site local rebinding of the spelling is a different
+        // binding, exactly as a syntax-rules literal refuses the same
+        // shadowing. When the spelling does NOT occur in the input, both
+        // arguments are the invocation's own rename products — the same
+        // identifier — and compare is reflexive. With no bare rename of
+        // the spelling at all, the arguments are two plain use-site
+        // tokens, likewise reflexive (the pairwise input-token idiom,
+        // e.g. duplicate-key checks, keeps working).
+        if (erRenamedBareThisInvocation(eff_a)) {
+            const in_input = if (er_input_slot) |slot| erFormMentionsSymbol(slot.*, args[0]) else false;
+            if (in_input)
+                return if (active_use_check.resolve(eff_a) == LITERAL_UNBOUND) types.TRUE else types.FALSE;
+        }
         return types.TRUE;
     }
+    // A def-env-marked rename agrees with a bare reference the use site
+    // can resolve to the same (imported) binding; handled here because
+    // the globals lookup needs the bare spelling, which the classified
+    // pair below no longer carries.
+    if (a_bare and std.mem.startsWith(u8, full_b, types.def_env_binding_prefix))
+        return if (erDefEnvAgreesWithBare(full_a)) types.TRUE else types.FALSE;
+    if (b_bare and std.mem.startsWith(u8, full_a, types.def_env_binding_prefix))
+        return if (erDefEnvAgreesWithBare(full_b)) types.TRUE else types.FALSE;
     return if (erBindingsAgree(erIdentifierBinding(full_a), erIdentifierBinding(full_b)))
         types.TRUE
     else

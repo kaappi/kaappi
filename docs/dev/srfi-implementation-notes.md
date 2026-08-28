@@ -1405,19 +1405,29 @@ reaches the expansion (verified equivalent on both paths). Since kaappi#2388
 free-identifier=? built from the same machinery syntax-rules literal
 matching uses — `UseSiteBindingCheck.resolve` for use-site binding slots,
 `rename`'s per-invocation scope-table identity entries to recognize the
-definition-side bare spelling, def-env-prefixed names as binding identity
-for renamed library references — which makes "an ER macro is exactly as
-hygienic as a syntax-rules one" (KEP-0018 unresolved question 6) a pinned
-guarantee rather than an aspiration: the KEP-0006 four-quadrant test in
-`tests/scheme/srfi/srfi211.scm` asserts every quadrant against BOTH
-systems with the same expected value. One approximation is inherent to
+definition-side bare spelling, def-env-prefixed names agreeing with a
+use-site reference the use site can resolve to the same exported binding
+— which makes "an ER macro is exactly as hygienic as a syntax-rules one"
+(KEP-0018 unresolved question 6) a pinned guarantee for the
+auxiliary-keyword spellings (reserved forms and macro keywords, plus
+gensym-marked renames of any other spelling): the KEP-0006 four-quadrant
+test in `tests/scheme/srfi/srfi211.scm` asserts every quadrant against
+BOTH systems with the same expected value. The guarantee's boundary is
+pinned there too: spellings whose bare rename comes from
+renameForHygiene's other bare-returning branches (the VOID sentinel for a
+name defined later in the use-site body) keep compare's reflexive
+use-token view where a literal refuses — a pre-existing divergence.
+One approximation is inherent to
 interned symbols as syntax: a bare-rename product (reserved forms and
 keywords rename to themselves) is the same object as a use-site token of
 that spelling, so compare recognizes the classic
-`(compare <token> (rename 'kw))` shape by the invocation's rename record
-— order-independent, but not reflexive for that one spelling when a
-use-site local shadows it (two plain use-site tokens of a spelling this
-invocation did not bare-rename stay reflexive). A
+`(compare <token> (rename 'kw))` shape from the invocation's rename
+record plus whether the spelling occurs in the macro-use input —
+order-independent, reflexive for the invocation's own rename products
+(the hoisted-rename self-compare) and for two plain use-site tokens, and
+non-reflexive only for the quadrant-2 shape: a spelling that occurs in
+the input, bare-renamed this invocation, compared under a use-site local
+shadow of it. A
 bare-symbol
 spec falls back to a globals lookup holding a Transformer value, so
 `(define t (er-macro-transformer p))` + `(define-syntax m t)` works. Two

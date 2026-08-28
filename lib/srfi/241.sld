@@ -29,9 +29,11 @@
 ;;;    no bracket syntax); write clauses and cata patterns with plain
 ;;;    parens, e.g. (,(f -> x y) ...) rather than [,[f -> x y] ...].
 ;;;  - Only match is exported. The auxiliary keywords (unquote, ..., _,
-;;;    guard, ->) are recognized by hygiene-stripped name comparison (the
-;;;    strength of this engine's ER compare — see kaappi#2388), so
-;;;    exporting bindings for them would not change what is matched.
+;;;    guard, ->) are recognized by binding-aware free-identifier=?
+;;;    compare (kaappi#2388); exporting bindings for them would still not
+;;;    change what is matched, because an exported binding is planted as a
+;;;    global and globals are not use-site local slots — only a LOCAL
+;;;    rebinding of a keyword spelling now opts out of keyword-hood.
 ;;;  - If a match form is produced by another macro's syntax-rules
 ;;;    template, that template's own ellipsis processing applies before
 ;;;    match sees the form (escape nested ellipses with (... ...)), and
@@ -260,7 +262,7 @@
          (define r-cata (rename '%match-cata))
          (define r-qq (rename '%match-qq))
 
-         ;; Keyword recognition is name-based compare (kaappi#2388).
+         ;; Keyword recognition is binding-aware compare (kaappi#2388).
          (define (kw? x sym) (and (symbol? x) (compare x (rename sym))))
          (define (ell? x) (kw? x '...))
          (define (uscore? x) (kw? x '_))
