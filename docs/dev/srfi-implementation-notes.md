@@ -1456,8 +1456,12 @@ result lists so one cata can bind several variables under `...`). The
 202 re-port additionally gained SRFI 2's bare bound-variable claw and
 vector patterns in quasiquoted claws.
 
-Engine facts the port depends on (each probed before use, all
-regression-covered by `tests/scheme/srfi/srfi241.scm` / `srfi202.scm`):
+Engine facts the port depends on (each probed before use; the macro
+behavior in the first three bullets is regression-covered by
+`tests/scheme/srfi/srfi241.scm` / `srfi202.scm`, and the expansion-time
+diagnostics by `tests/scheme/errors/srfi-241-expansion-errors-2391.sh`;
+the last bullet is a testing-workflow note, not something those suites
+check):
 
 - **A macro expansion can rebind `quasiquote` via `let-syntax` with a
   bare-symbol transformer spec.** `match` wraps each clause body in
@@ -1485,4 +1489,8 @@ regression-covered by `tests/scheme/srfi/srfi241.scm` / `srfi202.scm`):
 - **A worktree's `.sld` edit is invisible until `zig-out/lib` is
   refreshed** — the exe-relative library dir is populated at `zig build`
   time, so rebuild (or re-copy) after editing, on top of the usual
-  `KAAPPI_HOME=$(mktemp -d)` isolation (kaappi#2352).
+  `KAAPPI_HOME=$(mktemp -d)` isolation (kaappi#2352). The
+  `KAAPPI_HOME` isolation and `.sld` staleness invalidation themselves
+  are regression-covered by `tests/scheme/cache/library-cache-1888.sh`;
+  the zig-out/lib refresh step is not covered by any test — it is a
+  local-workflow footgun to remember.
