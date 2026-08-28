@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787888695779,
+  "lastUpdate": 1787902772270,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ef0a9c9d5edb14ad51ceba6965986e7e320fa0a5",
-          "message": "Stop file-backed library loads from abandoning the enclosing top-level form (#2012) (#2246)\n\nThe first top-level form whose evaluation loads a file-backed .sld\nthrough (environment ...) was silently abandoned partway through: side\neffects before the load persisted, everything after it (the form's own\ndefine or display) never happened, with no error and exit 0. The second,\nbyte-identical form worked because the library was loaded by then, so a\nprogram either behaved correctly or silently lost a whole top-level form\ndepending on whether some earlier form had touched the same library.\n\nenvironmentFn (primitives_r7rs.zig) reaches importSetChecked, and for a\nfile-backed library that path compiles + executes the library body by\nre-entering vm.execute (tryLoadLibraryFromFile -> loadLibrarySource).\nvm.execute begins with resetExecutionState, which zeroes frame_count,\nhandler_count and wind_count -- destroying the enclosing top-level\nform's frame. The nested call then returns success, so the outer\nrunUntil loop sees frame_count == 0 and exits cleanly. Registry-backed\nlibraries ((srfi 1), (scheme base)) never take that path, which is why\nthe issue's control table was so clean. Top-level (import ...) was\nspared because the binding merge happens in native code after the load\nreturns; only user forms with work after the load showed it.\n\nFix: route every nested-entry top-level thunk through\nrunTopLevelFunction (vm_eval.zig, the re-entrant-safe path eval and\ntop-level begin/cond-expand splicing already use since #1500), which at\nframe_count == 0 is identical to vm.execute but while an outer\nexecution is suspended pushes a frame above the live ones via\ncallWithArgs instead of resetting them away. The affected sites are the\nlibrary body form executor (loadLibrarySource), top-level include\n(evalIncludedForm), library body definitions (compileLibExpr),\ndefine-values (handleDefineValues), and the five define-record-type\nexpansion sites in vm_records.zig. A new VM method runTopLevelFunction\nexposes it to those modules.\n\nRegression test: tests/scheme/compliance/environment-file-sld-2012.scm.\nOn the buggy build its first-load probes fail loudly (undefined variable\n-- the defining form never bound) with exit 1; with the fix all four\npass. The native tier is unaffected (it runs top-level forms natively,\nso there is no enclosing VM frame to lose), verified by compiling the\nissue's repro with kaappi compile on both builds.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-07T08:05:33+05:30",
-          "tree_id": "b9e25b0eafa872e2eff0b19befc497028b74755f",
-          "url": "https://github.com/kaappi/kaappi/commit/ef0a9c9d5edb14ad51ceba6965986e7e320fa0a5"
-        },
-        "date": 1786072013814,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.348717,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.211829,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.583827,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.008312,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.0047,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04717,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.322208,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.058007,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.747152,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.258154,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.583934,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.281379,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.825356,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.605302,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043093,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044967,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "50e84a9d70ed2408cd1251e127bc19aeecbc582a",
+          "message": "Add the kaappi-shared-channels cond-expand feature identifier (KEP-0004 Phase 2) (#2402)\n\n* Add the kaappi-shared-channels cond-expand feature identifier (KEP-0004 Phase 2)\n\nThe gate cleared long ago — kaappi#1487 and #1489 closed 2026-07-13/14 and\nKEP-0002 fully shipped in v0.15.0/v0.16.0 — but the identifier never\nlanded. It rides the same non-wasm branch as kaappi-threads: cross-thread\nchannel promotion requires OS threads, and on wasm32-wasi the notifier is\na no-op nothing ever calls (KEP-0002 §5).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Add kaappi-shared-channels to the BSD docs' capability lists\n\nEach of the three BSD pages enumerates the capability identifiers to say\nnone is gated on that platform. The claim stays true — all five are\npresent on every BSD — but the list would have under-counted from this\nPR onward.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-28T06:59:17Z",
+          "tree_id": "36cc46ade78417a952681021970f8c3fd3320414",
+          "url": "https://github.com/kaappi/kaappi/commit/50e84a9d70ed2408cd1251e127bc19aeecbc582a"
+        },
+        "date": 1787902769782,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.878937,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.176818,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.537549,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.784688,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005165,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.0457,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.281555,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054009,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.846159,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.086345,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.525275,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.253145,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.619477,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.013566,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041699,
             "unit": "seconds"
           }
         ]
