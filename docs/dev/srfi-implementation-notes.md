@@ -1422,12 +1422,19 @@ interned symbols as syntax: a bare-rename product (reserved forms and
 keywords rename to themselves) is the same object as a use-site token of
 that spelling, so compare recognizes the classic
 `(compare <token> (rename 'kw))` shape from the invocation's rename
-record plus whether the spelling occurs in the macro-use input —
-order-independent, reflexive for the invocation's own rename products
-(the hoisted-rename self-compare) and for two plain use-site tokens, and
-non-reflexive only for the quadrant-2 shape: a spelling that occurs in
-the input, bare-renamed this invocation, compared under a use-site local
-shadow of it. A
+record plus whether the spelling occurs in the macro-use input (a walk
+bounded by a node budget and depth cap — datum labels make inputs
+genuinely circular, kaappi#2404 — with exhaustion counting
+conservatively as occurrence) — order-independent, reflexive for two
+plain use-site tokens and for the invocation's own rename products
+whenever the spelling is absent from the input. The unsettled shape,
+stated plainly: a spelling that occurs in the input AND was bare-renamed
+this invocation, compared under a use-site local shadow — the refusal is
+free-identifier=?'s demanded answer when one argument is that input
+token, and known-wrong (broken reflexivity) when both arguments were the
+invocation's own rename products; a distinguishable wrapper for bare
+rename products would break the compiler's bare matching of the reserved
+forms macros emit. A
 bare-symbol
 spec falls back to a globals lookup holding a Transformer value, so
 `(define t (er-macro-transformer p))` + `(define-syntax m t)` works. Two

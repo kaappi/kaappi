@@ -581,12 +581,14 @@ fn erIdentifierBinding(full: []const u8) ErIdentifierBinding {
 }
 
 /// A def-env-marked rename (#1812) and a bare use-site reference of the
-/// same effective spelling denote the same binding when the use site can
-/// actually resolve the spelling — the library was imported, planting the
-/// binding in the use-site globals — and no local shadows it (#2401
-/// review: an exported library binding must still compare equal to a
-/// use-site reference of that spelling; a shadowing local, or a spelling
-/// the use site never imported, is a different binding or none).
+/// same effective spelling compare equal when no local shadows the
+/// spelling and the use-site globals hold SOME binding of it. That is the
+/// same class of over-approximation the whole-def-env import copy makes
+/// for rename (an unrelated use-site global of the same spelling answers
+/// #t too — #2401 review): from inside a symbol expander, "the use site
+/// resolves this name to a global" is the strongest resolvability fact
+/// available, and a shadowing local — the case that must refuse — is
+/// excluded exactly.
 fn erDefEnvAgreesWithBare(bare_full: []const u8) bool {
     if (active_use_check.resolve(bare_full) != LITERAL_UNBOUND) return false;
     const g = er_globals orelse return false;
@@ -617,22 +619,38 @@ fn erRenamedBareThisInvocation(name: []const u8) bool {
 
 /// Does the interned symbol `sym` occur anywhere in the macro-use input
 /// (pairs, dotted tails, vectors)? Read-only and allocation-free, so it is
-/// safe from compare at any point of the transformer call. Used only for
-/// bare spellings this invocation also renamed: occurrence in the input
-/// is what separates a use-site token from the invocation's own rename
-/// products when the two are representationally identical (interned).
-fn erFormMentionsSymbol(form: Value, sym: Value) bool {
+/// safe from compare at any point of the transformer call. R7RS datum
+/// labels produce genuinely circular inputs (#2404) and generated forms
+/// can be arbitrarily large, so the walk is bounded by a node budget and
+/// a depth cap; exhausting either conservatively answers "occurs" — the
+/// quadrant rule then applies, refusing under shadowing and never
+/// wrongly accepting. Used only for bare spellings this invocation also
+/// renamed: occurrence in the input is what separates a use-site token
+/// from the invocation's own rename products when the two are
+/// representationally identical (interned).
+const ER_WALK_NODE_BUDGET: u32 = 1_000_000;
+const ER_WALK_DEPTH_CAP: u32 = 10_000;
+
+fn erFormMentionsSymbol(form: Value, sym: Value, depth: u32, budget: *u32) bool {
+    if (budget.* == 0 or depth == 0) return true;
+    budget.* -= 1;
     if (types.isSymbol(form)) return form == sym;
     if (types.isPair(form)) {
+        // The spine is iterated (long flat lists must not pay recursion
+        // depth); car recursion pays one depth unit per level, and both
+        // loops pay the node budget, which is what terminates cdr- and
+        // car-cycles from datum labels.
         var cur = form;
         while (types.isPair(cur)) : (cur = types.cdr(cur)) {
-            if (erFormMentionsSymbol(types.car(cur), sym)) return true;
+            if (budget.* == 0) return true;
+            budget.* -= 1;
+            if (erFormMentionsSymbol(types.car(cur), sym, depth - 1, budget)) return true;
         }
-        return erFormMentionsSymbol(cur, sym);
+        return erFormMentionsSymbol(cur, sym, depth - 1, budget);
     }
     if (types.isVector(form)) {
         for (types.toObject(form).as(types.Vector).data) |el| {
-            if (erFormMentionsSymbol(el, sym)) return true;
+            if (erFormMentionsSymbol(el, sym, depth - 1, budget)) return true;
         }
     }
     return false;
@@ -650,10 +668,18 @@ fn erFormMentionsSymbol(form: Value, sym: Value) bool {
 /// product is the same interned object as a use-site token of that
 /// spelling, so the classic (compare <token> (rename 'kw)) shape is
 /// recognized from the invocation's rename record plus whether the
-/// spelling occurs in the macro-use input — never from the argument
-/// position, which keeps the answer order-independent AND reflexive for
-/// two of the invocation's own rename products (a hoisted-rename
-/// self-compare; #2401 review).
+/// spelling occurs in the macro-use input (bounded walk; exhaustion is
+/// conservative) — never from the argument position, which keeps the
+/// answer order-independent and reflexive whenever the spelling is
+/// absent from the input. The shape compare cannot settle — stated
+/// plainly (#2401 review): a spelling that occurs in the input AND was
+/// bare-renamed this invocation, compared under a use-site local shadow.
+/// If one argument is that input token, the refusal is the answer
+/// free-identifier=? demands; if both arguments were the invocation's
+/// own rename products, the #f is known-wrong (a broken reflexivity) —
+/// the two are representationally identical under interning, and a
+/// distinguishable wrapper for bare rename products would break the
+/// compiler's bare matching of the reserved forms macros emit.
 fn erCompareFn(args: []const Value) anyerror!Value {
     if (!types.isSymbol(args[0]) or !types.isSymbol(args[1])) return types.FALSE;
     const full_a = types.symbolName(args[0]);
@@ -679,7 +705,10 @@ fn erCompareFn(args: []const Value) anyerror!Value {
         // tokens, likewise reflexive (the pairwise input-token idiom,
         // e.g. duplicate-key checks, keeps working).
         if (erRenamedBareThisInvocation(eff_a)) {
-            const in_input = if (er_input_slot) |slot| erFormMentionsSymbol(slot.*, args[0]) else false;
+            const in_input = if (er_input_slot) |slot| blk: {
+                var budget: u32 = ER_WALK_NODE_BUDGET;
+                break :blk erFormMentionsSymbol(slot.*, args[0], ER_WALK_DEPTH_CAP, &budget);
+            } else false;
             if (in_input)
                 return if (active_use_check.resolve(eff_a) == LITERAL_UNBOUND) types.TRUE else types.FALSE;
         }

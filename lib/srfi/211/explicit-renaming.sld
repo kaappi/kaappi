@@ -74,14 +74,22 @@
 ;;;     the same object as a use-site token of that spelling; compare
 ;;;     recognizes the classic (compare <token> (rename 'kw)) shape from
 ;;;     the invocation's rename record together with whether the spelling
-;;;     occurs in the macro-use input — which makes the answer independent
-;;;     of argument order, and reflexive both for two of the invocation's
-;;;     own rename products (the hoisted-rename style) and for two plain
-;;;     use-site tokens (the pairwise input-comparison idiom). The one
-;;;     non-reflexive shape: a spelling that occurs in the input, renamed
-;;;     bare this invocation, compared under a use-site local shadow of
-;;;     it — the quadrant-2 case, where the shadowing local is a
-;;;     different binding.
+;;;     occurs in the macro-use input (a bounded walk — datum labels make
+;;;     inputs genuinely circular, and exhaustion conservatively counts as
+;;;     occurrence) — which makes the answer independent of argument
+;;;     order, and reflexive for two plain use-site tokens (the pairwise
+;;;     input-comparison idiom) and for two of the invocation's own
+;;;     rename products whenever the spelling is absent from the input.
+;;;     The shape compare cannot settle, stated plainly: a spelling that
+;;;     occurs in the input AND was bare-renamed this invocation, compared
+;;;     under a use-site local shadow — if one argument is that input
+;;;     token, the refusal is exactly the answer free-identifier=? demands
+;;;     (the shadowing local is a different binding); if both arguments
+;;;     were the invocation's own rename products, the #f is known-wrong
+;;;     (a broken reflexivity), because interned symbols make the two
+;;;     cases representationally identical and a distinguishable wrapper
+;;;     for bare rename products would break the compiler's bare matching
+;;;     of the reserved forms macros emit.
 ;;;
 ;;;   * `(rename 'x)` used to BIND x when x names a global procedure
 ;;;     returns x unrenamed (reference semantics win); rename fresh names
