@@ -220,3 +220,62 @@ test "#1775: ordinary code does not trigger the pre-scan fallback" {
     try std.testing.expectEqual(@as(i64, 12), types.toFixnum(result));
     try std.testing.expectEqual(@as(u64, 0), compiler.prescan_truncations - before);
 }
+
+// #2404/#2401 review: the scan's caps must REPORT, never silently return a
+// partial target set — a missed `set!` target leaves a local unboxed
+// (continuation-unsafe, #1168) and foldable (IR.isRedefined). The spine cap
+// exists because datum-label cycles make a form's cdr spine infinite; this
+// pins the reporting half on the structure-only callers (Part B propagates
+// to set_targets_all; the native backend's return value is what makes it
+// eval-fallback the form).
+test "#2404: scanSetTargetsWithoutMacros reports truncation on a cyclic form" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    const cyclic = try ctx.vm.eval("'#0=(zz . #0#)");
+    var targets = std.StringHashMap(void).init(std.testing.allocator);
+    defer targets.deinit();
+    try std.testing.expect(try compiler.scanSetTargetsWithoutMacros(cyclic, &targets));
+
+    // The reporting is not hair-trigger: an ordinary small form scans to
+    // completion and reports false.
+    var targets2 = std.StringHashMap(void).init(std.testing.allocator);
+    defer targets2.deinit();
+    try std.testing.expect(!try compiler.scanSetTargetsWithoutMacros(
+        try ctx.vm.eval("'(begin (set! a 1) (if x (set! b 2)))"),
+        &targets2,
+    ));
+    try std.testing.expect(targets2.contains("a"));
+    try std.testing.expect(targets2.contains("b"));
+}
+
+// End-to-end: a macro use whose operand is a datum-label cycle (the
+// #2404 shape) still compiles with correct set!/continuation semantics —
+// the expansion's Part B scan truncates on the cycle and falls back to
+// every-name boxing rather than trusting the partial set.
+test "#2404: a cyclic macro operand keeps set! boxing correct" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // The wrapper shape is the discriminator (verified against origin/main,
+    // which hangs on it): a macro use whose operand is another macro use
+    // carrying the cyclic datum — the re-emitted body position is what
+    // reaches the set! pre-scan's spine walk. A plain top-level use of
+    // `probe` expands and discards the operand before any scan sees it.
+    const result = try ctx.vm.eval(
+        \\(begin
+        \\  (define-syntax probe
+        \\    (syntax-rules () ((probe n x) n)))
+        \\  (define-syntax wrap
+        \\    (syntax-rules () ((wrap e) (let ((tmp-w 0)) e tmp-w))))
+        \\  (let ((n 0) (k* #f))
+        \\    (call/cc (lambda (k) (set! k* k)))
+        \\    (set! n (+ n 1))
+        \\    (wrap (probe n #0=(zz . #0#)))
+        \\    (if (< n 3) (k* #f))
+        \\    n))
+    );
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(result));
+}

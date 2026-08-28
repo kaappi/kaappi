@@ -505,7 +505,15 @@ pub const Compiler = struct {
     /// pattern matchers) quadratic — every level re-expanded its whole subtree.
     pub fn scanSetTargets(self: *Compiler, expr: Value) CompileError!void {
         if (self.set_targets) |st| {
-            try collectSetTargets(self, expr, st, 0, null);
+            // Structure-only (no speculative expansion — the top-level
+            // pre-scan already did that), but budgeted so the depth and
+            // spine caps report truncation: a silently-partial target set
+            // could leave a `set!`-ed local unboxed and foldable, so a
+            // truncated Part B scan falls back to the same
+            // every-name-is-a-target conservatism the pre-scan uses.
+            var b = SetScanBudget{ .expansions_left = 0, .expand = false };
+            try collectSetTargets(self, expr, st, 0, &b);
+            if (b.truncated) self.set_targets_all = true;
         }
     }
 
@@ -1099,7 +1107,16 @@ pub threadlocal var prescan_truncations: u64 = 0;
 
 const SetScanBudget = struct {
     expansions_left: u32,
-    /// Set when the scan stopped early (budget exhausted or depth cap hit),
+    /// False for structure-only scans (Part B, the native backend): walk
+    /// and report truncation like any budgeted scan, but never speculatively
+    /// expand macros — expansion is the top-level pre-scan's job. With this
+    /// flag, a non-null budget no longer implies "expanding scan", so the
+    /// old null-vs-non-null distinction collapses to expand-vs-not and the
+    /// depth/spine caps report truncation on every caller (#2401 review:
+    /// a partial target set from a silently-truncated scan could leave a
+    /// `set!`-ed local unboxed and foldable).
+    expand: bool = true,
+    /// Set when the scan stopped early (budget exhausted or a cap hit),
     /// meaning `out` is an under-approximation of the real target set.
     truncated: bool = false,
 };
@@ -1110,13 +1127,14 @@ const SetScanBudget = struct {
 /// to spin forever — reached from a cyclic macro operand re-emitted into a
 /// body position. One million steps per level is far beyond any real form
 /// (the whole repo's suites stay under ~1.7k expansions per top-level
-/// form); exhausting it stops that level's scan, and on a budgeted path
-/// marks `truncated` — the same loses-optimization-never-correctness
-/// degradation the expansion budget already takes, with Part B
-/// (scanSetTargets in expandAndCompileMacroUse) catching anything missed
-/// at real-expansion time. The null-budget callers (define-syntax specs,
-/// the native backend) have no flag to set and just stop: their misses
-/// take the same correct-late path.
+/// form); exhausting it marks the scan truncated — the same
+/// loses-optimization-never-correctness degradation the expansion budget
+/// takes. Every caller propagates that now: the pre-scan via
+/// set_targets_all, Part B via scanSetTargets, the native backend by
+/// eval-falling-back the form. The define-syntax/let-syntax spec walks
+/// still pass a structure-only budget with no propagation: a `set!` that
+/// only materializes when the spec's own macros run is caught at the
+/// macro's real use site, the same correct-late path as before.
 const SET_SCAN_SPINE_CAP: usize = 1_000_000;
 
 /// Recursively collect the symbol names that appear as the target of a
@@ -1171,10 +1189,16 @@ fn collectSetTargets(self: ?*Compiler, expr: Value, out: *std.StringHashMap(void
                     }
                 }
             } else if (budget) |b| {
-                // Only a budgeted scan expands, and only a budgeted scan is
-                // ever handed a Compiler — so `self.?` below is reached only
-                // when `maybe_macro` was non-null, which requires one.
-                const maybe_macro = if (self) |c| c.lookupMacro(types.symbolName(head)) else null;
+                // Only an expanding scan looks macros up, and only an
+                // expanding scan is ever handed a Compiler — so `self.?`
+                // below is reached only when `maybe_macro` was non-null,
+                // which requires one. Structure-only scans (b.expand ==
+                // false) never take this branch and keep walking the form
+                // literally.
+                const maybe_macro = if (b.expand) blk: {
+                    const c = self orelse break :blk null;
+                    break :blk c.lookupMacro(types.symbolName(head));
+                } else null;
                 if (maybe_macro) |transformer| {
                     if (b.expansions_left == 0) {
                         b.truncated = true;
@@ -1300,8 +1324,15 @@ fn collectSetTargets(self: ?*Compiler, expr: Value, out: *std.StringHashMap(void
 /// unrelated reason (it has already *executed* form N, so the globals check in
 /// isRedefined sees the rebound value), which is why only the compiled tier
 /// diverges.
-pub fn scanSetTargetsWithoutMacros(expr: Value, out: *std.StringHashMap(void)) CompileError!void {
-    return collectSetTargets(null, expr, out, 0, null);
+/// Returns true when the scan truncated (depth cap, spine cap, or — never,
+/// for this structure-only caller — expansion budget): `out` is then a
+/// partial answer, and the caller must not trust it to gate folding or
+/// boxing (the LLVM backend's conservative action is to eval-fallback the
+/// whole form; see native_compiler).
+pub fn scanSetTargetsWithoutMacros(expr: Value, out: *std.StringHashMap(void)) CompileError!bool {
+    var b = SetScanBudget{ .expansions_left = 0, .expand = false };
+    try collectSetTargets(null, expr, out, 0, &b);
+    return b.truncated;
 }
 
 // ---------------------------------------------------------------------------

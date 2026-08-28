@@ -244,8 +244,17 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
 
         // `try`, not a swallowed error: the only failure is OOM growing the
         // map, and continuing with a partial set would silently fold a call
-        // the scan had not finished proving unsafe.
-        try compiler.scanSetTargetsWithoutMacros(expr, &redefined_names);
+        // the scan had not finished proving unsafe. A truncated scan (depth
+        // or spine cap — e.g. a datum-label cycle in the form) means the
+        // partial map cannot gate folding or inline dispatch either, and
+        // this tier has no set_targets_all switch: eval-fallback the whole
+        // form (same action as #2119's continuation forms), where the full
+        // compiler's own conservative machinery applies (#2401 review).
+        if (try compiler.scanSetTargetsWithoutMacros(expr, &redefined_names)) {
+            const passthrough_node = ir_instance.makePassthrough(expr) catch continue;
+            ir_nodes.append(allocator, passthrough_node) catch continue;
+            continue;
+        }
 
         const root = ir_mod.lowerAndOptimize(&ir_instance, expr, &vm.macros, false) catch |err| {
             const code = diagnostics.compileErrorCode(err);
