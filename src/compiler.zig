@@ -1135,6 +1135,18 @@ pub const SpineWalk = struct {
     }
 };
 
+/// Detection-only variant, for fixed-arity forms that consume positions
+/// without walking the rest (`if` takes its alternate from a possibly
+/// improper tail and historically ignores what follows): true when the
+/// spine starting at `start` contains a datum-label cycle (#2405).
+pub fn spineCyclic(start: Value) bool {
+    var walk = SpineWalk.init(start);
+    while (types.isPair(walk.cur)) : (walk.next()) {
+        if (walk.cyclic()) return true;
+    }
+    return false;
+}
+
 /// Diagnose a datum-label cycle met in code position: a catchable
 /// InvalidSyntax whose recorded detail the reporter renders as
 /// `syntax-error[KP2002]` with a named cause. Finite improper lists never

@@ -94,6 +94,54 @@ test "#2405: the passthrough tail fast paths terminate" {
     try expectCircular("#0=(eval (quote 1) . #0#)");
 }
 
+/// Compile `src` and assert only that it fails as a compile error — for
+/// shapes whose exact diagnosis depends on which guard fires first (a
+/// cyclic clause rotation may hit a non-pair clause check before the
+/// tortoise meets). Termination is the contract under test.
+fn expectCompileError(src: []const u8) !void {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    try std.testing.expectError(error.CompileError, ctx.vm.eval(src));
+}
+
+test "#2405 review: the SRFI-17 set! target spine is guarded" {
+    // CodeRabbit on PR #2413: the generalized-set! setter desugar walked
+    // the target's operand spine without a guard — this exact form hung.
+    try expectCircular("(set! #0=(f 1 . #0#) 3)");
+}
+
+test "#2405 review: a cyclic syntax-rules pattern is invalid grammar, not a hang" {
+    // The pattern validator's spine loop and recursion had no bounds; a
+    // cyclic pattern is not valid grammar, which is the truthful verdict.
+    try expectCompileError("(define-syntax m (syntax-rules () ((_ #0=(a . #0#)) 1)))");
+}
+
+test "#2405 review: clause-list cycles terminate whatever the clause contents" {
+    // cond/cond-expand/case terminate on a clause list whose own spine
+    // cycles, whatever the clause contents (a matched clause elsewhere in
+    // the rotation only exits early by luck).
+    try expectCircular("(cond . #0=((1 1) . #0#))");
+    try expectCompileError("(case 1 . #0=((2) . #0#))");
+    // The top-level cond-expand selector (vm_eval.selectCondExpandBody)
+    // reports through the VM's own detail channel, not the compiler's —
+    // a separate reporter path with the same named diagnosis.
+    {
+        var ctx: th.TestContext = undefined;
+        try ctx.init();
+        defer ctx.deinit();
+        try std.testing.expectError(error.CompileError, ctx.vm.eval("(cond-expand . #0=((no-such-feature) . #0#))"));
+        try std.testing.expect(std.mem.indexOf(u8, ctx.vm.getErrorDetail(), "circular form in code position") != null);
+    }
+    // A cyclic improper tail after a fixed-arity form's last operand: `if`
+    // historically accepted it silently and compiled garbage; now the
+    // cycle at least is named (extra non-cyclic forms stay accepted).
+    try expectCircular("#0=(if #t 1 . #0#)");
+    // The legacy begin path (passthrough/compileForm) carries the same guard
+    // as the IR's lowerBegin.
+    try expectCompileError("(define-syntax b (syntax-rules () ((_ . xs) (begin . xs)))) (b . #0=(1 . #0#))");
+}
+
 test "#2405 control: quoted circular data still evaluates and prints" {
     var ctx: th.TestContext = undefined;
     try ctx.init();

@@ -153,13 +153,13 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compil
 
     var end_jumps: std.ArrayList(usize) = .empty;
     defer end_jumps.deinit(self.gc.allocator);
-    var current = clauses;
+    var current = compiler_mod.SpineWalk.init(clauses);
     var had_else = false;
 
-    while (current != types.NIL) {
-        if (!types.isPair(current)) return CompileError.InvalidSyntax;
-        const clause = types.car(current);
-        current = types.cdr(current);
+    while (current.cur != types.NIL) : (current.next()) {
+        if (!types.isPair(current.cur)) return CompileError.InvalidSyntax;
+        if (current.cyclic()) return compiler_mod.circularFormError();
+        const clause = types.car(current.cur);
         if (!types.isPair(clause)) return CompileError.InvalidSyntax;
 
         const datums = types.car(clause);

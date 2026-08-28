@@ -20,12 +20,31 @@ TMPDIR_TESTS="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR_TESTS"' EXIT
 
 # <name> <source> — asserts exit 1 plus the KP2002 circular-form diagnosis.
+# The regression class this file pins includes compiler hangs, so every
+# invocation is bounded: a hung run reports as a failed case instead of
+# stalling the suite until an external timeout (CodeRabbit on PR #2413).
+# No `timeout` on macOS — a background run + bounded wait instead.
 check_circular() {
     local name="$1" src="$2"
     printf '%s' "$src" > "$TMPDIR_TESTS/$name.scm"
 
     local output status
-    output=$("$KAAPPI" "$TMPDIR_TESTS/$name.scm" 2>&1) && status=0 || status=$?
+    "$KAAPPI" "$TMPDIR_TESTS/$name.scm" > "$TMPDIR_TESTS/$name.out" 2>&1 &
+    local pid=$! waited=0
+    while kill -0 "$pid" 2>/dev/null; do
+        if (( waited >= 10 )); then
+            kill -9 "$pid" 2>/dev/null
+            wait "$pid" 2>/dev/null
+            echo "FAIL: $name: HUNG (killed after 10s) — the cycle guard regressed"
+            FAIL=$((FAIL + 1))
+            return
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+    status=0
+    wait "$pid" || status=$?
+    output="$(cat "$TMPDIR_TESTS/$name.out")"
 
     if [[ "$status" -ne 1 ]]; then
         echo "FAIL: $name: expected exit 1 (diagnosed compile error), got $status — abort, hang-kill, or silent success?"
@@ -58,6 +77,11 @@ check_circular family-lambda '#0=(lambda () . #0#)'
 check_circular family-do '#0=(do ((i 0 (+ i 1))) ((> i 2)) . #0#)'
 check_circular family-quasiquote '(display `(1 . #0=(2 . #0#)))'
 check_circular family-apply-tail '#0=(apply + . #0#)'
+# CodeRabbit on PR #2413: the SRFI-17 generalized set! target spine hung.
+check_circular family-setbang '(set! #0=(f 1 . #0#) 3)'
+# A cyclic improper tail after if's alternate: detection-only, extra
+# non-cyclic forms stay accepted.
+check_circular family-if-tail '#0=(if #t 1 . #0#)'
 
 # The issue's Controls: circular DATA is fine everywhere — quoting makes the
 # datum a constant no code walk enters, and a syntax-rules macro use with a

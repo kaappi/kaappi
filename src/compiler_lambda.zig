@@ -1197,13 +1197,15 @@ pub fn compileSet(self: *Compiler, args: Value, dst: u16) CompileError!void {
 
         var arg_buf: [16]Value = undefined;
         var n_args: usize = 0;
-        var cur = proc_args;
-        while (cur != types.NIL) {
-            if (!types.isPair(cur)) return CompileError.InvalidSyntax;
+        // #2405: legacy twin of ir.zig's SRFI-17 setter desugar — the
+        // target's operand spine needs the cycle guard here too.
+        var cur = compiler_mod.SpineWalk.init(proc_args);
+        while (cur.cur != types.NIL) : (cur.next()) {
+            if (!types.isPair(cur.cur)) return CompileError.InvalidSyntax;
+            if (cur.cyclic()) return compiler_mod.circularFormError();
             if (n_args >= 16) return CompileError.InternalLimit;
-            arg_buf[n_args] = types.car(cur);
+            arg_buf[n_args] = types.car(cur.cur);
             n_args += 1;
-            cur = types.cdr(cur);
         }
 
         // Suppress GC during S-expression construction — intermediate
@@ -1331,12 +1333,14 @@ pub fn compileBegin(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compi
         return;
     }
 
-    var current = args;
-    while (current != types.NIL) {
-        if (!types.isPair(current)) return CompileError.InvalidSyntax;
-        const expr = types.car(current);
-        current = types.cdr(current);
-        const tail = is_tail and current == types.NIL;
+    // #2405: legacy begin body spine (the IR path is lowerBegin, guarded);
+    // a cyclic body spun this loop forever.
+    var current = compiler_mod.SpineWalk.init(args);
+    while (current.cur != types.NIL) : (current.next()) {
+        if (!types.isPair(current.cur)) return CompileError.InvalidSyntax;
+        if (current.cyclic()) return compiler_mod.circularFormError();
+        const expr = types.car(current.cur);
+        const tail = is_tail and types.cdr(current.cur) == types.NIL;
         try self.compileExprViaIR(expr, dst, tail);
     }
 }

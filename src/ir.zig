@@ -813,6 +813,15 @@ fn lowerIf(ir: *IR, args: Value, macros: ?*std.StringHashMap(Value)) CompileErro
     const consequent = types.car(rest);
     const rest2 = types.cdr(rest);
 
+    // #2405: `if` consumes its alternate from a position and never walks
+    // what follows — `(if a b c . junk)` has always been silently accepted —
+    // but a CYCLIC tail means the form contains itself, and compiling the
+    // `if` symbol as the alternate is garbage-in-garbage-out (#0=(if #t 1
+    // . #0#) printed 1). Detection-only: the lax acceptance of extra
+    // non-cyclic forms is unchanged.
+    if (rest2 != types.NIL and compiler_mod.spineCyclic(types.cdr(rest2)))
+        return compiler_mod.circularFormError();
+
     const test_node = try lowerWithMacros(ir, test_expr, macros);
     const cons_node = try lowerWithMacros(ir, consequent, macros);
     const alt_node: ?*Node = if (rest2 != types.NIL)
@@ -971,11 +980,14 @@ fn lowerSet(ir: *IR, args: Value) CompileError!*Node {
         // Collect proc_args + val into argument list
         var arg_nodes: std.ArrayList(*Node) = .empty;
         defer arg_nodes.deinit(ir.allocator);
-        var cur = proc_args;
-        while (cur != types.NIL) {
-            if (!types.isPair(cur)) return CompileError.InvalidSyntax;
-            arg_nodes.append(ir.allocator, try lowerWithMacros(ir, types.car(cur), null)) catch return CompileError.OutOfMemory;
-            cur = types.cdr(cur);
+        // #2405 (CodeRabbit on PR #2413): the SRFI-17 target's operand spine
+        // is a raw walk — `(set! #0=(f 1 . #0#) 3)` spun it forever, the one
+        // cycle shape that never routes through lowerWithMacros.
+        var cur = compiler_mod.SpineWalk.init(proc_args);
+        while (cur.cur != types.NIL) : (cur.next()) {
+            if (!types.isPair(cur.cur)) return CompileError.InvalidSyntax;
+            if (cur.cyclic()) return compiler_mod.circularFormError();
+            arg_nodes.append(ir.allocator, try lowerWithMacros(ir, types.car(cur.cur), null)) catch return CompileError.OutOfMemory;
         }
         arg_nodes.append(ir.allocator, try lowerWithMacros(ir, val_expr, null)) catch return CompileError.OutOfMemory;
 

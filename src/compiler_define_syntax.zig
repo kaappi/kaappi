@@ -923,13 +923,28 @@ pub fn parseSyntaxRules(self: *Compiler, spec: Value, extra_bound: []const []con
 /// is the (possibly custom) ellipsis identifier; a symbol of that name listed
 /// in `literals` is a literal, not an ellipsis (R7RS: a literal has priority
 /// over the ellipsis).
+///
+/// #2405 (CodeRabbit on PR #2413): a datum-label cycle in the pattern
+/// (`(_ #0=(a . #0#))`) spun the spine loop or overflowed the recursion.
+/// Both are bounded here — the spine with the shared tortoise-and-hare
+/// guard, the recursion with a depth cap far beyond any real pattern — and
+/// a pattern that hits either bound is simply not valid grammar, which is
+/// the truthful answer for a pattern with no finite form.
+const PATTERN_GRAMMAR_DEPTH_CAP: u32 = 256;
+
 fn validPatternGrammar(v: Value, ellipsis_name: []const u8, literals: []const Value) bool {
+    return validPatternGrammarDepth(v, ellipsis_name, literals, PATTERN_GRAMMAR_DEPTH_CAP);
+}
+
+fn validPatternGrammarDepth(v: Value, ellipsis_name: []const u8, literals: []const Value, depth: u32) bool {
+    if (depth == 0) return false;
     if (types.isPair(v)) {
         var seen_ellipsis = false;
-        var cur = v;
+        var walk = compiler_mod.SpineWalk.init(v);
         var first = true;
-        while (types.isPair(cur)) {
-            const elem = expander.unwrapUsertext(types.car(cur));
+        while (types.isPair(walk.cur)) : (walk.next()) {
+            if (walk.cyclic()) return false;
+            const elem = expander.unwrapUsertext(types.car(walk.cur));
             if (types.isSymbol(elem)) {
                 const name = types.symbolName(elem);
                 if (std.mem.eql(u8, name, ellipsis_name) and !literalNamed(literals, name)) {
@@ -945,23 +960,24 @@ fn validPatternGrammar(v: Value, ellipsis_name: []const u8, literals: []const Va
                     }
                 }
             } else if (types.isPair(elem) or types.isVector(elem)) {
-                if (!validPatternGrammar(elem, ellipsis_name, literals)) return false;
+                if (!validPatternGrammarDepth(elem, ellipsis_name, literals, depth - 1)) return false;
             }
             first = false;
-            cur = types.cdr(cur);
         }
         // Dotted tail: a plain pattern, not a list element. An ellipsis
         // token there (`(a ... . ...)`) is outside the grammar too, and a
         // vector dotted tail (`(_ . #(a ... b ...))`) is a vector pattern
         // the matcher recurses into, so it must be validated like any
         // other vector pattern. (A pair dotted tail is impossible here:
-        // the while loop above only exits once cur is no longer a pair.)
+        // the while loop above only exits once the tail is no longer a
+        // pair.)
+        const cur = walk.cur;
         if (cur != types.NIL) {
             if (types.isSymbol(cur)) {
                 const name = types.symbolName(cur);
                 if (std.mem.eql(u8, name, ellipsis_name) and !literalNamed(literals, name)) return false;
             } else if (types.isVector(cur)) {
-                return validPatternGrammar(cur, ellipsis_name, literals);
+                return validPatternGrammarDepth(cur, ellipsis_name, literals, depth - 1);
             }
         }
         return true;
@@ -981,7 +997,7 @@ fn validPatternGrammar(v: Value, ellipsis_name: []const u8, literals: []const Va
                     }
                 }
             } else if (types.isPair(elem) or types.isVector(elem)) {
-                if (!validPatternGrammar(elem, ellipsis_name, literals)) return false;
+                if (!validPatternGrammarDepth(elem, ellipsis_name, literals, depth - 1)) return false;
             }
             first = false;
         }
