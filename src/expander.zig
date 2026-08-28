@@ -485,15 +485,34 @@ fn mapProcCallError(err: anyerror) ExpandError {
 /// leaves, everything else passes through.
 fn erRenameFn(args: []const Value) anyerror!Value {
     const gc = memory.gc_instance orelse return error.InvalidBytecode; // no GC: internal invariant
-    return erRenameDatum(gc, args[0]);
+    // #2403: the argument may be genuinely circular -- R7RS datum labels in
+    // the macro use (`#0=(zz . #0#)`), or a cycle the transformer built at
+    // expansion time. Track the pairs/vectors on the active path so a
+    // back-edge is rejected below instead of recursing until the GC root
+    // stack panics (uncatchable). Keyed on Object address, which the
+    // non-moving GC keeps stable across collections.
+    var path: std.AutoHashMapUnmanaged(usize, void) = .empty;
+    defer path.deinit(gc.allocator);
+    return erRenameDatum(gc, args[0], &path);
 }
 
-fn erRenameDatum(gc: *GC, v: Value) anyerror!Value {
+fn erRenameDatum(gc: *GC, v: Value, path: *std.AutoHashMapUnmanaged(usize, void)) anyerror!Value {
     if (types.isSymbol(v)) return erRenameSymbol(gc, types.symbolName(v));
     if (types.isPair(v)) {
-        var car_new = try erRenameDatum(gc, types.car(v));
+        // #2403: path membership (not mere prior visitation) is what counts
+        // -- shared-but-acyclic structure, the same `#1=` sub-datum used
+        // twice, renews legitimately and must not read as a cycle. The
+        // path push/remove must stay INSIDE this branch's scope: a defer
+        // in an outer guard block would fire before the recursion below,
+        // emptying the path. Keyed on Object address, stable across
+        // collections in this non-moving GC.
+        const key = @intFromPtr(types.toObject(v));
+        if (path.contains(key)) return erRenameCycle();
+        try path.put(gc.allocator, key, {});
+        defer _ = path.remove(key);
+        var car_new = try erRenameDatum(gc, types.car(v), path);
         gc.pushRoot(&car_new);
-        const cdr_new = erRenameDatum(gc, types.cdr(v)) catch |err| {
+        const cdr_new = erRenameDatum(gc, types.cdr(v), path) catch |err| {
             gc.popRoot();
             return err;
         };
@@ -506,9 +525,16 @@ fn erRenameDatum(gc: *GC, v: Value) anyerror!Value {
     }
     if (types.isVector(v)) {
         const vec = types.toObject(v).as(types.Vector);
+        // Same cycle guard as the pair branch, on the vector itself: a
+        // vector reachable from its own element (or from a pair within one)
+        // must trip here, before the fresh list spine below is walked.
+        const key = @intFromPtr(types.toObject(v));
+        if (path.contains(key)) return erRenameCycle();
+        try path.put(gc.allocator, key, {});
+        defer _ = path.remove(key);
         var as_list = try vectorToList(gc, vec.data);
         gc.pushRoot(&as_list);
-        const renamed = erRenameDatum(gc, as_list) catch |err| {
+        const renamed = erRenameDatum(gc, as_list, path) catch |err| {
             gc.popRoot();
             return err;
         };
@@ -520,6 +546,18 @@ fn erRenameDatum(gc: *GC, v: Value) anyerror!Value {
         return out;
     }
     return v;
+}
+
+/// #2403: `rename` rebuilds pairs and vectors around their renamed leaves,
+/// which is only well-defined for acyclic data -- a cycle has no leaves to
+/// bottom out at. Reject it the way a primitive rejects a well-typed but
+/// unacceptable argument: a catchable InvalidArgument whose detail survives
+/// mapNativeError (the transformer's own `guard` sees the condition; an
+/// uncaught one reports as syntax-error[KP2002] instead of aborting).
+fn erRenameCycle() anyerror!Value {
+    if (@import("globals.zig").set_error_detail_for_macro) |set|
+        set("rename: cannot rename a circular datum");
+    return error.InvalidArgument; // bare-ok: the message is set through set_error_detail_for_macro just above, not primitives.argError (the expander cannot import primitives.zig -> vm.zig)
 }
 
 /// Mirror of instantiateTemplate's template-introduced-symbol path (minus

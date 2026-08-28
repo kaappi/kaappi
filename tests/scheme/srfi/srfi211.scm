@@ -85,6 +85,30 @@
      (rename '(let ((fresh-leaf 7)) (* fresh-leaf 2))))))
 (test-equal 14 (tree-rename))
 
+;;; --- #2403: rename on a circular datum is a catchable error, not an abort
+;;; R7RS datum labels put a genuine cycle in the macro-use input; rename
+;;; used to walk it with unbounded recursion until the GC root stack
+;;; panicked (uncatchable). It must now reject through the normal error
+;;; channel — a transformer's own guard sees the condition and recovers.
+(define-syntax circ-guard
+  (er-macro-transformer
+   (lambda (form rename compare)
+     (guard (e (#t (list (rename 'quote) 'caught)))
+       (rename (cadr form))))))
+(test-equal 'caught (circ-guard #0=(zz . #0#)))
+(test-equal 'caught (circ-guard #1=(p #1# q))) ; cycle via the car edge
+(test-equal 'caught (circ-guard #2=#(1 #2#))) ; cycle through a vector
+
+;;; --- #2403: shared-but-acyclic data renews — only a back-edge is a cycle
+(define-syntax shared-rename
+  (er-macro-transformer
+   (lambda (form rename compare)
+     (list (rename 'quote) (rename (cadr form))))))
+(let ((renamed (shared-rename (#3=(b c) #3#))))
+  (test-equal 2 (length renamed))
+  (test-assert (pair? (car renamed)))
+  (test-assert (pair? (cadr renamed))))
+
 ;;; --- compare: the classic else-clause detection ---
 (define-syntax cond1
   (er-macro-transformer

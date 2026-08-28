@@ -1121,20 +1121,20 @@ const SetScanBudget = struct {
     truncated: bool = false,
 };
 
-/// Per-list-level cap on cdr-spine steps in collectSetTargets (#2404).
-/// The depth cap bounds only car recursion; a datum-label cycle
-/// (`#0=(zz . #0#)`, R7RS §7.1.2) lives in the spine, where the walk used
-/// to spin forever — reached from a cyclic macro operand re-emitted into a
-/// body position. One million steps per level is far beyond any real form
-/// (the whole repo's suites stay under ~1.7k expansions per top-level
-/// form); exhausting it marks the scan truncated — the same
+/// Step cap on the let-syntax/letrec-syntax BINDINGS loop inside
+/// collectSetTargets (#2404) — the one cdr-spine the main walk's
+/// tortoise-and-hare guard below does not cover. A datum-label cycle
+/// (`#0=(let-syntax #1=(#1#) body)`, R7RS §7.1.2) makes that inner spine
+/// infinite; exhausting the cap marks the scan truncated — the same
 /// loses-optimization-never-correctness degradation the expansion budget
-/// takes. Every caller propagates that now: the pre-scan via
-/// set_targets_all, Part B via scanSetTargets, the native backend by
-/// eval-falling-back the form. The define-syntax/let-syntax spec walks
-/// still pass a structure-only budget with no propagation: a `set!` that
-/// only materializes when the spec's own macros run is caught at the
-/// macro's real use site, the same correct-late path as before.
+/// takes. One million steps is far beyond any real form (the whole repo's
+/// suites stay under ~1.7k expansions per top-level form). Every caller
+/// propagates truncation: the pre-scan via set_targets_all, Part B via
+/// scanSetTargets, the native backend by eval-falling-back the form. The
+/// define-syntax/let-syntax spec walks still pass a structure-only budget
+/// with no propagation: a `set!` that only materializes when the spec's
+/// own macros run is caught at the macro's real use site, the same
+/// correct-late path as before.
 const SET_SCAN_SPINE_CAP: usize = 1_000_000;
 
 /// Recursively collect the symbol names that appear as the target of a
@@ -1165,14 +1165,23 @@ fn collectSetTargets(self: ?*Compiler, expr: Value, out: *std.StringHashMap(void
         if (budget) |b| b.truncated = true;
         return;
     }
+    // #2403: the spine walk must terminate on circular data — R7RS datum
+    // labels can put a genuine cycle in code position. Every body path
+    // that resumes iteration does so via the continue expression, which
+    // advances exactly one cdr, so Floyd's tortoise-and-hare is exact: a
+    // tortoise advancing every other step can only re-meet `cur` on a
+    // real cycle, and an acyclic spine costs just one extra cdr per
+    // element. On detection the scan stops early exactly as the depth cap
+    // does — an under-approximation the truncated flag already models.
     var cur = expr;
-    var spine_steps: usize = 0;
-    while (types.isPair(cur)) {
-        // #2404: a datum-label cycle makes this spine infinite; the step
-        // cap turns it into the scan's ordinary loses-optimization
-        // truncation (see SET_SCAN_SPINE_CAP).
-        spine_steps += 1;
-        if (spine_steps > SET_SCAN_SPINE_CAP) {
+    var tortoise = expr;
+    var step: usize = 0;
+    while (types.isPair(cur)) : ({
+        cur = types.cdr(cur);
+        step += 1;
+        if (step % 2 == 0) tortoise = types.cdr(tortoise);
+    }) {
+        if (step > 0 and cur == tortoise) {
             if (budget) |b| b.truncated = true;
             return;
         }
@@ -1221,7 +1230,6 @@ fn collectSetTargets(self: ?*Compiler, expr: Value, out: *std.StringHashMap(void
                         .{},
                     ) catch {
                         c.gc.no_collect -= 1;
-                        cur = types.cdr(cur);
                         continue;
                     };
                     var expanded_root = expanded;
@@ -1237,7 +1245,6 @@ fn collectSetTargets(self: ?*Compiler, expr: Value, out: *std.StringHashMap(void
                     // Fall through to the sub-form walk below, which is what
                     // compiling the built-in form will visit anyway.
                     if (macro.valuesStructurallyEqual(expanded_root, cur, 128)) {
-                        cur = types.cdr(cur);
                         continue;
                     }
                     try collectSetTargets(self, expanded_root, out, depth + 1, budget);
@@ -1260,7 +1267,7 @@ fn collectSetTargets(self: ?*Compiler, expr: Value, out: *std.StringHashMap(void
                     const rest = types.cdr(cur);
                     if (types.isPair(rest)) {
                         // Skip the macro name; walk the spec without a budget.
-                        try collectSetTargets(self, types.cdr(rest), out, depth, null);
+                        try collectSetTargets(self, types.cdr(rest), out, depth + 1, null);
                     }
                     return;
                 } else if (std.mem.eql(u8, hname, "let-syntax") or
@@ -1292,17 +1299,28 @@ fn collectSetTargets(self: ?*Compiler, expr: Value, out: *std.StringHashMap(void
                         }
                         const binding = types.car(bindings_cur);
                         if (types.isPair(binding)) {
-                            try collectSetTargets(self, types.cdr(binding), out, depth, null);
+                            try collectSetTargets(self, types.cdr(binding), out, depth + 1, null);
                         }
                         bindings_cur = types.cdr(bindings_cur);
                     }
-                    cur = types.cdr(rest);
-                    continue;
+                    // The body keeps the budgeted scan. A sub-walk, not the
+                    // old two-cdr jump (`cur = cdr(rest); continue`): the
+                    // tortoise-and-hare spine guard above is exact only when
+                    // every iteration advances exactly one cdr, and a cycle
+                    // through the body (`#0=(let-syntax () . #0#)`) must hit
+                    // the depth cap as recursion, not loop forever (#2403).
+                    try collectSetTargets(self, types.cdr(rest), out, depth + 1, budget);
+                    return;
                 }
             }
         }
-        try collectSetTargets(self, head, out, depth, budget);
-        cur = types.cdr(cur);
+        // depth+1, not depth: a sub-form is nesting like any other, and the
+        // same-depth recursion this used to make was unbounded — reader-cap
+        // fine for acyclic data, infinite on a car-side cycle
+        // (`(display #1=(p #1# q))`), which the spine guard above cannot
+        // see (#2403). The scan's depth cap now bounds it, at the same
+        // conservative-truncation cost the cap already charges elsewhere.
+        try collectSetTargets(self, head, out, depth + 1, budget);
     }
 }
 

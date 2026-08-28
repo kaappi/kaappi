@@ -279,3 +279,48 @@ test "#2404: a cyclic macro operand keeps set! boxing correct" {
     );
     try std.testing.expectEqual(@as(i64, 3), types.toFixnum(result));
 }
+
+test "#2403: the pre-scan terminates on a circular spine" {
+    // R7RS datum labels can put a genuine cycle in code position. The
+    // spine walk used to iterate forever (#2403's repro reached it after
+    // rename's own rejection was swallowed by the best-effort expansion
+    // below); the tortoise-and-hare guard must stop the walk so
+    // compilation fails on its own terms instead of hanging.
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    try std.testing.expectError(error.CompileError, ctx.vm.eval("#0=(display 1 . #0#)"));
+}
+
+test "#2403: the pre-scan terminates when an ER macro use carries a cycle" {
+    // The issue's five-line repro end to end: rename rejects the circular
+    // argument, the pre-scan swallows that best-effort failure and keeps
+    // walking — which used to spin on the same cycle. With both guards it
+    // terminates, and the real expansion then surfaces the diagnosis.
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const result = ctx.vm.eval(
+        \\(begin
+        \\  (define-syntax m
+        \\    (er-macro-transformer
+        \\     (lambda (form rename compare) (rename (car (cdr form))))))
+        \\  (m #0=(zz . #0#)))
+    );
+    try std.testing.expectError(error.CompileError, result);
+    try std.testing.expect(std.mem.indexOf(u8, ctx.vm.getErrorDetail(), "circular") != null);
+}
+
+test "#2403: let-syntax walking still scans ordinary nesting after the depth-charge change" {
+    // #2403 made the walk's self-recursions charge the depth cap so a
+    // cyclic let-syntax body stops at the cap in the PRE-SCAN (a cycle
+    // through the real let-syntax compiler — compileSyntaxBody on its own
+    // body — is the separate circular-code-in-code-position issue, not
+    // this one). What must not regress: ordinary let-syntax forms still
+    // compile and run.
+    try th.expectEval(
+        \\(begin
+        \\  (let-syntax ((ls-x (syntax-rules () ((_) 7))))
+        \\    (ls-x)))
+    , 7);
+}

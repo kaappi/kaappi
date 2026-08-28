@@ -172,6 +172,15 @@ pub var call_proc_for_macro: ?CallProcFn = null;
 pub const ErrorDetailFn = *const fn () []const u8;
 pub var error_detail_for_macro: ?ErrorDetailFn = null;
 
+/// #2403: the write side of error_detail_for_macro. The expander's own
+/// native procedures (`rename`) reject inputs the way a primitive would --
+/// with a precise message in the VM's error detail -- but cannot call
+/// vm.setErrorDetail directly, so they go through this registration exactly
+/// as its read-side sibling. When no VM is registered the call is a no-op
+/// and mapNativeError's fallback text reports the failure instead.
+pub const SetErrorDetailFn = *const fn (msg: []const u8) void;
+pub var set_error_detail_for_macro: ?SetErrorDetailFn = null;
+
 /// SRFI 213 (identifier properties): set/get on the VM-owned property
 /// table, keyed by the effective (hygiene-stripped) names of the property's
 /// identifier and key. Registered by vm.setVMInstance; the table's Values

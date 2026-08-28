@@ -95,6 +95,15 @@
 ;;;     returns x unrenamed (reference semantics win); rename fresh names
 ;;;     for binders — the classic ER idiom — and they gensym correctly.
 ;;;
+;;;   * rename rejects a CIRCULAR datum (kaappi#2403): rebuilding pairs
+;;;     and vectors around renamed leaves is only well-defined for acyclic
+;;;     data, and a cycle arrives easily — R7RS datum labels in the macro
+;;;     use. The rejection is an ordinary catchable condition ("cannot
+;;;     rename a circular datum") the transformer's own guard can field;
+;;;     before #2403 it was an uncatchable GC root-stack abort. Shared but
+;;;     acyclic structure (#1= reuse) renames normally — only a back-edge
+;;;     on the walk's active path is refused.
+;;;
 ;;; Verified: tests/scheme/srfi/srfi211.scm (including the KEP-0006
 ;;; four-quadrant acceptance test and the ER/syntax-rules parity suite)
 ;;; and the "SRFI 211" tests in src/tests_macros_procedural.zig
