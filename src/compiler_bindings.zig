@@ -648,6 +648,13 @@ pub fn compileLetValues(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
         defer gc.popRoot();
         const slot = try self.allocReg();
         temp_slots[i] = slot;
+        // #2405 note: no embed span is needed for the producer. The wrapper
+        // embeds it in a lambda body, which compiles it through
+        // compileExprViaIR — the producer becomes a live entry root, and a
+        // cycle re-entering it (producer == the enclosing let-values form)
+        // is caught by enterCodeRoot on the second descent, through the
+        // child-compiler chain. An explicit producer span would false-
+        // positive on the producer's own legitimate first descent.
         try self.compileExprViaIR(cwv_expr, slot, false);
     }
 

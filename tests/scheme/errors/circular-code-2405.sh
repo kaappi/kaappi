@@ -82,6 +82,13 @@ check_circular family-setbang '(set! #0=(f 1 . #0#) 3)'
 # A cyclic improper tail after if's alternate: detection-only, extra
 # non-cyclic forms stay accepted.
 check_circular family-if-tail '#0=(if #t 1 . #0#)'
+# baijum's review of PR #2413: cycles crossing the lower/emit re-entry
+# boundary (a fresh IR per sub-form) aborted or reported KP9001; the guard
+# now spans the boundary on the Compiler, through the child-compiler chain.
+check_circular reentry-let '(display #0=(let ((x #0#)) x))'
+check_circular reentry-lambda '(display ((lambda () #0=(lambda () . #0#))))'
+check_circular reentry-let-values '(display #0=(let-values (((a) #0#)) a))'
+check_circular reentry-qq-splice '(display `#0=(x ,@(list 1) #0#))'
 
 # The issue's Controls: circular DATA is fine everywhere — quoting makes the
 # datum a constant no code walk enters, and a syntax-rules macro use with a
@@ -96,8 +103,11 @@ cat > "$CONTROL" <<'EOF'
 (newline)
 EOF
 
-control_output=$("$KAAPPI" "$CONTROL" 2>&1)
-control_status=$?
+# `set -e` note (review of PR #2413): a plain `out=$(...)` assignment would
+# abort the script on a non-zero child before the FAIL branch could run, so
+# the status is captured with the guarded idiom everywhere.
+control_status=0
+control_output=$("$KAAPPI" "$CONTROL" 2>&1) || control_status=$?
 if [[ "$control_status" -eq 0 && "$control_output" == *'#0=(zz . #0#)'*done* ]]; then
     echo "PASS: controls: quoted circular datum prints, syntax-rules circular argument expands"
     PASS=$((PASS + 1))

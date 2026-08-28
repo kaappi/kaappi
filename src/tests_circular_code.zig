@@ -165,6 +165,44 @@ test "#2405 control: shared-but-acyclic code still compiles" {
     try th.expectEvalTrue("(let ((v #0=#(1 #0#))) (eq? v (vector-ref v 1)))");
 }
 
+test "#2405 review: cycles crossing the lower/emit re-entry boundary are diagnosed" {
+    // baijum's review of PR #2413: lowering a sub-form and emitting its node
+    // are separate phases, and each compileExprViaIR builds a fresh IR — so
+    // a cycle whose back-edge crosses that boundary (`#0=(let ((x #0#)) x)`:
+    // the let's init IS the let) never re-meets itself in one lowering and
+    // used to recurse through compileLet → compileExprViaIR → ... until the
+    // native stack aborted. The guard now spans the boundary on the
+    // Compiler: a root stays live across lower+emit (code_roots, through the
+    // child-compiler chain), and a form embedded in a fresh wrapper
+    // (let-values producers) keeps its own span on the shared lowering path.
+    try expectCircular("(display #0=(let ((x #0#)) x))");
+    try expectCircular("(display #0=(letrec ((x #0#)) x))");
+    try expectCircular("(display #0=(let* ((x #0#)) x))");
+    try expectCircular("(display ((lambda () #0=(lambda () . #0#))))");
+    try expectCircular("(define f #0=(f . #0#))");
+    try expectCircular("(display #0=(cond (#0# #t)))");
+    try expectCircular("(display #0=(do () (#0#) 1))");
+    try expectCircular("(display #0=(let-values (((a) #0#)) a))");
+    // The quasiquote splicing desugar re-wraps a template element as a
+    // fresh `(quasiquote elem)` pair per round — the wrapper's fresh address
+    // hides the repeat, so the element itself carries the span. This used to
+    // bottom out in KP9001.
+    try expectCircular("(display `#0=(x ,@(list 1) #0#))");
+}
+
+test "#2405 review control: shared sub-forms in sibling positions still compile" {
+    // The other half of the same review: an #N= sub-form used in a let init
+    // AND the body renews as a sibling (sequential compile units), which is
+    // legal and must keep working.
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    try th.expectEvalTrue("(= 3 (let ((x #1=(+ 1 2))) #1#))");
+    // A lambda body compiled by a CHILD compiler — the parent-chain lookup
+    // must not misread ordinary nesting as a cycle.
+    try th.expectEvalTrue("(= 7 ((lambda () (let ((x 3)) (+ x 4)))))");
+}
+
 test "#2405: the circular-form detail survives to the reporting channel and resets on the next compile" {
     // The diagnosis travels through the threadlocal syntax_error_detail
     // channel, which the compile entry points clear at entry: a failing

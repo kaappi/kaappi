@@ -315,12 +315,13 @@ pub fn compileQuasiquote(self: *Compiler, args: Value, dst: u16) CompileError!vo
     const template = types.car(args);
     // #2405: a datum-label cycle in the template recursed through compileQQ's
     // car/cdr (and vector re-wrapping) forever — the template is rebuilt with
-    // runtime conses, which a cycle has no finite form of. Active-path set
-    // keyed on Object address (stable in this non-moving GC, holds no Values),
-    // the erRenameDatum discipline from #2403.
-    var path: std.AutoHashMapUnmanaged(usize, void) = .empty;
-    defer path.deinit(self.gc.allocator);
-    try compileQQ(self, template, dst, 0, &path);
+    // runtime conses, which a cycle has no finite form of. The path is the
+    // Compiler's SHARED set (see Compiler.code_path): the splicing desugar
+    // re-wraps a template element as a fresh `(quasiquote elem)` pair and
+    // compiles it through compileExprViaIR, which re-enters compileQuasiquote
+    // with a new wrapper each round — only an address set that survives the
+    // re-wrap catches the element coming back around (review of PR #2413).
+    try compileQQ(self, template, dst, 0);
 }
 
 /// True when `head` is the quasiquote keyword `kw` — recognized through the
@@ -332,15 +333,15 @@ fn isQQKeyword(head: Value, comptime kw: []const u8) bool {
     return std.mem.eql(u8, types.stripHygienicPrefix(types.symbolName(head)), kw);
 }
 
-fn compileQQ(self: *Compiler, tmpl: Value, dst: u16, depth: u8, path: *std.AutoHashMapUnmanaged(usize, void)) CompileError!void {
+fn compileQQ(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileError!void {
     if (types.isVector(tmpl)) {
         // #2405: key the path on the VECTOR too — its fresh list wrapper gets
         // a new address each visit, so only the vector's own address catches
         // the vector↔pair cycle (`#0=#((x . #0#))`).
         const vec_key = @intFromPtr(types.toObject(tmpl));
-        if (path.contains(vec_key)) return compiler_mod.circularFormError();
-        try path.put(self.gc.allocator, vec_key, {});
-        defer _ = path.remove(vec_key);
+        if (self.codePathContains(vec_key)) return compiler_mod.circularFormError();
+        self.codePathPush(vec_key);
+        defer self.codePathPop(vec_key);
         // Vector quasiquote: compile elements as a list at the current depth,
         // then call list->vector. This preserves the nesting level so that
         // inner unquotes at depth > 0 remain literal (#850).
@@ -365,7 +366,7 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u16, depth: u8, path: *std.AutoH
         // Compile the list at the current quasiquote depth
         const fn_reg = try self.allocReg();
         const arg_reg = try self.allocReg();
-        try compileQQ(self, list, arg_reg, depth, path);
+        try compileQQ(self, list, arg_reg, depth);
         // Call list->vector on the result
         const l2v_sym = gc.allocSymbol("list->vector") catch return CompileError.OutOfMemory;
         const l2v_idx = try self.addConstant(l2v_sym);
@@ -398,9 +399,9 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u16, depth: u8, path: *std.AutoH
     // #2405: the active-path membership test for the pair branches below —
     // see compileQuasiquote.
     const tmpl_key = @intFromPtr(types.toObject(tmpl));
-    if (path.contains(tmpl_key)) return compiler_mod.circularFormError();
-    try path.put(self.gc.allocator, tmpl_key, {});
-    defer _ = path.remove(tmpl_key);
+    if (self.codePathContains(tmpl_key)) return compiler_mod.circularFormError();
+    self.codePathPush(tmpl_key);
+    defer self.codePathPop(tmpl_key);
 
     const head = types.car(tmpl);
 
@@ -427,7 +428,7 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u16, depth: u8, path: *std.AutoH
             try self.emitU16(unquote_sym_idx);
 
             const inner_reg = try self.allocReg();
-            try compileQQ(self, types.car(rest), inner_reg, depth - 1, path);
+            try compileQQ(self, types.car(rest), inner_reg, depth - 1);
 
             // Build (inner . ())
             const nil_reg = try self.allocReg();
@@ -470,7 +471,7 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u16, depth: u8, path: *std.AutoH
         try self.emitU16(us_sym_idx);
 
         const inner_reg = try self.allocReg();
-        try compileQQ(self, types.car(rest), inner_reg, depth - 1, path);
+        try compileQQ(self, types.car(rest), inner_reg, depth - 1);
 
         // Build (inner . ())
         const nil_reg = try self.allocReg();
@@ -511,7 +512,7 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u16, depth: u8, path: *std.AutoH
         try self.emitU16(qq_sym_idx);
 
         const inner_reg = try self.allocReg();
-        try compileQQ(self, types.car(rest), inner_reg, depth + 1, path);
+        try compileQQ(self, types.car(rest), inner_reg, depth + 1);
 
         const nil_reg = try self.allocReg();
         try self.emitOp(.load_nil);
@@ -542,10 +543,10 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u16, depth: u8, path: *std.AutoH
 
     // Regular pair: cons car and cdr
     const car_reg = try self.allocReg();
-    try compileQQ(self, types.car(tmpl), car_reg, depth, path);
+    try compileQQ(self, types.car(tmpl), car_reg, depth);
 
     const cdr_reg = try self.allocReg();
-    try compileQQ(self, types.cdr(tmpl), cdr_reg, depth, path);
+    try compileQQ(self, types.cdr(tmpl), cdr_reg, depth);
 
     try self.emitOp(.cons);
     try self.emitU16(dst);

@@ -127,6 +127,27 @@ pub const Compiler = struct {
     // constant folders (IR and legacy) to avoid folding calls to a name that
     // may be reassigned before the call executes.
     set_targets: ?*std.StringHashMap(void) = null,
+    // Pairs (and quasiquote vectors) on the active code-compilation path
+    // (#2405, review of PR #2413), keyed on Object address — stable in this
+    // non-moving GC, holding no Values so the GC never traces it. Two maps,
+    // because the two halves of the guard must not see each other's entries:
+    //
+    //   - `code_roots` spans the lower+emit phases of one compile unit (the
+    //     entry points in this file push around both). A datum-label cycle
+    //     crosses that boundary — `#0=(let ((x #0#)) x)` lowers the let,
+    //     then compiles its own init through compileExprViaIR, forever, each
+    //     round a fresh IR whose own state is empty — so re-entering a
+    //     compilation unit whose root is still live IS the cycle, checked at
+    //     the entry itself.
+    //   - `code_path` spans one lowering/qq-walk tree (ir.lowerWithMacros,
+    //     compileQQ); it catches back-edges that stay within a single
+    //     lowering, which never reach an entry point.
+    //
+    // Membership in either means "this exact form object is an ancestor of
+    // itself" — a real cycle for any legitimate program: shared-but-acyclic
+    // structure renews as a sibling, sequentially, never nested.
+    code_roots: std.AutoHashMapUnmanaged(usize, void) = .empty,
+    code_path: std.AutoHashMapUnmanaged(usize, void) = .empty,
     // True when the pre-scan that built `set_targets` had to stop early (see
     // SetScanBudget), making that map an under-approximation. Both consumers
     // then behave as if *every* name were a `set!` target: box every local and
@@ -170,6 +191,66 @@ pub const Compiler = struct {
         self.upvalues.deinit(self.gc.allocator);
         self.macros.deinit();
         self.body_macros.deinit(self.gc.allocator);
+        self.code_roots.deinit(self.gc.allocator);
+        self.code_path.deinit(self.gc.allocator);
+    }
+
+    /// #2405: the root of this compiler's parent chain. The cycle-guard maps
+    /// live on it and are consulted through the chain: a lambda body compiles
+    /// in a CHILD compiler (initChild), and it is a descendant of every
+    /// enclosing unit, so the child must see the ancestors' spans and add
+    /// its own to the same maps.
+    fn cycleRoot(self: *Compiler) *Compiler {
+        var c = self;
+        while (c.parent) |p| c = p;
+        return c;
+    }
+
+    fn codeRootsContains(self: *Compiler, key: usize) bool {
+        var c: ?*Compiler = self;
+        while (c) |cc| : (c = cc.parent) {
+            if (cc.code_roots.contains(key)) return true;
+        }
+        return false;
+    }
+
+    /// #2405 lowering-path primitives, shared with ir.zig and compileQQ
+    /// through the parent chain (see cycleRoot).
+    pub fn codePathContains(self: *Compiler, key: usize) bool {
+        var c: ?*Compiler = self;
+        while (c) |cc| : (c = cc.parent) {
+            if (cc.code_path.contains(key)) return true;
+        }
+        return false;
+    }
+
+    pub fn codePathPush(self: *Compiler, key: usize) void {
+        // OOM: guard silently off for this span — better a missed diagnosis
+        // than a wrong error.
+        self.cycleRoot().code_path.put(self.gc.allocator, key, {}) catch {};
+    }
+
+    pub fn codePathPop(self: *Compiler, key: usize) void {
+        _ = self.cycleRoot().code_path.remove(key);
+    }
+
+    /// #2405: enter a compile unit — the root stays on `code_roots` for the
+    /// span of one lower+emit (the caller pops with leaveCodeRoot). Meeting
+    /// a root that is already live — anywhere up the compiler chain, since a
+    /// lambda body is a descendant of every enclosing unit — is the
+    /// cross-boundary back-edge itself and is diagnosed here. Non-pairs are
+    /// a no-op.
+    pub fn enterCodeRoot(self: *Compiler, expr: Value) CompileError!void {
+        if (!types.isPair(expr)) return;
+        const key = @intFromPtr(types.toObject(expr));
+        if (self.codeRootsContains(key)) return circularFormError();
+        self.cycleRoot().code_roots.put(self.gc.allocator, key, {}) catch return;
+    }
+
+    /// #2405: leave a compile unit entered by enterCodeRoot.
+    pub fn leaveCodeRoot(self: *Compiler, expr: Value) void {
+        if (!types.isPair(expr)) return;
+        _ = self.cycleRoot().code_roots.remove(@intFromPtr(types.toObject(expr)));
     }
 
     pub fn unrootFunction(gc: *memory.GC, func: *types.Function) void {
@@ -609,6 +690,11 @@ pub const Compiler = struct {
         }
 
         // Lower AST to IR, run analysis and optimizations, then emit bytecode.
+        // #2405: the root stays on code_roots across BOTH phases — a datum
+        // label cycle crosses the lower/emit boundary (a fresh IR per
+        // sub-form), and re-entering a live root is the back-edge.
+        try self.enterCodeRoot(expr_root);
+        defer self.leaveCodeRoot(expr_root);
         var ir = ir_mod.IR.init(self.gc.allocator);
         ir.globals = self.globals;
         ir.restricted_env = self.restricted_env;
@@ -651,6 +737,9 @@ pub const Compiler = struct {
         var dst: u16 = 0;
         for (exprs, 0..) |expr, i| {
             // Lower each expression through the IR pipeline.
+            // #2405: Compiler-scoped root span, same as compile().
+            try self.enterCodeRoot(expr);
+            defer self.leaveCodeRoot(expr);
             var ir = ir_mod.IR.init(self.gc.allocator);
             ir.globals = self.globals;
             ir.restricted_env = self.restricted_env;
@@ -683,6 +772,9 @@ pub const Compiler = struct {
     }
 
     pub fn compileExprViaIR(self: *Compiler, expr: Value, dst: u16, is_tail: bool) CompileError!void {
+        // #2405: same Compiler-scoped root span as compile() — see there.
+        try self.enterCodeRoot(expr);
+        defer self.leaveCodeRoot(expr);
         var ir = ir_mod.IR.init(self.gc.allocator);
         ir.globals = self.globals;
         ir.restricted_env = self.restricted_env;

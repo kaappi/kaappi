@@ -243,8 +243,13 @@ fn compileSelfTailCall(self: *Compiler, expr: Value, dst: u16, nargs: u8) Compil
     const needs_rebase = (dst + 1 != self.next_register);
     const base = if (needs_rebase) try self.allocReg() else dst;
 
+    // #2405: the caller (compileCall) has already proven this spine acyclic
+    // with its own guarded count walk, but the guard here is kept too — a
+    // SpineWalk without cyclic() would read like a guard that is one
+    // (review of PR #2413), and the redundancy is one integer compare.
     var arg_list = compiler_mod.SpineWalk.init(types.cdr(expr));
-    while (arg_list.cur != types.NIL) : (arg_list.next()) {
+    while (types.isPair(arg_list.cur)) : (arg_list.next()) {
+        if (arg_list.cyclic()) return compiler_mod.circularFormError();
         const arg = types.car(arg_list.cur);
         const arg_reg = try self.allocReg();
         try self.compileExprViaIR(arg, arg_reg, false);
@@ -288,12 +293,15 @@ pub fn compileApplyTail(self: *Compiler, expr: Value, dst: u16) CompileError!voi
     try self.compileExprViaIR(types.car(arg_list), base, false);
     arg_list = types.cdr(arg_list);
 
+    // The count walk above proved this spine acyclic; cyclic() stays as the
+    // self-documenting (and cheap) redundancy — see compileSelfTailCall.
+    var rest = compiler_mod.SpineWalk.init(arg_list);
     var nargs_count: usize = 0;
-    while (types.isPair(arg_list)) {
+    while (types.isPair(rest.cur)) : (rest.next()) {
+        if (rest.cyclic()) return compiler_mod.circularFormError();
         const arg_reg = try self.allocReg();
-        try self.compileExprViaIR(types.car(arg_list), arg_reg, false);
+        try self.compileExprViaIR(types.car(rest.cur), arg_reg, false);
         nargs_count += 1;
-        arg_list = types.cdr(arg_list);
     }
 
     if (nargs_count > 255) return CompileError.InternalLimit;

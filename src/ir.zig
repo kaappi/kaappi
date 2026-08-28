@@ -346,15 +346,11 @@ pub const IR = struct {
     gc: ?*memory.GC = null,
     // Pairs on the active lowering path (#2405), keyed on Object address
     // (stable across collections in this non-moving GC, and holding no
-    // Values so the GC never needs to trace it). A datum-label cycle in
-    // code position recurses through lowerWithMacros on the same pair
-    // forever; membership here means that back-edge. Path membership, not
-    // mere prior visitation: shared-but-acyclic structure (the same `#1=`
-    // sub-datum in two argument positions) renews legitimately, and each
-    // sibling's push/remove is balanced before the next one starts.
-    // Scoped correctly because every caller lowers one expression tree per
-    // IR instance (compile/compileExprViaIR/compileDefineFromIR/the LLVM
-    // emitter's scratch instances each build a fresh IR).
+    // Values so the GC never needs to trace it). STANDALONE lowering only
+    // (no Compiler: the LLVM native backend's scratch instances, IR unit
+    // tests) — lowering inside a Compiler uses the Compiler's shared
+    // code_path so the guard also spans compileQQ's template walk. See
+    // Compiler.code_path and Compiler.code_roots for the two halves.
     lower_path: std.AutoHashMapUnmanaged(usize, void) = .empty,
 
     pub fn init(allocator: std.mem.Allocator) IR {
@@ -643,15 +639,42 @@ pub fn lowerWithMacros(ir: *IR, expr: Value, macros: ?*std.StringHashMap(Value))
         // re-enters this function on the same pair at ever-increasing depth
         // — every recursive position routes through this one funnel — until
         // the native stack aborts, uncatchably. Membership on the active
-        // path means exactly that back-edge (see IR.lower_path); a cycle
-        // has no leaves to bottom out at, so it is a named compile error,
-        // not an internal one. Quoted data never passes through here —
-        // lowerQuote makes the whole datum a constant without walking it —
-        // so circular *data* keeps working (#1954 controls).
+        // path means exactly that back-edge; a cycle has no leaves to
+        // bottom out at, so it is a named compile error, not an internal
+        // one. Quoted data never passes through here — lowerQuote makes the
+        // whole datum a constant without walking it — so circular *data*
+        // keeps working (#1954 controls).
+        //
+        // Review of PR #2413: the path is the Compiler's shared set when
+        // lowering happens inside one (so compileQQ's template walk and
+        // this funnel see each other's spans); the IR-local set still
+        // guards standalone lowering with no Compiler — the LLVM backend's
+        // scratch instances, IR unit tests.
         const path_key = @intFromPtr(types.toObject(expr));
-        if (ir.lower_path.contains(path_key)) return compiler_mod.circularFormError();
-        ir.lower_path.put(ir.allocator, path_key, {}) catch return CompileError.OutOfMemory;
-        defer _ = ir.lower_path.remove(path_key);
+        // The push/pop must straddle lowerFormWithMacros below, so the defer
+        // lives in THIS function's scope — a defer inside either branch block
+        // would pop at the branch's closing brace, before the walk happens.
+        const shared_path = ir.compiler != null;
+        if (shared_path) {
+            // ir.compiler is a *const Compiler (lowering was read-only on it
+            // until now); the code-path bookkeeping is lowering state, so the
+            // mutations go through the chain helpers (which reach the parent
+            // chain's root — a lambda body compiles in a child compiler and
+            // is a descendant of every enclosing unit; review of PR #2413).
+            const c: *compiler_mod.Compiler = @constCast(ir.compiler.?);
+            if (c.codePathContains(path_key)) return compiler_mod.circularFormError();
+            c.codePathPush(path_key);
+        } else {
+            // Standalone lowering with no Compiler: the LLVM native backend's
+            // scratch instances, IR unit tests.
+            if (ir.lower_path.contains(path_key)) return compiler_mod.circularFormError();
+            ir.lower_path.put(ir.allocator, path_key, {}) catch return CompileError.OutOfMemory;
+        }
+        defer if (shared_path) {
+            @constCast(ir.compiler.?).codePathPop(path_key);
+        } else {
+            _ = ir.lower_path.remove(path_key);
+        };
         const node = lowerFormWithMacros(ir, expr, macros) catch |err| {
             // Record the failing form's span for the compile-error reporter.
             // Lowering is post-order, so the innermost pair fails first on the

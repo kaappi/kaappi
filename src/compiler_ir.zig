@@ -382,6 +382,10 @@ pub fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]cons
 }
 
 fn compileDefineFromIR(self: *Compiler, data: ir_mod.DefineData, dst: u16) CompileError!void {
+    // #2405: the define's value compiles through a fresh IR — keep a
+    // Compiler-scoped root span across its lower+emit (see Compiler.compile).
+    try self.enterCodeRoot(data.value);
+    defer self.leaveCodeRoot(data.value);
     var ir = ir_mod.IR.init(self.gc.allocator);
     ir.globals = self.globals;
     ir.restricted_env = self.restricted_env;
@@ -432,6 +436,10 @@ fn compileDefineFromIR(self: *Compiler, data: ir_mod.DefineData, dst: u16) Compi
 fn compileSetFromIR(self: *Compiler, data: ir_mod.SetData, dst: u16) CompileError!void {
     const name = types.symbolName(data.name);
 
+    // #2405: the set! value compiles through a fresh IR — keep a
+    // Compiler-scoped root span across its lower+emit (see Compiler.compile).
+    try self.enterCodeRoot(data.value);
+    defer self.leaveCodeRoot(data.value);
     var ir = ir_mod.IR.init(self.gc.allocator);
     ir.globals = self.globals;
     ir.restricted_env = self.restricted_env;
