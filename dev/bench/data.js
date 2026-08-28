@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787932638979,
+  "lastUpdate": 1787938345271,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "49699333+dependabot[bot]@users.noreply.github.com",
-            "name": "dependabot[bot]",
-            "username": "dependabot[bot]"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f49f694886113974efe03a4fe2e37fbda1dad378",
-          "message": "Bump the github-actions group with 3 updates (#2250)\n\nBumps the github-actions group with 3 updates: [DavidAnson/markdownlint-cli2-action](https://github.com/davidanson/markdownlint-cli2-action), [vmactions/freebsd-vm](https://github.com/vmactions/freebsd-vm) and [vmactions/netbsd-vm](https://github.com/vmactions/netbsd-vm).\n\n\nUpdates `DavidAnson/markdownlint-cli2-action` from 24.1.0 to 24.2.0\n- [Release notes](https://github.com/davidanson/markdownlint-cli2-action/releases)\n- [Commits](https://github.com/davidanson/markdownlint-cli2-action/compare/6bf21b07787794f89a243495939cd651942aeabe...21c1be1b93ad9ed58fa840aacc3f279cde2a72ff)\n\nUpdates `vmactions/freebsd-vm` from 1.5.2 to 1.5.3\n- [Release notes](https://github.com/vmactions/freebsd-vm/releases)\n- [Commits](https://github.com/vmactions/freebsd-vm/compare/77ed28d336d03fe19a3f4f7266c1d2c4714dd79d...83b151f58c6047089f4c80eb5ba2039d158ce093)\n\nUpdates `vmactions/netbsd-vm` from 1.4.4 to 1.4.6\n- [Release notes](https://github.com/vmactions/netbsd-vm/releases)\n- [Commits](https://github.com/vmactions/netbsd-vm/compare/bf34bcd909bb50856f934a67d09a8fbe2b966a1b...00081e82b14bc40114eb97f32b4455306828516b)\n\n---\nupdated-dependencies:\n- dependency-name: DavidAnson/markdownlint-cli2-action\n  dependency-version: 24.2.0\n  dependency-type: direct:production\n  update-type: version-update:semver-minor\n  dependency-group: github-actions\n- dependency-name: vmactions/freebsd-vm\n  dependency-version: 1.5.3\n  dependency-type: direct:production\n  update-type: version-update:semver-patch\n  dependency-group: github-actions\n- dependency-name: vmactions/netbsd-vm\n  dependency-version: 1.4.6\n  dependency-type: direct:production\n  update-type: version-update:semver-patch\n  dependency-group: github-actions\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
-          "timestamp": "2026-08-08T02:10:17+05:30",
-          "tree_id": "cbcde3db941a584c142c261a79a9a4d06be003f1",
-          "url": "https://github.com/kaappi/kaappi/commit/f49f694886113974efe03a4fe2e37fbda1dad378"
-        },
-        "date": 1786137227306,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.383656,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.506849,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.572699,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.050675,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004677,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046824,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.315063,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056181,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.757039,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.248747,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.598175,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.286319,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.804306,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.665309,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043934,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045399,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f0937b21fe390cfd4434777e612de64f0ffba17f",
+          "message": "Implement SRFI 274: extended list conversion procedures (#2412)\n\n* Implement SRFI 274: extended list conversion procedures\n\nPortable port of Peter McGoron's reference implementation (MIT); no\nengine changes. Every conversion gains optional start/end range\narguments and accepts dotted and circular lists whenever end is\nsupplied, never inspecting the cdr of the endth pair.\n\nThe sub-library layout follows the SRFI itself rather than extending\n(scheme base): the extended names deliberately shadow existing\nbindings, and since v0.22.1 Kaappi enforces R7RS 5.2 (a double import\nof one identifier with different bindings is an error), the extended\nvariants must live in libraries a program opts into. The bare\n(srfi 274) is a thin alias re-exporting (srfi 274 base) so srfi-274\nanswers as a cond-expand feature id and the SRFI is counted by\n'kaappi features'.\n\nTwo port adaptations, both recorded in srfi-implementation-notes.md:\nthe reference's ideque-unfold / <type>vector-unfold constructions are\nreplaced by handing the bounded, always-proper range from (srfi 274\nbase)'s list-copy to the underlying one-argument converter — Kaappi's\n(srfi 134) exports no ideque-unfold, and importing all twelve full\n(srfi 160 <type>) surfaces for their unfold would be heavy. One\nleniency remains: (srfi 274 134)'s start-only improper-list case is\nsilent because Kaappi's simplified (srfi 134) never walks its input —\ninherited from that port, not from SRFI 274.\n\nFixes #2409\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: string error messages, correct who, single-walk ranges\n\n- (srfi 274 internal): errors now build a \"<who>: <msg>\" string message\n  (R7RS 6.11) instead of passing the who symbol to error, matching every\n  other (error ...) site under lib/; new range-list helper checks a range\n  once under the caller's name and copies it. That replaces the double\n  argcheck! walk in (srfi 274 160 base) and (srfi 274 134), and gives\n  list->string's range errors their own name instead of list-copy's\n  (they surfaced through the list-copy delegation).\n- tests: actually load the bare (srfi 274) alias — cond-expand's\n  (library ...) clause only probes existence, never the body; replace the\n  vacuous per-type binding assertion (same identifier on both sides) with\n  an eqv? identity check against a prefixed per-type import; pin the\n  three documented leniencies (circular streams/generators without end\n  are infinite — stream-ref based, since stream->list would not\n  terminate; 134 start-only improper is silent) and pin the new\n  error-message shape and list->string attribution via guard.\n- CONFORMANCE: fix the portable-SRFIs heading count missed by the\n  179->180 sweep (167 SRFIs: 164 importable); drop (srfi 274 internal)\n  from the importable sub-library catalogues here and in the notes\n  header — internal is plumbing, its own header says not to import it.\n- notes: the improper-without-end bullet now names all three silent\n  paths (134 start-only; 41/158 circular without end, where laziness\n  means nothing walks off the end) instead of only 134's; the\n  port-adaptation wording follows range-list.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Fix the last stale features count: 12 + 164\n\nCodeRabbit caught that CLAUDE.md's features note (line 196, mirrored\nthrough the AGENTS.md symlink) still said 'kaappi features --json'\nreports 'the 12 + 163' after the SRFI 274 port made it 164 portable\nlibraries. The 179->180 / 163->164 sweep missed this instance because\nit greps for '163 portable', not '12 + 163'. Swept the tree for every\nremaining '163'/'179' variant; this was the only one left.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-08-28T22:20:38+05:30",
+          "tree_id": "638d68e209d7a5e6628ad266d85e1341826912d0",
+          "url": "https://github.com/kaappi/kaappi/commit/f0937b21fe390cfd4434777e612de64f0ffba17f"
+        },
+        "date": 1787938338831,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.915106,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.603323,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.559845,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.846891,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005174,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046252,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.286355,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053702,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.395992,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.140196,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.628642,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.300557,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.615564,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.809154,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04561,
             "unit": "seconds"
           }
         ]
