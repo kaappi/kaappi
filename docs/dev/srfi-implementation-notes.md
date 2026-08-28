@@ -1416,7 +1416,8 @@ keywords rename to themselves) is the same object as a use-site token of
 that spelling, so compare recognizes the classic
 `(compare <token> (rename 'kw))` shape by the invocation's rename record
 — order-independent, but not reflexive for that one spelling when a
-use-site local shadows it (two plain use-site tokens stay reflexive). A
+use-site local shadows it (two plain use-site tokens of a spelling this
+invocation did not bare-rename stay reflexive). A
 bare-symbol
 spec falls back to a globals lookup holding a Transformer value, so
 `(define t (er-macro-transformer p))` + `(define-syntax m t)` works. Two

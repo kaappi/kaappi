@@ -62,8 +62,9 @@
 ;;;     the same object as a use-site token of that spelling; compare
 ;;;     recognizes the classic (compare <token> (rename 'kw)) shape by the
 ;;;     invocation's rename record, which makes the answer independent of
-;;;     argument order, and stays reflexive for two plain use-site tokens
-;;;     (the pairwise input-comparison idiom).
+;;;     argument order. Two plain use-site tokens stay reflexive unless
+;;;     this invocation also renamed that spelling bare and a use-site
+;;;     local shadows it (the pairwise input-comparison idiom).
 ;;;
 ;;;   * `(rename 'x)` used to BIND x when x names a global procedure
 ;;;     returns x unrenamed (reference semantics win); rename fresh names
