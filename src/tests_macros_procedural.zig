@@ -417,3 +417,78 @@ test "SRFI 213 gc-stress: allocation across the lookup re-entry hop keeps form a
     const result = try ctx.vm.eval("(hop hop-var hop-key)");
     try std.testing.expectEqual(churn_n + churn_n + 17, types.toFixnum(result));
 }
+
+// ---------------------------------------------------------------------------
+// #2403: rename on a circular datum. R7RS datum labels put genuine cycles
+// in macro-use inputs; erRenameDatum used to walk them with unbounded
+// recursion, pushing two roots per level until the GC root stack panicked
+// — uncatchable, process gone. The regression contract pinned here:
+// rejection as a normal (guard-able, diagnosed) syntax error, exact cycle
+// detection (shared-but-acyclic data still renames), and the pre-scan
+// guards that let the diagnosis reach the user instead of a hang.
+// ---------------------------------------------------------------------------
+
+test "#2403: rename on a circular macro-use datum is a diagnosed error, not an abort" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    // The five-line repro from the issue.
+    const result = ctx.vm.eval(
+        \\(begin
+        \\  (define-syntax m
+        \\    (er-macro-transformer
+        \\     (lambda (form rename compare) (rename (car (cdr form))))))
+        \\  (m #0=(zz . #0#)))
+    );
+    try std.testing.expectError(error.CompileError, result);
+    try std.testing.expect(std.mem.indexOf(u8, ctx.vm.getErrorDetail(), "circular") != null);
+}
+
+test "#2403: rename cycle rejection covers car-edge and vector cycles" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    _ = try ctx.vm.eval(
+        \\(define-syntax d
+        \\  (er-macro-transformer
+        \\   (lambda (form rename compare) (rename (car (cdr form))))))
+    );
+    // A cycle through the car of the renamed datum (spine guard alone
+    // cannot see this shape) and a self-referential vector.
+    try std.testing.expectError(error.CompileError, ctx.vm.eval("(d #1=(p #1# q))"));
+    try std.testing.expect(std.mem.indexOf(u8, ctx.vm.getErrorDetail(), "circular") != null);
+    try std.testing.expectError(error.CompileError, ctx.vm.eval("(d #0=#(1 #0#))"));
+    try std.testing.expect(std.mem.indexOf(u8, ctx.vm.getErrorDetail(), "circular") != null);
+}
+
+test "#2403: a transformer's guard catches the circular-datum rejection" {
+    // The whole point of rejecting through the normal error channel: the
+    // transformer can intercept it and recover, which no uncatchable
+    // root-stack panic ever allowed.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax g
+        \\    (er-macro-transformer
+        \\     (lambda (form rename compare)
+        \\       (guard (e (#t (list (rename 'quote) 'caught)))
+        \\         (rename (car (cdr form)))))))
+        \\  (eq? 'caught (g #0=(zz . #0#))))
+    );
+}
+
+test "#2403: shared-but-acyclic datum still renames (no false cycle)" {
+    // `#1=` reuse is sharing, not a cycle: the same sub-datum appears twice
+    // but the walk never revisits a node on its own path. Renaming it must
+    // succeed — only a back-edge may be rejected.
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define-syntax s
+        \\    (er-macro-transformer
+        \\     (lambda (form rename compare)
+        \\       (list (rename 'quote) (rename (car (cdr form)))))))
+        \\  ((lambda (x) (and (= 2 (length x))
+        \\                     (pair? (car x))
+        \\                     (pair? (car (cdr x)))))
+        \\   (s (#1=(b c) #1#))))
+    );
+}

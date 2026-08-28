@@ -1436,6 +1436,23 @@ invocation's own rename products; a distinguishable wrapper for bare
 rename products would break the compiler's bare matching of the reserved
 forms macros emit. A
 bare-symbol
+reaches the expansion (verified equivalent on both paths). Since #2403,
+`rename` rejects a circular datum with a catchable, diagnosed condition
+instead of the old uncatchable GC root-stack abort: R7RS datum labels put
+genuine cycles in macro-use inputs, and `erRenameDatum` now walks with a
+visited-on-active-path set keyed on Object address (stable — this GC
+never moves objects; shared-but-acyclic `#1=` data still renames, only a
+back-edge is refused), reporting through `globals.set_error_detail_for_macro`
+— the write-side sibling of `error_detail_for_macro` — so the message
+survives `mapNativeError`. Two `compiler.collectSetTargets` guards were
+needed for that diagnosis to reach the user at all: the `set!` pre-scan
+expands macros best-effort, swallows the rejection, and then kept walking
+the same cycle — its spine walk now runs Floyd's tortoise-and-hare
+(exact, because every loop path advances exactly one cdr; the old
+let-syntax two-cdr jump became a sub-walk for exactly this reason) and
+its self-recursions charge the depth cap like every other descent, with
+the `SET_SCAN_SPINE_CAP` from kaappi#2404 keeping the let-syntax
+bindings loop (the one inner spine the tortoise does not cover) bounded. A bare-symbol
 spec falls back to a globals lookup holding a Transformer value, so
 `(define t (er-macro-transformer p))` + `(define-syntax m t)` works. Two
 non-obvious integration points: (1) `vm_imports.copyTransformerFreeRefs`

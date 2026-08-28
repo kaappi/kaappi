@@ -46,6 +46,7 @@ pub fn setVMInstance(vm: *VM) void {
     globals_mod.eval_datum_for_macro = &evalDatumForMacro;
     globals_mod.call_proc_for_macro = &callProcForMacro;
     globals_mod.error_detail_for_macro = &errorDetailForMacro;
+    globals_mod.set_error_detail_for_macro = &setErrorDetailForMacro;
     globals_mod.syntax_property_set = &syntaxPropertySet;
     globals_mod.syntax_property_get = &syntaxPropertyGet;
     globals_mod.env_map_rooted_lookup = &envMapIsGcRooted;
@@ -107,6 +108,14 @@ fn callProcForMacro(proc: Value, args: []const Value) anyerror!Value {
 fn errorDetailForMacro() []const u8 {
     const vm = vm_instance orelse return "";
     return vm.getErrorDetail();
+}
+
+/// #2403: let the expander's native procedures record a precise rejection
+/// message in the VM's error detail (see globals.set_error_detail_for_macro).
+/// No-ops without a VM: mapNativeError then supplies its generic fallback.
+fn setErrorDetailForMacro(msg: []const u8) void {
+    const vm = vm_instance orelse return;
+    vm.setErrorDetail("{s}", .{msg});
 }
 
 /// SRFI 213: store a property value under the composite key
