@@ -198,20 +198,40 @@ test "SRFI 213: define-property in a body scope is rejected" {
 // ---------------------------------------------------------------------------
 // KEP-0006 step 1 exit criterion (#2390): the reentrant-VM-during-compile
 // machinery must keep every live value rooted when collections fire around a
-// procedural-transformer call. The load-bearing pieces are the no-collect
-// window compiler_macro.zig opens across expandMacro (a use-path transformer
-// call defers collections; the deferred storm then fires on the first
-// allocation after the window closes, with the expansion held only by the
-// extra_roots append), the pushRoot discipline inside
-// expander.expandProceduralMacro (input form + rename/compare/lookup
-// NativeFns across the SRFI 213 re-entry hops), and the define-time rooting
-// around vm.evalDatumForMacro. Under -Dgc-stress=true every allocation
-// collects (or defers a collection), so a single unrooted value in any of
-// those stretches panics deterministically ("GC: marking freed object");
-// without the flag the allocation counts below exceed the 8192-object GC
-// threshold, so real collections still fire mid-eval on the define-time path
-// and immediately after each use-path window. Counts scale down under stress
-// (collection-per-allocation) like tests_robustness.zig's loops.
+// procedural-transformer call.
+//
+// What these tests pin, precisely (mutation-tested in the PR #2399 review):
+// the PRIMARY protection is the no-collect window compiler_macro.zig opens
+// across expandMacro — a use-path transformer call defers collections, and
+// the deferred storm then fires on the first allocation after the window
+// closes. Bypassing that window (maybeCollect's no_collect guard forced
+// off) makes all three tests below panic with "GC: marking freed object",
+// so the window, and the overall invariant that no in-flight intermediate
+// is left exposed while collections are live, are genuinely pinned.
+//
+// The individually-named explicit roots — the extra_roots append in
+// compiler_macro.zig, the input-form pushRoot in
+// expander.expandProceduralMacro (plus the rename/compare/lookup NativeFn
+// roots across the SRFI 213 re-entry hops), and the expr_root push in
+// vm.evalDatumForMacro — are defense-in-depth these tests corroborate but
+// do NOT isolate: the same mutation testing showed that, with the window
+// intact, removing all three at once still passes, because at the instant
+// collections fire each value is also reachable through a redundant cover
+// (the compile boundary's rooting of the source tree for the input/spec
+// datums, and the allocators' argument auto-rooting as the expansion is
+// handed from one allocating step to the next — not the VM register file,
+// which markVmRoots only marks for live frames, all popped by then). A test
+// that flips on any ONE of those roots alone would need the value provably
+// unreachable from every such cover at the collection instant, which
+// depends on compiler-internal allocation ordering and cannot be arranged
+// from Scheme-level test code; keep the roots anyway — the covers are
+// incidental to the current code shape, the roots are the contract.
+//
+// Without -Dgc-stress=true the allocation counts below exceed the
+// 8192-object GC threshold, so real collections still fire mid-eval on the
+// define-time path and immediately after each use-path window. Counts scale
+// down under stress (collection-per-allocation) like
+// tests_robustness.zig's loops.
 // ---------------------------------------------------------------------------
 
 /// Allocations per transformer-body loop: each iteration conses a pair and
@@ -290,9 +310,9 @@ test "SRFI 213 gc-stress: allocation across the lookup re-entry hop keeps form a
     // again with the property-lookup NativeFn. Both hops allocate a storm;
     // the second hop then re-reads the ORIGINAL use-site form (captured
     // across the first hop's allocations) and consults the SRFI 213
-    // property table through `lookup`. This covers the res_root/lookup_root
-    // rooting in expandProceduralMacro's hop loop plus the input_root that
-    // must span every hop.
+    // property table through `lookup`. This exercises the
+    // res_root/lookup_root rooting in expandProceduralMacro's hop loop plus
+    // the input_root that must span every hop.
     var buf: [768]u8 = undefined;
     const def_src = try std.fmt.bufPrint(&buf,
         \\(begin
