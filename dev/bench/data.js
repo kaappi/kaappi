@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787887123841,
+  "lastUpdate": 1787887485119,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "da126d91f1c62ced335ee5158011f5582a55c0c7",
-          "message": "Isolate each LSP document's macros so define-syntax cannot leak across documents (#2244)\n\nrunDiagnostics compiled every open document against the server's single\nshared vm.macros table, so a define-syntax in one file changed how every\nother file was diagnosed: byte-identical text flipped from clean to KP2001\ndepending on what else the editor had open, and the leak survived didClose\nof the defining document (only a server restart cleared it). A plain\ndefine never leaked, because globals are never written by the diagnostics\npath — the macro table was the sole carrier.\n\nEach runDiagnostics run now resets the shared table to a baseline snapshot\ntaken at startup, before any document is opened. A document's own macros\nstill accumulate top-to-bottom across its forms (the same visibility kaappi\ncheck gives a standalone file — macro plus misuse in one file is still\nKP2001), but nothing written during a run survives to another document, so\nevery file gets the verdict it would get alone. Baseline values are rooted\nonce via extra_roots, since the VM's GC marking covers vm.macros only.\n\nEnables the two #1979 FAIL-marked assertions in tests/scheme/lsp/lsp.sh,\nretunes the didClose control for the now-clean third frame, and adds two\nregression guards: own-document macro misuse stays KP2001 with another\ndocument open, and a document defining its own macro still cannot see\nanother document's.\n\nSuite: 156 LSP assertions pass, incl. under -Dgc-stress=true; unit tests\npass.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-06T20:20:09+05:30",
-          "tree_id": "9b302134e751ec2163688b5157622f5c1e7e197f",
-          "url": "https://github.com/kaappi/kaappi/commit/da126d91f1c62ced335ee5158011f5582a55c0c7"
-        },
-        "date": 1786029747538,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.977422,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.516255,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.563647,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.822045,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004852,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.045118,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.298372,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054355,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.339171,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.16844,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.519809,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.302098,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.704119,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.750819,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044829,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.037892,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8f75f63e03fd40dfb3e37d8a592fc063aa66afa1",
+          "message": "Re-port SRFI 241 and 202 on er-macro-transformer (KEP-0006 step 5) (#2398)\n\n* Re-port SRFI 241 and 202 on er-macro-transformer\n\nKEP-0006's implementation-plan step 5 named these two libraries as the\nacceptance test for er-macro-transformer: both were pure-syntax-rules\nports whose every helper macro carried a custom %%% ellipsis identifier\njust so the literal ... token could be matched as data. Each library is\nnow a single procedural transformer that compiles the pattern language\nby ordinary list processing, which lifts all four of the 241 port's\ndocumented limitations: arbitrary sub-patterns under an ellipsis,\nmandatory patterns after the ellipsis in lists and vectors, the SRFI's\nellipsis-aware quasiquote inside clause bodies (a let-syntax rebinding\naround each body), and the spec's cata evaluation order (operators run\nonly after the guard passes). The 202 re-port also gains SRFI 2's bare\nbound-variable claw and vector patterns in quasiquoted claws.\n\nAll pattern keywords are recognized through the ER compare, which is\nhygiene-stripped name equality; the findings on where that is and is not\nsufficient are recorded on kaappi#2388. The stale SRFI 148 header claim\nthat Kaappi \"has no er-macro-transformer support\" is corrected in\npassing (false since v0.22.0); 148 keeps the reference's portable branch\nbecause the Chibi branch needs a binding-aware compare.\n\nCloses #2391\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address #2398 review: expansion-error and bundle-tier coverage\n\nThree review findings on the SRFI 241/202 er-macro re-port:\n\n- tests/scheme/errors/srfi-241-expansion-errors-2391.sh: the six verr\n  diagnostics in lib/srfi/241.sld (misplaced ellipsis, multiple\n  ellipses, invalid cata pattern/variable, and %match-qq's two template\n  shape errors) fire while match expands, so the SRFI-64 suite's runtime\n  guards can never reach them; one malformed form per diagnostic,\n  asserting nonzero exit and the KP2002 message text.\n\n- tests/scheme/compile/srfi-241-202-bundle-2391.sh (+ fixture): the\n  compiled-artifact smoke the .scm suites cannot provide. kaappi compile\n  refuses .sld-resolved imports (kaappi#1743), so the route is the\n  -Dbundle standalone binary, built with bundle_fixture_binary's\n  same-source/isolated-prefix discipline but a separate fixture — srfi\n  imports would make the shared bundle-replay .sbc bytes depend on the\n  srfi search path. Interpreter output is the oracle; both tiers agree\n  on all three lifted-capability lines.\n\n- docs/dev/srfi-implementation-notes.md: the engine-facts intro\n  over-attributed coverage. The SRFI suites cover the macro behavior and\n  the new errors suite the diagnostics; KAAPPI_HOME isolation and .sld\n  staleness are library-cache-1888.sh's; the zig-out/lib refresh step is\n  an uncovered workflow footgun and now says so.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-28T08:09:00+05:30",
+          "tree_id": "cf44b40bd5d5109e12047a2444fb75e00dec98be",
+          "url": "https://github.com/kaappi/kaappi/commit/8f75f63e03fd40dfb3e37d8a592fc063aa66afa1"
+        },
+        "date": 1787887483809,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.911538,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.111721,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.568316,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.858297,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005193,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046497,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.284519,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.060965,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.389327,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.120265,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.657007,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.305638,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.619068,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.808293,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045658,
             "unit": "seconds"
           }
         ]
