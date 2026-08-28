@@ -123,7 +123,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
         with:
           version: 0.16.0
 
@@ -253,7 +253,7 @@ jobs:
 
       - name: Install Zig
         if: env.DOCS_ONLY != 'true'
-        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
         with:
           version: 0.16.0
           cache-key: ${{ matrix.optimize }}
@@ -400,7 +400,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
         with:
           version: 0.16.0
           cache-key: gc-stress
@@ -433,7 +433,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
         with:
           version: 0.16.0
           cache-key: gc-stress-scheme
@@ -537,7 +537,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
         with:
           version: 0.16.0
           cache-key: riscv64
@@ -579,7 +579,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
         with:
           version: 0.16.0
           cache-key: s390x
@@ -623,7 +623,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
         with:
           version: 0.16.0
           cache-key: ppc64le
@@ -670,7 +670,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
         with:
           version: 0.16.0
           cache-key: freebsd
@@ -700,7 +700,7 @@ jobs:
         run: rm -rf .zig-cache
 
       - name: Run test suites (FreeBSD VM)
-        uses: vmactions/freebsd-vm@83b151f58c6047089f4c80eb5ba2039d158ce093 # v1
+        uses: vmactions/freebsd-vm@f0552d3b69211736abd97f02ff3d4674c56b73b1 # v1
         with:
           release: "14.3"
           usesh: true
@@ -733,7 +733,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
         with:
           version: 0.16.0
           cache-key: openbsd
@@ -797,7 +797,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
         with:
           version: 0.16.0
           cache-key: netbsd
@@ -823,7 +823,7 @@ jobs:
         run: rm -rf .zig-cache
 
       - name: Run test suites (NetBSD VM)
-        uses: vmactions/netbsd-vm@00081e82b14bc40114eb97f32b4455306828516b # v1
+        uses: vmactions/netbsd-vm@6334c835de4c04a59fe59f0f8f071e02a2f0bab3 # v1
         with:
           release: "10.1"
           usesh: true
@@ -884,7 +884,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
         with:
           version: 0.16.0
           cache-key: windows-cross-${{ matrix.arch }}
@@ -1253,7 +1253,7 @@ jobs:
       - name: Install Zig
         # After the suites (see the job comment). Native x86_64 Windows
         # Zig — the C compiler + linker `kaappi compile` picks up.
-        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
         with:
           version: 0.16.0
           cache-key: windows-x64-test
@@ -1283,7 +1283,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
         with:
           version: 0.16.0
           cache-key: wasm
@@ -1352,7 +1352,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
         with:
           version: 0.16.0
 
@@ -1404,7 +1404,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
         with:
           version: 0.16.0
 

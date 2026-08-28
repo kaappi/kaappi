@@ -316,7 +316,7 @@ jobs:
       # ahead of the preinstalled clang by cc_search_order (zig, cc, clang,
       # gcc). Installing zig puts a usable driver first in that order.
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
         with:
           version: 0.16.0
 
