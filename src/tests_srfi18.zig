@@ -7,6 +7,7 @@ const fiber_mod = @import("fiber.zig");
 const primitives = @import("primitives.zig");
 const srfi18 = @import("primitives_srfi18.zig");
 const vm_mod = @import("vm.zig");
+const reactor_mod = @import("reactor.zig");
 
 // Regression for the #958 globals read race: VM.initForThread used to share
 // the parent's globals map by struct copy, so the child's copied header kept
@@ -811,4 +812,163 @@ test "huge and infinite timeouts saturate instead of aborting (#1983)" {
     // thread-join! with an infinite timeout on a thread that finishes.
     _ = try vm.eval("(define t (thread-start! (make-thread (lambda () 42))))");
     try std.testing.expectEqual(@as(i64, 42), types.toFixnum(try vm.eval("(thread-join! t +inf.0)")));
+}
+
+// ===========================================================================
+// kaappi#2395 — notifier-woken waits replacing the 1 ms cross-thread polls.
+// The reactor-level machinery is covered in tests_reactor.zig; these pin the
+// SRFI-18-visible consequences. tests/scheme/srfi/srfi18-notifier-wakeup-2395.scm
+// holds the multi-thread timing scenarios.
+// ===========================================================================
+
+// A timed thread-join! on an OS thread now drives the scheduler while it
+// waits, so runnable sibling fibers execute instead of starving for the whole
+// wait (the old sleepNs(1ms) status poll dispatched nothing). The flag is
+// read immediately after the join returns — nothing in between yields to the
+// scheduler — so under the old behavior it is still #f at the read.
+test "#2395: timed thread-join! dispatches runnable sibling fibers while waiting" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // OS threads are unregistered on wasm (thread-start! is native-only)
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(import (kaappi fibers))
+        \\(define sibling-ran #f)
+        \\(define f (spawn (lambda () (set! sibling-ran #t))))
+        \\(let ((t (make-thread (lambda () (thread-sleep! 0.2) 'done))))
+        \\  (thread-start! t)
+        \\  (let ((r (thread-join! t 30 'timed-out)))
+        \\    (if (and (eq? r 'done) sibling-ran) 'both 'starved)))
+    );
+    try std.testing.expect(types.isSymbol(result));
+    try std.testing.expectEqualStrings("both", types.symbolName(result));
+}
+
+// The never-started half of #2194, fixed by the same rework: a sibling fiber
+// that would call thread-start! on the joined handle used to be starved by
+// the join's poll loop, so the join always ran out its full timeout. Driving
+// the scheduler lets the sibling start the thread, whose exit ring then
+// resolves the join with the thunk's value.
+test "#2395: thread-join! on a never-started handle a sibling fiber starts mid-join" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // OS threads are unregistered on wasm (thread-start! is native-only)
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(import (kaappi fibers))
+        \\(define t2 (make-thread (lambda () 42)))
+        \\(define starter (spawn (lambda () (thread-start! t2))))
+        \\(thread-join! t2 30 'timed-out)
+    );
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}
+
+// An untimed join of a handle nothing can ever start is now a prompt,
+// catchable deadlock error — the same verdict the fiber path raises — where
+// the old poll loop hung forever (only the owner thread may call
+// thread-start!, and it is the one blocked in the join).
+test "#2395: untimed thread-join! on an unstartable handle raises the deadlock error" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // OS threads are unregistered on wasm (thread-start! is native-only)
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(guard (e ((join-timeout-exception? e) 'timeout)
+        \\          (#t 'deadlock-error))
+        \\  (thread-join! (make-thread (lambda () 1)))
+        \\  'joined)
+    );
+    try std.testing.expect(types.isSymbol(result));
+    try std.testing.expectEqualStrings("deadlock-error", types.symbolName(result));
+}
+
+// A timed join must still time out when the thread genuinely outlives the
+// deadline — the deadline timer is the only remaining wake for that case,
+// so this is the pin that the notifier rework didn't lose it.
+test "#2395: timed thread-join! still times out on a still-running thread" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // OS threads are unregistered on wasm (thread-start! is native-only)
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(let ((t (make-thread (lambda () (thread-sleep! 30) 'slept))))
+        \\  (thread-start! t)
+        \\  (let ((r (thread-join! t 0.1 'timed-out)))
+        \\    (thread-terminate! t)
+        \\    (guard (e (#t #f)) (thread-join! t))
+        \\    r))
+    );
+    try std.testing.expect(types.isSymbol(result));
+    try std.testing.expectEqualStrings("timed-out", types.symbolName(result));
+}
+
+// freeObject's `.mutex` arm drains leftover cross-thread waiter
+// registrations (a waiter that error-unwound past its deregister), releasing
+// each retained notifier reference — otherwise the notifier struct and its
+// kqueue/eventfd leak for the life of the process.
+test "#2395: a swept mutex releases leftover cross-thread waiter registrations" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // Reactor.init allocates fd-backed backends
+    var reactor = try reactor_mod.Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+    const n = reactor.notifyHandle();
+    const base = n.refcount.load(.monotonic);
+
+    var gc = memory.GC.init(std.testing.allocator);
+    const m_val = try gc.allocMutex(types.VOID);
+    const m = types.toMutex(m_val);
+    const waiters = try reactor_mod.slotWaiterList(&m.cross_waiters);
+    try waiters.register(n);
+    try std.testing.expectEqual(base + 1, n.refcount.load(.monotonic));
+
+    gc.deinit(); // sweeps the mutex; freeObject must drain the registration
+    try std.testing.expectEqual(base, n.refcount.load(.monotonic));
+}
+
+// Same for `.condition_variable`.
+test "#2395: a swept condition variable releases leftover cross-thread waiter registrations" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // Reactor.init allocates fd-backed backends
+    var reactor = try reactor_mod.Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+    const n = reactor.notifyHandle();
+    const base = n.refcount.load(.monotonic);
+
+    var gc = memory.GC.init(std.testing.allocator);
+    const cv_val = try gc.allocConditionVariable(types.VOID);
+    const cv = types.toConditionVariable(cv_val);
+    const waiters = try reactor_mod.slotWaiterList(&cv.cross_waiters);
+    try waiters.register(n);
+    try std.testing.expectEqual(base + 1, n.refcount.load(.monotonic));
+
+    gc.deinit();
+    try std.testing.expectEqual(base, n.refcount.load(.monotonic));
+}
+
+// freeObject's `.fiber` arm releases the wake handle a child published for
+// thread-terminate! rings (Fiber.os_notifier) when a started-but-never-
+// joined handle is torn down with its GC — the join path's release is
+// covered by every joining test above running under std.testing.allocator's
+// leak check.
+test "#2395: a swept fiber releases its published os_notifier reference" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // Reactor.init allocates fd-backed backends
+    var reactor = try reactor_mod.Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+    const n = reactor.notifyHandle();
+    const base = n.refcount.load(.monotonic);
+
+    var gc = memory.GC.init(std.testing.allocator);
+    const fiber = try gc.allocFiber(types.VOID, 0);
+    reactor_mod.retainNotifier(n);
+    @atomicStore(?*reactor_mod.ThreadNotifier, &fiber.os_notifier, n, .release);
+    try std.testing.expectEqual(base + 1, n.refcount.load(.monotonic));
+
+    gc.deinit();
+    try std.testing.expectEqual(base, n.refcount.load(.monotonic));
 }

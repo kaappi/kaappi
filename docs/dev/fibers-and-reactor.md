@@ -40,6 +40,54 @@ called from inside a SRFI 181 callback is rejected with a catchable error
 instead of recursively driving the scheduler. See the SRFI 181 section of
 `docs/dev/srfi-implementation-notes.md`.
 
+## Cross-thread wakes ride the notifier (kaappi#2395)
+
+Each reactor's `ThreadNotifier` (KEP-0002 §5) is the only way another OS
+thread can end this thread's blocking `poll()`. Originally only shared
+channels used it; since kaappi#2395 (KEP-0002 unresolved question 3) every
+cross-thread SRFI-18 wait does, and the old 1 ms polls are gone. The wake
+edges, all in `src/reactor.zig` unless noted:
+
+| Event | Who gets rung | Mechanism |
+|-------|---------------|-----------|
+| Channel send/receive/close | Threads registered in the `SharedChannel` waiter lists | `shared_channel.zig`'s snapshot-and-ring (unchanged) |
+| `mutex-unlock!`, mutex abandonment, terminated-owner release | Threads registered on the mutex | `NotifierList` on `Mutex.cross_waiters` (an opaque slot, the `Channel.shared` precedent) |
+| `condition-variable-signal!`/`-broadcast!` | Threads registered on the condvar | `NotifierList` on `ConditionVariable.cross_waiters`, rung right after the generation bump |
+| `thread-terminate!` | The victim thread | `Fiber.os_notifier`, published by the child when its reactor is created (`fiber.ensureScheduler`), released at `reapOsThread` or the handle's sweep |
+| An OS thread exiting | **Every** live reactor | `ringAllNotifiers()` over the process-wide registry every `Reactor.init` joins, called by `threadEntryFn`'s outermost defer after the `live_child_threads` decrement |
+
+Waiter-side, `runSchedulerStep`'s wait contexts replace the old
+`pollCapNs` cap with `externalWakePossible()` (re-evaluated at every park):
+when true, `parkOnReactor` blocks on the notifier even with an empty reactor
+instead of reporting deadlock. The SRFI-18 mutex/condvar waits register on
+the object's `NotifierList` **before** their first state check and
+deregister via `defer`; wakers change state **before** ringing. One of two
+synchronization edges then always exists — the ring sees the registration
+(and the OS-level wake persists until polled, so a ring that outruns the
+park still ends it), or the registration's slot-CAS/list-lock reads-from the
+ring's, making the state change visible to the waiter's re-check — the same
+two-channel argument as KEP-0002 §5. `NotifierList`'s doc comment carries
+the full protocol, including why the empty-slot probe is a no-op CAS rather
+than a plain load.
+
+The exit ring-all is also what keeps the deadlock verdicts sound: a wait
+parked unbounded because `crossThreadWaitPossible()` was true re-runs that
+verdict when the thread it was counting on exits, and either resolves,
+re-parks, or raises the deadlock error — where the old code polled its way
+to the same verdict. It wakes shared-channel waiters too (the sweep is
+unconditional), which narrows KEP-0002 §5's accepted only-peer-exited
+liveness gap to the cases where the channel's stub count still reports
+another holder.
+
+`thread-join!` on an OS thread now waits the same way: the timed path (and
+the never-started-handle path) drive the scheduler via `OsJoinWait`, parked
+until the child's exit ring or the deadline timer — dispatching runnable
+sibling fibers, which the old `sleepNs(1 ms)` status loop starved (that
+starvation was the never-started half of kaappi#2194: a sibling fiber's
+`thread-start!` on the joined handle could never run). An untimed join of a
+started thread still blocks directly in `thread.join()`, which was always
+event-driven.
+
 ## Non-blocking mode is lazy, and is the platform probe
 
 Port fds (never 0/1/2) flip to `O_NONBLOCK` lazily, only once a scheduler

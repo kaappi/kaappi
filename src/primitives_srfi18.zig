@@ -6,6 +6,7 @@ const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
 const primitives_fiber = @import("primitives_fiber.zig");
 const fiber_mod = @import("fiber.zig");
+const reactor_mod = @import("reactor.zig");
 const memory = @import("memory.zig");
 const shared_channel = @import("shared_channel.zig");
 const gc_deep_copy = @import("gc_deep_copy.zig");
@@ -354,7 +355,11 @@ fn ensureScheduler() @TypeOf(fiber_mod.ensureScheduler(undefined)) {
     return fiber_mod.ensureScheduler(vm);
 }
 
-// 1ms, matching thread-join!'s existing OS-thread poll cadence.
+// 1ms. Since kaappi#2395 the blocking waits (thread-join!, mutex-lock!,
+// condvar, thread-sleep!) are woken by notifier rings instead of polling at
+// this cadence; the two remaining users are threadEntryFn's exit-path spins
+// (the descendant drain and the mid-collection startup hold), which run off
+// any wait Ctx and whose rare, bounded polling was left as-is.
 const CROSS_THREAD_POLL_NS: u64 = 1_000_000;
 
 // Number of thread-start!-spawned OS threads currently alive (incremented in
@@ -378,12 +383,14 @@ var live_child_threads: usize = 0;
 //     timer/fd event).
 //
 // Asymmetry this creates: a child thread that manages to genuinely
-// self-deadlock (e.g. waits on a mutex only it could ever unlock) now polls
+// self-deadlock (e.g. waits on a mutex only it could ever unlock) blocks
 // forever rather than raising the deadlock error runSchedulerStep's "not
 // done" normally produces, since it always assumes the main thread might
 // still help -- indefinite blocking here is conformant with SRFI-18, but the
 // same shape of deadlock hangs on a child thread and errors on the main
-// thread, which is worth knowing when debugging one.
+// thread, which is worth knowing when debugging one. (Before kaappi#2395
+// that hang burned a 1 ms poll loop; it now parks silently on the child's
+// reactor, woken only by a ring that in this scenario never comes.)
 //
 // `pub` since KEP-0002 Phase 3 (#1468): primitives_fiber.zig's shared-channel
 // deadlock heuristic (§5, "wakeup possible whenever ... other live OS threads
@@ -685,6 +692,11 @@ fn threadStartImpl(args: []const Value) PrimitiveError!Value {
         fiber, spawner, gc.allocator, root_vm, envelope,
     }) catch {
         _ = @atomicRmw(usize, &live_child_threads, .Sub, 1, .release);
+        // kaappi#2395: every live_child_threads decrement is followed by a
+        // ring-all (see threadEntryFn's exit defer for why), this
+        // spawn-failure one included, so no parked crossThreadWaitPossible
+        // verdict can outlive the count it was computed from.
+        reactor_mod.ringAllNotifiers();
         if (spawner) |s| {
             _ = @atomicRmw(u32, &s.live_descendants, .Sub, 1, .release);
         }
@@ -702,8 +714,19 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, spawner: ?*fiber_mod.Fiber, allocator:
     // -- cannot race a join of whatever thread spawned this one (#2129).
     // Balances the increment in threadStartFn on every exit path (including
     // the early GC/VM-init failures below), so crossThreadWaitPossible's "is
-    // another OS thread still alive" check stays accurate.
-    defer _ = @atomicRmw(usize, &live_child_threads, .Sub, 1, .release);
+    // another OS thread still alive" check stays accurate. The ring-all
+    // after it (kaappi#2395) is what makes the new count observable without
+    // polling: every parked scheduler wakes and re-evaluates its wait — a
+    // timed thread-join! on this thread sees the terminal status stored in
+    // the body above, and an unrelated cross-thread wait re-runs its
+    // crossThreadWaitPossible deadlock verdict against the decremented
+    // count. Ordered decrement-then-ring for exactly that second consumer:
+    // a ring before the decrement could wake a waiter into re-reading the
+    // stale count and re-parking, with no further ring ever coming.
+    defer {
+        _ = @atomicRmw(usize, &live_child_threads, .Sub, 1, .release);
+        reactor_mod.ringAllNotifiers();
+    }
     // #1933: tell the parent's collector this thread is gone, so it stops
     // marking this child's (now stale) VM. Runs last, after every other
     // defer -- but the flag is set before the live_child_threads decrement
@@ -910,25 +933,17 @@ pub const SleepWait = struct {
     pub fn isDone(_: SleepWait) bool {
         return false; // a pure sleep only ever ends via me.timed_out
     }
-    // See MutexWait.pollCapNs: thread-terminate! from another OS thread is
-    // observed only by polling -- nothing wakes a sleep park on termination
-    // -- so a sleep in a program with other live OS threads must not block
-    // for its whole duration on the offchance the terminator is one of
-    // them (#1982); the runSchedulerStep loop re-checks the termination
-    // flag at this cadence. Solo (no other OS thread can exist to
-    // terminate this one) it stays a single true reactor block.
-    //
-    // Cost of the cap: crossThreadWaitPossible() is unconditionally true on
-    // a child thread (!vm.owns_globals), so a child's (thread-sleep! 60)
-    // wakes 60,000 times -- measured ~5k involuntary context switches and
-    // ~0.04s CPU for a pair of 2.5s/3.0s sleeps vs 33 switches and 0.00s
-    // without the cap. Small per-sleep, linear in duration and thread
-    // count. A notifier-based interrupt (thread-terminate! notifying the
-    // victim's reactor) would make termination immediate and remove the
-    // wakeups; the cap is the minimal correct fix.
-    pub fn pollCapNs(_: SleepWait) ?u64 {
-        return if (crossThreadWaitPossible()) CROSS_THREAD_POLL_NS else null;
-    }
+    // No externalWakePossible and no poll cap: the sleep's own reactor
+    // timer bounds every park, and the one cross-thread event that must cut
+    // a sleep short -- thread-terminate! from another OS thread (#1982) --
+    // rings this thread's notifier directly since kaappi#2395 (the victim's
+    // wake handle is published on its thread handle; see Fiber.os_notifier),
+    // popping the park so runSchedulerStep's per-iteration waitTerminated
+    // check fires immediately. Before that, terminate was observed only by
+    // polling, and the 1 ms cap this Ctx carried made a child's
+    // (thread-sleep! 60) wake 60,000 times (~5k involuntary context
+    // switches and ~0.04s CPU for a pair of 2.5s/3.0s sleeps, vs 33
+    // switches and 0.00s for a true block).
 };
 
 /// A timed park on the reactor's timer heap instead of a whole-thread
@@ -1053,8 +1068,29 @@ fn threadTerminateFn(args: []const Value) PrimitiveError!Value {
     const status = @atomicLoad(fiber_mod.FiberStatus, &fiber.status, .acquire);
     if (status == .completed or status == .errored) return types.VOID;
 
-    // Atomic: for OS threads the child VM polls this flag concurrently.
+    // Atomic: for OS threads the child VM reads this flag concurrently (the
+    // bytecode safepoint, and runSchedulerStep's waitTerminated).
     @atomicStore(bool, &fiber.terminated, true, .monotonic);
+
+    // kaappi#2395: ring the victim thread's reactor so a park in a native
+    // wait (thread-sleep!, mutex-lock!, condvar or join wait) is cut short
+    // NOW -- waitTerminated used to observe the store above only at the 1 ms
+    // poll cap the SRFI-18 wait Ctxs carried, and with those caps gone this
+    // ring is what keeps #1982 closed. Strictly after the flag store, so
+    // the woken wait's re-check sees it (notify's release store pairs with
+    // the consume protocol's acquire swap). The probe is a no-op CAS -- an
+    // atomic RMW, not a plain load -- which orders it against the victim's
+    // publishing Xchg (fiber.ensureScheduler) exactly as NotifierList's
+    // protocol note argues: either this sees the handle and rings (a ring
+    // outpacing the park still ends it -- the OS-level wake persists until
+    // polled), or the victim's publication reads-from this probe and its
+    // post-publication checks see the flag. Null for a local fiber, a
+    // never-started handle, and a child that has not created its reactor
+    // yet -- all of which observe termination through their existing local
+    // paths (this function's own status flip, or the bytecode safepoint).
+    if (@cmpxchgStrong(?*reactor_mod.ThreadNotifier, &fiber.os_notifier, null, null, .acq_rel, .acquire)) |present| {
+        present.?.notify();
+    }
 
     // Abandon a *local* fiber's held mutexes here: it lives in this
     // scheduler on this thread, so walking its owned-mutexes list is
@@ -1118,6 +1154,90 @@ fn sleepNs(ns: u64) void {
     platform.sleepNs(ns);
 }
 
+/// Wait Ctx for thread-join! on an OS-thread target (kaappi#2395): a
+/// started thread, or a make-thread handle a sibling fiber this drive
+/// dispatches may yet start (the isDone shape covers the whole
+/// created → running → terminal arc either way). The terminal status is
+/// stored by the child with .release; the exit ring-all that follows it
+/// (threadEntryFn's outermost defer) is what pops the joiner's park, so no
+/// poll cadence is needed.
+pub const OsJoinWait = struct {
+    target: *fiber_mod.Fiber,
+    pub fn isDone(self: OsJoinWait) bool {
+        const st = @atomicLoad(fiber_mod.FiberStatus, &self.target.status, .acquire);
+        return st == .completed or st == .errored;
+    }
+    // A live OS thread's exit always rings every reactor, so once the
+    // target is started an external wake is guaranteed-possible. A
+    // never-started handle can only be resolved by a fiber of THIS thread
+    // (thread-start!/thread-terminate! are owner-thread-only per
+    // checkThreadOwner), which the drive's local dispatch covers — no
+    // external source exists for it, and saying so is what lets
+    // parkOnReactor still diagnose the genuinely-stuck case. os_thread is
+    // written by this same thread only (threadStartImpl/reapOsThread), so
+    // the plain read is race-free.
+    pub fn externalWakePossible(self: OsJoinWait) bool {
+        return self.target.os_thread != null;
+    }
+};
+
+/// Parks thread-join! until `target` reaches a terminal status or
+/// `deadline_ns` expires — the notifier-woken replacement (kaappi#2395) for
+/// the old sleepNs(1ms) status polls, and the piece that lets a timed join
+/// dispatch runnable sibling fibers instead of starving them (the
+/// never-started half of #2194: a sibling's thread-start! on the joined
+/// handle used to be starved forever by the poll loop). Returns true when
+/// the target is terminal, false on timeout. Raises the deadlock error
+/// when the wait can provably never resolve: an unstarted handle, nothing
+/// locally runnable, and no other OS thread left whose exit could change
+/// that — the same verdict the fiber path raises, where the old code hung
+/// in the poll loop.
+fn driveOsJoinWait(target: *fiber_mod.Fiber, deadline_ns: ?u64) PrimitiveError!bool {
+    if ((OsJoinWait{ .target = target }).isDone()) return true;
+    if (deadline_ns) |d| {
+        if (fiber_mod.clockNs() >= d) return false;
+    }
+
+    const ctx = try ensureScheduler();
+    const me = ctx.vm.current_fiber orelse return PrimitiveError.OutOfMemory;
+
+    // No enrollWaiter: nothing local ever completes the handle (the child
+    // finishes on its own OS thread), so there is no local wake to index
+    // for — the resolutions are the deadline timer and the notifier rings.
+    // waiting_on is still set for markFiberState's tracing and diagnostics,
+    // mirroring the fiber path.
+    me.waiting_on = types.makePointer(&target.header);
+    me.status = .waiting;
+    me.timed_out = false;
+    if (deadline_ns) |d| {
+        me.deadline_ns = d;
+        try ctx.reactor.addTimer(d, me);
+    }
+
+    const done = try fiber_mod.runSchedulerStep(OsJoinWait, .{ .target = target }, ctx.vm, ctx.sched, me);
+    // No local wake exists to cancel the timer through doWake, so a
+    // non-timeout resolution must pull it explicitly (the mutexLockFn
+    // pattern) or it later fires against a reused fiber slot.
+    if (deadline_ns != null) ctx.reactor.removeTimer(me);
+    me.deadline_ns = null;
+
+    if (me.timed_out) {
+        me.timed_out = false;
+        return false;
+    }
+    if (!done) {
+        // Only the never-started shape can reach here (externalWakePossible
+        // is constant-true once os_thread is set, and parkOnReactor never
+        // reports deadlock with an external wake declared). me.waiting_on,
+        // not a caller slice: registers may have been reallocated by the
+        // drive. raiseError always returns an error, so the `try` is the
+        // exit; the trailing return only satisfies the type.
+        _ = try raiseError(.general, "thread-join!: deadlock — thread was never started and no runnable fiber can start it (all fibers blocked)", me.waiting_on);
+        return false;
+    }
+    return true;
+}
+
 fn threadJoinFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFiber(args[0]))
         return primitives.typeError("thread-join!", "thread", args[0]);
@@ -1150,56 +1270,59 @@ fn threadJoinFn(args: []const Value) PrimitiveError!Value {
         }
     }
 
-    // OS thread path
+    // Captured before any scheduler drive below: args is a slice into
+    // vm.registers, which runSchedulerStep may reallocate while dispatching
+    // sibling fibers (the mutexLockFn precedent). timeout_val above is a
+    // plain Value copy and stays traced through this fiber's saved
+    // registers, so it needs no re-capture.
+    const fiber_val = args[0];
+
+    // OS thread path. A timed join drives the scheduler parked on the
+    // reactor — woken by the child's exit ring-all or the deadline timer
+    // (kaappi#2395), where it used to poll status at 1 ms with every local
+    // sibling starved. An untimed join keeps its original shape: straight
+    // into reapOsThread's blocking thread.join(), which was always
+    // event-driven.
     if (target.os_thread != null) {
-        if (deadline_ns) |deadline| {
-            while (@atomicLoad(fiber_mod.FiberStatus, &target.status, .acquire) != .completed and
-                @atomicLoad(fiber_mod.FiberStatus, &target.status, .acquire) != .errored)
-            {
-                if (fiber_mod.clockNs() >= deadline) {
-                    if (has_timeout_val) return timeout_val;
-                    return raiseError(.join_timeout, "thread-join! timed out", types.VOID);
-                }
-                sleepNs(1_000_000);
+        if (deadline_ns != null) {
+            if (!try driveOsJoinWait(target, deadline_ns)) {
+                if (has_timeout_val) return timeout_val;
+                return raiseError(.join_timeout, "thread-join! timed out", types.VOID);
             }
         }
-        return reapOsThread(target, args[0]);
+        return reapOsThread(target, fiber_val);
     }
 
     // Never-started target, in two kinds discriminated by sched_idx (set only
     // by addFiber; a make-thread object is never added to any scheduler and
     // leaves it at 0):
     //
-    //  * A make-thread handle awaiting thread-start! (sched_idx == 0): poll.
-    //    The status is changed from outside this loop, so polling observes it
-    //    (#878). os_thread alone is NOT a safe discriminator here -- a handle
-    //    about to be started has os_thread == null for the whole window before
-    //    thread-start!'s std.Thread.spawn, and must keep polling, not fall
-    //    through to the cooperative path.
+    //  * A make-thread handle awaiting thread-start! (sched_idx == 0): drive
+    //    the scheduler via driveOsJoinWait. Only a fiber of this same thread
+    //    can start or terminate the handle (checkThreadOwner gates both), so
+    //    dispatching siblings is what lets the status change at all — the
+    //    1 ms poll this replaces (#878's shape, kaappi#2395) starved exactly
+    //    that fiber, so a joined handle a sibling would have started hung
+    //    until the timeout (the never-started half of #2194). os_thread
+    //    alone is NOT a safe discriminator here -- a handle about to be
+    //    started has os_thread == null for the whole window before
+    //    thread-start!'s std.Thread.spawn; OsJoinWait's status shape covers
+    //    the started-mid-wait continuation either way.
     //
     //  * A (kaappi fibers) spawn'd fiber (sched_idx != 0) still in .created:
-    //    only THIS thread's cooperative scheduler can dispatch it, and the
-    //    poll loop below is exactly what starves it -- the status can never
-    //    change from outside, so without a timeout the loop is unbounded and
-    //    thread-join! hangs on a fiber that would have completed instantly
-    //    (#2194). Fall through to the fiber path below, which drives the
-    //    scheduler.
+    //    only THIS thread's cooperative scheduler can dispatch it (#2194).
+    //    Fall through to the fiber path below, which drives the scheduler
+    //    with the local-wake machinery (enrollWaiter/TargetWait) a real
+    //    fiber needs.
     if (target.sched_idx == 0 and
         @atomicLoad(fiber_mod.FiberStatus, &target.status, .acquire) == .created)
     {
-        while (@atomicLoad(fiber_mod.FiberStatus, &target.status, .acquire) != .completed and
-            @atomicLoad(fiber_mod.FiberStatus, &target.status, .acquire) != .errored)
-        {
-            if (deadline_ns) |deadline| {
-                if (fiber_mod.clockNs() >= deadline) {
-                    if (has_timeout_val) return timeout_val;
-                    return raiseError(.join_timeout, "thread-join! timed out", types.VOID);
-                }
-            }
-            sleepNs(1_000_000);
+        if (!try driveOsJoinWait(target, deadline_ns)) {
+            if (has_timeout_val) return timeout_val;
+            return raiseError(.join_timeout, "thread-join! timed out", types.VOID);
         }
         if (target.os_thread != null)
-            return reapOsThread(target, args[0]);
+            return reapOsThread(target, fiber_val);
         return threadJoinResult(target);
     }
 
@@ -1259,6 +1382,16 @@ fn reapOsThread(target: *fiber_mod.Fiber, fiber_val: Value) PrimitiveError!Value
         defer if (join_vm) |vm| vm.setCollectionRunning();
         thread.join();
         target.os_thread = null;
+    }
+
+    // kaappi#2395: drop the counted reference the child published for
+    // thread-terminate! rings (Fiber.os_notifier). Past thread.join() the
+    // child can never publish again, and terminate on a joined thread
+    // no-ops at its status check, so nulling here closes the field's
+    // lifecycle on the owner thread; a never-joined handle's reference is
+    // instead dropped by freeObject's `.fiber` arm at GC teardown.
+    if (@atomicRmw(?*reactor_mod.ThreadNotifier, &target.os_notifier, .Xchg, null, .acq_rel)) |n| {
+        reactor_mod.releaseNotifier(n);
     }
 
     target.frame_count = 0;
@@ -1605,9 +1738,12 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
                 // unlocked/abandoned; wake any local waiter enrolled from a
                 // previous foreign unlock so it observes the release (and
                 // raises abandoned on its re-lock) instead of sitting parked
-                // until its poll cap or the deadlock error. Mirrors the
+                // until its deadline or the deadlock error — and ring any
+                // waiter parked on another thread's scheduler, which the
+                // local wake can never reach (kaappi#2395). Mirrors the
                 // slow path's wake below.
                 ctx.sched.wakeMutexWaiters(args[0]);
+                reactor_mod.ringSlotWaiters(&m.cross_waiters);
                 return types.TRUE;
             }
             m.owner_thread = owner_thread;
@@ -1645,6 +1781,21 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
     const ctx = try ensureScheduler();
     const me = ctx.vm.current_fiber orelse return PrimitiveError.OutOfMemory;
 
+    // kaappi#2395: register this thread's wake handle on the mutex BEFORE
+    // the wait's first state check (runSchedulerStep's isDone), so a
+    // cross-thread unlock/abandon that lands after that check finds the
+    // registration and rings — registration-before-check on this side,
+    // store-before-ring on the unlocker's, is the lost-wakeup protocol
+    // NotifierList's doc lays out. Registered once for the whole wait (the
+    // list is persistent, unlike a SharedChannel's ring-clears) and
+    // dropped via defer on every exit, error unwinds included.
+    // Unconditional rather than gated on crossThreadWaitPossible(): a
+    // thread that first shares this mutex mid-wait would otherwise park
+    // unregistered with nothing re-arming the registration.
+    const cross_waiters = reactor_mod.slotWaiterList(&m.cross_waiters) catch return PrimitiveError.OutOfMemory;
+    cross_waiters.register(ctx.reactor.notifyHandle()) catch return PrimitiveError.OutOfMemory;
+    defer cross_waiters.deregister(ctx.reactor.notifyHandle());
+
     me.waiting_on = mutex_val;
     me.status = .waiting;
     me.timed_out = false;
@@ -1658,10 +1809,12 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
     // false; claiming it is still a race against any other thread making
     // the same observation, so retry the claim and go back to waiting on
     // failure instead of assuming we won. When runSchedulerStep reports
-    // "not done" (parkOnReactor found nothing locally runnable and no
-    // pending timer/fd event), that's only a genuine deadlock if no other
-    // OS thread could plausibly still unlock this mutex from the outside —
-    // otherwise poll briefly and retry.
+    // "not done" (parkOnReactor found nothing locally runnable, no pending
+    // timer/fd event, and no external wake declared), that's a genuine
+    // deadlock unless another OS thread appeared between the park's
+    // crossThreadWaitPossible verdict and the re-check here — then just
+    // loop; the next park re-evaluates and blocks on the notifier
+    // (kaappi#2395: no polling sleep — the unlock ring is the wakeup).
     while (true) {
         const done = try fiber_mod.runSchedulerStep(MutexWait, .{ .m = m }, ctx.vm, ctx.sched, me);
         if (me.timed_out) {
@@ -1695,16 +1848,15 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
             me.deadline_ns = null;
             return raiseError(.general, "mutex-lock!: deadlock — mutex will never be released (all fibers blocked)", types.VOID);
         }
-        sleepNs(CROSS_THREAD_POLL_NS);
-        // Same timer restoration as above: a local wake earlier in this
-        // loop (see the `done` branch) may have already canceled the
-        // timer, and that state persists into this branch too.
+        // Same timer restoration as in the `done` branch: a local wake
+        // earlier in this loop may have already canceled the timer, and
+        // that state persists into this branch too.
         if (deadline) |d| {
             ctx.reactor.removeTimer(me);
             try ctx.reactor.addTimer(d, me);
         }
         me.status = .waiting;
-        ctx.sched.enrollWaiter(me); // #1530: re-index after this spin (see above)
+        ctx.sched.enrollWaiter(me); // #1530: re-index before re-parking (see above)
     }
     // A cross-thread resolution never runs local wake bookkeeping (the
     // unlocking thread's scheduler/reactor doesn't even know `me` exists),
@@ -1743,6 +1895,7 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
         @atomicStore(bool, &m.abandoned, true, .release);
         @atomicStore(bool, &m.locked, false, .release);
         ctx.sched.wakeMutexWaiters(mutex_val);
+        reactor_mod.ringSlotWaiters(&m.cross_waiters); // kaappi#2395: see the fast path
         return types.TRUE;
     }
     m.owner_thread = owner_thread;
@@ -1763,14 +1916,18 @@ pub const MutexWait = struct {
     pub fn isDone(self: MutexWait) bool {
         return !@atomicLoad(bool, &self.m.locked, .acquire);
     }
-    // Caps parkOnReactor's blocking wait so a long real timeout (registered
-    // separately on `me`) can't make it block for the whole duration on the
-    // offhand chance the mutex is unlocked by another OS thread sooner --
-    // that thread's own scheduler has no way to signal this one directly.
-    // See crossThreadWaitPossible's doc comment for when this applies.
-    pub fn pollCapNs(self: MutexWait) ?u64 {
+    // kaappi#2395: a cross-thread resolution arrives as a notifier ring —
+    // the unlocker/abandoner rings the mutex's NotifierList (this thread
+    // registered before its first state check; see mutexLockFn), a
+    // terminate rings this thread's own handle, and a thread exit rings
+    // every reactor — so the park blocks until one lands instead of
+    // re-checking at the 1 ms cap this Ctx used to carry. The verdict still
+    // matters for the deadlock check: with no other OS thread alive nothing
+    // external can ever ring, and parkOnReactor's "nothing can wake this"
+    // report is what the caller turns into the deadlock error.
+    pub fn externalWakePossible(self: MutexWait) bool {
         _ = self;
-        return if (crossThreadWaitPossible()) CROSS_THREAD_POLL_NS else null;
+        return crossThreadWaitPossible();
     }
 };
 
@@ -1808,6 +1965,11 @@ fn mutexUnlockFn(args: []const Value) PrimitiveError!Value {
 
     const ctx = try ensureScheduler();
     ctx.sched.wakeMutexWaiters(args[0]);
+    // kaappi#2395: waiters parked on other OS threads' schedulers never see
+    // the local wake above — ring their reactors so they re-race the claim
+    // now. Strictly after the locked release-store, per the lost-wakeup
+    // protocol (NotifierList's doc).
+    reactor_mod.ringSlotWaiters(&m.cross_waiters);
 
     if (cv) |c| {
         var deadline: ?u64 = null;
@@ -1816,6 +1978,15 @@ fn mutexUnlockFn(args: []const Value) PrimitiveError!Value {
         }
 
         const me = ctx.vm.current_fiber orelse return PrimitiveError.OutOfMemory;
+
+        // kaappi#2395: same registration-before-first-state-check protocol
+        // as mutexLockFn, against the condvar's own waiter list; the ring
+        // arrives from condition-variable-signal!/-broadcast! right after
+        // the generation bump CondVarWait.isDone re-checks.
+        const cross_waiters = reactor_mod.slotWaiterList(&c.cross_waiters) catch return PrimitiveError.OutOfMemory;
+        cross_waiters.register(ctx.reactor.notifyHandle()) catch return PrimitiveError.OutOfMemory;
+        defer cross_waiters.deregister(ctx.reactor.notifyHandle());
+
         me.waiting_on = args[1];
         me.status = .waiting;
         me.timed_out = false;
@@ -1829,10 +2000,12 @@ fn mutexUnlockFn(args: []const Value) PrimitiveError!Value {
         // condition-variable-signal!/-broadcast! called on *another*
         // thread only wakes fibers local to that thread's own scheduler
         // (me.status never changes) -- the generation bump in
-        // CondVarWait.isDone is what a cross-thread waiter actually relies
-        // on. When runSchedulerStep reports "not done", poll and retry
-        // instead of treating it as a genuine deadlock whenever another OS
-        // thread could plausibly still signal from the outside.
+        // CondVarWait.isDone, re-checked when the signaler's ring pops the
+        // park, is what a cross-thread waiter actually relies on
+        // (kaappi#2395). "Not done" with another OS thread alive only
+        // means the park's crossThreadWaitPossible verdict went stale
+        // mid-wait -- loop back and re-park; without one it is a genuine
+        // deadlock.
         while (true) {
             const done = try fiber_mod.runSchedulerStep(CondVarWait, .{ .me = me, .cv = c, .start_gen = start_gen }, ctx.vm, ctx.sched, me);
             if (me.timed_out) {
@@ -1846,9 +2019,8 @@ fn mutexUnlockFn(args: []const Value) PrimitiveError!Value {
                 me.deadline_ns = null;
                 return raiseError(.general, "mutex-unlock!: deadlock — condition variable will never be signaled (all fibers blocked)", types.VOID);
             }
-            sleepNs(CROSS_THREAD_POLL_NS);
             me.status = .waiting;
-            ctx.sched.enrollWaiter(me); // #1530: re-index after this spin (see mutexLockFn)
+            ctx.sched.enrollWaiter(me); // #1530: re-index before re-parking (see mutexLockFn)
         }
         // See the matching comment in mutexLockFn: a cross-thread signal
         // never runs local wake bookkeeping, so any timer registered above
@@ -1891,10 +2063,12 @@ pub const CondVarWait = struct {
         return self.me.status != .waiting or
             loadSignalGeneration(self.cv) != self.start_gen;
     }
-    // See MutexWait.pollCapNs.
-    pub fn pollCapNs(self: CondVarWait) ?u64 {
+    // See MutexWait.externalWakePossible; the ring here comes from
+    // condition-variable-signal!/-broadcast!, right after the generation
+    // bump this isDone re-checks.
+    pub fn externalWakePossible(self: CondVarWait) bool {
         _ = self;
-        return if (crossThreadWaitPossible()) CROSS_THREAD_POLL_NS else null;
+        return crossThreadWaitPossible();
     }
 };
 
@@ -1938,8 +2112,16 @@ fn condvarSignalFn(args: []const Value) PrimitiveError!Value {
     const ctx = try ensureScheduler();
     ctx.sched.wakeOneCondVarWaiter(args[0]);
     // Bump the generation so a waiter parked on a different OS thread's
-    // scheduler (which never sees the local wake above) can poll for this.
-    bumpSignalGeneration(types.toConditionVariable(args[0]));
+    // scheduler (which never sees the local wake above) detects the signal,
+    // then ring those waiters' reactors so the detection happens now rather
+    // than at a poll cadence (kaappi#2395). Bump strictly before ring, per
+    // the lost-wakeup protocol. Cross-thread waiters can't be woken singly
+    // -- every registered thread re-checks the generation and all of them
+    // return -- which is the same wake-them-all semantics the polled
+    // generation check always had, and within SRFI-18's "at least one".
+    const cv = types.toConditionVariable(args[0]);
+    bumpSignalGeneration(cv);
+    reactor_mod.ringSlotWaiters(&cv.cross_waiters);
     return types.VOID;
 }
 
@@ -1948,7 +2130,9 @@ fn condvarBroadcastFn(args: []const Value) PrimitiveError!Value {
         return primitives.typeError("condition-variable-broadcast!", "condition-variable", args[0]);
     const ctx = try ensureScheduler();
     ctx.sched.wakeAllCondVarWaiters(args[0]);
-    bumpSignalGeneration(types.toConditionVariable(args[0]));
+    const cv = types.toConditionVariable(args[0]);
+    bumpSignalGeneration(cv);
+    reactor_mod.ringSlotWaiters(&cv.cross_waiters); // kaappi#2395: see signal!
     return types.VOID;
 }
 

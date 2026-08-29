@@ -1779,17 +1779,18 @@ test "gc tracing: heap-struct field inventory is unchanged" {
         "thunk",             "result",               "waiting_on",         "id",
         "name",              "specific",             "param_overrides",    "deadline_ns",
         "timed_out",         "driving",              "terminated",         "os_thread",
-        "live_descendants",  "io_fd",                "io_interest",        "io_buffer",
-        "sched_idx",         "queued",               "rv_demand_on",       "owned_mutexes",
+        "os_notifier",       "live_descendants",     "io_fd",              "io_interest",
+        "io_buffer",         "sched_idx",            "queued",             "rv_demand_on",
+        "owned_mutexes",
     });
     expectFields(types.Channel, &.{
         "header", "head", "tail", "queue_len", "capacity", "rv_demand", "closed", "shared",
     });
     expectFields(types.Mutex, &.{
-        "header", "name", "owner", "owner_thread", "locked", "abandoned", "specific",
+        "header", "name", "owner", "owner_thread", "locked", "abandoned", "specific", "cross_waiters",
     });
     expectFields(types.ConditionVariable, &.{
-        "header", "name", "specific", "signal_generation",
+        "header", "name", "specific", "signal_generation", "cross_waiters",
     });
     expectFields(types.Srfi18Time, &.{ "header", "seconds", "nanoseconds", "time_type" });
     expectFields(types.NativeClosure, &.{ "header", "fn_ptr", "upvalues", "arity", "name" });

@@ -340,6 +340,7 @@ const unwind_table = [_]UnwindRow{
     // deadline, so parkOnReactor's deadlock check already covers the idle
     // case and a timed wait must run its full duration.
     .{ .name = "TargetWait (fiber-join / thread-join!)", .Ctx = fiber_mod.TargetWait, .unwinds = false },
+    .{ .name = "OsJoinWait (thread-join! on an OS thread)", .Ctx = primitives_srfi18.OsJoinWait, .unwinds = false },
     .{ .name = "SleepWait (thread-sleep!)", .Ctx = primitives_srfi18.SleepWait, .unwinds = false },
     .{ .name = "MutexWait (mutex-lock!)", .Ctx = primitives_srfi18.MutexWait, .unwinds = false },
     .{ .name = "CondVarWait (condition-variable-wait!)", .Ctx = primitives_srfi18.CondVarWait, .unwinds = false },
@@ -374,19 +375,24 @@ test "#1625: exactly one wait kind opts into ancestor-resolved unwinding" {
 
 test "#1625: every wait context still satisfies runSchedulerStep's duck type" {
     // The comptime contract the table above is only meaningful against:
-    // isDone is mandatory, pollCapNs optional (cross-OS-thread waits only).
-    var with_cap: usize = 0;
+    // isDone is mandatory, externalWakePossible optional (cross-OS-thread
+    // waits only, kaappi#2395), and pollCapNs must be GONE — a reappearing
+    // cap means someone reintroduced the 1 ms cross-thread poll the
+    // notifier rings replaced.
+    var with_external: usize = 0;
     inline for (unwind_table) |row| {
         if (!@hasDecl(row.Ctx, "isDone")) return error.MissingIsDone;
-        if (@hasDecl(row.Ctx, "pollCapNs")) with_cap += 1;
+        if (@hasDecl(row.Ctx, "pollCapNs")) return error.PollCapReintroduced;
+        if (@hasDecl(row.Ctx, "externalWakePossible")) with_external += 1;
     }
-    // The two SRFI-18 waits resolvable by another OS thread (mutex unlock,
-    // condvar signal) plus SleepWait, whose cap exists not for resolution
-    // but so a sleeping thread observes thread-terminate! from another OS
-    // thread within a poll cadence (#1982) -- the only way a terminate can
-    // interrupt an otherwise timer-bounded sleep park. A new cap beyond
-    // these three means a new cross-thread path worth reviewing.
-    try std.testing.expectEqual(@as(usize, 3), with_cap);
+    // The waits resolvable by another OS thread's ring: mutex unlock/
+    // abandon (MutexWait), condvar signal/broadcast (CondVarWait), and an
+    // OS thread's exit ring-all (OsJoinWait). SleepWait deliberately has
+    // none — its park is always timer-bounded, and the terminate interrupt
+    // that used to justify its cap (#1982) now rings the victim's notifier
+    // directly. A new decl beyond these three means a new cross-thread
+    // wake path worth reviewing.
+    try std.testing.expectEqual(@as(usize, 3), with_external);
 }
 
 // --- anyAncestorWaitResolved, directly ------------------------------------

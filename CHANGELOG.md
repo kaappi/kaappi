@@ -25,6 +25,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **`thread-join!` and the cross-thread mutex/condvar waits are woken by
+  reactor notifier rings instead of 1 ms polls** (#2395, KEP-0002 unresolved
+  question 3) — an exiting thread rings every live reactor,
+  `mutex-unlock!`/abandonment and `condition-variable-signal!`/`-broadcast!`
+  ring per-object waiter registrations, and `thread-terminate!` rings its
+  victim's reactor directly, so a parked timed `thread-join!`,
+  `mutex-lock!`, condvar wait, or `thread-sleep!` blocks until a ring or its
+  own deadline instead of waking 1000×/s per waiter (a child's
+  `(thread-sleep! 60)` used to wake 60,000 times). Two visible fixes ride
+  along: a timed (or never-started) `thread-join!` now dispatches runnable
+  sibling fibers while it waits, so a sibling's `thread-start!` on the
+  joined handle finally runs instead of starving until the timeout (the
+  never-started half of #2194), and an untimed join of a handle nothing can
+  ever start raises the same catchable deadlock error as the fiber path
+  instead of hanging forever.
 - **SRFI 231 c64/c128 array bodies use the reference implementation's
   interleaved-float representation** (#2382) — an `f32vector`/`f64vector`
   of twice the logical length holding real/imaginary pairs, instead of

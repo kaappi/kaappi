@@ -213,23 +213,25 @@ pub fn raiseCustomPortCallbackBlocked(vm: *VM) VMError {
 /// `false` only when nothing could ever produce a wakeup: genuine
 /// deadlock/done, the same meaning as the bare `break` this replaces.
 ///
-/// `cap_ns`, when given, additionally bounds the blocking wait itself
-/// (independent of any registered timer). Needed by waits that might
-/// resolve through state no reactor event announces — a mutex/condvar
-/// shared with another OS thread's own scheduler, which has no way to
-/// signal this one — so a long real timeout registered on `me` doesn't
-/// make this call block for that entire duration on the offhand chance a
-/// cross-thread resolution arrives sooner; the caller re-checks after each
-/// capped return. `null` preserves the original bounded-only-by-registered-
-/// timers behavior.
-pub fn parkOnReactor(vm: *VM, sched: *FiberScheduler, cap_ns: ?u64) VMError!bool {
+/// `external_wake` (kaappi#2395) declares that something OUTSIDE this
+/// scheduler — another OS thread ringing this reactor's ThreadNotifier: a
+/// cross-thread mutex unlock or condvar signal against a registered
+/// NotifierList, a thread-terminate! against this thread, an exiting
+/// thread's ring-all — may resolve the caller's wait. It makes an
+/// otherwise-idle park (no runnable fiber, empty reactor) block on the
+/// notifier instead of reporting deadlock: the notifier's backend
+/// registration is permanent, so `poll(null)` with an empty timer heap
+/// waits exactly on it. It replaces the 1 ms `cap_ns` poll this function
+/// used to take for the same waits — the ring, not a cadence, is now what
+/// ends the block.
+pub fn parkOnReactor(vm: *VM, sched: *FiberScheduler, external_wake: bool) VMError!bool {
     const reactor = vm.reactor orelse return false;
     // Consume protocol (KEP-0002 §5) before the deadlock check: a notify
     // that arrived just before this call must not be missed by
     // hasRunnableFibers() reading a shared_waiters entry the sweep would
     // otherwise have already cleared.
     while (reactor.notifier.wake_pending.swap(false, .acq_rel)) sched.sweepSharedWaiters();
-    if (!sched.hasRunnableFibers() and reactor.isEmpty()) return false;
+    if (!sched.hasRunnableFibers() and reactor.isEmpty() and !external_wake) return false;
 
     var ready: std.ArrayList(*Fiber) = .empty;
     defer ready.deinit(vm.gc.allocator);
@@ -243,7 +245,7 @@ pub fn parkOnReactor(vm: *VM, sched: *FiberScheduler, cap_ns: ?u64) VMError!bool
     // resume (honours collection_stop).
     const report_park_state = !vm.owns_globals;
     if (report_park_state) vm.setCollectionParked();
-    const poll_result = reactor.poll(cap_ns, &ready);
+    const poll_result = reactor.poll(null, &ready);
     if (report_park_state) vm.setCollectionRunning();
     poll_result catch return VMError.OutOfMemory;
     // A notify arriving *during* the blocking poll() above is what actually
@@ -286,9 +288,14 @@ fn waitTerminated(vm: *VM, me: *Fiber) bool {
 /// (KEP-0001 Phase 2) — call sites differ only in `Ctx.isDone`. `Ctx` is a
 /// small value type with an `isDone(self: Ctx) bool` method (comptime duck
 /// typing), e.g. `TargetWait{ .target = f }`. `Ctx` may optionally also
-/// define `pollCapNs(self: Ctx) ?u64` (see parkOnReactor) — omitted by
-/// every Ctx type except the SRFI-18 mutex/condvar waits, which need it for
-/// cross-OS-thread polling.
+/// define `externalWakePossible(self: Ctx) bool` (see parkOnReactor;
+/// kaappi#2395) — omitted by every Ctx type except the SRFI-18 mutex/
+/// condvar and OS-thread-join waits, whose resolution can arrive from
+/// another OS thread as a notifier ring rather than any local event. It is
+/// re-evaluated at every park, because its verdict (typically
+/// crossThreadWaitPossible()) changes as threads exit — and each such exit
+/// rings every reactor (ringAllNotifiers), which is exactly what pops the
+/// park so the re-evaluation runs.
 ///
 /// `me.driving` brackets the whole call (set here, cleared on every exit
 /// via `defer`) regardless of whether the caller also set `me.status =
@@ -363,7 +370,6 @@ pub fn runSchedulerStep(comptime Ctx: type, ctx: Ctx, vm: *VM, sched: *FiberSche
     }
     const my_idx = sched.current_idx;
     try sched.saveCurrentFiber();
-    const poll_cap_ns: ?u64 = if (@hasDecl(Ctx, "pollCapNs")) ctx.pollCapNs() else null;
 
     me.driving = true;
     defer me.driving = false;
@@ -391,11 +397,11 @@ pub fn runSchedulerStep(comptime Ctx: type, ctx: Ctx, vm: *VM, sched: *FiberSche
     defer _ = sched.driving_waits.pop();
 
     while (!ctx.isDone() and !me.timed_out) {
-        // Checked at the top of every loop iteration: a capped park
-        // (pollCapNs, which the SRFI-18 waits set whenever another OS thread
-        // could terminate this one) re-enters this loop at that cadence, and
-        // a local sibling terminator runs inside this very drive and is
-        // observed on the next iteration.
+        // Checked at the top of every loop iteration: a cross-thread
+        // thread-terminate! rings this thread's notifier right after
+        // setting the flag (kaappi#2395), which pops any park below and
+        // re-enters this loop; a local sibling terminator runs inside this
+        // very drive and is observed on the next iteration.
         if (waitTerminated(vm, me)) {
             vm.setErrorDetail("thread terminated", .{});
             return VMError.Terminated;
@@ -425,7 +431,12 @@ pub fn runSchedulerStep(comptime Ctx: type, ctx: Ctx, vm: *VM, sched: *FiberSche
             if (comptime @hasDecl(Ctx, "unwind_on_resolved_ancestor")) {
                 if (sched.anyAncestorWaitResolved(me)) break;
             }
-            if (!(try parkOnReactor(vm, sched, poll_cap_ns))) break;
+            // external wake is re-evaluated per park, not hoisted: its
+            // usual body (crossThreadWaitPossible) changes as OS threads
+            // exit, and each exit's ring-all pops the previous park so
+            // this line runs again with the new verdict (kaappi#2395).
+            const external_wake = if (comptime @hasDecl(Ctx, "externalWakePossible")) ctx.externalWakePossible() else false;
+            if (!(try parkOnReactor(vm, sched, external_wake))) break;
             continue;
         };
         // Unreachable in practice since `driving` (set above) now excludes

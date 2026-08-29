@@ -172,6 +172,179 @@ pub fn retainNotifier(n: *ThreadNotifier) void {
     _ = n.refcount.fetchAdd(1, .monotonic);
 }
 
+/// Process-wide registry of every live Reactor's notifier (kaappi#2395).
+/// ringAllNotifiers walks it when something happens that has no per-object
+/// waiter list to ring — an OS thread exiting — so every parked scheduler
+/// re-evaluates its wait instead of discovering the change by polling.
+/// Each entry holds one counted reference, taken at Reactor.init and
+/// released at Reactor.deinit (which also flips `alive` first, so a ring
+/// racing the teardown skips the dying backend resource).
+var live_notifiers: std.ArrayList(*ThreadNotifier) = .empty;
+var live_notifiers_mutex: std.atomic.Mutex = .unlocked;
+
+fn registerLiveNotifier(n: *ThreadNotifier) !void {
+    memory.spinLock(&live_notifiers_mutex);
+    defer memory.spinUnlock(&live_notifiers_mutex);
+    try live_notifiers.append(std.heap.c_allocator, n);
+    retainNotifier(n);
+}
+
+fn unregisterLiveNotifier(n: *ThreadNotifier) void {
+    memory.spinLock(&live_notifiers_mutex);
+    var found = false;
+    for (live_notifiers.items, 0..) |existing, i| {
+        if (existing == n) {
+            _ = live_notifiers.swapRemove(i);
+            found = true;
+            break;
+        }
+    }
+    memory.spinUnlock(&live_notifiers_mutex);
+    if (found) releaseNotifier(n);
+}
+
+/// Rings every live reactor (kaappi#2395). Called by threadEntryFn's exit
+/// defer after the live_child_threads decrement, so a scheduler parked in
+/// an unbounded reactor wait — a timed thread-join! on that thread, or a
+/// mutex/condvar wait whose crossThreadWaitPossible() verdict the exit just
+/// changed — wakes, re-checks its condition, and either resolves or
+/// re-parks/deadlock-errors with the updated thread count. Rung under the
+/// registry lock: notify() is a lock-free flag store plus one non-blocking
+/// syscall, thread exit is rare, and holding the lock is what guarantees
+/// every entry is still refcount-live while touched (deregistration takes
+/// the same lock), so no snapshot/retain dance is needed.
+pub fn ringAllNotifiers() void {
+    memory.spinLock(&live_notifiers_mutex);
+    defer memory.spinUnlock(&live_notifiers_mutex);
+    for (live_notifiers.items) |n| n.notify();
+}
+
+/// Cross-OS-thread waiter registrations for one shared object (kaappi#2395):
+/// the mutex/condition-variable analogue of a SharedChannel's waiter lists,
+/// attached to the GC object through its opaque `cross_waiters` slot (the
+/// `Channel.shared` precedent keeps reactor types out of the types layer).
+/// Allocated lazily by the first registration, freed only when the owning
+/// object is swept (freeObject) — an object with an active waiter is pinned
+/// by that waiter's registers, so the sweep can only ever see leftovers.
+///
+/// Registrations are persistent (unlike a SharedChannel's ring-clears): a
+/// wait registers once, parks any number of times inside one
+/// runSchedulerStep drive, and deregisters on every exit via `defer`.
+/// Entries are duplicate-tolerant — two fibers of one thread waiting on the
+/// same object register the shared notifier twice, and deregister removes
+/// one instance — so one wait's exit can never strip a sibling's
+/// registration. ring() notifies under the list lock (same rationale as
+/// ringAllNotifiers: entries are guaranteed live only while the lock is
+/// held, and notify() is cheap and non-blocking).
+///
+/// Lost-wakeup protocol, mirroring KEP-0002 §5's two-channel argument:
+/// a waiter REGISTERS (slot install + append, below) strictly before the
+/// state check that decides to park, and re-checks after every wake; a
+/// waker CHANGES STATE (unlock store / generation bump) strictly before it
+/// rings. Every slot access is an atomic RMW and every list access is under
+/// the list lock, so one of two synchronization edges always exists: either
+/// the ring sees the registration (and the OS-level wake persists until the
+/// next poll retrieves it, interrupting even a park that starts after the
+/// ring), or the registration's slot-CAS/list-lock reads-from the ring's —
+/// making the state change visible to the waiter's post-registration
+/// re-check. A plain load in ringSlotWaiters would reopen the classic
+/// store-buffer interleaving (waker misses the registration AND waiter
+/// misses the state change), which is why its empty-slot probe is a CAS.
+pub const NotifierList = struct {
+    mutex: std.atomic.Mutex = .unlocked,
+    entries: std.ArrayList(*ThreadNotifier) = .empty,
+
+    /// Retains `n` and appends it. Prunes dead entries (owning thread
+    /// exited without deregistering — reachable only via an error unwind
+    /// that skipped a defer, but cheap to sweep here like SharedChannel's
+    /// register-time prune) while walking. Duplicates are deliberate; see
+    /// the type doc.
+    pub fn register(self: *NotifierList, n: *ThreadNotifier) !void {
+        memory.spinLock(&self.mutex);
+        defer memory.spinUnlock(&self.mutex);
+        var i: usize = 0;
+        while (i < self.entries.items.len) {
+            const existing = self.entries.items[i];
+            if (!existing.alive.load(.acquire)) {
+                _ = self.entries.swapRemove(i);
+                releaseNotifier(existing);
+                continue;
+            }
+            i += 1;
+        }
+        try self.entries.append(std.heap.c_allocator, n);
+        retainNotifier(n);
+    }
+
+    /// Removes ONE instance of `n` (a sibling wait's duplicate stays) and
+    /// releases its reference. No-op if absent — a defensive tolerance, not
+    /// an expected path.
+    pub fn deregister(self: *NotifierList, n: *ThreadNotifier) void {
+        memory.spinLock(&self.mutex);
+        var found = false;
+        for (self.entries.items, 0..) |existing, i| {
+            if (existing == n) {
+                _ = self.entries.swapRemove(i);
+                found = true;
+                break;
+            }
+        }
+        memory.spinUnlock(&self.mutex);
+        if (found) releaseNotifier(n);
+    }
+
+    pub fn ring(self: *NotifierList) void {
+        memory.spinLock(&self.mutex);
+        defer memory.spinUnlock(&self.mutex);
+        for (self.entries.items) |n| n.notify();
+    }
+
+    /// Releases every leftover registration and the list storage. Sweep/
+    /// teardown only — never racing a register (see the type doc).
+    fn drain(self: *NotifierList) void {
+        for (self.entries.items) |n| releaseNotifier(n);
+        self.entries.deinit(std.heap.c_allocator);
+    }
+};
+
+/// Returns the object's NotifierList, installing one on first use. The
+/// install is a CAS so two threads racing the first registration agree on
+/// one list (the loser frees its candidate); an atomic RMW rather than a
+/// guarded plain store because the slot doubles as the lost-wakeup
+/// protocol's synchronization point — see NotifierList's doc.
+pub fn slotWaiterList(slot: *?*anyopaque) !*NotifierList {
+    if (@atomicLoad(?*anyopaque, slot, .acquire)) |raw|
+        return @ptrCast(@alignCast(raw));
+    const fresh = try std.heap.c_allocator.create(NotifierList);
+    fresh.* = .{};
+    if (@cmpxchgStrong(?*anyopaque, slot, null, @ptrCast(fresh), .acq_rel, .acquire)) |raced| {
+        std.heap.c_allocator.destroy(fresh);
+        return @ptrCast(@alignCast(raced.?));
+    }
+    return fresh;
+}
+
+/// Rings the object's registered waiters, if any. The empty-slot probe is
+/// a no-op CAS (null → null), NOT a plain load: a successful CAS is still
+/// an atomic RMW on the slot, which is what orders it against a concurrent
+/// first registration's install-CAS and closes the store-buffer race a
+/// plain acquire load would leave open (see NotifierList's protocol note).
+pub fn ringSlotWaiters(slot: *?*anyopaque) void {
+    const current = @cmpxchgStrong(?*anyopaque, slot, null, null, .acq_rel, .acquire) orelse return;
+    const list: *NotifierList = @ptrCast(@alignCast(current.?));
+    list.ring();
+}
+
+/// freeObject's arm for a swept mutex/condvar: frees the lazily-installed
+/// waiter list, releasing any leftover registrations. Runs on the owning
+/// GC's thread with the object unreachable, so nothing races it.
+pub fn freeSlotWaiters(slot: *?*anyopaque) void {
+    const raw = @atomicRmw(?*anyopaque, slot, .Xchg, null, .acq_rel) orelse return;
+    const list: *NotifierList = @ptrCast(@alignCast(raw));
+    list.drain();
+    std.heap.c_allocator.destroy(list);
+}
+
 /// Drops one reference. At the zero transition, closes the backend OS
 /// resource and frees the struct -- ownership of that close is deliberately
 /// concentrated entirely here rather than split with Reactor.deinit/backend
@@ -217,10 +390,22 @@ pub const Reactor = struct {
         // unwinds its own partial resources internally), and the notifier
         // errdefer below covers both failure points uniformly.
         const notifier = try std.heap.c_allocator.create(ThreadNotifier);
-        errdefer std.heap.c_allocator.destroy(notifier);
-        var backend = try Backend.init(allocator);
+        var backend = Backend.init(allocator) catch |err| {
+            std.heap.c_allocator.destroy(notifier);
+            return err;
+        };
         notifier.* = .{ .backend = backend.notifierBackend() };
         _ = notifier_live_count.fetchAdd(1, .monotonic);
+        // kaappi#2395: enroll in the process-wide registry so thread-exit
+        // rings reach this reactor. Must come after the backend is bound
+        // (a registered notifier is immediately ring-able from any thread)
+        // — and on failure the unwind is releaseNotifier, never the plain
+        // destroy above, because the backend resource is now owned by the
+        // notifier's zero-transition close.
+        registerLiveNotifier(notifier) catch |err| {
+            releaseNotifier(notifier);
+            return err;
+        };
         return .{
             .allocator = allocator,
             .backend = backend,
@@ -243,6 +428,7 @@ pub const Reactor = struct {
         // and skips the syscall instead of touching a resource this thread
         // is about to hand off (or close) via releaseNotifier below.
         self.notifier.alive.store(false, .release);
+        unregisterLiveNotifier(self.notifier);
         releaseNotifier(self.notifier);
         self.backend.deinit();
     }

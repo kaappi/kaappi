@@ -85,6 +85,17 @@ pub const Fiber = struct {
     driving: bool = false,
     terminated: bool = false,
     os_thread: ?std.Thread = null,
+    /// kaappi#2395: the cross-thread wake handle of the OS thread this
+    /// handle fiber stands for, published (as one counted reference, via an
+    /// atomic Xchg) by that child thread when its reactor is created —
+    /// see ensureScheduler — and rung by thread-terminate! so a victim
+    /// parked in a native wait (thread-sleep!, mutex-lock!, a condvar or
+    /// join wait) observes its termination immediately instead of at a poll
+    /// cadence. Only the owner thread reads it (checkThreadOwner gates
+    /// thread-terminate!), and only the owner releases it — at
+    /// reapOsThread, or freeObject's `.fiber` arm for a never-joined
+    /// handle. Always null for local fibers and for the main thread.
+    os_notifier: ?*reactor_mod.ThreadNotifier = null,
     /// #2129 (handle half): OS threads this fiber's thread has directly
     /// started (via `thread-start!`) whose `threadEntryFn` exit defer has
     /// not yet fired. Incremented in `threadStartImpl` before spawning,
@@ -1097,6 +1108,25 @@ pub fn ensureScheduler(vm: *VM) VMError!struct { vm: *VM, sched: *FiberScheduler
             return VMError.OutOfMemory;
         };
         vm.reactor = r;
+        // kaappi#2395: publish this thread's wake handle on its parent-heap
+        // thread handle, so the owner's thread-terminate! can ring a victim
+        // parked in a native wait instead of relying on a poll cadence. An
+        // Xchg (an atomic RMW), not a plain store: the RMW is what orders
+        // this publication against a concurrent terminate's own RMW probe
+        // of the field, closing the store-buffer interleaving where the
+        // terminator misses the handle AND this thread's next
+        // waitTerminated check misses the flag (same argument as
+        // reactor.NotifierList's protocol note). The handle's heap outlives
+        // this thread (#2129's retirement protocol), so the store's target
+        // is always valid; the swapped-out previous value is impossible in
+        // practice (one reactor per VM) but released defensively.
+        if (vm.thread_handle) |h| {
+            const handle = types.toObject(h).as(Fiber);
+            reactor_mod.retainNotifier(r.notifier);
+            if (@atomicRmw(?*reactor_mod.ThreadNotifier, &handle.os_notifier, .Xchg, r.notifier, .acq_rel)) |prev| {
+                reactor_mod.releaseNotifier(prev);
+            }
+        }
     }
     return .{ .vm = vm, .sched = vm.scheduler.?, .reactor = vm.reactor.? };
 }
@@ -1135,6 +1165,11 @@ pub fn abandonFiberMutexes(fiber: *Fiber, sched: ?*FiberScheduler) void {
             m.owner_thread = types.VOID;
             @atomicStore(bool, &m.locked, false, .release);
             if (sched) |s| s.wakeMutexWaiters(m_val);
+            // kaappi#2395: waiters parked on other OS threads' schedulers
+            // never see the local wake above; ring their reactors so the
+            // abandonment is observed immediately (they re-race the claim
+            // and raise abandoned-mutex-exception per the spec).
+            reactor_mod.ringSlotWaiters(&m.cross_waiters);
         }
     }
     fiber.owned_mutexes.clearRetainingCapacity();

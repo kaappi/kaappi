@@ -653,8 +653,10 @@ test "send: bounded-and-full channel registers a send waiter and would park" {
     const outcome = try shared_channel.send(sc, types.makeFixnum(1), notifier);
     try std.testing.expectEqual(shared_channel.SendOutcome.would_park, outcome);
     try std.testing.expectEqual(@as(usize, 1), sc.send_waiters.items.len);
-    // 1 (Reactor's own base ref) + 1 (this registration).
-    try std.testing.expectEqual(@as(u32, 2), notifier.refcount.load(.monotonic));
+    // 1 (Reactor's own base ref) + 1 (the process-wide live-notifier
+    // registry every Reactor.init joins, kaappi#2395) + 1 (this
+    // registration).
+    try std.testing.expectEqual(@as(u32, 3), notifier.refcount.load(.monotonic));
 
     sc.release();
 }
@@ -670,7 +672,8 @@ test "send: registering the same waiter twice does not double the refcount (§7 
     _ = try shared_channel.send(sc, types.makeFixnum(2), notifier);
 
     try std.testing.expectEqual(@as(usize, 1), sc.send_waiters.items.len);
-    try std.testing.expectEqual(@as(u32, 2), notifier.refcount.load(.monotonic));
+    // base ref + live-notifier registry (kaappi#2395) + ONE registration.
+    try std.testing.expectEqual(@as(u32, 3), notifier.refcount.load(.monotonic));
 
     sc.release();
 }
@@ -767,7 +770,8 @@ test "receive: empty and open registers a recv waiter and would park" {
     const outcome = try shared_channel.receive(sc, &dest_gc, notifier, false);
     try std.testing.expectEqual(shared_channel.RecvOutcome.would_park, outcome);
     try std.testing.expectEqual(@as(usize, 1), sc.recv_waiters.items.len);
-    try std.testing.expectEqual(@as(u32, 2), notifier.refcount.load(.monotonic));
+    // base ref + live-notifier registry (kaappi#2395) + this registration.
+    try std.testing.expectEqual(@as(u32, 3), notifier.refcount.load(.monotonic));
 
     sc.release();
 }
@@ -875,8 +879,9 @@ test "close: idempotent and wakes both waiter lists" {
     try std.testing.expect(sc.closed);
     try std.testing.expectEqual(@as(usize, 0), sc.recv_waiters.items.len);
     try std.testing.expectEqual(@as(usize, 0), sc.send_waiters.items.len);
-    // Back to just the Reactor's own base ref -- both registrations released.
-    try std.testing.expectEqual(@as(u32, 1), notifier.refcount.load(.monotonic));
+    // Back to the Reactor's own base ref plus its live-notifier-registry
+    // ref (kaappi#2395) -- both channel registrations released.
+    try std.testing.expectEqual(@as(u32, 2), notifier.refcount.load(.monotonic));
 
     // Idempotent: a second close is a no-op (no double-release panic).
     shared_channel.close(sc);

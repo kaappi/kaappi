@@ -53,6 +53,13 @@ pub const Mutex = struct {
     locked: bool,
     abandoned: bool,
     specific: Value,
+    /// kaappi#2395: cross-OS-thread waiter registrations (actually
+    /// `*reactor.NotifierList`), lazily installed by the first thread that
+    /// parks on this mutex from its own scheduler and rung by every
+    /// unlock/abandon so the waiter's reactor wakes instead of polling.
+    /// Kept opaque so the types layer doesn't import a feature module —
+    /// the `Channel.shared` precedent. Freed in freeObject's `.mutex` arm.
+    cross_waiters: ?*anyopaque = null,
 };
 
 pub const ConditionVariable = struct {
@@ -62,9 +69,15 @@ pub const ConditionVariable = struct {
     // Bumped (atomically) by condition-variable-signal!/-broadcast!. Each OS
     // thread runs its own independent FiberScheduler, so a waiter parked by a
     // *different* thread never observes that thread's local wakeOneCondVarWaiter/
-    // wakeAllCondVarWaiters bookkeeping; polling this counter is how a
-    // cross-thread waiter detects a signal happened.
+    // wakeAllCondVarWaiters bookkeeping; re-checking this counter is how a
+    // cross-thread waiter detects a signal happened (woken by the notifier
+    // ring below since kaappi#2395; a 1 ms poll before that).
     signal_generation: u64 = 0,
+    /// kaappi#2395: cross-OS-thread waiter registrations (actually
+    /// `*reactor.NotifierList`), rung by signal!/broadcast! right after the
+    /// generation bump. Same opaque-slot convention as `Mutex.cross_waiters`;
+    /// freed in freeObject's `.condition_variable` arm.
+    cross_waiters: ?*anyopaque = null,
 };
 
 pub const TimeType = enum(u8) {

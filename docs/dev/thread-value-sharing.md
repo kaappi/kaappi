@@ -396,6 +396,7 @@ thread gets its own VM and GC with an independent heap.
 | `Object.owner` vs `GC.id` | `src/gc_collect.zig` | Every heap object records its owning GC; marking skips objects owned by another GC, so a child's collections never write mark bits on parent-heap objects reached through shared globals (kaappi#958) |
 | `SharedChannel.identity_seed` | `src/shared_channel.zig` | kaappi#2394: the promoting channel's tagged Value, written before `ch.shared` publishes — the hash identity every stub of the channel shares for its whole life |
 | `ensureComparatorLibraryLoaded` | `src/primitives_fiber.zig`, called from `threadStartImpl` | kaappi#2394: best-effort pre-load of `(srfi 128)` on the spawning VM, so no child VM ever lazy-loads into the struct-copied registry (see the channel-identity section) |
+| `NotifierList` / `ringAllNotifiers` / `Fiber.os_notifier` | `src/reactor.zig`, `src/fiber.zig` | kaappi#2395: the cross-thread wake edges (mutex/condvar rings, thread-exit ring-all, terminate ringing the victim) that replaced the 1 ms polls behind `thread-join!` and the cross-thread mutex/condvar waits — see the "Cross-thread wakes ride the notifier" section of `docs/dev/fibers-and-reactor.md` |
 
 The deep copy happens at exactly three boundaries: the thunk closure at
 `thread-start!`, the result (or uncaught exception) at `thread-join!`, and a

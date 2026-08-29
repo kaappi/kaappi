@@ -558,6 +558,14 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
         },
         .fiber => {
             const fiber = obj.as(@import("fiber.zig").Fiber);
+            // kaappi#2395: a started-but-never-joined OS thread's handle
+            // still holds the counted reference its child published for
+            // thread-terminate! rings (reapOsThread releases it on the join
+            // path). Only ever reached at GC teardown for such a handle —
+            // a live handle is pinned in extra_roots until its join.
+            if (@atomicRmw(?*@import("reactor.zig").ThreadNotifier, &fiber.os_notifier, .Xchg, null, .acq_rel)) |n| {
+                @import("reactor.zig").releaseNotifier(n);
+            }
             fiber.param_overrides.deinit();
             fiber.owned_mutexes.deinit(gc.allocator);
             memory_mod.freeSliceNoFill(gc.allocator, CallFrame, fiber.frames);
@@ -579,10 +587,19 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
             poisonAndDestroy(gc, types.Channel, ch);
         },
         .mutex => {
-            poisonAndDestroy(gc, types.Mutex, obj.as(types.Mutex));
+            const m = obj.as(types.Mutex);
+            // kaappi#2395: leftover cross-thread waiter registrations. An
+            // object with an ACTIVE waiter is pinned by that waiter's
+            // registers (its own roots, or #1933's child-root marking), so
+            // the sweep only ever sees stale entries to release.
+            @import("reactor.zig").freeSlotWaiters(&m.cross_waiters);
+            poisonAndDestroy(gc, types.Mutex, m);
         },
         .condition_variable => {
-            poisonAndDestroy(gc, types.ConditionVariable, obj.as(types.ConditionVariable));
+            const cv = obj.as(types.ConditionVariable);
+            // kaappi#2395: same as `.mutex` above.
+            @import("reactor.zig").freeSlotWaiters(&cv.cross_waiters);
+            poisonAndDestroy(gc, types.ConditionVariable, cv);
         },
         .srfi18_time => {
             poisonAndDestroy(gc, types.Srfi18Time, obj.as(types.Srfi18Time));

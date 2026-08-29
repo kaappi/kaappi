@@ -784,3 +784,149 @@ test "#1608: pipe pair — a write end with buffer space is ready for write inte
     try std.testing.expectEqual(@as(usize, 1), ready.items.len);
     try std.testing.expectEqual(&fiber_a, ready.items[0]);
 }
+
+// ===========================================================================
+// kaappi#2395 — cross-thread wake machinery: the per-object NotifierList
+// (mutex/condvar waiter registrations) and the process-wide live-notifier
+// registry behind ringAllNotifiers. Pure reactor-level tests: the Scheme-
+// visible behavior (join/mutex/condvar waits actually waking) is pinned by
+// tests_srfi18.zig and tests/scheme/srfi/srfi18-notifier-wakeup-2395.scm.
+// ===========================================================================
+
+test "#2395: NotifierList register/ring/deregister — refcounts, duplicates, one-instance removal" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // Reactor.init allocates fd-backed backends
+    var reactor = try Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+    const n = reactor.notifyHandle();
+    // Reactor's own base ref + its live-registry ref.
+    const base = n.refcount.load(.monotonic);
+
+    var slot: ?*anyopaque = null;
+    const list = try reactor_mod.slotWaiterList(&slot);
+    // The install is sticky: a second lookup returns the same list.
+    try std.testing.expectEqual(list, try reactor_mod.slotWaiterList(&slot));
+
+    // Two concurrent waits of one thread register the shared notifier twice
+    // (duplicate-tolerant by design — deregister removes ONE instance, so a
+    // sibling's registration survives).
+    try list.register(n);
+    try list.register(n);
+    try std.testing.expectEqual(base + 2, n.refcount.load(.monotonic));
+    try std.testing.expectEqual(@as(usize, 2), list.entries.items.len);
+
+    n.wake_pending.store(false, .release);
+    reactor_mod.ringSlotWaiters(&slot);
+    try std.testing.expect(n.wake_pending.load(.acquire));
+
+    list.deregister(n);
+    try std.testing.expectEqual(base + 1, n.refcount.load(.monotonic));
+    try std.testing.expectEqual(@as(usize, 1), list.entries.items.len);
+
+    // Still registered once: a ring after one wait exits must still reach
+    // the surviving registration.
+    n.wake_pending.store(false, .release);
+    reactor_mod.ringSlotWaiters(&slot);
+    try std.testing.expect(n.wake_pending.load(.acquire));
+
+    list.deregister(n);
+    try std.testing.expectEqual(base, n.refcount.load(.monotonic));
+
+    // Ringing an installed-but-empty list and a never-installed slot are
+    // both no-ops.
+    n.wake_pending.store(false, .release);
+    reactor_mod.ringSlotWaiters(&slot);
+    var empty_slot: ?*anyopaque = null;
+    reactor_mod.ringSlotWaiters(&empty_slot);
+    try std.testing.expect(!n.wake_pending.load(.acquire));
+    try std.testing.expectEqual(@as(?*anyopaque, null), empty_slot);
+
+    reactor_mod.freeSlotWaiters(&slot);
+    try std.testing.expectEqual(@as(?*anyopaque, null), slot);
+    reactor_mod.freeSlotWaiters(&empty_slot); // null-tolerant
+}
+
+test "#2395: freeSlotWaiters releases leftover registrations (the freeObject sweep path)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // Reactor.init allocates fd-backed backends
+    var reactor = try Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+    const n = reactor.notifyHandle();
+    const base = n.refcount.load(.monotonic);
+
+    var slot: ?*anyopaque = null;
+    const list = try reactor_mod.slotWaiterList(&slot);
+    try list.register(n);
+    try std.testing.expectEqual(base + 1, n.refcount.load(.monotonic));
+
+    // Simulates a swept mutex/condvar with a stale registration left behind:
+    // the drain must release it or the notifier (and, transitively, its
+    // kqueue/eventfd) leaks for the life of the process.
+    reactor_mod.freeSlotWaiters(&slot);
+    try std.testing.expectEqual(base, n.refcount.load(.monotonic));
+}
+
+test "#2395: register prunes registrations whose owning reactor is gone" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // Reactor.init allocates fd-backed backends
+    var slot: ?*anyopaque = null;
+
+    var dead_reactor = try Reactor.init(std.testing.allocator);
+    const dead = dead_reactor.notifyHandle();
+    const list = try reactor_mod.slotWaiterList(&slot);
+    try list.register(dead);
+    // Deinit flips `alive` and drops the reactor's refs; the registration's
+    // ref keeps the struct valid (that is the point of the refcount).
+    dead_reactor.deinit();
+    try std.testing.expectEqual(@as(usize, 1), list.entries.items.len);
+
+    var live_reactor = try Reactor.init(std.testing.allocator);
+    defer live_reactor.deinit();
+    const live = live_reactor.notifyHandle();
+    try list.register(live);
+
+    // The register-time sweep dropped the dead entry (releasing the last
+    // reference to it), mirroring SharedChannel's §7 opportunistic prune.
+    try std.testing.expectEqual(@as(usize, 1), list.entries.items.len);
+    try std.testing.expectEqual(live, list.entries.items[0]);
+
+    list.deregister(live);
+    reactor_mod.freeSlotWaiters(&slot);
+}
+
+test "#2395: ringAllNotifiers reaches every live reactor" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // Reactor.init allocates fd-backed backends
+    var reactor_a = try Reactor.init(std.testing.allocator);
+    defer reactor_a.deinit();
+    var reactor_b = try Reactor.init(std.testing.allocator);
+    defer reactor_b.deinit();
+
+    reactor_a.notifyHandle().wake_pending.store(false, .release);
+    reactor_b.notifyHandle().wake_pending.store(false, .release);
+
+    // What threadEntryFn's exit defer calls: every live scheduler must see
+    // wake_pending (the flag half of §5's two-channel protocol; the OS-level
+    // ring is covered by the poll-interrupt test below).
+    reactor_mod.ringAllNotifiers();
+
+    try std.testing.expect(reactor_a.notifyHandle().wake_pending.load(.acquire));
+    try std.testing.expect(reactor_b.notifyHandle().wake_pending.load(.acquire));
+}
+
+test "#2395: a notify lands as an OS-level event — poll(null) with an empty reactor returns instead of blocking" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no cross-thread notify on wasm (single-threaded)
+    var reactor = try Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+
+    // The park an unbounded external-wake wait performs (parkOnReactor with
+    // external_wake and no timers/fds): poll(null) must block on the
+    // notifier alone — and a notify that already landed must pop it
+    // immediately rather than leaving it to block forever. This is the
+    // fd-persistence half of the lost-wakeup argument: a ring that outruns
+    // the park still ends it.
+    reactor.notifyHandle().notify();
+    var ready = newReady();
+    defer ready.deinit(std.testing.allocator);
+    try reactor.poll(null, &ready);
+    // The notifier's own event is filtered out of `ready` by design; the
+    // return itself (not hanging) plus the pending flag is the observable.
+    try std.testing.expectEqual(@as(usize, 0), ready.items.len);
+    try std.testing.expect(reactor.notifyHandle().wake_pending.load(.acquire));
+}

@@ -506,15 +506,18 @@ pub const SharedChannelSendPoll = struct {
 /// primitives_srfi18.zig's existing crossThreadWaitPossible rather than
 /// duplicating its live-thread-count logic.
 ///
-/// Accepted liveness gap, KEP-0002 §5: this is checked once, right before
-/// parking -- not re-evaluated while parked. If the peer that made this
-/// return `true` (the only other stub holder, or the only other live
-/// thread) exits afterward without ever sending, the parked receiver hangs
-/// forever: a stub's release doesn't ring anything, and the parked fiber
-/// staying enrolled in the shared-waiter registry keeps hasRunnableFibers()
-/// true, so the deadlock detector never fires either. This is the same
-/// Go-style "send on a channel nobody will ever receive from" hang as an
-/// unbuffered channel with no reader; §5 accepts it deliberately, and §6's
+/// Accepted liveness gap, KEP-0002 §5, narrowed by kaappi#2395: an exiting
+/// OS thread now rings every live reactor (ringAllNotifiers), which sweeps
+/// the parked fiber runnable and re-executes this whole primitive -- so a
+/// hang whose only justification was "some other thread is alive"
+/// (crossThreadWaitPossible) turns into the deadlock error once that thread
+/// exits. What remains accepted: a stub's RELEASE still rings nothing, so
+/// while `sc.refCount() > 1` keeps this true -- another live holder, an
+/// envelope in flight, or an exited-but-unjoined thread whose still-
+/// allocated heap (child_registry) holds a stub -- the parked receiver
+/// waits on a send that may never come. This is the same Go-style "send on
+/// a channel nobody will ever receive from" hang as an unbuffered channel
+/// with no reader; §5 accepts it deliberately, and §6's
 /// `(channel-receive ch [timeout [timeout-val]])` / `(channel-send ch v
 /// [timeout [timeout-val]])` (KEP-0002 Phase 4) are the intended escape
 /// hatch.
