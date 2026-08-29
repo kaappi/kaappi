@@ -9,6 +9,10 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdlib.h>
+#ifndef _WIN32
+#include <fcntl.h>   // KAAPPI PATCH 6: FD_CLOEXEC on the IC_DEBUG file
+#include <unistd.h>
+#endif
 #include "common.h"
 
 
@@ -282,6 +286,10 @@ ic_private void debug_msg(const char* fmt, ...) {
     if (rdebug!=NULL && strcmp(rdebug,"1") == 0) {
       FILE* fdbg = fopen(debug_fname, "w");
       if (fdbg!=NULL) {
+        // KAAPPI PATCH 6: see vendor/isocline/PATCHES.md — close-on-exec
+        #ifndef _WIN32
+        fcntl(fileno(fdbg), F_SETFD, FD_CLOEXEC);
+        #endif
         debug_init = 1;
         fclose(fdbg);
       }
@@ -292,6 +300,11 @@ ic_private void debug_msg(const char* fmt, ...) {
   // write debug messages
   FILE* fdbg = fopen(debug_fname, "a");
   if (fdbg==NULL) return;
+  // KAAPPI PATCH 6: see vendor/isocline/PATCHES.md — close-on-exec, so a
+  // child spawned from the host never inherits the debug-log fd.
+  #ifndef _WIN32
+  fcntl(fileno(fdbg), F_SETFD, FD_CLOEXEC);
+  #endif
   va_list args;
   va_start(args, fmt);
   vfprintf(fdbg, fmt, args);
