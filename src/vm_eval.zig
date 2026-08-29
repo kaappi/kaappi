@@ -293,9 +293,20 @@ pub fn runCachedForm(vm: *VM, func_val: Value) VMError!Value {
 
 fn handleTopLevelBegin(vm: *VM, body: Value) VMError!Value {
     var last: Value = types.VOID;
-    var rest = body;
-    while (types.isPair(rest)) {
-        const form = types.car(rest);
+    // #2405 (CodeRabbit re-review): a cyclic top-level begin compiled and
+    // executed its rotation forever — same guard as selectCondExpandBody,
+    // reported through the VM's detail channel. Unlike every compile-time
+    // member of the family, this guard runs DURING execution: up to two
+    // rotations of the cycle genuinely run (and produce output) before the
+    // tortoise meets the hare — inherent to a splicer that evaluates as it
+    // walks, not a "nothing ran" guarantee.
+    var rest = compiler_mod.SpineWalk.init(body);
+    while (types.isPair(rest.cur)) : (rest.next()) {
+        if (rest.cyclic()) {
+            vm.setErrorDetail("{s}", .{compiler_mod.circular_form_message});
+            return VMError.CompileError;
+        }
+        const form = types.car(rest.cur);
         if (handleTopLevelForm(vm, form)) |result| {
             last = result catch |err| return err;
         } else {
@@ -312,7 +323,6 @@ fn handleTopLevelBegin(vm: *VM, body: Value) VMError!Value {
             // at true top level. func is rooted above, as it requires.
             last = runTopLevelFunction(vm, func) catch |err| return err;
         }
-        rest = types.cdr(rest);
     }
     return last;
 }
@@ -367,7 +377,7 @@ fn selectCondExpandBody(vm: *VM, clauses_val: Value) VMError!Value {
             // Through the VM's own detail channel: this path reports via the
             // runtime reporter, which prefers the VM detail over the code's
             // registry template.
-            vm.setErrorDetail("circular form in code position: the form contains itself (datum-label cycle)", .{});
+            vm.setErrorDetail("{s}", .{compiler_mod.circular_form_message});
             return VMError.CompileError;
         }
         const clause = types.car(clauses.cur);
@@ -470,16 +480,23 @@ fn handleDefineValues(vm: *VM, args: Value) VMError!Value {
     var fixed_count: usize = 0;
     var has_rest = false;
     {
-        var formal = formals;
-        while (formal != types.NIL) {
-            if (types.isSymbol(formal)) {
+        // #2405 (review of PR #2420): this is the top-level twin of the
+        // compiler's parseDefineValuesFormals — a cyclic formals list
+        // (`(define-values #0=(a . #0#) ...)`) spun it forever. The binding
+        // loop below is bounded by fixed_count once this walk terminates.
+        var formal = compiler_mod.SpineWalk.init(formals);
+        while (formal.cur != types.NIL) : (formal.next()) {
+            if (formal.cyclic()) {
+                vm.setErrorDetail("{s}", .{compiler_mod.circular_form_message});
+                return VMError.CompileError;
+            }
+            if (types.isSymbol(formal.cur)) {
                 has_rest = true;
                 break;
             }
-            if (!types.isPair(formal)) return VMError.CompileError;
-            if (!types.isSymbol(types.car(formal))) return VMError.CompileError;
+            if (!types.isPair(formal.cur)) return VMError.CompileError;
+            if (!types.isSymbol(types.car(formal.cur))) return VMError.CompileError;
             fixed_count += 1;
-            formal = types.cdr(formal);
         }
     }
 

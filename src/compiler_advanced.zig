@@ -202,7 +202,10 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compil
 
         var body_jumps: std.ArrayList(usize) = .empty;
         defer body_jumps.deinit(self.gc.allocator);
-        var datum_list = datums;
+        // #2405 (CodeRabbit re-review): a cyclic datum list emitted eqv?
+        // comparisons forever — the clause walk's guard does not reach the
+        // datums inside one clause.
+        var datum_list = compiler_mod.SpineWalk.init(datums);
 
         // Allocate 3 contiguous temp registers for eqv? calls:
         // cmp_base (function + result), cmp_base+1 (arg1), cmp_base+2 (arg2)
@@ -212,10 +215,10 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compil
         const cmp_arg1 = try self.allocReg();
         const cmp_arg2 = try self.allocReg();
 
-        while (datum_list != types.NIL) {
-            if (!types.isPair(datum_list)) return CompileError.InvalidSyntax;
-            const datum = types.car(datum_list);
-            datum_list = types.cdr(datum_list);
+        while (datum_list.cur != types.NIL) : (datum_list.next()) {
+            if (!types.isPair(datum_list.cur)) return CompileError.InvalidSyntax;
+            if (datum_list.cyclic()) return compiler_mod.circularFormError();
+            const datum = types.car(datum_list.cur);
 
             const datum_idx = try self.addConstant(datum);
 
@@ -791,13 +794,17 @@ pub fn compileParameterize(self: *Compiler, args: Value, dst: u16, is_tail: bool
     const gc = self.gc;
     const begin_sym = gc.allocSymbol("begin") catch return CompileError.OutOfMemory;
 
-    // Count bindings
+    // Count bindings. #2405 (review of PR #2420): every other binding-list
+    // walk took SpineWalk in #2413; parameterize was the odd one out — a
+    // cyclic bindings list (`(parameterize #0=((p 1) . #0#) ...)`) spun this
+    // count forever. The collect loop below is bounded by binding_count once
+    // this walk terminates.
     var binding_count: usize = 0;
-    var b = bindings;
-    while (b != types.NIL) {
-        if (!types.isPair(b)) return CompileError.InvalidSyntax;
+    var b = compiler_mod.SpineWalk.init(bindings);
+    while (b.cur != types.NIL) : (b.next()) {
+        if (b.cyclic()) return compiler_mod.circularFormError();
+        if (!types.isPair(b.cur)) return CompileError.InvalidSyntax;
         binding_count += 1;
-        b = types.cdr(b);
     }
 
     if (binding_count == 0) {
@@ -814,10 +821,10 @@ pub fn compileParameterize(self: *Compiler, args: Value, dst: u16, is_tail: bool
     var val_exprs: [32]Value = undefined;
     if (binding_count > 32) return CompileError.TooManyLocals;
 
-    b = bindings;
+    b = compiler_mod.SpineWalk.init(bindings);
     var idx: usize = 0;
-    while (b != types.NIL) : (idx += 1) {
-        const binding = types.car(b);
+    while (b.cur != types.NIL) : (b.next()) {
+        const binding = types.car(b.cur);
         if (!types.isPair(binding)) return CompileError.InvalidSyntax;
         param_exprs[idx] = types.car(binding);
         const val_rest = types.cdr(binding);
@@ -840,7 +847,7 @@ pub fn compileParameterize(self: *Compiler, args: Value, dst: u16, is_tail: bool
         const new_name = std.fmt.bufPrint(&new_buf, "%pnew{d}", .{idx}) catch return CompileError.OutOfMemory;
         new_syms[idx] = gc.allocSymbol(new_name) catch return CompileError.OutOfMemory;
 
-        b = types.cdr(b);
+        idx += 1;
     }
 
     // Build the desugared form with collection disabled: every intermediate
