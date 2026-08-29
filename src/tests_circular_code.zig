@@ -212,6 +212,35 @@ test "#2405 review round 2: case datums, syntax-rules outer lists, top-level beg
     }
 }
 
+test "#2405 review round 3: define-values, parameterize, cyclic syntax-rules TEMPLATES" {
+    // baijum's review of PR #2420: three more members of the family, plus
+    // the one that mattered most — a cyclic TEMPLATE aborted the definition
+    // itself (`((_ x) #0=(f #0#))` SIGBUSed in the free-ref walk, the
+    // uncatchable class #2405 was filed for, from a define-syntax never
+    // used). The free-ref collector now carries the active-path discipline
+    // (its recursion funnels through one function on both car and cdr, so a
+    // single membership test catches both shapes) plus tortoises on the
+    // binding/params/nested-rules spines it iterates directly. The
+    // top-level define-values formals walk reports through the VM detail
+    // channel like the other top-level handlers.
+    try expectCircular("(parameterize #0=((p 1) . #0#) 1)");
+    try expectCircular("(define-syntax m (syntax-rules () ((_ x) #0=(begin . #0#))))");
+    try expectCircular("(define-syntax m (syntax-rules () ((_ x) #0=(f #0#))))");
+    // Nested binding/params walks inside a template.
+    try expectCircular("(define-syntax m (syntax-rules () ((_ x) (let #0=((y 1) . #0#) y))))");
+    try expectCircular("(define-syntax m (syntax-rules () ((_ x) (lambda #0=(a . #0#) 1))))");
+    // Top-level define-values formals — VM detail channel (KP2001 path).
+    {
+        var ctx: th.TestContext = undefined;
+        try ctx.init();
+        defer ctx.deinit();
+        try std.testing.expectError(error.CompileError, ctx.vm.eval("(define-values #0=(a . #0#) (values 1))"));
+        try std.testing.expect(std.mem.indexOf(u8, ctx.vm.getErrorDetail(), "circular form in code position") != null);
+        try std.testing.expectError(error.CompileError, ctx.vm.eval("(define-values (a . #0=(b . #0#)) (values 1 2))"));
+        try std.testing.expect(std.mem.indexOf(u8, ctx.vm.getErrorDetail(), "circular form in code position") != null);
+    }
+}
+
 test "#2405 review control: shared sub-forms in sibling positions still compile" {
     // The other half of the same review: an #N= sub-form used in a let init
     // AND the body renews as a sibling (sequential compile units), which is

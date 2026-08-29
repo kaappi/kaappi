@@ -644,6 +644,18 @@ fn injectHygGlobalWalk(self: *Compiler, expr: Value, names: []const []const u8, 
 // ---------------------------------------------------------------------------
 
 pub fn collectSymbols(expr: Value, out: *[64][]const u8, count: *usize) bool {
+    return collectSymbolsDepth(expr, out, count, TEMPLATE_WALK_DEPTH_CAP);
+}
+
+/// #2405 (review of PR #2420): patterns of a syntax-rules spec NESTED in a
+/// template reach this walk unvalidated (the spec's own patterns were checked
+/// by validPatternGrammar at parse time; these were not). A depth cap bounds
+/// any cycle: false means "collection failed", the walk's existing
+/// set-unknown degradation.
+const TEMPLATE_WALK_DEPTH_CAP: u32 = 256;
+
+fn collectSymbolsDepth(expr: Value, out: *[64][]const u8, count: *usize, depth: u32) bool {
+    if (depth == 0) return false;
     if (types.isSymbol(expr)) {
         const n = types.symbolName(expr);
         for (out[0..count.*]) |e| {
@@ -655,17 +667,48 @@ pub fn collectSymbols(expr: Value, out: *[64][]const u8, count: *usize) bool {
         return true;
     }
     if (types.isPair(expr)) {
-        if (!collectSymbols(types.car(expr), out, count)) return false;
-        return collectSymbols(types.cdr(expr), out, count);
+        if (!collectSymbolsDepth(types.car(expr), out, count, depth - 1)) return false;
+        return collectSymbolsDepth(types.cdr(expr), out, count, depth - 1);
     }
     return true;
 }
 
-pub fn collectFreeRefs(template: Value, pat_vars: []const []const u8, literals: []const Value, out: *[64][]const u8, count: *usize) bool {
-    return collectFreeRefsWithLocals(template, pat_vars, literals, &.{}, out, count);
+/// #2405 (review of PR #2420): active-path set for the template walk — the
+/// free-ref collector recurses through itself on BOTH car and cdr, so every
+/// pair it visits passes through the function once and a single
+/// address-keyed membership test catches either cycle shape. Fixed-size and
+/// allocation-free like every other buffer in this walk: overflow returns
+/// false (set-unknown degradation), never a wrong error.
+pub const TemplatePath = struct {
+    addrs: [TEMPLATE_WALK_DEPTH_CAP]usize = undefined,
+    len: usize = 0,
+
+    fn contains(self: *const TemplatePath, key: usize) bool {
+        for (self.addrs[0..self.len]) |a| {
+            if (a == key) return true;
+        }
+        return false;
+    }
+
+    /// False when the path is full: the caller degrades, not errors.
+    fn push(self: *TemplatePath, key: usize) bool {
+        if (self.len >= self.addrs.len) return false;
+        self.addrs[self.len] = key;
+        self.len += 1;
+        return true;
+    }
+
+    fn pop(self: *TemplatePath) void {
+        if (self.len > 0) self.len -= 1;
+    }
+};
+
+pub fn collectFreeRefs(template: Value, pat_vars: []const []const u8, literals: []const Value, out: *[64][]const u8, count: *usize) CompileError!bool {
+    var path: TemplatePath = .{};
+    return collectFreeRefsWithLocals(template, pat_vars, literals, &.{}, out, count, &path);
 }
 
-fn collectFreeRefsWithLocals(template: Value, pat_vars: []const []const u8, literals: []const Value, local_binds: []const []const u8, out: *[64][]const u8, count: *usize) bool {
+fn collectFreeRefsWithLocals(template: Value, pat_vars: []const []const u8, literals: []const Value, local_binds: []const []const u8, out: *[64][]const u8, count: *usize, path: *TemplatePath) CompileError!bool {
     if (types.isSymbol(template)) {
         const name = types.symbolName(template);
         for (pat_vars) |pv| {
@@ -687,6 +730,15 @@ fn collectFreeRefsWithLocals(template: Value, pat_vars: []const []const u8, lite
         return true;
     }
     if (!types.isPair(template)) return true;
+    // #2405 (review of PR #2420): a cyclic TEMPLATE aborted or hung the
+    // definition itself — `(syntax-rules () ((_ x) #0=(f #0#)))` SIGBUSed in
+    // this walk before the macro was ever used. The recursion below passes
+    // through this function on both the car (last two lines) and the cdr, so
+    // one active-path membership test here catches both cycle shapes.
+    const path_key = @intFromPtr(types.toObject(template));
+    if (path.contains(path_key)) return compiler_mod.circularFormError();
+    if (!path.push(path_key)) return false; // path full: set-unknown degradation
+    defer path.pop();
     const head = types.car(template);
     const rest = types.cdr(template);
     if (types.isSymbol(head)) {
@@ -704,9 +756,10 @@ fn collectFreeRefsWithLocals(template: Value, pat_vars: []const []const u8, lite
                             let_count += 1;
                         }
                     }
-                    var binds = types.car(bab);
-                    while (types.isPair(binds)) {
-                        const b = types.car(binds);
+                    var binds = compiler_mod.SpineWalk.init(types.car(bab));
+                    while (types.isPair(binds.cur)) : (binds.next()) {
+                        if (binds.cyclic()) return compiler_mod.circularFormError();
+                        const b = types.car(binds.cur);
                         if (types.isPair(b)) {
                             const bname = types.car(b);
                             if (types.isSymbol(bname) and let_count < 16) {
@@ -715,11 +768,10 @@ fn collectFreeRefsWithLocals(template: Value, pat_vars: []const []const u8, lite
                             }
                             const init_rest2 = types.cdr(b);
                             if (init_rest2 != types.NIL and types.isPair(init_rest2))
-                                if (!collectFreeRefsWithLocals(types.car(init_rest2), pat_vars, literals, local_binds, out, count)) return false;
+                                if (!(try collectFreeRefsWithLocals(types.car(init_rest2), pat_vars, literals, local_binds, out, count, path))) return false;
                         }
-                        binds = types.cdr(binds);
                     }
-                    if (!collectFreeRefsWithLocals(types.cdr(bab), pat_vars, literals, let_names[0..let_count], out, count)) return false;
+                    if (!(try collectFreeRefsWithLocals(types.cdr(bab), pat_vars, literals, let_names[0..let_count], out, count, path))) return false;
                 }
             }
             return true;
@@ -734,26 +786,26 @@ fn collectFreeRefsWithLocals(template: Value, pat_vars: []const []const u8, lite
                         lam_count += 1;
                     }
                 }
-                var params = types.car(rest);
-                while (types.isPair(params)) {
-                    const pp = types.car(params);
+                var params = compiler_mod.SpineWalk.init(types.car(rest));
+                while (types.isPair(params.cur)) : (params.next()) {
+                    if (params.cyclic()) return compiler_mod.circularFormError();
+                    const pp = types.car(params.cur);
                     if (types.isSymbol(pp) and lam_count < 16) {
                         lam_names[lam_count] = types.symbolName(pp);
                         lam_count += 1;
                     }
-                    params = types.cdr(params);
                 }
-                if (types.isSymbol(params) and lam_count < 16) {
-                    lam_names[lam_count] = types.symbolName(params);
+                if (types.isSymbol(params.cur) and lam_count < 16) {
+                    lam_names[lam_count] = types.symbolName(params.cur);
                     lam_count += 1;
                 }
-                if (!collectFreeRefsWithLocals(types.cdr(rest), pat_vars, literals, lam_names[0..lam_count], out, count)) return false;
+                if (!(try collectFreeRefsWithLocals(types.cdr(rest), pat_vars, literals, lam_names[0..lam_count], out, count, path))) return false;
             }
             return true;
         }
         if (std.mem.eql(u8, hname, "define")) {
             if (rest != types.NIL and types.isPair(rest))
-                if (!collectFreeRefsWithLocals(types.cdr(rest), pat_vars, literals, local_binds, out, count)) return false;
+                if (!(try collectFreeRefsWithLocals(types.cdr(rest), pat_vars, literals, local_binds, out, count, path))) return false;
             return true;
         }
         if (std.mem.eql(u8, hname, "syntax-rules")) {
@@ -766,21 +818,21 @@ fn collectFreeRefsWithLocals(template: Value, pat_vars: []const []const u8, lite
                         sr_count += 1;
                     }
                 }
-                var sr_rules = types.cdr(rest);
-                while (types.isPair(sr_rules)) {
-                    const sr_rule = types.car(sr_rules);
+                var sr_rules = compiler_mod.SpineWalk.init(types.cdr(rest));
+                while (types.isPair(sr_rules.cur)) : (sr_rules.next()) {
+                    if (sr_rules.cyclic()) return compiler_mod.circularFormError();
+                    const sr_rule = types.car(sr_rules.cur);
                     if (types.isPair(sr_rule)) {
                         if (!collectSymbols(types.car(sr_rule), @ptrCast(&sr_names), &sr_count)) return false;
                     }
-                    sr_rules = types.cdr(sr_rules);
                 }
-                if (!collectFreeRefsWithLocals(rest, pat_vars, literals, sr_names[0..sr_count], out, count)) return false;
+                if (!(try collectFreeRefsWithLocals(rest, pat_vars, literals, sr_names[0..sr_count], out, count, path))) return false;
             }
             return true;
         }
     }
-    if (!collectFreeRefsWithLocals(head, pat_vars, literals, local_binds, out, count)) return false;
-    return collectFreeRefsWithLocals(rest, pat_vars, literals, local_binds, out, count);
+    if (!(try collectFreeRefsWithLocals(head, pat_vars, literals, local_binds, out, count, path))) return false;
+    return collectFreeRefsWithLocals(rest, pat_vars, literals, local_binds, out, count, path);
 }
 
 fn isLetForm(name: []const u8) bool {

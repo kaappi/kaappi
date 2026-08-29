@@ -115,7 +115,10 @@ fn copyTransformerFreeRefs(
         // of 64 across all rules of the transformer.
         var free_names: [64][]const u8 = undefined;
         var free_count: usize = 0;
-        _ = macro.collectFreeRefs(tmpl, pv_names[0..pv_count], tx.literals, &free_names, &free_count);
+        // #2405: cyclic templates surface as a compile error here; this scan
+        // is best-effort (a `break`-style skip below), so degrade rather than
+        // propagate — the definition site itself reports the named diagnosis.
+        _ = macro.collectFreeRefs(tmpl, pv_names[0..pv_count], tx.literals, &free_names, &free_count) catch break;
         for (free_names[0..free_count]) |fname| {
             if (env.get(fname)) |fval| {
                 try copyOneDefEnvBinding(vm, target, fname, fval, visited, depth);

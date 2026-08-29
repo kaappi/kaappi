@@ -251,7 +251,7 @@ pub fn compileLetSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
         // transformer free-references; on overflow, fall back to all siblings.
         var free_names: [64][]const u8 = undefined;
         var free_count: usize = 0;
-        const have_free = collectTransformerFreeRefs(transformer, &free_names, &free_count);
+        const have_free = try collectTransformerFreeRefs(transformer, &free_names, &free_count);
         var peer_names_f: std.ArrayList([]const u8) = .empty;
         defer peer_names_f.deinit(self.gc.allocator);
         var peer_vals_f: std.ArrayList(Value) = .empty;
@@ -401,7 +401,7 @@ fn restoreMacros(self: *Compiler, names: [][]const u8, values: []?Value) void {
 /// Collect the free-reference identifier names in a transformer's templates —
 /// identifiers that are neither the rule's pattern variables nor literals.
 /// Returns false on overflow (caller should then treat the set as unknown).
-fn collectTransformerFreeRefs(transformer: Value, out: *[64][]const u8, count: *usize) bool {
+fn collectTransformerFreeRefs(transformer: Value, out: *[64][]const u8, count: *usize) CompileError!bool {
     const tx = types.toObject(transformer).as(types.Transformer);
     var pv_names: [64][]const u8 = undefined;
     var pv_count: usize = 0;
@@ -409,7 +409,7 @@ fn collectTransformerFreeRefs(transformer: Value, out: *[64][]const u8, count: *
         if (!collectSymbols(pat, &pv_names, &pv_count)) return false;
     }
     for (tx.templates[0..tx.num_rules]) |tmpl| {
-        if (!collectFreeRefs(tmpl, pv_names[0..pv_count], tx.literals, out, count)) return false;
+        if (!(try collectFreeRefs(tmpl, pv_names[0..pv_count], tx.literals, out, count))) return false;
     }
     return true;
 }
@@ -424,7 +424,7 @@ fn computeBoundFreeRefs(self: *Compiler, transformer: Value) CompileError!void {
     var cand_names: [64][]const u8 = undefined;
     var cand_count: usize = 0;
     for (tx.templates[0..tx.num_rules]) |tmpl| {
-        if (!collectFreeRefs(tmpl, pv_names[0..pv_count], tx.literals, &cand_names, &cand_count))
+        if (!(try collectFreeRefs(tmpl, pv_names[0..pv_count], tx.literals, &cand_names, &cand_count)))
             return;
     }
     if (cand_count == 0) return;

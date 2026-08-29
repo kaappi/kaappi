@@ -1239,15 +1239,21 @@ pub fn spineCyclic(start: Value) bool {
     return false;
 }
 
+/// The shared circular-form diagnosis (#2405). One string, so the
+/// compile-time reporters (which render it as `syntax-error[KP2002]`) and the
+/// execution-time top-level handlers in vm_eval (whose reporter maps a VM
+/// CompileError to `error[KP2001]` — the runtime code table, a different
+/// channel by construction) can never drift apart.
+pub const circular_form_message = "circular form in code position: the form contains itself (datum-label cycle)";
+
 /// Diagnose a datum-label cycle met in code position: a catchable
 /// InvalidSyntax whose recorded detail the reporter renders as
 /// `syntax-error[KP2002]` with a named cause. Finite improper lists never
 /// reach this — the spine guards detect cycles only, and existing
 /// `!isPair` checks already reject non-cyclic improper tails.
 pub fn circularFormError() CompileError {
-    const msg = "circular form in code position: the form contains itself (datum-label cycle)";
-    @memcpy(syntax_error_detail[0..msg.len], msg);
-    syntax_error_detail_len = msg.len;
+    @memcpy(syntax_error_detail[0..circular_form_message.len], circular_form_message);
+    syntax_error_detail_len = circular_form_message.len;
     return CompileError.InvalidSyntax;
 }
 

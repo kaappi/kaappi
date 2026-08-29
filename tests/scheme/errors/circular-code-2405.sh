@@ -19,13 +19,14 @@ FAIL=0
 TMPDIR_TESTS="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR_TESTS"' EXIT
 
-# <name> <source> — asserts exit 1 plus the KP2002 circular-form diagnosis.
-# The regression class this file pins includes compiler hangs, so every
-# invocation is bounded: a hung run reports as a failed case instead of
-# stalling the suite until an external timeout (CodeRabbit on PR #2413).
-# No `timeout` on macOS — a background run + bounded wait instead.
+# <name> <source> [code] — asserts exit 1 plus the circular-form diagnosis
+# under the expected code (KP2002 default). The regression class this file
+# pins includes compiler hangs, so every invocation is bounded: a hung run
+# reports as a failed case instead of stalling the suite until an external
+# timeout (CodeRabbit on PR #2413). No `timeout` on macOS — a background run
+# + bounded wait instead.
 check_circular() {
-    local name="$1" src="$2"
+    local name="$1" src="$2" code="${3:-KP2002}"
     printf '%s' "$src" > "$TMPDIR_TESTS/$name.scm"
 
     local output status
@@ -52,8 +53,8 @@ check_circular() {
         FAIL=$((FAIL + 1))
         return
     fi
-    if ! grep -qF "KP2002" <<< "$output"; then
-        echo "FAIL: $name: expected the syntax-error code KP2002 in output:"
+    if ! grep -qF "$code" <<< "$output"; then
+        echo "FAIL: $name: expected the diagnostic code $code in output:"
         echo "$output"
         FAIL=$((FAIL + 1))
         return
@@ -64,8 +65,17 @@ check_circular() {
         FAIL=$((FAIL + 1))
         return
     fi
-    echo "PASS: $name: exit 1, KP2002, circular-form diagnosis"
+    echo "PASS: $name: exit 1, $code, circular-form diagnosis"
     PASS=$((PASS + 1))
+}
+
+# Top-level handlers that fire DURING execution (vm_eval's begin splicer and
+# define-values formals walk) report through the runtime reporter, which maps
+# a VM CompileError to error[KP2001] — same message, different code than the
+# compile-time members' syntax-error[KP2002]. Pinned with the expected code
+# so neither condition can drift unnoticed (baijum, review of PR #2420).
+check_circular_runtime() {
+    check_circular "$1" "$2" KP2001
 }
 
 check_circular repro-a '(display #1=(p #1# q))'
@@ -89,6 +99,24 @@ check_circular reentry-let '(display #0=(let ((x #0#)) x))'
 check_circular reentry-lambda '(display ((lambda () #0=(lambda () . #0#))))'
 check_circular reentry-let-values '(display #0=(let-values (((a) #0#)) a))'
 check_circular reentry-qq-splice '(display `#0=(x ,@(list 1) #0#))'
+# Round-2 shapes (CodeRabbit re-review), pinned here so a guard regression
+# FAILS as a hang-kill instead of stalling the unbounded unit suite.
+check_circular round2-case "(case 1 (#0=(1 . #0#) 'a))"
+check_circular round2-syntax-rules '(define-syntax m (syntax-rules #0=((). #0#) ((_ x) x)))'
+
+# The top-level begin and define-values paths report through the RUNTIME
+# reporter (they fire during execution, not compilation), which maps a VM
+# CompileError to error[KP2001] — same message, different code than every
+# compile-time member's syntax-error[KP2002]. Pinned with the expected code
+# so a future grep -F KP2002 cannot quietly miss them.
+check_circular_runtime round2-toplevel-begin '(begin . #0=(1 . #0#))'
+check_circular_runtime round3-define-values '(define-values #0=(a . #0#) (values 1))'
+# Round-3 (baijum review of PR #2420): parameterize bindings and cyclic
+# syntax-rules TEMPLATES (the template SIGBUS was the abort class #2405 was
+# filed for, from a define-syntax never used).
+check_circular round3-parameterize '(parameterize #0=((p 1) . #0#) 1)'
+check_circular round3-template-begin '(define-syntax m (syntax-rules () ((_ x) #0=(begin . #0#))))'
+check_circular round3-template-car '(define-syntax m (syntax-rules () ((_ x) #0=(f #0#))))'
 
 # The issue's Controls: circular DATA is fine everywhere — quoting makes the
 # datum a constant no code walk enters, and a syntax-rules macro use with a
