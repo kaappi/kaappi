@@ -421,14 +421,16 @@ It holds a whole form in one buffer, which is why `repl.zig` no longer joins
 continuation lines: `ic_readline` returns a finished expression, newlines
 included, and every line of it stays editable until submit.
 
-**The copy is patched** — four changes, each marked `KAAPPI PATCH` in the
+**The copy is patched** — six changes, each marked `KAAPPI PATCH` in the
 source and documented in `vendor/isocline/PATCHES.md`: an input-completeness
 callback (upstream's Enter always submits), a configurable history size
 (upstream caps at 200), structural s-expression editing — slurp, barf,
 raise, rotate, whose transforms live in `src/repl_sexp.zig` (`docs/dev/repl.md`)
-— and `TCSADRAIN` instead of `TCSAFLUSH` around raw-mode transitions, so a
+— `TCSADRAIN` instead of `TCSAFLUSH` around raw-mode transitions, so a
 multi-line paste that submits partway through doesn't get its still-unread
-tail silently discarded (kaappi#2226). Re-apply all four when updating;
+tail silently discarded (kaappi#2226), click-to-reposition mouse support
+(kaappi#2264), and `FD_CLOEXEC` on the history/debug files so spawned
+children inherit only stdio (kaappi#2423). Re-apply all six when updating;
 `grep -rn 'KAAPPI PATCH' vendor/isocline/` finds every site.
 
 ## Package manager (thottam)

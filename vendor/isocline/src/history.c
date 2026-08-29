@@ -7,6 +7,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#ifndef _WIN32
+#include <fcntl.h>   // KAAPPI PATCH 6: FD_CLOEXEC on the history file
+#include <unistd.h>
+#endif
 
 #include "../include/isocline.h"
 #include "common.h"
@@ -252,6 +256,11 @@ ic_private void history_load( history_t* h ) {
   if (h->fname == NULL) return;
   FILE* f = fopen(h->fname, "r");
   if (f == NULL) return;
+  // KAAPPI PATCH 6: see vendor/isocline/PATCHES.md — close-on-exec, so a
+  // child spawned from the host never inherits the history fd.
+  #ifndef _WIN32
+  fcntl(fileno(f), F_SETFD, FD_CLOEXEC);
+  #endif
   stringbuf_t* sbuf = sbuf_new(h->mem);
   if (sbuf != NULL) {
     while (!feof(f)) {
@@ -267,6 +276,9 @@ ic_private void history_save( const history_t* h ) {
   FILE* f = fopen(h->fname, "w");
   if (f == NULL) return;
   #ifndef _WIN32
+  // KAAPPI PATCH 6: see vendor/isocline/PATCHES.md — close-on-exec, so a
+  // child spawned from the host never inherits the history fd.
+  fcntl(fileno(f), F_SETFD, FD_CLOEXEC);
   chmod(h->fname,S_IRUSR|S_IWUSR);
   #endif
   stringbuf_t* sbuf = sbuf_new(h->mem);

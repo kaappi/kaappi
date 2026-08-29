@@ -4,7 +4,7 @@ Vendored from <https://github.com/daanx/isocline> at commit
 `8d6dc1ef95b1b46711e66eb23d39d4467a0fcdac` (2026-04-23, v1.1.0), MIT licensed —
 see `LICENSE`.
 
-**This is a patched copy.** Five changes diverge from upstream. Each is marked
+**This is a patched copy.** Six changes diverge from upstream. Each is marked
 in the source with a `KAAPPI PATCH <n>` comment pointing here. When updating
 isocline, re-apply them; `grep -rn 'KAAPPI PATCH' vendor/isocline/` finds every
 site.
@@ -237,6 +237,39 @@ known limitation of the first cut.
 A delayed DSR response arriving *after* its query timed out decodes to
 `KEY_NONE`; the edit loop now ignores `KEY_NONE` in its default case, where
 previously it fell through to `code_is_unicode(0)` and inserted a NUL.
+
+## Patch 6 — close-on-exec on the history and debug files
+
+**Files:** `src/history.c`, `src/common.c`
+
+Upstream opens its files with plain `fopen`, whose descriptors are inheritable
+across `exec`. Four sites: the history file read (`history_load`) and
+write/truncate (`history_save`) in `history.c`, and the `IC_DEBUG_TO_FILE`
+debug log's create-probe and per-message append in `common.c` (debug builds
+only).
+
+Every one of these handles is transient — each `fopen` is paired with an
+`fclose` in the same function, so the fd exists only for the duration of one
+load/save/log call. But the host (Kaappi's `spawn-process`, KEP-0022) promises
+that a child inherits only the three stdio slots, and a spawn racing one of
+these windows from another thread would hand the child the fd on Linux
+(macOS is separately covered by `POSIX_SPAWN_CLOEXEC_DEFAULT`). The patch
+adds, after each successful `fopen`:
+
+```c
+#ifndef _WIN32
+fcntl(fileno(f), F_SETFD, FD_CLOEXEC);
+#endif
+```
+
+plus the matching `<fcntl.h>`/`<unistd.h>` includes, all guarded for POSIX —
+Windows has no `fcntl`, and its `CreateProcess` handle inheritance is opt-in
+per handle anyway. (`fopen("...e")` and `open(O_CLOEXEC)+fdopen` were
+rejected: the `"e"` mode flag is glibc-specific, and reshaping the open calls
+is a bigger diff to re-apply than a post-open `fcntl`.) The wasm32-wasi build
+never compiles isocline (`use_isocline = !is_wasm_target` in `build.zig`), so
+no WASI guard is needed. Fixes kaappi#2423; found by the KEP-0022 CLOEXEC
+audit (kaappi#2414).
 
 ## Deliberately not patched
 
