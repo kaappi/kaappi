@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787994045394,
+  "lastUpdate": 1788030699886,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "212d2428eda309d118c64b584860934c71d7c702",
-          "message": "Fix Windows LSP tests: build native file URIs for sibling-library cases (#2255)\n\n* Fix Windows LSP tests: build native file URIs for sibling-library cases\n\nThe LSP tests added in #2253 that make the server resolve a real sibling\n`.sld` from disk (`sibling-sld`, `stdout-guard`, the `globals-isolation`\ncontrol) failed on `windows-x64-test`/`windows-arm-test`. They built the\ndocument URI as `file://$TMP/...`, where `$TMP` under Git Bash is an MSYS path\n(`/tmp/...`), and passed it verbatim to a *native* `kaappi-lsp.exe`. The\n`check` controls beside them passed because MSYS rewrites path *arguments* to a\nWindows path, but nothing rewrites a path embedded in a URI string — so the\nserver's `fileUriToPath` produced an MSYS path it could not resolve, the\nsibling library was not found, and the assertions failed.\n\nAdd a `file_uri` test helper that runs the path through `native_path`\n(`cygpath -m` on Windows, identity elsewhere) and frames it as a proper URI:\n`file:///C:/...` for a drive-lettered path, `file:///tmp/...` for a Unix\nabsolute one. `fileUriToPath` already decodes both. Only the cases that resolve\na real file on disk are converted; URIs used purely as document keys are left\nalone. No behaviour change on macOS/Linux (native_path is identity there); the\nfull LSP suite stays 169/169 locally.\n\nSource is unchanged — this is a test-only fix.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* lsp tests: percent-encode file_uri paths, add space/reserved-char case\n\nCodeRabbit review: native_path normalizes filesystem syntax only, so a\nspace, '#', '?', '%' or non-ASCII byte in $TMP or a fixture path landed\nunescaped in the textDocument/uri string. Percent-encode the converted\npath as UTF-8 after native_path (uri_encode, preserving '/' and the\ndrive-letter ':') so the URI is well-formed per RFC 8089 and round-trips\nthrough the server's fileUriToPath %XX decoding.\n\nNew regression case opens a document under 'proj with #% space/' whose\nsibling .sld resolves only if the encoding round-trips. The response URI\nassertion (%20/%23/%25) is the guard that fails if encoding is removed;\nthe clean-diagnostics assertion proves the encoded URI resolves end to\nend. '?' is deliberately not used — Windows filenames cannot contain it.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-08T04:04:03Z",
-          "tree_id": "a04bf4229a2298066bd8cf1bffd8b56024618f62",
-          "url": "https://github.com/kaappi/kaappi/commit/212d2428eda309d118c64b584860934c71d7c702"
-        },
-        "date": 1786164002911,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.355264,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.349338,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.58553,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.048095,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004791,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047023,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.318544,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056737,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.751205,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.242893,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.630827,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.278486,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.830292,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.699194,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044636,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.036657,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cc636d9c3afd7f74966022ccfbf3a3f6161ce012",
+          "message": "Set FD_CLOEXEC on isocline history/debug files (#2423) (#2426)\n\nThe vendored isocline opens its history file (history_load/history_save)\nand its IC_DEBUG_TO_FILE debug log (debug builds only) with plain fopen,\nwhose descriptors are inheritable across exec. Once KEP-0022's\nspawn-process lands, that violates the guarantee that a child inherits\nonly the three stdio slots: Linux is exposed, while macOS is masked by\nPOSIX_SPAWN_CLOEXEC_DEFAULT. All four handles are transient (each fopen\nis paired with an fclose in the same function), so the exposure is a\nspawn racing one of those open windows from another thread — narrow, but\nreal, and setting the flag is correct hygiene regardless.\n\nThis is KAAPPI PATCH 6 to the vendored copy: after each successful\nfopen, fcntl(fileno(f), F_SETFD, FD_CLOEXEC), guarded #ifndef _WIN32\n(Windows has no fcntl; the wasm32-wasi build never compiles isocline).\nDocumented in vendor/isocline/PATCHES.md so it is re-applied on the next\nvendor update, and CLAUDE.md's patch count is brought up to date (it\nstill said four; main already carried five).\n\nNo regression test: every one of these fds is closed before the isocline\nAPI call returns, so FD_CLOEXEC on it cannot be observed from outside\nwithout interposition. The KEP-0022 Phase 1 fd-hygiene suite (#2414) is\nthe designated end-to-end guard once spawn-process exists.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-30T00:03:49+05:30",
+          "tree_id": "fecdcc58b199985efb29cfad63b1e01324c9bbfc",
+          "url": "https://github.com/kaappi/kaappi/commit/cc636d9c3afd7f74966022ccfbf3a3f6161ce012"
+        },
+        "date": 1788030697631,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.047147,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.888103,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.439513,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.183253,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003961,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.036435,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.222613,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.042684,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.900915,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.875957,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.237343,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.240137,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.264126,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.430175,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.036253,
             "unit": "seconds"
           }
         ]
