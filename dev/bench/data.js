@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1787965075561,
+  "lastUpdate": 1787994045394,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a072706e19a299eee68bcd13afdb47c34077ab0c",
-          "message": "Expand imported macros when computing LSP diagnostics (#2253)\n\n* Expand imported macros when computing LSP diagnostics\n\nThe language server compiled every top-level form in isolation without\nfirst running the file's `import` / `define-library` / `include` /\n`define-record-type` declarations. So an imported macro was never in\nscope when a later form was diagnosed. For SRFI 42's comprehension\nmacros (`list-ec`, `sum-ec`, `vector-ec`, ...) that turned valid code\ninto a phantom error: their `(if test)` is the comprehension's filter\nqualifier, but with the macro unexpanded the compiler saw a bare\none-armed R7RS `if` and reported KP2001 — a red squiggle under code that\nruns fine and that `kaappi check` (which has always run imports) accepts.\n\n`runDiagnostics` now classifies each top-level form through the same\n`TopLevelHead` machinery `kaappi check` and the runtime share, so the\nthree cannot drift: top-level `begin` and the selected `cond-expand`\nclause splice and are recursed into, the environment-establishing heads\nare run for their effect so later forms see the bindings and macros they\nintroduce, and everything else is compiled but not executed, exactly as\nbefore. The per-document macro reset (#1979), the first-error-only\npublish (#1980), and the whole-line range sentinel are all preserved.\n\nDiagnosing an `(import (srfi 42))` at all also requires the server to\nfind the file-based `.sld`, which it never set up: `vm.lib_paths` is now\nseeded with `~/.kaappi/lib` and the exe-relative `../lib` fallback via\nthe same `kaappi_paths` helpers `main.zig` uses.\n\nAdds LSP-suite coverage: the reported list-ec and Pythagorean-triples\nguards are diagnosed clean (cross-checked against `kaappi check`), while\na genuine top-level one-armed `if` still reports KP2001.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* LSP diagnostics: resolve sibling libraries, sandbox side effects, isolate imported globals\n\nAddresses review of the imported-macro diagnostics change:\n\n- Sibling `.sld` resolution now matches `kaappi check`. `resolveLibraryPath`\n  never consults `current_lib_dir` (only `include` does), so setting it was not\n  enough to find a library beside the document. The document's own directory is\n  now prepended to `vm.lib_paths` for the run — the same thing `main.zig` does\n  for the file argument — so `(import (mylib))` of a neighbouring `.sld` is\n  resolved instead of reported as a phantom KP2001. The overclaiming comment is\n  corrected: `current_lib_dir` is for `include`, `lib_paths` for library imports.\n\n- Executed env-setup code can no longer corrupt the wire. Running an `import`\n  loads and *executes* the library's `begin` body (as `kaappi check` does); a\n  top-level `(display ...)` there would write straight to fd 1 between framed\n  responses. The VM's current-output-port is redirected to a discarding\n  in-memory port for the duration of each run and restored after; its buffer is\n  truncated per run so it never grows across the server's lifetime.\n\n- Imported value bindings no longer leak across documents. `importBinding`\n  writes value exports into `vm.globals`, which — unlike `vm.macros` — was never\n  reset per document, so a name imported while diagnosing one file stayed\n  resolvable (hover/completion) in another. Every global not present at startup\n  is now retracted at the start of each run, under the same write lock\n  `importBinding` takes and with a `global_version` bump — the globals analogue\n  of the existing per-document macro reset (#1979).\n\nNew LSP-suite coverage: a sibling `.sld` import diagnoses clean (cross-checked\nagainst `kaappi check`, and load-bearing for the lib_paths setup since the\nlibrary is not a built-in prefix); a library whose body prints is diagnosed\nclean with its output kept off the wire (control confirms `check` does execute\nthat body); and an imported binding is not hoverable in a document that does not\nimport it, while it stays resolvable in the one that does. 167 LSP checks pass.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* LSP diagnostics: decode file URIs, lock globals prune, strengthen tests\n\nSecond review pass (CodeRabbit + local review):\n\n- File URIs are now converted to native paths before use. A new\n  `fileUriToPath` percent-decodes `%XX` (so a document under a path with spaces\n  resolves its sibling `.sld`/includes), accepts an empty or `localhost`\n  authority, and strips the leading slash before a Windows drive letter\n  (`file:///C:/x` -> `C:/x`). Both `current_lib_dir` and the doc-directory\n  `lib_paths` entry use the decoded path.\n\n- `pruneImportedGlobals` now holds `vm.globals_lock` across the whole\n  operation — iteration, key collection, and removal — instead of only around\n  the removals, so a concurrent child-thread reader can never observe a\n  half-pruned map. Nothing in the loop re-acquires the lock, so it cannot\n  deadlock.\n\n- Test hardening: the globals-isolation control now asserts the positive hover\n  payload (`\"result\":{\"contents\"`) instead of merely lacking a null result, so\n  an error or missing response can't pass it vacuously. A new sibling-`.sld`\n  isolation control opens a document in a *different* directory importing a\n  *fresh* library that lives only under the first document's directory, and\n  asserts it is unresolved (KP2001, cross-checked against `kaappi check`) —\n  proving the per-run `lib_paths` restore holds. A fresh library is required\n  because an already-loaded one would resolve from `vm.libraries` regardless.\n\nDeliberately not changed:\n- Enabling `sandbox_mode` during env-setup (a suggested hardening) would reject\n  every file-backed library load — `tryLoadLibraryFromFile` only allows embedded\n  libraries under sandbox — so `(import (srfi 42))` and every ecosystem import\n  would fail, reinstating the very false positive this PR removes and diverging\n  from `kaappi check`, which never sandboxes.\n- A comment records the residual edge (a C-FFI library writing to fd 1 during\n  load bypasses the Scheme-port redirect) and why closing it (OS-level dup2) is\n  left out.\n\n169 LSP checks pass; `zig build test` green; `zig fmt --check` clean.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-08T02:36:26Z",
-          "tree_id": "d49ccf015b24686dbe08f66d335d4d1c01f5c09c",
-          "url": "https://github.com/kaappi/kaappi/commit/a072706e19a299eee68bcd13afdb47c34077ab0c"
-        },
-        "date": 1786158085444,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.052489,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.211072,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.543659,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.797838,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004881,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046109,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.28345,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.052731,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.847896,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.114358,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.52658,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.26128,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.69135,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.96951,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042117,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045303,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c52d585bc1c50be3bcbde3bab6f1a18ce5fd9c64",
+          "message": "Avoid float constant-pool in angleFn on wasm32-wasi (#2421) (#2425)\n\n* Avoid float constant-pool in angleFn on wasm32-wasi (#2421)\n\nLLVM cannot select an i32 ConstantPool<float 0.0> node under baseline\nwasm in ReleaseSafe, so the generic 'zig build -Dtarget=wasm32-wasi'\ncross build of kaappi and kaappi-lsp aborted the compiler inside\nprimitives_numeric.angleFn. Only the flonum arm materialized a float\nconstant into atan2; branching on the sign bit instead is bit-exact\nwith atan2(0.0, f) for every input (positive/negative, both zeros,\ninfinities, NaN propagation) and sidesteps the constant pool entirely.\n\nThe two paths CI already built — 'zig build wasm' (ReleaseSmall) and\n'zig build test -Dtarget=wasm32-wasi' — were green all along; only the\ngeneric ReleaseSafe -Dtarget shape hit the bug, so the wasm job gains a\ncompile-only canary for exactly that shape, and a unit test pins the\nrewritten arm to atan2's exact results.\n\nCloses #2421\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Run the wasm32-wasi canary last so it cannot shadow the tested artifact\n\nThe kaappi#2421 compile canary (zig build -Dtarget=wasm32-wasi) installs\na ReleaseSafe zig-out/bin/kaappi.wasm, overwriting the ReleaseSmall\nbinary that 'zig build wasm' produced. Placed mid-job it let the four\nlater wasmtime steps (parallel pool, platform gates, library-load,\ncommand-line) and the cross-tier differential silently exercise the\nwrong binary. Move it to the very end of the wasm job — after the\ndifferential — and note in its comment that it must stay last. The\nintervening native-oracle 'zig build' installs plain 'kaappi', not\nkaappi.wasm, so there is no other collision.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-29T13:55:01+05:30",
+          "tree_id": "87dbfa4b7a6195e37e1e98504eac57dff43d336f",
+          "url": "https://github.com/kaappi/kaappi/commit/c52d585bc1c50be3bcbde3bab6f1a18ce5fd9c64"
+        },
+        "date": 1787994044300,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.042955,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.579005,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.433082,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.182863,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004052,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.035862,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.22375,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.042076,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.872255,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.890969,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.247635,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.241346,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.287576,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.437597,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.036657,
             "unit": "seconds"
           }
         ]
