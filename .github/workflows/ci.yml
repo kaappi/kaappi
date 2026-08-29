@@ -1317,6 +1317,14 @@ jobs:
           zig build test -Dtarget=wasm32-wasi
           wasmtime run --dir=. --dir=/tmp zig-out/bin/unit-tests.wasm
 
+      # kaappi#2421: the generic cross build of the real executables
+      # (kaappi + kaappi-lsp, ReleaseSafe) is a different LLVM shape from
+      # both `zig build wasm` (ReleaseSmall) and the unit-test compile gate
+      # above, and it was the only path that hit the un-selectable float
+      # constant-pool in angleFn. Compile-only canary; nothing to run.
+      - name: Generic wasm32-wasi build (ReleaseSafe compile canary, kaappi#2421)
+        run: zig build -Dtarget=wasm32-wasi
+
       - name: Parallel pool test (fiber-degraded, KEP-0002 Phase 5)
         run: wasmtime run --dir=. zig-out/bin/kaappi.wasm tests/wasm/parallel.scm
 
