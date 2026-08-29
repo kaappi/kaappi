@@ -660,3 +660,45 @@ test "string->number accepts the unprefixed decimal spelling of 2^63 (#1921)" {
     try th.expectEvalBool("(string->number \"92233720368547758081abc\")", false);
     try th.expectEvalBool("(string->number \"9223372036854775808.0.0\")", false);
 }
+
+test "angle of real arguments matches atan2(0.0, x) exactly (#2421)" {
+    // The flonum arm of angleFn no longer calls atan2 with a constant-zero
+    // first argument (that constant crashed LLVM's baseline-wasm ISel in
+    // ReleaseSafe); this pins the branch rewrite to atan2's exact results,
+    // sign bits included.
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const pos_zero_bits: u64 = @bitCast(@as(f64, 0.0));
+
+    // Positive flonum and +0.0 -> exactly +0.0 (sign bit clear).
+    const pos = try vm.eval("(angle 3.5)");
+    try std.testing.expect(types.isFlonum(pos));
+    try std.testing.expectEqual(pos_zero_bits, @as(u64, @bitCast(types.toFlonum(pos))));
+    const pzero = try vm.eval("(angle 0.0)");
+    try std.testing.expectEqual(pos_zero_bits, @as(u64, @bitCast(types.toFlonum(pzero))));
+
+    // Negative flonum and -0.0 -> pi (atan2(+0.0, -0.0) is +pi).
+    const neg = try vm.eval("(angle -3.5)");
+    try std.testing.expectEqual(std.math.pi, types.toFlonum(neg));
+    const nzero = try vm.eval("(angle -0.0)");
+    try std.testing.expectEqual(std.math.pi, types.toFlonum(nzero));
+
+    // Infinities follow the sign bit like finite values.
+    const pinf = try vm.eval("(angle +inf.0)");
+    try std.testing.expectEqual(pos_zero_bits, @as(u64, @bitCast(types.toFlonum(pinf))));
+    const ninf = try vm.eval("(angle -inf.0)");
+    try std.testing.expectEqual(std.math.pi, types.toFlonum(ninf));
+
+    // NaN propagates.
+    const nan_r = try vm.eval("(angle +nan.0)");
+    try std.testing.expect(std.math.isNan(types.toFlonum(nan_r)));
+
+    // Fixnums keep the existing sign-based rule.
+    const fpos = try vm.eval("(angle 42)");
+    try std.testing.expectEqual(pos_zero_bits, @as(u64, @bitCast(types.toFlonum(fpos))));
+    const fneg = try vm.eval("(angle -42)");
+    try std.testing.expectEqual(std.math.pi, types.toFlonum(fneg));
+}

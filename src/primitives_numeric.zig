@@ -1670,7 +1670,13 @@ fn angleFn(args: []const Value) PrimitiveError!Value {
     }
     if (types.isFlonum(args[0])) {
         const f = types.toFlonum(args[0]);
-        return makeFlonumVal(std.math.atan2(@as(f64, 0.0), f));
+        // Branch on the sign bit instead of computing atan2(0.0, f): the
+        // constant-zero first argument materialized a float constant-pool
+        // load that LLVM's baseline-wasm ISel cannot select in ReleaseSafe
+        // (kaappi#2421). Bit-exact with atan2(0.0, f) for every input,
+        // including -0.0 (pi), infinities, and NaN (propagated).
+        if (std.math.isNan(f)) return makeFlonumVal(f);
+        return makeFlonumVal(if (std.math.signbit(f)) std.math.pi else 0.0);
     }
     if (types.isBignum(args[0])) {
         return makeFlonumVal(if (bignum_mod.isNegative(args[0])) std.math.pi else 0.0);
