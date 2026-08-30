@@ -145,6 +145,39 @@ the first handful of allocations and never reaches the expander at all.
 `oom_countdown` is gated on `builtin.is_test`, so it compiles out of every
 non-test build.
 
+**`oom_countdown` sees only allocations mediated by `maybeCollect`.** It fires
+from `GC.maybeCollect`, so its sweep covers every allocation that routes
+through it — most `allocXxx` (pairs, vectors, strings, closures, …), but *not*
+`allocSymbol` or `allocFunction`, which deliberately skip `maybeCollect`. An
+allocation made straight from the raw allocator is likewise invisible to it:
+the VM's growable register/frame/handler/wind stacks (`ensureRegisterCapacity`
+and siblings), the fiber snapshot buffers (`growFiberRegisters`/`Frames`/
+`Handlers`/`Winds`), the reactor timer heap (`addTimer`), the scheduler's
+`driving_waits` list, bignum limb scratch, and the bytecode/IR/constant pools
+all bottom out in `memory.allocSliceNoFill` or an `ArrayList` over
+`gc.allocator`, never in `maybeCollect`. Those are exactly the allocations
+behind the fiber scheduler's OOM paths (#2429, #2433) — an `oom_countdown`
+sweep cannot drive a failure at any of them (#2435).
+
+For the raw-allocator surface, use `memory.OomAllocator`: a test-only wrapper
+with its own countdown, independent of `oom_countdown` (a form's raw and GC
+allocation sequences are unrelated). Wrap the backing allocator, hand
+`allocator()` to `GC.init`, and arm `countdown` after construction — `null`
+forwards untouched, so the VM builds normally until the sweep begins:
+
+```zig
+var oom = memory.OomAllocator.init(std.testing.allocator);
+var gc = memory.GC.init(oom.allocator());
+const vm = try th.makeTestVM(&gc);
+defer { vm.deinit(); gc.deinit(); }
+
+oom.countdown = 0;               // fail the next raw acquisition
+try std.testing.expectError(error.OutOfMemory, vm.ensureRegisterCapacity(n));
+oom.countdown = null;            // disarm
+```
+
+Both are gated to test builds and compile out of every non-test binary.
+
 ---
 
 ## Scheme Integration Tests

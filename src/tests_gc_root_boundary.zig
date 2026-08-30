@@ -32,6 +32,7 @@ const std = @import("std");
 const th = @import("testing_helpers.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
+const vm_mod = @import("vm.zig");
 const compiler_mod = @import("compiler.zig");
 const reader_mod = @import("reader.zig");
 
@@ -256,4 +257,49 @@ test "reader does not leak roots across a complex-number datum" {
         gc.popRoot();
         try std.testing.expectEqual(before, gc.root_count);
     }
+}
+
+// #2435: `gc.oom_countdown`, the lever every sweep above pulls, only sees GC
+// (`allocXxx`) allocations — it fires from `maybeCollect`. A whole class of
+// error paths allocates straight from the raw allocator and is invisible to
+// it: the VM's growable register/frame/handler/wind stacks, the fiber
+// snapshot buffers, the reactor timer heap, and the scheduler's
+// `driving_waits` list — precisely the allocations behind the fiber
+// scheduler's OOM paths (#2429, #2433), whose regression tests this blocked.
+// `memory.OomAllocator` is the raw-allocator counterpart, with an independent
+// countdown in a wrapper over the backing allocator. This proves it reaches a
+// real VM's register-file growth — an `allocSliceNoFill` `oom_countdown`
+// cannot touch — while leaving construction untouched until it is armed.
+test "OomAllocator injects a raw-allocator OutOfMemory oom_countdown cannot reach" {
+    var oom = memory.OomAllocator.init(std.testing.allocator);
+    var gc = memory.GC.init(oom.allocator());
+    const vm = th.makeTestVM(&gc) catch |err| {
+        gc.deinit();
+        return err;
+    };
+    defer {
+        vm.deinit();
+        gc.deinit();
+    }
+
+    // A GC OOM injector cannot reach the register-file realloc: even armed to
+    // fail its very next GC allocation, the growth (a raw `allocSliceNoFill`,
+    // never routed through `maybeCollect`) still succeeds.
+    std.debug.assert(vm.registers.len * 2 <= vm_mod.MAX_REGISTER_LIMIT);
+    gc.oom_countdown = 0;
+    try vm.ensureRegisterCapacity(vm.registers.len + 1);
+    gc.oom_countdown = null;
+
+    // The raw injector does reach it. Armed at 0, the next raw acquisition —
+    // the register-file realloc — fails, surfacing as VMError.OutOfMemory.
+    const target = vm.registers.len + 1;
+    std.debug.assert(target <= vm_mod.MAX_REGISTER_LIMIT);
+    oom.countdown = 0;
+    try std.testing.expectError(error.OutOfMemory, vm.ensureRegisterCapacity(target));
+
+    // Disarmed, the identical growth succeeds: the failure was the injector,
+    // and the VM is otherwise healthy.
+    oom.countdown = null;
+    try vm.ensureRegisterCapacity(target);
+    try std.testing.expect(vm.registers.len >= target);
 }

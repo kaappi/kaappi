@@ -271,12 +271,24 @@ only in the expander; keep primitive error paths balanced so that stays
 true.
 
 To reproduce a failure this deep, use `gc.oom_countdown` — `n` allocations
-succeed, the next fails. Sweeping `n` walks the failure across every
+succeed, the next fails. Sweeping `n` walks the failure across every *GC*
 allocation a form performs. `FailingAllocator` cannot reach these sites, and
 `gc.memory_limit` is an absolute watermark that only trips once a form
 *retains* more than the headroom, so it fails in the first few allocations
 and never reaches the expander. `oom_countdown` is compiled out entirely
 outside test binaries (`builtin.is_test`).
+
+`oom_countdown` fires from `maybeCollect`, so it sees only allocations
+mediated by it — most `allocXxx`, but not `allocSymbol`/`allocFunction`, which
+skip `maybeCollect`. A raw-allocator allocation — the VM's growable register/
+frame/handler/wind stacks, the fiber snapshot buffers, the reactor timer heap,
+the scheduler's `driving_waits` list, bignum limb scratch, the bytecode/IR/
+constant pools — is likewise invisible to it, which is what blocked the OOM
+regression tests for the fiber scheduler's error paths (#2429, #2433). For that
+surface use `memory.OomAllocator`, the test-only raw-allocator counterpart:
+wrap the backing allocator, hand `allocator()` to `GC.init`, and arm its own
+`countdown` (independent of `oom_countdown`) after construction, from the
+owning thread (#2435). Also compiled out of non-test builds.
 
 ### Raw-allocator ownership is still local (#1864)
 

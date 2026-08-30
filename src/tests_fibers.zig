@@ -998,11 +998,15 @@ test "channel-comparator is cached: repeat calls return the same record (#2394)"
 // against a *sibling's* registers, frames, handler and wind stacks: the #1487
 // dispatch-from-stale-snapshot corruption reached by a different route.
 //
-// The probe uses Terminated rather than an injected OOM because it is
+// This first probe uses Terminated rather than an injected OOM because it is
 // deterministic and reaches the identical exit — the fix is the one errdefer
-// that covers every error return, not a per-error patch. (An OOM here would
-// come from ensureXxxCapacity/growFiberXxx, which allocate from the raw
-// allocator and so are not reachable by gc.oom_countdown.)
+// that covers every error return, not a per-error patch. It was the only
+// option when the test was written: an OOM here comes from
+// ensureXxxCapacity/growFiberXxx, which allocate from the raw allocator, and
+// gc.oom_countdown reaches only GC allocations. The second probe below closes
+// that gap — it drives the *actual* OutOfMemory the bug is about, using
+// memory.OomAllocator (#2435) to fail exactly the growFiberXxx snapshot save
+// that runs while a sibling's window is loaded.
 
 const TerminateAfterDispatches = struct {
     me: *fiber_mod.Fiber,
@@ -1076,6 +1080,100 @@ test "a drive that errors out mid-dispatch restores the waiting fiber's window (
                 ctx.sched.current_idx, my_idx,         vm.current_fiber.? == me,
                 vm.frame_count,        me.frame_count, ran.frame_count,
             },
+        );
+        return error.WaitingFiberWindowNotRestored;
+    }
+}
+
+// The OOM sibling of the probe above (#2435): the same window-restore
+// invariant, but reached through the *actual* OutOfMemory the bug is about
+// rather than a Terminated stand-in. Each spinning sibling first recurses deep,
+// so when it parks at `thread-yield!` its saved window is far larger than a
+// fiber's initial snapshot buffers — the yield-path `saveCurrentFiber` must
+// therefore grow them, a raw `allocSliceNoFill` that `memory.OomAllocator`
+// (unlike gc.oom_countdown) can fail. The Ctx arms the injector the moment one
+// sibling is parked holding such a window, so the failure lands on the *other*
+// sibling's grow, taking the error exit with that sibling's window loaded.
+const ArmOomOnDeepSuspend = struct {
+    oom: *memory.OomAllocator,
+    sib_a: *fiber_mod.Fiber,
+    sib_b: *fiber_mod.Fiber,
+    me: *fiber_mod.Fiber,
+    calls: *usize,
+
+    pub fn isDone(self: ArmOomOnDeepSuspend) bool {
+        self.calls.* += 1;
+        const deep = types.INITIAL_FIBER_FRAME_CAPACITY;
+        if (self.oom.countdown == null and
+            ((self.sib_a.status == .suspended and self.sib_a.frame_count > deep) or
+                (self.sib_b.status == .suspended and self.sib_b.frame_count > deep)))
+        {
+            // Arm: the next growing raw allocation in the drive fails.
+            self.oom.countdown = 0;
+        }
+        // Safety net: if no growing allocation ever occurs (a setup change made
+        // the parked window shallow), stop after plenty of rounds so the test
+        // fails on the expectError below instead of spinning forever.
+        if (self.calls.* > 500) @atomicStore(bool, &self.me.terminated, true, .monotonic);
+        return false;
+    }
+};
+
+test "a raw-allocator OOM mid-dispatch restores the waiting fiber's window (#2429, #2435)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // needs the reactor-backed scheduler
+    if (comptime @import("builtin").single_threaded) return error.SkipZigTest; // spawn is threaded-only
+    const bo = @import("build_options");
+    // Depth must exceed the VM's initial frame stack (so the recursion is real)
+    // yet leave headroom under MAX_FRAME_LIMIT (so it grows rather than
+    // StackOverflows). The default build clears this by a wide margin.
+    if (comptime bo.max_frames > types.MAX_FRAME_LIMIT - 2048) return error.SkipZigTest;
+    const depth = bo.max_frames + 200;
+
+    var oom = memory.OomAllocator.init(std.testing.allocator);
+    var gc = memory.GC.init(oom.allocator());
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    var setup_buf: [256]u8 = undefined;
+    const setup = try std.fmt.bufPrint(&setup_buf, "(define (deep-spin n) (if (= n 0) (let loop () (thread-yield!) (loop)) (+ 1 (deep-spin (- n 1)))))" ++
+        "(define sib-a (spawn (lambda () (deep-spin {d}))))" ++
+        "(define sib-b (spawn (lambda () (deep-spin {d}))))", .{ depth, depth });
+    _ = try vm.eval(setup);
+    const sib_a = types.toObject(try vm.eval("sib-a")).as(fiber_mod.Fiber);
+    const sib_b = types.toObject(try vm.eval("sib-b")).as(fiber_mod.Fiber);
+
+    const ctx = try fiber_mod.ensureScheduler(vm);
+    const my_idx = ctx.sched.current_idx;
+    const me = ctx.sched.fibers.items[my_idx].?;
+    me.status = .waiting;
+    me.timed_out = false;
+
+    var calls: usize = 0;
+    const drive_ctx: ArmOomOnDeepSuspend = .{ .oom = &oom, .sib_a = sib_a, .sib_b = sib_b, .me = me, .calls = &calls };
+    const res = fiber_mod.runSchedulerStep(ArmOomOnDeepSuspend, drive_ctx, vm, ctx.sched, me);
+    oom.countdown = null; // disarm before any further allocation (assertions, teardown)
+    try std.testing.expectError(vm_mod.VMError.OutOfMemory, res);
+
+    // Non-vacuity: a sibling really was parked mid-body holding a deep window,
+    // so pre-fix there was a sibling's register/frame window to be stranded on.
+    const ran = if (sib_a.status == .suspended and sib_a.frame_count > types.INITIAL_FIBER_FRAME_CAPACITY) sib_a else sib_b;
+    if (ran.status != .suspended or ran.frame_count <= types.INITIAL_FIBER_FRAME_CAPACITY) {
+        std.debug.print(
+            "no sibling was left parked with a deep window: a={s}/{d} b={s}/{d} (loop ran {d}x)\n",
+            .{ @tagName(sib_a.status), sib_a.frame_count, @tagName(sib_b.status), sib_b.frame_count, calls },
+        );
+        return error.SiblingNeverDeepParked;
+    }
+
+    // The fix. Pre-fix all three name the sibling whose grow OOM'd instead.
+    if (ctx.sched.current_idx != my_idx or vm.current_fiber.? != me or
+        vm.frame_count != me.frame_count)
+    {
+        std.debug.print(
+            "drive OOM'd out on a sibling's window — current_idx={d} (want {d}) " ++
+                "current_fiber_is_me={} vm.frame_count={d} (want {d})\n",
+            .{ ctx.sched.current_idx, my_idx, vm.current_fiber.? == me, vm.frame_count, me.frame_count },
         );
         return error.WaitingFiberWindowNotRestored;
     }
