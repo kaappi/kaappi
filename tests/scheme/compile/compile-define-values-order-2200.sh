@@ -22,6 +22,22 @@
 # The interpreter is this tier's oracle (tests/scheme/CLAUDE.md): the standalone
 # binary's stdout and exit status must match the interpreter's.
 #
+# ONE program, deliberately (kaappi#2431). This used to bundle two — the repro,
+# and a control proving an `import` alongside `define-values` still works, so
+# that the fix could not have been an over-restriction — and each
+# `zig build -Dbundle=` recompiles the whole interpreter around its embedded
+# bytecode. Together with an interpreter build of its own that was three full
+# builds, which put the script within ordinary runner variance of the 600s
+# shell-test timeout and made `test (ubuntu-latest, Debug)` — a required check
+# — fail roughly one run in fourteen. The program below carries both
+# properties at once: the `define-values` depends on an earlier top-level
+# `define` (the repro), and the file imports `(scheme write)` for its `display`
+# (the control). `topLevelHead` classifies purely on the head symbol, with no
+# dependence on whether an import has been seen, so folding the two together
+# changes nothing about which path either form takes. The interpreter build is
+# now shared with the rest of the suite via `fixture_interpreter`, leaving one
+# `zig build` unique to this script.
+#
 # Usage: bash tests/scheme/compile/compile-define-values-order-2200.sh [path-to-kaappi]
 
 set -euo pipefail
@@ -57,22 +73,40 @@ bad() {
     FAIL=$((FAIL + 1))
 }
 
-# The producer of the define-values depends on an earlier top-level define, so
-# any hoisting into the preamble breaks it.
+# `(define-values (a b) ...)`'s producer reads `x`, bound by an earlier
+# top-level form, so any hoisting into the preamble breaks it. The `import` is
+# the control: it must still reach the preamble and be replayed, which is what
+# a preamble is for.
+#
+# The control imports `(srfi 8)` and uses `receive` (PR #2432 review). It has
+# to be a portable `.sld` library: every BUILT-IN library's bindings are also
+# ambient in script mode, so a program importing only `(scheme base)` and
+# `(scheme write)` runs identically with the import line deleted outright —
+# `display` and `write-simple` alike — and such a control asserts nothing about
+# whether the import was ever replayed. `receive` comes only from lib/srfi/8.sld
+# and is unbound without its import, so if the preamble stopped carrying
+# imports this run diverges from the interpreter's.
 cat > "$WORK/prog.scm" <<'SCM'
+(import (scheme base) (srfi 8))
 (define x 1)
 (define-values (a b) (values x 2))
 (display (list a b))
 (newline)
+(receive (p q) (values 10 20)
+  (display (+ p q))
+  (newline))
 SCM
+
+EXPECTED="(1 2)
+30"
 
 echo "=== interpreter (the tier oracle) ==="
 interp_status=0
 interp_out="$(interp_stdout "$KAAPPI_ABS" "$WORK" "$WORK/prog.scm")" || interp_status=$?
-if [ "$interp_out" == "(1 2)" ] && [ "$interp_status" -eq 0 ]; then
-    ok "interpreted run prints (1 2) and exits 0"
+if [ "$interp_out" == "$EXPECTED" ] && [ "$interp_status" -eq 0 ]; then
+    ok "interpreted run prints (1 2) then 30 and exits 0"
 else
-    bad "interpreted run prints (1 2) and exits 0" \
+    bad "interpreted run prints (1 2) then 30 and exits 0" \
         "stdout: $interp_out" "exit: $interp_status"
 fi
 
@@ -81,52 +115,30 @@ skip_without_zig "the standalone-binary check needs a Zig toolchain"
 
 # The .sbc's compiler hash folds in the producing binary's git build id
 # (docs/dev/cache.md), so a .sbc made by a stale zig-out/bin/kaappi goes stale
-# against a bundler rebuilt from current source (kaappi#1930). Build the
-# interpreter into an isolated prefix from the same source the bundler uses, and
-# produce the .sbc with THAT binary. -p keeps zig-out/ and the caller's binary
+# against a bundler rebuilt from current source (kaappi#1930). fixture_interpreter
+# builds one from the same source, with the same -Doptimize, as the bundler
+# below — and shares it with every other script that needs one, so only the
+# first caller in a run pays for it. zig-out/ and the caller's binary are left
 # untouched.
-(cd "$REPO_ROOT" && zig build -p "$WORK/interp" > /dev/null 2>&1)
-"$WORK/interp/bin/kaappi" --compile -o "$WORK/prog.sbc" "$WORK/prog.scm" > /dev/null
+fixture_interpreter "$REPO_ROOT"
+INTERP="$(fixture_interpreter_path "$REPO_ROOT")"
+"$INTERP" --compile -o "$WORK/prog.sbc" "$WORK/prog.scm" > /dev/null
 
-(cd "$REPO_ROOT" && zig build -Dbundle="$WORK/prog.sbc" -p "$WORK/bundle" > /dev/null 2>&1)
+(cd "$REPO_ROOT" && zig build -Dbundle="$WORK/prog.sbc" -Doptimize=ReleaseSafe \
+    -p "$WORK/bundle" > /dev/null 2>&1)
 native_status=0
 native_out="$("$WORK/bundle/bin/kaappi" 2> /dev/null)" || native_status=$?
 
-if [ "$native_out" == "(1 2)" ] && [ "$native_status" -eq 0 ]; then
-    ok "standalone binary prints (1 2) and exits 0"
+if [ "$native_out" == "$EXPECTED" ] && [ "$native_status" -eq 0 ]; then
+    ok "standalone binary prints (1 2) then 30 and exits 0"
 else
-    bad "standalone binary prints (1 2) and exits 0" \
+    bad "standalone binary prints (1 2) then 30 and exits 0" \
         "stdout: $native_out" "exit: $native_status"
 fi
 
 if assert_tiers_agree "standalone binary vs interpreter" \
     "$interp_out" "$interp_status" "$native_out" "$native_status"; then
     ok "the standalone binary agrees with the interpreter on stdout and exit status"
-else
-    FAIL=$((FAIL + 1))
-fi
-
-echo "=== control: an env-setup declaration is still hoisted and works ==="
-# A top-level `import` must still reach the preamble and be replayed before the
-# compiled forms — that is what a preamble is for. Proving it still works
-# compiled guards against over-restricting the hoisting.
-cat > "$WORK/env.scm" <<'SCM'
-(import (scheme base) (scheme write))
-(define-values (p q) (values 10 20))
-(display (+ p q))
-(newline)
-SCM
-env_interp_status=0
-env_interp_out="$(interp_stdout "$KAAPPI_ABS" "$WORK" "$WORK/env.scm")" || env_interp_status=$?
-
-"$WORK/interp/bin/kaappi" --compile -o "$WORK/env.sbc" "$WORK/env.scm" > /dev/null
-(cd "$REPO_ROOT" && zig build -Dbundle="$WORK/env.sbc" -p "$WORK/envbundle" > /dev/null 2>&1)
-env_native_status=0
-env_native_out="$("$WORK/envbundle/bin/kaappi" 2> /dev/null)" || env_native_status=$?
-
-if assert_tiers_agree "env-setup import + define-values compiled" \
-    "$env_interp_out" "$env_interp_status" "$env_native_out" "$env_native_status"; then
-    ok "an import is still hoisted and the compiled artifact prints 30"
 else
     FAIL=$((FAIL + 1))
 fi

@@ -894,6 +894,50 @@ pub const FiberScheduler = struct {
         };
     }
 
+    /// Retire `fiber`'s enrolment under `key` — the exact inverse of
+    /// `enrollWaiter`, for a park that is being undone rather than woken
+    /// (#2430's error exits, via `primitives_srfi18.unparkOnError`).
+    ///
+    /// A wake retires the entry as a side effect: `indexWakeOn` compacts out
+    /// every stale index it walks and frees the key once the list empties. An
+    /// *abandoned* park gets no such visit. Clearing `status` is enough to stop
+    /// the entry ever waking the wrong fiber — that is the validation
+    /// `indexWakeOn` already performs — but it does not remove it, and nothing
+    /// else will unless some later wake happens to name the same key. A wait
+    /// abandoned on an object that is then never woken (a condition variable
+    /// nobody signals, a mutex nobody unlocks, a fiber that never completes)
+    /// therefore strands one map key and list for the scheduler's lifetime, and
+    /// a program that fails such a park repeatedly on FRESH objects strands one
+    /// per failure. `markRoots` does not trace these keys either, so once the
+    /// unpark clears `waiting_on` the key is no longer rooted by the fiber:
+    /// harmless for lookup (the map hashes the Value, never dereferences it)
+    /// and for correctness (a recycled address still meets the per-entry
+    /// validation), but it makes the entry pure garbage that can never be
+    /// matched again.
+    ///
+    /// Removes every occurrence of this fiber's slot, not just the first:
+    /// `enrollWaiter`'s dedup only skips a duplicate at the tail, so a fiber
+    /// that re-parked on the same key around another waiter's entry can appear
+    /// more than once.
+    pub fn withdrawWaiter(self: *FiberScheduler, fiber: *Fiber, key: Value) void {
+        if (self.waiter_index_degraded) return;
+        if (key == types.VOID) return;
+        const entry = self.waiter_index.getEntry(key) orelse return;
+        const list = entry.value_ptr;
+        var w: usize = 0; // write cursor: entries to keep, compacted in place
+        for (list.items) |idx| {
+            if (idx == fiber.sched_idx) continue;
+            list.items[w] = idx;
+            w += 1;
+        }
+        if (w == 0) {
+            list.deinit(self.vm.gc.allocator);
+            _ = self.waiter_index.remove(key);
+        } else {
+            list.shrinkRetainingCapacity(w);
+        }
+    }
+
     /// The common tail of every wake path: move `fiber` from `.waiting` back
     /// to `.suspended`, hand off any join result, cancel a pending timeout
     /// timer, and enqueue it on the ready ring. Factored out so the index and

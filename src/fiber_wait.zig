@@ -457,6 +457,48 @@ pub fn runSchedulerStep(comptime Ctx: type, ctx: Ctx, vm: *VM, sched: *FiberSche
     }
     const my_idx = sched.current_idx;
     try sched.saveCurrentFiber();
+
+    // #2429: run the epilogue's restore on EVERY exit, not just the normal
+    // one. Five `try`s below return without reaching it — parkOnReactor,
+    // restoreFiber(next_idx), and the three saveCurrentFiber calls (the
+    // Yielded, errored-dispatch and completed-dispatch paths) — and all
+    // five surface VMError.OutOfMemory, which is *catchable*, unlike the
+    // `return VMError.Terminated` above that errors.isUncatchable unwinds
+    // past every handler.
+    //
+    // By the time the three saveCurrentFiber calls run, restoreFiber has
+    // already loaded a SIBLING's registers, frames, handler stack and wind
+    // stack into the VM, and saveCurrentFiber only copies VM→fiber — it
+    // never puts `me` back. parkOnReactor is reached at the top of a later
+    // iteration with that same sibling state still loaded. So returning OOM
+    // from any of them leaves vm.current_fiber, sched.current_idx and the
+    // whole VM window belonging to the sibling, and a Scheme `guard` that
+    // catches the OOM resumes `me`'s bytecode against another fiber's
+    // registers: the #1487 dispatch-from-stale-snapshot corruption reached
+    // by a different route, in the single shared body behind
+    // channel-receive/-send, fiber-join, thread-join!, mutex-lock!,
+    // condition-variable waits and thread-sleep!.
+    //
+    // Ordering: declared before `driving`/driving_waits below, so on unwind
+    // it runs after both of their defers — the same order as the normal
+    // epilogue, which is reached with both already popped.
+    //
+    // The `catch {}` cannot fire. restoreFiber is fallible only through its
+    // four ensureXxxCapacity calls, each of which returns early when the
+    // need is already met and never shrinks; `me` was current on entry, so
+    // the VM stacks were already big enough for the snapshot saveCurrentFiber
+    // just took of them and have only grown since. Swallowing beats any
+    // alternative anyway: the capacity check precedes every memcpy, so a
+    // failure is all-or-nothing and leaves exactly today's state — and
+    // returning a second error, or panicking, while already unwinding an
+    // allocation failure has nothing better to offer.
+    errdefer {
+        sched.restoreFiber(my_idx) catch {};
+        sched.current_idx = my_idx;
+        me.status = .running;
+        vm.current_fiber = me;
+    }
+
     const poll_cap_ns: ?u64 = if (@hasDecl(Ctx, "pollCapNs")) ctx.pollCapNs() else null;
 
     me.driving = true;

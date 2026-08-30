@@ -985,3 +985,98 @@ test "channel-comparator is cached: repeat calls return the same record (#2394)"
     const result = try ctx.vm.eval("(eq? (channel-comparator) (channel-comparator))");
     try std.testing.expectEqual(types.TRUE, result);
 }
+
+// ---------------------------------------------------------------------------
+// An error exit from a drive must put the waiting fiber's window back (#2429)
+// ---------------------------------------------------------------------------
+//
+// runSchedulerStep restored `me` in its epilogue only, and five `try`s inside
+// the dispatch loop return without ever reaching it — parkOnReactor,
+// restoreFiber(next_idx), and the three saveCurrentFiber calls (Yielded,
+// errored-dispatch, completed-dispatch). All five surface OutOfMemory, which
+// is catchable, so a Scheme `guard` could resume the waiting fiber's bytecode
+// against a *sibling's* registers, frames, handler and wind stacks: the #1487
+// dispatch-from-stale-snapshot corruption reached by a different route.
+//
+// The probe uses Terminated rather than an injected OOM because it is
+// deterministic and reaches the identical exit — the fix is the one errdefer
+// that covers every error return, not a per-error patch. (An OOM here would
+// come from ensureXxxCapacity/growFiberXxx, which allocate from the raw
+// allocator and so are not reachable by gc.oom_countdown.)
+
+const TerminateAfterDispatches = struct {
+    me: *fiber_mod.Fiber,
+    calls: *usize,
+    /// Never resolves. Once the drive has been round the loop three times —
+    /// long enough to have dispatched a sibling and left it suspended
+    /// mid-body, with its window loaded into the VM — ask for termination, so
+    /// the next `waitTerminated` check at the top of the loop takes an error
+    /// exit from exactly that state.
+    pub fn isDone(self: TerminateAfterDispatches) bool {
+        self.calls.* += 1;
+        if (self.calls.* > 3) @atomicStore(bool, &self.me.terminated, true, .monotonic);
+        return false;
+    }
+};
+
+test "a drive that errors out mid-dispatch restores the waiting fiber's window (#2429)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // needs the reactor-backed scheduler
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // TWO siblings, and each yields rather than completing. Yielding is what
+    // leaves one suspended with a real frame stack when the drive errors out
+    // (a fiber that ran to completion leaves a zero-length window behind, and
+    // the frame_count assertion below would be vacuous) — but `thread-yield!`
+    // is advisory and no-ops unless some OTHER fiber is runnable. `me` is
+    // excluded from that for the whole drive (it is `driving`), so with a
+    // single sibling the yield never fires and the sibling spins inside
+    // `runUntil` forever.
+    _ = try vm.eval(
+        \\(define (spin) (let loop ((i 0)) (thread-yield!) (loop (+ i 1))))
+        \\(define sib-a (spawn spin))
+        \\(define sib-b (spawn spin))
+    );
+    const sib_a = types.toObject(try vm.eval("sib-a")).as(fiber_mod.Fiber);
+    const sib_b = types.toObject(try vm.eval("sib-b")).as(fiber_mod.Fiber);
+
+    const ctx = try fiber_mod.ensureScheduler(vm);
+    const my_idx = ctx.sched.current_idx;
+    const me = ctx.sched.fibers.items[my_idx].?;
+    me.status = .waiting;
+    me.timed_out = false;
+
+    var calls: usize = 0;
+    try std.testing.expectError(
+        vm_mod.VMError.Terminated,
+        fiber_mod.runSchedulerStep(TerminateAfterDispatches, .{ .me = me, .calls = &calls }, vm, ctx.sched, me),
+    );
+
+    // Non-vacuity: a sibling really was dispatched and really was left holding
+    // a window, so pre-fix there was something to be stranded on.
+    const ran = if (sib_a.status == .suspended and sib_a.frame_count > 0) sib_a else sib_b;
+    if (ran.status != .suspended or ran.frame_count == 0) {
+        std.debug.print(
+            "no sibling was left suspended mid-body: a={s}/{d} b={s}/{d} (loop ran {d}x)\n",
+            .{ @tagName(sib_a.status), sib_a.frame_count, @tagName(sib_b.status), sib_b.frame_count, calls },
+        );
+        return error.SiblingNeverDispatched;
+    }
+
+    // The fix. Pre-fix all three name the sibling instead.
+    if (ctx.sched.current_idx != my_idx or vm.current_fiber.? != me or
+        vm.frame_count != me.frame_count)
+    {
+        std.debug.print(
+            "drive errored out on a sibling's window — current_idx={d} (want {d}) " ++
+                "current_fiber_is_me={} vm.frame_count={d} (want {d}, sibling has {d})\n",
+            .{
+                ctx.sched.current_idx, my_idx,         vm.current_fiber.? == me,
+                vm.frame_count,        me.frame_count, ran.frame_count,
+            },
+        );
+        return error.WaitingFiberWindowNotRestored;
+    }
+}
