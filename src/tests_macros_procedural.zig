@@ -67,37 +67,40 @@ test "SRFI 211: compare answers free-identifier equality for else" {
 // reserved (bare-rename) and renamed (global-name) keyword shapes, while
 // an unshadowed use still compares equal. End-to-end parity against a
 // syntax-rules cond-style transformer is pinned in
-// tests/scheme/srfi/srfi211.scm (KEP-0018 UQ6). The macro names carry a
-// q2388- prefix because a vm.eval'd define-syntax re-using a keyword
-// already defined by an earlier test in this process trips a pre-existing
-// quirk unrelated to compare (kaappi#2400).
+// tests/scheme/srfi/srfi211.scm (KEP-0018 UQ6). These tests deliberately
+// re-use keyword spellings that earlier tests in this same process already
+// defined (`is-else?` above): kaappi#2400 reported that such reuse could
+// fail with a bare CompileError, which is why they originally carried
+// q2388- prefixes — the report never reproduced on any landed commit, so
+// the shared spellings now stand as the regression pin (see the
+// "keyword reuse scenario sweep" test below).
 test "SRFI 211: compare refuses a locally rebound keyword spelling (#2388)" {
     try th.expectEvalTrue(
         \\(begin
-        \\  (define-syntax q2388-else?
+        \\  (define-syntax is-else?
         \\    (er-macro-transformer
         \\     (lambda (form rename compare)
         \\       (list (rename 'quote) (compare (car (cdr form)) (rename 'else))))))
-        \\  (define-syntax q2388-arrow?
+        \\  (define-syntax is-arrow?
         \\    (er-macro-transformer
         \\     (lambda (form rename compare)
         \\       (list (rename 'quote) (compare (car (cdr form)) (rename '=>))))))
-        \\  (and (q2388-else? else)
-        \\       (q2388-arrow? =>)
-        \\       (not (let ((else 1)) (q2388-else? else)))
-        \\       (not (let ((=> 1)) (q2388-arrow? =>)))))
+        \\  (and (is-else? else)
+        \\       (is-arrow? =>)
+        \\       (not (let ((else 1)) (is-else? else)))
+        \\       (not (let ((=> 1)) (is-arrow? =>)))))
     );
 }
 
 test "SRFI 211: compare refuses a locally rebound rename of a global name (#2388)" {
     try th.expectEvalTrue(
         \\(begin
-        \\  (define-syntax q2388-values?
+        \\  (define-syntax is-values?
         \\    (er-macro-transformer
         \\     (lambda (form rename compare)
         \\       (list (rename 'quote) (compare (car (cdr form)) (rename 'values))))))
-        \\  (and (q2388-values? values)
-        \\       (not (let ((values 1)) (q2388-values? values)))))
+        \\  (and (is-values? values)
+        \\       (not (let ((values 1)) (is-values? values)))))
     );
 }
 
@@ -108,13 +111,13 @@ test "SRFI 211: compare refuses a locally rebound rename of a global name (#2388
 test "SRFI 211: compare stays reflexive on plain use-site tokens (#2388)" {
     try th.expectEvalTrue(
         \\(begin
-        \\  (define-syntax q2388-tok=?
+        \\  (define-syntax is-tok=?
         \\    (er-macro-transformer
         \\     (lambda (form rename compare)
         \\       (list (rename 'quote)
         \\             (compare (car (cdr form)) (car (cddr form)))))))
-        \\  (and (q2388-tok=? vv vv)
-        \\       (let ((vv 1)) (q2388-tok=? vv vv))))
+        \\  (and (is-tok=? vv vv)
+        \\       (let ((vv 1)) (is-tok=? vv vv))))
     );
 }
 
@@ -126,15 +129,15 @@ test "SRFI 211: compare stays reflexive on plain use-site tokens (#2388)" {
 test "SRFI 211: a macro-introduced keyword stays hygienic under shadowing (#2388)" {
     try th.expectEvalTrue(
         \\(begin
-        \\  (define-syntax q2388-arrow2?
+        \\  (define-syntax is-arrow2?
         \\    (er-macro-transformer
         \\     (lambda (form rename compare)
         \\       (list (rename 'quote) (compare (car (cdr form)) (rename '=>))))))
-        \\  (define-syntax q2388-probe
+        \\  (define-syntax is-probe
         \\    (er-macro-transformer
         \\     (lambda (form rename compare)
-        \\       (list 'q2388-arrow2? (rename '=>)))))
-        \\  (and (q2388-probe) (let ((=> 1)) (q2388-probe))))
+        \\       (list 'is-arrow2? (rename '=>)))))
+        \\  (and (is-probe) (let ((=> 1)) (is-probe))))
     );
 }
 
@@ -474,6 +477,96 @@ test "#2403: a transformer's guard catches the circular-datum rejection" {
         \\         (rename (car (cdr form)))))))
         \\  (eq? 'caught (g #0=(zz . #0#))))
     );
+}
+
+// ---------------------------------------------------------------------------
+// #2400: a vm.eval'd define-syntax re-using an er-macro keyword spelling
+// already defined by an earlier eval in the same process was reported to
+// fail with a bare CompileError and an empty syntax_error_detail. The
+// report never reproduced on any landed commit (verified at the
+// issue-era main tip, at the #2401 merge, and on current main — full
+// suites, gc-stress, CLI, and the (scheme eval) path); the sweep below
+// pins the correct behavior for every reuse shape the report implicated,
+// so a regression in this area fails loudly with a labeled scenario.
+// ---------------------------------------------------------------------------
+
+const repro2400_snippet =
+    \\(begin
+    \\  (define-syntax is-else?
+    \\    (er-macro-transformer
+    \\     (lambda (form rename compare)
+    \\       (list (rename 'quote) (compare (car (cdr form)) (rename 'else))))))
+    \\  (define-syntax is-arrow?
+    \\    (er-macro-transformer
+    \\     (lambda (form rename compare)
+    \\       (list (rename 'quote) (compare (car (cdr form)) (rename '=>))))))
+    \\  (and (is-else? else)
+    \\       (is-arrow? =>)
+    \\       (not (let ((else 1)) (is-else? else)))
+    \\       (not (let ((=> 1)) (is-arrow? =>)))))
+;
+
+fn repro2400Expect(vm: *th.VM, label: []const u8) !void {
+    const result = vm.eval(repro2400_snippet) catch |err| {
+        std.debug.print("\nrepro2400[{s}] FAILED: {any}; detail='{s}' vmdetail='{s}'\n", .{ label, err, compiler.getSyntaxErrorDetail(), vm.getErrorDetail() });
+        return err;
+    };
+    if (result != types.TRUE) {
+        std.debug.print("\nrepro2400[{s}] wrong value: 0x{x}\n", .{ label, result });
+        return error.TestUnexpectedResult;
+    }
+}
+
+test "#2400: er keyword-spelling reuse across evals and VMs (scenario sweep)" {
+    // (1) prior er define+use in another VM
+    {
+        var a: th.TestContext = undefined;
+        try a.init();
+        defer a.deinit();
+        _ = try a.vm.eval(
+            \\(begin
+            \\  (define-syntax is-else?
+            \\    (er-macro-transformer
+            \\     (lambda (form rename compare)
+            \\       (list (rename 'quote) (compare (car (cdr form)) (rename 'else))))))
+            \\  (and (is-else? else) (not (is-else? other))))
+        );
+    }
+    {
+        var b: th.TestContext = undefined;
+        try b.init();
+        defer b.deinit();
+        try repro2400Expect(b.vm, "fresh-vm-after-er-define");
+        // (2) same VM, immediate re-eval: er keyword redefines er keyword
+        try repro2400Expect(b.vm, "same-vm-redefine");
+        // (3) same VM: separate evals — defines first, use later
+        _ = try b.vm.eval(
+            \\(define-syntax is-else?
+            \\  (er-macro-transformer
+            \\   (lambda (form rename compare)
+            \\     (list (rename 'quote) (compare (car (cdr form)) (rename 'else))))))
+        );
+        try repro2400Expect(b.vm, "same-vm-after-separate-define");
+    }
+    // (4) prior syntax-rules define of the same keyword in another VM,
+    // then er redefinition over syntax-rules in the SAME VM
+    {
+        var c: th.TestContext = undefined;
+        try c.init();
+        defer c.deinit();
+        _ = try c.vm.eval("(define-syntax is-else? (syntax-rules () ((_ x) 'sr)))");
+        _ = try c.vm.eval("(define-syntax is-arrow? (syntax-rules () ((_ x) 'sr)))");
+        try repro2400Expect(c.vm, "same-vm-er-over-syntax-rules");
+    }
+    {
+        var d: th.TestContext = undefined;
+        try d.init();
+        defer d.deinit();
+        try repro2400Expect(d.vm, "fresh-vm-after-sr-define");
+        // (5) prior plain-variable binding of the spelling, then redefine
+        _ = try d.vm.eval("(define is-else2x 1)");
+        try repro2400Expect(d.vm, "after-unrelated-define");
+    }
 }
 
 test "#2403: shared-but-acyclic datum still renames (no false cycle)" {
