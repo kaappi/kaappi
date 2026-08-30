@@ -153,17 +153,17 @@ pub fn dupeSliceNoFill(allocator: std.mem.Allocator, comptime T: type, data: []c
 }
 
 /// Test-only OOM injector for *raw-allocator* allocations — the counterpart
-/// to `GC.oom_countdown`, which only ever sees GC (`allocXxx`) allocations
-/// because it fires from `maybeCollect`. Wrap the backing allocator with this
-/// and hand `allocator()` to `GC.init`, and every allocation that goes
-/// straight to the raw allocator becomes injectable: the VM's growable
-/// register/frame/handler/wind stacks (`ensureRegisterCapacity` and siblings,
-/// via `allocSliceNoFill`), the fiber snapshot buffers (`growFiberRegisters`/
-/// `Frames`/`Handlers`/`Winds`), the reactor timer heap (`addTimer`), the
-/// scheduler's `driving_waits` list, bignum limb scratch, and the
-/// bytecode/IR/constant pools. `GC.oom_countdown` reaches none of these —
-/// which is what blocked the OOM regression tests for the fiber scheduler's
-/// error paths (#2435, #2429, #2433).
+/// to `GC.oom_countdown`, which only ever sees allocations mediated by
+/// `maybeCollect` (every `allocXxx` except `allocSymbol`/`allocFunction`,
+/// which skip it). Wrap the backing allocator with this and hand `allocator()`
+/// to `GC.init`, and every allocation that goes straight to the raw allocator
+/// becomes injectable: the VM's growable register/frame/handler/wind stacks
+/// (`ensureRegisterCapacity` and siblings, via `allocSliceNoFill`), the fiber
+/// snapshot buffers (`growFiberRegisters`/`Frames`/`Handlers`/`Winds`), the
+/// reactor timer heap (`addTimer`), the scheduler's `driving_waits` list,
+/// bignum limb scratch, and the bytecode/IR/constant pools. `GC.oom_countdown`
+/// reaches none of these — which is what blocked the OOM regression tests for
+/// the fiber scheduler's error paths (#2435, #2429, #2433).
 ///
 /// `countdown` is deliberately independent of `GC.oom_countdown`: a form's raw
 /// and GC allocation sequences are unrelated, so the two are armed and swept
@@ -175,16 +175,31 @@ pub fn dupeSliceNoFill(allocator: std.mem.Allocator, comptime T: type, data: []c
 /// which is why, unlike `std.testing.FailingAllocator`, it can be handed to
 /// `GC.init` without failing construction indiscriminately.
 ///
-/// The counter ticks on `alloc` (a new buffer). `remap` may move-and-copy, so
-/// it is failed once the budget is exhausted but does not itself tick (it
-/// acquires no buffer the fallback `alloc` won't); `resize` is a pure in-place
-/// change that acquires nothing, so it forwards untouched. Together this means
-/// an `ArrayList`/timer-heap growth (`driving_waits.append`, `addTimer`)
-/// cannot slip past an armed injector: `ensureTotalCapacityPrecise` tries
-/// `remap` first and falls back to `alloc`, and both refuse once spent.
+/// **An acquisition is any operation that gains backing memory**: an `alloc`,
+/// or a *growing* `resize`/`remap` (`new_len > mem.len`). Each consumes one
+/// unit of budget only when it *succeeds* — a growing `remap` that succeeds in
+/// place (e.g. under a `FixedBufferAllocator`) ticks the counter just as a
+/// fresh `alloc` does, so an `ArrayList`/`PriorityQueue` growth
+/// (`driving_waits.append`, `addTimer`) can never keep bypassing an armed
+/// injector. A shrink or no-op `resize`/`remap` gains nothing and always
+/// forwards untouched, even at `countdown == 0`.
+///
+/// **Injection is thread-affine.** Only the thread that constructed the
+/// wrapper is ever failed; allocations arriving on any other thread forward
+/// untouched and never read or write `countdown`. This matters because
+/// `GC.initForThread` hands an SRFI-18 child the *parent's* `gc.allocator` —
+/// the very same `OomAllocator` pointer — so without the affinity guard a
+/// child allocating while the test armed the injector would race the
+/// owning thread on `countdown` (a `?usize` read/modify/write). Deterministic
+/// injection is a single-threaded notion anyway: "the n-th acquisition" is
+/// only well defined on one thread. Arm and disarm from the owning thread.
 pub const OomAllocator = struct {
     backing: std.mem.Allocator,
     countdown: ?usize = null,
+    /// The thread allowed to be injected. Captured at construction; every
+    /// other thread's allocations forward untouched (see the affinity note
+    /// above). Immutable after `init`, so cross-thread reads of it never race.
+    owner: std.Thread.Id,
 
     const vtable: std.mem.Allocator.VTable = .{
         .alloc = oomAlloc,
@@ -199,45 +214,57 @@ pub const OomAllocator = struct {
         // only when `init` is analyzed in a non-test build; unreferenced in
         // production, it costs nothing.
         comptime if (!builtin.is_test) @compileError("OomAllocator is test-only");
-        return .{ .backing = backing };
+        return .{ .backing = backing, .owner = std.Thread.getCurrentId() };
     }
 
     pub fn allocator(self: *OomAllocator) std.mem.Allocator {
         return .{ .ptr = self, .vtable = &vtable };
     }
 
-    /// Consume one unit of budget on a new-buffer allocation. Returns true if
-    /// the budget is spent and this allocation must fail.
-    fn tick(self: *OomAllocator) bool {
-        if (self.countdown) |n| {
-            if (n == 0) return true;
-            self.countdown = n - 1;
-        }
-        return false;
+    /// Whether this call should participate in injection at all: only the
+    /// owning thread is injected, so a child thread's allocation forwards
+    /// untouched and never touches `countdown`.
+    fn injects(self: *const OomAllocator) bool {
+        return std.Thread.getCurrentId() == self.owner;
     }
 
-    /// True once the budget is fully spent. Used by `remap`, which acquires no
-    /// new buffer (so must not consume budget) but must still fail an armed,
-    /// exhausted injector rather than let a growth through.
-    fn spent(self: *const OomAllocator) bool {
+    /// True once the budget is fully spent — an armed injector at zero. The
+    /// acquisition must fail before the backing allocator is even called.
+    fn blocked(self: *const OomAllocator) bool {
         return if (self.countdown) |n| n == 0 else false;
+    }
+
+    /// Consume one unit of budget for an acquisition that just succeeded.
+    /// A no-op when disarmed; `blocked` has already excluded the zero case.
+    fn consume(self: *OomAllocator) void {
+        if (self.countdown) |n| self.countdown = n - 1;
     }
 
     fn oomAlloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
         const self: *OomAllocator = @ptrCast(@alignCast(ctx));
-        if (self.tick()) return null;
-        return self.backing.vtable.alloc(self.backing.ptr, len, alignment, ret_addr);
+        const inject = self.injects();
+        if (inject and self.blocked()) return null;
+        const r = self.backing.vtable.alloc(self.backing.ptr, len, alignment, ret_addr);
+        if (inject and r != null) self.consume();
+        return r;
     }
     fn oomResize(ctx: *anyopaque, mem: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
-        // A resize is a pure in-place change — it acquires no new backing
-        // memory, so it is never an OOM injection point: forward untouched.
         const self: *OomAllocator = @ptrCast(@alignCast(ctx));
-        return self.backing.vtable.resize(self.backing.ptr, mem, alignment, new_len, ret_addr);
+        // Only a growth gains memory; a shrink/no-op forwards untouched.
+        const inject = new_len > mem.len and self.injects();
+        if (inject and self.blocked()) return false;
+        const ok = self.backing.vtable.resize(self.backing.ptr, mem, alignment, new_len, ret_addr);
+        if (inject and ok) self.consume();
+        return ok;
     }
     fn oomRemap(ctx: *anyopaque, mem: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
         const self: *OomAllocator = @ptrCast(@alignCast(ctx));
-        if (self.spent()) return null;
-        return self.backing.vtable.remap(self.backing.ptr, mem, alignment, new_len, ret_addr);
+        // Only a growth gains memory; a shrink/no-op forwards untouched.
+        const inject = new_len > mem.len and self.injects();
+        if (inject and self.blocked()) return null;
+        const r = self.backing.vtable.remap(self.backing.ptr, mem, alignment, new_len, ret_addr);
+        if (inject and r != null) self.consume();
+        return r;
     }
     fn oomFree(ctx: *anyopaque, mem: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
         const self: *OomAllocator = @ptrCast(@alignCast(ctx));
@@ -297,11 +324,11 @@ pub const GC = struct {
     memory_limit: ?usize = null,
     /// Test-only OOM injector: when set, the next `oom_countdown` heap
     /// allocations succeed and the one after that fails with OutOfMemory.
-    /// Counted per `maybeCollect` call, so it fires only for allocations that
-    /// go through the *GC* — every `allocXxx`. A raw-allocator allocation is
-    /// invisible to it: `allocFunction` (which skips `maybeCollect`), and,
-    /// more widely, the VM's growable register/frame/handler/wind stacks, the
-    /// fiber snapshot buffers, the reactor timer heap, the scheduler's
+    /// Counted per `maybeCollect` call, so it fires only for allocations
+    /// mediated by it — most `allocXxx`, but not `allocSymbol`/`allocFunction`,
+    /// which skip `maybeCollect`. A raw-allocator allocation is invisible to it
+    /// too: the VM's growable register/frame/handler/wind stacks, the fiber
+    /// snapshot buffers, the reactor timer heap, the scheduler's
     /// `driving_waits` list, and the bytecode/IR/constant pools — which is why
     /// a compile with no macro use in it never fails here. Reach those with
     /// `OomAllocator` instead (#2435), whose independent countdown sits in a
@@ -1360,4 +1387,88 @@ test "OomAllocator: fails ArrayList growth once the budget is spent" {
     while (i < 64) : (i += 1) try list.append(a, i);
     try std.testing.expectEqual(@as(usize, 64), list.items.len);
     for (list.items, 0..) |v, idx| try std.testing.expectEqual(@as(u64, @intCast(idx)), v);
+}
+
+// A growing `resize`/`remap` gains memory and must participate in the
+// countdown; a shrink or no-op gains nothing and must always forward, even at
+// zero. A `FixedBufferAllocator` grows its last allocation in place, so it
+// exercises the branch a `DebugAllocator` (which usually falls back to `alloc`)
+// hides — the exact case that let growth bypass the injector before this fix.
+test "OomAllocator: a growing resize/remap is gated, a shrink/no-op always forwards" {
+    var buf: [1024]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buf);
+    var oom = OomAllocator.init(fba.allocator());
+    const a = oom.allocator();
+
+    const mem = try a.alloc(u8, 8);
+    defer a.free(mem);
+
+    // Budget spent: a growth must fail, in place or not.
+    oom.countdown = 0;
+    try std.testing.expect(!a.resize(mem, 16));
+    try std.testing.expect(a.remap(mem, 16) == null);
+    // ...but a no-op or shrink gains nothing and still forwards.
+    try std.testing.expect(a.resize(mem, 8)); // no-op
+    try std.testing.expect(a.resize(mem, 4)); // shrink
+}
+
+// Reviewer #2440: a successful in-place growth must consume budget, or a
+// nonzero countdown lets later growths slip past. Start from an existing
+// buffer, arm to 1, and confirm exactly one growth is allowed and the next is
+// refused. FixedBufferAllocator grows the sole allocation in place, so the
+// growth is a real `remap`/`resize` acquisition rather than an `alloc`.
+test "OomAllocator: a successful in-place growth consumes a nonzero budget" {
+    var buf: [4096]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buf);
+    var oom = OomAllocator.init(fba.allocator());
+    const a = oom.allocator();
+
+    var list: std.ArrayList(u8) = .empty;
+    defer list.deinit(a);
+    try list.ensureTotalCapacityPrecise(a, 4); // the existing buffer
+    while (list.items.len < list.capacity) try list.append(a, 0);
+
+    // Exactly one further acquisition permitted. The next append forces a
+    // growth that succeeds in place and consumes the budget.
+    oom.countdown = 1;
+    try list.append(a, 1);
+    try std.testing.expectEqual(@as(?usize, 0), oom.countdown);
+
+    // Budget now spent: fill the fresh capacity (no growth, no tick), then the
+    // next growth must be refused.
+    while (list.items.len < list.capacity) try list.append(a, 0);
+    try std.testing.expectError(error.OutOfMemory, list.append(a, 2));
+}
+
+// Injection is thread-affine: a child thread sharing this same wrapper (as an
+// SRFI-18 child does — `GC.initForThread` hands it the parent's allocator)
+// forwards untouched and never touches `countdown`, so arming on the owning
+// thread cannot race or fail the child's allocations.
+test "OomAllocator: only the owning thread is injected" {
+    if (builtin.single_threaded) return error.SkipZigTest;
+    var oom = OomAllocator.init(std.testing.allocator);
+    const a = oom.allocator();
+
+    // Armed to fail immediately on the owning thread.
+    oom.countdown = 0;
+    try std.testing.expectError(error.OutOfMemory, allocSliceNoFill(a, u64, 4));
+
+    // A child thread using the very same allocator is never failed.
+    const Worker = struct {
+        fn run(alloc: std.mem.Allocator, ok: *bool) void {
+            const s = allocSliceNoFill(alloc, u64, 4) catch {
+                ok.* = false;
+                return;
+            };
+            freeSliceNoFill(alloc, u64, s);
+            ok.* = true;
+        }
+    };
+    var child_ok = false;
+    const t = try std.Thread.spawn(.{}, Worker.run, .{ a, &child_ok });
+    t.join();
+    try std.testing.expect(child_ok);
+
+    // The owning thread is still armed and still failing.
+    try std.testing.expectError(error.OutOfMemory, allocSliceNoFill(a, u64, 4));
 }

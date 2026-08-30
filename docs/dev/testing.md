@@ -145,18 +145,19 @@ the first handful of allocations and never reaches the expander at all.
 `oom_countdown` is gated on `builtin.is_test`, so it compiles out of every
 non-test build.
 
-**`oom_countdown` sees only GC allocations.** It fires from
-`GC.maybeCollect`, so its sweep covers every `allocXxx` (pairs, vectors,
-strings, closures, …) — and nothing else. An allocation made straight from
-the raw allocator is invisible to it: the VM's growable register/frame/
-handler/wind stacks (`ensureRegisterCapacity` and siblings), the fiber
-snapshot buffers (`growFiberRegisters`/`Frames`/`Handlers`/`Winds`), the
-reactor timer heap (`addTimer`), the scheduler's `driving_waits` list, bignum
-limb scratch, and the bytecode/IR/constant pools all bottom out in
-`memory.allocSliceNoFill` or an `ArrayList` over `gc.allocator`, never in
-`maybeCollect`. Those are exactly the allocations behind the fiber
-scheduler's OOM paths (#2429, #2433) — an `oom_countdown` sweep cannot drive
-a failure at any of them (#2435).
+**`oom_countdown` sees only allocations mediated by `maybeCollect`.** It fires
+from `GC.maybeCollect`, so its sweep covers every allocation that routes
+through it — most `allocXxx` (pairs, vectors, strings, closures, …), but *not*
+`allocSymbol` or `allocFunction`, which deliberately skip `maybeCollect`. An
+allocation made straight from the raw allocator is likewise invisible to it:
+the VM's growable register/frame/handler/wind stacks (`ensureRegisterCapacity`
+and siblings), the fiber snapshot buffers (`growFiberRegisters`/`Frames`/
+`Handlers`/`Winds`), the reactor timer heap (`addTimer`), the scheduler's
+`driving_waits` list, bignum limb scratch, and the bytecode/IR/constant pools
+all bottom out in `memory.allocSliceNoFill` or an `ArrayList` over
+`gc.allocator`, never in `maybeCollect`. Those are exactly the allocations
+behind the fiber scheduler's OOM paths (#2429, #2433) — an `oom_countdown`
+sweep cannot drive a failure at any of them (#2435).
 
 For the raw-allocator surface, use `memory.OomAllocator`: a test-only wrapper
 with its own countdown, independent of `oom_countdown` (a form's raw and GC

@@ -166,17 +166,18 @@ gc.popRoot();
   over a range drives a failure at every *GC* allocation a form performs. It
   is compiled out entirely outside test binaries (`builtin.is_test`).
 
-- **`oom_countdown` reaches only GC (`allocXxx`) allocations** — it fires
-  from `maybeCollect`. Raw-allocator allocations are invisible to it: the
-  VM's growable register/frame/handler/wind stacks, the fiber snapshot
-  buffers, the reactor timer heap, the scheduler's `driving_waits` list,
-  bignum limb scratch, and the bytecode/IR/constant pools all go straight
-  through `memory.allocSliceNoFill` or an `ArrayList` over `gc.allocator`.
-  For those — the fiber-scheduler OOM paths (#2429, #2433) among them — use
-  `memory.OomAllocator`, a test-only wrapper with its own independent
-  countdown: wrap the backing allocator, hand `allocator()` to `GC.init`, and
-  arm `countdown` after construction (#2435). Also compiled out of non-test
-  builds.
+- **`oom_countdown` reaches only allocations mediated by `maybeCollect`** —
+  it fires from there, so it covers most `allocXxx` but not
+  `allocSymbol`/`allocFunction` (which skip it). Raw-allocator allocations are
+  invisible to it too: the VM's growable register/frame/handler/wind stacks,
+  the fiber snapshot buffers, the reactor timer heap, the scheduler's
+  `driving_waits` list, bignum limb scratch, and the bytecode/IR/constant
+  pools all go straight through `memory.allocSliceNoFill` or an `ArrayList`
+  over `gc.allocator`. For those — the fiber-scheduler OOM paths (#2429,
+  #2433) among them — use `memory.OomAllocator`, a test-only wrapper with its
+  own independent countdown: wrap the backing allocator, hand `allocator()` to
+  `GC.init`, and arm `countdown` after construction, from the owning thread
+  (#2435). Also compiled out of non-test builds.
 
 Stress-test with `-Dgc-stress=true` to force collection on every allocation.
 In Debug builds, freed objects are poisoned with `0xAA` to catch use-after-free.
