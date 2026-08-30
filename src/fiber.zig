@@ -21,6 +21,8 @@ pub const waitForFd = fiber_wait.waitForFd;
 pub const raiseCustomPortCallbackBlocked = fiber_wait.raiseCustomPortCallbackBlocked;
 pub const parkOnReactor = fiber_wait.parkOnReactor;
 pub const runSchedulerStep = fiber_wait.runSchedulerStep;
+pub const CrossThreadEnrolment = fiber_wait.CrossThreadEnrolment;
+pub const awaitCrossThreadRing = fiber_wait.awaitCrossThreadRing;
 
 pub fn clockNs() u64 {
     return platform.monotonicNs();
@@ -817,6 +819,16 @@ pub const FiberScheduler = struct {
         // matches none of the local wait categories below -- another OS
         // thread may still send/receive and wake it via sweepSharedWaiters.
         if (self.shared_waiters.items.len != 0) return true;
+        // A cross-thread SRFI-18 wait (#2395) is deliberately NOT counted
+        // here, even though its enrolment means another OS thread can still
+        // ring this reactor. Counting it would defeat this function's whole
+        // purpose for those waits: the `false` verdict it produces is what
+        // returns control to the mutex/condvar retry loop, which is where the
+        // `crossThreadWaitPossible()` liveness check and the deadlock
+        // diagnostic live. That loop does its own bounded reactor wait
+        // (`awaitCrossThreadRing`) instead of the 1 ms sleep it used to spin
+        // on; a *timed* cross-thread wait needs nothing here either, since
+        // its own deadline timer already keeps the reactor non-empty.
         for (self.fibers.items) |f| {
             if (f) |fiber| {
                 if ((fiber.status == .created or fiber.status == .suspended) and !fiber.driving)
@@ -1135,6 +1147,12 @@ pub fn abandonFiberMutexes(fiber: *Fiber, sched: ?*FiberScheduler) void {
             m.owner_thread = types.VOID;
             @atomicStore(bool, &m.locked, false, .release);
             if (sched) |s| s.wakeMutexWaiters(m_val);
+            // #2395: the local wake above reaches only this scheduler's own
+            // fibers. A waiter on another OS thread observes the release
+            // through m.locked alone, so it has to be rung — this is a
+            // dying fiber's mutexes becoming available, the one "mutex was
+            // released" event that does not go through mutex-unlock!.
+            reactor_mod.wakeCrossThreadWaiters();
         }
     }
     fiber.owned_mutexes.clearRetainingCapacity();

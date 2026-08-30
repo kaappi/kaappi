@@ -23,6 +23,9 @@ const linux = std.os.linux;
 /// performs naturally.
 const max_events_per_poll: usize = 256;
 
+/// Upper bound on a single blocking poll (see `Reactor.effectiveTimeout`).
+const MAX_POLL_WAIT_NS: u64 = 24 * 60 * 60 * std.time.ns_per_s;
+
 pub const Interest = enum { read, write };
 
 /// A backend-normalized readiness result: which directions fired for `fd`.
@@ -197,6 +200,124 @@ pub fn releaseNotifier(n: *ThreadNotifier) void {
         std.heap.c_allocator.destroy(n);
         _ = notifier_live_count.fetchSub(1, .monotonic);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Cross-thread wait registry (KEP-0002 unresolved question 3, kaappi#2395)
+// ---------------------------------------------------------------------------
+
+/// The notifiers of every OS thread currently parked in a SRFI-18 wait whose
+/// resolution can only come from *another* OS thread: `thread-join!` on a
+/// running child, `mutex-lock!` on a mutex another thread holds, a
+/// condition-variable wait, and a `thread-sleep!` that must still observe a
+/// cross-thread `thread-terminate!`.
+///
+/// Those waits have no per-object waiter list to hang a notifier off — a
+/// mutex or condition variable is an ordinary GC object reached through the
+/// globals route (`docs/dev/thread-value-sharing.md`), owned by whichever
+/// heap allocated it, with no cross-thread bookkeeping of its own — so the
+/// unit of registration is the *thread*, not the object, and a state change
+/// rings every parked thread rather than a selected few. The waiters then
+/// re-check their own condition and re-park; a spurious wake costs one loop
+/// iteration. This is what replaces the 1 ms `sleepNs` poll those waits used
+/// before (KEP-0002 UQ3): the list is empty in every program where nothing is
+/// cross-thread blocked, so `wakeCrossThreadWaiters` costs one uncontended
+/// lock acquisition on every unlock/signal/exit that has nobody to wake.
+///
+/// One entry per *thread*, not per wait: a fiber blocked in `mutex-lock!` can
+/// drive a sibling that itself blocks in a condition-variable wait, and both
+/// resolve through the same reactor. `depth` counts those nested enrolments so
+/// the inner one's withdrawal doesn't unregister the outer.
+const WaitEntry = struct {
+    notifier: *ThreadNotifier,
+    depth: u32,
+};
+
+var wait_registry: std.ArrayList(WaitEntry) = .empty;
+var wait_registry_lock: std.atomic.Mutex = .unlocked;
+
+/// `wait_registry.items.len`, published under the lock so `crossThreadWaiterCount`
+/// can be read without taking it. Deliberately NOT a lock-free fast-path gate
+/// for `wakeCrossThreadWaiters` — see that function for why the ring must go
+/// through the lock even when there is nobody to wake.
+var wait_registry_len: std.atomic.Value(usize) = std.atomic.Value(usize).init(0);
+
+/// Registers this thread's notifier for cross-thread wakeups. Returns false
+/// if the registry could not grow, which is a *degradation, not a failure*:
+/// the caller falls back to its old bounded poll (`CROSS_THREAD_POLL_NS`),
+/// which is exactly the pre-#2395 behaviour. Balanced by
+/// `withdrawCrossThreadWaiter` — call it only when this returned true.
+pub fn enrollCrossThreadWaiter(n: *ThreadNotifier) bool {
+    memory.spinLock(&wait_registry_lock);
+    defer memory.spinUnlock(&wait_registry_lock);
+    for (wait_registry.items) |*e| {
+        if (e.notifier == n) {
+            e.depth += 1;
+            return true;
+        }
+    }
+    wait_registry.append(std.heap.c_allocator, .{ .notifier = n, .depth = 1 }) catch return false;
+    retainNotifier(n);
+    wait_registry_len.store(wait_registry.items.len, .release);
+    return true;
+}
+
+pub fn withdrawCrossThreadWaiter(n: *ThreadNotifier) void {
+    memory.spinLock(&wait_registry_lock);
+    var released = false;
+    for (wait_registry.items, 0..) |*e, i| {
+        if (e.notifier != n) continue;
+        e.depth -= 1;
+        if (e.depth == 0) {
+            _ = wait_registry.swapRemove(i);
+            wait_registry_len.store(wait_registry.items.len, .release);
+            released = true;
+        }
+        break;
+    }
+    memory.spinUnlock(&wait_registry_lock);
+    // Outside the lock, mirroring shared_channel's `ring`: the zero
+    // transition frees the notifier and closes its backend fd, neither of
+    // which should happen with the registry lock held.
+    if (released) releaseNotifier(n);
+}
+
+/// Rings every thread parked in a cross-thread SRFI-18 wait. Called from the
+/// state changes those waits observe — a mutex unlock or abandonment, a
+/// condition-variable signal/broadcast, a `thread-terminate!`, and an OS
+/// thread's exit.
+///
+/// **Takes the lock unconditionally, even to discover the registry is empty.**
+/// An atomic length gate read outside the lock would be a store-buffering
+/// (Dekker) pattern — waiter enrols then re-checks the shared state; ringer
+/// writes the state then reads the length — in which *both* sides may miss
+/// the other's store, since the state accesses are the plain acquire/release
+/// ones the mutex and condvar already use. That is a lost wakeup, and with no
+/// poll cap left to paper it over (see CROSS_THREAD_POLL_NS in
+/// primitives_srfi18.zig), a hang. Going through the lock replaces that
+/// argument with mutual exclusion: a ringer that finds the registry empty
+/// released the lock before the enroller acquired it, so the enroller's own
+/// state re-check — which follows its enrolment — necessarily observes the
+/// state the ringer had already published. The cost is one uncontended atomic
+/// RMW on paths (`mutex-unlock!`, `condition-variable-signal!`) that already
+/// perform several atomic stores and a hash lookup.
+///
+/// Rings *under* the lock too, unlike `shared_channel.ring`'s
+/// snapshot-then-ring: the list is one entry per blocked OS thread (single
+/// digits in any real program), `notify()` takes no lock of its own so there
+/// is no lock-order hazard, and holding the lock is what keeps each entry
+/// alive without a retain/release round trip per ring. The alternative —
+/// snapshotting — would need an allocation on a path that must not fail.
+pub fn wakeCrossThreadWaiters() void {
+    memory.spinLock(&wait_registry_lock);
+    defer memory.spinUnlock(&wait_registry_lock);
+    for (wait_registry.items) |e| e.notifier.notify();
+}
+
+/// Test/leak-check hook, mirroring `notifierLiveCount`: every enrolment must
+/// be withdrawn, so this is 0 between waits.
+pub fn crossThreadWaiterCount() usize {
+    return wait_registry_len.load(.acquire);
 }
 
 pub const Reactor = struct {
@@ -455,6 +576,20 @@ pub const Reactor = struct {
             const until: u64 = if (top.deadline_ns <= now) 0 else top.deadline_ns - now;
             result = if (result) |r| @min(r, until) else until;
         }
+        // Clamp, because a "never" deadline is a real, reachable one: SRFI-18
+        // reads `+inf.0` as "never times out" and `saturatedNsFromSeconds`
+        // turns it into `maxInt(u64)` nanoseconds, ~585 years out. Handed to
+        // kevent as a timespec that far in the future, macOS rejects the call
+        // outright (EINVAL) -- `wait` returns error.Unexpected and the park
+        // surfaces as KP9002 "out of memory" instead of blocking, which is
+        // what `(thread-sleep! 1e18)` did before kaappi#2395 and what
+        // `(thread-join! t +inf.0)` started doing once its wait became a real
+        // reactor park rather than a nanosleep loop. A day is far longer than
+        // any wait that matters and is safely inside every backend's range
+        // (epoll's own msFromNs cap is 24.8 days, Windows' DWORD ms is 49
+        // days); the cost of a genuinely unbounded wait is one spurious
+        // wakeup per day, which every caller already re-loops through.
+        if (result) |r| return @min(r, MAX_POLL_WAIT_NS);
         return result;
     }
 };

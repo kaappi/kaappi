@@ -205,6 +205,42 @@ pub fn raiseCustomPortCallbackBlocked(vm: *VM) VMError {
     return VMError.ExceptionRaised;
 }
 
+/// #2395: a wait's registration in reactor.zig's cross-thread wake registry,
+/// scoped to one primitive call. The SRFI-18 waits that can only be resolved
+/// by another OS thread (`thread-join!` on a running child, `mutex-lock!`,
+/// a condition-variable wait, and a `thread-sleep!` that must still observe a
+/// cross-thread `thread-terminate!`) enrol before they park, so the resolving
+/// thread rings this reactor instead of them waking 1000 times a second to
+/// look for themselves.
+///
+/// `ensure` is idempotent and `release` is safe to `defer` on a never-enrolled
+/// value, because enrolment is decided *inside* the retry loop: a wait may
+/// start out purely local (no other OS thread exists yet) and become
+/// cross-thread when a sibling fiber spawns one mid-drive.
+///
+/// A failed enrolment (`active()` still false) is not an error — the caller
+/// keeps its bounded poll cap, which is exactly the pre-#2395 behaviour.
+pub const CrossThreadEnrolment = struct {
+    notifier: ?*reactor_mod.ThreadNotifier = null,
+
+    pub fn ensure(self: *CrossThreadEnrolment, reactor: *reactor_mod.Reactor) void {
+        if (self.notifier != null) return;
+        const n = reactor.notifyHandle();
+        if (!reactor_mod.enrollCrossThreadWaiter(n)) return;
+        self.notifier = n;
+    }
+
+    pub fn release(self: *CrossThreadEnrolment) void {
+        const n = self.notifier orelse return;
+        self.notifier = null;
+        reactor_mod.withdrawCrossThreadWaiter(n);
+    }
+
+    pub fn active(self: CrossThreadEnrolment) bool {
+        return self.notifier != null;
+    }
+};
+
 /// Called when sched.schedule() finds nothing immediately runnable. Blocks
 /// in the reactor — bounded by its own timer heap, so no separate
 /// "nearest deadline" computation is needed here — and flips every fiber
@@ -228,9 +264,35 @@ pub fn parkOnReactor(vm: *VM, sched: *FiberScheduler, cap_ns: ?u64) VMError!bool
     // that arrived just before this call must not be missed by
     // hasRunnableFibers() reading a shared_waiters entry the sweep would
     // otherwise have already cleared.
-    while (reactor.notifier.wake_pending.swap(false, .acq_rel)) sched.sweepSharedWaiters();
+    var notified = false;
+    while (reactor.notifier.wake_pending.swap(false, .acq_rel)) {
+        sched.sweepSharedWaiters();
+        notified = true;
+    }
+    // A notify observed *here* must not be followed by a blocking poll
+    // (#2395). Consuming the flag does not consume the OS-level trigger, so
+    // in the common case poll() would return immediately anyway — but not
+    // when the same tick's earlier `reactor.poll(0)` (runReactorTick, taken
+    // only when an fd is registered) already drained the trigger while
+    // leaving `wake_pending` set. The wake would then be latched nowhere:
+    // this call blocks in an unbounded poll() for an event that has already
+    // been delivered. Returning "progress happened" instead costs one extra
+    // loop iteration in the caller, which re-evaluates its own condition —
+    // exactly what a cross-thread wakeup is asking it to do. This is what
+    // lets the SRFI-18 waits (thread-join!, mutex-lock!, condvar waits)
+    // park with no poll cap at all and rely on the notifier alone.
+    if (notified) return true;
     if (!sched.hasRunnableFibers() and reactor.isEmpty()) return false;
 
+    try pollAndWake(vm, sched, reactor, cap_ns);
+    return true;
+}
+
+/// The blocking half of `parkOnReactor`, split out so `awaitCrossThreadRing`
+/// can reuse it verbatim: block in the reactor for at most `cap_ns`, consume
+/// any notify the poll was interrupted by, and flip every fiber the poll
+/// reported ready back to runnable.
+fn pollAndWake(vm: *VM, sched: *FiberScheduler, reactor: *reactor_mod.Reactor, cap_ns: ?u64) VMError!void {
     var ready: std.ArrayList(*Fiber) = .empty;
     defer ready.deinit(vm.gc.allocator);
     // #1933: a child OS thread blocked in the reactor poll is quiescent; a
@@ -256,7 +318,39 @@ pub fn parkOnReactor(vm: *VM, sched: *FiberScheduler, cap_ns: ?u64) VMError!bool
         wakeReadyFiber(f);
         sched.markRunnable(f);
     }
-    return true;
+}
+
+/// #2395: what the SRFI-18 cross-thread retry loops wait on, replacing the
+/// `sleepNs(CROSS_THREAD_POLL_NS)` they used to spin. Blocks until the
+/// resolving thread rings this thread's notifier, or `cap_ns` elapses.
+///
+/// Correct **only** in the position those loops call it from: right after
+/// `runSchedulerStep` returned "not done", which means `parkOnReactor` found
+/// nothing locally runnable *and an empty reactor* — so the notifier's own
+/// trigger is the only event this poll can observe, and the caller's own
+/// state is exactly the parked state it wants to keep. It deliberately does
+/// not go through `parkOnReactor`, whose empty-reactor refusal is what
+/// produced the verdict that got us here.
+///
+/// `cap_ns` is the bound, not the mechanism: the caller re-runs its
+/// `crossThreadWaitPossible()` liveness check on every return, and that check
+/// is what turns "the last other OS thread has exited" into the deadlock
+/// diagnostic rather than an unbounded block.
+pub fn awaitCrossThreadRing(vm: *VM, sched: *FiberScheduler, cap_ns: u64) VMError!void {
+    const reactor = vm.reactor orelse {
+        platform.sleepNs(cap_ns);
+        return;
+    };
+    // A ring that landed before we got here is the wake: consume it and
+    // return rather than blocking on a trigger the last poll may already
+    // have drained.
+    var notified = false;
+    while (reactor.notifier.wake_pending.swap(false, .acq_rel)) {
+        sched.sweepSharedWaiters();
+        notified = true;
+    }
+    if (notified) return;
+    try pollAndWake(vm, sched, reactor, cap_ns);
 }
 
 /// thread-terminate! sets the *handle's* `terminated` flag, which an
