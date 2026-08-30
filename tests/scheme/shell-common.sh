@@ -199,9 +199,21 @@ build_lock() {
     echo $$ > "$lock/pid"
 }
 
-# build_unlock <repo-dir> <name>: release it.
+# build_unlock <repo-dir> <name>: release it, but only if it is still ours.
+#
+# Ownership-checked, not a bare `rm -rf` (PR #2432 review). The waiter above
+# steals a lock whose recorded holder is gone, so a holder that was killed --
+# `run-all.sh` kills a script that overruns SHELL_TIMEOUT -- can have its lock
+# handed to someone else while a child it spawned is still running. An
+# unconditional remove would then delete the NEW holder's lock and let a third
+# script in alongside it. Comparing the recorded pid keeps a late unlock from
+# releasing a lock it no longer holds.
 build_unlock() {
-    rm -rf "$(build_lock_dir "$1" "$2")"
+    local lock holder
+    lock=$(build_lock_dir "$1" "$2")
+    holder=$(cat "$lock/pid" 2> /dev/null || true)
+    [ "$holder" = "$$" ] && rm -rf "$lock"
+    return 0
 }
 
 # ensure_runtime_lib <repo-dir>: freshen the native runtime archive via
@@ -234,9 +246,36 @@ ensure_runtime_lib() {
     fi
 }
 
+# fixture_interpreter_path <repo-dir>: where fixture_interpreter installs its
+# binary. Pure — no build, no lock — so it is safe in a command substitution.
+#
+# `.exe` on Windows because `zig build --prefix` installs `kaappi.exe` there
+# (PR #2432 review). Unlike `sibling_tool`, which mirrors the spelling its
+# caller passed, this path names a file WE produce, so `is_windows` is the
+# right source of truth. It matters because the build check below tests the
+# path with `-x`: MSYS appends `.exe` when *executing*, but not when a test
+# operator names the file, so the bare spelling would report a failed fixture
+# build on a Windows box that in fact has a perfectly good interpreter.
+fixture_interpreter_path() {
+    local base="$1/.zig-cache/kaappi-test-fixtures/interp/bin/kaappi"
+    if is_windows; then
+        printf '%s\n' "$base.exe"
+    else
+        printf '%s\n' "$base"
+    fi
+}
+
 # fixture_interpreter <repo-dir>: build an interpreter from current source into
-# a shared isolated prefix and print its path. Callers must have passed
-# skip_without_zig first.
+# a shared isolated prefix. Prints nothing; ask fixture_interpreter_path where
+# it went. Callers must have passed skip_without_zig first.
+#
+# Deliberately NOT a function that prints its path, which would force every
+# caller into a command substitution (PR #2432 review). Bash keeps `$$` equal
+# to the *outer* script's pid inside one, so the pid `build_lock` records
+# would name a process that is not the one holding the lock -- and the waiter's
+# liveness check, which steals a lock whose holder has died, would then be
+# reasoning about the wrong process entirely. Running in the caller's own shell
+# keeps `$$` and the holder the same process.
 #
 # Any script that produces a .sbc to feed its own `zig build -Dbundle=` needs
 # one of these rather than the binary under test. The .sbc's compiler hash
@@ -261,7 +300,7 @@ ensure_runtime_lib() {
 fixture_interpreter() {
     local repo="$1" out interp log rc
     out="$repo/.zig-cache/kaappi-test-fixtures"
-    interp="$out/interp/bin/kaappi"
+    interp="$(fixture_interpreter_path "$repo")"
     log=$(mktemp)
 
     build_lock "$repo" fixture-interp
@@ -280,7 +319,6 @@ fixture_interpreter() {
         return 1
     fi
     rm -f "$log"
-    printf '%s\n' "$interp"
 }
 
 # bundle_fixture_binary <repo-dir> <dest>: build the standalone binary that
@@ -326,7 +364,10 @@ bundle_fixture_binary() {
 
     # Outside the lock below: it takes its own, and the two must not nest in
     # the opposite order anywhere or they could deadlock against each other.
-    interp=$(fixture_interpreter "$repo") || return 1
+    # Called directly rather than in a command substitution, so its build_lock
+    # records this script's pid as the holder — see its own comment.
+    fixture_interpreter "$repo" || return 1
+    interp="$(fixture_interpreter_path "$repo")"
 
     build_lock "$repo" bundle-fixture
     rc=0

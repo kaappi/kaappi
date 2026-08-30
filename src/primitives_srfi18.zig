@@ -369,8 +369,14 @@ fn ensureScheduler() @TypeOf(fiber_mod.ensureScheduler(undefined)) {
 /// corruption, and the `waiter_index`'s deliberate tolerance of a stale
 /// entry (`indexWakeOn` revalidates `status == .waiting`, which is also how
 /// the success path disposes of one) is exactly what a lying `.waiting`
-/// defeats -- so clearing the status is what retires the index entry too,
-/// and no explicit de-enrolment is needed.
+/// defeats.
+///
+/// That tolerance stops a stale entry waking the wrong fiber; it does not
+/// remove it. Only a later wake naming the same key would, so the enrolment
+/// is withdrawn explicitly here -- before `waiting_on` is cleared, since that
+/// field IS the key -- or an abandoned park on an object nothing ever wakes
+/// would strand a map key and list for the scheduler's lifetime, one per
+/// failure on a fresh object (PR #2432 review).
 ///
 /// The timer is the part that outlives the fiber: `threadJoinFn` used to
 /// leave a pending deadline behind on its error path, and a timer that
@@ -382,13 +388,14 @@ fn ensureScheduler() @TypeOf(fiber_mod.ensureScheduler(undefined)) {
 /// `runSchedulerStep`'s custom-port-callback guard, which undo the same
 /// fields. It is the caller-side half of #2429's fix, which restores the
 /// register window one level down; neither fixes the other.
-fn unparkOnError(reactor: *reactor_mod.Reactor, f: *fiber_mod.Fiber) void {
+fn unparkOnError(sched: *fiber_mod.FiberScheduler, reactor: *reactor_mod.Reactor, f: *fiber_mod.Fiber) void {
     if (f.deadline_ns != null) {
         reactor.removeTimer(f);
         f.deadline_ns = null;
     }
     f.status = .running;
     f.timed_out = false;
+    sched.withdrawWaiter(f, f.waiting_on);
     f.waiting_on = types.VOID;
 }
 
@@ -1285,7 +1292,7 @@ fn parkForThreadStatus(
     // enrolment below is for.
     ctx.sched.enrollWaiter(me);
 
-    errdefer unparkOnError(ctx.reactor, me); // PR #2428 review; see the helper
+    errdefer unparkOnError(ctx.sched, ctx.reactor, me); // PR #2428 review; see the helper
 
     var enrolment: fiber_mod.CrossThreadEnrolment = .{};
     defer enrolment.release();
@@ -1440,7 +1447,7 @@ fn threadJoinFn(args: []const Value) PrimitiveError!Value {
         me.status = .waiting;
         me.timed_out = false;
         ctx.sched.enrollWaiter(me); // #1530: O(1) wake when the joined fiber completes
-        errdefer unparkOnError(ctx.reactor, me); // #2430
+        errdefer unparkOnError(ctx.sched, ctx.reactor, me); // #2430
         if (deadline_ns) |d| {
             me.deadline_ns = d;
             try ctx.reactor.addTimer(d, me);
@@ -1888,7 +1895,7 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
     me.status = .waiting;
     me.timed_out = false;
     ctx.sched.enrollWaiter(me); // #1530: O(1) wake on mutex unlock / abandonment
-    errdefer unparkOnError(ctx.reactor, me); // #2430
+    errdefer unparkOnError(ctx.sched, ctx.reactor, me); // #2430
     if (deadline) |d| {
         me.deadline_ns = d;
         try ctx.reactor.addTimer(d, me);
@@ -2090,7 +2097,7 @@ fn mutexUnlockFn(args: []const Value) PrimitiveError!Value {
         me.status = .waiting;
         me.timed_out = false;
         ctx.sched.enrollWaiter(me); // #1530: O(1) wake on signal / broadcast
-        errdefer unparkOnError(ctx.reactor, me); // #2430
+        errdefer unparkOnError(ctx.sched, ctx.reactor, me); // #2430
         if (deadline) |d| {
             me.deadline_ns = d;
             try ctx.reactor.addTimer(d, me);

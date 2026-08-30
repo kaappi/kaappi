@@ -853,32 +853,63 @@ fn expectUnparked(vm: *vm_mod.VM, me: *fiber_mod.Fiber, label: []const u8) !void
             if (entry.fiber == me) pending_timer = true;
         }
     }
+    // The abandoned park must also be out of the #1530 waiter_index. Nothing
+    // else would remove it: only a later wake naming the same key compacts
+    // stale entries, and these probes abandon the wait on an object that is
+    // never woken (PR #2432 review).
+    var indexed = false;
+    if (vm.scheduler) |sched| {
+        var it = sched.waiter_index.valueIterator();
+        while (it.next()) |list| {
+            for (list.items) |idx| {
+                if (idx == me.sched_idx) indexed = true;
+            }
+        }
+    }
     if (me.waiting_on == types.VOID and me.deadline_ns == null and
-        !me.timed_out and !pending_timer) return;
+        !me.timed_out and !pending_timer and !indexed) return;
 
     std.debug.print(
         "{s}: fiber still parked after a failed park — " ++
-            "waiting_on=0x{x} deadline_ns={?d} timed_out={} pending_timer={} status={s}\n",
-        .{ label, me.waiting_on, me.deadline_ns, me.timed_out, pending_timer, @tagName(me.status) },
+            "waiting_on=0x{x} deadline_ns={?d} timed_out={} pending_timer={} indexed={} status={s}\n",
+        .{ label, me.waiting_on, me.deadline_ns, me.timed_out, pending_timer, indexed, @tagName(me.status) },
     );
     return error.FiberLeftParked;
 }
 
-fn expectUnparkedAfterBlockedCallback(source: []const u8, label: []const u8) !void {
+fn expectUnparkedAfterBlockedCallback(setup: []const u8, probe: []const u8, label: []const u8) !void {
     var ctx: th.TestContext = undefined;
     try ctx.init();
     defer ctx.deinit();
 
+    // Split from the probe so the waiter_index baseline is measured with the
+    // fixtures already in place: mutex-lock!'s holder fiber is legitimately
+    // parked on a channel by now and owns a key of its own, so the assertion
+    // has to be "the failed park added none", not "the index is empty".
+    // Scheduler-optional: the condvar probe's setup never spawns, so nothing
+    // has forced one into existence yet.
+    _ = try ctx.vm.eval(setup);
+    const baseline = if (ctx.vm.scheduler) |s| s.waiter_index.count() else 0;
+
     // The guard catches and the program runs on — which is the hazard, not
     // an incidental detail of the probe.
-    const msg_val = try ctx.vm.eval(source);
+    const msg_val = try ctx.vm.eval(probe);
     try std.testing.expect(types.isString(msg_val));
     const msg = types.toObject(msg_val).as(types.SchemeString);
     try std.testing.expect(std.mem.startsWith(u8, msg.data[0..msg.len], "custom port callback blocked"));
 
     // Index 0, not vm.current_fiber: the callback runs on the main fiber, but
     // a probe that dispatched a sibling can leave the VM pointing at that one.
-    try expectUnparked(ctx.vm, ctx.vm.scheduler.?.fibers.items[0].?, label);
+    const sched = ctx.vm.scheduler.?;
+    try expectUnparked(ctx.vm, sched.fibers.items[0].?, label);
+
+    if (sched.waiter_index.count() != baseline) {
+        std.debug.print(
+            "{s}: waiter_index grew from {d} to {d} key(s) across the failed park\n",
+            .{ label, baseline, sched.waiter_index.count() },
+        );
+        return error.WaiterIndexLeaked;
+    }
 }
 
 test "a thread-join! park that errors out leaves the fiber runnable (#2430)" {
@@ -887,6 +918,7 @@ test "a thread-join! park that errors out leaves the fiber runnable (#2430)" {
         \\(define blocked (spawn (lambda () (channel-receive (make-channel)))))
         \\(define p (make-custom-binary-input-port "cb"
         \\  (lambda (bv start count) (thread-join! blocked 10) 0) #f #f #f))
+    ,
         \\(guard (e (#t (error-object-message e))) (read-bytevector 4 p))
     , "thread-join!");
 }
@@ -901,6 +933,7 @@ test "a mutex-lock! park that errors out leaves the fiber runnable (#2430)" {
         \\(thread-yield!)
         \\(define p (make-custom-binary-input-port "cb"
         \\  (lambda (bv start count) (mutex-lock! m 10) 0) #f #f #f))
+    ,
         \\(guard (e (#t (error-object-message e))) (read-bytevector 4 p))
     , "mutex-lock!");
 }
@@ -913,6 +946,7 @@ test "a condition-variable park that errors out leaves the fiber runnable (#2430
         \\(mutex-lock! m)
         \\(define p (make-custom-binary-input-port "cb"
         \\  (lambda (bv start count) (mutex-unlock! m cv 10) 0) #f #f #f))
+    ,
         \\(guard (e (#t (error-object-message e))) (read-bytevector 4 p))
     , "condition-variable");
 }

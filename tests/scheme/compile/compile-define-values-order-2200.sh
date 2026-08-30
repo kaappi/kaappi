@@ -74,18 +74,27 @@ bad() {
 }
 
 # `(define-values (a b) ...)`'s producer reads `x`, bound by an earlier
-# top-level form, so any hoisting into the preamble breaks it. The `import`
-# is the control: it must still reach the preamble and be replayed, which is
-# what a preamble is for, and `display` resolving at all is the proof.
+# top-level form, so any hoisting into the preamble breaks it. The `import` is
+# the control: it must still reach the preamble and be replayed, which is what
+# a preamble is for.
+#
+# The control imports `(srfi 8)` and uses `receive` (PR #2432 review). It has
+# to be a portable `.sld` library: every BUILT-IN library's bindings are also
+# ambient in script mode, so a program importing only `(scheme base)` and
+# `(scheme write)` runs identically with the import line deleted outright —
+# `display` and `write-simple` alike — and such a control asserts nothing about
+# whether the import was ever replayed. `receive` comes only from lib/srfi/8.sld
+# and is unbound without its import, so if the preamble stopped carrying
+# imports this run diverges from the interpreter's.
 cat > "$WORK/prog.scm" <<'SCM'
-(import (scheme base) (scheme write))
+(import (scheme base) (srfi 8))
 (define x 1)
 (define-values (a b) (values x 2))
 (display (list a b))
 (newline)
-(define-values (p q) (values 10 20))
-(display (+ p q))
-(newline)
+(receive (p q) (values 10 20)
+  (display (+ p q))
+  (newline))
 SCM
 
 EXPECTED="(1 2)
@@ -111,7 +120,8 @@ skip_without_zig "the standalone-binary check needs a Zig toolchain"
 # below — and shares it with every other script that needs one, so only the
 # first caller in a run pays for it. zig-out/ and the caller's binary are left
 # untouched.
-INTERP="$(fixture_interpreter "$REPO_ROOT")"
+fixture_interpreter "$REPO_ROOT"
+INTERP="$(fixture_interpreter_path "$REPO_ROOT")"
 "$INTERP" --compile -o "$WORK/prog.sbc" "$WORK/prog.scm" > /dev/null
 
 (cd "$REPO_ROOT" && zig build -Dbundle="$WORK/prog.sbc" -Doptimize=ReleaseSafe \
