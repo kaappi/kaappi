@@ -114,7 +114,43 @@
     (test-equal "terminate ends a long sleep" 'terminated (car r))
     (test-assert "terminated child is joined promptly" (< (cdr r) 10))))
 
-;; 8. A "never" deadline is a real reactor park, not an error. SRFI-18 reads
+;; 8. A wait that BECOMES cross-thread after it has already parked (PR #2428
+;;    review). At the moment each of these enters its wait no OS thread
+;;    exists, so a wait that decided whether to enrol from
+;;    crossThreadWaitPossible() at entry would not enrol -- and would then
+;;    park with no cap at all, because runSchedulerStep evaluates pollCapNs
+;;    once and the deadline timer keeps the reactor non-empty. The sibling
+;;    fiber that this very drive dispatches starts the process's first OS
+;;    thread, whose unlock/signal rings a registry the wait never joined:
+;;    measured at `#f` after the full 2s, for a hand-off that happened at
+;;    0.1s. Enrolling unconditionally is what closes it.
+(define m3 (make-mutex))
+(let ()
+  (mutex-lock! m3)
+  (spawn (lambda ()
+           (thread-start! (make-thread (lambda () (thread-sleep! 0.1) (mutex-unlock! m3))))))
+  (let ((r (elapsed (lambda () (mutex-lock! m3 2)))))
+    (test-equal "timed mutex-lock! sees an unlock from the first OS thread started mid-wait"
+                #t (car r))
+    (test-assert "and sees it promptly, not at its deadline" (< (cdr r) 1.5))))
+
+(define m4 (make-mutex))
+(define cv4 (make-condition-variable))
+(let ()
+  (mutex-lock! m4)
+  (spawn (lambda ()
+           (thread-start! (make-thread (lambda ()
+                                         (thread-sleep! 0.1)
+                                         (condition-variable-broadcast! cv4))))))
+  ;; start_gen is snapshotted inside mutex-unlock! before it releases m4 and
+  ;; before the drive can dispatch the sibling, so the broadcast below cannot
+  ;; be missed -- only the enrolment timing is under test here.
+  (let ((r (elapsed (lambda () (mutex-unlock! m4 cv4 3)))))
+    (test-equal "condvar wait sees a signal from the first OS thread started mid-wait"
+                #t (car r))
+    (test-assert "and sees it promptly, not at its deadline" (< (cdr r) 2))))
+
+;; 9. A "never" deadline is a real reactor park, not an error. SRFI-18 reads
 ;;    +inf.0 as "never times out", which saturates to a maxInt-nanosecond
 ;;    deadline ~585 years out -- a timespec kqueue rejects outright unless the
 ;;    reactor clamps its own blocking wait. Before #2395 thread-join! reached

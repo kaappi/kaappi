@@ -32,6 +32,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   instead of blocking. `(thread-sleep! 1e18)` raised instead of sleeping. The
   reactor now clamps a single blocking wait to 24 hours, well inside every
   backend's range, and re-loops.
+- **A cross-thread hand-off is no longer missed when the wait becomes
+  cross-thread after it parks** (#2395) — `mutex-lock!`, the
+  condition-variable wait and `thread-sleep!` decided whether another OS
+  thread could resolve them once, on entry. A sibling fiber dispatched by the
+  wait's own scheduler drive can start the process's *first* OS thread after
+  that, and a timed wait's deadline timer keeps the reactor busy, so the wait
+  never re-evaluated: the remote unlock or signal reached nobody and the wait
+  ran to its deadline. `(mutex-lock! m 2)` returned `#f` after 2.002s for an
+  unlock that happened at 0.1s. Present on main too (the pre-existing 1 ms
+  poll cap was decided the same way, once).
 
 ### Changed
 

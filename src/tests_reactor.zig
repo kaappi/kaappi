@@ -824,14 +824,13 @@ test "#2395: cross-thread waiter enrolment nests and stays balanced" {
     try std.testing.expectEqual(notifier_baseline + 1, reactor_mod.notifierLiveCount()); // reactor's own +1
 }
 
-test "#2395: wakeCrossThreadWaiters rings an enrolled reactor out of a blocking poll" {
+test "#2395: wakeCrossThreadWaiters sets wake_pending only for enrolled reactors" {
     var reactor = try reactor_mod.Reactor.init(std.testing.allocator);
     defer reactor.deinit();
     const n = reactor.notifyHandle();
 
-    // Nothing enrolled: the fast path must not touch this reactor at all —
-    // that gate is what keeps an unlock/signal free in every program with no
-    // cross-thread waiter.
+    // Not enrolled: the ring must not touch this reactor at all — an
+    // unlock/signal in a program with no cross-thread waiter reaches nobody.
     n.wake_pending.store(false, .release);
     reactor_mod.wakeCrossThreadWaiters();
     try std.testing.expect(!n.wake_pending.load(.acquire));
@@ -840,18 +839,27 @@ test "#2395: wakeCrossThreadWaiters rings an enrolled reactor out of a blocking 
     defer reactor_mod.withdrawCrossThreadWaiter(n);
     reactor_mod.wakeCrossThreadWaiters();
     try std.testing.expect(n.wake_pending.load(.acquire));
+}
 
-    // And it is a real OS event, not just the flag: a poll that would
-    // otherwise wait out its whole timeout returns at once. Asserted on
-    // elapsed time rather than by blocking forever, so a regression fails
-    // the test instead of hanging the suite.
-    //
-    // Not on WASI: `ThreadNotifier.notify` has no OS primitive to ring there
-    // (reactor.zig's `.wasi => {}` arm), because wasm32-wasi is
-    // single-threaded and no other thread can exist to do the ringing. The
-    // flag half above is still meaningful — it is the same bookkeeping — but
-    // the poll below would genuinely wait out its whole timeout.
-    if (comptime platform.is_wasm) return;
+// Split from the bookkeeping assertions above rather than folded into them
+// with an early `return`, which would report this half as *passed* on WASI
+// while never running it (PR #2428 review). `ThreadNotifier.notify` has no OS
+// primitive to ring on WASI (reactor.zig's `.wasi => {}` arm), because
+// wasm32-wasi is single-threaded and no other thread can exist to do the
+// ringing — so the poll below would genuinely wait out its whole timeout.
+test "#2395: a ring is a real OS event that ends a blocking reactor poll" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no notifier primitive on WASI (single-threaded)
+    var reactor = try reactor_mod.Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+    const n = reactor.notifyHandle();
+
+    try std.testing.expect(reactor_mod.enrollCrossThreadWaiter(n));
+    defer reactor_mod.withdrawCrossThreadWaiter(n);
+    reactor_mod.wakeCrossThreadWaiters();
+
+    // A poll that would otherwise wait out its whole timeout returns at once.
+    // Asserted on elapsed time rather than by blocking forever, so a
+    // regression fails the test instead of hanging the suite.
     var ready: std.ArrayList(*fiber_mod.Fiber) = .empty;
     defer ready.deinit(std.testing.allocator);
     const t0 = fiber_mod.clockNs();

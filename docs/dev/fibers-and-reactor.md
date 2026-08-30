@@ -57,7 +57,7 @@ keyed by **thread**, not by object:
 |---|---|
 | enrol | `enrollCrossThreadWaiter` / `withdrawCrossThreadWaiter`, wrapped per wait by `fiber_wait.CrossThreadEnrolment` |
 | ring | `wakeCrossThreadWaiters` — every enrolled thread, on any state change one of these waits could observe |
-| who enrols | `thread-join!` on a running OS thread, `mutex-lock!`, a condition-variable wait, and `thread-sleep!` when another OS thread exists to `thread-terminate!` it |
+| who enrols | `thread-join!` on a running OS thread, `mutex-lock!`, a condition-variable wait, and `thread-sleep!` — **unconditionally**, never gated on whether another OS thread exists yet |
 | who rings | `mutex-unlock!`, a mutex abandoned by a dying fiber or thread (`abandonFiberMutexes`), `condition-variable-signal!`/`-broadcast!`, `thread-terminate!`, and an OS thread's exit (`threadEntryFn`) |
 
 A ring wakes *every* enrolled thread; each re-checks its own condition and
@@ -66,7 +66,19 @@ of these waits instead re-checked their own state every millisecond
 (`sleepNs(CROSS_THREAD_POLL_NS)` and the `pollCapNs` caps), which is why a
 `(thread-sleep! 60)` on a child thread used to wake 60,000 times.
 
-Three things load-bearing enough to be worth knowing before touching this:
+Four things load-bearing enough to be worth knowing before touching this:
+
+- **Enrolment is unconditional, and must stay that way.** Gating it on
+  `crossThreadWaitPossible()` at entry looks like an obvious saving and is a
+  hole: `runSchedulerStep` evaluates `pollCapNs` once, before dispatching
+  anything, and a timed wait's own deadline timer keeps the reactor non-empty
+  — so a sibling fiber that the wait's own drive dispatches can start the
+  process's *first* OS thread, whose unlock or signal then rings a registry
+  the wait never joined. The park runs to its deadline and reports a timeout
+  for a hand-off that happened (measured: `(mutex-lock! m 2)` returning `#f`
+  at 2.002s for an unlock at 0.1s). The cost of enrolling always is that a
+  purely local wait also holds a slot, so an unlock on the same thread rings
+  its own notifier — one syscall, only while a fiber is actually parked.
 
 - **An enrolment is deliberately invisible to `hasRunnableFibers`**, unlike a
   `shared_waiters` entry. A *timed* wait needs nothing there — its own
