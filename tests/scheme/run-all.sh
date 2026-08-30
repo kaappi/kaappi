@@ -332,13 +332,28 @@ run_suite() {
 run_shell_worker() {
     local script="$1" slot="$2"
     local pid status
+    # Launch under `set -m` so the script leads its own process group (pgid ==
+    # pid): a shell script can fork a whole `zig build`, and on timeout we must
+    # signal that build too. Killing the script pid alone leaves the build
+    # orphaned but still installing into the shared fixture prefix, which the
+    # next writer then interleaves with -- a half-written interpreter that reads
+    # as a flake (kaappi#2434). `set -m` is bash 3.2+ and works under Git Bash;
+    # this runs in the worker's own subshell, so the mode change is local and
+    # `set +m` before wait keeps its async job-control notices off. It also lets
+    # shell-common.sh's build_lock trust the recorded pid: a dead leader whose
+    # group is empty really has no work in flight.
+    set -m
     KAAPPI="$KAAPPI" bash "$script" "$KAAPPI" > "$slot.out" 2>&1 &
     pid=$!
+    set +m
     if wait_with_timeout "$pid" "$SHELL_TIMEOUT"; then
         status=0
         wait "$pid" || status=$?
     else
-        kill "$pid" 2>/dev/null || true
+        # Signal the whole group (negative pid); fall back to the lone pid if it
+        # is somehow not a group leader, so a build orphaned by the timeout dies
+        # with the script rather than racing the next writer's install.
+        kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
         wait "$pid" 2>/dev/null || true
         echo "TIMEOUT" > "$slot.rec"
         return 0
