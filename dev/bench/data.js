@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788083901767,
+  "lastUpdate": 1788087128597,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "95daff9964f6a80d03e28dbf48923b1cb874b1b9",
-          "message": "Fix SRFI-178 bitvector-logical-shift shifting the wrong way (#2083) (#2258)\n\nThe spec says count>=0 is a logical left shift (toward lower indices,\nout[i] = bvec[i + count]) and count<0 a right shift (toward upper\nindices, out[i] = bvec[i - |count|]), with vacated elements filled with\nbit. Both sign branches were inverted relative to the reference\nimplementation: the left branch wrote out[i] = bv[i - count] and the\nright branch out[i] = bv[i + |count|], so every non-zero shift moved\nbits in the wrong direction. The loop bounds were coupled to the wrong\nformulas and had to move with the fix (left: i in [0, n-count), right:\ni in [|count|, n)).\n\nEnabled the four audit assertions that were disabled pending this fix\n(the first two are the SRFI's own test/quasi-ints.scm cases verbatim)\nand corrected the two bitvector-logical-shift values in srfi178.scm\nthat had pinned the buggy behavior. The count-0 identity and full-length\nshift controls still pass, and 1024 differential cases now agree with\nthe reference implementation.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-08T08:09:55Z",
-          "tree_id": "3301fbf213433c2bccaf1c32a0717b2abd538a1c",
-          "url": "https://github.com/kaappi/kaappi/commit/95daff9964f6a80d03e28dbf48923b1cb874b1b9"
-        },
-        "date": 1786178638905,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.067996,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.417034,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.412054,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.177457,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004411,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.036573,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.232921,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.041351,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.124157,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.932887,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.183698,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.227809,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.312034,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.861764,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.036636,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045119,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9e473ae9ad6a60fe75142fc840bbbd6a5f4f5c35",
+          "message": "Document that import-dependence controls need a portable .sld, not a built-in (#2437)\n\nA test control whose stated job is to prove an `import` is load-bearing —\nthat it reaches the artifact's preamble and gets replayed — is silently\nvacuous when it rests on a built-in library. In script mode every built-in\nlibrary's bindings are ambient, so a top-level `import` of `(scheme base)`,\n`(scheme write)`, etc. is purely additive: the program resolves those\nprocedures whether it imports them or not. Even `write-simple`, exclusive to\n`(scheme write)`, resolves ambiently, so the natural instinct to reach for a\n`(scheme write)` procedure is exactly the trap.\n\nRecord the rule in the \"interpreter is the oracle\" section of\ntests/scheme/CLAUDE.md, next to the tier-difference notes, with the\n`(srfi 8)`/`receive` shape as the worked example: `receive` comes only from\n`lib/srfi/8.sld` and is a KP3001 undefined-variable error without its import,\nso the assertion has teeth.\n\nSweep of the two places a preamble-replay control makes sense —\ntests/scheme/compile/*.sh (32 files) and tests/scheme/differential/probes/ —\nfound no other instance. The one known case,\ncompile-define-values-order-2200.sh, was already fixed by PR #2432; the\ndifferential probes deliberately never `import` (it makes them uncacheable),\nso that genre of control cannot live there.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-30T16:06:18+05:30",
+          "tree_id": "3bffd5baa45066be7ca99d6149cec84c04670029",
+          "url": "https://github.com/kaappi/kaappi/commit/9e473ae9ad6a60fe75142fc840bbbd6a5f4f5c35"
+        },
+        "date": 1788087125543,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.073385,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.712948,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.433129,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.211953,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003963,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.035968,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.220621,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.041633,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.836074,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.874606,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.229767,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.238128,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.661989,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.444575,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.03658,
             "unit": "seconds"
           }
         ]
