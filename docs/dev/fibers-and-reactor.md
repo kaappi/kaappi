@@ -40,6 +40,73 @@ called from inside a SRFI 181 callback is rejected with a catchable error
 instead of recursively driving the scheduler. See the SRFI 181 section of
 `docs/dev/srfi-implementation-notes.md`.
 
+## Cross-thread wakeups (kaappi#2395)
+
+Each `Reactor` owns a `ThreadNotifier` (KEP-0002 §5) — a kqueue `EVFILT.USER`
+trigger, an eventfd, or a Windows auto-reset event — that any other OS thread
+may ring to interrupt this one's `reactor.poll`. Promoted channels ring it
+through per-channel waiter lists (`src/shared_channel.zig`).
+
+The SRFI-18 waits have no per-object waiter list to hang a notifier off: a
+mutex or condition variable is an ordinary GC object reached through the
+globals route (`docs/dev/thread-value-sharing.md`), with no cross-thread
+bookkeeping of its own. So `src/reactor.zig` keeps a process-global registry
+keyed by **thread**, not by object:
+
+| | |
+|---|---|
+| enrol | `enrollCrossThreadWaiter` / `withdrawCrossThreadWaiter`, wrapped per wait by `fiber_wait.CrossThreadEnrolment` |
+| ring | `wakeCrossThreadWaiters` — every enrolled thread, on any state change one of these waits could observe |
+| who enrols | `thread-join!` on a running OS thread, `mutex-lock!`, a condition-variable wait, and `thread-sleep!` when another OS thread exists to `thread-terminate!` it |
+| who rings | `mutex-unlock!`, a mutex abandoned by a dying fiber or thread (`abandonFiberMutexes`), `condition-variable-signal!`/`-broadcast!`, `thread-terminate!`, and an OS thread's exit (`threadEntryFn`) |
+
+A ring wakes *every* enrolled thread; each re-checks its own condition and
+re-parks, so a spurious wake costs one loop iteration. Before kaappi#2395 all
+of these waits instead re-checked their own state every millisecond
+(`sleepNs(CROSS_THREAD_POLL_NS)` and the `pollCapNs` caps), which is why a
+`(thread-sleep! 60)` on a child thread used to wake 60,000 times.
+
+Three things load-bearing enough to be worth knowing before touching this:
+
+- **An enrolment is deliberately invisible to `hasRunnableFibers`**, unlike a
+  `shared_waiters` entry. A *timed* wait needs nothing there — its own
+  deadline timer already keeps the reactor non-empty, so it parks inside
+  `runSchedulerStep` with no cap and the ring is what ends it. An *untimed*
+  one needs `parkOnReactor`'s "nothing local can happen" verdict to keep
+  coming back, because that verdict is what returns control to the
+  mutex/condvar retry loop, where `crossThreadWaitPossible()` decides between
+  waiting longer and raising the deadlock diagnostic. That loop then blocks on
+  the ring itself, via `fiber_wait.awaitCrossThreadRing` — the same poll
+  `parkOnReactor` does, minus the empty-reactor refusal, bounded by
+  `CROSS_THREAD_RING_WAIT_NS` (100 ms) so the liveness check still gets its
+  turn. Counting enrolments in `hasRunnableFibers` instead turns that
+  diagnostic into a hang.
+- **`parkOnReactor` returns `true` as soon as it consumes a pending notify**,
+  rather than going on to poll. Consuming the flag does not consume the OS
+  trigger, so the poll normally returns at once anyway — except when the same
+  tick's `reactor.poll(0)` (`runReactorTick`, taken whenever an fd is
+  registered) already drained the trigger. That interleaving would otherwise
+  block on an event already delivered.
+- **`wakeCrossThreadWaiters` takes the registry lock even to find it empty.**
+  An atomic length gate read outside the lock is a store-buffering pattern
+  against the enroller — both sides can miss the other's store — and with no
+  poll cap left as a backstop that is a hang, not a latency blip.
+
+A "never" deadline is a real one and reaches the backends: SRFI-18 reads
+`+inf.0` as "never times out", `saturatedNsFromSeconds` turns that into
+`maxInt(u64)` nanoseconds, and a timespec ~585 years out is one `kevent`
+rejects with `EINVAL` — surfacing as `KP9002: out of memory` rather than a
+block. `Reactor.effectiveTimeout` therefore clamps any single blocking wait to
+`MAX_POLL_WAIT_NS` (24 hours) and lets the caller re-loop. This was already
+reachable before kaappi#2395 — `(thread-sleep! 1e18)` raised instead of
+sleeping — and became unavoidable once `thread-join!`'s timed wait stopped
+being a `nanosleep` loop.
+
+The caps survive as a *degraded* path only: `enrollCrossThreadWaiter` returns
+false if the registry cannot allocate, and each wait's `pollCapNs` then falls
+back to the pre-kaappi#2395 1 ms cadence rather than parking on a ring that
+will never come.
+
 ## Non-blocking mode is lazy, and is the platform probe
 
 Port fds (never 0/1/2) flip to `O_NONBLOCK` lazily, only once a scheduler

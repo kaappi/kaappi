@@ -340,6 +340,8 @@ const unwind_table = [_]UnwindRow{
     // deadline, so parkOnReactor's deadlock check already covers the idle
     // case and a timed wait must run its full duration.
     .{ .name = "TargetWait (fiber-join / thread-join!)", .Ctx = fiber_mod.TargetWait, .unwinds = false },
+    .{ .name = "OsThreadWait (thread-join! on an OS thread)", .Ctx = primitives_srfi18.OsThreadWait, .unwinds = false },
+    .{ .name = "UnstartedThreadWait (thread-join! before thread-start!)", .Ctx = primitives_srfi18.UnstartedThreadWait, .unwinds = false },
     .{ .name = "SleepWait (thread-sleep!)", .Ctx = primitives_srfi18.SleepWait, .unwinds = false },
     .{ .name = "MutexWait (mutex-lock!)", .Ctx = primitives_srfi18.MutexWait, .unwinds = false },
     .{ .name = "CondVarWait (condition-variable-wait!)", .Ctx = primitives_srfi18.CondVarWait, .unwinds = false },
@@ -380,13 +382,20 @@ test "#1625: every wait context still satisfies runSchedulerStep's duck type" {
         if (!@hasDecl(row.Ctx, "isDone")) return error.MissingIsDone;
         if (@hasDecl(row.Ctx, "pollCapNs")) with_cap += 1;
     }
-    // The two SRFI-18 waits resolvable by another OS thread (mutex unlock,
-    // condvar signal) plus SleepWait, whose cap exists not for resolution
-    // but so a sleeping thread observes thread-terminate! from another OS
-    // thread within a poll cadence (#1982) -- the only way a terminate can
-    // interrupt an otherwise timer-bounded sleep park. A new cap beyond
-    // these three means a new cross-thread path worth reviewing.
-    try std.testing.expectEqual(@as(usize, 3), with_cap);
+    // Every wait resolvable by another OS thread declares a cap: the two
+    // mutex/condvar waits, thread-join! on a running OS thread, and
+    // SleepWait -- whose cap exists not for resolution but so a sleeping
+    // thread observes thread-terminate! from another OS thread (#1982).
+    //
+    // Since #2395 none of them USES its cap in the normal case: each enrols
+    // in reactor.zig's cross-thread wake registry and returns null while
+    // enrolled, so the resolving thread's notifier ring ends the park. The
+    // cap is the degraded path for an enrolment that could not allocate, and
+    // declaring one is still the marker of "this wait can be resolved from
+    // another OS thread" -- a new one beyond these four means a new
+    // cross-thread path worth reviewing. UnstartedThreadWait deliberately
+    // has none: only its own thread can start a thread it holds a handle to.
+    try std.testing.expectEqual(@as(usize, 4), with_cap);
 }
 
 // --- anyAncestorWaitResolved, directly ------------------------------------
@@ -1055,4 +1064,39 @@ test "two fibers parked on the same fd are both listed and both woken by close" 
     const s = try printer.valueToString(std.testing.allocator, r, .write);
     defer std.testing.allocator.free(s);
     try std.testing.expectEqualStrings("(caught caught)", s);
+}
+
+// ===========================================================================
+// Group F — parkOnReactor's consumed-notify escape (#2395)
+//
+// The SRFI-18 cross-thread waits park with no poll cap, so a notify that
+// parkOnReactor's own consume protocol swallows must never be followed by a
+// blocking poll. The OS-level trigger usually saves it — but not when the
+// same tick's `reactor.poll(0)` (runReactorTick, taken whenever an fd is
+// registered) already drained the trigger while leaving `wake_pending` set.
+// parkOnReactor therefore reports progress instead of blocking, and the
+// caller re-checks its own condition, which is what the wakeup was asking
+// for. Set up directly — the flag is plain state, so no race is needed.
+// ===========================================================================
+
+test "#2395: parkOnReactor returns without blocking when it consumes a notify" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const ctx = try fiber_mod.ensureScheduler(vm);
+    // No runnable fiber and an empty reactor: without the notify this call is
+    // the deadlock verdict (`false`), and with a cap it would be a wait. The
+    // discriminating control is the second half of this test.
+    ctx.reactor.notifier.wake_pending.store(true, .release);
+    const t0 = fiber_mod.clockNs();
+    try std.testing.expect(try fiber_mod.parkOnReactor(vm, ctx.sched, null));
+    try std.testing.expect(fiber_mod.clockNs() - t0 < std.time.ns_per_s);
+    // Consumed, not left set for the next park to trip over again.
+    try std.testing.expect(!ctx.reactor.notifier.wake_pending.load(.acquire));
+
+    // Control: same state with no notify pending is still reported as the
+    // deadlock it is, so the escape above is the notify and not the setup.
+    try std.testing.expect(!try fiber_mod.parkOnReactor(vm, ctx.sched, null));
 }

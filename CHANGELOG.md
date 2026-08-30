@@ -23,8 +23,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   test id (16 storage-class rows re-use one id) can no longer hide behind a
   documented divergence.
 
+### Fixed
+
+- **A "never" reactor deadline no longer fails the poll** (#2395) — SRFI-18
+  reads `+inf.0` as "never times out" and saturates it to a maxInt-nanosecond
+  deadline ~585 years out; handed to `kevent` as a timespec that far ahead,
+  macOS rejected the call and the park surfaced as `KP9002: out of memory`
+  instead of blocking. `(thread-sleep! 1e18)` raised instead of sleeping. The
+  reactor now clamps a single blocking wait to 24 hours, well inside every
+  backend's range, and re-loops.
+
 ### Changed
 
+- **Cross-thread SRFI-18 waits are woken by the reactor notifier instead of a
+  1 ms poll** (#2395, KEP-0002 unresolved question 3) — `thread-join!` on a
+  running OS thread, `mutex-lock!` and condition-variable waits contended
+  across threads, and a `thread-sleep!` that must still observe
+  `thread-terminate!`, all used to re-check their own state every
+  millisecond. They now enrol in a per-thread registry and are rung awake by
+  whichever thread performs the state change (unlock, signal/broadcast,
+  terminate, or thread exit), the same mechanism promoted channels already
+  used. A `(thread-sleep! 60)` on a child thread costs one wakeup rather than
+  60,000, and a cross-thread hand-off is delivered in a syscall rather than
+  within a millisecond. Two behaviour changes fall out of the timed
+  `thread-join!` no longer being a whole-thread `nanosleep`: this thread's
+  own fibers now run while it is parked (so a fiber can start a `make-thread`
+  handle another fiber is joining, and joining a never-started handle with no
+  timeout reports a deadlock instead of hanging forever), and a timed
+  `thread-join!` from inside a SRFI 181 custom-port callback is now rejected
+  with the same catchable error every other blocking primitive raises there
+  (#2000).
 - **SRFI 231 c64/c128 array bodies use the reference implementation's
   interleaved-float representation** (#2382) — an `f32vector`/`f64vector`
   of twice the logical length holding real/imaginary pairs, instead of

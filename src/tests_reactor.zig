@@ -784,3 +784,73 @@ test "#1608: pipe pair — a write end with buffer space is ready for write inte
     try std.testing.expectEqual(@as(usize, 1), ready.items.len);
     try std.testing.expectEqual(&fiber_a, ready.items[0]);
 }
+
+// ---------------------------------------------------------------------------
+// #2395: the cross-thread wait registry
+//
+// The SRFI-18 waits resolvable only by another OS thread (thread-join! on a
+// running child, mutex-lock!, a condition-variable wait, and a thread-sleep!
+// that must still observe thread-terminate!) used to poll their own state at
+// 1 ms. They now enrol here and are woken by a notifier ring from whichever
+// thread performs the state change. These tests pin the two properties that
+// makes correct: enrolment is balanced (a leaked entry would ring a freed
+// notifier; a lost one would hang the wait), and a ring really does end a
+// blocking poll rather than only setting a flag.
+// ---------------------------------------------------------------------------
+
+test "#2395: cross-thread waiter enrolment nests and stays balanced" {
+    const notifier_baseline = reactor_mod.notifierLiveCount();
+    try std.testing.expectEqual(@as(usize, 0), reactor_mod.crossThreadWaiterCount());
+
+    var reactor = try reactor_mod.Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+    const n = reactor.notifyHandle();
+
+    try std.testing.expect(reactor_mod.enrollCrossThreadWaiter(n));
+    try std.testing.expectEqual(@as(usize, 1), reactor_mod.crossThreadWaiterCount());
+    // The registry keys on the THREAD, not the wait: a fiber blocked in
+    // mutex-lock! can drive a sibling that blocks in a condvar wait, and both
+    // enrol the one reactor. The second enrolment must not add a row, and the
+    // inner withdrawal must not unregister the outer wait.
+    try std.testing.expect(reactor_mod.enrollCrossThreadWaiter(n));
+    try std.testing.expectEqual(@as(usize, 1), reactor_mod.crossThreadWaiterCount());
+    // Enrolment holds a reference, so the notifier survives its Reactor.
+    try std.testing.expectEqual(notifier_baseline + 1, reactor_mod.notifierLiveCount());
+
+    reactor_mod.withdrawCrossThreadWaiter(n);
+    try std.testing.expectEqual(@as(usize, 1), reactor_mod.crossThreadWaiterCount());
+    reactor_mod.withdrawCrossThreadWaiter(n);
+    try std.testing.expectEqual(@as(usize, 0), reactor_mod.crossThreadWaiterCount());
+    try std.testing.expectEqual(notifier_baseline + 1, reactor_mod.notifierLiveCount()); // reactor's own +1
+}
+
+test "#2395: wakeCrossThreadWaiters rings an enrolled reactor out of a blocking poll" {
+    var reactor = try reactor_mod.Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+    const n = reactor.notifyHandle();
+
+    // Nothing enrolled: the fast path must not touch this reactor at all —
+    // that gate is what keeps an unlock/signal free in every program with no
+    // cross-thread waiter.
+    n.wake_pending.store(false, .release);
+    reactor_mod.wakeCrossThreadWaiters();
+    try std.testing.expect(!n.wake_pending.load(.acquire));
+
+    try std.testing.expect(reactor_mod.enrollCrossThreadWaiter(n));
+    defer reactor_mod.withdrawCrossThreadWaiter(n);
+    reactor_mod.wakeCrossThreadWaiters();
+    try std.testing.expect(n.wake_pending.load(.acquire));
+
+    // And it is a real OS event, not just the flag: a poll that would
+    // otherwise wait out its whole timeout returns at once. Asserted on
+    // elapsed time rather than by blocking forever, so a regression fails
+    // the test instead of hanging the suite.
+    var ready: std.ArrayList(*fiber_mod.Fiber) = .empty;
+    defer ready.deinit(std.testing.allocator);
+    const t0 = fiber_mod.clockNs();
+    try reactor.poll(5 * std.time.ns_per_s, &ready);
+    try std.testing.expect(fiber_mod.clockNs() - t0 < 2 * std.time.ns_per_s);
+    // The notifier's own event is filtered out of the ready list (reactor.zig
+    // wait()): it is a wakeup, never a runnable fiber.
+    try std.testing.expectEqual(@as(usize, 0), ready.items.len);
+}
