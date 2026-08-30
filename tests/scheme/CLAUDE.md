@@ -264,6 +264,31 @@ can execute one (`kaappi out.sbc` reads it as source), so
 `compile-preamble-699.sh` has no runnable second tier short of a ~180s
 `-Dbundle` rebuild.
 
+**An import-dependence control must import a portable `.sld` library, never a
+built-in one.** A control that means to prove an `import` is load-bearing —
+that it reaches the artifact's preamble and gets replayed, that dropping it
+would break the run — needs a binding that is genuinely unbound without its
+import. Built-in library bindings do not qualify: `(scheme base)`, `(scheme
+write)`, `(scheme process-context)` and the rest are *ambient* in script mode,
+so a top-level `import` of one is purely additive and a program resolves their
+procedures whether it imports them or not. The natural instinct is to reach
+for a `(scheme write)` procedure like `display` or `write-simple`, and that is
+exactly the trap — even `write-simple`, which is exclusive to `(scheme write)`,
+resolves ambiently, so a control built on it asserts nothing (kaappi#2436). Use
+the `(srfi 8)`/`receive` shape instead: `receive` comes only from
+`lib/srfi/8.sld` and is a `KP3001` undefined-variable error without its import,
+so the assertion has teeth.
+
+```scheme
+(import (scheme base) (srfi 8))
+(define-values (p q) (values 10 20))
+(receive (a b) (values p q)          ; drop the (srfi 8) import and this run
+  (display (+ a b)) (newline))       ; diverges from the interpreter's
+```
+
+`compile-define-values-order-2200.sh` is the worked example (fixed in PR #2432,
+which is where this trap surfaced).
+
 ## Quirks
 
 - The R7RS suite's verdict comes from its printed counts, not its exit status:
