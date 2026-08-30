@@ -404,7 +404,17 @@ fn channelSendLocal(ch: *types.Channel, ch_val: Value, payload: Value, deadline_
         if (me.deadline_ns orelse deadline_ns) |d| {
             ctx.reactor.removeTimer(me);
             me.deadline_ns = d;
-            try ctx.reactor.addTimer(d, me);
+            // #2433: this was a bare `try` — the yield-retry re-park armed
+            // .waiting/waiting_on and an enrolment, then returned a catchable
+            // OutOfMemory with nothing to undo it. Mirror the receive side's
+            // dispatched re-park (channelReceiveLocal, below).
+            ctx.reactor.addTimer(d, me) catch |err| {
+                ctx.sched.withdrawWaiter(me, me.waiting_on);
+                me.status = .running;
+                me.waiting_on = types.VOID;
+                me.deadline_ns = null;
+                return err;
+            };
         }
         vm.yield_retry = true;
         return PrimitiveError.Yielded;
@@ -426,9 +436,39 @@ fn channelSendLocal(ch: *types.Channel, ch_val: Value, payload: Value, deadline_
         vm.gc.writeBarrier(&me.header, ch_val);
         ctx.sched.enrollWaiter(me); // #1530: O(1) wake on a freed slot / close
         me.deadline_ns = d;
-        try ctx.reactor.addTimer(d, me);
+        // #2433: both `try`s here armed the park and returned a *catchable*
+        // OutOfMemory with nothing to undo it — a `guard` swallowing it would
+        // resume on a fiber the scheduler still believes is parked (the #1487
+        // precondition). channelReceiveLocal already handles both; the send
+        // side was the odd one out. Mirror it with explicit catch blocks.
+        ctx.reactor.addTimer(d, me) catch |err| {
+            ctx.sched.withdrawWaiter(me, me.waiting_on);
+            me.status = .running;
+            me.waiting_on = types.VOID;
+            me.deadline_ns = null;
+            return err;
+        };
     }
-    _ = try fiber_mod.runSchedulerStep(ChannelSendWait, .{ .ch = ch }, ctx.vm, ctx.sched, me);
+    _ = fiber_mod.runSchedulerStep(ChannelSendWait, .{ .ch = ch }, ctx.vm, ctx.sched, me) catch |err| {
+        // Restore every park field explicitly rather than leaning on
+        // runSchedulerStep's #2429 epilogue (#2433 review): its first
+        // `try saveCurrentFiber` runs before that errdefer is armed, so an OOM
+        // there returns with `me` still `.waiting`, and the epilogue forces
+        // only `.running` — it never resets a `timed_out` a timer wake set
+        // mid-drive. Matches primitives_srfi18.unparkOnError. Since OutOfMemory
+        // is catchable, a `guard` would otherwise continue with stale state.
+        me.status = .running;
+        me.timed_out = false;
+        // The index/timer/waiting_on cleanup stays guarded: with no deadline
+        // nothing above was armed (and waiting_on may hold an unrelated value).
+        if (deadline_ns != null) {
+            ctx.reactor.removeTimer(me);
+            ctx.sched.withdrawWaiter(me, me.waiting_on);
+            me.waiting_on = types.VOID;
+            me.deadline_ns = null;
+        }
+        return err;
+    };
     if (deadline_ns != null) {
         ctx.reactor.removeTimer(me);
         me.deadline_ns = null;
@@ -1182,6 +1222,7 @@ fn channelReceiveFn(args: []const Value) PrimitiveError!Value {
                     ctx.reactor.addTimer(d, me) catch |err| {
                         // Terminal for this wait: don't leak the committed
                         // demand or leave park state behind (#1604 review).
+                        ctx.sched.withdrawWaiter(me, me.waiting_on); // #2433
                         me.status = .running;
                         me.waiting_on = types.VOID;
                         me.deadline_ns = null;
@@ -1215,6 +1256,7 @@ fn channelReceiveFn(args: []const Value) PrimitiveError!Value {
         ctx.sched.enrollWaiter(me); // #1530: O(1) wake on a channel send / close
         me.deadline_ns = d;
         ctx.reactor.addTimer(d, me) catch |err| {
+            ctx.sched.withdrawWaiter(me, me.waiting_on); // #2433
             me.status = .running;
             me.waiting_on = types.VOID;
             me.deadline_ns = null;
@@ -1226,8 +1268,20 @@ fn channelReceiveFn(args: []const Value) PrimitiveError!Value {
         // Terminal for this wait (the main fiber has no retireSlot backstop):
         // release the committed demand and detach the timer (#1604 review).
         releaseRvToken(ch, ch_val, me);
+        // Restore every park field explicitly rather than leaning on
+        // runSchedulerStep's #2429 epilogue (#2433 review): its first
+        // `try saveCurrentFiber` runs before that errdefer is armed, so an OOM
+        // there returns with `me` still `.waiting`, and the epilogue forces
+        // only `.running` — it never resets a `timed_out` a timer wake set
+        // mid-drive. Matches primitives_srfi18.unparkOnError.
+        me.status = .running;
+        me.timed_out = false;
         if (deadline_ns != null) {
             ctx.reactor.removeTimer(me);
+            // #2433: withdraw the #1530 enrolment armed above; only a later wake
+            // naming this key would otherwise compact the entry.
+            ctx.sched.withdrawWaiter(me, me.waiting_on);
+            me.waiting_on = types.VOID;
             me.deadline_ns = null;
         }
         return err;
@@ -1326,7 +1380,11 @@ fn blockOrDeadlock(vm: *vm_mod.VM, me: *fiber_mod.Fiber, my_idx: usize, wait_on:
         me.waiting_on = wait_on;
         vm.gc.writeBarrier(&me.header, wait_on);
         // Index this park so fiber completion (wakeWaiters) or a channel
-        // send/close (wakeChannelWaiters) finds it in O(1) (#1530).
+        // send/close (wakeChannelWaiters) finds it in O(1) (#1530). No #2433
+        // withdraw/unpark here: this park is deliberate and returns the
+        // *uncatchable* Yielded (errors.isUncatchable), so no `guard` can
+        // resume `me` while the scheduler holds it parked — this is a live
+        // waiter a wake will compact, not an abandoned one to withdraw.
         if (vm.scheduler) |sched| sched.enrollWaiter(me);
         vm.yield_retry = true;
         return PrimitiveError.Yielded;

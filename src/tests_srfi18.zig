@@ -950,3 +950,53 @@ test "a condition-variable park that errors out leaves the fiber runnable (#2430
         \\(guard (e (#t (error-object-message e))) (read-bytevector 4 p))
     , "condition-variable");
 }
+
+// ---------------------------------------------------------------------------
+// The same two defects at the local-channel park sites (#2433)
+// ---------------------------------------------------------------------------
+//
+// primitives_fiber.zig's local channel waits share #2430's shape.
+// channelSendLocal's timed in-call park (Site B) armed .waiting/waiting_on, a
+// #1530 waiter_index enrolment and a reactor timer and then reached both
+// `try addTimer` and `try runSchedulerStep` with no error-path unpark — the
+// send side was the odd one out; the receive side already had catch blocks but
+// none of them withdrew the waiter_index entry (Gap 2), which only a later wake
+// naming the same key would otherwise compact, stranding a map key and list per
+// abandoned park.
+//
+// Same probe as the #2430 tests above: a SRFI 181 custom port whose read!
+// callback blocks on a timed local-channel wait, so runSchedulerStep's
+// custom-port-callback guard raises a real catchable error from inside the
+// armed park — exercising channelSendLocal's and channelReceiveLocal's in-call
+// runSchedulerStep sites on the main fiber. (The dispatched-fiber flat-park
+// re-park sites arm no runSchedulerStep — only addTimer — so their error path
+// is OOM-only, which gc.oom_countdown cannot reach here either, #2435.)
+// `expectUnparkedAfterBlockedCallback` asserts both halves: the park state is
+// restored AND the waiter_index entry is withdrawn.
+
+test "a channel-receive park that errors out leaves the fiber runnable (#2433)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // custom ports need the reactor
+    // An empty unbounded local channel: the timed receive arms the in-call
+    // park (channelReceiveLocal Site D) before its runSchedulerStep drive.
+    try expectUnparkedAfterBlockedCallback(
+        \\(define ch (make-channel))
+        \\(define p (make-custom-binary-input-port "cb"
+        \\  (lambda (bv start count) (channel-receive ch 10) 0) #f #f #f))
+    ,
+        \\(guard (e (#t (error-object-message e))) (read-bytevector 4 p))
+    , "channel-receive");
+}
+
+test "a channel-send park that errors out leaves the fiber runnable (#2433)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest;
+    // A capacity-1 channel filled to the brim, so the timed send blocks on the
+    // in-call park (channelSendLocal Site B) instead of being admitted.
+    try expectUnparkedAfterBlockedCallback(
+        \\(define ch (make-channel 1))
+        \\(channel-send ch 'x)
+        \\(define p (make-custom-binary-input-port "cb"
+        \\  (lambda (bv start count) (channel-send ch 'y 10) 0) #f #f #f))
+    ,
+        \\(guard (e (#t (error-object-message e))) (read-bytevector 4 p))
+    , "channel-send");
+}
