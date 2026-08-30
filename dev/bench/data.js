@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788097260798,
+  "lastUpdate": 1788108095926,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "681af651ba741c55acc4c28c81c751361fc7788b",
-          "message": "Make syntax-rules count-consistency depth-aware; seed empty-match depths (Fixes #682, #2082) (#2260)\n\n* Make syntax-rules count-consistency depth-aware; seed empty-match depths (#682)\n\nThe #682 fix (#2256) rejected every depth mismatch but one class of\nlegitimate SRFI 149 excess input: a depth-1 variable zipped against a\ndepth-2 driver whose group count differs. instantiateEllipsis compared\nellipsis counts across DEPTHS and raised EllipsisCountMismatch, so a\nlegal macro like\n\n    ((_ (a ...) ((b ...) ...)) '(((a b) ...) ...))\n\nerrored on (ragged (x y) ()) where chibi (the SRFI's reference\nimplementation) and guile both expand to (). Two root causes:\n\n1. The count check was not depth-aware. R7RS 4.3.2 requires equal\n   counts only among variables matched at the same depth; SRFI 149\n   rule 2 zips a shallower variable against the driver (min counts).\n   joinRepeatCount now enforces equality only within a depth and\n   otherwise takes the min, keeping the kaappi#78 same-depth error.\n\n2. matchEllipsis seeded every ellipsis binding with depth 1 and only\n   corrected it per repetition, so a nested variable matching ZERO\n   repetitions ((b ...) ... against ()) kept depth 1, never qualified\n   as a driver, and the run died with EllipsisNoPatternVariable.\n   Bindings are now seeded from the pattern structure (patternVarNesting\n   + 1), which agrees with the per-repetition formula when it runs.\n\nCloses #682 and #2082 (fixed by #2256 but never closed): the under-use\nand two-ellipses-per-pattern checks are verified on main, and this\ncompletes the remaining edge of the depth validation.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: per-depth count validation, structural under-use check (#682)\n\nReview of #2260 found two correctness gaps in the first cut:\n\n1. The same-depth count check was order-dependent. joinRepeatCount latched\n   the \"driver depth\" to the FIRST referenced binding, so a leading shallow\n   variable made a genuine R7RS 4.3.2 / kaappi#78 mismatch between two\n   deeper same-depth drivers silently zip instead of erroring (m2 errors\n   but m does not). The check now validates one count per depth, then takes\n   the minimum across depths — order-independent.\n\n2. The under-use check only fired when the consuming ellipsis run was\n   instantiated, so an outer run matching ZERO repetitions let a deeper\n   under-use silently expand to (). The check is now structural: the\n   outermost run that references a binding computes its full consumption\n   depth (this run + consecutive ellipses + the inner ellipses it sits\n   under in elem_template) and raises EllipsisDepthMismatch up front. This\n   also covers vector patterns, whose ellipsis runs must be detected inside\n   the vector data (patternVarNestingWalk now mirrors the list semantics\n   matchPattern uses).\n\nAll new tests fail against the pre-review build and pass here: the m-shape\nin error-format.sh and tests_ellipsis.zig, the vector/nested empty-match\nunder-use cases in tests_ellipsis.zig and the smoke suite, plus the\ncorrect-depth empty-match control.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-08T15:45:39Z",
-          "tree_id": "e89687ba0d81013007203e2733e5b3cefaad7529",
-          "url": "https://github.com/kaappi/kaappi/commit/681af651ba741c55acc4c28c81c751361fc7788b"
-        },
-        "date": 1786206053174,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.322447,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.258385,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.576459,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.006174,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004687,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047372,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.317166,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.05626,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.82478,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.240613,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.634216,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.284988,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.799747,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.647014,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.0446,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.030113,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3b8199472c05dab19f6a88d0be9ef54efc8ec4de",
+          "message": "Give the OOM injector a raw-allocator counterpart the fiber scheduler paths need (#2435) (#2440)\n\n* Give the OOM injector a raw-allocator counterpart the fiber scheduler paths need (#2435)\n\n`gc.oom_countdown` fires from `GC.maybeCollect`, so it only ever intercepts\nallocations that go through the GC. Every allocation made straight from the\nraw allocator — the VM's growable register/frame/handler/wind stacks, the\nfiber snapshot buffers, the reactor timer heap, the scheduler's\n`driving_waits` list, bignum limb scratch, and the bytecode/IR/constant\npools — is invisible to it. Those are exactly the allocations behind the\nfiber scheduler's OOM error paths (#2429, #2433), so their regression tests\ncould not be written with the injector the docs presented as exhaustive.\n\nAdd `memory.OomAllocator`: a test-only wrapper over a backing allocator with\nits own countdown, independent of `oom_countdown` (a form's raw and GC\nallocation sequences are unrelated). It ticks on `alloc` and refuses `remap`\nonce spent, so an `ArrayList`/timer-heap growth cannot slip past an armed\ninjector, while `null` (the default) forwards untouched so a VM built on it\nconstructs normally until a test arms it. A `builtin.is_test` guard makes a\nproduction reference a compile error.\n\nCorrect the three docs that presented `oom_countdown` as reaching \"every\nallocation a form performs\" — it reaches every *GC* allocation — and point\neach at the raw-allocator counterpart: `docs/dev/testing.md`,\n`docs/dev/gc-safety-and-error-handling.md`, `.claude/rules/gc-safety.md`,\nand the field comment in `memory.zig`.\n\nTests: two allocator-mechanism tests (a raw `allocSliceNoFill`; ArrayList\ngrowth — the `addTimer`/`driving_waits` shape), plus an end-to-end test in\n`tests_gc_root_boundary.zig` proving a real VM's register-file growth is\nreachable by `OomAllocator` and never by `oom_countdown`.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: gate growth in OomAllocator, make it thread-affine; add the #2429 OOM regression test\n\nReview fixes on the raw-allocator OOM injector (#2440):\n\n- A growing resize/remap now participates in the countdown. The injector\n  treated resize as a pure in-place op and never ticked a successful remap, so\n  under a FixedBufferAllocator a nonzero budget let later ArrayList/PriorityQueue\n  growths bypass injection and resize could even grow at countdown 0. It now\n  gates on growth (new_len > mem.len), fails a growth once the budget is spent,\n  and consumes one unit only when a growth actually succeeds; shrink/no-op\n  forwards untouched.\n\n- Injection is now thread-affine. GC.initForThread hands an SRFI-18 child the\n  parent's gc.allocator — the same OomAllocator pointer — so arming while a\n  child allocated raced the owning thread on `countdown`. Only the constructing\n  thread is injected now; every other thread forwards untouched and never reads\n  or writes `countdown`. Deterministic injection is a single-threaded notion\n  anyway.\n\n- Docs say \"allocations mediated by maybeCollect\", not \"every allocXxx\":\n  allocSymbol and allocFunction skip maybeCollect too.\n\nNew tests:\n\n- OomAllocator: a growing resize/remap is gated (shrink/no-op always forwards),\n  and a successful in-place growth consumes a nonzero budget (reviewer's\n  FixedBufferAllocator case); only the owning thread is injected.\n\n- The #2429 regression the injector was built to unblock: a raw-allocator OOM\n  during a scheduler drive, failing the growFiberXxx snapshot save that runs\n  while a sibling's window is loaded, must still restore the waiting fiber's\n  window. The sibling of the existing Terminated-driven probe, now driving the\n  actual OutOfMemory the bug is about. Verified it fails without the errdefer\n  (current_idx/current_fiber/frame_count all name the sibling) and passes with\n  it, in normal and -Dgc-stress builds.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-08-30T21:32:37+05:30",
+          "tree_id": "c332b1291beb1f804c7c03d55702d928bf129438",
+          "url": "https://github.com/kaappi/kaappi/commit/3b8199472c05dab19f6a88d0be9ef54efc8ec4de"
+        },
+        "date": 1788108093012,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.266111,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.066737,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.574274,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.969305,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005038,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048711,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.313094,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055835,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.729731,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.237404,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.648566,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.285352,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.751327,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.71548,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044702,
             "unit": "seconds"
           }
         ]
