@@ -812,3 +812,107 @@ test "huge and infinite timeouts saturate instead of aborting (#1983)" {
     _ = try vm.eval("(define t (thread-start! (make-thread (lambda () 42))))");
     try std.testing.expectEqual(@as(i64, 42), types.toFixnum(try vm.eval("(thread-join! t +inf.0)")));
 }
+
+// ---------------------------------------------------------------------------
+// A park that errors out must leave the fiber runnable (#2430)
+// ---------------------------------------------------------------------------
+//
+// thread-join!'s fiber path, mutex-lock! and mutex-unlock!'s condition-
+// variable branch each arm the parked state — `.waiting`, `timed_out`,
+// `waiting_on`, a waiter_index enrolment and (when timed) a reactor timer —
+// and then reached both `try ctx.reactor.addTimer` and `try runSchedulerStep`
+// with nothing to undo it. Both failure sources return catchable errors, so a
+// Scheme `guard` could resume on a fiber the scheduler still believed was
+// parked: the "running fiber marked parked" state that is the precondition
+// for the #1487 dispatch-from-stale-snapshot corruption, and exactly what
+// defeats the waiter_index's deliberate tolerance of a stale entry.
+//
+// The probe is a SRFI 181 custom port whose read! callback blocks. That is a
+// real program reaching a real catchable error (runSchedulerStep's
+// custom-port-callback guard, which exists because such a callback may not
+// block) rather than an injected OOM — and it is deterministic, where the OOM
+// the issue describes has no reproducer. `waiting_on` is what discriminates
+// here: that guard already restores `status`/`timed_out` and drops the timer
+// for its own return, so it is the one armed field left lying pre-fix. The
+// assertions cover the rest anyway, since the sites' other error sources
+// (addTimer, and mutex-lock!'s awaitCrossThreadRing) reach no such guard.
+//
+// A stale `waiting_on` is not cosmetic: thread-join! and mutex-lock! report
+// it as the irritant of their deadlock errors, and it is a GC-traced field.
+//
+// `status` is deliberately not asserted. It is the field the issue names, but
+// it is not observable from here: `vm_calls.prepareTopLevelFrame` documents
+// that the main fiber is left `.completed` when its form finishes, so by the
+// time eval returns every run says `.completed` whether the park was undone or
+// not. The armed state that survives to be seen is `waiting_on` and the timer.
+
+fn expectUnparked(vm: *vm_mod.VM, me: *fiber_mod.Fiber, label: []const u8) !void {
+    var pending_timer = false;
+    if (vm.reactor) |r| {
+        for (r.timers.items) |entry| {
+            if (entry.fiber == me) pending_timer = true;
+        }
+    }
+    if (me.waiting_on == types.VOID and me.deadline_ns == null and
+        !me.timed_out and !pending_timer) return;
+
+    std.debug.print(
+        "{s}: fiber still parked after a failed park — " ++
+            "waiting_on=0x{x} deadline_ns={?d} timed_out={} pending_timer={} status={s}\n",
+        .{ label, me.waiting_on, me.deadline_ns, me.timed_out, pending_timer, @tagName(me.status) },
+    );
+    return error.FiberLeftParked;
+}
+
+fn expectUnparkedAfterBlockedCallback(source: []const u8, label: []const u8) !void {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // The guard catches and the program runs on — which is the hazard, not
+    // an incidental detail of the probe.
+    const msg_val = try ctx.vm.eval(source);
+    try std.testing.expect(types.isString(msg_val));
+    const msg = types.toObject(msg_val).as(types.SchemeString);
+    try std.testing.expect(std.mem.startsWith(u8, msg.data[0..msg.len], "custom port callback blocked"));
+
+    // Index 0, not vm.current_fiber: the callback runs on the main fiber, but
+    // a probe that dispatched a sibling can leave the VM pointing at that one.
+    try expectUnparked(ctx.vm, ctx.vm.scheduler.?.fibers.items[0].?, label);
+}
+
+test "a thread-join! park that errors out leaves the fiber runnable (#2430)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // custom ports need the reactor
+    try expectUnparkedAfterBlockedCallback(
+        \\(define blocked (spawn (lambda () (channel-receive (make-channel)))))
+        \\(define p (make-custom-binary-input-port "cb"
+        \\  (lambda (bv start count) (thread-join! blocked 10) 0) #f #f #f))
+        \\(guard (e (#t (error-object-message e))) (read-bytevector 4 p))
+    , "thread-join!");
+}
+
+test "a mutex-lock! park that errors out leaves the fiber runnable (#2430)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest;
+    // A live holder keeps the mutex locked, so mutex-lock! takes the slow
+    // path that arms the park instead of claiming it outright.
+    try expectUnparkedAfterBlockedCallback(
+        \\(define m (make-mutex))
+        \\(define holder (spawn (lambda () (mutex-lock! m) (channel-receive (make-channel)))))
+        \\(thread-yield!)
+        \\(define p (make-custom-binary-input-port "cb"
+        \\  (lambda (bv start count) (mutex-lock! m 10) 0) #f #f #f))
+        \\(guard (e (#t (error-object-message e))) (read-bytevector 4 p))
+    , "mutex-lock!");
+}
+
+test "a condition-variable park that errors out leaves the fiber runnable (#2430)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest;
+    try expectUnparkedAfterBlockedCallback(
+        \\(define m (make-mutex))
+        \\(define cv (make-condition-variable))
+        \\(mutex-lock! m)
+        \\(define p (make-custom-binary-input-port "cb"
+        \\  (lambda (bv start count) (mutex-unlock! m cv 10) 0) #f #f #f))
+        \\(guard (e (#t (error-object-message e))) (read-bytevector 4 p))
+    , "condition-variable");
+}

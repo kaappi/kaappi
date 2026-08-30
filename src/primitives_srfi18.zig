@@ -355,6 +355,43 @@ fn ensureScheduler() @TypeOf(fiber_mod.ensureScheduler(undefined)) {
     return fiber_mod.ensureScheduler(vm);
 }
 
+/// Undo the parked state a SRFI-18 wait site arms (`.waiting` status, the
+/// `timed_out` flag, `waiting_on`, and any reactor deadline timer) on an
+/// error exit, so every such site can `errdefer` it.
+///
+/// Every error exit from a park must leave `me` runnable again (#2430, and
+/// PR #2428 review for the one site that already did). Both failure sources
+/// at these sites -- `reactor.addTimer` and `runSchedulerStep`'s own
+/// allocations -- return `VMError.OutOfMemory`, which is *catchable*: a
+/// Scheme `guard` can swallow it, and the fiber then keeps executing while
+/// the scheduler still believes it is parked. "Running fiber marked parked"
+/// is the precondition for the #1487 dispatch-from-stale-snapshot
+/// corruption, and the `waiter_index`'s deliberate tolerance of a stale
+/// entry (`indexWakeOn` revalidates `status == .waiting`, which is also how
+/// the success path disposes of one) is exactly what a lying `.waiting`
+/// defeats -- so clearing the status is what retires the index entry too,
+/// and no explicit de-enrolment is needed.
+///
+/// The timer is the part that outlives the fiber: `threadJoinFn` used to
+/// leave a pending deadline behind on its error path, and a timer that
+/// survives its fiber can later fire against whatever `addFiber` reuses that
+/// slot for. `removeTimer` is remove-first, so a caller's own cleanup after
+/// catching the error stays correct.
+///
+/// Mirrors the channel waits' `catch` blocks in `primitives_fiber.zig` and
+/// `runSchedulerStep`'s custom-port-callback guard, which undo the same
+/// fields. It is the caller-side half of #2429's fix, which restores the
+/// register window one level down; neither fixes the other.
+fn unparkOnError(reactor: *reactor_mod.Reactor, f: *fiber_mod.Fiber) void {
+    if (f.deadline_ns != null) {
+        reactor.removeTimer(f);
+        f.deadline_ns = null;
+    }
+    f.status = .running;
+    f.timed_out = false;
+    f.waiting_on = types.VOID;
+}
+
 // 1ms. Since #2395 this is no longer how a cross-thread wait normally
 // resolves -- the resolving thread rings this one's reactor notifier
 // (reactor.zig's cross-thread wake registry) and the wait blocks on that
@@ -1248,29 +1285,7 @@ fn parkForThreadStatus(
     // enrolment below is for.
     ctx.sched.enrollWaiter(me);
 
-    // Every error exit below must leave `me` runnable again (PR #2428
-    // review). A primitive that returns a *catchable* error -- OutOfMemory
-    // from addTimer or from runSchedulerStep's own allocations -- can be
-    // caught by a Scheme `guard`, and this fiber then keeps executing while
-    // the scheduler still believes it is parked. "Running fiber marked
-    // parked" is the precondition for the #1487 dispatch-from-stale-snapshot
-    // corruption, and the waiter_index's tolerance of a stale entry
-    // (indexWakeOn revalidates `status == .waiting`) is exactly what a lying
-    // `.waiting` defeats. Mirrors the channel waits' catch blocks in
-    // primitives_fiber.zig and runSchedulerStep's own custom-port-callback
-    // guard, which undo the same three fields.
-    const Unpark = struct {
-        fn run(c: @TypeOf(ctx), f: *fiber_mod.Fiber) void {
-            if (f.deadline_ns != null) {
-                c.reactor.removeTimer(f);
-                f.deadline_ns = null;
-            }
-            f.status = .running;
-            f.timed_out = false;
-            f.waiting_on = types.VOID;
-        }
-    };
-    errdefer Unpark.run(ctx, me);
+    errdefer unparkOnError(ctx.reactor, me); // PR #2428 review; see the helper
 
     var enrolment: fiber_mod.CrossThreadEnrolment = .{};
     defer enrolment.release();
@@ -1416,15 +1431,29 @@ fn threadJoinFn(args: []const Value) PrimitiveError!Value {
         const me = ctx.vm.current_fiber orelse return PrimitiveError.OutOfMemory;
 
         me.waiting_on = fiber_val;
+        // #2430: barriered like the channel waits' own `waiting_on` stores
+        // (primitives_fiber.zig) and parkForThreadStatus's. Belt-and-braces
+        // for a scheduler-resident fiber, which markFiberState re-traces as a
+        // root every collection -- but residency ends the moment retireSlot
+        // runs, and the barrier costs a deduplicated remembered-set append.
+        ctx.vm.gc.writeBarrier(&me.header, fiber_val);
         me.status = .waiting;
         me.timed_out = false;
         ctx.sched.enrollWaiter(me); // #1530: O(1) wake when the joined fiber completes
+        errdefer unparkOnError(ctx.reactor, me); // #2430
         if (deadline_ns) |d| {
             me.deadline_ns = d;
             try ctx.reactor.addTimer(d, me);
         }
 
         const done = try fiber_mod.runSchedulerStep(fiber_mod.TargetWait, .{ .target = target }, ctx.vm, ctx.sched, me);
+        // Matches parkForThreadStatus and mutexLockFn, which this site alone
+        // was missing: a local wake cancels the timer for us, but clearing
+        // `deadline_ns` without it would strand any that survived — and a
+        // null `deadline_ns` is exactly what stops a later unparkOnError from
+        // finding it, leaving it to fire against a reused fiber slot.
+        // removeTimer is remove-first, so it is a no-op in the normal case.
+        if (deadline_ns != null) ctx.reactor.removeTimer(me);
         me.deadline_ns = null;
 
         if (me.timed_out) {
@@ -1855,9 +1884,11 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
     const me = ctx.vm.current_fiber orelse return PrimitiveError.OutOfMemory;
 
     me.waiting_on = mutex_val;
+    ctx.vm.gc.writeBarrier(&me.header, mutex_val); // #2430, see threadJoinFn
     me.status = .waiting;
     me.timed_out = false;
     ctx.sched.enrollWaiter(me); // #1530: O(1) wake on mutex unlock / abandonment
+    errdefer unparkOnError(ctx.reactor, me); // #2430
     if (deadline) |d| {
         me.deadline_ns = d;
         try ctx.reactor.addTimer(d, me);
@@ -2055,9 +2086,11 @@ fn mutexUnlockFn(args: []const Value) PrimitiveError!Value {
 
         const me = ctx.vm.current_fiber orelse return PrimitiveError.OutOfMemory;
         me.waiting_on = args[1];
+        ctx.vm.gc.writeBarrier(&me.header, args[1]); // #2430, see threadJoinFn
         me.status = .waiting;
         me.timed_out = false;
         ctx.sched.enrollWaiter(me); // #1530: O(1) wake on signal / broadcast
+        errdefer unparkOnError(ctx.reactor, me); // #2430
         if (deadline) |d| {
             me.deadline_ns = d;
             try ctx.reactor.addTimer(d, me);
