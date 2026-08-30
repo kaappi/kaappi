@@ -63,6 +63,12 @@ test {
     _ = @import("tests_diagnostics.zig");
     _ = @import("tests_spans.zig");
     _ = @import("tests_platform.zig");
+    // (kaappi process) is POSIX-only in Phase 1 (KEP-0022, kaappi#2414); the
+    // primitives file references posix_spawn, so exclude its tests from the
+    // WASM and Windows builds the same way the library itself is excluded.
+    if (@import("builtin").os.tag != .wasi and @import("builtin").os.tag != .windows) {
+        _ = @import("tests_process.zig");
+    }
     // Byte-order pins. The unit suite is one of only three things that runs
     // on the big-endian s390x leg, so this is where an endian assertion
     // actually reaches the canary (src/tests_endian.zig explains the rest).

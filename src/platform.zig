@@ -155,10 +155,71 @@ pub fn isatty(fd: fd_t) bool {
     return std.c.isatty(fd) != 0;
 }
 
+/// Whether the platform has `pipe2(2)` (atomic `O_CLOEXEC`). Linux and the
+/// BSDs do; macOS/Darwin does not, so there we fall back to `pipe(2)` plus
+/// `setFdCloexec` on both ends.
+const have_pipe2 = switch (builtin.os.tag) {
+    .linux, .freebsd, .netbsd, .openbsd, .dragonfly => true,
+    else => false,
+};
+
+/// Set `FD_CLOEXEC` on a descriptor so it is closed across `exec` — the
+/// portable answer to fd hygiene for `posix_spawn`ed children (kaappi#2414):
+/// glibc's `addclosefrom_np` needs 2.34+ and musl lacks it, so making every
+/// fd the runtime opens close-on-exec is the only portable guarantee that a
+/// child inherits nothing but the stdio slots its file actions install.
+/// No-op on Windows (handle inheritance is per-handle via `O_NOINHERIT` /
+/// STARTUPINFO) and on WASI (no `exec`). Best-effort: a failing `fcntl`
+/// leaves the fd as-is.
+/// Returns whether close-on-exec is now set (true on the no-op Windows/WASI
+/// targets). A caller that must guarantee the flag — `pipe` below — treats
+/// `false` as a hard failure rather than leaking an inheritable descriptor.
+pub fn setFdCloexec(fd: fd_t) bool {
+    if (comptime is_windows or is_wasm) return true;
+    const flags = std.c.fcntl(fd, std.posix.F.GETFD, @as(c_int, 0));
+    if (flags < 0) return false;
+    return std.c.fcntl(fd, std.posix.F.SETFD, flags | std.posix.FD_CLOEXEC) >= 0;
+}
+
+/// Ignore `SIGPIPE` process-wide (kaappi#2414). A write to a pipe or socket
+/// whose reader has gone away — the canonical case being the stdin of a
+/// child process that has already exited — then fails with `EPIPE` as an
+/// ordinary I/O error the caller can catch, instead of killing the process
+/// with the default `SIGPIPE` disposition. Zig's `std.start` already sets
+/// this for executables (`std.options.keep_sigpipe == false`), but an
+/// embedder linking the runtime as a library gets no `std.start`, so the
+/// invariant must be established explicitly at runtime init. Setting the
+/// disposition to `SIG_IGN` is idempotent, so doing it again alongside the
+/// start-code default is harmless. No-op on Windows/WASI (no `SIGPIPE`).
+pub fn ignoreSigpipe() void {
+    if (comptime is_windows or is_wasm) return;
+    const act = std.posix.Sigaction{
+        .handler = .{ .handler = std.posix.SIG.IGN },
+        .mask = std.posix.sigemptyset(),
+        .flags = 0,
+    };
+    std.posix.sigaction(std.posix.SIG.PIPE, &act, null);
+}
+
+/// Create a pipe with `FD_CLOEXEC` set on both ends (kaappi#2414): a child
+/// spawned via `posix_spawn` must inherit only the stdio slots the file
+/// actions install, never the parent's pipe ends. The child's own ends are
+/// made inheritable explicitly (dup2'd onto 0/1/2 by the file actions, which
+/// clears CLOEXEC on the copy); the parent's ends stay close-on-exec.
 pub fn pipe(fds: *[2]fd_t) c_int {
     if (comptime is_windows) return win._pipe(fds, 65536, win.O_BINARY | win.O_NOINHERIT);
     if (comptime is_wasm) return -1;
-    return std.c.pipe(fds);
+    if (comptime have_pipe2) return std.c.pipe2(fds, .{ .CLOEXEC = true });
+    const rc = std.c.pipe(fds);
+    if (rc != 0) return rc;
+    // macOS fallback: if either end can't be made close-on-exec, fail loudly
+    // (close both) rather than returning a pipe a child could inherit.
+    if (!setFdCloexec(fds[0]) or !setFdCloexec(fds[1])) {
+        close(fds[0]);
+        close(fds[1]);
+        return -1;
+    }
+    return 0;
 }
 
 pub fn dup2(old: fd_t, new: fd_t) c_int {
@@ -235,7 +296,9 @@ pub fn errnoIsFdExhausted() bool {
 fn winOpen(path: []const u8, oflag: c_int, pmode: c_int) OpenError!fd_t {
     var wbuf: WPathBuf = undefined;
     const wpath = widen(&wbuf, path) orelse return error.OpenFailed;
-    const fd = win._wopen(wpath.ptr, oflag | win.O_BINARY, pmode);
+    // O_NOINHERIT keeps the handle out of spawned children (kaappi#2414),
+    // the Windows analogue of FD_CLOEXEC.
+    const fd = win._wopen(wpath.ptr, oflag | win.O_BINARY | win.O_NOINHERIT, pmode);
     if (fd < 0) {
         const ev = win._errno().*;
         if (ev == @intFromEnum(E.MFILE) or ev == @intFromEnum(E.NFILE)) return error.FdExhausted;
@@ -262,7 +325,7 @@ pub fn openRead(path: [:0]const u8) OpenError!fd_t {
         if (rc != .SUCCESS) return error.OpenFailed;
         return @as(fd_t, @intCast(result_fd));
     }
-    return std.posix.openatZ(std.posix.AT.FDCWD, path, .{}, 0) catch |e| classifyOpenError(e);
+    return std.posix.openatZ(std.posix.AT.FDCWD, path, .{ .CLOEXEC = true }, 0) catch |e| classifyOpenError(e);
 }
 
 /// WASI path resolution, the way wasi-libc's open() does it (kaappi#2153).
@@ -355,19 +418,19 @@ fn wasiOpenWrite(path: [:0]const u8, oflags: std.os.wasi.oflags_t, append: bool)
 pub fn openWriteTrunc(path: [:0]const u8, mode: u16) OpenError!fd_t {
     if (comptime is_windows) return winOpen(path, win.O_WRONLY | win.O_CREAT | win.O_TRUNC, 0o600);
     if (comptime is_wasm) return wasiOpenWrite(path, .{ .CREAT = true, .TRUNC = true }, false);
-    return std.posix.openatZ(std.posix.AT.FDCWD, path, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, mode) catch |e| classifyOpenError(e);
+    return std.posix.openatZ(std.posix.AT.FDCWD, path, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .CLOEXEC = true }, mode) catch |e| classifyOpenError(e);
 }
 
 pub fn openWriteTruncExcl(path: [:0]const u8, mode: u16) OpenError!fd_t {
     if (comptime is_windows) return winOpen(path, win.O_WRONLY | win.O_CREAT | win.O_TRUNC | win.O_EXCL, 0o600);
     if (comptime is_wasm) return wasiOpenWrite(path, .{ .CREAT = true, .TRUNC = true, .EXCL = true }, false);
-    return std.posix.openatZ(std.posix.AT.FDCWD, path, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .EXCL = true }, mode) catch error.OpenFailed;
+    return std.posix.openatZ(std.posix.AT.FDCWD, path, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .EXCL = true, .CLOEXEC = true }, mode) catch error.OpenFailed;
 }
 
 pub fn openAppend(path: [:0]const u8, mode: u16) OpenError!fd_t {
     if (comptime is_windows) return winOpen(path, win.O_WRONLY | win.O_CREAT | win.O_APPEND, 0o600);
     if (comptime is_wasm) return wasiOpenWrite(path, .{ .CREAT = true }, true);
-    return std.posix.openatZ(std.posix.AT.FDCWD, path, .{ .ACCMODE = .WRONLY, .CREAT = true, .APPEND = true }, mode) catch error.OpenFailed;
+    return std.posix.openatZ(std.posix.AT.FDCWD, path, .{ .ACCMODE = .WRONLY, .CREAT = true, .APPEND = true, .CLOEXEC = true }, mode) catch error.OpenFailed;
 }
 
 /// Write-only sink for discarding output (/dev/null, NUL).
@@ -378,7 +441,7 @@ pub fn openNullSink() OpenError!fd_t {
     // harness skips its fd-discarding mode), so a loud OpenFailed is the
     // honest answer rather than substituting some real file.
     if (comptime is_wasm) return error.OpenFailed;
-    return std.posix.openatZ(std.posix.AT.FDCWD, "/dev/null", .{ .ACCMODE = .WRONLY }, 0) catch error.OpenFailed;
+    return std.posix.openatZ(std.posix.AT.FDCWD, "/dev/null", .{ .ACCMODE = .WRONLY, .CLOEXEC = true }, 0) catch error.OpenFailed;
 }
 
 // ---------------------------------------------------------------------------
@@ -736,6 +799,10 @@ pub const DirIter = struct {
             if (rc != .SUCCESS) return null;
             return .{ .state = .{ .fd = result_fd } };
         }
+        // POSIX.1-2008 requires opendir() to open the underlying descriptor
+        // FD_CLOEXEC; glibc, musl and the BSDs all comply, so a directory
+        // stream never leaks into a posix_spawn child (kaappi#2414) — no
+        // explicit fcntl needed here.
         const dh = opendir_sys(path) orelse return null;
         return .{ .state = dh };
     }

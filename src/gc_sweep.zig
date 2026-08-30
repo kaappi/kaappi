@@ -264,6 +264,7 @@ pub fn objectSize(obj: *Object) usize {
                 fiber.wind_stack.len * @sizeOf(types.WindRecord);
         },
         .channel => @sizeOf(types.Channel),
+        .process => @sizeOf(types.Process),
         .mutex => @sizeOf(types.Mutex),
         .condition_variable => @sizeOf(types.ConditionVariable),
         .srfi18_time => @sizeOf(types.Srfi18Time),
@@ -577,6 +578,14 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
                 sc.release();
             }
             poisonAndDestroy(gc, types.Channel, ch);
+        },
+        .process => {
+            // Phase 1 holds no OS handle to release: the pipe ports are
+            // separate heap objects that close their own fds, and
+            // `wait_handle` is -1 (the reactor pidfd/HANDLE that Phase 2
+            // adds will be closed here). A never-waited child is reaped by
+            // the zombie sweep, not the GC finalizer.
+            poisonAndDestroy(gc, types.Process, obj.as(types.Process));
         },
         .mutex => {
             poisonAndDestroy(gc, types.Mutex, obj.as(types.Mutex));

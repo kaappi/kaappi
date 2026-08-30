@@ -1,5 +1,6 @@
 const std = @import("std");
 const is_wasm = @import("builtin").os.tag == .wasi;
+const is_windows = @import("builtin").os.tag == .windows;
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const printer = @import("printer.zig");
@@ -48,6 +49,7 @@ pub const Lib = enum {
     kaappi_ffi,
     kaappi_fibers,
     kaappi_diagnostics,
+    kaappi_process,
     srfi_1,
     srfi_13,
     srfi_18,
@@ -158,6 +160,7 @@ pub const Lib = enum {
             .kaappi_ffi => "kaappi.ffi",
             .kaappi_fibers => "kaappi.fibers",
             .kaappi_diagnostics => "kaappi.diagnostics",
+            .kaappi_process => "kaappi.process",
             .srfi_1 => "srfi.1",
             .srfi_13 => "srfi.13",
             .srfi_18 => "srfi.18",
@@ -193,6 +196,7 @@ pub const Lib = enum {
             .scheme_process_context,
             .scheme_r5rs,
             .kaappi_ffi,
+            .kaappi_process,
             .srfi_18,
             .srfi_170,
             .srfi_192,
@@ -216,9 +220,21 @@ pub const Lib = enum {
 
     pub fn wasmAvailable(self: Lib) bool {
         return switch (self) {
-            .kaappi_ffi, .srfi_18, .srfi_170 => false,
+            .kaappi_ffi, .srfi_18, .srfi_170, .kaappi_process => false,
             else => true,
         };
+    }
+
+    /// Whether this library is available on the *current build target* —
+    /// the gate the registry and `cond-expand`'s `(library …)` form consult,
+    /// so an unavailable library registers nowhere and reads as absent. On
+    /// WASM this is `wasmAvailable()`. `(kaappi process)` is additionally
+    /// absent on Windows in Phase 1 (KEP-0022, kaappi#2414): POSIX-only
+    /// until the CreateProcess backend lands in Phase 3.
+    pub fn availableOnTarget(self: Lib) bool {
+        if (is_wasm) return self.wasmAvailable();
+        if (is_windows and self == .kaappi_process) return false;
+        return true;
     }
 
     /// Whether this lib tag corresponds to a real library that should
@@ -345,6 +361,11 @@ pub const all_specs = core_specs ++
     primitives_random.specs ++
     @import("primitives_random_port.zig").specs ++
     (if (is_wasm) no_specs else primitives_filesystem.specs) ++
+    // (kaappi process) — POSIX only in Phase 1 (KEP-0022, kaappi#2414). The
+    // file references posix_spawn, so it must not be compiled on WASM or
+    // Windows (no posix_spawn there); the comptime `if` leaves the import
+    // unanalyzed on those targets.
+    (if (is_wasm or is_windows) no_specs else @import("primitives_process.zig").specs) ++
     @import("primitives_fiber.zig").specs ++
     @import("primitives_parallel.zig").specs ++
     // SRFI-18's OS-thread machinery cannot exist on WASM, but its

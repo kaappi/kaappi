@@ -895,8 +895,22 @@ fn fdToPort(args: []const Value) PrimitiveError!Value {
         return primitives.argError("fd->port", "descriptor {d} is a standard stream; 0, 1 and 2 stay blocking", .{fd_i});
     if (fd_i < 0 or fd_i > std.math.maxInt(i32))
         return primitives.argError("fd->port", "{d} is outside the file-descriptor range", .{fd_i});
+    return rawFdToPort(@intCast(fd_i), true, true, "fd");
+}
+
+/// Wrap a raw OS descriptor as a binary port on the same non-blocking,
+/// reactor-integrated read/write path as file ports (readOneByte /
+/// portWriteBytes), flipping to O_NONBLOCK lazily under a scheduler. Shared
+/// by `fd->port` ((kaappi ffi)) and process pipe-port creation
+/// ((kaappi process)) so both go through one constructor. The port takes
+/// ownership of the fd: close-port closes it (fd > 2), wakes any parked
+/// fiber, and unregisters it from the reactor — the caller must not close
+/// the fd through any other path. Direction is caller-chosen: a child's
+/// stdin pipe is write-only from the parent's side, its stdout/stderr
+/// read-only.
+pub fn rawFdToPort(fd: platform.fd_t, is_input: bool, is_output: bool, name: []const u8) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const port_val = gc.allocPort(@intCast(fd_i), true, true, "fd", false) catch return PrimitiveError.OutOfMemory;
+    const port_val = gc.allocPort(fd, is_input, is_output, name, false) catch return PrimitiveError.OutOfMemory;
     types.toObject(port_val).as(types.Port).is_binary = true;
     return port_val;
 }
@@ -2188,7 +2202,7 @@ fn readStringFn(args: []const Value) PrimitiveError!Value {
 /// not a drain. String ports and the unbuffered standard fds have nothing
 /// pending; buffered fd ports drain fully (suspending the fiber as needed —
 /// idempotent across a parked retry since progress lives in the port).
-fn flushPortObj(port: *types.Port) PrimitiveError!void {
+pub fn flushPortObj(port: *types.Port) PrimitiveError!void {
     if (port.custom_backend) |cb| {
         const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
         return flushCustomPortIfNeeded(vm, cb);

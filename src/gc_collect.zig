@@ -266,6 +266,10 @@ pub fn referencesYoung(gc: *GC, obj: *Object) bool {
             const ch = obj.as(types.Channel);
             if (isYoungPointer(gc, ch.head) or isYoungPointer(gc, ch.tail)) return true;
         },
+        .process => {
+            const p = obj.as(types.Process);
+            if (isYoungPointer(gc, p.stdin_port) or isYoungPointer(gc, p.stdout_port) or isYoungPointer(gc, p.stderr_port)) return true;
+        },
         .mutex => {
             const m = obj.as(types.Mutex);
             if (isYoungPointer(gc, m.name) or isYoungPointer(gc, m.owner) or isYoungPointer(gc, m.owner_thread) or isYoungPointer(gc, m.specific)) return true;
@@ -741,6 +745,12 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
             markValue(gc, ch.head);
             markValue(gc, ch.tail);
         },
+        .process => {
+            const p = obj.as(types.Process);
+            markValue(gc, p.stdin_port);
+            markValue(gc, p.stdout_port);
+            markValue(gc, p.stderr_port);
+        },
         .mutex => {
             const m = obj.as(types.Mutex);
             markValue(gc, m.name);
@@ -1159,6 +1169,12 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
             const ch = obj.as(types.Channel);
             worklist.append(gc.allocator, ch.head) catch @panic("GC mark: worklist OOM");
             worklist.append(gc.allocator, ch.tail) catch @panic("GC mark: worklist OOM");
+        },
+        .process => {
+            const p = obj.as(types.Process);
+            worklist.append(gc.allocator, p.stdin_port) catch @panic("GC mark: worklist OOM");
+            worklist.append(gc.allocator, p.stdout_port) catch @panic("GC mark: worklist OOM");
+            worklist.append(gc.allocator, p.stderr_port) catch @panic("GC mark: worklist OOM");
         },
         .mutex => {
             const m = obj.as(types.Mutex);

@@ -723,6 +723,13 @@ fn printValueOnce(
             .channel => {
                 try writer.writeAll("#<channel>");
             },
+            .process => {
+                // Atomic, like #<channel>: a process prints its pid and no
+                // more. Its pipe ports are reachable via process-stdin etc.
+                // and print atomically themselves, so nothing is enqueued as
+                // a traversable child here (no isTraversable/childAt arm).
+                try writer.print("#<process {d}>", .{obj.as(types.Process).pid});
+            },
             .mutex => {
                 const m = obj.as(types.Mutex);
                 try writer.writeAll("#<mutex");

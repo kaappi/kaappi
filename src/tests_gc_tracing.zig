@@ -480,6 +480,17 @@ test "gc tracing: channel traces head and tail" {
     try expectTraced(&gc, ch_val, &.{ ref(head, 1), ref(tail, 2) });
 }
 
+test "gc tracing: process traces its three ports" {
+    var gc = newGc();
+    defer gc.deinit();
+    const in = try young(&gc, 1);
+    const out = try young(&gc, 2);
+    const err = try young(&gc, 3);
+    // allocProcess arg-roots the three port Values across its own collection.
+    const proc_val = try gc.allocProcess(4242, 0, in, out, err);
+    try expectTraced(&gc, proc_val, &.{ ref(in, 1), ref(out, 2), ref(err, 3) });
+}
+
 test "gc tracing: mutex traces name, owner and specific" {
     var gc = newGc();
     defer gc.deinit();
@@ -883,6 +894,42 @@ test "gc tracing (remembered set): vector" {
     vec.data[1] = a;
     gc.writeBarrier(&vec.header, a);
     try expectRememberedTrace(&gc, v, &.{ref(a, 1)});
+}
+
+test "gc tracing (remembered set): process reaches each young port field" {
+    var gc = newGc();
+    defer gc.deinit();
+    // One case per port field, with the other two left at the immediate #f
+    // default: if referencesYoung or markObjectContents omits a single field,
+    // that field's case fails on its own (the others can't mask it). The write
+    // barrier precedes each store, per the mutation-order convention.
+    {
+        const proc_val = try gc.allocProcess(1, 0, types.FALSE, types.FALSE, types.FALSE);
+        try promoteToOld(&gc, proc_val);
+        const in = try young(&gc, 1);
+        const proc = types.toObject(proc_val).as(types.Process);
+        gc.writeBarrier(&proc.header, in);
+        proc.stdin_port = in;
+        try expectRememberedTrace(&gc, proc_val, &.{ref(in, 1)});
+    }
+    {
+        const proc_val = try gc.allocProcess(2, 0, types.FALSE, types.FALSE, types.FALSE);
+        try promoteToOld(&gc, proc_val);
+        const out = try young(&gc, 2);
+        const proc = types.toObject(proc_val).as(types.Process);
+        gc.writeBarrier(&proc.header, out);
+        proc.stdout_port = out;
+        try expectRememberedTrace(&gc, proc_val, &.{ref(out, 2)});
+    }
+    {
+        const proc_val = try gc.allocProcess(3, 0, types.FALSE, types.FALSE, types.FALSE);
+        try promoteToOld(&gc, proc_val);
+        const err = try young(&gc, 3);
+        const proc = types.toObject(proc_val).as(types.Process);
+        gc.writeBarrier(&proc.header, err);
+        proc.stderr_port = err;
+        try expectRememberedTrace(&gc, proc_val, &.{ref(err, 3)});
+    }
 }
 
 test "gc tracing (remembered set): closure" {
@@ -1798,6 +1845,13 @@ test "gc tracing: heap-struct field inventory is unchanged" {
     expectFields(types.Guardian, &.{ "header", "is_transport", "registered", "ready" });
     expectFields(types.TransportCell, &.{ "header", "key", "value", "broken" });
     expectFields(types.NumericVector, &.{ "header", "kind", "data" });
+    // `.process` (KEP-0022, kaappi#2414): the three `*_port` fields are the
+    // only Value-bearing ones (marked by the .process arms in gc_collect);
+    // `wait_handle`/`status`/`pgid`/`pid` are plain integers.
+    expectFields(types.Process, &.{
+        "header",     "pid",         "wait_handle", "status",
+        "stdin_port", "stdout_port", "stderr_port", "pgid",
+    });
 
     // Satellites the switches reach *through* — the highest-risk group,
     // because a new field here is invisible at the ObjectTag level entirely.
@@ -1835,7 +1889,9 @@ test "gc tracing: every ObjectTag has a case in this file" {
     // returns a NaN-boxed immediate, so no heap Flonum is ever created (the
     // tag, its struct and its five arms are vestigial). Keep this count in
     // step with ObjectTag so a new tag cannot be added without landing here.
-    try std.testing.expectEqual(@as(usize, 41), @typeInfo(types.ObjectTag).@"enum".fields.len);
+    // `.process` (KEP-0022) carries three port Values and is covered by the
+    // "process traces its three ports" and remembered-set cases above.
+    try std.testing.expectEqual(@as(usize, 42), @typeInfo(types.ObjectTag).@"enum".fields.len);
 }
 
 // ---------------------------------------------------------------------------

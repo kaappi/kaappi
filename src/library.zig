@@ -194,7 +194,7 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
 
     for (std.enums.values(Lib)) |lib| {
         if (!lib.isRegisterable()) continue;
-        if (!is_wasm or lib.wasmAvailable()) {
+        if (lib.availableOnTarget()) {
             var library = Library.init(allocator, lib.canonicalName());
             try addExportsForLib(&library, lib, globals, false);
             try registry.register(library);
@@ -214,7 +214,7 @@ pub fn registerSandboxedLibraries(registry: *LibraryRegistry, globals: *std.Stri
     for (std.enums.values(Lib)) |lib| {
         if (!lib.isRegisterable()) continue;
         if (!lib.sandboxAllowed()) continue;
-        if (!is_wasm or lib.wasmAvailable()) {
+        if (lib.availableOnTarget()) {
             var library = Library.init(allocator, lib.canonicalName());
             try addExportsForLib(&library, lib, globals, true);
             try registry.register(library);

@@ -594,6 +594,13 @@ pub const GC = struct {
         self.arg_root_count = 2;
     }
 
+    pub inline fn rootArgs3(self: *GC, a: Value, b: Value, c: Value) void {
+        self.arg_roots[0] = a;
+        self.arg_roots[1] = b;
+        self.arg_roots[2] = c;
+        self.arg_root_count = 3;
+    }
+
     pub inline fn clearArgRoots(self: *GC) void {
         self.arg_root_count = 0;
     }
@@ -657,6 +664,7 @@ pub const GC = struct {
     pub const allocChannel = gc_alloc.allocChannel;
     pub const allocChannelBounded = gc_alloc.allocChannelBounded;
     pub const allocChannelStub = gc_alloc.allocChannelStub;
+    pub const allocProcess = gc_alloc.allocProcess;
     pub const allocMutex = gc_alloc.allocMutex;
     pub const allocConditionVariable = gc_alloc.allocConditionVariable;
     pub const allocSrfi18Time = gc_alloc.allocSrfi18Time;

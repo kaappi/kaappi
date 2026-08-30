@@ -616,6 +616,16 @@ const KqueueBackend = struct {
     fn init(_: std.mem.Allocator) !KqueueBackend {
         const kq = std.c.kqueue();
         if (kq < 0) return error.Unexpected;
+        // A kqueue fd is not inherited across fork(2), but posix_spawn is
+        // exec-based and the BSDs differ on whether the fd survives to the
+        // exec; mark it close-on-exec so a spawned child never inherits the
+        // scheduler's event queue (kaappi#2414). Fail closed: a kqueue that
+        // could leak into a child is worse than no reactor, so surface the
+        // fcntl failure rather than proceed with an inheritable fd.
+        if (!platform.setFdCloexec(kq)) {
+            _ = platform.close(kq);
+            return error.Unexpected;
+        }
         var self: KqueueBackend = .{ .kq = kq };
         var reg = std.c.Kevent{
             .ident = 0,
@@ -760,8 +770,8 @@ const EpollBackend = struct {
     fn init(_: std.mem.Allocator) !EpollBackend {
         // CLOEXEC: without it the epoll fd leaks into every child the core
         // spawns (thottam_proc.zig, native_compiler.zig via
-        // std.process.Child). kqueue needs no equivalent — kqueue(2) fds
-        // are never inherited across fork by design.
+        // std.process.Child, and now (kaappi process) via posix_spawn). The
+        // kqueue backend sets the same flag on its queue fd in its own init.
         const rc = linux.epoll_create1(linux.EPOLL.CLOEXEC);
         if (linux.errno(rc) != .SUCCESS) return error.Unexpected;
         const epfd: i32 = @intCast(rc);

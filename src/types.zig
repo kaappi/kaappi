@@ -154,6 +154,7 @@ pub fn typeName(val: Value) []const u8 {
         .guardian => "guardian",
         .transport_cell => "transport-cell",
         .numeric_vector => "numeric-vector",
+        .process => "process",
     };
 }
 
@@ -208,6 +209,8 @@ pub const ObjectTag = enum(u6) {
     // SRFI 160: homogeneous numeric vectors other than u8 (which stays a
     // plain bytevector alias, per SRFI 160's own recommended identity).
     numeric_vector = 40,
+    // KEP-0022 (kaappi#2414): a spawned child process handle.
+    process = 41,
 };
 
 pub const Object = struct {
@@ -287,6 +290,7 @@ pub const Object = struct {
             Guardian => .guardian,
             TransportCell => .transport_cell,
             NumericVector => .numeric_vector,
+            Process => .process,
             else => null,
         };
     }
@@ -584,6 +588,8 @@ pub const ConditionVariable = types_threading.ConditionVariable;
 pub const TimeType = types_threading.TimeType;
 pub const Srfi18Time = types_threading.Srfi18Time;
 
+pub const Process = @import("types_process.zig").Process;
+
 // ---------------------------------------------------------------------------
 // Hash table (SRFI-69)
 // ---------------------------------------------------------------------------
@@ -873,6 +879,10 @@ pub fn isFiber(v: Value) bool {
 
 pub fn isChannel(v: Value) bool {
     return isPointer(v) and toObject(v).tag == .channel;
+}
+
+pub fn isProcess(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .process;
 }
 
 pub fn isMutex(v: Value) bool {

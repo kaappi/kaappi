@@ -3,6 +3,7 @@ const types = @import("types.zig");
 const memory = @import("memory.zig");
 
 const diagnostics = @import("diagnostics.zig");
+const platform = @import("platform.zig");
 const compiler_mod = @import("compiler.zig");
 const library_mod = @import("library.zig");
 const reactor_mod = @import("reactor.zig");
@@ -721,6 +722,12 @@ pub const VM = struct {
     collection_state: std.atomic.Value(CollectionState) = .init(.running),
 
     pub fn init(gc: *memory.GC) !VM {
+        // Establish the process-wide SIGPIPE=SIG_IGN invariant at runtime
+        // init so a write to a dead child's stdin surfaces as an EPIPE I/O
+        // error rather than killing the process — load-bearing for
+        // (kaappi process), and needed explicitly for embedders that link
+        // the runtime without std.start (kaappi#2414). Idempotent.
+        platform.ignoreSigpipe();
         const frames = try gc.allocator.alloc(CallFrame, INITIAL_FRAME_CAPACITY);
         errdefer gc.allocator.free(frames);
         const registers = try gc.allocator.alloc(Value, INITIAL_REGISTER_CAPACITY);

@@ -638,6 +638,18 @@ test "deepCopy rejects continuation" {
     try std.testing.expectError(error.UncopyableType, gc2.deepCopy(cont));
 }
 
+test "deepCopy rejects process" {
+    // A Process is thread-affine (KEP-0022, kaappi#2414): it must never cross
+    // a channel or a thread-start!/join copy boundary.
+    var gc1 = memory.GC.init(std.testing.allocator);
+    defer gc1.deinit();
+    var gc2 = memory.GC.init(std.testing.allocator);
+    defer gc2.deinit();
+
+    const proc = try gc1.allocProcess(1234, 0, types.NIL, types.NIL, types.NIL);
+    try std.testing.expectError(error.UncopyableType, gc2.deepCopy(proc));
+}
+
 // #1978: file-info / user-info / group-info are pure value records and now
 // cross the thread boundary by value, like SchemeString. Each test copies
 // into a *fresh* GC (the thread-join!/channel shape) and checks every field.

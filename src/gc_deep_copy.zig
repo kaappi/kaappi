@@ -641,18 +641,20 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
         // This list governs the *copy* route only -- the thread-start!
         // thunk closure, the thread-join! result, a channel message. A
         // value reached through the shared globals map is never copied and
-        // never reaches this switch, and ten of the eleven
+        // never reaches this switch, and ten of the twelve
         // tags below are freely usable that way. For .mutex and
         // .condition_variable a global is in fact the *only* supported way
         // to share one, so the refusal here is the opposite of the rule --
         // exactly inverted from .channel above, whose capture is the
         // supported route. The globals route is defended per-type inside
-        // individual primitives (`obj.owner != gc.id`), and only two types
-        // do so: channels (primitives_fiber.zig) and thread handles
-        // (primitives_srfi18.checkThreadOwner). Full matrix, and why this
-        // was not simply extended to cover globals:
-        // docs/dev/thread-value-sharing.md, pinned by
-        // tests/scheme/srfi/srfi18-sharing-model.scm.
+        // individual primitives (`obj.owner != gc.id`), and three types
+        // do so: channels (primitives_fiber.zig), thread handles
+        // (primitives_srfi18.checkThreadOwner), and processes
+        // (primitives_process.zig — KEP-0022, a Process is thread-affine:
+        // its pipe ports and, in Phase 2, its reactor registration belong
+        // to one scheduler). Full matrix, and why this was not simply
+        // extended to cover globals: docs/dev/thread-value-sharing.md,
+        // pinned by tests/scheme/srfi/srfi18-sharing-model.scm.
         //
         // file-info/user-info/group-info used to sit here too; they are pure
         // value records and now copy like SchemeString does (#1978). Only
@@ -661,6 +663,7 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
         .port,
         .continuation,
         .fiber,
+        .process,
         .mutex,
         .condition_variable,
         .ffi_callback,

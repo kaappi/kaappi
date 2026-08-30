@@ -1107,6 +1107,28 @@ pub fn allocChannelStub(self: *GC, shared: *anyopaque) !Value {
     return types.makePointer(&ch.header);
 }
 
+/// A spawned child-process handle (KEP-0022, kaappi#2414). The three pipe
+/// ports are `Value` fields, so root them across `maybeCollect` — they were
+/// allocated just before this call and are otherwise unreachable. `pid`,
+/// `pgid`, `status`, and `wait_handle` are set here; the reactor wiring
+/// (Phase 2) fills `wait_handle`/status later.
+pub fn allocProcess(self: *GC, pid: i32, pgid: i32, stdin_port: Value, stdout_port: Value, stderr_port: Value) !Value {
+    self.rootArgs3(stdin_port, stdout_port, stderr_port);
+    try self.maybeCollect();
+    self.clearArgRoots();
+    const p = try self.allocator.create(types.Process);
+    p.* = .{
+        .header = .{ .tag = .process },
+        .pid = pid,
+        .pgid = pgid,
+        .stdin_port = stdin_port,
+        .stdout_port = stdout_port,
+        .stderr_port = stderr_port,
+    };
+    self.finishAlloc(&p.header, @sizeOf(types.Process));
+    return types.makePointer(&p.header);
+}
+
 pub fn allocMutex(self: *GC, name: Value) !Value {
     self.rootArgs1(name);
     try self.maybeCollect();
