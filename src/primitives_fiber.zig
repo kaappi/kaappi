@@ -404,7 +404,17 @@ fn channelSendLocal(ch: *types.Channel, ch_val: Value, payload: Value, deadline_
         if (me.deadline_ns orelse deadline_ns) |d| {
             ctx.reactor.removeTimer(me);
             me.deadline_ns = d;
-            try ctx.reactor.addTimer(d, me);
+            // #2433: this was a bare `try` — the yield-retry re-park armed
+            // .waiting/waiting_on and an enrolment, then returned a catchable
+            // OutOfMemory with nothing to undo it. Mirror the receive side's
+            // dispatched re-park (channelReceiveLocal, below).
+            ctx.reactor.addTimer(d, me) catch |err| {
+                ctx.sched.withdrawWaiter(me, me.waiting_on);
+                me.status = .running;
+                me.waiting_on = types.VOID;
+                me.deadline_ns = null;
+                return err;
+            };
         }
         vm.yield_retry = true;
         return PrimitiveError.Yielded;
@@ -426,9 +436,31 @@ fn channelSendLocal(ch: *types.Channel, ch_val: Value, payload: Value, deadline_
         vm.gc.writeBarrier(&me.header, ch_val);
         ctx.sched.enrollWaiter(me); // #1530: O(1) wake on a freed slot / close
         me.deadline_ns = d;
-        try ctx.reactor.addTimer(d, me);
+        // #2433: both `try`s here armed the park and returned a *catchable*
+        // OutOfMemory with nothing to undo it — a `guard` swallowing it would
+        // resume on a fiber the scheduler still believes is parked (the #1487
+        // precondition). channelReceiveLocal already handles both; the send
+        // side was the odd one out. Mirror it with explicit catch blocks.
+        ctx.reactor.addTimer(d, me) catch |err| {
+            ctx.sched.withdrawWaiter(me, me.waiting_on);
+            me.status = .running;
+            me.waiting_on = types.VOID;
+            me.deadline_ns = null;
+            return err;
+        };
     }
-    _ = try fiber_mod.runSchedulerStep(ChannelSendWait, .{ .ch = ch }, ctx.vm, ctx.sched, me);
+    _ = fiber_mod.runSchedulerStep(ChannelSendWait, .{ .ch = ch }, ctx.vm, ctx.sched, me) catch |err| {
+        // runSchedulerStep's own epilogue (#2429) already restored `me`'s
+        // window and .running status; undo the park state armed above that it
+        // does not touch. Guarded on deadline_ns: with none, nothing above ran.
+        if (deadline_ns != null) {
+            ctx.reactor.removeTimer(me);
+            ctx.sched.withdrawWaiter(me, me.waiting_on);
+            me.waiting_on = types.VOID;
+            me.deadline_ns = null;
+        }
+        return err;
+    };
     if (deadline_ns != null) {
         ctx.reactor.removeTimer(me);
         me.deadline_ns = null;
@@ -1182,6 +1214,7 @@ fn channelReceiveFn(args: []const Value) PrimitiveError!Value {
                     ctx.reactor.addTimer(d, me) catch |err| {
                         // Terminal for this wait: don't leak the committed
                         // demand or leave park state behind (#1604 review).
+                        ctx.sched.withdrawWaiter(me, me.waiting_on); // #2433
                         me.status = .running;
                         me.waiting_on = types.VOID;
                         me.deadline_ns = null;
@@ -1215,6 +1248,7 @@ fn channelReceiveFn(args: []const Value) PrimitiveError!Value {
         ctx.sched.enrollWaiter(me); // #1530: O(1) wake on a channel send / close
         me.deadline_ns = d;
         ctx.reactor.addTimer(d, me) catch |err| {
+            ctx.sched.withdrawWaiter(me, me.waiting_on); // #2433
             me.status = .running;
             me.waiting_on = types.VOID;
             me.deadline_ns = null;
@@ -1228,6 +1262,11 @@ fn channelReceiveFn(args: []const Value) PrimitiveError!Value {
         releaseRvToken(ch, ch_val, me);
         if (deadline_ns != null) {
             ctx.reactor.removeTimer(me);
+            // #2433: withdraw the #1530 enrolment armed above. runSchedulerStep
+            // (#2429) restored status but never clears waiting_on, and only a
+            // later wake naming this key would otherwise compact the entry.
+            ctx.sched.withdrawWaiter(me, me.waiting_on);
+            me.waiting_on = types.VOID;
             me.deadline_ns = null;
         }
         return err;
@@ -1326,7 +1365,11 @@ fn blockOrDeadlock(vm: *vm_mod.VM, me: *fiber_mod.Fiber, my_idx: usize, wait_on:
         me.waiting_on = wait_on;
         vm.gc.writeBarrier(&me.header, wait_on);
         // Index this park so fiber completion (wakeWaiters) or a channel
-        // send/close (wakeChannelWaiters) finds it in O(1) (#1530).
+        // send/close (wakeChannelWaiters) finds it in O(1) (#1530). No #2433
+        // withdraw/unpark here: this park is deliberate and returns the
+        // *uncatchable* Yielded (errors.isUncatchable), so no `guard` can
+        // resume `me` while the scheduler holds it parked — this is a live
+        // waiter a wake will compact, not an abandoned one to withdraw.
         if (vm.scheduler) |sched| sched.enrollWaiter(me);
         vm.yield_retry = true;
         return PrimitiveError.Yielded;
