@@ -61,17 +61,46 @@
 
 ;; 6. Cross-thread condition variable: the child waits on cv, and
 ;;    condition-variable-signal! from here is what must wake it.
+;;
+;;    Signalled in a retry loop rather than once after a fixed delay. A
+;;    signal that lands before the child has snapshotted the generation
+;;    inside mutex-unlock! reaches no waiter at all, and a fixed delay makes
+;;    that unlikely rather than impossible -- the child would then sit out
+;;    its whole cv timeout and this would fail on a loaded machine for a
+;;    reason unrelated to what it tests. Extra signals are harmless: each is
+;;    a generation bump the child has either already accounted for or is
+;;    about to observe.
+;;
+;;    The retry cannot mask a lost wake, which is the point. The wait is
+;;    parked on the notifier with no poll cadence to fall back on, so
+;;    without the ring the child never wakes however many times we signal --
+;;    it runs out its own 15s cv timeout and reports 'cv-timed-out, which
+;;    fails this assertion rather than hanging the suite.
+;;
+;;    Signalled WITHOUT holding m2, departing from the usual SRFI-18
+;;    convention on purpose: it is the retry loop, not the mutex, that
+;;    closes the lost-wakeup window here, and taking m2 would make this
+;;    thread's own mutex-unlock! ring the notifier -- masking the thing
+;;    under test. Measured: with the ring in condition-variable-signal!
+;;    removed, the mutex-held version of this loop still passed.
 (define m2 (make-mutex))
 (define cv (make-condition-variable))
 (let ((t (thread-start! (make-thread (lambda ()
                                        (mutex-lock! m2)
-                                       (if (mutex-unlock! m2 cv 5) 'signaled 'cv-timed-out))))))
-  (thread-sleep! 0.2)
-  (mutex-lock! m2)
-  (condition-variable-signal! cv)
-  (mutex-unlock! m2)
-  (test-equal "child wakes from the condition variable when signaled"
-              'signaled (thread-join! t 5 'timed-out)))
+                                       (if (mutex-unlock! m2 cv 15) 'signaled 'cv-timed-out))))))
+  (let loop ((tries 0))
+    (let ((r (thread-join! t 0.2 'still-waiting)))
+      (cond ((not (eq? r 'still-waiting))
+             (test-equal "child wakes from the condition variable when signaled"
+                         'signaled r))
+            ((< tries 40)
+             (condition-variable-signal! cv)
+             (loop (+ tries 1)))
+            (else
+             ;; Out of retries (~8s): collect whatever the child ends up
+             ;; reporting so the failure names the cause.
+             (test-equal "child wakes from the condition variable when signaled"
+                         'signaled (thread-join! t 20 'never-finished)))))))
 
 ;; 7. thread-terminate! reaches a child parked in a long thread-sleep!. The
 ;;    sleep is 30 s; the terminate ring is the only thing that can end it in

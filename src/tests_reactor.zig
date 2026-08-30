@@ -845,6 +845,13 @@ test "#2395: wakeCrossThreadWaiters rings an enrolled reactor out of a blocking 
     // otherwise wait out its whole timeout returns at once. Asserted on
     // elapsed time rather than by blocking forever, so a regression fails
     // the test instead of hanging the suite.
+    //
+    // Not on WASI: `ThreadNotifier.notify` has no OS primitive to ring there
+    // (reactor.zig's `.wasi => {}` arm), because wasm32-wasi is
+    // single-threaded and no other thread can exist to do the ringing. The
+    // flag half above is still meaningful — it is the same bookkeeping — but
+    // the poll below would genuinely wait out its whole timeout.
+    if (comptime platform.is_wasm) return;
     var ready: std.ArrayList(*fiber_mod.Fiber) = .empty;
     defer ready.deinit(std.testing.allocator);
     const t0 = fiber_mod.clockNs();

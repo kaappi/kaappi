@@ -42,8 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `thread-terminate!`, all used to re-check their own state every
   millisecond. They now enrol in a per-thread registry and are rung awake by
   whichever thread performs the state change (unlock, signal/broadcast,
-  terminate, or thread exit), the same mechanism promoted channels already
-  used. A `(thread-sleep! 60)` on a child thread costs one wakeup rather than
+  terminate, or thread exit) — the same mechanism that promoted channels
+  already use. A `(thread-sleep! 60)` on a child thread costs one wakeup rather than
   60,000, and a cross-thread hand-off is delivered in a syscall rather than
   within a millisecond. Two behaviour changes fall out of the timed
   `thread-join!` no longer being a whole-thread `nanosleep`: this thread's
