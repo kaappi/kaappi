@@ -152,6 +152,99 @@ pub fn dupeSliceNoFill(allocator: std.mem.Allocator, comptime T: type, data: []c
     return buf;
 }
 
+/// Test-only OOM injector for *raw-allocator* allocations — the counterpart
+/// to `GC.oom_countdown`, which only ever sees GC (`allocXxx`) allocations
+/// because it fires from `maybeCollect`. Wrap the backing allocator with this
+/// and hand `allocator()` to `GC.init`, and every allocation that goes
+/// straight to the raw allocator becomes injectable: the VM's growable
+/// register/frame/handler/wind stacks (`ensureRegisterCapacity` and siblings,
+/// via `allocSliceNoFill`), the fiber snapshot buffers (`growFiberRegisters`/
+/// `Frames`/`Handlers`/`Winds`), the reactor timer heap (`addTimer`), the
+/// scheduler's `driving_waits` list, bignum limb scratch, and the
+/// bytecode/IR/constant pools. `GC.oom_countdown` reaches none of these —
+/// which is what blocked the OOM regression tests for the fiber scheduler's
+/// error paths (#2435, #2429, #2433).
+///
+/// `countdown` is deliberately independent of `GC.oom_countdown`: a form's raw
+/// and GC allocation sequences are unrelated, so the two are armed and swept
+/// separately. When set to `n`, the next `n` buffer acquisitions succeed and
+/// every one after fails with `OutOfMemory` — sticky, exactly like
+/// `oom_countdown`, so a sweep over `0..N` drives a failure at each raw
+/// allocation a form makes. `null` (the default) forwards everything
+/// untouched, so a VM constructed on it runs normally until a test arms it —
+/// which is why, unlike `std.testing.FailingAllocator`, it can be handed to
+/// `GC.init` without failing construction indiscriminately.
+///
+/// The counter ticks on `alloc` (a new buffer). `remap` may move-and-copy, so
+/// it is failed once the budget is exhausted but does not itself tick (it
+/// acquires no buffer the fallback `alloc` won't); `resize` is a pure in-place
+/// change that acquires nothing, so it forwards untouched. Together this means
+/// an `ArrayList`/timer-heap growth (`driving_waits.append`, `addTimer`)
+/// cannot slip past an armed injector: `ensureTotalCapacityPrecise` tries
+/// `remap` first and falls back to `alloc`, and both refuse once spent.
+pub const OomAllocator = struct {
+    backing: std.mem.Allocator,
+    countdown: ?usize = null,
+
+    const vtable: std.mem.Allocator.VTable = .{
+        .alloc = oomAlloc,
+        .resize = oomResize,
+        .remap = oomRemap,
+        .free = oomFree,
+    };
+
+    pub fn init(backing: std.mem.Allocator) OomAllocator {
+        // Test-only, like `GC.oom_countdown`: a production reference is a
+        // compile error, so no non-test build can install the wrapper. Fires
+        // only when `init` is analyzed in a non-test build; unreferenced in
+        // production, it costs nothing.
+        comptime if (!builtin.is_test) @compileError("OomAllocator is test-only");
+        return .{ .backing = backing };
+    }
+
+    pub fn allocator(self: *OomAllocator) std.mem.Allocator {
+        return .{ .ptr = self, .vtable = &vtable };
+    }
+
+    /// Consume one unit of budget on a new-buffer allocation. Returns true if
+    /// the budget is spent and this allocation must fail.
+    fn tick(self: *OomAllocator) bool {
+        if (self.countdown) |n| {
+            if (n == 0) return true;
+            self.countdown = n - 1;
+        }
+        return false;
+    }
+
+    /// True once the budget is fully spent. Used by `remap`, which acquires no
+    /// new buffer (so must not consume budget) but must still fail an armed,
+    /// exhausted injector rather than let a growth through.
+    fn spent(self: *const OomAllocator) bool {
+        return if (self.countdown) |n| n == 0 else false;
+    }
+
+    fn oomAlloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
+        const self: *OomAllocator = @ptrCast(@alignCast(ctx));
+        if (self.tick()) return null;
+        return self.backing.vtable.alloc(self.backing.ptr, len, alignment, ret_addr);
+    }
+    fn oomResize(ctx: *anyopaque, mem: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
+        // A resize is a pure in-place change — it acquires no new backing
+        // memory, so it is never an OOM injection point: forward untouched.
+        const self: *OomAllocator = @ptrCast(@alignCast(ctx));
+        return self.backing.vtable.resize(self.backing.ptr, mem, alignment, new_len, ret_addr);
+    }
+    fn oomRemap(ctx: *anyopaque, mem: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+        const self: *OomAllocator = @ptrCast(@alignCast(ctx));
+        if (self.spent()) return null;
+        return self.backing.vtable.remap(self.backing.ptr, mem, alignment, new_len, ret_addr);
+    }
+    fn oomFree(ctx: *anyopaque, mem: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
+        const self: *OomAllocator = @ptrCast(@alignCast(ctx));
+        self.backing.vtable.free(self.backing.ptr, mem, alignment, ret_addr);
+    }
+};
+
 pub const GC = struct {
     allocator: std.mem.Allocator,
     objects: ?*Object = null,
@@ -204,11 +297,16 @@ pub const GC = struct {
     memory_limit: ?usize = null,
     /// Test-only OOM injector: when set, the next `oom_countdown` heap
     /// allocations succeed and the one after that fails with OutOfMemory.
-    /// Counted per `maybeCollect` call, so the few allocators that skip it
-    /// (`allocFunction`) are not injectable — which is also why a compile
-    /// with no macro use in it never fails here: bytecode, IR and constant
-    /// pools all use the raw allocator.
-    /// Sweeping it over 0..N drives a failure at every allocation the
+    /// Counted per `maybeCollect` call, so it fires only for allocations that
+    /// go through the *GC* — every `allocXxx`. A raw-allocator allocation is
+    /// invisible to it: `allocFunction` (which skips `maybeCollect`), and,
+    /// more widely, the VM's growable register/frame/handler/wind stacks, the
+    /// fiber snapshot buffers, the reactor timer heap, the scheduler's
+    /// `driving_waits` list, and the bytecode/IR/constant pools — which is why
+    /// a compile with no macro use in it never fails here. Reach those with
+    /// `OomAllocator` instead (#2435), whose independent countdown sits in a
+    /// wrapper over the raw allocator.
+    /// Sweeping it over 0..N drives a failure at every *GC* allocation the
     /// pipeline performs, which is what reaches the deep expander/compiler
     /// push/pop sites (#1855). `memory_limit` cannot: it is an absolute
     /// watermark that only trips once one form *retains* more than the
@@ -1206,4 +1304,60 @@ test "dupeSliceNoFill: propagates OutOfMemory" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
     const src = [_]u8{ 9, 9, 9 };
     try std.testing.expectError(error.OutOfMemory, dupeSliceNoFill(failing.allocator(), u8, &src));
+}
+
+// #2435: the raw-allocator OOM injector. `GC.oom_countdown` cannot reach a
+// raw allocation — `allocSliceNoFill` goes straight to `rawAlloc`, never
+// through `maybeCollect` — so the injector that CAN must count those calls
+// and fail them on demand, independently of the GC counter.
+test "OomAllocator: reaches a raw allocSliceNoFill that oom_countdown never sees" {
+    var oom = OomAllocator.init(std.testing.allocator);
+    const a = oom.allocator();
+
+    // Disarmed: forwards untouched.
+    const s0 = try allocSliceNoFill(a, u64, 4);
+    freeSliceNoFill(a, u64, s0);
+
+    // Budget of 1: the first acquisition succeeds, the next fails and every
+    // one after stays failing (sticky, matching oom_countdown).
+    oom.countdown = 1;
+    const s1 = try allocSliceNoFill(a, u64, 4);
+    freeSliceNoFill(a, u64, s1); // a free is not a tick
+    try std.testing.expectError(error.OutOfMemory, allocSliceNoFill(a, u64, 4));
+    try std.testing.expectError(error.OutOfMemory, allocSliceNoFill(a, u64, 4));
+
+    // Failing immediately: countdown 0 fails the very first acquisition.
+    oom.countdown = 0;
+    try std.testing.expectError(error.OutOfMemory, allocSliceNoFill(a, u64, 4));
+
+    // Re-disarm and confirm the backing allocator is intact (no leak, works).
+    oom.countdown = null;
+    const s2 = try allocSliceNoFill(a, u64, 4);
+    freeSliceNoFill(a, u64, s2);
+}
+
+// The reactor timer heap (`addTimer`) and the scheduler's `driving_waits`
+// grow through `ArrayList`/`PriorityQueue`, whose `ensureTotalCapacityPrecise`
+// tries `remap` then falls back to `alloc`. Both must refuse once the budget
+// is spent, or a growth would slip past an armed injector — this is the exact
+// allocation shape behind the #2429/#2433 scheduler OOM paths.
+test "OomAllocator: fails ArrayList growth once the budget is spent" {
+    var oom = OomAllocator.init(std.testing.allocator);
+    const a = oom.allocator();
+
+    var list: std.ArrayList(u64) = .empty;
+    defer list.deinit(a);
+
+    // Fail the first buffer acquisition: append from empty must OOM.
+    oom.countdown = 0;
+    try std.testing.expectError(error.OutOfMemory, list.append(a, 1));
+    try std.testing.expectEqual(@as(usize, 0), list.items.len);
+
+    // Disarm and grow across several reallocations to exercise the remap /
+    // alloc fallback while forwarding faithfully.
+    oom.countdown = null;
+    var i: u64 = 0;
+    while (i < 64) : (i += 1) try list.append(a, i);
+    try std.testing.expectEqual(@as(usize, 64), list.items.len);
+    for (list.items, 0..) |v, idx| try std.testing.expectEqual(@as(u64, @intCast(idx)), v);
 }
