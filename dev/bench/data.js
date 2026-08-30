@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788030699886,
+  "lastUpdate": 1788083901767,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ed37a085ee2080715b26b41f04216a34d5d07400",
-          "message": "Validate syntax-rules ellipsis usage: template depth (#682) and pattern grammar (#2082) (#2256)\n\n* Validate syntax-rules ellipsis usage: template depth (#682) and pattern grammar (#2082)\n\nsyntax-rules accepted two kinds of ill-formed rules and answered\nsomething instead of erroring, both silent wrong-output defects in the\nR7RS 4.3.2 pattern language:\n\n- #682 (template side): a pattern variable used under FEWER template\n  ellipses than its pattern depth substituted the never-set `()` for the\n  matched input. instantiateEllipsis now rejects a directly-referenced\n  list binding whose depth exceeds the consuming ellipsis run\n  (1 + extra_ellipsis, so (x ... ...) flattening stays legal), and\n  instantiateTemplate rejects a list binding used with no ellipsis at\n  all. Legitimate nested, consecutive-ellipsis, and SRFI 149\n  excess-ellipsis shapes are untouched.\n\n- #2082 (pattern side): a list or vector pattern with more than one\n  ellipsis at its own level was accepted, and the surplus ellipsis\n  tokens were counted as fixed tail elements, so the trailing pattern\n  always took the last two inputs. parseSyntaxRules now validates every\n  rule's pattern at definition time (matching chibi and Guile, which\n  reject the define-syntax), honouring custom ellipsis identifiers and\n  the ellipsis-as-literal carve-out, and keeping first-position `...`\n  (a plain pattern variable per the matcher, e.g. srfi136's\n  `(cname field (... ...))` guard) legal.\n\nThe regression-test half of #682 was a test that never exercised the\ndefect: tests/scheme/smoke/ellipsis-depth-mismatch.scm only pinned the\nvalid case, and srfi149/srfi46 carried disabled FAIL assertions plus\nenabled pins of the wrong answers. Those are now flipped to assertions\nthat the mismatch RAISES (shown to fail against a build with the fix\nreverted), and Zig unit tests cover both issues plus the control shapes.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: validate vector dotted tails, split ellipsis tests, SRFI-64 smoke harness\n\nThree review findings from PR #2256 review:\n\n- validPatternGrammar's dotted-tail branch recursed into pairs, but that\n  branch was unreachable (the while loop only exits once cur is not a\n  pair), and a vector dotted tail -- (_ . #(a ... b ...)) -- bypassed\n  validation entirely, accepting two ellipses in one vector pattern. The\n  branch now recurses into vectors; regression test added (verified to\n  fail against the pre-fix code).\n\n- Move the #682/#2082 ellipsis-validation tests out of tests_macros.zig\n  (1963 lines) into a dedicated src/tests_ellipsis.zig, wired via\n  vm_tests.zig like tests_macros_nested_sr.zig, per the 1500-line file\n  policy.\n\n- Convert tests/scheme/smoke/ellipsis-depth-mismatch.scm from the\n  verdictless display/exit style to the documented SRFI-64 harness\n  (imports (scheme process-context) and (srfi 64), test-begin/test-end,\n  exit 1 on fail-count), per docs/dev/testing.md. Verified to exit 1\n  against the unfixed build (212d2428) and pass with the fix.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-08T06:29:37Z",
-          "tree_id": "ac0c72a75e5d03061be3a0a3e3e3e54e7e9b7eb8",
-          "url": "https://github.com/kaappi/kaappi/commit/ed37a085ee2080715b26b41f04216a34d5d07400"
-        },
-        "date": 1786172576164,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.977846,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.561951,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.567238,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.878414,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004846,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.045549,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.299653,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054941,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.398322,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.185045,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.55351,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.298586,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.704826,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.768751,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044765,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.036253,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4740b545c8d7fe4556891919f140aff083491d84",
+          "message": "Restore fiber state on every wait error exit; cut the 2200 compile test to one build (#2429, #2430, #2431) (#2432)\n\n* Restore the waiting fiber's window on every runSchedulerStep exit (#2429)\n\nrunSchedulerStep restored `me` in its epilogue only, and five `try`s inside\nthe dispatch loop return without ever reaching it: parkOnReactor,\nrestoreFiber(next_idx), and the three saveCurrentFiber calls on the\nYielded, errored-dispatch and completed-dispatch paths. All five surface\nVMError.OutOfMemory, which is catchable -- unlike the Terminated return\nabove them, which errors.isUncatchable unwinds past every handler.\n\nBy the time the three saveCurrentFiber calls run, restoreFiber has already\nloaded a SIBLING's registers, frames, handler stack and wind stack into the\nVM, and saveCurrentFiber only copies VM->fiber; nothing puts `me` back.\nparkOnReactor is reached at the top of a later iteration with that same\nsibling state still loaded. Returning OOM from any of them therefore left\nvm.current_fiber, sched.current_idx and the whole VM window belonging to the\nsibling -- and a Scheme `guard` that caught the OOM resumed `me`'s bytecode\nagainst another fiber's registers. That is the #1487\ndispatch-from-stale-snapshot corruption reached by a different route, in the\nsingle shared body behind channel-receive/-send, fiber-join, thread-join!,\nmutex-lock!, condition-variable waits and thread-sleep!.\n\nAn errdefer declared right after the entry saveCurrentFiber now runs the\nepilogue's restore on every error exit. It is declared before the `driving`\nand driving_waits defers, so on unwind it runs after both -- the same order\nthe normal epilogue sees. restoreFiber's `catch {}` cannot fire: its four\nensureXxxCapacity calls each return early when the need is already met and\nnever shrink, and `me` was current on entry, so the VM stacks were already\nlarge enough for the snapshot saveCurrentFiber had just taken of them.\nSwallowing is the right failure mode regardless -- the capacity checks\nprecede every memcpy, so a failure is all-or-nothing and leaves exactly the\npre-fix state, and returning a second error (or panicking) while already\nunwinding an allocation failure has nothing better to offer.\n\nThe regression test drives the loop directly and forces the error exit with\nTerminated rather than an injected OOM. Terminated reaches the identical\nexit deterministically, and the fix is the one errdefer covering every error\nreturn rather than a per-error patch. gc.oom_countdown could not have driven\nit in any case: the OOM here comes from ensureXxxCapacity/growFiberXxx,\nwhich allocate from the raw allocator the injector does not count. Two\nspinning siblings rather than one, because thread-yield! is advisory and\nno-ops unless some other fiber is runnable -- and `me` is excluded from that\nfor the whole drive, so a lone sibling never yields back and spins inside\nrunUntil forever.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-Authored-By: Claude <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_016mKdjyytpEKCSU2hepD21M\n\n* Unpark the fiber when a SRFI-18 wait errors out (#2430)\n\nthread-join!'s fiber path, mutex-lock! and mutex-unlock!'s\ncondition-variable branch each arm the parked state -- `.waiting`,\n`timed_out`, `waiting_on`, a #1530 waiter_index enrolment and, when timed, a\nreactor timer -- and then reached both `try ctx.reactor.addTimer` and `try\nrunSchedulerStep` with nothing to undo it. Both failure sources return\ncatchable errors, so a Scheme `guard` could resume on a fiber the scheduler\nstill believed was parked. \"Running fiber marked parked\" is the precondition\nfor the #1487 dispatch-from-stale-snapshot corruption, and the waiter_index's\ndeliberate tolerance of a stale entry (indexWakeOn revalidates\n`status == .waiting`) is exactly what a lying `.waiting` defeats -- clearing\nthe status is therefore also what retires the index entry, so no explicit\nde-enrolment is needed.\n\nthreadJoinFn additionally never called removeTimer on its error path, so a\npending deadline could outlive the fiber and later fire against whatever\naddFiber reused that slot for. It was also missing the success-path\nremoveTimer its two siblings have: a local wake cancels the timer for us, but\nclearing deadline_ns without it strands any that survived -- and a null\ndeadline_ns is precisely what stops a later cleanup from finding it.\n\nPR #2428 introduced this shape for the one site it added\n(parkForThreadStatus), as a local struct. That becomes the shared\nunparkOnError helper and the three remaining sites errdefer it.\n\nAlso barriers the three sites' `waiting_on` stores, matching the channel\nwaits and parkForThreadStatus. Not a live bug -- a scheduler-resident fiber\nis marked unconditionally every collection via markFiberState, and\nreferencesYoung's fiber arm documents the remembered-set path as\nbelt-and-braces -- but residency ends the moment retireSlot runs, and the\nbarrier is a deduplicated append.\n\nThe regression tests reach the error exits through a SRFI 181 custom port\nwhose read! callback blocks: a real program raising a real catchable error\n(runSchedulerStep's own custom-port-callback guard), and deterministic where\nthe OOM the issue describes has no reproducer. `waiting_on` is what\ndiscriminates, since that guard already restores status and timed_out and\ndrops the timer before returning; all three tests fail pre-fix with it still\nholding the joined fiber, the mutex, or the condition variable. `status` is\ndeliberately not asserted even though it is the field the issue names:\nvm_calls.prepareTopLevelFrame leaves the main fiber `.completed` when its\nform finishes, so by the time eval returns it reads the same either way.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-Authored-By: Claude <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_016mKdjyytpEKCSU2hepD21M\n\n* Cut compile-define-values-order-2200.sh to one full build (#2431)\n\n`test (ubuntu-latest, Debug)` -- a required check -- intermittently failed\nwith this script killed at the 600s KAAPPI_SHELL_TEST_TIMEOUT, roughly one\nrun in fourteen on main.\n\nNot a Debug-build cost: the script never builds Debug. build.zig defaults to\nReleaseSafe and the script ran a bare `zig build`, so on that leg it built\nReleaseSafe artefacts into a cache holding only Debug ones -- three full COLD\nbuilds (an interpreter to produce the .sbc, then one `zig build -Dbundle=`\nper bundled program). The ReleaseSafe legs prime that cache with the job's\nown build first, which is why only the Debug leg ever reached the ceiling,\nand why it was intermittent rather than reliable.\n\nThree changes, all aimed at the build count rather than the timeout:\n\n  * fixture_interpreter in shell-common.sh -- the \"build an interpreter with\n    the same build id as the bundler\" step (#1930) extracted from\n    bundle_fixture_binary and shared. The first caller in a run pays for it;\n    the rest get a Zig cache hit and a no-op reinstall.\n\n  * One bundled program instead of two. The repro and the control that\n    proved the fix was not an over-restriction fold into a single file: the\n    define-values depends on an earlier top-level define, and the file\n    imports (scheme write) for its display, so an artifact that hoisted the\n    define-values dies on `undefined variable 'x'` and one that dropped the\n    import from the preamble dies on `display`. vm_eval.topLevelHead\n    classifies purely on the head symbol, with no dependence on whether an\n    import has been seen, so folding them changes nothing about which path\n    either form takes.\n\n  * -Doptimize=ReleaseSafe named explicitly on every build. It is already\n    the default, so nothing compiles differently -- but naming it is what\n    keeps these builds on one cache key instead of inheriting whatever mode\n    a job happens to pass.\n\nrun-all.sh's longest-first classifier learns the new helper's name, so a\nfuture script that only calls fixture_interpreter still sorts early.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-Authored-By: Claude <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_016mKdjyytpEKCSU2hepD21M\n\n* Address PR #2432 review\n\nFour findings, all confirmed against the code.\n\nWithdraw the waiter_index enrolment when a park is undone. Clearing `status`\nstops a stale entry ever waking the wrong fiber -- `indexWakeOn` validates\nevery index it walks -- but it does not remove it, and only a later wake\nnaming the same key would. A park abandoned on an object nothing ever wakes\n(a condition variable nobody signals, a mutex nobody unlocks, a fiber that\nnever completes) therefore stranded one map key and list for the scheduler's\nlifetime, one per failure on a fresh object. `markRoots` does not trace those\nkeys either, so clearing `waiting_on` left them unrooted garbage that could\nnever be matched again. New FiberScheduler.withdrawWaiter is enrollWaiter's\ninverse; unparkOnError calls it before clearing `waiting_on`, since that field\nis the key. The three regression tests now assert both that no key lists this\nfiber and that the failed park added no net key -- a before/after delta rather\nthan an empty-index check, because mutex-lock!'s holder fiber is legitimately\nparked on a channel and owns a key of its own. Verified to fail without the\nwithdrawal (`indexed=true`, with `waiting_on` already VOID).\n\nStop fixture_interpreter printing its path. Every caller had to wrap it in a\ncommand substitution, where Bash keeps `$$` at the outer script's pid -- so\nthe pid build_lock recorded named a process that was not the one holding the\nlock, and the waiter's steal-a-dead-holder check was reasoning about the wrong\nprocess. It now builds and returns status only; fixture_interpreter_path is a\nseparate pure function, safe anywhere. build_unlock is ownership-checked to\nmatch: a bare `rm -rf` let a late holder whose lock had already been stolen\ndelete the NEW holder's lock and admit a third writer to the shared prefix.\n\nGive fixture_interpreter_path the `.exe` suffix on Windows, where\n`zig build --prefix` installs `kaappi.exe`. The build check tests the path\nwith `-x`, and MSYS appends `.exe` when executing but not when a test operator\nnames the file, so the bare spelling reported a failed fixture build on a\nWindows box holding a perfectly good interpreter.\n\nMake the compile test's import control real, by importing `(srfi 8)` and using\n`receive`. The reviewer is right that `display` proved nothing -- it is\nexported from `(scheme base)` too -- but `write-simple` would not have fixed\nit: every BUILT-IN library's bindings are also ambient in script mode, so that\nprogram runs identically with the import line deleted outright. Measured, not\nassumed. `receive` comes only from lib/srfi/8.sld and is unbound without its\nimport, so the control now fails if the preamble stops carrying imports.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-Authored-By: Claude <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_016mKdjyytpEKCSU2hepD21M\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude <noreply@anthropic.com>",
+          "timestamp": "2026-08-30T09:19:45Z",
+          "tree_id": "4b7b96ee79ecc4c4b0eca616bfebc59df178e24a",
+          "url": "https://github.com/kaappi/kaappi/commit/4740b545c8d7fe4556891919f140aff083491d84"
+        },
+        "date": 1788083900567,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.321766,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.887564,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.561898,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.804552,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004939,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047902,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.304884,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056056,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.878405,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.249132,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.655392,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.275925,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.708102,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.667153,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045119,
             "unit": "seconds"
           }
         ]
