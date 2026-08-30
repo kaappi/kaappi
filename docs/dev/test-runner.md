@@ -312,20 +312,39 @@ Three things make that safe and worthwhile (kaappi#1926):
   were 85% of the shell suites' entire wall time. They now share the fixture
   in `tests/scheme/compile/fixtures/bundle-replay/`, so the second build is a
   ~0.2s hit in Zig's own content-addressed cache. `bundle_fixture_binary`
-  first builds the interpreter from current source into an isolated prefix
-  and produces the `.sbc` with *that* binary, so the `.sbc` and the bundler
-  always share one build id (kaappi#1930) — a `.sbc` made by whatever
-  `zig-out/bin/kaappi` was lying around would go stale against the rebuilt
-  bundler's build id and fail with `invalid embedded bytecode` whenever the
-  tree moved (see [cache.md](cache.md)). Regenerating the `.sbc` on every
-  call is what keeps it honest: identical sources give identical bytes and
-  the hit, while an edit under `src/` changes them and forces exactly the
-  rebuild it must.
+  produces the `.sbc` with `fixture_interpreter`'s binary (below), so the
+  `.sbc` and the bundler always share one build id (kaappi#1930) — a `.sbc`
+  made by whatever `zig-out/bin/kaappi` was lying around would go stale
+  against the rebuilt bundler's build id and fail with `invalid embedded
+  bytecode` whenever the tree moved (see [cache.md](cache.md)). Regenerating
+  the `.sbc` on every call is what keeps it honest: identical sources give
+  identical bytes and the hit, while an edit under `src/` changes them and
+  forces exactly the rebuild it must.
+- **One interpreter for every script that needs one.**
+  `fixture_interpreter <repo>` builds it into a shared isolated prefix under
+  `.zig-cache/kaappi-test-fixtures/interp` and prints the path, leaving
+  `zig-out/` and the binary under test alone (kaappi#2163). Any script that
+  produces a `.sbc` to feed a `-Dbundle=` of its own needs one for the
+  build-id reason above; the first caller in a run pays, the rest get a cache
+  hit. It runs `zig build` unconditionally — `zig build` *is* the freshness
+  check, so it is a no-op when nothing moved and exactly the right rebuild
+  when something did.
+
+  It pins `-Doptimize=ReleaseSafe`, and so must every `-Dbundle=` build
+  downstream of it. That is also `build.zig`'s default, so a bare `zig build`
+  compiles the same thing — but naming it is what keeps every caller on one
+  cache key instead of inheriting whatever mode a job happens to pass.
+  kaappi#2431 is the failure mode: `test (ubuntu-latest, Debug)` fills the
+  cache with Debug artefacts, so these ReleaseSafe builds ran stone cold on
+  that leg alone, and `compile-define-values-order-2200.sh` — three full
+  builds at the time — sat close enough to the 600s `KAAPPI_SHELL_TEST_TIMEOUT`
+  that ordinary runner variance decided it, failing a *required* check about
+  one run in fourteen. Keep the count of full builds per script at one.
 
 Dispatch inside a suite is longest-first — scripts that shell out to a full
-`zig build -D…` go first, found by grep rather than a hand-kept list of names.
-Reporting still walks the glob-sorted order, so a transcript diff between two
-runs stays meaningful at any job count.
+`zig build -D…`, or to either shared builder, go first, found by grep rather
+than a hand-kept list of names. Reporting still walks the glob-sorted order, so
+a transcript diff between two runs stays meaningful at any job count.
 
 ## Tests
 

@@ -387,13 +387,14 @@ report_shell_result() {
 # script takes seconds. With a pool of N, when those start matters far more than
 # N does, so they go first. Derived by grep rather than a hand-kept list of
 # names, so a future rebuild-shaped script sorts itself; a wrong answer here
-# costs makespan, never a verdict. Both spellings count: a script that runs the
-# build itself, and one that goes through shell-common.sh's shared fixture
-# (where only the first caller pays, but which one that is isn't known here).
+# costs makespan, never a verdict. All three spellings count: a script that
+# runs the build itself, and one that goes through either of shell-common.sh's
+# shared builders (where only the first caller pays, but which one that is
+# isn't known here).
 is_slow_shell_test() {
     # `^[^#]*`: skip comment lines, several of which mention the build they
     # deliberately do not run.
-    grep -Eq '^[^#]*(zig build -D|bundle_fixture_binary)' "$1" 2>/dev/null
+    grep -Eq '^[^#]*(zig build -D|bundle_fixture_binary|fixture_interpreter)' "$1" 2>/dev/null
 }
 
 run_shell_suite() {

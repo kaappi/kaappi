@@ -234,6 +234,55 @@ ensure_runtime_lib() {
     fi
 }
 
+# fixture_interpreter <repo-dir>: build an interpreter from current source into
+# a shared isolated prefix and print its path. Callers must have passed
+# skip_without_zig first.
+#
+# Any script that produces a .sbc to feed its own `zig build -Dbundle=` needs
+# one of these rather than the binary under test. The .sbc's compiler hash
+# folds in the producing binary's git build id (docs/dev/cache.md), so a .sbc
+# made by whatever zig-out/bin/kaappi happens to be lying around disagrees with
+# a bundler rebuilt from current source the moment the tree moved — a new
+# commit, or a clean<->dirty flip — and the bundled binary then dies with
+# "invalid embedded bytecode", naming nothing (kaappi#1930). The prefix keeps
+# zig-out/ and the caller's binary untouched (kaappi#2163).
+#
+# Shared across scripts because a full interpreter build is ~180s on a 4-core
+# runner and every caller wants the identical one. The first caller pays; the
+# rest get a Zig cache hit and a no-op reinstall.
+#
+# The explicit -Doptimize=ReleaseSafe is what makes that sharing real. It is
+# also build.zig's default, so a bare `zig build` compiles the same thing — but
+# only pinning it here documents that every caller, and every -Dbundle build
+# that follows, must name the same mode to land on one cache key. kaappi#2431
+# is what happens otherwise: `test (ubuntu-latest, Debug)` fills the cache with
+# Debug artefacts and then runs these ReleaseSafe builds stone cold, which is
+# why that leg alone kept hitting the 600s shell-test timeout.
+fixture_interpreter() {
+    local repo="$1" out interp log rc
+    out="$repo/.zig-cache/kaappi-test-fixtures"
+    interp="$out/interp/bin/kaappi"
+    log=$(mktemp)
+
+    build_lock "$repo" fixture-interp
+    rc=0
+    # Unconditional: `zig build` is itself the freshness check, so this is a
+    # no-op when nothing under src/ moved and exactly the rebuild we need when
+    # it did. Caching the binary ourselves would instead go stale against the
+    # tree it must match.
+    (cd "$repo" && zig build -Doptimize=ReleaseSafe --prefix "$out/interp") > "$log" 2>&1 || rc=$?
+    build_unlock "$repo" fixture-interp
+
+    if [ "$rc" -ne 0 ] || [ ! -x "$interp" ]; then
+        echo "FAIL: could not build the fixture interpreter" >&2
+        cat "$log" >&2
+        rm -f "$log"
+        return 1
+    fi
+    rm -f "$log"
+    printf '%s\n' "$interp"
+}
+
 # bundle_fixture_binary <repo-dir> <dest>: build the standalone binary that
 # embeds tests/scheme/compile/fixtures/bundle-replay, and copy it to <dest>.
 # Callers must have passed skip_without_zig first.
@@ -250,12 +299,11 @@ ensure_runtime_lib() {
 # be lying around disagrees with a bundler rebuilt from current source the
 # moment the tree moved — a new commit, or a clean<->dirty flip — and the
 # bundled binary then dies with "invalid embedded bytecode", naming nothing
-# (kaappi#1930). So this builds the interpreter from the SAME source the
-# bundler comes from, into an isolated prefix, and produces the .sbc with
-# THAT binary. The caller's zig-out/bin/kaappi is never touched (it is the
-# binary under test; kaappi#2163), and the -Dbundle rebuild that follows
-# shares this build's compiled units, so the second `zig build` is a cache
-# hit rather than a second full rebuild (kaappi#1926).
+# (kaappi#1930). So this produces the .sbc with the shared
+# fixture_interpreter above — built from the SAME source, with the same
+# options, as the bundler below — and the -Dbundle rebuild that follows shares
+# that build's compiled units, so this `zig build` is a cache hit rather than a
+# second full rebuild (kaappi#1926).
 #
 # Regenerating the .sbc on every call is what keeps that honest: it is
 # deterministic, so unchanged sources give byte-identical bytes and a cache
@@ -274,21 +322,17 @@ bundle_fixture_binary() {
     fixture="$repo/tests/scheme/compile/fixtures/bundle-replay"
     out="$repo/.zig-cache/kaappi-test-fixtures"
     sbc="$out/bundle-replay.sbc"
-    interp="$out/interp/bin/kaappi"
     log=$(mktemp)
+
+    # Outside the lock below: it takes its own, and the two must not nest in
+    # the opposite order anywhere or they could deadlock against each other.
+    interp=$(fixture_interpreter "$repo") || return 1
 
     build_lock "$repo" bundle-fixture
     rc=0
     (
         mkdir -p "$out"
-        # Build the interpreter from current source with the SAME options as
-        # the bundler below, so the .sbc and the bundler share one build id
-        # (kaappi#1930 — see the header comment). --prefix keeps zig-out/ and
-        # the caller's binary untouched.
-        cd "$repo" &&
-            zig build -Doptimize=ReleaseSafe --prefix "$out/interp" &&
-            [ -x "$interp" ] &&
-            cd "$fixture" &&
+        cd "$fixture" &&
             # Compile from inside the fixture directory so the paths recorded in
             # the .sbc are relative, and its bytes therefore identical run to run.
             "$interp" --lib-path lib --compile -o "$sbc" main.scm &&
