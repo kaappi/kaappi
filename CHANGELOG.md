@@ -40,8 +40,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   that, and a timed wait's deadline timer keeps the reactor busy, so the wait
   never re-evaluated: the remote unlock or signal reached nobody and the wait
   ran to its deadline. `(mutex-lock! m 2)` returned `#f` after 2.002s for an
-  unlock that happened at 0.1s. Present on main too (the pre-existing 1 ms
-  poll cap was decided the same way, once).
+  unlock that happened at 0.1s. These waits now enrol **unconditionally**,
+  before the first park, rather than re-evaluating the condition afterwards —
+  re-evaluation would not help, because the first park is already unbounded
+  and nothing brings control back to the retry loop that could re-check.
+  Present on main too (the pre-existing 1 ms poll cap was decided the same
+  way, once).
 
 ### Changed
 

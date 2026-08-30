@@ -124,31 +124,41 @@
 ;;    thread, whose unlock/signal rings a registry the wait never joined:
 ;;    measured at `#f` after the full 2s, for a hand-off that happened at
 ;;    0.1s. Enrolling unconditionally is what closes it.
+;;    Each case must therefore START with no OS thread alive, which means
+;;    REAPING the previous one -- not merely observing its side effect. The
+;;    unlock below is published well before threadEntryFn returns and
+;;    decrements live_child_threads, so without the explicit thread-join!
+;;    the mutex child can still be alive when the condvar case begins, the
+;;    old crossThreadWaitPossible() gate would see it and enrol, and the
+;;    condvar half would false-green (PR #2428 review). Every handle is
+;;    created outside its sibling and retained so it can be joined.
 (define m3 (make-mutex))
-(let ()
+(let ((t (make-thread (lambda () (thread-sleep! 0.1) (mutex-unlock! m3)))))
   (mutex-lock! m3)
-  (spawn (lambda ()
-           (thread-start! (make-thread (lambda () (thread-sleep! 0.1) (mutex-unlock! m3))))))
+  (spawn (lambda () (thread-start! t)))
   (let ((r (elapsed (lambda () (mutex-lock! m3 2)))))
     (test-equal "timed mutex-lock! sees an unlock from the first OS thread started mid-wait"
                 #t (car r))
-    (test-assert "and sees it promptly, not at its deadline" (< (cdr r) 1.5))))
+    (test-assert "and sees it promptly, not at its deadline" (< (cdr r) 1.5)))
+  ;; Reap before the next case (see above). Asserted rather than discarded so
+  ;; the join's value does not reach stdout.
+  (test-equal "mutex child is reaped before the next case" #t (thread-join! t)))
 
 (define m4 (make-mutex))
 (define cv4 (make-condition-variable))
-(let ()
+(let ((t (make-thread (lambda ()
+                        (thread-sleep! 0.1)
+                        (condition-variable-broadcast! cv4)))))
   (mutex-lock! m4)
-  (spawn (lambda ()
-           (thread-start! (make-thread (lambda ()
-                                         (thread-sleep! 0.1)
-                                         (condition-variable-broadcast! cv4))))))
+  (spawn (lambda () (thread-start! t)))
   ;; start_gen is snapshotted inside mutex-unlock! before it releases m4 and
   ;; before the drive can dispatch the sibling, so the broadcast below cannot
   ;; be missed -- only the enrolment timing is under test here.
   (let ((r (elapsed (lambda () (mutex-unlock! m4 cv4 3)))))
     (test-equal "condvar wait sees a signal from the first OS thread started mid-wait"
                 #t (car r))
-    (test-assert "and sees it promptly, not at its deadline" (< (cdr r) 2))))
+    (test-assert "and sees it promptly, not at its deadline" (< (cdr r) 2)))
+  (thread-join! t))  ; reap; the broadcast thunk's void result prints nothing
 
 ;; 9. A "never" deadline is a real reactor park, not an error. SRFI-18 reads
 ;;    +inf.0 as "never times out", which saturates to a maxInt-nanosecond
