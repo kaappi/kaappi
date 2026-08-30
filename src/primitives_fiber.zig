@@ -450,9 +450,17 @@ fn channelSendLocal(ch: *types.Channel, ch_val: Value, payload: Value, deadline_
         };
     }
     _ = fiber_mod.runSchedulerStep(ChannelSendWait, .{ .ch = ch }, ctx.vm, ctx.sched, me) catch |err| {
-        // runSchedulerStep's own epilogue (#2429) already restored `me`'s
-        // window and .running status; undo the park state armed above that it
-        // does not touch. Guarded on deadline_ns: with none, nothing above ran.
+        // Restore every park field explicitly rather than leaning on
+        // runSchedulerStep's #2429 epilogue (#2433 review): its first
+        // `try saveCurrentFiber` runs before that errdefer is armed, so an OOM
+        // there returns with `me` still `.waiting`, and the epilogue forces
+        // only `.running` — it never resets a `timed_out` a timer wake set
+        // mid-drive. Matches primitives_srfi18.unparkOnError. Since OutOfMemory
+        // is catchable, a `guard` would otherwise continue with stale state.
+        me.status = .running;
+        me.timed_out = false;
+        // The index/timer/waiting_on cleanup stays guarded: with no deadline
+        // nothing above was armed (and waiting_on may hold an unrelated value).
         if (deadline_ns != null) {
             ctx.reactor.removeTimer(me);
             ctx.sched.withdrawWaiter(me, me.waiting_on);
@@ -1260,11 +1268,18 @@ fn channelReceiveFn(args: []const Value) PrimitiveError!Value {
         // Terminal for this wait (the main fiber has no retireSlot backstop):
         // release the committed demand and detach the timer (#1604 review).
         releaseRvToken(ch, ch_val, me);
+        // Restore every park field explicitly rather than leaning on
+        // runSchedulerStep's #2429 epilogue (#2433 review): its first
+        // `try saveCurrentFiber` runs before that errdefer is armed, so an OOM
+        // there returns with `me` still `.waiting`, and the epilogue forces
+        // only `.running` — it never resets a `timed_out` a timer wake set
+        // mid-drive. Matches primitives_srfi18.unparkOnError.
+        me.status = .running;
+        me.timed_out = false;
         if (deadline_ns != null) {
             ctx.reactor.removeTimer(me);
-            // #2433: withdraw the #1530 enrolment armed above. runSchedulerStep
-            // (#2429) restored status but never clears waiting_on, and only a
-            // later wake naming this key would otherwise compact the entry.
+            // #2433: withdraw the #1530 enrolment armed above; only a later wake
+            // naming this key would otherwise compact the entry.
             ctx.sched.withdrawWaiter(me, me.waiting_on);
             me.waiting_on = types.VOID;
             me.deadline_ns = null;
