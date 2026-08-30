@@ -181,8 +181,22 @@ build_lock() {
         # Steal a lock whose holder is gone. run-all.sh kills a script that
         # overruns SHELL_TIMEOUT, and a dead holder's lock would otherwise
         # stall every later script for the rest of the run.
+        #
+        # "Holder is gone" must mean the WORK is gone, not just the launcher.
+        # A holder that was killed rather than exiting can leave the `zig build`
+        # it forked orphaned but still installing into this same shared prefix;
+        # a next waiter that stole on the dead launcher pid alone would then run
+        # its own build straight into that half-written directory (kaappi#2434).
+        # run-all.sh runs each shell script as its own process-group leader
+        # (pgid == the pid recorded below) and signals the whole group on
+        # timeout, so a clean kill takes the forked build with it and the group
+        # is then empty. Requiring BOTH the leader pid AND its process group to
+        # be gone keeps a build orphaned by any other means -- still a member of
+        # the dead leader's group -- from being mistaken for finished work.
         holder=$(cat "$lock/pid" 2> /dev/null || true)
-        if [ -n "$holder" ] && ! kill -0 "$holder" 2> /dev/null; then
+        if [ -n "$holder" ] \
+            && ! kill -0 "$holder" 2> /dev/null \
+            && ! kill -0 -- "-$holder" 2> /dev/null; then
             rm -rf "$lock"
             continue
         fi
