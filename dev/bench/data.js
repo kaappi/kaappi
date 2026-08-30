@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788087128597,
+  "lastUpdate": 1788090353128,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d2a8d2c8fde5963207bad3c2bad8df0bcc10ce54",
-          "message": "Persist #!fold-case across read calls on the same port (#2259)\n\nR7RS 7.1.1: a #!fold-case directive affects reading 'from the same port'\nfrom the point it appears on. readDatumFn built a fresh Reader per call,\nso the flag died with it: the first (read p) folded, the second did not.\n\nStore the mode on the Port (Port.fold_case). Each call's Reader is seeded\nfrom it, and the Reader's final flag is written back after a successful\nparse — the string-port, incremental fd and post-EOF sites in readDatumFn\nall persist; the peek-byte-only path only seeds, since a lone byte cannot\nhold a directive. #!no-fold-case resets the same field.\n\nThe within-call chunk-boundary handling (Reader.saw_directive) is\nuntouched: a split directive is still re-parsed from the kept buffer, and\nthe write-back only fires once a datum parse succeeds.\n\nRe-pin the Port field inventory in tests_gc_tracing.zig (plain bool, no\nGC obligation).\n\nFixes #2175.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-08T14:03:02+05:30",
-          "tree_id": "bdd85902106599d408e02ba35e39890ee2d2436f",
-          "url": "https://github.com/kaappi/kaappi/commit/d2a8d2c8fde5963207bad3c2bad8df0bcc10ce54"
-        },
-        "date": 1786179749294,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.333281,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.937971,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.577313,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.008749,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00471,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047483,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.310925,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.05602,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.715746,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.185461,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.627206,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.283412,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.781275,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.634834,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043619,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.03658,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1b7c636846a1ffe1250df6be2d9a62eea0d8ded3",
+          "message": "Make build_lock's steal group-aware so a killed script can't orphan a build (#2438)\n\nbuild_lock stole a lock whenever its recorded holder pid was dead, equating\n\"the launcher is gone\" with \"no work is in flight.\" That does not hold when the\nholder was killed rather than exiting: run-all.sh kills a shell script that\noverruns SHELL_TIMEOUT, but the `zig build` the script forked is not reaped with\nit. The next waiter saw a dead pid, stole the lock, and started its own install\ninto the same shared fixture prefix (.zig-cache/kaappi-test-fixtures/) while the\norphan was still writing -- a half-written interpreter or bundled binary that\nsurfaces as an unrelated-looking flake and gets re-run rather than diagnosed.\n\nFix the lock invariant itself rather than only the two fixture builders, since\nbuild_lock guards every script that forks its own `zig build` (the fixture\nbuilders, ensure_runtime_lib, srfi-241-202-bundle-2391.sh). run_shell_worker now\nlaunches each script under `set -m` so it leads its own process group, and the\nSHELL_TIMEOUT path signals the whole group (negative pid) instead of the lone\nscript pid -- so a clean timeout takes the forked build with it. build_lock's\nsteal then requires BOTH the recorded leader pid AND its process group to be\ngone, so a build orphaned by any other means -- still a member of the dead\nleader's group -- keeps blocking the steal until it actually finishes.\n\nThis is the process-group option from the #2432 review; the alternative\n(per-invocation prefix + atomic rename) would have removed the interleaving\nwindow only for the two fixture builders and left build_lock's steal unsound for\nits other callers.\n\nThe regression test is a deterministic simulation of the race: it plants a lock\nwhose pid file names a process that has already exited while a marker it spawned\nsurvives in that same process group (standing in for the orphaned build), then\nasserts a second build_lock caller does not steal until the group empties.\nVerified it fails without the shell-common.sh change (the second writer steals\nat once) and passes with it; the full `bash tests/scheme/run-all.sh` stays green\n(732 pass, 0 fail; R7RS 1395 pass).\n\nCloses #2434\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-30T16:36:42+05:30",
+          "tree_id": "80445c520ff34887443622e24914cd8421a45097",
+          "url": "https://github.com/kaappi/kaappi/commit/1b7c636846a1ffe1250df6be2d9a62eea0d8ded3"
+        },
+        "date": 1788090351288,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.314754,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.320586,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.578563,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.987856,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004963,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048764,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.304933,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05616,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.885893,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.232905,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 2.164003,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.283619,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.715189,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.631948,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045492,
             "unit": "seconds"
           }
         ]
