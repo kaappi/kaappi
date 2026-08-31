@@ -361,11 +361,11 @@ fn spawnImpl(cfg: SpawnConfig) PrimitiveError!Value {
         closePipePair(&stdout_pipe);
         closePipePair(&stderr_pipe);
     };
-    if (cfg.stdin == .pipe and platform.pipe(&stdin_pipe) != 0)
+    if (cfg.stdin == .pipe and pipeWithFdRetry(gc, &stdin_pipe) != 0)
         return raiseProcessError(gc, "cannot create stdin pipe", types.FALSE, std.c._errno().*);
-    if (cfg.stdout == .pipe and platform.pipe(&stdout_pipe) != 0)
+    if (cfg.stdout == .pipe and pipeWithFdRetry(gc, &stdout_pipe) != 0)
         return raiseProcessError(gc, "cannot create stdout pipe", types.FALSE, std.c._errno().*);
-    if (cfg.stderr == .pipe and platform.pipe(&stderr_pipe) != 0)
+    if (cfg.stderr == .pipe and pipeWithFdRetry(gc, &stderr_pipe) != 0)
         return raiseProcessError(gc, "cannot create stderr pipe", types.FALSE, std.c._errno().*);
 
     // -- file actions + attrs
@@ -655,6 +655,22 @@ fn execBarrierWait(pid: c_int) void {
     var out: [1]std.c.Kevent = undefined;
     const ts: std.c.timespec = .{ .sec = 0, .nsec = 20 * std.time.ns_per_ms };
     _ = spawn_c.__kevent50(kq, &change, 1, &out, 1, &ts);
+}
+
+/// pipe(2) with the kaappi#1993 descriptor-exhaustion recovery `open` has
+/// had since #2324: on EMFILE/ENFILE, force a full collection — closing the
+/// descriptors held by unreachable process pipe ports — and retry once. A
+/// legal program that abandons process handles faster than the GC's
+/// allocation-count threshold trips must not spuriously fail at a normal
+/// `ulimit -n`; the OpenBSD CI leg's low limit caught exactly that in the
+/// spawn-loop rooting test. GC-safe at both call sites: everything held at
+/// pipe-creation time is either arena memory or a register-rooted argument
+/// Value, so a collection here frees only garbage.
+fn pipeWithFdRetry(gc: *GC, fds: *[2]platform.fd_t) c_int {
+    const rc = platform.pipe(fds);
+    if (rc == 0 or !platform.errnoIsFdExhausted()) return rc;
+    gc.collectFull();
+    return platform.pipe(fds);
 }
 
 fn closePipePair(fds: *[2]platform.fd_t) void {

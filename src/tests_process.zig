@@ -529,6 +529,57 @@ test "process: the child's SIGPIPE disposition is reset to default" {
     );
 }
 
+test "process: pipe creation reclaims descriptors via GC on exhaustion (#1993)" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
+
+    // A legal program may abandon process handles faster than the GC's
+    // allocation-count threshold trips; their parent-end pipe fds are then
+    // only released at a collection. spawn's pipe(2) must therefore mirror
+    // open(2)'s EMFILE recovery (kaappi#1993/#2324): collect and retry once.
+    // Deterministic version of what the OpenBSD CI leg's low `ulimit -n`
+    // caught in the spawn-loop rooting test: lower the soft NOFILE limit to
+    // a small headroom above the fds already open, then run more pipe
+    // spawns than the headroom allows — without the retry, spawn raises
+    // "cannot create stdout pipe" partway through.
+    const platform = @import("platform.zig");
+    var highest: std.posix.rlim_t = 0;
+    var fd: platform.fd_t = 0;
+    while (fd < 1024) : (fd += 1) {
+        if (platform.getFdFlags(fd) >= 0) highest = @intCast(fd);
+    }
+    const old = std.posix.getrlimit(.NOFILE) catch return error.SkipZigTest;
+    const lowered: std.posix.rlim_t = highest + 32;
+    if (lowered >= old.cur) return error.SkipZigTest; // already that low; nothing to prove
+    std.posix.setrlimit(.NOFILE, .{ .cur = lowered, .max = old.max }) catch return error.SkipZigTest;
+    defer std.posix.setrlimit(.NOFILE, old) catch {};
+
+    // Three pipes per spawn and no reads keep the fd burn rate (3/iteration)
+    // far ahead of the allocation rate, so the soft limit is reached well
+    // before the GC's own allocation-count threshold could trip a natural
+    // collection — without the retry this loop deterministically raises
+    // "cannot create ... pipe" partway through (verified by mutation:
+    // disabling the retry fails it).
+    const n: usize = 20;
+    const source = try std.fmt.allocPrint(std.testing.allocator,
+        \\(let loop ((i {d}) (acc 0))
+        \\  (if (= i 0)
+        \\      acc
+        \\      (let* ((p (spawn-process '("true") 'stdin: 'pipe 'stdout: 'pipe 'stderr: 'pipe))
+        \\             (st (process-wait p)))
+        \\        (loop (- i 1) (+ acc (if (= st 0) 1 0))))))
+    , .{n});
+    defer std.testing.allocator.free(source);
+    const result = vm.eval(source) catch |e| {
+        std.debug.print("spawn under lowered RLIMIT_NOFILE failed: {s}\n", .{vm.last_error_detail[0..vm.last_error_detail_len]});
+        return e;
+    };
+    try std.testing.expectEqual(@as(i64, @intCast(n)), types.toFixnum(result));
+}
+
 test "process: the sweep stores status without an explicit wait" {
     if (comptime !is_posix) return error.SkipZigTest;
     var ctx: th.TestContext = undefined;
