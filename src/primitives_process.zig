@@ -53,6 +53,15 @@ const spawn_c = struct {
         argv: [*:null]const ?[*:0]const u8,
         envp: [*:null]const ?[*:0]const u8,
     ) c_int;
+    /// OpenBSD only (see the pre-flight in spawnImpl): its userland,
+    /// vfork-based posix_spawn has no channel to report the child's exec
+    /// failure, so spawning a missing program "succeeds" and the child
+    /// exits 127 — POSIX permits that, but every other target reports
+    /// ENOENT synchronously and the catchable-file-error contract should
+    /// not be platform lottery for the common case.
+    pub const spawn_cannot_report_exec_failure = builtin.os.tag == .openbsd;
+    pub extern "c" fn access(path: [*:0]const u8, mode: c_int) c_int;
+
     pub extern "c" fn posix_spawnattr_init(attr: *AttrPtr) c_int;
     pub extern "c" fn posix_spawnattr_destroy(attr: *AttrPtr) c_int;
     pub extern "c" fn posix_spawnattr_setflags(attr: *AttrPtr, flags: c_short) c_int;
@@ -117,6 +126,39 @@ const spawn_c = struct {
         else => false,
     };
     pub extern "c" fn posix_spawn_file_actions_addchdir_np(actions: *FileActionsPtr, path: [*:0]const u8) c_int;
+
+    /// NetBSD only: its posix_spawn is an in-kernel syscall whose *child*
+    /// completes the exec after the parent's call has already returned — and
+    /// a signal posted to the child before that exec has fully finished is
+    /// dropped outright (measured on NetBSD 10.1: 5 of 40 immediate SIGTERMs
+    /// to a spawned `sleep` were lost and the children ran to completion —
+    /// kaappi#2414, the process-kill breakage both prior attempts hit).
+    /// Every other target has no window by construction: FreeBSD/OpenBSD/
+    /// glibc/musl spawn with vfork semantics (the parent resumes only after
+    /// the exec), and macOS's spawn is atomic in-kernel.
+    ///
+    /// The barrier is kqueue's NOTE_EXEC — the kernel's own "exec completed"
+    /// notification, raised at the end of execve_runproc. A CLOEXEC-pipe
+    /// EOF barrier was tried first and measured *insufficient* (8/40 kills
+    /// still lost): the kernel closes close-on-exec descriptors partway
+    /// through the exec, before the child's signal state is finalized, so
+    /// EOF arrives inside the loss window. A kill delayed past the window
+    /// (50 ms) was 0/15 lost, pinning the mechanism to exec-completion
+    /// timing.
+    pub const needs_exec_barrier = builtin.os.tag == .netbsd;
+
+    /// NetBSD versions every libc symbol whose signature contains `time_t`;
+    /// the modern kevent is `__kevent50` (see the same binding in
+    /// reactor.zig). Declared here unconditionally but referenced only under
+    /// `needs_exec_barrier`, so no other target links it.
+    pub extern "c" fn __kevent50(
+        kq: c_int,
+        changelist: [*]const std.c.Kevent,
+        nchanges: c_int,
+        eventlist: [*]std.c.Kevent,
+        nevents: c_int,
+        timeout: ?*const std.c.timespec,
+    ) c_int;
 };
 
 const SIGTERM: c_int = 15;
@@ -454,6 +496,22 @@ fn spawnImpl(cfg: SpawnConfig) PrimitiveError!Value {
     if (flags != 0 and spawn_c.posix_spawnattr_setflags(attr, @bitCast(flags)) != 0)
         return spawnFileActionError(gc);
 
+    // OpenBSD pre-flight (see spawn_cannot_report_exec_failure): for a
+    // slash-containing program path — the case with exactly one candidate
+    // file — probe it with access(X_OK) so "no such program" raises the
+    // same errno-carrying file-error as on every other platform. A bare
+    // name goes through posix_spawnp's PATH search and keeps the
+    // POSIX-sanctioned exit-127 fallback; the probe is advisory (TOCTOU
+    // races simply fall back to that same behavior).
+    if (comptime spawn_c.spawn_cannot_report_exec_failure) {
+        const prog = argv[0].?;
+        if (std.mem.indexOfScalar(u8, std.mem.span(prog), '/') != null) {
+            const X_OK: c_int = 1;
+            if (spawn_c.access(prog, X_OK) != 0)
+                return raiseProcessError(gc, "cannot spawn process", cfg.argv[0], std.c._errno().*);
+        }
+    }
+
     // -- spawn
     var pid: c_int = -1;
     const envp: [*:null]const ?[*:0]const u8 = env_block orelse @ptrCast(std.c.environ);
@@ -471,6 +529,14 @@ fn spawnImpl(cfg: SpawnConfig) PrimitiveError!Value {
     if (stdin_pipe[0] >= 0) _ = platform.close(stdin_pipe[0]);
     if (stdout_pipe[1] >= 0) _ = platform.close(stdout_pipe[1]);
     if (stderr_pipe[1] >= 0) _ = platform.close(stderr_pipe[1]);
+
+    // Exec barrier (NetBSD; see needs_exec_barrier): block until the kernel
+    // reports the child's exec completed (or the child died), so the child
+    // is signalable from the moment spawn-process returns. Without this, a
+    // process-kill issued promptly after spawn is silently dropped.
+    if (comptime spawn_c.needs_exec_barrier) {
+        execBarrierWait(pid);
+    }
 
     // -- Process object + parent-end ports. `proc_val` stays rooted across
     // the three port allocations; each port is stored into the Process as
@@ -562,6 +628,33 @@ fn addInheritedFdCloses(gc: *GC, actions: *spawn_c.FileActionsPtr) PrimitiveErro
             _ = try spawnFileActionError(gc);
         }
     }
+}
+
+/// NetBSD's exec barrier (see spawn_c.needs_exec_barrier): register a
+/// oneshot EVFILT_PROC knote for NOTE_EXEC|NOTE_EXIT on the fresh child and
+/// wait for it. NOTE_EXEC is raised at the very end of the kernel's exec
+/// path, strictly after the child's signal state is final — the property the
+/// CLOEXEC-pipe EOF measurably lacked. The 20 ms timeout covers the one
+/// blind spot: a child that completed its exec in the microseconds before
+/// the knote was registered raises no event (rare — the child needs a
+/// scheduling slot first — and the fallback only ever *delays*, never
+/// breaks). Registration failure (ESRCH: child already exited and reaped by
+/// a concurrent sweep) just returns. Best-effort by design: no error path.
+fn execBarrierWait(pid: c_int) void {
+    const kq = std.c.kqueue();
+    if (kq < 0) return;
+    defer _ = platform.close(kq);
+    var change = [1]std.c.Kevent{.{
+        .ident = @intCast(pid),
+        .filter = std.c.EVFILT.PROC,
+        .flags = std.c.EV.ADD | std.c.EV.ONESHOT,
+        .fflags = std.c.NOTE.EXEC | std.c.NOTE.EXIT,
+        .data = 0,
+        .udata = 0,
+    }};
+    var out: [1]std.c.Kevent = undefined;
+    const ts: std.c.timespec = .{ .sec = 0, .nsec = 20 * std.time.ns_per_ms };
+    _ = spawn_c.__kevent50(kq, &change, 1, &out, 1, &ts);
 }
 
 fn closePipePair(fds: *[2]platform.fd_t) void {
