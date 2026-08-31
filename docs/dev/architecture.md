@@ -57,7 +57,7 @@ Source code
 | `printer.zig` | ~1250 | Value → string: iterative label-aware print engine + hashmap cycle/sharing detection (write/display/write-shared/write-simple; exact at any depth) and the bounded diagnostic `printValue` |
 | `printer_pretty.zig` | ~320 | REPL pretty-printer (fits-or-wraps layout over the bounded diagnostic printer; re-exported as `printer.prettyPrint`) |
 
-### Heap-type domain files (split into 11 files, kaappi#1731)
+### Heap-type domain files (split into 12 files, kaappi#1731)
 
 `types.zig` re-exports every name below (`pub const Foo = types_x.Foo;`), so
 existing `types.Foo` call sites across the codebase are unaffected by which
@@ -79,6 +79,7 @@ domain-mate (`Pair`, `Symbol`, `SchemeString`, `Closure`, `Function`,
 | `types_hashtable.zig` | `HashTable`, `HashEntry`, `HashEntryState`, `CompareMode` (SRFI 69) |
 | `types_filesystem.zig` | `FileInfo`, `UserInfo`, `GroupInfo`, `DirectoryObject` (SRFI 170) |
 | `types_weakrefs.zig` | `Ephemeron`, `Guardian`, `GuardEntry`, `TransportCell` (SRFI 254) |
+| `types_process.zig` | `Process` (KEP-0022, `(kaappi process)`), waitpid status decoders |
 
 `Fiber` (`fiber.zig`) predates this split and follows neither convention:
 its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
@@ -147,6 +148,7 @@ its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
 | `primitives_srfi237.zig` | SRFI-237: R6RS record procedural layer (`(srfi 237 primitives)`) |
 | `primitives_srfi254.zig` | SRFI-254: ephemeron/guardian constructors, predicates, accessors (GC half lives in `gc_collect.zig`) |
 | `primitives_fiber.zig` | `(kaappi fibers)`: spawn, yield, fiber-join, channels |
+| `primitives_process.zig` | `(kaappi process)` (KEP-0022): posix_spawnp-based subprocess support — spawn-process, pipe ports, blocking process-wait, process-kill, zombie sweep. POSIX-only (Windows is Phase 3, WASM registers nothing) |
 | `primitives_parallel.zig` | KEP-0002: the single native primitive backing `lib/kaappi/parallel.sld` |
 | `primitives_random_port.zig` | SRFI-271 random port `%`-prefixed internals |
 | `primitives_sysinfo.zig` | System inquiry shared by SRFI 59 (vicinity), 112 (environment), 193 (command line) |

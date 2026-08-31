@@ -480,6 +480,28 @@ test "gc tracing: channel traces head and tail" {
     try expectTraced(&gc, ch_val, &.{ ref(head, 1), ref(tail, 2) });
 }
 
+test "gc tracing: process traces its three pipe ports" {
+    var gc = newGc();
+    defer gc.deinit();
+    const stdin_port = try young(&gc, 1);
+    const stdout_port = try young(&gc, 2);
+    const stderr_port = try young(&gc, 3);
+    const proc = try gc.allocProcess(123, 0);
+    proc.stdin_port = stdin_port;
+    proc.stdout_port = stdout_port;
+    proc.stderr_port = stderr_port;
+    try expectTraced(&gc, types.makePointer(&proc.header), &.{
+        ref(stdin_port, 1),
+        ref(stdout_port, 2),
+        ref(stderr_port, 3),
+    });
+    // Reaped in teardown: allocProcess enrolled it in unreaped_processes,
+    // and freeObject (via the sweep the next collection runs) removes it —
+    // the pid is bogus, but it is never waited on: the sweep and
+    // freeObject's last-resort reap tolerate a dead pid (ECHILD).
+    gc.collectFull();
+}
+
 test "gc tracing: mutex traces name, owner and specific" {
     var gc = newGc();
     defer gc.deinit();
@@ -1798,6 +1820,14 @@ test "gc tracing: heap-struct field inventory is unchanged" {
     expectFields(types.Guardian, &.{ "header", "is_transport", "registered", "ready" });
     expectFields(types.TransportCell, &.{ "header", "key", "value", "broken" });
     expectFields(types.NumericVector, &.{ "header", "kind", "data" });
+    // Only the three port fields are Value-bearing; pid/wait_handle/status/
+    // pgid are scalars and `waiters` is an opaque Phase-2 placeholder
+    // (KEP-0022) -- marking/sweeping obligations stop at the ports.
+    expectFields(types.Process, &.{
+        "header",     "pid",         "wait_handle", "status",
+        "stdin_port", "stdout_port", "stderr_port", "pgid",
+        "waiters",
+    });
 
     // Satellites the switches reach *through* — the highest-risk group,
     // because a new field here is invisible at the ObjectTag level entirely.
@@ -1835,7 +1865,7 @@ test "gc tracing: every ObjectTag has a case in this file" {
     // returns a NaN-boxed immediate, so no heap Flonum is ever created (the
     // tag, its struct and its five arms are vestigial). Keep this count in
     // step with ObjectTag so a new tag cannot be added without landing here.
-    try std.testing.expectEqual(@as(usize, 41), @typeInfo(types.ObjectTag).@"enum".fields.len);
+    try std.testing.expectEqual(@as(usize, 42), @typeInfo(types.ObjectTag).@"enum".fields.len);
 }
 
 // ---------------------------------------------------------------------------

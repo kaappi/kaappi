@@ -64,6 +64,13 @@ pub fn runCapture(allocator: std.mem.Allocator, argv: []const []const u8, cwd: ?
 
     var pipe: [2]c_int = undefined;
     if (std.c.pipe(&pipe) != 0) return error.PipeFailed;
+    // CLOEXEC audit (KEP-0022 Phase 1): both pipe ends and the stderr-save
+    // dup below are close-on-exec. The child's dup2s onto 0/1/2 clear it on
+    // exactly the slots the exec'd child needs, and the saved stderr now
+    // survives only a FAILED execve (its whole purpose) instead of leaking
+    // into every successfully spawned git.
+    _ = platform.setFdCloexec(pipe[0]);
+    _ = platform.setFdCloexec(pipe[1]);
 
     const pid = std.posix.system.fork();
     if (pid < 0) return error.ForkFailed;
@@ -75,9 +82,10 @@ pub fn runCapture(allocator: std.mem.Allocator, argv: []const []const u8, cwd: ?
         _ = std.c.close(pipe[1]);
         // Save the real stderr so an execve failure stays audible; the
         // /dev/null dup2 silences only git's own stderr, which is the point
-        // of capture (#2152).
-        const real_stderr = std.c.dup(2);
-        const devnull = std.c.open("/dev/null", .{ .ACCMODE = .WRONLY }, @as(c_uint, 0));
+        // of capture (#2152). F_DUPFD_CLOEXEC (fcntl with cmd 6 / arg 0):
+        // like dup(2) but close-on-exec.
+        const real_stderr = platform.fcntlDupCloexec(2);
+        const devnull = std.c.open("/dev/null", .{ .ACCMODE = .WRONLY, .CLOEXEC = true }, @as(c_uint, 0));
         if (devnull >= 0) {
             _ = std.c.dup2(devnull, 2);
             _ = std.c.close(devnull);

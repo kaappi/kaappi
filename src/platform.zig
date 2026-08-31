@@ -158,7 +158,86 @@ pub fn isatty(fd: fd_t) bool {
 pub fn pipe(fds: *[2]fd_t) c_int {
     if (comptime is_windows) return win._pipe(fds, 65536, win.O_BINARY | win.O_NOINHERIT);
     if (comptime is_wasm) return -1;
-    return std.c.pipe(fds);
+    const rc = std.c.pipe(fds);
+    if (rc == 0) {
+        // CLOEXEC audit (KEP-0022 Phase 1): pipe(2) takes no flags, so the
+        // descriptors are made close-on-exec here. Every existing caller
+        // installs child ends with dup2 (which clears CLOEXEC on the child's
+        // slot) and keeps parent ends for its own lifetime, which exec never
+        // interrupts -- so this is invisible to them and stops both ends
+        // leaking into a spawned child.
+        _ = setFdCloexec(fds[0]);
+        _ = setFdCloexec(fds[1]);
+    }
+    return rc;
+}
+
+/// Set FD_CLOEXEC on `fd` (the fcntl(2) F_SETFD form; O_CLOEXEC at open is
+/// unavailable for fds other calls hand back -- kqueue(), pipe(2) on
+/// platforms without pipe2). Returns false on failure; callers treat that
+/// as best-effort.
+pub fn setFdCloexec(fd: fd_t) bool {
+    if (comptime is_wasm) return false;
+    const F_SETFD: c_int = 2;
+    const FD_CLOEXEC: usize = 1;
+    return fcntlRaw(fd, F_SETFD, FD_CLOEXEC) != -1;
+}
+
+/// fcntl(F_GETFD): the fd-flags word (bit 0 = FD_CLOEXEC), or -1 when `fd`
+/// is not open. The subprocess spawner's close-by-default scan uses it both
+/// as an is-open probe and to skip descriptors exec will close anyway
+/// (KEP-0022).
+pub fn getFdFlags(fd: fd_t) c_int {
+    if (comptime is_wasm) return -1;
+    const F_GETFD: c_int = 1;
+    return fcntlRaw(fd, F_GETFD, 0);
+}
+
+/// dup(2), except the copy is close-on-exec (fcntl F_DUPFD_CLOEXEC, the
+/// POSIX 2008 replacement for dup-then-F_SETFD that cannot be interrupted
+/// between the two steps). Returns -1 on failure.
+pub fn fcntlDupCloexec(fd: fd_t) fd_t {
+    const F_DUPFD_CLOEXEC: c_int = 6;
+    return fcntlRaw(fd, F_DUPFD_CLOEXEC, 0);
+}
+
+/// fcntl(2) MUST be declared variadic — its C prototype is
+/// `int fcntl(int, int, ...)`. A fixed-arity extern happens to link but is
+/// not the same call: on arm64 macOS the variadic calling convention differs
+/// and the third argument never reaches the kernel, so F_SETFD (and
+/// F_DUPFD_CLOEXEC's min-fd) silently no-ops while returning success — the
+/// exact bug that made every CLOEXEC set here a no-op on that platform
+/// (KEP-0022 audit). Every call site passes a typed argument, as Zig
+/// requires of variadic calls.
+fn fcntlRaw(fd: fd_t, cmd: c_int, arg: usize) c_int {
+    const fcntl_fn = struct {
+        extern "c" fn fcntl(fd: c_int, cmd: c_int, ...) c_int;
+    }.fcntl;
+    return fcntl_fn(fd, cmd, arg);
+}
+
+// ---------------------------------------------------------------------------
+// process control (KEP-0022 Phase 1) -- POSIX only; the Windows tier is
+// Phase 3 and gates every reference comptime.
+// ---------------------------------------------------------------------------
+
+/// waitpid(2)'s WNOHANG: poll without blocking. Same value on every POSIX
+/// platform (0x1).
+pub const WNOHANG: c_int = 1;
+
+extern "c" fn waitpid(pid: c_int, status: *c_int, options: c_int) c_int;
+extern "c" fn kill(pid: c_int, sig: c_int) c_int;
+
+/// waitpid(2). Returns the reaped pid (0 with WNOHANG when the child still
+/// runs, -1 on error).
+pub fn waitPid(pid: i32, status: *c_int, options: c_int) i32 {
+    return waitpid(pid, status, options);
+}
+
+/// kill(2)/killpg semantics in one call: a negative `pid` signals the
+/// process group -pid. Returns 0 on success, -1 on error (errno set).
+pub fn procKill(pid: i32, sig: c_int) c_int {
+    return kill(pid, sig);
 }
 
 pub fn dup2(old: fd_t, new: fd_t) c_int {
@@ -262,7 +341,7 @@ pub fn openRead(path: [:0]const u8) OpenError!fd_t {
         if (rc != .SUCCESS) return error.OpenFailed;
         return @as(fd_t, @intCast(result_fd));
     }
-    return std.posix.openatZ(std.posix.AT.FDCWD, path, .{}, 0) catch |e| classifyOpenError(e);
+    return std.posix.openatZ(std.posix.AT.FDCWD, path, .{ .CLOEXEC = true }, 0) catch |e| classifyOpenError(e);
 }
 
 /// WASI path resolution, the way wasi-libc's open() does it (kaappi#2153).
@@ -355,19 +434,19 @@ fn wasiOpenWrite(path: [:0]const u8, oflags: std.os.wasi.oflags_t, append: bool)
 pub fn openWriteTrunc(path: [:0]const u8, mode: u16) OpenError!fd_t {
     if (comptime is_windows) return winOpen(path, win.O_WRONLY | win.O_CREAT | win.O_TRUNC, 0o600);
     if (comptime is_wasm) return wasiOpenWrite(path, .{ .CREAT = true, .TRUNC = true }, false);
-    return std.posix.openatZ(std.posix.AT.FDCWD, path, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, mode) catch |e| classifyOpenError(e);
+    return std.posix.openatZ(std.posix.AT.FDCWD, path, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .CLOEXEC = true }, mode) catch |e| classifyOpenError(e);
 }
 
 pub fn openWriteTruncExcl(path: [:0]const u8, mode: u16) OpenError!fd_t {
     if (comptime is_windows) return winOpen(path, win.O_WRONLY | win.O_CREAT | win.O_TRUNC | win.O_EXCL, 0o600);
     if (comptime is_wasm) return wasiOpenWrite(path, .{ .CREAT = true, .TRUNC = true, .EXCL = true }, false);
-    return std.posix.openatZ(std.posix.AT.FDCWD, path, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .EXCL = true }, mode) catch error.OpenFailed;
+    return std.posix.openatZ(std.posix.AT.FDCWD, path, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .EXCL = true, .CLOEXEC = true }, mode) catch error.OpenFailed;
 }
 
 pub fn openAppend(path: [:0]const u8, mode: u16) OpenError!fd_t {
     if (comptime is_windows) return winOpen(path, win.O_WRONLY | win.O_CREAT | win.O_APPEND, 0o600);
     if (comptime is_wasm) return wasiOpenWrite(path, .{ .CREAT = true }, true);
-    return std.posix.openatZ(std.posix.AT.FDCWD, path, .{ .ACCMODE = .WRONLY, .CREAT = true, .APPEND = true }, mode) catch error.OpenFailed;
+    return std.posix.openatZ(std.posix.AT.FDCWD, path, .{ .ACCMODE = .WRONLY, .CREAT = true, .APPEND = true, .CLOEXEC = true }, mode) catch error.OpenFailed;
 }
 
 /// Write-only sink for discarding output (/dev/null, NUL).
@@ -378,7 +457,7 @@ pub fn openNullSink() OpenError!fd_t {
     // harness skips its fd-discarding mode), so a loud OpenFailed is the
     // honest answer rather than substituting some real file.
     if (comptime is_wasm) return error.OpenFailed;
-    return std.posix.openatZ(std.posix.AT.FDCWD, "/dev/null", .{ .ACCMODE = .WRONLY }, 0) catch error.OpenFailed;
+    return std.posix.openatZ(std.posix.AT.FDCWD, "/dev/null", .{ .ACCMODE = .WRONLY, .CLOEXEC = true }, 0) catch error.OpenFailed;
 }
 
 // ---------------------------------------------------------------------------
@@ -737,6 +816,18 @@ pub const DirIter = struct {
             return .{ .state = .{ .fd = result_fd } };
         }
         const dh = opendir_sys(path) orelse return null;
+        // CLOEXEC audit (KEP-0022 Phase 1): modern opendir()s open their
+        // internal fd O_CLOEXEC, but that is not contractual, and an
+        // open-directory port (SRFI 170) is GC-lifetime — exactly the fd a
+        // spawned child must not inherit. Zig's bundled NetBSD libc exports
+        // no dirfd at all (its opendir is CLOEXEC-internal), so that target
+        // is skipped comptime.
+        if (comptime !is_netbsd) {
+            const dirfd_fn = struct {
+                extern "c" fn dirfd(dir: *std.c.DIR) c_int;
+            }.dirfd;
+            _ = setFdCloexec(dirfd_fn(dh));
+        }
         return .{ .state = dh };
     }
 

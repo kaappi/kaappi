@@ -264,6 +264,7 @@ pub fn objectSize(obj: *Object) usize {
                 fiber.wind_stack.len * @sizeOf(types.WindRecord);
         },
         .channel => @sizeOf(types.Channel),
+        .process => @sizeOf(types.Process),
         .mutex => @sizeOf(types.Mutex),
         .condition_variable => @sizeOf(types.ConditionVariable),
         .srfi18_time => @sizeOf(types.Srfi18Time),
@@ -577,6 +578,30 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
                 sc.release();
             }
             poisonAndDestroy(gc, types.Channel, ch);
+        },
+        .process => {
+            const proc = obj.as(types.Process);
+            // Zombie discipline (KEP-0022 Phase 1): drop the collected
+            // Process from the heap's unreaped list first -- after
+            // poisonAndDestroy the pointer is invalid -- then make one
+            // last-resort non-blocking reap attempt so an already-exited
+            // child of an abandoned Process does not linger as a zombie.
+            // Still-running children are simply no longer tracked; their
+            // zombies (if any) are reparented to init when this process
+            // exits. A BLOCKING wait is never acceptable inside a sweep.
+            for (gc.unreaped_processes.items, 0..) |p, i| {
+                if (p == proc) {
+                    _ = gc.unreaped_processes.swapRemove(i);
+                    break;
+                }
+            }
+            if (proc.status == null) {
+                if (comptime !platform.is_wasm and !platform.is_windows) {
+                    var st: c_int = 0;
+                    _ = platform.waitPid(proc.pid, &st, platform.WNOHANG);
+                }
+            }
+            poisonAndDestroy(gc, types.Process, proc);
         },
         .mutex => {
             poisonAndDestroy(gc, types.Mutex, obj.as(types.Mutex));

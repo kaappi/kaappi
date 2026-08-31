@@ -63,6 +63,10 @@ test {
     _ = @import("tests_diagnostics.zig");
     _ = @import("tests_spans.zig");
     _ = @import("tests_platform.zig");
+    // (kaappi process), KEP-0022 Phase 1. POSIX-only: the specs (and the
+    // whole primitives module) are gated out of the WASM and Windows builds,
+    // so the suite skips there too.
+    _ = @import("tests_process.zig");
     // Byte-order pins. The unit suite is one of only three things that runs
     // on the big-endian s390x leg, so this is where an endian assertion
     // actually reaches the canary (src/tests_endian.zig explains the rest).

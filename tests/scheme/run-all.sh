@@ -12,6 +12,9 @@
 set -euo pipefail
 
 KAAPPI=zig-out/bin/kaappi
+# Exported so .scm files can spawn kaappi as a child (tests/scheme/process/
+# round-trips a reader-loop script through the real binary, KEP-0022).
+export KAAPPI
 
 # This script used to run a bare `zig build` when the binary was missing. That
 # convenience dates from when it was the only runner, and it silently
@@ -657,6 +660,7 @@ if command -v zig >/dev/null 2>&1; then
     fi
 fi
 run_suite "FFI tests" tests/scheme/ffi/*.scm
+run_suite "Process tests" tests/scheme/process/*.scm
 run_suite "Audit tests" tests/scheme/audit/*.scm
 run_shell_suite "Error tests" tests/scheme/errors
 run_shell_suite "Compile tests" tests/scheme/compile

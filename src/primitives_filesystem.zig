@@ -1311,6 +1311,10 @@ fn createTempFileFn(args: []const Value) PrimitiveError!Value {
 
     const fd = mkstemp(@ptrCast(template_buf[0 .. prefix.len + 6 :0]));
     if (fd < 0) return raiseFileError(gc, "cannot create temp file", types.FALSE);
+    // mkstemp(3) cannot ask for O_CLOEXEC; set it before anything else so
+    // even this closed-a-moment-later fd can never cross an exec
+    // (KEP-0022 CLOEXEC audit).
+    _ = platform.setFdCloexec(fd);
     _ = platform.close(fd);
 
     // Find actual path length (null-terminated)

@@ -414,6 +414,18 @@ pub const GC = struct {
     /// and the FREED_OWNER sentinel the whole #1687 machinery rests on is
     /// overwritten before the parent's next mark can read it.
     quarantine_heir: ?*GC = null,
+    /// KEP-0022 Phase 1 (zombie discipline): every Process this heap spawned
+    /// and has not reaped. The blocking spawn/wait primitives sweep it with
+    /// waitpid(WNOHANG); gc_sweep.freeObject removes a collected Process from
+    /// it (after a last-resort non-blocking reap), so entries are valid
+    /// pointers for exactly as long as the objects are. Deliberately NOT a
+    /// root list: an unreachable unreaped Process must be collectable, so
+    /// that its pipe ports close and a child blocked on a full pipe gets
+    /// EOF/EPIPE instead of hanging forever (Python's Popen semantics).
+    /// Residual window, documented and accepted: a Process collected while
+    /// its child still runs leaves a zombie if the child exits later and
+    /// this Kaappi process keeps running.
+    unreaped_processes: std.ArrayList(*types.Process) = .empty,
 
     pub const QuarantineEntry = struct {
         ptr: [*]u8,
@@ -499,6 +511,7 @@ pub const GC = struct {
         self.symbols.deinit();
         self.allocator.free(self.root_buffer);
         self.extra_roots.deinit(self.allocator);
+        self.unreaped_processes.deinit(self.allocator);
         self.remembered_set.deinit(self.allocator);
         self.mark_worklist.deinit(self.allocator);
         self.pending_ephemerons.deinit(self.allocator);
@@ -657,6 +670,7 @@ pub const GC = struct {
     pub const allocChannel = gc_alloc.allocChannel;
     pub const allocChannelBounded = gc_alloc.allocChannelBounded;
     pub const allocChannelStub = gc_alloc.allocChannelStub;
+    pub const allocProcess = gc_alloc.allocProcess;
     pub const allocMutex = gc_alloc.allocMutex;
     pub const allocConditionVariable = gc_alloc.allocConditionVariable;
     pub const allocSrfi18Time = gc_alloc.allocSrfi18Time;

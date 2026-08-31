@@ -154,6 +154,7 @@ pub fn typeName(val: Value) []const u8 {
         .guardian => "guardian",
         .transport_cell => "transport-cell",
         .numeric_vector => "numeric-vector",
+        .process => "process",
     };
 }
 
@@ -208,6 +209,10 @@ pub const ObjectTag = enum(u6) {
     // SRFI 160: homogeneous numeric vectors other than u8 (which stays a
     // plain bytevector alias, per SRFI 160's own recommended identity).
     numeric_vector = 40,
+    // KEP-0022 (kaappi process): a spawned subprocess handle. Thread-affine
+    // like .channel/.fiber; refused by gc_deep_copy and owner-checked in
+    // every primitive (see types_process.zig).
+    process = 41,
 };
 
 pub const Object = struct {
@@ -287,6 +292,7 @@ pub const Object = struct {
             Guardian => .guardian,
             TransportCell => .transport_cell,
             NumericVector => .numeric_vector,
+            Process => .process,
             else => null,
         };
     }
@@ -626,6 +632,14 @@ pub const GuardEntry = types_weakrefs.GuardEntry;
 pub const Guardian = types_weakrefs.Guardian;
 pub const TransportCell = types_weakrefs.TransportCell;
 
+const types_process = @import("types_process.zig");
+pub const Process = types_process.Process;
+pub const ifWaitExited = types_process.ifExited;
+pub const waitExitStatus = types_process.exitStatus;
+pub const ifWaitSignaled = types_process.ifSignaled;
+pub const waitTermSig = types_process.termSig;
+pub const decodeWaitStatus = types_process.decodeStatus;
+
 // ---------------------------------------------------------------------------
 // Type predicates on Value
 // ---------------------------------------------------------------------------
@@ -897,6 +911,14 @@ pub fn isSrfi18Time(v: Value) bool {
 
 pub fn toSrfi18Time(v: Value) *Srfi18Time {
     return toObject(v).as(Srfi18Time);
+}
+
+pub fn isProcess(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .process;
+}
+
+pub fn toProcess(v: Value) *Process {
+    return toObject(v).as(Process);
 }
 
 pub fn isHashTable(v: Value) bool {

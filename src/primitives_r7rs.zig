@@ -173,6 +173,14 @@ fn getEnvVar(args: []const Value) PrimitiveError!Value {
 
 fn getEnvVars(args: []const Value) PrimitiveError!Value {
     _ = args;
+    return getEnvironmentAlist();
+}
+
+/// The current environment as an alist of `(name . value)` string pairs.
+/// Split out of `getEnvVars` (same body) so `(kaappi process)`'s
+/// `process-environment` returns the identical shape its `env:` option
+/// consumes — the copy-and-extend idiom composes exactly (KEP-0022).
+pub fn getEnvironmentAlist() PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     var result: Value = types.NIL;

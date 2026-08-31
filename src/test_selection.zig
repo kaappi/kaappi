@@ -478,7 +478,10 @@ fn runCapture(arena: std.mem.Allocator, argv: []const []const u8) ?CaptureResult
     if (pid == 0) {
         _ = std.c.close(pipe[0]);
         _ = std.c.dup2(pipe[1], 1);
-        const devnull = std.c.open("/dev/null", .{ .ACCMODE = .WRONLY });
+        // CLOEXEC on the null sink: the dup2 onto 2 clears it on the target
+        // only, so unlike before, the original slot cannot leak into the
+        // exec'd child (KEP-0022 Phase 1 audit).
+        const devnull = std.c.open("/dev/null", .{ .ACCMODE = .WRONLY, .CLOEXEC = true });
         if (devnull >= 0) _ = std.c.dup2(devnull, 2);
         _ = std.c.close(pipe[1]);
         _ = std.posix.system.execve(

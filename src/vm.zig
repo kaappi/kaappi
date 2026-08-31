@@ -721,6 +721,7 @@ pub const VM = struct {
     collection_state: std.atomic.Value(CollectionState) = .init(.running),
 
     pub fn init(gc: *memory.GC) !VM {
+        ignoreSigpipe();
         const frames = try gc.allocator.alloc(CallFrame, INITIAL_FRAME_CAPACITY);
         errdefer gc.allocator.free(frames);
         const registers = try gc.allocator.alloc(Value, INITIAL_REGISTER_CAPACITY);
@@ -762,6 +763,28 @@ pub const VM = struct {
         vm.stderr_port = gc.allocPort(2, false, true, "stderr", false) catch types.VOID;
         if (vm.stderr_port != types.VOID) try gc.extra_roots.append(gc.allocator, vm.stderr_port);
         return vm;
+    }
+
+    /// KEP-0022 Phase 1: SIGPIPE must be ignored process-wide, explicitly.
+    /// The canonical subprocess failure -- writing to the stdin of a child
+    /// that has already exited -- must surface as an ordinary catchable I/O
+    /// error carrying EPIPE, never as process death by signal. Kaappi's own
+    /// binary already gets this from Zig's std.start (keep_sigpipe == false
+    /// defaults to SIG_IGN), but an embedder linking the runtime as a
+    /// library gets no std.start: their first write to a dead child's pipe
+    /// would kill the host. Idempotent, cheap, and safe to call per VM (the
+    /// signal disposition is process-wide; child-thread VMs re-run it
+    /// harmlessly). Not applicable on Windows (no SIGPIPE) or WASI (no
+    /// signals).
+    fn ignoreSigpipe() void {
+        const builtin = @import("builtin");
+        if (comptime builtin.os.tag == .windows or builtin.os.tag == .wasi) return;
+        var act: std.posix.Sigaction = .{
+            .handler = .{ .handler = std.posix.SIG.IGN },
+            .mask = std.posix.sigemptyset(),
+            .flags = 0,
+        };
+        std.posix.sigaction(std.posix.SIG.PIPE, &act, null);
     }
 
     pub fn initForThread(gc: *memory.GC, parent: *VM) !VM {

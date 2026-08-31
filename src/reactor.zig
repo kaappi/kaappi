@@ -616,6 +616,12 @@ const KqueueBackend = struct {
     fn init(_: std.mem.Allocator) !KqueueBackend {
         const kq = std.c.kqueue();
         if (kq < 0) return error.Unexpected;
+        // CLOEXEC: kqueue(2) takes no flags, and a kqueue fd IS a normal fd —
+        // inherited across fork and kept open across exec unless FD_CLOEXEC
+        // says otherwise (the comment on EpollBackend.init below long claimed
+        // the opposite). Without this, the reactor's kq leaks into every
+        // child the core spawns (KEP-0022 CLOEXEC audit).
+        _ = platform.setFdCloexec(kq);
         var self: KqueueBackend = .{ .kq = kq };
         var reg = std.c.Kevent{
             .ident = 0,
@@ -760,8 +766,9 @@ const EpollBackend = struct {
     fn init(_: std.mem.Allocator) !EpollBackend {
         // CLOEXEC: without it the epoll fd leaks into every child the core
         // spawns (thottam_proc.zig, native_compiler.zig via
-        // std.process.Child). kqueue needs no equivalent — kqueue(2) fds
-        // are never inherited across fork by design.
+        // std.process.Child). The kqueue backend sets FD_CLOEXEC after
+        // kqueue() in KqueueBackend.init -- same discipline, different
+        // mechanism, since kqueue(2) takes no flags argument.
         const rc = linux.epoll_create1(linux.EPOLL.CLOEXEC);
         if (linux.errno(rc) != .SUCCESS) return error.Unexpected;
         const epfd: i32 = @intCast(rc);

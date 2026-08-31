@@ -641,7 +641,7 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
         // This list governs the *copy* route only -- the thread-start!
         // thunk closure, the thread-join! result, a channel message. A
         // value reached through the shared globals map is never copied and
-        // never reaches this switch, and ten of the eleven
+        // never reaches this switch, and eleven of the twelve
         // tags below are freely usable that way. For .mutex and
         // .condition_variable a global is in fact the *only* supported way
         // to share one, so the refusal here is the opposite of the rule --
@@ -666,6 +666,12 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) D
         .ffi_callback,
         .directory_object,
         .scheme_environment,
+        // KEP-0022: a Process is thread-affine -- its pid, unreaped-status
+        // bookkeeping and (Phase 2) reactor registration belong to the
+        // scheduler of the thread that spawned it. Like .channel it is also
+        // owner-checked at every primitive, so the globals route is defended
+        // separately.
+        .process,
         // SRFI-254 weak references are tied to one GC's collection cycle.
         .ephemeron,
         .guardian,
