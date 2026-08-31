@@ -434,33 +434,45 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
                 // blocking write into a full pipe whose reader never drains
                 // would wedge the collector itself (kaappi#2442 review).
                 // Flip it non-blocking first — a no-op for regular files,
-                // whose flush still completes in full, and irrelevant to
-                // the fd's future since it is closed right below.
+                // whose flush still completes in full. O_NONBLOCK lives on
+                // the SHARED open-file description, so the prior flags are
+                // restored before the close — dup/dup2 aliases (a child's
+                // stdio, an fd->port twin) must not come out of a
+                // collection permanently non-blocking — and if the flip
+                // itself fails, the blocking-capable drain is skipped
+                // entirely rather than risked (kaappi#2442 review).
+                var teardown_flags: ?c_int = null;
+                var drain_ok = true;
                 if (comptime !platform.is_windows and !platform.is_wasm) {
-                    if (!port.nonblocking and port.write_buf != null)
-                        _ = platform.setFdNonblockingForTeardown(port.fd);
-                }
-                if (port.write_buf) |wb| {
-                    var start = port.write_buf_start;
-                    while (start < port.write_buf_len) {
-                        // A Windows socket port must send() — CRT _write
-                        // cannot operate on a SOCKET handle — and a pipe
-                        // port in emulated non-blocking mode must keep its
-                        // quota gate: plain _write on a full pipe would
-                        // block this sweep forever, exactly the would-block
-                        // this loop promises to drop (#1608).
-                        const remaining = port.write_buf_len - start;
-                        const rc = if (platform.is_windows and port.fd_state.is_socket)
-                            platform.sockSend(port.fd, wb.ptr + start, remaining)
-                        else if (platform.is_windows and port.fd_state.is_pipe and port.nonblocking)
-                            platform.pipeWrite(port.fd, wb.ptr + start, remaining)
-                        else
-                            platform.write(port.fd, wb.ptr + start, remaining);
-                        if (rc < 0 and platform.errno(rc) == .INTR) continue;
-                        if (rc <= 0) break;
-                        start += @as(usize, @intCast(rc));
+                    if (!port.nonblocking and port.write_buf != null) {
+                        teardown_flags = platform.setFdNonblockingForTeardown(port.fd);
+                        if (teardown_flags == null) drain_ok = false;
                     }
                 }
+                if (drain_ok) {
+                    if (port.write_buf) |wb| {
+                        var start = port.write_buf_start;
+                        while (start < port.write_buf_len) {
+                            // A Windows socket port must send() — CRT _write
+                            // cannot operate on a SOCKET handle — and a pipe
+                            // port in emulated non-blocking mode must keep its
+                            // quota gate: plain _write on a full pipe would
+                            // block this sweep forever, exactly the would-block
+                            // this loop promises to drop (#1608).
+                            const remaining = port.write_buf_len - start;
+                            const rc = if (platform.is_windows and port.fd_state.is_socket)
+                                platform.sockSend(port.fd, wb.ptr + start, remaining)
+                            else if (platform.is_windows and port.fd_state.is_pipe and port.nonblocking)
+                                platform.pipeWrite(port.fd, wb.ptr + start, remaining)
+                            else
+                                platform.write(port.fd, wb.ptr + start, remaining);
+                            if (rc < 0 and platform.errno(rc) == .INTR) continue;
+                            if (rc <= 0) break;
+                            start += @as(usize, @intCast(rc));
+                        }
+                    }
+                }
+                if (teardown_flags) |fl| platform.restoreFdStatusFlags(port.fd, fl);
                 _ = platform.close(port.fd);
             }
             if (port.write_buf) |wb| {

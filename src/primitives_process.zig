@@ -280,20 +280,24 @@ fn parseRedir(comptime proc: []const u8, val: Value) PrimitiveError!Redir {
         // rather than corrupt (kaappi#2414 review).
         if (port.nonblocking)
             return primitives.argError(proc, "redirection port is in non-blocking use by the fiber scheduler; pass a port not yet driven by fibers", .{});
-        // Buffered parent output must land in the file before the child's
-        // own writes; the drain can park a fiber, and a re-executed spawn
-        // re-parses the options idempotently.
-        if (port.is_output) try primitives_io.drainPortWriteBufferForSpawn(port);
-        // The input mirror: software read-ahead makes the kernel offset run
-        // ahead of the port's logical position, so a child handed the raw
-        // fd would silently skip the buffered bytes. Seekable fds are
-        // rewound; an unseekable fd with pending read-ahead is rejected
-        // (kaappi#2442 review).
+        // Input read-ahead FIRST: software read-ahead makes the kernel
+        // offset run ahead of the port's logical position, so a child
+        // handed the raw fd would silently skip the buffered bytes.
+        // Seekable fds are rewound; an unseekable fd with pending
+        // read-ahead is rejected. Order matters on a bidirectional port:
+        // draining output before the rewind would land the parent's
+        // buffered writes at the stale read-ahead offset instead of the
+        // logical position (kaappi#2442 review).
         if (port.is_input) {
             const unsynced = primitives_io.rewindPortReadAheadForSpawn(port);
             if (unsynced != 0)
                 return primitives.argError(proc, "redirection port has {d} buffered byte(s) of read-ahead that its unseekable descriptor cannot give back to the child", .{unsynced});
         }
+        // Then buffered parent output, so it lands in the file at the
+        // logical position, before the child's own writes; the drain can
+        // park a fiber, and a re-executed spawn re-parses the options
+        // idempotently.
+        if (port.is_output) try primitives_io.drainPortWriteBufferForSpawn(port);
         return .{ .fd = port.fd };
     }
     return primitives.typeError(proc, "redirection spec (inherit, pipe, null, stdout, or an fd-backed port)", val);
@@ -425,6 +429,12 @@ fn spawnImpl(cfg: SpawnConfig) PrimitiveError!Value {
     for (&redirs, 0..) |*r, slot| {
         if (r.* != .fd) continue;
         if (r.*.fd > 2) continue;
+        // A source already sitting in its own destination slot needs no
+        // stage: dup2(slot, slot) cannot collide with any earlier action,
+        // and it still names the descriptor for Darwin's CLOEXEC_DEFAULT —
+        // so `stdout: (current-output-port)` (explicit inheritance) must
+        // not fail just because the fd table is full (kaappi#2442 review).
+        if (r.*.fd == @as(platform.fd_t, @intCast(slot))) continue;
         const staged = platform.dupCloexecAtLeast(r.*.fd, 3);
         if (staged < 0)
             return raiseProcessError(gc, "cannot stage redirection descriptor", types.FALSE, std.c._errno().*);
@@ -438,7 +448,12 @@ fn spawnImpl(cfg: SpawnConfig) PrimitiveError!Value {
     var actions_storage = spawn_c.zeroStorage();
     const actions: *spawn_c.FileActionsPtr = @ptrCast(&actions_storage);
     {
-        const rc = spawn_c.posix_spawn_file_actions_init(actions);
+        // FreeBSD's initializers return -1 with the error in errno (unlike
+        // the errno-returning convention everywhere else in this API), so a
+        // negative result is normalized before it can masquerade as a bogus
+        // error number (kaappi#2442 review).
+        var rc = spawn_c.posix_spawn_file_actions_init(actions);
+        if (rc < 0) rc = std.c._errno().*;
         if (rc != 0) return spawnSetupError(gc, rc);
     }
     defer _ = spawn_c.posix_spawn_file_actions_destroy(actions);
@@ -520,7 +535,9 @@ fn spawnImpl(cfg: SpawnConfig) PrimitiveError!Value {
     var attr_storage = spawn_c.zeroStorage();
     const attr: *spawn_c.AttrPtr = @ptrCast(&attr_storage);
     {
-        const rc = spawn_c.posix_spawnattr_init(attr);
+        // Same FreeBSD -1/errno normalization as the file-actions init.
+        var rc = spawn_c.posix_spawnattr_init(attr);
+        if (rc < 0) rc = std.c._errno().*;
         if (rc != 0) return spawnSetupError(gc, rc);
     }
     defer _ = spawn_c.posix_spawnattr_destroy(attr);
@@ -623,21 +640,25 @@ fn spawnImpl(cfg: SpawnConfig) PrimitiveError!Value {
     // between any two steps leaves the remaining ends to the cleanup defer.
     const pgid: i32 = if (cfg.new_group) pid else 0;
     const proc = gc.allocProcess(pid, pgid) catch {
-        // The child is alive but nothing tracks it (enrolment happens
-        // inside allocProcess): a Process the caller never sees cannot be
-        // waited, and the unreaped registry never learned the pid. On this
-        // one OOM path, terminate and reap the fresh child rather than
-        // leak a zombie (kaappi#2442 review).
-        _ = platform.procKill(pid, 9);
-        var st: c_int = 0;
-        while (platform.waitPid(pid, &st, 0) < 0) {
-            if (std.c._errno().* != @intFromEnum(std.c.E.INTR)) break;
-        }
+        killAndReapFresh(pid);
         return PrimitiveError.OutOfMemory;
     };
     var proc_val = types.makePointer(&proc.header);
     gc.pushRoot(&proc_val);
     defer gc.popRoot();
+
+    // Any failure between here and the return leaves a Process the caller
+    // will never see: it would be collected, dropped from the unreaped
+    // registry, and its still-running child would be permanently untracked
+    // (kaappi#2442 review — the kill/reap must cover the port
+    // constructions, not just allocProcess). Terminate and reap the fresh
+    // child, and record the status so freeObject does not reap a reused
+    // pid later.
+    errdefer {
+        killAndReapFresh(pid);
+        proc.status = 9; // (signaled . 9): the raw wait status of SIGKILL
+        removeFromUnreaped(gc, proc);
+    }
 
     if (stdin_pipe[1] >= 0) {
         const port_val = try primitives_io.makeFdPort(gc, stdin_pipe[1], false, true, "process-stdin");
@@ -658,6 +679,19 @@ fn spawnImpl(cfg: SpawnConfig) PrimitiveError!Value {
         gc.writeBarrier(&proc.header, port_val);
     }
     return proc_val;
+}
+
+/// Terminate and reap a child spawned moments ago that no caller will ever
+/// be able to wait on (a post-spawn allocation failed). SIGKILL cannot be
+/// caught, so the blocking reap is bounded by the process teardown itself;
+/// EINTR retries, any other waitpid failure gives up (nothing more can be
+/// done on an OOM path).
+fn killAndReapFresh(pid: c_int) void {
+    _ = platform.procKill(pid, 9);
+    var st: c_int = 0;
+    while (platform.waitPid(pid, &st, 0) < 0) {
+        if (std.c._errno().* != @intFromEnum(std.c.E.INTR)) break;
+    }
 }
 
 /// Raise the errno-carrying redirection-setup error. All posix_spawn
@@ -736,12 +770,16 @@ fn addInheritedFdCloses(gc: *GC, actions: *spawn_c.FileActionsPtr) PrimitiveErro
     // Linux) never reach this loop — they use addclosefrom_np and /proc
     // respectively.
     const fallback: u64 = 65536;
-    const limit: u64 = blk: {
+    const raw_limit: u64 = blk: {
         const rl = std.posix.getrlimit(.NOFILE) catch break :blk fallback;
         // rlim_t is signed on some libcs (FreeBSD's i64); a negative
         // cur (RLIM_INFINITY representations aside) means "no info".
         break :blk std.math.cast(u64, rl.cur) orelse fallback;
     };
+    // Clamp to what an fd can actually number — an RLIM_INFINITY-shaped
+    // soft limit must not overflow the counter (kaappi#2442 review). This
+    // is not a coverage cap: no descriptor can exceed maxInt(fd_t).
+    const limit: platform.fd_t = @intCast(@min(raw_limit, std.math.maxInt(platform.fd_t)));
     var fd: platform.fd_t = 3;
     while (fd < limit) : (fd += 1) {
         try closeFdIfInheritable(gc, actions, fd);

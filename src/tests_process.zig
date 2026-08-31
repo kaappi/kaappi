@@ -627,12 +627,17 @@ test "process: collecting an abandoned pipe port never blocks the sweep" {
     // wedged the collector. Fill the pipe near capacity (flushed), buffer
     // more below the high-water mark (unflushed), abandon everything, and
     // require the full collection to come back promptly.
+    // 12000 flushed fits even the smallest fixed pipe (OpenBSD's 16 KiB),
+    // so the flush itself can never block; the 60000-byte unflushed tail
+    // then exceeds the REMAINING capacity on every platform (16 KiB fixed
+    // and 64 KiB big-pipe alike), so the sweep's drain always meets a full
+    // pipe partway through.
     try expectTrue(vm,
         \\(let* ((p (spawn-process '("/bin/sleep" "3") 'stdin: 'pipe))
         \\       (in (process-stdin p)))
-        \\  (write-string (make-string 60000 #\x) in)
+        \\  (write-string (make-string 12000 #\x) in)
         \\  (flush-output-port in)
-        \\  (write-string (make-string 8100 #\y) in)
+        \\  (write-string (make-string 60000 #\y) in)
         \\  #t)
     );
     const platform = @import("platform.zig");
@@ -677,10 +682,15 @@ test "process: spawn failure paths leak no descriptors (OOM sweep)" {
     // spawn path itself — denser failure-point coverage AND an order of
     // magnitude less work per iteration, which is what keeps the emulated
     // QEMU CI legs (riscv64/s390x/ppc64le) inside their job budget.
+    // A LONG-LIVED child (self-killed on the success path), not `true`:
+    // with a child that exits instantly, a failure path that abandons a
+    // still-running child is invisible — the child is gone before any
+    // assertion looks (kaappi#2442 review). With `sleep`, an abandoned
+    // child survives to the post-sweep checks below.
     _ = try vm.eval(
         \\(define (kaappi-oom-spawn-2442)
-        \\  (let ((p (spawn-process '("true") 'stdin: 'pipe 'stdout: 'pipe 'stderr: 'pipe)))
-        \\    (process-wait p) #t))
+        \\  (let ((p (spawn-process '("/bin/sleep" "30") 'stdin: 'pipe 'stdout: 'pipe 'stderr: 'pipe)))
+        \\    (process-kill p 'signal: 9) (process-wait p) #t))
     );
     const src = "(kaappi-oom-spawn-2442)";
     // Baseline: one full run so lazily-created infrastructure (reactor fds,
@@ -713,6 +723,19 @@ test "process: spawn failure paths leak no descriptors (OOM sweep)" {
     sweepUnreapedForTest(gc);
     const after = countFds();
     try std.testing.expectEqual(before, after);
+
+    // No abandoned children either: every spawnImpl-internal failure must
+    // have killed AND reaped its fresh child (kaappi#2442 review) — the
+    // reap in killAndReapFresh is a BLOCKING waitpid, so those paths
+    // structurally cannot leave a zombie — and the registry must be empty.
+    // A countdown that fires in the *caller's* kill/wait after a
+    // successful spawn abandons the Process by the caller's own hand (the
+    // documented GC.unreaped_processes window, not spawnImpl's contract);
+    // its SIGKILLed child may still be mid-death on a slow box, so such
+    // stragglers are drained rather than asserted against.
+    try std.testing.expectEqual(@as(usize, 0), gc.unreaped_processes.items.len);
+    var zst: c_int = 0;
+    while (platform.waitPid(-1, &zst, platform.WNOHANG) > 0) {}
 }
 
 /// Reap any stragglers the OOM sweep left (children whose Process was
@@ -755,15 +778,174 @@ test "process: close-by-default reaches descriptors above 65536" {
     try std.testing.expect(flags >= 0);
     try std.testing.expect((flags & 1) == 0); // inheritable
 
-    // Control: the probe must DETECT an open fd, or "closed" verdicts below
-    // are vacuous (a shell that rejects multi-digit redirection fds would
-    // report every fd closed). fd 2 is inherited and certainly open.
+    // The probe cannot be a shell `<&70000` dup: FreeBSD's /bin/sh rejects
+    // the multi-digit operand outright, so it reports every high fd closed
+    // and the test would stay green with addclosefrom_np removed
+    // (kaappi#2442 review). Instead, ask the OS's own fd inventory — the
+    // per-OS spelling below is exact on the platforms this test can run on
+    // (the BSDs without such an inventory have default limits far below
+    // 70000 and skip at the dup2 above). Each probe is validated by an
+    // fd-2 control that must report OPEN before the 70000 verdict counts.
+    const probe = struct {
+        fn cmd(comptime fd_str: []const u8, comptime open_exit: []const u8, comptime closed_exit: []const u8) []const u8 {
+            const check = switch (builtin.os.tag) {
+                .macos, .ios => "[ -e /dev/fd/" ++ fd_str ++ " ]",
+                .linux => "[ -e /proc/self/fd/" ++ fd_str ++ " ]",
+                .freebsd => "procstat -f $$ 2>/dev/null | awk '$3 == " ++ fd_str ++ "' | grep -q .",
+                else => "",
+            };
+            return "(let ((p (spawn-process (list \"/bin/sh\" \"-c\" \"if " ++ check ++
+                "; then exit " ++ open_exit ++ "; else exit " ++ closed_exit ++
+                "; fi\")))) (= (process-wait p) 0))";
+        }
+    };
+    if (comptime (builtin.os.tag != .macos and builtin.os.tag != .ios and
+        builtin.os.tag != .linux and builtin.os.tag != .freebsd)) return error.SkipZigTest;
+    try expectTrue(vm, comptime probe.cmd("2", "0", "1")); // control: OPEN detected
+    try expectTrue(vm, comptime probe.cmd("70000", "1", "0")); // must be CLOSED
+}
+
+test "process: a bidirectional redirect port reconciles read-ahead before its output" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
+    const platform = @import("platform.zig");
+
+    // kaappi#2442 review: draining buffered output BEFORE rewinding the
+    // input read-ahead lands the parent's writes at the stale kernel offset
+    // (end of the read-ahead chunk) instead of the logical position. With
+    // an O_RDWR file holding ABCDEF: read A (pulling BCDEF into
+    // read-ahead), buffer X, hand the port to a child — the file must
+    // become AXCDEF (X at the logical position) and the child must read
+    // from position 2 (C), not from wherever the raw offset drifted.
+    const path = "/tmp/kaappi-bidi-2442.txt";
+    {
+        const f = std.c.open(path, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, @as(c_uint, 0o644));
+        try std.testing.expect(f >= 0);
+        _ = platform.write(f, "ABCDEF", 6);
+        _ = platform.close(f);
+    }
+    // No defer close: fd->port takes ownership of `rw`, and the collected
+    // port's sweep closes it — a second close here could hit a reused fd.
+    const rw = std.c.open(path, .{ .ACCMODE = .RDWR }, @as(c_uint, 0));
+    try std.testing.expect(rw >= 0);
+
+    const source = try std.fmt.allocPrint(std.testing.allocator,
+        \\(let* ((bp (fd->port {d}))
+        \\       (first (read-char bp)))
+        \\  (write-string "X" bp)
+        \\  (let* ((p (spawn-process '("/bin/sh" "-c" "dd bs=1 count=1 2>/dev/null")
+        \\                           'stdin: bp 'stdout: 'pipe))
+        \\         (child-first (read-line (process-stdout p)))
+        \\         (st (process-wait p)))
+        \\    (and (char=? first #\A) (equal? child-first "C") (= st 0))))
+    , .{rw});
+    defer std.testing.allocator.free(source);
+    _ = try vm.eval("(import (kaappi ffi))");
+    try expectTrue(vm, source);
+
+    var buf: [8]u8 = undefined;
+    const chk = std.c.open(path, .{ .ACCMODE = .RDONLY }, @as(c_uint, 0));
+    try std.testing.expect(chk >= 0);
+    defer _ = platform.close(chk);
+    const nread = platform.read(chk, &buf, 8);
+    try std.testing.expectEqual(@as(isize, 6), nread);
+    try std.testing.expectEqualStrings("AXCDEF", buf[0..6]);
+}
+
+test "process: the sweep's teardown drain leaves dup aliases blocking" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
+    const platform = @import("platform.zig");
+
+    // kaappi#2442 review: O_NONBLOCK lives on the shared open-file
+    // description, so the sweep's teardown flip must be undone before the
+    // close or every dup/dup2 alias of the descriptor comes out of a
+    // collection permanently non-blocking.
+    var fds: [2]platform.fd_t = .{ -1, -1 };
+    try std.testing.expectEqual(@as(c_int, 0), platform.pipe(&fds));
+    defer {
+        if (fds[0] >= 0) _ = platform.close(fds[0]);
+    }
+    const alias = platform.fcntlDupCloexec(fds[1]);
+    try std.testing.expect(alias >= 0);
+    defer _ = platform.close(alias);
+
+    const nonblock: c_int = @intCast(@as(u32, @bitCast(std.posix.O{ .NONBLOCK = true })));
+    const flags_before = std.c.fcntl(alias, std.posix.F.GETFL, @as(c_int, 0));
+    try std.testing.expect(flags_before >= 0);
+    try std.testing.expect((flags_before & nonblock) == 0);
+
+    // Wrap the write end in a port, buffer output without flushing, drop
+    // the port, and collect: the sweep drains (flipping the description
+    // non-blocking for the drain) and closes the port's fd.
+    const source = try std.fmt.allocPrint(std.testing.allocator,
+        \\(let ((p (fd->port {d}))) (write-string "x" p) #t)
+    , .{fds[1]});
+    defer std.testing.allocator.free(source);
+    _ = try vm.eval("(import (kaappi ffi))");
+    try expectTrue(vm, source);
+    fds[1] = -1; // the collected port owns and closes it
+    ctx.gc.collectFull();
+
+    const flags_after = std.c.fcntl(alias, std.posix.F.GETFL, @as(c_int, 0));
+    try std.testing.expect(flags_after >= 0);
+    try std.testing.expect((flags_after & nonblock) == 0);
+}
+
+test "process: explicit stdio self-redirect needs no spare descriptor" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    if (build_options.gc_stress) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
+    const platform = @import("platform.zig");
+
+    // kaappi#2442 review: `stdout: (current-output-port)` is explicit
+    // inheritance — source fd == destination slot — and must not require a
+    // staging duplicate, or it fails under a full fd table where the plain
+    // default succeeds. Starve the PARENT's table by lowering the soft
+    // limit to a still-comfortable 256 and filling it with CLOEXEC
+    // /dev/null descriptors until EMFILE. Lowering alone to "zero free"
+    // would also starve the CHILD's exec — dyld aborts when it cannot open
+    // the image, measured as (signaled . 6) — but at 256 the child is
+    // unaffected: its exec closes every CLOEXEC fill fd first, and its own
+    // opens land at small numbers far below the limit.
+    const old = std.posix.getrlimit(.NOFILE) catch return error.SkipZigTest;
+    if (old.cur > 256) {
+        std.posix.setrlimit(.NOFILE, .{ .cur = 256, .max = old.max }) catch return error.SkipZigTest;
+    }
+    defer std.posix.setrlimit(.NOFILE, old) catch {};
+    var fill: std.ArrayList(platform.fd_t) = .empty;
+    defer {
+        for (fill.items) |f| _ = platform.close(f);
+        fill.deinit(std.testing.allocator);
+    }
+    var filled_up = false;
+    while (fill.items.len < 65536) {
+        const f = std.c.open("/dev/null", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, @as(c_uint, 0));
+        if (f < 0) {
+            filled_up = true;
+            break;
+        }
+        fill.append(std.testing.allocator, f) catch {
+            _ = platform.close(f);
+            break;
+        };
+    }
+    if (!filled_up) return error.SkipZigTest; // could not exhaust the table
+
+    // Control: a staged duplicate is impossible right now.
+    try std.testing.expect(platform.dupCloexecAtLeast(1, 3) < 0);
+
     try expectTrue(vm,
-        \\(let ((p (spawn-process '("/bin/sh" "-c" "if (eval \": <&2\") 2>/dev/null; then exit 0; else exit 1; fi"))))
-        \\  (= (process-wait p) 0))
-    );
-    try expectTrue(vm,
-        \\(let ((p (spawn-process '("/bin/sh" "-c" "if (eval \": <&70000\") 2>/dev/null; then exit 1; else exit 0; fi"))))
+        \\(let ((p (spawn-process '("true") 'stdout: (current-output-port))))
         \\  (= (process-wait p) 0))
     );
 }

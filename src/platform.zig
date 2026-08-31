@@ -193,15 +193,27 @@ pub fn getFdFlags(fd: fd_t) c_int {
     return fcntlRaw(fd, F_GETFD, 0);
 }
 
-/// Set O_NONBLOCK on an fd about to be closed, so a final best-effort drain
-/// gets EAGAIN instead of blocking (the GC sweep's port flush — a collector
-/// must never wedge on a full pipe, kaappi#2442). POSIX only; best-effort.
-pub fn setFdNonblockingForTeardown(fd: fd_t) bool {
-    if (comptime is_wasm or is_windows) return false;
+/// Set O_NONBLOCK on an fd so a final best-effort drain gets EAGAIN instead
+/// of blocking (the GC sweep's port flush — a collector must never wedge on
+/// a full pipe, kaappi#2442). Returns the PRIOR status flags so the caller
+/// can restore them: O_NONBLOCK lives on the shared open-file description,
+/// and dup/dup2 aliases of this fd — a child's stdio, an `fd->port` twin —
+/// would otherwise be left permanently non-blocking (kaappi#2442 review).
+/// Null when the flags cannot be read or set; the caller must then skip its
+/// blocking-capable drain rather than fall through.
+pub fn setFdNonblockingForTeardown(fd: fd_t) ?c_int {
+    if (comptime is_wasm or is_windows) return null;
     const flags = std.c.fcntl(fd, std.posix.F.GETFL, @as(c_int, 0));
-    if (flags < 0) return false;
+    if (flags < 0) return null;
     const nonblock: c_int = @intCast(@as(u32, @bitCast(std.posix.O{ .NONBLOCK = true })));
-    return std.c.fcntl(fd, std.posix.F.SETFL, flags | nonblock) >= 0;
+    if (std.c.fcntl(fd, std.posix.F.SETFL, flags | nonblock) < 0) return null;
+    return flags;
+}
+
+/// Restore fcntl status flags saved by setFdNonblockingForTeardown.
+pub fn restoreFdStatusFlags(fd: fd_t, flags: c_int) void {
+    if (comptime is_wasm or is_windows) return;
+    _ = std.c.fcntl(fd, std.posix.F.SETFL, flags);
 }
 
 /// dup(2), except the copy is close-on-exec (fcntl F_DUPFD_CLOEXEC, the

@@ -35,11 +35,19 @@ FAIL=0
 ok()   { echo "PASS: $1"; PASS=$((PASS + 1)); }
 bad()  { echo "FAIL: $1"; FAIL=$((FAIL + 1)); }
 
-# The library gate: exit 77 (suite SKIP) on targets without (kaappi process).
-printf '(cond-expand ((library (kaappi process)) (exit 0)) (else (exit 1)))\n' > "$DIR/gate.scm"
-if ! "$KAAPPI" "$DIR/gate.scm" >/dev/null 2>&1; then
+# The library gate: exit 77 (suite SKIP) only on the DISTINCT status the
+# gate program reserves for "library absent" — any other failure (a broken
+# binary, a startup error) must fail the suite, not silently skip all three
+# regressions (kaappi#2442 review).
+printf '(import (scheme base) (scheme process-context))\n(cond-expand ((library (kaappi process)) (exit 0)) (else (exit 9)))\n' > "$DIR/gate.scm"
+gate_status=0
+"$KAAPPI" "$DIR/gate.scm" >/dev/null 2>&1 || gate_status=$?
+if [[ "$gate_status" -eq 9 ]]; then
     echo "SKIP: (kaappi process) not available on this target"
     exit 77
+elif [[ "$gate_status" -ne 0 ]]; then
+    echo "FAIL: gate program exited $gate_status (neither available nor the absent marker)"
+    exit 1
 fi
 
 # --- 1. 'inherit passes the parent's stdio through, with real content -------
