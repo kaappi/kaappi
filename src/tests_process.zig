@@ -672,18 +672,39 @@ test "process: spawn failure paths leak no descriptors (OOM sweep)" {
         }
     }.count;
 
-    const src =
-        \\(let ((p (spawn-process '("true") 'stdin: 'pipe 'stdout: 'pipe 'stderr: 'pipe)))
-        \\  (process-wait p) #t)
-    ;
+    // Compile the spawn once; the sweep then re-evals only a tiny call, so
+    // nearly all of each iteration's countdown budget lands inside the
+    // spawn path itself — denser failure-point coverage AND an order of
+    // magnitude less work per iteration, which is what keeps the emulated
+    // QEMU CI legs (riscv64/s390x/ppc64le) inside their job budget.
+    _ = try vm.eval(
+        \\(define (kaappi-oom-spawn-2442)
+        \\  (let ((p (spawn-process '("true") 'stdin: 'pipe 'stdout: 'pipe 'stderr: 'pipe)))
+        \\    (process-wait p) #t))
+    );
+    const src = "(kaappi-oom-spawn-2442)";
     // Baseline: one full run so lazily-created infrastructure (reactor fds,
-    // caches) exists before the count is taken.
+    // caches) exists before the count is taken — armed with a huge countdown
+    // whose remainder measures the call's TOTAL GC-allocation count, so the
+    // sweep below covers exactly the failure window and not one iteration
+    // more (every iteration past it is a full successful spawn that asserts
+    // nothing and, under the QEMU CI legs, costs real wall clock).
+    gc.oom_countdown = 100_000;
     _ = try vm.eval(src);
+    const total: u32 = @intCast(100_000 - (gc.oom_countdown orelse 0));
+    gc.oom_countdown = null;
+    // Sanity: a collapsed measurement (counting broken, or the call never
+    // reaching the spawn) would silently shrink the sweep to nothing. The
+    // real window is small by design — the compiled call's GC allocations
+    // are essentially just the Process, its ports, and the status decode —
+    // so the floor only guards against zero-shaped breakage.
+    try std.testing.expect(total >= 4);
     gc.collectFull();
     const before = countFds();
 
+    const upper = @min(total + 8, 250);
     var n: u32 = 0;
-    while (n < 400) : (n += 1) {
+    while (n < upper) : (n += 1) {
         gc.oom_countdown = n;
         _ = vm.eval(src) catch {};
         gc.oom_countdown = null;
