@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788108095926,
+  "lastUpdate": 1788199226791,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "161e142d969226ade12c53dc9628273c68d0d531",
-          "message": "Fix c64/c128 zero-imaginary decode and complex hashing; pin #751 string->number exactness (#2261)\n\n* Normalize zero-imaginary c64/c128 elements and hash complex values\n\nTwo SRFI-160 bugs share a seam: decodeElement always materialized a\nComplex for c64/c128 elements, and number-hash could not hash one.\n\n#1951: a zero-imaginary (+0.0) element decoded to a Complex whose\nwrite output read back as a different type. decodeElement now decodes\n+0.0 imaginary to a plain real, matching make-rectangular and the\nstandalone complex printer; -0.0 keeps its sign and stays Complex.\n\n#1950: c64/c128 comparators could not hash any value because number-hash\nis abs-based and abs rejects Complex. number-hash now hashes a genuine\ncomplex by its components, so the comparator contract (equal values,\nequal hashes) holds for complex elements and default-hash handles\nstandalone complex numbers too.\n\nRegression tests: the audit file's #1950/#1951 cells are enabled, and\n#751's string->number complex exactness repros are pinned in the smoke\nsuite (the fix itself landed in #2181; the issue stayed open).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Make number-hash total over SRFI-160's element domain; pin c64 -0.0\n\nCodeRabbit review follow-ups on #2261.\n\nnumber-hash's real branch inherited the pre-existing non-finite gap\n((exact (floor +inf.0)) raises), and the new complex branch routed\nnon-finite components straight into it — so a c64/c128 comparator was\nstill unusable on a vector with an infinite component, which SRFI 160\nlegitimately allows. Non-finite reals now map to fixed buckets (NaN,\n-inf.0, +inf.0) before the floor/exact path; the = contract still holds\n(+inf.0 = +inf.0 share a bucket, +nan.0 = +nan.0 is #f).\n\nTests: non-finite hash cells (real, complex, comparator, equal-hash) and\nthe parallel c64 -0.0-imaginary round-trip test, mirroring the c128 one.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-08T17:13:05Z",
-          "tree_id": "4118253d04a41d762cc1639ac9c8af2e2e7b6bcd",
-          "url": "https://github.com/kaappi/kaappi/commit/161e142d969226ade12c53dc9628273c68d0d531"
-        },
-        "date": 1786211446497,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.990748,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.922454,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.570986,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.853252,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00494,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.045827,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.302043,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.05418,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.319378,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.179054,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.555736,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.308133,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.705362,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.780368,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044895,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044702,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ffb7d3c982447477400a22fa56e0c271f82819a0",
+          "message": "Add (kaappi process): posix_spawn subprocess support, POSIX Phase 1 (#2414) (#2442)\n\n* Add (kaappi process): posix_spawn subprocess support, POSIX Phase 1 (#2414)\n\nKEP-0022 Phase 1: a spawn-based (never fork-based) subprocess API with\nchild stdio exposed as ordinary reactor-integrated pipe ports, a new\nthread-affine Process heap type, blocking process-wait, and a\nclose-by-default fd discipline. POSIX only; reactor reaping is Phase 2\nand Windows is Phase 3, so the library is unregistered on WASM/Windows\nand (cond-expand ((library (kaappi process)) ...)) gates correctly.\n\nThis is a fresh implementation drawing on the two prior attempts (the\nreviewed PR #2441 and a follow-up iteration), and resolves all nine\nblocking review findings from #2441 — each with a regression test:\nthe glibc-2.29 comptime gate for addchdir_np (the release floor is\ngnu.2.28), real close-by-default for descriptors Kaappi itself\ninherited, POSIX_SPAWN_SETSIGDEF so children do not inherit the\nruntime's SIGPIPE=SIG_IGN (whose flag VALUE is 0x10 on the BSDs, not\nthe 0x04 of macOS/glibc/musl — POSIX names the flags but not their\nvalues), registry-backed zombie reaping, cycle- and NUL-guarded\nargv/env/directory marshalling, GC quiescence around the blocking\nwaitpid on child-thread VMs, and EPIPE surfaced as a catchable\nKEP-0005 file-error on explicit writes/flushes instead of a silently\ndropped buffer.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Close the NetBSD exec-window kill race; report OpenBSD exec failures\n\nTwo platform gaps the reference-VM matrix surfaced (kaappi#2414):\n\nNetBSD's posix_spawn is an in-kernel syscall whose child completes its\nexec after the parent's call has returned, and a signal posted before\nthat exec has fully finished is dropped outright — measured at 5/40\nimmediate SIGTERMs lost, and both prior attempts' NetBSD breakage. A\nCLOEXEC-pipe EOF barrier measured insufficient (8/40 still lost: the\nkernel closes close-on-exec fds before the child's signal state is\nfinal), so spawn now waits on kqueue's NOTE_EXEC — the kernel's own\nexec-completed notification — with NOTE_EXIT and a 20 ms timeout as\nthe fallbacks. 40/40 immediate kills deliver, in 0.77 s total.\n\nOpenBSD's userland posix_spawn has no channel to report the child's\nexec failure, so spawning a missing program 'succeeded' and the child\nexited 127. A pre-flight access(X_OK) on slash-containing program\npaths raises the same errno-carrying file-error as every other\nplatform; PATH-searched bare names keep the POSIX-sanctioned fallback.\n\nVerified on the NetBSD 10.1 and OpenBSD 7.9 reference VMs: full unit\nsuite 1858/1858 on both.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Reclaim descriptors via GC before failing a spawn pipe (#1993 parity)\n\nThe openbsd-test CI leg's low ulimit -n caught the spawn-loop rooting\ntest raising 'cannot create stdout pipe' partway through: a program\nthat abandons process handles faster than the GC's allocation-count\nthreshold trips leaves their parent-end pipe fds open until a\ncollection, and spawn's pipe(2) lacked the EMFILE/ENFILE recovery\nopen(2) has had since #2324 — collect once, retry once.\n\nThe new regression lowers RLIMIT_NOFILE to a small headroom above the\nfds already open and burns three pipes per spawn so exhaustion arrives\nwell before a natural collection could mask it; mutation-verified (the\ntest fails with the retry disabled).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address kaappi#2442 review: real F_DUPFD_CLOEXEC values, no spawn-path panic\n\nFive review fixes and one decline:\n\n- platform.fcntlDupCloexec hardcoded fcntl command 6, which is not\n  F_DUPFD_CLOEXEC on any target (macOS: F_SETOWN, Linux: F_SETLK), so\n  the dup silently never happened and thottam's failed-execve\n  diagnostic (#2152) wrote to an invalid descriptor. The command now\n  comes from std.c's per-target F table, with the value OpenBSD's\n  entry omits (10, in the OS since 5.0) supplied explicitly.\n- allocProcess reserves the unreaped-list slot before creating the\n  Process, so list-growth OOM raises through the existing error union\n  instead of aborting the VM from a user-reachable path.\n- The close-by-default BSD fallback probes the descriptor range inline\n  instead of materializing up to 65k entries per spawn; the ArrayList\n  remains only for the genuinely sparse /proc/self/fd listing.\n- ignoreSigpipe upgrades only a SIG_DFL disposition, preserving an\n  embedder's own SIGPIPE handler (their handler still sees the signal\n  and the write still returns EPIPE).\n- docs/dev/architecture.md primitive-file count 31 -> 32; a test\n  comment that contradicted its own assertion rewritten.\n\nDeclined: splitting primitives_io.zig — the file-size policy exempts\nprimitives files' breadth, and 2391 of its 2450 lines predate this PR.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Harden the spawn stdio plumbing per the kaappi#2442 deep review\n\nTen reviewer findings, each reproduced on a reference machine, plus one\nCodeRabbit errno nit — all with regression tests:\n\n- Pipe ends handed back in 0..2 (launcher closed a std stream) corrupted\n  the slot actions; both ends are now lifted above the stdio range via\n  F_DUPFD_CLOEXEC before any action names them.\n- Darwin's POSIX_SPAWN_CLOEXEC_DEFAULT closes even fds 0..2 unless an\n  action references them, so a plain 'inherit spawn lost all three\n  streams; each open inherited slot now gets addinherit_np. Fixing this\n  exposed that the fd-hygiene scan's own probe shell parks the (now\n  live) stdin at its fd-10 save slot during  redirection — the\n  probes close stdin up front so they cannot detect their own\n  bookkeeping.\n- File actions run sequentially in the child, so a stdout/stderr swap\n  through low-fd caller ports read slots an earlier dup2 had already\n  rewritten; low redirect sources are staged into >= 3 CLOEXEC dups.\n- posix_spawn_file_actions_init / posix_spawnattr_init returns were\n  ignored; both are checked and destroy arms only after success. All\n  action/attr failures now report the RETURNED error number — these\n  functions do not set errno.\n- An input redirect port's software read-ahead left the kernel offset\n  past the logical position; seekable fds are rewound by the pending\n  count, unseekable ones with pending bytes are rejected.\n- The post-spawn success flag disarmed all fd cleanup before three\n  fallible allocations; cleanup now stays armed with per-slot ownership\n  transfer, and the one untracked-child OOM path kills and reaps the\n  fresh child. A 400-point oom_countdown sweep asserts descriptor\n  balance across every failure point.\n- tests/scheme/process was missing from run-all.sh's reachability/\n  verdict inventories and from the gc-stress suite runner (which also\n  never exported KAAPPI, silently skipping the child-script round trip).\n- The close-by-default scan's 65536 cap exempted valid high fds\n  (FreeBSD reference VM runs RLIMIT_NOFILE=117153): FreeBSD now uses\n  addclosefrom_np(3) — kernel-side, unbounded — and the NetBSD/OpenBSD\n  scan runs to the full soft limit.\n- A child-thread VM blocking in the vfork-style spawn (or the NetBSD\n  exec barrier) starved parent collections; the spawn stretch now uses\n  the same setCollectionInNative protocol as process-wait.\n- The GC sweep's best-effort port flush used a BLOCKING write, so\n  collecting an abandoned pipe port with pending output against a\n  child that never reads wedged the collector; the fd is flipped\n  O_NONBLOCK for the teardown drain (a no-op for regular files, whose\n  flush still completes).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Right-size the spawn OOM sweep for the emulated CI legs\n\nriscv64-test hit its 30-minute job budget: the OOM sweep's 400\nblind-countdown evals each recompiled the spawn expression and, past\nthe failure window, performed a full spawn+wait — expensive under\nQEMU. The spawn is now compiled once and the sweep measures the\ncall's actual GC-allocation count (a huge-countdown dry run), covering\nexactly the failure window (~14 iterations) instead of hundreds of\nasserting-nothing successes. Mutation-verified at the new size:\ndisabling the fd-cleanup defer fails the sweep with 3 leaked\ndescriptors per injected failure.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Close the round-3 kaappi#2442 review findings on the spawn plumbing\n\nSix reviewer findings plus three CodeRabbit items, each with a\nregression (and the two behavioral ones mutation-verified locally, the\nFreeBSD one mutation-verified on the reference VM):\n\n- The post-spawn kill/reap covered only allocProcess failure; an\n  errdefer now spans the port constructions too, kills and reaps the\n  fresh child (blocking waitpid — no zombie window), records the\n  SIGKILL status, and drops the registry entry. The OOM sweep spawns a\n  self-killed sleep 30 instead of true, so an abandoned live child is\n  visible, and asserts the registry empties.\n- parseRedir reconciles input read-ahead BEFORE draining buffered\n  output: on a bidirectional port the old order wrote the parent's\n  buffer at the stale read-ahead offset (ABCDEF became ABCDEFX; now\n  AXCDEF, and the child reads from the logical position).\n- The sweep's teardown O_NONBLOCK flip mutates the shared open-file\n  description; the prior flags are now restored before the close so\n  dup/dup2 aliases stay blocking, and a failed flip skips the\n  blocking-capable drain instead of falling through.\n- The high-fd close test's shell <&70000 probe was vacuous on FreeBSD\n  (its sh rejects the operand); the probe now asks the OS's own fd\n  inventory (procstat / /proc/self/fd / /dev/fd) with an fd-2 control,\n  and fails on the FreeBSD VM when addclosefrom_np is disabled with\n  the old cap restored.\n- Staging is skipped when a redirect source already equals its slot:\n  dup2(n,n) is collision-free and still names the fd for Darwin's\n  CLOEXEC_DEFAULT, so explicit stdio inheritance works under a full\n  fd table (tested by filling to EMFILE at a lowered-but-comfortable\n  limit — zero-free rlimit starves the CHILD's exec instead, aborting\n  dyld as (signaled . 6)).\n- FreeBSD's initializers return -1 with the error in errno; negative\n  init results are normalized from errno before raising.\n- The fallback scan's limit is clamped to maxInt(fd_t) (overflow, not\n  coverage); the sweep-flush test sizes fit 16 KiB fixed pipes while\n  still overfilling 64 KiB ones; the stdio shell suite's gate uses a\n  dedicated absent-library status so real failures cannot skip it.\n\nVerified: unit suite + run-all (2131/0) + gc-stress slice on macOS;\nFreeBSD 1866/0, NetBSD 1865/0, OpenBSD 1865/0 on the reference VMs.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address the round-4 kaappi#2442 findings without touching shared fd state\n\nFive reviewer findings, three of which were the failing CI legs:\n\n- The GC sweep no longer toggles O_NONBLOCK at all: the flag lives on\n  the shared open-file description, so even a save/restore leaves\n  dup/dup2 aliases transiently non-blocking and can overwrite their\n  concurrent flag changes. The teardown drain is gated on seekability\n  instead — a seekable fd is a regular file whose blocking write\n  completes without a peer (preserving the historical flush-on-collect\n  for file ports), while pipes/sockets/FIFOs/ttys drop their remainder\n  outright, per the best-effort contract.\n- killAndReapFresh checks the kill result before any blocking wait,\n  publishes a child-thread VM via setCollectionInNative around the\n  reap (the #1933 protocol), and reports failure so the errdefer keeps\n  the registry entry for the WNOHANG sweeps instead of forgetting the\n  pid.\n- The EMFILE-fill self-redirect test skips when a plain spawn cannot\n  survive the full table — QEMU binfmt needs a spare descriptor to\n  load the interpreter, which is why riscv64-test, ppc64le-test and\n  s390x-test all failed in it — while real kernels keep the full\n  assertion behind the staging-impossible control.\n- The OOM sweep's registry assertion runs BEFORE collectFull (which\n  would drop an unreachable Process whose child still lives), and the\n  epilogue requires a bounded transition to waitpid ECHILD, failing on\n  a persistent still-running child. Mutation-verified: no-op'ing the\n  errdefer fails with three abandoned registry entries.\n- The sweep-bound test's flushed prefill drops to 4096 bytes (at most\n  one pipe page even under Linux's per-user pipe-page soft limit) with\n  a 68000-byte unflushed tail.\n\nVerified: unit suite + run-all 2131/0 on macOS; FreeBSD 1866/0.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-31T22:52:56+05:30",
+          "tree_id": "90480f990a51edf114804c54bfd7392035334c8d",
+          "url": "https://github.com/kaappi/kaappi/commit/ffb7d3c982447477400a22fa56e0c271f82819a0"
+        },
+        "date": 1788199225125,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.33142,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.970907,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.562922,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.00089,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004864,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047859,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.309885,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056205,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.779145,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.220476,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.638396,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.282201,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.707016,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.643904,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04492,
             "unit": "seconds"
           }
         ]
