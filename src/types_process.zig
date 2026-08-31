@@ -15,9 +15,12 @@ pub const Process = struct {
     /// (process-kill refuses to re-signal a reaped pid -- the number may have
     /// been reused by an unrelated process).
     pid: i32,
-    /// Linux: pidfd from pidfd_open(); Windows: the process HANDLE. kqueue
-    /// platforms: always -1 (EVFILT_PROC is registered by pid, not fd).
-    /// Phase 1 leaves it -1 everywhere; Phase 2 (reactor reaping) fills it.
+    /// Linux: the pidfd from pidfd_open(), opened when a `process-wait`
+    /// registers this child with the reactor and closed when the
+    /// registration is dropped — the pidfd's lifetime IS the registration's
+    /// (Reactor.registerProcess, KEP-0022 Phase 2). Windows: the process
+    /// HANDLE (Phase 3). kqueue platforms: always -1 (EVFILT_PROC is
+    /// registered by pid, not fd).
     wait_handle: platform.fd_t = -1,
     /// The raw waitpid(2) status word once reaped; null while running. Use
     /// the decoders below to turn it into the Scheme-facing representation
@@ -35,10 +38,6 @@ pub const Process = struct {
     /// Process-group id when spawned with new-group:, else 0. Group kills
     /// signal -pgid; a lone-child kill signals pid.
     pgid: i32 = 0,
-    /// Fibers parked in process-wait (Phase 2, reactor reaping). Opaque
-    /// placeholder until then, matching the Channel.shared / FfiLibrary.handle
-    /// precedent for fields the types layer must not reach into.
-    waiters: ?*anyopaque = null,
 };
 
 // ---------------------------------------------------------------------------

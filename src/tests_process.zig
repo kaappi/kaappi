@@ -16,6 +16,7 @@ const th = @import("testing_helpers.zig");
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const build_options = @import("build_options");
+const fiber_mod = @import("fiber.zig");
 
 const is_posix = switch (builtin.os.tag) {
     .windows, .wasi => false,
@@ -995,4 +996,244 @@ test "process: the sweep stores status without an explicit wait" {
         \\  (= (process-wait p2) 0))
     );
     try expectTrue(vm, "(= (process-wait p1) 5)");
+}
+
+// ---------------------------------------------------------------------------
+// KEP-0022 Phase 2 (kaappi#2415): fiber-parking process-wait, timeout, group
+// kill. The exit-triggering idiom is `cat` on a stdin pipe — closing the pipe
+// EOFs the child, so a test controls *when* the exit happens (and from which
+// fiber) with no sleeps in the assertion path.
+// ---------------------------------------------------------------------------
+
+test "process-wait phase2: a slow child does not starve a sibling fiber" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
+
+    // The wait can only resolve after the sibling has run 11 times — it is
+    // the sibling's 11th turn that closes the child's stdin. A starved
+    // sibling (the Phase-1 blocking wait) deadlocks here instead; the
+    // counter assertion additionally pins that every turn really ran.
+    try expectTrue(vm,
+        \\(begin
+        \\  (define p (spawn-process '("cat") 'stdin: 'pipe 'stdout: 'null))
+        \\  (define counter 0)
+        \\  (spawn (lambda ()
+        \\    (let loop ((i 0))
+        \\      (set! counter (+ counter 1))
+        \\      (if (< i 10)
+        \\          (begin (yield) (loop (+ i 1)))
+        \\          (close-port (process-stdin p))))))
+        \\  (and (= 0 (process-wait p)) (>= counter 11)))
+    );
+    // The wait's reactor registration must not outlive it.
+    try std.testing.expectEqual(@as(usize, 0), vm.reactor.?.procs.count());
+    // Reaped through the reactor: the unreaped registry is empty too.
+    try std.testing.expectEqual(@as(usize, 0), ctx.gc.unreaped_processes.items.len);
+}
+
+test "process-wait phase2: timeout contract — #f, child lives, kill, final wait reaps" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
+
+    try expectTrue(vm,
+        \\(begin
+        \\  (define p (spawn-process '("/bin/sleep" "30")))
+        \\  (and (eq? #f (process-wait p 'timeout: 0.05))
+        \\       (eq? #f (process-status p))))
+    );
+    // The timed-out waiter withdrew itself: no registration, no timer left.
+    try std.testing.expectEqual(@as(usize, 0), vm.reactor.?.procs.count());
+    try std.testing.expectEqual(@as(usize, 0), vm.reactor.?.timers.count());
+    try expectTrue(vm,
+        \\(begin
+        \\  (process-kill p)
+        \\  (equal? '(signaled . 15) (process-wait p)))
+    );
+    try std.testing.expectEqual(@as(usize, 0), vm.reactor.?.procs.count());
+}
+
+test "process-wait phase2: 'timeout: #f means no timeout, and delivery wins over a generous one" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
+
+    // A 30-second timeout must not delay a prompt exit: the whole scenario
+    // (sibling closes stdin on its first turn) completes in well under it.
+    const t0 = fiber_mod.clockNs();
+    try expectTrue(vm,
+        \\(begin
+        \\  (define p (spawn-process '("cat") 'stdin: 'pipe 'stdout: 'null))
+        \\  (spawn (lambda () (close-port (process-stdin p))))
+        \\  (= 0 (process-wait p 'timeout: 30)))
+    );
+    const elapsed = fiber_mod.clockNs() - t0;
+    try std.testing.expect(elapsed < 20 * std.time.ns_per_s);
+    try std.testing.expectEqual(@as(usize, 0), vm.reactor.?.timers.count());
+
+    // timeout: #f = wait forever (the timeoutToDeadlineNs convention).
+    try expectTrue(vm,
+        \\(begin
+        \\  (define p2 (spawn-process '("cat") 'stdin: 'pipe 'stdout: 'null))
+        \\  (spawn (lambda () (close-port (process-stdin p2))))
+        \\  (= 0 (process-wait p2 'timeout: #f)))
+    );
+}
+
+test "process-wait phase2: a dispatched fiber flat-parks and is woken by the exit" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
+
+    // f parks on its first dispatch (the child is still alive); g's fifth
+    // turn triggers the exit. Both waiters of p see the same stored status —
+    // the reactor reaps once and wakes everyone.
+    try expectTrue(vm,
+        \\(begin
+        \\  (define p (spawn-process '("cat") 'stdin: 'pipe 'stdout: 'null))
+        \\  (define f1 (spawn (lambda () (process-wait p))))
+        \\  (define f2 (spawn (lambda () (process-wait p))))
+        \\  (define g (spawn (lambda ()
+        \\    (let loop ((i 0))
+        \\      (if (< i 5)
+        \\          (begin (yield) (loop (+ i 1)))
+        \\          (close-port (process-stdin p)))))))
+        \\  (and (= 0 (fiber-join f1))
+        \\       (= 0 (fiber-join f2))
+        \\       (begin (fiber-join g) #t)))
+    );
+    try std.testing.expectEqual(@as(usize, 0), vm.reactor.?.procs.count());
+}
+
+test "process-wait phase2: a dispatched fiber's timeout fires while the child lives" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
+
+    try expectTrue(vm,
+        \\(begin
+        \\  (define p (spawn-process '("/bin/sleep" "30")))
+        \\  (define f (spawn (lambda () (process-wait p 'timeout: 0.05))))
+        \\  (and (eq? #f (fiber-join f))
+        \\       (eq? #f (process-status p))))
+    );
+    try std.testing.expectEqual(@as(usize, 0), vm.reactor.?.procs.count());
+    try std.testing.expectEqual(@as(usize, 0), vm.reactor.?.timers.count());
+    try expectTrue(vm,
+        \\(begin
+        \\  (process-kill p 'signal: 9)
+        \\  (equal? '(signaled . 9) (process-wait p)))
+    );
+}
+
+test "process-wait phase2: a sibling's process-status reap wakes a parked waiter" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
+
+    // g's poll loop may be the one that reaps (tryReapOne) — the parked f
+    // must still be woken (wakeProcessWaiters), never left to a kernel event
+    // that already fired into a dropped registration.
+    try expectTrue(vm,
+        \\(begin
+        \\  (define p (spawn-process '("cat") 'stdin: 'pipe 'stdout: 'null))
+        \\  (define f (spawn (lambda () (process-wait p))))
+        \\  (define g (spawn (lambda ()
+        \\    (let loop ((i 0))
+        \\      (cond ((process-status p) 'saw-it)
+        \\            (else (when (= i 5) (close-port (process-stdin p)))
+        \\                  (yield)
+        \\                  (loop (+ i 1))))))))
+        \\  (and (= 0 (fiber-join f)) (eq? 'saw-it (fiber-join g))))
+    );
+    try std.testing.expectEqual(@as(usize, 0), vm.reactor.?.procs.count());
+}
+
+test "process-wait phase2: group kill reaches the child's own child" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
+
+    const platform = @import("platform.zig");
+    // The shell backgrounds a sleeper (its own child, same fresh process
+    // group), reports the grandchild's pid, and waits. `group: #t` must
+    // bring down both — the grandchild's death is observed from out here via
+    // kill(gpid, 0) turning ESRCH once init reaps it.
+    const gpid_val = try vm.eval(
+        \\(begin
+        \\  (define p (spawn-process '("/bin/sh" "-c" "sleep 30 & echo $!; wait")
+        \\                           'stdout: 'pipe 'new-group: #t))
+        \\  (string->number (read-line (process-stdout p))))
+    );
+    const gpid: i32 = @intCast(types.toFixnum(gpid_val));
+    try std.testing.expect(gpid > 0);
+    // The grandchild exists right now (the shell printed its pid).
+    try std.testing.expectEqual(@as(c_int, 0), platform.procKill(gpid, 0));
+
+    try expectTrue(vm,
+        \\(begin
+        \\  (process-kill p 'group: #t)
+        \\  (let ((st (process-wait p)))
+        \\    (or (pair? st) (integer? st))))
+    );
+
+    // The grandchild dies with the group; once init reaps it, signaling it
+    // reports ESRCH. Bounded: a surviving grandchild fails the test at the
+    // deadline (and its 30-second sleep ends it soon after regardless).
+    const deadline = fiber_mod.clockNs() + 10 * std.time.ns_per_s;
+    while (platform.procKill(gpid, 0) == 0) {
+        if (fiber_mod.clockNs() > deadline) return error.GrandchildSurvivedGroupKill;
+        platform.sleepNs(10 * std.time.ns_per_ms);
+    }
+}
+
+test "process-wait phase2: re-waiting a reactor-reaped process returns the stored status" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
+
+    try expectTrue(vm,
+        \\(begin
+        \\  (define p (spawn-process '("cat") 'stdin: 'pipe 'stdout: 'null))
+        \\  (spawn (lambda () (close-port (process-stdin p))))
+        \\  (and (= 0 (process-wait p))
+        \\       (= 0 (process-wait p))
+        \\       (= 0 (process-status p))))
+    );
+    try std.testing.expectEqual(@as(usize, 0), ctx.gc.unreaped_processes.items.len);
+}
+
+test "process-wait phase2: option errors are loud" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
+
+    try expectTrue(vm,
+        \\(begin
+        \\  (define p (spawn-process '("true")))
+        \\  (define (bad thunk) (guard (e (#t #t)) (thunk) #f))
+        \\  (and (bad (lambda () (process-wait p 'timeout:)))
+        \\       (bad (lambda () (process-wait p 'nonsense: 1)))
+        \\       (bad (lambda () (process-wait p 'timeout: 'soon)))
+        \\       (begin (process-wait p) #t)))
+    );
 }

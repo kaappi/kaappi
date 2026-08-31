@@ -869,3 +869,183 @@ test "#2395: a ring is a real OS event that ends a blocking reactor poll" {
     // wait()): it is a wakeup, never a runnable fiber.
     try std.testing.expectEqual(@as(usize, 0), ready.items.len);
 }
+
+// ---------------------------------------------------------------------------
+// Child-exit readiness (KEP-0022 Phase 2, kaappi#2415). Real children via
+// std.process.Child (spawn only — the reactor must reap them itself, that
+// being the property under test, so no child.wait() anywhere). Fake Process
+// values are stack locals like the fake Fibers above: the reactor reads
+// pid/wait_handle/status and never touches the header. `memory.gc_instance`
+// is nulled per test — an earlier VM test's TestContext.deinit leaves the
+// threadlocal dangling (the documented footgun), and the reactor's reap path
+// consults it for the unreaped-registry removal.
+// ---------------------------------------------------------------------------
+
+const types_mod = @import("types.zig");
+const memory_mod = @import("memory.zig");
+
+/// fork() a bare child (the std.process.Child API is Io-based in Zig 0.16;
+/// raw fork is the thottam_proc precedent). `.sleeper` loops until the test
+/// kills it; `.exit_now` _exits 0 at once — _exit, so the forked copy of the
+/// test runner never runs its own epilogue.
+fn forkChild(mode: enum { sleeper, exit_now }) i32 {
+    const pid = std.posix.system.fork();
+    std.debug.assert(pid >= 0);
+    if (pid == 0) {
+        if (mode == .sleeper) {
+            while (true) platform.sleepNs(std.time.ns_per_s);
+        }
+        std.c._exit(0);
+    }
+    return @intCast(pid);
+}
+
+test "kaappi#2415: child exit wakes the parked waiter and reaps at the reactor" {
+    if (comptime !reactor_mod.supports_process_watch) return error.SkipZigTest;
+    memory_mod.gc_instance = null;
+    var reactor = try Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+
+    const pid = forkChild(.sleeper);
+    var proc: types_mod.Process = .{ .header = undefined, .pid = pid };
+    var fiber: Fiber = undefined;
+    fiber.status = .waiting;
+
+    try reactor.registerProcess(&proc, &fiber);
+    // A watched process is a pending wakeup: the deadlock detector must not
+    // read this reactor as empty.
+    try std.testing.expect(!reactor.isEmpty());
+    // Re-registration of the same waiter is idempotent.
+    try reactor.registerProcess(&proc, &fiber);
+
+    try std.testing.expectEqual(@as(c_int, 0), platform.procKill(pid, 9));
+
+    var ready = newReady();
+    defer ready.deinit(std.testing.allocator);
+    try pollUntilReady(&reactor, &ready, poll_retry_bound_ns);
+
+    try std.testing.expectEqual(@as(usize, 1), ready.items.len);
+    try std.testing.expectEqual(&fiber, ready.items[0]);
+    // Reaped at the reactor, exactly once: status stored...
+    try std.testing.expect(proc.status != null);
+    try std.testing.expect(types_mod.ifWaitSignaled(proc.status.?));
+    try std.testing.expectEqual(@as(u32, 9), types_mod.waitTermSig(proc.status.?));
+    // ...registration dropped (and, on Linux, the pidfd closed with it)...
+    try std.testing.expectEqual(@as(usize, 0), reactor.procs.count());
+    try std.testing.expectEqual(@as(platform.fd_t, -1), proc.wait_handle);
+    try std.testing.expect(reactor.isEmpty());
+    // ...and nothing left for a second waitpid to find.
+    var st: c_int = 0;
+    try std.testing.expect(platform.waitPid(pid, &st, platform.WNOHANG) < 0);
+}
+
+test "kaappi#2415: every waiter parked on one child is woken by its exit" {
+    if (comptime !reactor_mod.supports_process_watch) return error.SkipZigTest;
+    memory_mod.gc_instance = null;
+    var reactor = try Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+
+    const pid = forkChild(.sleeper);
+    var proc: types_mod.Process = .{ .header = undefined, .pid = pid };
+    var fiber_a: Fiber = undefined;
+    fiber_a.status = .waiting;
+    var fiber_b: Fiber = undefined;
+    fiber_b.status = .waiting;
+
+    try reactor.registerProcess(&proc, &fiber_a);
+    try reactor.registerProcess(&proc, &fiber_b);
+    try std.testing.expectEqual(@as(c_int, 0), platform.procKill(pid, 9));
+
+    var ready = newReady();
+    defer ready.deinit(std.testing.allocator);
+    try pollUntilReady(&reactor, &ready, poll_retry_bound_ns);
+
+    try std.testing.expectEqual(@as(usize, 2), ready.items.len);
+    const both = (ready.items[0] == &fiber_a and ready.items[1] == &fiber_b) or
+        (ready.items[0] == &fiber_b and ready.items[1] == &fiber_a);
+    try std.testing.expect(both);
+    try std.testing.expectEqual(@as(usize, 0), reactor.procs.count());
+}
+
+test "kaappi#2415: the last waiter's withdrawal drops the registration" {
+    if (comptime !reactor_mod.supports_process_watch) return error.SkipZigTest;
+    memory_mod.gc_instance = null;
+    var reactor = try Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+
+    const pid = forkChild(.sleeper);
+    var proc: types_mod.Process = .{ .header = undefined, .pid = pid };
+    var fiber_a: Fiber = undefined;
+    fiber_a.status = .waiting;
+    var fiber_b: Fiber = undefined;
+    fiber_b.status = .waiting;
+
+    try reactor.registerProcess(&proc, &fiber_a);
+    try reactor.registerProcess(&proc, &fiber_b);
+    reactor.removeProcessWaiter(&proc, &fiber_a);
+    try std.testing.expectEqual(@as(usize, 1), reactor.procs.count());
+    reactor.removeProcessWaiter(&proc, &fiber_b);
+    // "armed <=> a waiter is parked": no waiters, no registration, and the
+    // reactor reads empty again (Linux: the pidfd went with it).
+    try std.testing.expectEqual(@as(usize, 0), reactor.procs.count());
+    try std.testing.expectEqual(@as(platform.fd_t, -1), proc.wait_handle);
+    try std.testing.expect(reactor.isEmpty());
+
+    // Clean up the sleeper ourselves — nothing watches it any more.
+    _ = platform.procKill(pid, 9);
+    var st: c_int = 0;
+    while (platform.waitPid(pid, &st, 0) != pid) {}
+}
+
+test "kaappi#2415: registering an already-reaped child fails cleanly" {
+    if (comptime !reactor_mod.supports_process_watch) return error.SkipZigTest;
+    memory_mod.gc_instance = null;
+    var reactor = try Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+
+    const pid = forkChild(.exit_now);
+    var st: c_int = 0;
+    while (platform.waitPid(pid, &st, 0) != pid) {} // reap it first
+
+    var proc: types_mod.Process = .{ .header = undefined, .pid = pid };
+    var fiber: Fiber = undefined;
+    fiber.status = .waiting;
+    // EVFILT_PROC EV_ADD and pidfd_open both refuse a reaped pid (ESRCH) —
+    // the primitive layer closes this race with its own WNOHANG probe. What
+    // matters here is that the failure leaves no registration behind.
+    try std.testing.expectError(error.Unexpected, reactor.registerProcess(&proc, &fiber));
+    try std.testing.expectEqual(@as(usize, 0), reactor.procs.count());
+    try std.testing.expect(reactor.isEmpty());
+}
+
+test "kaappi#2415: an exited-but-unreaped child resolves promptly or refuses the arm" {
+    if (comptime !reactor_mod.supports_process_watch) return error.SkipZigTest;
+    memory_mod.gc_instance = null;
+    var reactor = try Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+
+    const pid = forkChild(.exit_now);
+    // Wait for the exit WITHOUT reaping: poll the zombie via kill(pid, 0)
+    // staying deliverable while waitpid is never called.
+    platform.sleepNs(50 * std.time.ns_per_ms);
+
+    var proc: types_mod.Process = .{ .header = undefined, .pid = pid };
+    var fiber: Fiber = undefined;
+    fiber.status = .waiting;
+    // Platform-dependent split, both acceptable and both handled by the
+    // primitive layer: Linux's pidfd_open on a zombie succeeds and the pidfd
+    // is immediately readable; a kqueue EV_ADD on one either delivers
+    // NOTE_EXIT at once or refuses with ESRCH. What must never happen is a
+    // successful registration that then never fires.
+    if (reactor.registerProcess(&proc, &fiber)) |_| {
+        var ready = newReady();
+        defer ready.deinit(std.testing.allocator);
+        try pollUntilReady(&reactor, &ready, 5 * std.time.ns_per_s);
+        try std.testing.expectEqual(@as(usize, 1), ready.items.len);
+        try std.testing.expect(proc.status != null);
+    } else |_| {
+        try std.testing.expectEqual(@as(usize, 0), reactor.procs.count());
+        var st: c_int = 0;
+        try std.testing.expectEqual(pid, platform.waitPid(pid, &st, 0));
+    }
+}

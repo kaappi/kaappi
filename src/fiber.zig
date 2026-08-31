@@ -678,7 +678,11 @@ pub const FiberScheduler = struct {
     /// I/O waiter to short-circuit on.
     fn anyIoWaiting(self: *FiberScheduler) bool {
         const reactor = self.vm.reactor orelse return false;
-        return reactor.regs.count() != 0;
+        // Watched processes count too (KEP-0022 Phase 2): their exit events
+        // arrive through the same poll, and a busy sibling that never lets
+        // the scheduler go idle would otherwise keep a parked process-wait
+        // from ever being resolved by the per-tick poll(0).
+        return reactor.regs.count() != 0 or reactor.procs.count() != 0;
     }
 
     /// Selects the next `created`/`suspended` fiber to dispatch, or null if

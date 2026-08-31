@@ -8,10 +8,15 @@
 //! There is no fork anywhere and no pre-exec hook; every knob between spawn
 //! and exec is a named option.
 //!
-//! Phase boundaries: reactor child-exit readiness, fiber-parking
-//! `process-wait` with timeouts, and group-kill tests are Phase 2; Windows
-//! (CreateProcess + Job Objects) is Phase 3. On those targets this module is
-//! not registered at all, so `(library (kaappi process))` gates false.
+//! Phase 2 (kaappi#2415): `process-wait` parks the calling fiber against the
+//! reactor's child-exit readiness (kqueue EVFILT_PROC / Linux pidfd) instead
+//! of blocking the whole OS thread, with a `timeout:` option riding the
+//! reactor timer heap (Python's contract — `#f` on expiry, child lives).
+//! Reaping happens at the reactor, exactly once; the Phase-1 blocking
+//! `waitpid` survives only as the no-scheduler fallback. Windows
+//! (CreateProcess + Job Objects) is Phase 3. On targets without the library
+//! this module is not registered at all, so `(library (kaappi process))`
+//! gates false.
 //!
 //! POSIX-only libc surface lives here, naked: this file is referenced by
 //! `primitives.all_specs` only on POSIX targets, so none of it is analyzed
@@ -26,6 +31,8 @@ const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
 const primitives_io = @import("primitives_io.zig");
 const primitives_r7rs = @import("primitives_r7rs.zig");
+const fiber_mod = @import("fiber.zig");
+const srfi18 = @import("primitives_srfi18.zig");
 
 const Value = types.Value;
 const PrimitiveError = primitives.PrimitiveError;
@@ -323,8 +330,33 @@ fn sweepUnreaped(gc: *GC) void {
         if (r == proc.pid) {
             proc.status = @bitCast(@as(u32, @bitCast(st)));
             _ = gc.unreaped_processes.swapRemove(i);
+            // A reap outside the reactor must still deliver the wakeup the
+            // reactor's exit event would have (Phase 2): a fiber parked in
+            // process-wait on this child learns of the exit from the stored
+            // status, never from a waitpid of its own.
+            wakeProcessWaiters(proc);
         } else {
             i += 1;
+        }
+    }
+}
+
+/// Wake every fiber parked in `process-wait` on `proc` and drop its reactor
+/// registration — the out-of-band half of the reactor's own exit handling,
+/// for the reap paths that run outside `Reactor.poll` (`process-status`'s
+/// targeted reap, the WNOHANG sweeps). The current fiber is never in the
+/// list from its own call path (it parks only after the status checks), and
+/// a stale entry for a since-terminated fiber fails the `.waiting` guard.
+fn wakeProcessWaiters(proc: *types.Process) void {
+    const vm = vm_mod.vm_instance orelse return;
+    const reactor = vm.reactor orelse return;
+    const sched = vm.scheduler orelse return;
+    var waiters = reactor.cancelProcessWatch(proc);
+    defer waiters.deinit(reactor.allocator);
+    for (waiters.items) |f| {
+        if (f.status == .waiting) {
+            f.status = .suspended;
+            sched.markRunnable(f);
         }
     }
 }
@@ -1088,6 +1120,9 @@ fn tryReapOne(gc: *GC, proc: *types.Process) void {
     if (platform.waitPid(proc.pid, &st, platform.WNOHANG) == proc.pid) {
         proc.status = @bitCast(st);
         removeFromUnreaped(gc, proc);
+        // See sweepUnreaped: a reap outside the reactor must still wake any
+        // parked process-wait waiters.
+        wakeProcessWaiters(proc);
     }
 }
 
@@ -1111,38 +1146,39 @@ fn processStatus(args: []const Value) PrimitiveError!Value {
     return types.FALSE;
 }
 
-fn processWait(args: []const Value) PrimitiveError!Value {
-    const proc = try expectProcess("process-wait", args[0]);
-    if (args.len > 1) {
-        // 'timeout: parks a fiber against the reactor — Phase 2 (KEP-0022
-        // implementation plan). Reject it loudly here so nobody ships a
-        // busy-wait by accident.
-        if (types.isSymbol(args[1]) and std.mem.eql(u8, types.symbolName(args[1]), "timeout:")) {
-            return primitives.argError("process-wait", "timeout: arrives with the reactor-based wait (KEP-0022 Phase 2)", .{});
+/// Terminal-exit cleanup for a fiber that was (or may have been) parked in
+/// `process-wait` on `proc`: withdraws its reactor waiter entry, detaches an
+/// armed timeout timer, and clears the park fields. Every step is a guarded
+/// no-op on a fiber that never parked, so the status-return fast path calls
+/// this unconditionally — a flat-park retry woken by the exit event arrives
+/// there with `waiting_on` still set and possibly a live timer (the wake
+/// clears neither), and leaving either behind fires into whatever wait this
+/// fiber enters next (#1602's stale-timer hazard; the #2433 discipline).
+fn clearProcessParkState(proc: *types.Process, proc_val: Value) void {
+    const vm = vm_mod.vm_instance orelse return;
+    const sched = vm.scheduler orelse return;
+    const me = sched.fibers.items[sched.current_idx] orelse return;
+    if (vm.reactor) |r| {
+        r.removeProcessWaiter(proc, me);
+        if (me.waiting_on == proc_val and me.deadline_ns != null) {
+            r.removeTimer(me);
+            me.deadline_ns = null;
         }
-        return primitives.argError("process-wait", "unknown option", .{});
     }
-
-    // Already reaped (possibly by an earlier wait, a sweep, or both): the
-    // stored status is the answer.
-    if (proc.status) |st| {
-        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-        return types.decodeWaitStatus(gc, st) catch PrimitiveError.OutOfMemory;
+    if (me.waiting_on == proc_val) {
+        me.waiting_on = types.VOID;
+        // Spurious by construction here: the reactor's wake path
+        // (wakeReadyFiber) flips timed_out for every `.waiting` fiber it
+        // reports, exit events included — the status-first discipline is
+        // what distinguishes an exit from a timeout, and this clear keeps
+        // the flag from leaking into the fiber's next timed wait.
+        me.timed_out = false;
     }
+}
 
-    // Sweep first: a prior spawn/wait sweep may already hold our exit, and
-    // this is the KEP's zombie-discipline hook on the blocking wait path.
-    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    sweepUnreaped(gc);
-    if (proc.status) |st| {
-        return types.decodeWaitStatus(gc, st) catch PrimitiveError.OutOfMemory;
-    }
-
-    // Blocking reap. Phase 1 semantics: no scheduler-awareness — a fiber
-    // that waits parks the whole OS thread (Phase 2 makes this park only the
-    // fiber via reactor child-exit readiness). EINTR retries; any other
-    // failure is a real waitpid error (an ECHILD here would mean something
-    // outside Kaappi reaped our specific child).
+/// The Phase-1 blocking reap, kept verbatim as the no-scheduler fallback
+/// (and the degradation path when the reactor cannot watch this child).
+fn blockingWaitReap(gc: *GC, proc: *types.Process) PrimitiveError!Value {
     var st: c_int = 0;
     var wait_errno: c_int = 0;
     var reaped = false;
@@ -1179,7 +1215,200 @@ fn processWait(args: []const Value) PrimitiveError!Value {
     const raw: u32 = @bitCast(st);
     proc.status = raw;
     removeFromUnreaped(gc, proc);
+    wakeProcessWaiters(proc);
     return types.decodeWaitStatus(gc, raw) catch PrimitiveError.OutOfMemory;
+}
+
+/// Wait condition for the in-call scheduler drive: the child has been
+/// reaped — by the reactor's exit event, a WNOHANG sweep, or a sibling's
+/// process-status — and its status stored.
+const ProcessWait = struct {
+    proc: *types.Process,
+    pub fn isDone(self: ProcessWait) bool {
+        return self.proc.status != null;
+    }
+};
+
+/// (process-wait p ['timeout: seconds])
+///
+/// Parks the calling fiber on the reactor's child-exit readiness (KEP-0022
+/// Phase 2): siblings keep running while this fiber waits. `timeout:` bounds
+/// the wait via the reactor timer heap and returns `#f` on expiry with the
+/// child still running (Python's contract); `#f` as the timeout value means
+/// no timeout. With no scheduler and no timeout the Phase-1 blocking
+/// `waitpid` fallback is unchanged. Status resolution is status-first
+/// everywhere: a stored status outranks a fired timer (delivery-wins, the
+/// channel precedent), which is also what makes the reactor's wake-all
+/// discipline safe — a woken retry consults `proc.status`, never a syscall
+/// of its own.
+fn processWait(args: []const Value) PrimitiveError!Value {
+    const proc = try expectProcess("process-wait", args[0]);
+    const proc_val = args[0];
+
+    var deadline_ns: ?u64 = null;
+    var i: usize = 1;
+    while (i < args.len) : (i += 2) {
+        if (!types.isSymbol(args[i]))
+            return primitives.argError("process-wait", "expected an option symbol like 'timeout:", .{});
+        if (i + 1 >= args.len)
+            return primitives.argError("process-wait", "option '{s}' has no value", .{types.symbolName(args[i])});
+        const opt = types.symbolName(args[i]);
+        if (std.mem.eql(u8, opt, "timeout:")) {
+            deadline_ns = try srfi18.timeoutToDeadlineNs("process-wait", args[i + 1]);
+        } else {
+            return primitives.argError("process-wait", "unknown option '{s}'", .{opt});
+        }
+    }
+
+    // Already reaped (an earlier wait, a sweep, the reactor, or a sibling's
+    // process-status): the stored status is the answer. Runs the park-state
+    // cleanup first — this is exactly where a flat-parked waiter woken by
+    // the exit event re-enters.
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    if (proc.status) |st| {
+        clearProcessParkState(proc, proc_val);
+        return types.decodeWaitStatus(gc, st) catch PrimitiveError.OutOfMemory;
+    }
+
+    // Sweep next: a prior spawn/wait sweep may already hold our exit, and
+    // this is the KEP's zombie-discipline hook on the wait path. Delivery
+    // wins over a fired timer by the same order.
+    sweepUnreaped(gc);
+    if (proc.status) |st| {
+        clearProcessParkState(proc, proc_val);
+        return types.decodeWaitStatus(gc, st) catch PrimitiveError.OutOfMemory;
+    }
+
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
+
+    // No scheduler and no timeout: the Phase-1 blocking fallback, verbatim.
+    // (With a timeout, ensureScheduler below lazily creates the scheduler +
+    // reactor and the wait resolves via the timer even with no other fiber.)
+    if (vm.scheduler == null and deadline_ns == null) {
+        return blockingWaitReap(gc, proc);
+    }
+
+    const ctx = try fiber_mod.ensureScheduler(vm);
+    const my_idx = ctx.sched.current_idx;
+    const me = ctx.sched.fibers.items[my_idx].?;
+
+    // Post-timeout redispatch of a flat-parked wait: the status checks above
+    // already gave delivery priority, so a fired timer here really is a
+    // timeout — clean up the park and report it. The child lives on.
+    if (me.waiting_on == proc_val and me.deadline_ns != null and me.timed_out) {
+        me.timed_out = false;
+        me.deadline_ns = null;
+        ctx.reactor.removeProcessWaiter(proc, me);
+        me.waiting_on = types.VOID;
+        return types.FALSE;
+    }
+
+    // Park fields first (the reactor holds `me` from registration on), then
+    // arm the kernel watch.
+    me.status = .waiting;
+    me.waiting_on = proc_val;
+    vm.gc.writeBarrier(&me.header, proc_val);
+    ctx.reactor.registerProcess(proc, me) catch |err| {
+        me.status = .running;
+        me.waiting_on = types.VOID;
+        if (err == error.OutOfMemory) return PrimitiveError.OutOfMemory;
+        // The kernel refused the watch — almost always because the child
+        // already exited (EVFILT_PROC EV_ADD and pidfd_open both fail ESRCH
+        // once the pid is reapable-or-reaped): reap it here. Anything else
+        // (an ancient Linux kernel without pidfd_open) degrades to the
+        // blocking Phase-1 path when untimed; a timed wait has no blocking
+        // analogue, so it surfaces as an error rather than a silent hang.
+        tryReapOne(gc, proc);
+        if (proc.status) |st|
+            return types.decodeWaitStatus(gc, st) catch PrimitiveError.OutOfMemory;
+        if (deadline_ns == null) return blockingWaitReap(gc, proc);
+        return raiseProcessMessage("process-wait: cannot watch process for exit readiness on this kernel");
+    };
+    // Exit-before-arm race close: an exit that beat the arm posts no kernel
+    // event, ever — the one probe after arming is what closes the window (an
+    // exit before the arm is caught here; one after it, by the event). The
+    // reap wakes every registered waiter, this fiber included; restore it.
+    tryReapOne(gc, proc);
+    if (proc.status) |st| {
+        me.status = .running;
+        me.waiting_on = types.VOID;
+        me.timed_out = false;
+        return types.decodeWaitStatus(gc, st) catch PrimitiveError.OutOfMemory;
+    }
+
+    // Dispatched fiber: the flat yield_retry park — the whole primitive
+    // re-executes on wake (see the retry paths above). Timer discipline
+    // mirrors the channel flat parks: armed once from the preserved absolute
+    // deadline, re-attached on every re-park, never extended (#1602).
+    if (my_idx != 0 and vm.dispatched_from_scheduler) {
+        if (me.deadline_ns orelse deadline_ns) |d| {
+            ctx.reactor.removeTimer(me);
+            me.deadline_ns = d;
+            ctx.reactor.addTimer(d, me) catch |err| {
+                // #2433: undo everything the park armed before returning a
+                // catchable error.
+                ctx.reactor.removeProcessWaiter(proc, me);
+                me.status = .running;
+                me.waiting_on = types.VOID;
+                me.deadline_ns = null;
+                return err;
+            };
+        }
+        vm.yield_retry = true;
+        return PrimitiveError.Yielded;
+    }
+
+    // Main fiber (or re-entrant native frames): drive the scheduler in
+    // place. Siblings run; the reactor's exit event (or the timer) resolves
+    // the wait. `.waiting` is safe here exactly as in every SRFI-18 timed
+    // wait — schedule() never picks a `.waiting` fiber, and the epilogue
+    // restores `.running`.
+    me.timed_out = false;
+    if (deadline_ns) |d| {
+        me.deadline_ns = d;
+        ctx.reactor.addTimer(d, me) catch |err| {
+            ctx.reactor.removeProcessWaiter(proc, me);
+            me.status = .running;
+            me.waiting_on = types.VOID;
+            me.deadline_ns = null;
+            return err;
+        };
+    }
+    _ = fiber_mod.runSchedulerStep(ProcessWait, .{ .proc = proc }, ctx.vm, ctx.sched, me) catch |err| {
+        // Restore every park field explicitly rather than leaning on
+        // runSchedulerStep's #2429 epilogue (#2433): its first
+        // `try saveCurrentFiber` runs before that errdefer is armed, and the
+        // epilogue never resets a mid-drive `timed_out`. OutOfMemory is
+        // catchable — a `guard` must not resume on stale park state.
+        ctx.reactor.removeProcessWaiter(proc, me);
+        me.status = .running;
+        me.timed_out = false;
+        if (deadline_ns != null) {
+            ctx.reactor.removeTimer(me);
+            me.deadline_ns = null;
+        }
+        me.waiting_on = types.VOID;
+        return err;
+    };
+    ctx.reactor.removeProcessWaiter(proc, me); // no-op if the exit event already drained it
+    if (deadline_ns != null) {
+        ctx.reactor.removeTimer(me);
+        me.deadline_ns = null;
+    }
+    me.waiting_on = types.VOID;
+    // Delivery wins: a stored status outranks a fired timer.
+    if (proc.status) |st| {
+        me.timed_out = false;
+        return types.decodeWaitStatus(gc, st) catch PrimitiveError.OutOfMemory;
+    }
+    if (me.timed_out) {
+        me.timed_out = false;
+        return types.FALSE;
+    }
+    // Unreachable while the registration exists (the reactor is never empty
+    // with a watched process, so the drive cannot conclude deadlock), kept
+    // as a loud diagnostic rather than a silent wrong answer.
+    return raiseProcessMessage("process-wait: wait ended without an exit or a timeout (internal)");
 }
 
 fn processKill(args: []const Value) PrimitiveError!Value {

@@ -29,7 +29,26 @@ const MAX_POLL_WAIT_NS: u64 = 24 * 60 * 60 * std.time.ns_per_s;
 pub const Interest = enum { read, write };
 
 /// A backend-normalized readiness result: which directions fired for `fd`.
-const ReadyEvent = struct { fd: i32, readable: bool, writable: bool };
+/// `proc` marks a child-exit event (KEP-0022 Phase 2): on kqueue, `fd` is
+/// then a *pid* (EVFILT_PROC shares no namespace with fds, so the flag is
+/// what keeps a pid from ever being read as a same-numbered descriptor); on
+/// epoll a child exit arrives as ordinary readability of the pidfd and the
+/// Reactor routes it by registry lookup instead, so the flag stays false.
+const ReadyEvent = struct { fd: i32, readable: bool, writable: bool, proc: bool = false };
+
+/// Whether this target's backend can watch a child process for exit
+/// readiness (KEP-0022 Phase 2): kqueue's EVFILT_PROC, or Linux's
+/// pidfd_open(2) registered with epoll. Windows joins in Phase 3 (process
+/// HANDLE in the polled set); WASI has no spawn at all.
+pub const supports_process_watch = switch (builtin.os.tag) {
+    .macos, .ios, .tvos, .watchos, .visionos, .freebsd, .openbsd, .netbsd, .linux => true,
+    else => false,
+};
+
+const is_kqueue_os = switch (builtin.os.tag) {
+    .macos, .ios, .tvos, .watchos, .visionos, .freebsd, .openbsd, .netbsd => true,
+    else => false,
+};
 
 const Backend = switch (builtin.os.tag) {
     .macos, .ios, .tvos, .watchos, .visionos, .freebsd, .openbsd, .netbsd => KqueueBackend,
@@ -320,10 +339,30 @@ pub fn crossThreadWaiterCount() usize {
     return wait_registry_len.load(.acquire);
 }
 
+/// Per-watched-process bookkeeping (KEP-0022 Phase 2). Mirrors `Reg`:
+/// `waiters` holds every fiber parked in `process-wait` on this child, all
+/// woken at once on exit readiness (the same wake-all discipline as fd
+/// waiters — a stale entry for a since-terminated fiber is a no-op at wake).
+/// A registration exists only while at least one fiber is parked on the
+/// process ("armed ⇔ a waiter is parked", the fd ONESHOT discipline) —
+/// `removeProcessWaiter` drops the whole registration when the last waiter
+/// withdraws, so zombie discipline for never-waited processes stays with the
+/// Phase-1 WNOHANG sweeps rather than this table pinning the Process alive.
+const ProcReg = struct {
+    proc: *types.Process,
+    waiters: std.ArrayList(*Fiber) = .empty,
+};
+
 pub const Reactor = struct {
     allocator: std.mem.Allocator,
     backend: Backend,
     regs: std.AutoHashMap(i32, Reg),
+    /// Child processes watched for exit readiness (KEP-0022 Phase 2), keyed
+    /// by the backend's own handle: the pid on kqueue (EVFILT_PROC registers
+    /// by pid), the pidfd on epoll (a real fd, so it can never collide with
+    /// a `regs` key for a *different* descriptor). Empty on every target
+    /// without process-watch support.
+    procs: std.AutoHashMap(i32, ProcReg),
     timers: TimerHeap,
     notifier: *ThreadNotifier,
 
@@ -346,6 +385,7 @@ pub const Reactor = struct {
             .allocator = allocator,
             .backend = backend,
             .regs = std.AutoHashMap(i32, Reg).init(allocator),
+            .procs = std.AutoHashMap(i32, ProcReg).init(allocator),
             .timers = .empty,
             .notifier = notifier,
         };
@@ -358,6 +398,17 @@ pub const Reactor = struct {
             reg.write_waiters.deinit(self.allocator);
         }
         self.regs.deinit();
+        // A registration surviving to reactor teardown (its fibers died with
+        // the thread) still owns backend resources — on Linux, the pidfd.
+        if (comptime supports_process_watch) {
+            var pit = self.procs.iterator();
+            while (pit.next()) |entry| {
+                self.backend.disarmProc(entry.key_ptr.*);
+                if (comptime builtin.os.tag == .linux) closePidfd(entry.value_ptr.proc);
+                entry.value_ptr.waiters.deinit(self.allocator);
+            }
+        }
+        self.procs.deinit();
         self.timers.deinit(self.allocator);
         // Order matters: flip `alive` before releasing, so a notify() that
         // wins a race against this release still observes `alive == false`
@@ -448,6 +499,169 @@ pub const Reactor = struct {
         }
     }
 
+    /// The backend handle a process is registered under: the pid on kqueue,
+    /// the pidfd on epoll (opened here on first use, stored in
+    /// `proc.wait_handle`, closed when the registration is dropped — the
+    /// pidfd's lifetime IS the registration's).
+    fn procHandleFor(self: *Reactor, proc: *types.Process) !i32 {
+        _ = self;
+        if (comptime builtin.os.tag == .linux) {
+            if (proc.wait_handle < 0) {
+                // pidfd_open fds are O_CLOEXEC by construction (man page) —
+                // no separate audit action needed. ESRCH means the child was
+                // already reaped (by a WNOHANG sweep); ENOSYS means a
+                // pre-5.3 kernel. Both surface as a registration failure the
+                // caller degrades from (blocking fallback / immediate reap).
+                const rc = linux.pidfd_open(proc.pid, 0);
+                if (linux.errno(rc) != .SUCCESS) return error.Unexpected;
+                proc.wait_handle = @intCast(rc);
+            }
+            return proc.wait_handle;
+        }
+        return proc.pid;
+    }
+
+    fn closePidfd(proc: *types.Process) void {
+        if (proc.wait_handle >= 0) {
+            _ = platform.close(proc.wait_handle);
+            proc.wait_handle = -1;
+        }
+    }
+
+    /// Registers `fiber` as parked in `process-wait` on `proc` (KEP-0022
+    /// Phase 2), arming the backend's exit watch (kqueue EVFILT_PROC +
+    /// NOTE_EXIT; epoll on a pidfd) on the first waiter. Idempotent per
+    /// (proc, fiber): a yield-retry re-park finds its own entry and returns.
+    ///
+    /// Failure leaves no registration behind (the caller's unpark cleanup
+    /// need not know how far this got). An arm failure usually means the
+    /// child already exited: an EVFILT_PROC EV_ADD on a reaped pid is ESRCH,
+    /// and pidfd_open on one likewise — the caller closes that race with a
+    /// WNOHANG reap either way, since an exit *before* the arm posts no
+    /// event and would otherwise strand the waiter forever.
+    pub fn registerProcess(self: *Reactor, proc: *types.Process, fiber: *Fiber) !void {
+        if (comptime !supports_process_watch) return error.Unexpected;
+        const handle = try self.procHandleFor(proc);
+        const gop = try self.procs.getOrPut(handle);
+        if (!gop.found_existing) {
+            gop.value_ptr.* = .{ .proc = proc };
+            self.backend.armProc(handle) catch |err| {
+                _ = self.procs.remove(handle);
+                if (comptime builtin.os.tag == .linux) closePidfd(proc);
+                return err;
+            };
+        }
+        const reg = gop.value_ptr;
+        for (reg.waiters.items) |f| {
+            if (f == fiber) return; // re-park of the same waiter
+        }
+        reg.waiters.append(self.allocator, fiber) catch |err| {
+            if (reg.waiters.items.len == 0) self.dropProcReg(handle);
+            return err;
+        };
+    }
+
+    /// Withdraws `fiber` from `proc`'s waiter list — the cleanup half for a
+    /// wait that resolves outside the exit event (a timeout, an error
+    /// unwinding the park). Dropping the last waiter drops the whole
+    /// registration, keeping "armed ⇔ a waiter is parked" true by
+    /// construction. No-op if not registered.
+    pub fn removeProcessWaiter(self: *Reactor, proc: *types.Process, fiber: *Fiber) void {
+        if (comptime !supports_process_watch) return;
+        const handle = self.findProcHandle(proc) orelse return;
+        const reg = self.procs.getPtr(handle) orelse return;
+        var i: usize = 0;
+        while (i < reg.waiters.items.len) {
+            if (reg.waiters.items[i] == fiber) {
+                _ = reg.waiters.swapRemove(i);
+            } else {
+                i += 1;
+            }
+        }
+        if (reg.waiters.items.len == 0) self.dropProcReg(handle);
+    }
+
+    /// Drops `proc`'s registration entirely and hands back its parked
+    /// waiters for the caller to wake (ownership of the list transfers; the
+    /// caller deinits it with this reactor's allocator). For reap paths
+    /// outside the reactor — `process-status`'s targeted reap and the
+    /// WNOHANG sweeps — which store the status themselves and must then
+    /// wake any parked waiters exactly as the exit event would have.
+    /// Returns an empty list when `proc` was not registered.
+    pub fn cancelProcessWatch(self: *Reactor, proc: *types.Process) std.ArrayList(*Fiber) {
+        if (comptime !supports_process_watch) return .empty;
+        const handle = self.findProcHandle(proc) orelse return .empty;
+        const kv = self.procs.fetchRemove(handle) orelse return .empty;
+        self.backend.disarmProc(handle);
+        if (comptime builtin.os.tag == .linux) closePidfd(proc);
+        return kv.value.waiters;
+    }
+
+    fn findProcHandle(self: *Reactor, proc: *types.Process) ?i32 {
+        const handle: i32 = if (comptime builtin.os.tag == .linux) proc.wait_handle else proc.pid;
+        if (handle < 0) return null;
+        const reg = self.procs.getPtr(handle) orelse return null;
+        // Defensive on kqueue, where the key is a pid the OS can recycle:
+        // never treat another Process's registration as ours.
+        if (reg.proc != proc) return null;
+        return handle;
+    }
+
+    fn dropProcReg(self: *Reactor, handle: i32) void {
+        const kv = self.procs.fetchRemove(handle) orelse return;
+        self.backend.disarmProc(handle);
+        if (comptime builtin.os.tag == .linux) closePidfd(kv.value.proc);
+        var waiters = kv.value.waiters;
+        waiters.deinit(self.allocator);
+    }
+
+    /// One child-exit readiness event (KEP-0022 Phase 2): reap at the
+    /// reactor, exactly once — `waitpid(pid, WNOHANG)`, store the raw status
+    /// word, drop the child from the heap's unreaped registry — then wake
+    /// every parked waiter and drop the registration. No SIGCHLD handler
+    /// exists anywhere, so children spawned by C FFI libraries are
+    /// unobserved and unaffected; the kernel object watched here is only
+    /// ever one of our own children.
+    fn handleProcessEvent(self: *Reactor, handle: i32, ready: *std.ArrayList(*Fiber)) !void {
+        const reg = self.procs.getPtr(handle) orelse return; // stale event
+        const proc = reg.proc;
+        // Reserved before the reap: an OOM after the status is stored (or
+        // after the kernel's ONESHOT event is consumed) but before the
+        // waiters reach `ready` would strand them forever — the same
+        // consumed-but-undelivered invariant the fd path guards above.
+        try ready.ensureUnusedCapacity(self.allocator, reg.waiters.items.len);
+        if (proc.status == null) {
+            var st: c_int = 0;
+            const r = platform.waitPid(proc.pid, &st, platform.WNOHANG);
+            if (r == proc.pid) {
+                proc.status = @bitCast(st);
+                if (memory.gc_instance) |gc| {
+                    for (gc.unreaped_processes.items, 0..) |p, i| {
+                        if (p == proc) {
+                            _ = gc.unreaped_processes.swapRemove(i);
+                            break;
+                        }
+                    }
+                }
+            } else if (r == 0) {
+                // Not reapable yet (an early/spurious notification — not
+                // observed on any backend, but NOTE_EXIT's delivery point is
+                // the kernel's business): re-arm and keep everyone parked.
+                // If even the re-arm fails, fall through and wake — the
+                // waiters' retry re-registers or reaps for itself, which
+                // beats stranding them on a dead watch.
+                rearm: {
+                    self.backend.armProc(handle) catch break :rearm;
+                    return;
+                }
+            }
+            // r < 0 (ECHILD: something outside Kaappi reaped our child):
+            // wake the waiters; their retry surfaces the waitpid error.
+        }
+        for (reg.waiters.items) |f| ready.appendAssumeCapacity(f);
+        self.dropProcReg(handle);
+    }
+
     pub fn addTimer(self: *Reactor, deadline_ns: u64, fiber: *Fiber) !void {
         try self.timers.push(self.allocator, .{ .deadline_ns = deadline_ns, .fiber = fiber });
     }
@@ -475,6 +689,10 @@ pub const Reactor = struct {
     /// un-detectable).
     pub fn isEmpty(self: *Reactor) bool {
         if (self.timers.count() != 0) return false;
+        // A watched process always has at least one parked waiter (the
+        // registration is dropped with its last waiter), and its exit is a
+        // wakeup the kernel will deliver — never a deadlock.
+        if (self.procs.count() != 0) return false;
         var it = self.regs.valueIterator();
         while (it.next()) |reg| {
             if (!reg.isEmpty()) return false;
@@ -495,6 +713,14 @@ pub const Reactor = struct {
             for (reg.write_waiters.items) |f| gc.markValue(types.makePointer(&f.header));
         }
         for (self.timers.items) |entry| gc.markValue(types.makePointer(&entry.fiber.header));
+        // KEP-0022 Phase 2: a watched Process and its parked waiters must
+        // survive collection for as long as the registration exists — the
+        // exit event dereferences both.
+        var pit = self.procs.valueIterator();
+        while (pit.next()) |preg| {
+            gc.markValue(types.makePointer(&preg.proc.header));
+            for (preg.waiters.items) |f| gc.markValue(types.makePointer(&f.header));
+        }
     }
 
     /// Blocks up to `timeout_ns` (or the nearest timer deadline, whichever
@@ -513,6 +739,21 @@ pub const Reactor = struct {
         const events = try self.backend.wait(wait_ns);
 
         for (events) |ev| {
+            // Child-exit readiness (KEP-0022 Phase 2). On kqueue the backend
+            // flags EVFILT_PROC events explicitly (their ident is a pid, not
+            // an fd); on epoll an exit is ordinary readability of the pidfd,
+            // routed here by registry lookup — a pidfd is a real descriptor,
+            // so a `procs` hit can never be some other port's fd.
+            if (comptime supports_process_watch) {
+                const is_proc_event = if (comptime is_kqueue_os)
+                    ev.proc
+                else
+                    self.procs.count() != 0 and self.procs.contains(ev.fd);
+                if (is_proc_event) {
+                    try self.handleProcessEvent(ev.fd, ready);
+                    continue;
+                }
+            }
             const reg = self.regs.getPtr(ev.fd) orelse continue; // stale event; already unregistered
 
             // Reserved up front so the drain below can't fail mid-way: a
@@ -687,6 +928,39 @@ const KqueueBackend = struct {
         try self.apply(changes[0..n]);
     }
 
+    /// Child-exit watch (KEP-0022 Phase 2): one EVFILT_PROC + NOTE_EXIT
+    /// knote, registered by pid alongside the fd knotes on the same kq.
+    /// ONESHOT for the "armed ⇔ a waiter is parked" discipline the fd path
+    /// uses; the kernel auto-deletes a PROC knote when its process is
+    /// reaped anyway. EV_ADD on an already-exited-and-reaped pid fails
+    /// ESRCH — surfaced as an error the registration caller closes with a
+    /// WNOHANG reap.
+    fn armProc(self: *KqueueBackend, pid: i32) !void {
+        var change = [1]std.c.Kevent{.{
+            .ident = @intCast(pid),
+            .filter = std.c.EVFILT.PROC,
+            .flags = std.c.EV.ADD | std.c.EV.ONESHOT,
+            .fflags = std.c.NOTE.EXIT,
+            .data = 0,
+            .udata = 0,
+        }};
+        try self.apply(change[0..1]);
+    }
+
+    fn disarmProc(self: *KqueueBackend, pid: i32) void {
+        // ENOENT is expected whenever the ONESHOT already fired or the
+        // kernel auto-deleted the knote at reap time.
+        var change = [1]std.c.Kevent{.{
+            .ident = @intCast(pid),
+            .filter = std.c.EVFILT.PROC,
+            .flags = std.c.EV.DELETE,
+            .fflags = 0,
+            .data = 0,
+            .udata = 0,
+        }};
+        self.apply(change[0..1]) catch {};
+    }
+
     fn disarmAll(self: *KqueueBackend, fd: i32) void {
         // Two independent calls, not one batched changelist: with a
         // zero-length eventlist, kevent() has nowhere to report a
@@ -730,10 +1004,18 @@ const KqueueBackend = struct {
             // before this event was posted; nothing further to do here.
             if (kev.filter == std.c.EVFILT.USER) continue;
             const fd: i32 = @intCast(kev.ident);
+            // Child-exit event (KEP-0022 Phase 2): the ident is a *pid*.
+            // Reported under its own flag so a pid can never merge with (or
+            // be merged into) a same-numbered fd's ReadyEvent slot.
+            if (kev.filter == std.c.EVFILT.PROC) {
+                self.ready[count] = .{ .fd = fd, .readable = false, .writable = false, .proc = true };
+                count += 1;
+                continue;
+            }
             const broken = (kev.flags & EV_EOF) != 0;
             const is_read = kev.filter == std.c.EVFILT.READ;
             for (self.ready[0..count]) |*re| {
-                if (re.fd == fd) {
+                if (re.fd == fd and !re.proc) {
                     if (is_read or broken) re.readable = true;
                     if (!is_read or broken) re.writable = true;
                     continue :outer;
@@ -829,6 +1111,23 @@ const EpollBackend = struct {
 
     fn disarmAll(self: *EpollBackend, fd: i32) void {
         _ = linux.epoll_ctl(self.epfd, linux.EPOLL.CTL_DEL, fd, null);
+    }
+
+    /// Child-exit watch (KEP-0022 Phase 2): the pidfd becomes readable when
+    /// the child exits, so it registers like any fd — ONESHOT, read
+    /// interest. The EEXIST retry mirrors `arm`'s: a re-registration after
+    /// a fired ONESHOT is a MOD, not an ADD.
+    fn armProc(self: *EpollBackend, pidfd: i32) !void {
+        var ev: linux.epoll_event = .{ .events = linux.EPOLL.IN | linux.EPOLL.ONESHOT, .data = .{ .fd = pidfd } };
+        var rc = linux.epoll_ctl(self.epfd, linux.EPOLL.CTL_ADD, pidfd, &ev);
+        if (linux.errno(rc) == .EXIST) {
+            rc = linux.epoll_ctl(self.epfd, linux.EPOLL.CTL_MOD, pidfd, &ev);
+        }
+        if (linux.errno(rc) != .SUCCESS) return error.Unexpected;
+    }
+
+    fn disarmProc(self: *EpollBackend, pidfd: i32) void {
+        _ = linux.epoll_ctl(self.epfd, linux.EPOLL.CTL_DEL, pidfd, null);
     }
 
     fn wait(self: *EpollBackend, timeout_ns: ?u64) ![]const ReadyEvent {

@@ -1821,12 +1821,13 @@ test "gc tracing: heap-struct field inventory is unchanged" {
     expectFields(types.TransportCell, &.{ "header", "key", "value", "broken" });
     expectFields(types.NumericVector, &.{ "header", "kind", "data" });
     // Only the three port fields are Value-bearing; pid/wait_handle/status/
-    // pgid are scalars and `waiters` is an opaque Phase-2 placeholder
-    // (KEP-0022) -- marking/sweeping obligations stop at the ports.
+    // pgid are scalars -- marking/sweeping obligations stop at the ports.
+    // The fibers parked in process-wait live in the reactor's own registry
+    // (Reactor.procs, KEP-0022 Phase 2), traced by Reactor.markRoots, not
+    // through the Process object.
     expectFields(types.Process, &.{
         "header",     "pid",         "wait_handle", "status",
         "stdin_port", "stdout_port", "stderr_port", "pgid",
-        "waiters",
     });
 
     // Satellites the switches reach *through* — the highest-risk group,
