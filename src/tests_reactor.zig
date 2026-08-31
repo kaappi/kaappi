@@ -883,6 +883,20 @@ test "#2395: a ring is a real OS event that ends a blocking reactor poll" {
 
 const types_mod = @import("types.zig");
 const memory_mod = @import("memory.zig");
+const builtin_os = @import("builtin").os.tag;
+
+/// pidfd_open(2) is ENOSYS on pre-5.3 kernels and under Rosetta's x86_64
+/// syscall translation (the podman amd64 leg). The reactor degrades to the
+/// primitive layer's polled wait there — covered by tests_process — so the
+/// kernel-watch tests below skip rather than fail.
+fn processWatchAvailable() bool {
+    if (comptime builtin_os != .linux) return true;
+    const linux_sys = std.os.linux;
+    const rc = linux_sys.pidfd_open(@intCast(linux_sys.getpid()), 0);
+    if (linux_sys.errno(rc) != .SUCCESS) return false;
+    _ = platform.close(@intCast(rc));
+    return true;
+}
 
 /// fork() a bare child (the std.process.Child API is Io-based in Zig 0.16;
 /// raw fork is the thottam_proc precedent). `.sleeper` loops until the test
@@ -902,6 +916,7 @@ fn forkChild(mode: enum { sleeper, exit_now }) i32 {
 
 test "kaappi#2415: child exit wakes the parked waiter and reaps at the reactor" {
     if (comptime !reactor_mod.supports_process_watch) return error.SkipZigTest;
+    if (!processWatchAvailable()) return error.SkipZigTest;
     memory_mod.gc_instance = null;
     var reactor = try Reactor.init(std.testing.allocator);
     defer reactor.deinit();
@@ -941,6 +956,7 @@ test "kaappi#2415: child exit wakes the parked waiter and reaps at the reactor" 
 
 test "kaappi#2415: every waiter parked on one child is woken by its exit" {
     if (comptime !reactor_mod.supports_process_watch) return error.SkipZigTest;
+    if (!processWatchAvailable()) return error.SkipZigTest;
     memory_mod.gc_instance = null;
     var reactor = try Reactor.init(std.testing.allocator);
     defer reactor.deinit();
@@ -969,6 +985,7 @@ test "kaappi#2415: every waiter parked on one child is woken by its exit" {
 
 test "kaappi#2415: the last waiter's withdrawal drops the registration" {
     if (comptime !reactor_mod.supports_process_watch) return error.SkipZigTest;
+    if (!processWatchAvailable()) return error.SkipZigTest;
     memory_mod.gc_instance = null;
     var reactor = try Reactor.init(std.testing.allocator);
     defer reactor.deinit();

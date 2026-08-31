@@ -1229,6 +1229,63 @@ const ProcessWait = struct {
     }
 };
 
+/// Registration-failure degradation: the kernel cannot watch this child
+/// (pidfd_open is ENOSYS on pre-5.3 kernels and under Rosetta's x86_64
+/// syscall translation), so poll a WNOHANG reap at a fixed cadence while
+/// parking on the reactor timer heap between probes. Sibling fibers keep
+/// running — the guarantee the blocking fallback cannot give: a program
+/// whose child exits only after a sibling acts (the starvation test's
+/// close-the-stdin idiom) would deadlock outright in a blocking waitpid.
+///
+/// Drives in place for every caller, dispatched fibers included: with no
+/// kernel event to wake a flat park, a yield-retry would need to tell its
+/// polling timer from the user's `timeout:` deadline, while a drive needs
+/// no such split — each cadence timer ends exactly one bounded park, so the
+/// #1625 unbounded-block wedge cannot arise either.
+const POLL_FALLBACK_CADENCE_NS: u64 = 20 * std.time.ns_per_ms;
+
+fn polledWait(gc: *GC, proc: *types.Process, proc_val: Value, deadline_ns: ?u64) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode;
+    const ctx = try fiber_mod.ensureScheduler(vm);
+    const me = ctx.sched.fibers.items[ctx.sched.current_idx].?;
+    while (true) {
+        tryReapOne(gc, proc);
+        if (proc.status) |st| {
+            me.timed_out = false;
+            return types.decodeWaitStatus(gc, st) catch PrimitiveError.OutOfMemory;
+        }
+        const now = fiber_mod.clockNs();
+        if (deadline_ns) |d| {
+            if (now >= d) return types.FALSE;
+        }
+        const until = if (deadline_ns) |d| @min(d, now +| POLL_FALLBACK_CADENCE_NS) else now +| POLL_FALLBACK_CADENCE_NS;
+        me.timed_out = false;
+        me.status = .waiting;
+        me.waiting_on = proc_val;
+        vm.gc.writeBarrier(&me.header, proc_val);
+        me.deadline_ns = until;
+        ctx.reactor.addTimer(until, me) catch |err| {
+            me.status = .running;
+            me.waiting_on = types.VOID;
+            me.deadline_ns = null;
+            return err;
+        };
+        _ = fiber_mod.runSchedulerStep(ProcessWait, .{ .proc = proc }, ctx.vm, ctx.sched, me) catch |err| {
+            // The #2433 unpark discipline, same as the registered path.
+            me.status = .running;
+            me.timed_out = false;
+            ctx.reactor.removeTimer(me);
+            me.waiting_on = types.VOID;
+            me.deadline_ns = null;
+            return err;
+        };
+        ctx.reactor.removeTimer(me);
+        me.deadline_ns = null;
+        me.waiting_on = types.VOID;
+        me.timed_out = false;
+    }
+}
+
 /// (process-wait p ['timeout: seconds])
 ///
 /// Parks the calling fiber on the reactor's child-exit readiness (KEP-0022
@@ -1312,17 +1369,18 @@ fn processWait(args: []const Value) PrimitiveError!Value {
         me.status = .running;
         me.waiting_on = types.VOID;
         if (err == error.OutOfMemory) return PrimitiveError.OutOfMemory;
-        // The kernel refused the watch — almost always because the child
-        // already exited (EVFILT_PROC EV_ADD and pidfd_open both fail ESRCH
-        // once the pid is reapable-or-reaped): reap it here. Anything else
-        // (an ancient Linux kernel without pidfd_open) degrades to the
-        // blocking Phase-1 path when untimed; a timed wait has no blocking
-        // analogue, so it surfaces as an error rather than a silent hang.
+        // The kernel refused the watch — either the child already exited
+        // (EVFILT_PROC EV_ADD and pidfd_open both fail ESRCH once the pid is
+        // reapable-or-reaped; the reap below settles it) or this kernel
+        // cannot watch processes at all (pidfd_open is ENOSYS before Linux
+        // 5.3 and under Rosetta's syscall translation) — degrade to the
+        // polled park, which keeps siblings running where a blocking waitpid
+        // would deadlock a program whose child exits only after a sibling
+        // acts.
         tryReapOne(gc, proc);
         if (proc.status) |st|
             return types.decodeWaitStatus(gc, st) catch PrimitiveError.OutOfMemory;
-        if (deadline_ns == null) return blockingWaitReap(gc, proc);
-        return raiseProcessMessage("process-wait: cannot watch process for exit readiness on this kernel");
+        return polledWait(gc, proc, proc_val, deadline_ns);
     };
     // Exit-before-arm race close: an exit that beat the arm posts no kernel
     // event, ever — the one probe after arming is what closes the window (an

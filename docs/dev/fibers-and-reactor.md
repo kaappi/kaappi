@@ -180,6 +180,15 @@ Python's contract). No scheduler and no timeout means the Phase-1 blocking
 `waitpid` fallback; a wait from a non-owning SRFI-18 thread raises via the
 `Object.owner` check like every other thread-affine handle.
 
+When the kernel cannot watch a process at all — `pidfd_open` is ENOSYS
+before Linux 5.3 and under Rosetta's x86_64 syscall translation (the podman
+amd64 leg) — `process-wait` degrades to a *polled* park
+(`primitives_process.polledWait`): a WNOHANG probe every 20 ms, parked on
+the reactor timer heap between probes, driving in place for every caller.
+Siblings keep running, which the blocking fallback cannot promise — a
+program whose child exits only after a sibling acts would deadlock in a
+blocking `waitpid`.
+
 ## Buffering and close
 
 Ports on fd > 2 buffer writes in `port.write_buf` until `flush-output-port`,
