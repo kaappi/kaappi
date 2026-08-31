@@ -99,6 +99,12 @@ pub const Lib = enum {
     // (SRFI 211 is sub-library-only, so the sub-library names must stay
     // file-resolvable).
     srfi_211_primitives,
+    /// `(kaappi process)` (KEP-0022): native subprocess support. Phase 1 is
+    /// POSIX-only (posix_spawnp); the Windows tier is Phase 3, and WASI has
+    /// no process model at all — so the library is registered on neither,
+    /// which makes `(library (kaappi process))` gate false there via the
+    /// registry check in vm_library.libraryIsAvailable.
+    kaappi_process,
     /// `(kaappi primitives)`: the internal helpers a *portable* `.sld` names
     /// in its own Scheme source -- SRFI 27's random-source accessors, SRFI
     /// 74's endianness probe, SRFI 271's random ports, the record substrate
@@ -157,6 +163,7 @@ pub const Lib = enum {
             .scheme_complex => "scheme.complex",
             .kaappi_ffi => "kaappi.ffi",
             .kaappi_fibers => "kaappi.fibers",
+            .kaappi_process => "kaappi.process",
             .kaappi_diagnostics => "kaappi.diagnostics",
             .srfi_1 => "srfi.1",
             .srfi_13 => "srfi.13",
@@ -193,6 +200,7 @@ pub const Lib = enum {
             .scheme_process_context,
             .scheme_r5rs,
             .kaappi_ffi,
+            .kaappi_process,
             .srfi_18,
             .srfi_170,
             .srfi_192,
@@ -216,7 +224,20 @@ pub const Lib = enum {
 
     pub fn wasmAvailable(self: Lib) bool {
         return switch (self) {
-            .kaappi_ffi, .srfi_18, .srfi_170 => false,
+            .kaappi_ffi, .kaappi_process, .srfi_18, .srfi_170 => false,
+            else => true,
+        };
+    }
+
+    /// The Windows analogue of `wasmAvailable`, for libraries whose whole
+    /// implementation is absent on that platform. Only `(kaappi process)`
+    /// today: its Phase 1 surface is posix_spawn-only, and an empty library
+    /// registered there would make `(library (kaappi process))` gate true
+    /// while importing `spawn-process` fails — worse than absent. Phase 3
+    /// (CreateProcess + Job Objects) removes the entry.
+    pub fn windowsAvailable(self: Lib) bool {
+        return switch (self) {
+            .kaappi_process => false,
             else => true,
         };
     }
@@ -316,6 +337,7 @@ const core_specs = [_]PrimSpec{
 };
 
 const no_specs = [0]PrimSpec{};
+const is_windows = @import("builtin").os.tag == .windows;
 
 pub const all_specs = core_specs ++
     @import("primitives_list.zig").specs ++
@@ -345,6 +367,10 @@ pub const all_specs = core_specs ++
     primitives_random.specs ++
     @import("primitives_random_port.zig").specs ++
     (if (is_wasm) no_specs else primitives_filesystem.specs) ++
+    // (kaappi process): POSIX-only in Phase 1 (KEP-0022); the WASM and
+    // Windows gates keep the module — whose libc surface is naked posix —
+    // from even being analyzed on those targets.
+    (if (is_wasm or is_windows) no_specs else @import("primitives_process.zig").specs) ++
     @import("primitives_fiber.zig").specs ++
     @import("primitives_parallel.zig").specs ++
     // SRFI-18's OS-thread machinery cannot exist on WASM, but its
@@ -396,6 +422,15 @@ comptime {
         if (spec.libs.contains(.kaappi_ffi) and spec.wasm)
             @compileError("`.kaappi_ffi` spec \"" ++ spec.name ++
                 "\" must set `.wasm = false`: (kaappi ffi) has no WASM-viable subset (kaappi#2018)");
+    }
+    // Same discipline for (kaappi process): nothing behind these names can
+    // succeed on wasm32-wasi, and a spec that omits `.wasm = false` would
+    // register a global that exists solely to refuse (the kaappi#2018
+    // lesson, applied from day one this time).
+    for (all_specs) |spec| {
+        if (spec.libs.contains(.kaappi_process) and spec.wasm)
+            @compileError("`.kaappi_process` spec \"" ++ spec.name ++
+                "\" must set `.wasm = false`: (kaappi process) has no WASM-viable subset (KEP-0022)");
     }
 }
 

@@ -12,6 +12,9 @@
 set -euo pipefail
 
 KAAPPI=zig-out/bin/kaappi
+# Exported so .scm files can spawn kaappi as a child (tests/scheme/process/
+# round-trips a reader-loop script through the real binary, KEP-0022).
+export KAAPPI
 
 # This script used to run a bare `zig build` when the binary was missing. That
 # convenience dates from when it was the only runner, and it silently
@@ -494,7 +497,7 @@ run_shell_suite() {
 # included fragment and never opens a SRFI-64 suite, while every real suite
 # file does. Verified against the whole tree — 11 fixture .scm files under
 # suite subdirectories, none containing `test-begin`, and no false positives.
-SCM_SUITE_DIRS="smoke compliance continuations hygiene srfi ffi audit"
+SCM_SUITE_DIRS="smoke compliance continuations hygiene srfi ffi process audit"
 
 check_unreachable_tests() {
     echo "=== Reachability check ==="
@@ -657,6 +660,7 @@ if command -v zig >/dev/null 2>&1; then
     fi
 fi
 run_suite "FFI tests" tests/scheme/ffi/*.scm
+run_suite "Process tests" tests/scheme/process/*.scm
 run_suite "Audit tests" tests/scheme/audit/*.scm
 run_shell_suite "Error tests" tests/scheme/errors
 run_shell_suite "Compile tests" tests/scheme/compile

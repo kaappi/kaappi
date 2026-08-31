@@ -264,6 +264,7 @@ pub fn objectSize(obj: *Object) usize {
                 fiber.wind_stack.len * @sizeOf(types.WindRecord);
         },
         .channel => @sizeOf(types.Channel),
+        .process => @sizeOf(types.Process),
         .mutex => @sizeOf(types.Mutex),
         .condition_variable => @sizeOf(types.ConditionVariable),
         .srfi18_time => @sizeOf(types.Srfi18Time),
@@ -426,25 +427,49 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
                 // (EAGAIN) or any other failure just drops the remainder —
                 // programs that need the data call flush-output-port or
                 // close-port instead of leaking the port to the collector.
-                if (port.write_buf) |wb| {
-                    var start = port.write_buf_start;
-                    while (start < port.write_buf_len) {
-                        // A Windows socket port must send() — CRT _write
-                        // cannot operate on a SOCKET handle — and a pipe
-                        // port in emulated non-blocking mode must keep its
-                        // quota gate: plain _write on a full pipe would
-                        // block this sweep forever, exactly the would-block
-                        // this loop promises to drop (#1608).
-                        const remaining = port.write_buf_len - start;
-                        const rc = if (platform.is_windows and port.fd_state.is_socket)
-                            platform.sockSend(port.fd, wb.ptr + start, remaining)
-                        else if (platform.is_windows and port.fd_state.is_pipe and port.nonblocking)
-                            platform.pipeWrite(port.fd, wb.ptr + start, remaining)
-                        else
-                            platform.write(port.fd, wb.ptr + start, remaining);
-                        if (rc < 0 and platform.errno(rc) == .INTR) continue;
-                        if (rc <= 0) break;
-                        start += @as(usize, @intCast(rc));
+                //
+                // For that promise to hold, the drain must be unable to
+                // block. A port the scheduler never touched (a fresh
+                // process pipe, KEP-0022) is still in BLOCKING mode, and a
+                // blocking write into a full pipe whose reader never drains
+                // would wedge the collector itself — while toggling
+                // O_NONBLOCK for the drain is no better: the flag lives on
+                // the SHARED open-file description, so every dup/dup2
+                // alias (a child's stdio, an fd->port twin) transiently —
+                // or, on a failed restore, permanently — turns non-blocking
+                // (kaappi#2442 review, twice). So no flag is ever touched;
+                // instead the drain is gated on seekability: a seekable fd
+                // is a regular file, whose blocking write completes without
+                // waiting on a peer (the flush-on-collect file ports have
+                // always had), while an unseekable one (pipe, socket, FIFO,
+                // tty — everything with a peer or flow control) simply
+                // drops its remainder, exactly the best-effort contract.
+                const drain_ok = if (comptime platform.is_windows or platform.is_wasm)
+                    true // the Windows arms below have their own non-blocking gates
+                else
+                    port.nonblocking or port.write_buf == null or
+                        platform.seek(port.fd, 0, platform.SEEK_CUR) >= 0;
+                if (drain_ok) {
+                    if (port.write_buf) |wb| {
+                        var start = port.write_buf_start;
+                        while (start < port.write_buf_len) {
+                            // A Windows socket port must send() — CRT _write
+                            // cannot operate on a SOCKET handle — and a pipe
+                            // port in emulated non-blocking mode must keep its
+                            // quota gate: plain _write on a full pipe would
+                            // block this sweep forever, exactly the would-block
+                            // this loop promises to drop (#1608).
+                            const remaining = port.write_buf_len - start;
+                            const rc = if (platform.is_windows and port.fd_state.is_socket)
+                                platform.sockSend(port.fd, wb.ptr + start, remaining)
+                            else if (platform.is_windows and port.fd_state.is_pipe and port.nonblocking)
+                                platform.pipeWrite(port.fd, wb.ptr + start, remaining)
+                            else
+                                platform.write(port.fd, wb.ptr + start, remaining);
+                            if (rc < 0 and platform.errno(rc) == .INTR) continue;
+                            if (rc <= 0) break;
+                            start += @as(usize, @intCast(rc));
+                        }
                     }
                 }
                 _ = platform.close(port.fd);
@@ -577,6 +602,30 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
                 sc.release();
             }
             poisonAndDestroy(gc, types.Channel, ch);
+        },
+        .process => {
+            const proc = obj.as(types.Process);
+            // Zombie discipline (KEP-0022 Phase 1): drop the collected
+            // Process from the heap's unreaped list first -- after
+            // poisonAndDestroy the pointer is invalid -- then make one
+            // last-resort non-blocking reap attempt so an already-exited
+            // child of an abandoned Process does not linger as a zombie.
+            // Still-running children are simply no longer tracked; their
+            // zombies (if any) are reparented to init when this process
+            // exits. A BLOCKING wait is never acceptable inside a sweep.
+            for (gc.unreaped_processes.items, 0..) |p, i| {
+                if (p == proc) {
+                    _ = gc.unreaped_processes.swapRemove(i);
+                    break;
+                }
+            }
+            if (proc.status == null) {
+                if (comptime !platform.is_wasm and !platform.is_windows) {
+                    var st: c_int = 0;
+                    _ = platform.waitPid(proc.pid, &st, platform.WNOHANG);
+                }
+            }
+            poisonAndDestroy(gc, types.Process, proc);
         },
         .mutex => {
             poisonAndDestroy(gc, types.Mutex, obj.as(types.Mutex));

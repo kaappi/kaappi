@@ -33,7 +33,7 @@ Source code
 | **Compiler** | `compiler.zig` + 9 sub-modules | Emits register-based bytecode from IR nodes via `compileFromNode()` (in `compiler_ir.zig`). Retains `compileExpr()` for forms delegated via `passthrough`. See the [Compiler & IR](#compiler--ir-11-files) table for the per-file split. |
 | **VM** | `vm.zig` + 10 sub-modules | Executes bytecode with a growable register file, call frame stack, exception handler stack, and dynamic-wind stack (all heap-allocated, double-on-overflow; exceeding a hard cap is an uncatchable KP3008). First-class continuations via stack copying, plus a stepping debugger. |
 | **GC** | `memory.zig` | Generational (young/old) mark-and-sweep collector over an intrusive linked list, with a write barrier and remembered set for old→young references. Root tracking via `pushRoot`/`popRoot`. Triggered after N allocations. |
-| **Primitives** | 31 `primitives_*.zig` files | 696 built-in procedures organized by domain. |
+| **Primitives** | 32 `primitives_*.zig` files | 696 built-in procedures organized by domain. |
 
 ---
 
@@ -57,7 +57,7 @@ Source code
 | `printer.zig` | ~1250 | Value → string: iterative label-aware print engine + hashmap cycle/sharing detection (write/display/write-shared/write-simple; exact at any depth) and the bounded diagnostic `printValue` |
 | `printer_pretty.zig` | ~320 | REPL pretty-printer (fits-or-wraps layout over the bounded diagnostic printer; re-exported as `printer.prettyPrint`) |
 
-### Heap-type domain files (split into 11 files, kaappi#1731)
+### Heap-type domain files (split into 12 files, kaappi#1731)
 
 `types.zig` re-exports every name below (`pub const Foo = types_x.Foo;`), so
 existing `types.Foo` call sites across the codebase are unaffected by which
@@ -79,6 +79,7 @@ domain-mate (`Pair`, `Symbol`, `SchemeString`, `Closure`, `Function`,
 | `types_hashtable.zig` | `HashTable`, `HashEntry`, `HashEntryState`, `CompareMode` (SRFI 69) |
 | `types_filesystem.zig` | `FileInfo`, `UserInfo`, `GroupInfo`, `DirectoryObject` (SRFI 170) |
 | `types_weakrefs.zig` | `Ephemeron`, `Guardian`, `GuardEntry`, `TransportCell` (SRFI 254) |
+| `types_process.zig` | `Process` (KEP-0022, `(kaappi process)`), waitpid status decoders |
 
 `Fiber` (`fiber.zig`) predates this split and follows neither convention:
 its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
@@ -115,7 +116,7 @@ its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
 | `vm_continuations.zig` | captureContinuation, restoreContinuation, performWindTransition, callWithCC |
 | `vm_debug.zig` | Stepping debugger: breakpoints (with conditions), watch expressions, step/next/step-out/continue, up/down frame navigation, locals, backtrace |
 
-### Primitives (split into 31 files)
+### Primitives (split into 32 files)
 
 | File | Procedures |
 |------|-----------|
@@ -147,6 +148,7 @@ its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
 | `primitives_srfi237.zig` | SRFI-237: R6RS record procedural layer (`(srfi 237 primitives)`) |
 | `primitives_srfi254.zig` | SRFI-254: ephemeron/guardian constructors, predicates, accessors (GC half lives in `gc_collect.zig`) |
 | `primitives_fiber.zig` | `(kaappi fibers)`: spawn, yield, fiber-join, channels |
+| `primitives_process.zig` | `(kaappi process)` (KEP-0022): posix_spawnp-based subprocess support — spawn-process, pipe ports, blocking process-wait, process-kill, zombie sweep. POSIX-only (Windows is Phase 3, WASM registers nothing) |
 | `primitives_parallel.zig` | KEP-0002: the single native primitive backing `lib/kaappi/parallel.sld` |
 | `primitives_random_port.zig` | SRFI-271 random port `%`-prefixed internals |
 | `primitives_sysinfo.zig` | System inquiry shared by SRFI 59 (vicinity), 112 (environment), 193 (command line) |

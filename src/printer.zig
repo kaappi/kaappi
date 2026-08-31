@@ -723,6 +723,24 @@ fn printValueOnce(
             .channel => {
                 try writer.writeAll("#<channel>");
             },
+            // Atom-style, like fiber/channel: the three port fields are
+            // Values but are NOT printed here, so the printer never recurses
+            // into a Process and it needs no isTraversable/childAt entry
+            // (that list exists so cycle detection sees every *printed* edge
+            // -- kaappi#1954).
+            .process => {
+                const proc = obj.as(types.Process);
+                try writer.print("#<process {d} ", .{proc.pid});
+                if (proc.status) |st| {
+                    if (types.ifWaitSignaled(st)) {
+                        try writer.print("signaled {d}>", .{types.waitTermSig(st)});
+                    } else {
+                        try writer.print("exited {d}>", .{types.waitExitStatus(st)});
+                    }
+                } else {
+                    try writer.writeAll("running>");
+                }
+            },
             .mutex => {
                 const m = obj.as(types.Mutex);
                 try writer.writeAll("#<mutex");

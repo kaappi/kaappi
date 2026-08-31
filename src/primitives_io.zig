@@ -355,7 +355,62 @@ fn unparkCurrentFiber(port: *types.Port) void {
 /// the writer suspends on write readiness; `write_buf_start` records drain
 /// progress, so the wait can be a parked primitive's full re-execution and
 /// still resume with exactly the remaining slice.
+///
+/// A hard write error (EPIPE from a dead pipe reader — e.g. a spawned child
+/// that already exited (KEP-0022) — EIO, ...) always drops the unwritable
+/// remainder, so the buffer cannot grow without bound against a dead fd.
+/// What happens next depends on the caller: the explicit write/flush paths
+/// raise the errno-carrying file-error a program can `guard` on
+/// (kaappi#2414 — silently losing the bytes violated the KEP-0005 I/O-error
+/// contract), while the close/read-side drains stay non-raising cleanup
+/// (`drainWriteBufferQuiet`).
 fn drainWriteBuffer(port: *types.Port) PrimitiveError!void {
+    return drainWriteBufferInner(port, true);
+}
+
+/// The non-raising drain for cleanup paths: close-port (the historical
+/// contract — closing a dead pipe is not an error) and the flush-before-read
+/// on a bidirectional port (a write error must not masquerade as a read
+/// failure; the read that follows reports its own condition).
+fn drainWriteBufferQuiet(port: *types.Port) PrimitiveError!void {
+    return drainWriteBufferInner(port, false);
+}
+
+/// KEP-0022: flush a caller port's buffered output before its fd is handed
+/// to a spawned child as a redirection target, so bytes the parent wrote
+/// before the spawn reach the file ahead of anything the child writes.
+/// Raising flavor — a redirect onto a port whose backing fd is already dead
+/// should fail the spawn loudly, not silently drop the parent's bytes.
+pub fn drainPortWriteBufferForSpawn(port: *types.Port) PrimitiveError!void {
+    if (port.write_buf_len > port.write_buf_start) return drainWriteBufferInner(port, true);
+}
+
+/// KEP-0022, the input mirror of the drain above: an input port's software
+/// read-ahead (peek bytes + `read_buf`) sits BETWEEN the port's logical
+/// position and the fd's kernel offset — a child handed the raw fd would
+/// start past every byte the parent buffered but has not consumed
+/// (kaappi#2442 review). Seek the fd back by the pending count and discard
+/// the buffers so kernel and logical positions coincide; on an unseekable
+/// fd (a pipe, ESPIPE) with pending bytes, report how many bytes cannot be
+/// synchronized so the caller can reject the redirect. Returns 0 when the
+/// port is reconciled.
+pub fn rewindPortReadAheadForSpawn(port: *types.Port) usize {
+    var pending: usize = port.read_buf_len + port.peek_extra_len;
+    if (port.peek_byte != null) pending += 1;
+    if (pending == 0) return 0;
+    if (platform.seek(port.fd, -@as(i64, @intCast(pending)), platform.SEEK_CUR) < 0)
+        return pending;
+    port.peek_byte = null;
+    port.peek_extra_len = 0;
+    if (port.read_buf) |rb| {
+        if (memory.gc_instance) |gc| gc.allocator.free(rb);
+        port.read_buf = null;
+        port.read_buf_len = 0;
+    }
+    return 0;
+}
+
+fn drainWriteBufferInner(port: *types.Port, comptime raise_write_errors: bool) PrimitiveError!void {
     while (port.write_buf_start < port.write_buf_len) {
         // Re-fetch each pass: a scheduler drive inside waitPortFd can run a
         // sibling fiber that appends to this same port and reallocs the
@@ -370,16 +425,32 @@ fn drainWriteBuffer(port: *types.Port) PrimitiveError!void {
                 try waitPortFd(port, .write);
                 continue;
             }
-            // Parity with the historical writeToFd loop: other write errors
-            // (EPIPE, EIO) are swallowed. Drop the unwritable remainder so
-            // the buffer cannot grow without bound against a dead fd.
-            break;
+            port.write_buf_start = 0;
+            port.write_buf_len = 0;
+            if (raise_write_errors) return raiseWriteFailed(e);
+            return;
         }
         if (rc == 0) break;
         port.write_buf_start += @as(usize, @intCast(rc));
     }
     port.write_buf_start = 0;
     port.write_buf_len = 0;
+}
+
+/// KEP-0005 file-error carrying the write errno, so `(guard (e ((file-error?
+/// e) ...)) (flush-output-port dead-child-stdin))` catches EPIPE precisely.
+fn raiseWriteFailed(e: std.c.E) PrimitiveError {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
+    var msg = gc.allocString("cannot write to port") catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&msg);
+    defer gc.popRoot();
+    const err_obj = gc.allocErrorObject(msg, types.NIL) catch return PrimitiveError.OutOfMemory;
+    const err = types.toObject(err_obj).as(types.ErrorObject);
+    err.error_type = .file;
+    err.posix_errno = @intFromEnum(e);
+    vm.current_exception = err_obj;
+    return PrimitiveError.ExceptionRaised;
 }
 
 fn appendWriteBuf(port: *types.Port, bytes: []const u8) PrimitiveError!void {
@@ -865,6 +936,21 @@ fn openBinaryOutputFile(args: []const Value) PrimitiveError!Value {
     return result;
 }
 
+/// Shared constructor for fd-backed binary ports (KEP-0022 Phase 1): the
+/// internals `fd->port` always had, factored out so the subprocess spawner
+/// wraps a pipe's parent end as exactly the same port — non-blocking,
+/// reactor-integrated, `readOneByte`/`portWriteBytes` as its byte source and
+/// sink (see `fdToPort` below for what that buys a fiber).
+///
+/// The returned port owns `fd`: close-port closes it, wakes any fiber parked
+/// on it, and unregisters it from the reactor. The caller must not also
+/// close the fd through its own path.
+pub fn makeFdPort(gc: *memory.GC, fd: platform.fd_t, is_input: bool, is_output: bool, name: []const u8) PrimitiveError!Value {
+    const port_val = gc.allocPort(fd, is_input, is_output, name, false) catch return PrimitiveError.OutOfMemory;
+    types.toObject(port_val).as(types.Port).is_binary = true;
+    return port_val;
+}
+
 /// (fd->port fd) — wrap a raw OS file descriptor as a bidirectional binary
 /// port. Every read/write then goes through the same non-blocking,
 /// reactor-integrated path as file ports (readOneByte/portWriteBytes): an
@@ -896,9 +982,7 @@ fn fdToPort(args: []const Value) PrimitiveError!Value {
     if (fd_i < 0 or fd_i > std.math.maxInt(i32))
         return primitives.argError("fd->port", "{d} is outside the file-descriptor range", .{fd_i});
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const port_val = gc.allocPort(@intCast(fd_i), true, true, "fd", false) catch return PrimitiveError.OutOfMemory;
-    types.toObject(port_val).as(types.Port).is_binary = true;
-    return port_val;
+    return makeFdPort(gc, @intCast(fd_i), true, true, "fd");
 }
 
 fn closePort(args: []const Value) PrimitiveError!Value {
@@ -995,7 +1079,7 @@ pub fn closePortObj(port: *types.Port) PrimitiveError!Value {
     // suspend the calling fiber; a parked close-port re-executes from the
     // top with the drain progress preserved in the port.
     if (port.is_open and !port.is_string_port and port.write_buf_len > port.write_buf_start) {
-        try drainWriteBuffer(port);
+        try drainWriteBufferQuiet(port);
     }
     if (port.read_buf) |rb| {
         if (memory.gc_instance) |gc| {
@@ -1416,7 +1500,7 @@ pub fn readOneByte(port: *types.Port) PrimitiveError!?u8 {
     if (port.transcode) |ts| {
         return readOneByteFromTranscodedPort(port, ts);
     }
-    if (port.write_buf_len > port.write_buf_start) try drainWriteBuffer(port);
+    if (port.write_buf_len > port.write_buf_start) try drainWriteBufferQuiet(port);
     maybeSetNonblocking(port);
     var chunk: [read_chunk_size]u8 = undefined;
     while (true) {
@@ -1976,7 +2060,7 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
         // A park in this drain must preserve the bytes already moved out
         // of peek_byte/peek_extra/read_buf into `buf` above — a bare try
         // would unwind without stashing and the retry would lose them.
-        drainWriteBuffer(port) catch |err| return propagateReadErr(port, err, &.{buf.items});
+        drainWriteBufferQuiet(port) catch |err| return propagateReadErr(port, err, &.{buf.items});
     }
     maybeSetNonblocking(port);
     var tmp: [read_chunk_size]u8 = undefined;

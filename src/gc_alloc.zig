@@ -1073,6 +1073,34 @@ pub fn allocChannel(self: *GC) !Value {
     return types.makePointer(&ch.header);
 }
 
+/// KEP-0022: a spawned-subprocess handle. The three port fields are FALSE
+/// here and are stored by the spawner right after; those stores happen while
+/// the Process is young, but the write barrier is applied anyway per the
+/// gc-safety rule ("when in doubt").
+///
+/// Also enrolls the Process in `unreaped_processes` (zombie discipline,
+/// KEP-0022 unresolved question 3): every unreaped Process of this heap is
+/// swept with waitpid(WNOHANG) on the blocking spawn/wait paths, and
+/// gc_sweep.freeObject removes a collected Process from the list -- so a
+/// pointer in it is valid for exactly as long as the object is.
+pub fn allocProcess(self: *GC, pid: i32, pgid: i32) !*types.Process {
+    try self.maybeCollect();
+    // Reserve the tracking slot first: spawn-process is a user-driven path
+    // whose callers already handle error.OutOfMemory, so a list-growth
+    // failure must raise, not abort — and reserving before the create means
+    // no tracked-but-unenrolled (or enrolled-then-failed) Process can exist.
+    try self.unreaped_processes.ensureUnusedCapacity(self.allocator, 1);
+    const proc = try self.allocator.create(types.Process);
+    proc.* = .{
+        .header = .{ .tag = .process },
+        .pid = pid,
+        .pgid = pgid,
+    };
+    self.finishAlloc(&proc.header, @sizeOf(types.Process));
+    self.unreaped_processes.appendAssumeCapacity(proc);
+    return proc;
+}
+
 /// KEP-0002 §6: a bounded channel, `(make-channel capacity)`. Separate
 /// from allocChannel (rather than an optional parameter) so the
 /// pre-Phase-4 call sites that construct an unbounded channel need no
