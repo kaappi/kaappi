@@ -166,10 +166,15 @@
   ;; 3..24. Openness is probed by duplicating the fd (`: <&N` in a subshell)
   ;; — a stat of /dev/fd/N would false-positive on the BSDs, where those
   ;; entries are static device nodes that exist whether or not the fd does.
+  ;; Two probe-artifact guards: stderr goes to 'null rather than a
+  ;; per-command `2>/dev/null`, and stdin is closed up front (`exec 0<&-`)
+  ;; — bash implements a per-command redirection by parking the real
+  ;; descriptor at fd 10+ for the command's duration, so probing `<&10`
+  ;; while stdin is open would detect the shell's own save of it.
   (let* ((p (spawn-process
              '("/bin/sh" "-c"
-               "i=3; while [ $i -le 24 ]; do if (eval \": <&$i\") 2>/dev/null; then echo $i; fi; i=$((i+1)); done")
-             'stdout: 'pipe)))
+               "exec 0<&-; i=3; while [ $i -le 24 ]; do if (eval \": <&$i\"); then echo $i; fi; i=$((i+1)); done")
+             'stdout: 'pipe 'stderr: 'null)))
     (let ((lines (drain (process-stdout p))))
       (process-wait p)
       lines)))

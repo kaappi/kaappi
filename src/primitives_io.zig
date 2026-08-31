@@ -385,6 +385,31 @@ pub fn drainPortWriteBufferForSpawn(port: *types.Port) PrimitiveError!void {
     if (port.write_buf_len > port.write_buf_start) return drainWriteBufferInner(port, true);
 }
 
+/// KEP-0022, the input mirror of the drain above: an input port's software
+/// read-ahead (peek bytes + `read_buf`) sits BETWEEN the port's logical
+/// position and the fd's kernel offset — a child handed the raw fd would
+/// start past every byte the parent buffered but has not consumed
+/// (kaappi#2442 review). Seek the fd back by the pending count and discard
+/// the buffers so kernel and logical positions coincide; on an unseekable
+/// fd (a pipe, ESPIPE) with pending bytes, report how many bytes cannot be
+/// synchronized so the caller can reject the redirect. Returns 0 when the
+/// port is reconciled.
+pub fn rewindPortReadAheadForSpawn(port: *types.Port) usize {
+    var pending: usize = port.read_buf_len + port.peek_extra_len;
+    if (port.peek_byte != null) pending += 1;
+    if (pending == 0) return 0;
+    if (platform.seek(port.fd, -@as(i64, @intCast(pending)), platform.SEEK_CUR) < 0)
+        return pending;
+    port.peek_byte = null;
+    port.peek_extra_len = 0;
+    if (port.read_buf) |rb| {
+        if (memory.gc_instance) |gc| gc.allocator.free(rb);
+        port.read_buf = null;
+        port.read_buf_len = 0;
+    }
+    return 0;
+}
+
 fn drainWriteBufferInner(port: *types.Port, comptime raise_write_errors: bool) PrimitiveError!void {
     while (port.write_buf_start < port.write_buf_len) {
         // Re-fetch each pass: a scheduler drive inside waitPortFd can run a

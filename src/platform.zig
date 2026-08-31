@@ -193,6 +193,17 @@ pub fn getFdFlags(fd: fd_t) c_int {
     return fcntlRaw(fd, F_GETFD, 0);
 }
 
+/// Set O_NONBLOCK on an fd about to be closed, so a final best-effort drain
+/// gets EAGAIN instead of blocking (the GC sweep's port flush — a collector
+/// must never wedge on a full pipe, kaappi#2442). POSIX only; best-effort.
+pub fn setFdNonblockingForTeardown(fd: fd_t) bool {
+    if (comptime is_wasm or is_windows) return false;
+    const flags = std.c.fcntl(fd, std.posix.F.GETFL, @as(c_int, 0));
+    if (flags < 0) return false;
+    const nonblock: c_int = @intCast(@as(u32, @bitCast(std.posix.O{ .NONBLOCK = true })));
+    return std.c.fcntl(fd, std.posix.F.SETFL, flags | nonblock) >= 0;
+}
+
 /// dup(2), except the copy is close-on-exec (fcntl F_DUPFD_CLOEXEC, the
 /// POSIX 2008 replacement for dup-then-F_SETFD that cannot be interrupted
 /// between the two steps). Returns -1 on failure. The command value is
@@ -202,6 +213,16 @@ pub fn getFdFlags(fd: fd_t) c_int {
 /// other libc (kaappi#2442 review: 6 was macOS's F_SETOWN and Linux's
 /// F_SETLK, so the dup silently never happened).
 pub fn fcntlDupCloexec(fd: fd_t) fd_t {
+    return dupCloexecAtLeast(fd, 0);
+}
+
+/// F_DUPFD_CLOEXEC with a minimum descriptor number: the returned copy is
+/// the lowest free fd >= `min`. The subprocess spawner uses `min = 3` to
+/// lift pipe ends and redirect sources out of the stdio range, where
+/// posix_spawn file actions would otherwise clobber them (kaappi#2442
+/// review: a launcher that closed fd 0 makes pipe(2) hand back 0, and a
+/// `stdout:`/`stderr:` swap names slots the earlier dup2 already rewrote).
+pub fn dupCloexecAtLeast(fd: fd_t, min: fd_t) fd_t {
     if (comptime is_wasm or is_windows) return -1;
     // std.c's per-target F table is the authority where it declares the
     // command; OpenBSD's entry omits it (an upstream gap — the OS has had
@@ -212,7 +233,7 @@ pub fn fcntlDupCloexec(fd: fd_t) fd_t {
         10
     else
         @compileError("F_DUPFD_CLOEXEC value unknown for this target");
-    return fcntlRaw(fd, cmd, 0);
+    return fcntlRaw(fd, cmd, @intCast(min));
 }
 
 /// fcntl(2) MUST be declared variadic — its C prototype is

@@ -321,10 +321,14 @@ test "process: fd hygiene — the child inherits only the three stdio slots" {
     // probes openness by DUPLICATING each fd (`: <&N` in a subshell) — a
     // stat of /dev/fd/N would false-positive on the BSDs, where those
     // entries are static device nodes that exist whether or not the fd is
-    // open.
+    // open. Two probe-artifact guards: stderr is 'null rather than a
+    // per-command `2>/dev/null`, and stdin is closed up front (`exec
+    // 0<&-`) — bash implements a per-command redirection by parking the
+    // real descriptor at fd 10+ for the command's duration, so probing
+    // `<&10` while stdin is open would detect the shell's own save of it.
     try expectTrue(vm,
-        \\(let* ((p (spawn-process '("/bin/sh" "-c" "i=3; while [ $i -le 32 ]; do if (eval \": <&$i\") 2>/dev/null; then echo $i; fi; i=$((i+1)); done")
-        \\                            'stdout: 'pipe))
+        \\(let* ((p (spawn-process '("/bin/sh" "-c" "exec 0<&-; i=3; while [ $i -le 32 ]; do if (eval \": <&$i\"); then echo $i; fi; i=$((i+1)); done")
+        \\                            'stdout: 'pipe 'stderr: 'null))
         \\       (out (process-stdout p)))
         \\  (let loop ((acc '()))
         \\    (let ((line (read-line out)))
@@ -578,6 +582,169 @@ test "process: pipe creation reclaims descriptors via GC on exhaustion (#1993)" 
         return e;
     };
     try std.testing.expectEqual(@as(i64, @intCast(n)), types.toFixnum(result));
+}
+
+test "process: an input redirect port's read-ahead is given back to the child" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
+
+    // Reading one character pulls a whole chunk into the port's software
+    // read-ahead, leaving the kernel offset far past the logical position.
+    // A child handed the raw fd then starts at the kernel offset, silently
+    // skipping everything buffered-but-unconsumed (kaappi#2442 review).
+    // The fd is seekable, so the spawner must rewind it: after the parent
+    // reads "A", the child must see "B" first.
+    _ = try vm.eval("(import (scheme file))");
+    try expectTrue(vm,
+        \\(let ((sink (open-output-file "/tmp/kaappi-readahead-2442.txt")))
+        \\  (write-string "AB" sink)
+        \\  (write-string (make-string 5000 #\x) sink)
+        \\  (close-port sink)
+        \\  (let* ((src (open-input-file "/tmp/kaappi-readahead-2442.txt"))
+        \\         (first (read-char src))
+        \\         (p (spawn-process '("/bin/sh" "-c" "dd bs=1 count=1 2>/dev/null")
+        \\                           'stdin: src 'stdout: 'pipe))
+        \\         (child-first (read-line (process-stdout p)))
+        \\         (st (process-wait p)))
+        \\    (close-port src)
+        \\    (and (char=? first #\A) (equal? child-first "B") (= st 0))))
+    );
+}
+
+test "process: collecting an abandoned pipe port never blocks the sweep" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
+
+    // kaappi#2442 review: the sweep's best-effort flush used a BLOCKING
+    // write, and a fresh process pipe stays in blocking mode — so dropping
+    // a port with pending buffered output against a child that never reads
+    // wedged the collector. Fill the pipe near capacity (flushed), buffer
+    // more below the high-water mark (unflushed), abandon everything, and
+    // require the full collection to come back promptly.
+    try expectTrue(vm,
+        \\(let* ((p (spawn-process '("/bin/sleep" "3") 'stdin: 'pipe))
+        \\       (in (process-stdin p)))
+        \\  (write-string (make-string 60000 #\x) in)
+        \\  (flush-output-port in)
+        \\  (write-string (make-string 8100 #\y) in)
+        \\  #t)
+    );
+    const platform = @import("platform.zig");
+    const start_ns = platform.monotonicNs();
+    ctx.gc.collectFull();
+    const elapsed_ns = platform.monotonicNs() - start_ns;
+    // The child sleeps 3 s and never reads; a blocking flush would sit the
+    // whole 3 s (or forever against a longer-lived child). Generous bound
+    // for slow CI, still far under the sleep.
+    try std.testing.expect(elapsed_ns < 2 * std.time.ns_per_s);
+}
+
+test "process: spawn failure paths leak no descriptors (OOM sweep)" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    if (build_options.gc_stress) return error.SkipZigTest; // countdown + stress interact combinatorially
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
+    const platform = @import("platform.zig");
+    const memory = @import("memory.zig");
+    const gc = memory.gc_instance.?;
+
+    // Drive an allocation failure at every GC-allocation point of a
+    // pipe-heavy spawn (kaappi#2442 review: an OOM between the spawn and
+    // the last port allocation used to leak the parent pipe ends). The
+    // invariant: however the spawn dies, no descriptor survives once the
+    // garbage ports are collected.
+    const countFds = struct {
+        fn count() usize {
+            var n: usize = 0;
+            var fd: platform.fd_t = 0;
+            while (fd < 256) : (fd += 1) {
+                if (platform.getFdFlags(fd) >= 0) n += 1;
+            }
+            return n;
+        }
+    }.count;
+
+    const src =
+        \\(let ((p (spawn-process '("true") 'stdin: 'pipe 'stdout: 'pipe 'stderr: 'pipe)))
+        \\  (process-wait p) #t)
+    ;
+    // Baseline: one full run so lazily-created infrastructure (reactor fds,
+    // caches) exists before the count is taken.
+    _ = try vm.eval(src);
+    gc.collectFull();
+    const before = countFds();
+
+    var n: u32 = 0;
+    while (n < 400) : (n += 1) {
+        gc.oom_countdown = n;
+        _ = vm.eval(src) catch {};
+        gc.oom_countdown = null;
+    }
+    gc.collectFull();
+    sweepUnreapedForTest(gc);
+    const after = countFds();
+    try std.testing.expectEqual(before, after);
+}
+
+/// Reap any stragglers the OOM sweep left (children whose Process was
+/// collected mid-construction are reaped by freeObject; ones that survived
+/// as unreaped registry entries get the ordinary sweep).
+fn sweepUnreapedForTest(gc: *@import("memory.zig").GC) void {
+    const platform = @import("platform.zig");
+    var i: usize = 0;
+    while (i < gc.unreaped_processes.items.len) {
+        const proc = gc.unreaped_processes.items[i];
+        var st: c_int = 0;
+        if (platform.waitPid(proc.pid, &st, platform.WNOHANG) == proc.pid) {
+            proc.status = @bitCast(st);
+            _ = gc.unreaped_processes.swapRemove(i);
+        } else {
+            i += 1;
+        }
+    }
+}
+
+test "process: close-by-default reaches descriptors above 65536" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
+    const platform = @import("platform.zig");
+
+    // kaappi#2442 review: the scan's old 65536 cap silently exempted valid
+    // high descriptors on systems with a six-figure RLIMIT_NOFILE (FreeBSD's
+    // reference VM runs at 117153). Park an inheritable fd at 70000 and
+    // require the child to find it closed. Skipped where the limit forbids
+    // an fd that high.
+    const low = std.c.open("/dev/null", .{ .ACCMODE = .RDONLY }, @as(c_uint, 0));
+    if (low < 0) return error.SkipZigTest;
+    defer _ = platform.close(low);
+    if (platform.dup2(low, 70000) < 0) return error.SkipZigTest;
+    defer _ = platform.close(70000);
+    const flags = platform.getFdFlags(70000);
+    try std.testing.expect(flags >= 0);
+    try std.testing.expect((flags & 1) == 0); // inheritable
+
+    // Control: the probe must DETECT an open fd, or "closed" verdicts below
+    // are vacuous (a shell that rejects multi-digit redirection fds would
+    // report every fd closed). fd 2 is inherited and certainly open.
+    try expectTrue(vm,
+        \\(let ((p (spawn-process '("/bin/sh" "-c" "if (eval \": <&2\") 2>/dev/null; then exit 0; else exit 1; fi"))))
+        \\  (= (process-wait p) 0))
+    );
+    try expectTrue(vm,
+        \\(let ((p (spawn-process '("/bin/sh" "-c" "if (eval \": <&70000\") 2>/dev/null; then exit 1; else exit 0; fi"))))
+        \\  (= (process-wait p) 0))
+    );
 }
 
 test "process: the sweep stores status without an explicit wait" {

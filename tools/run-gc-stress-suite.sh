@@ -39,6 +39,10 @@ case "$KAAPPI" in
     /*) ;;
     *) KAAPPI="$PWD/$KAAPPI" ;;
 esac
+# Exported so .scm files can spawn kaappi as a child (tests/scheme/process/
+# round-trips a reader-loop script through the real binary, KEP-0022) —
+# without it, process-child-script.scm silently skips its round trip.
+export KAAPPI
 
 # Then run from the repo root regardless of where we were invoked: every path
 # below is repo-relative, and so is the --lib-path passed to each run.
@@ -95,7 +99,7 @@ fi
 # existing, with no second place to update -- but see the floor check below,
 # because a glob that silently matches nothing is the failure mode a curated
 # list does not have.
-SCM_SUITE_DIRS="smoke compliance continuations hygiene srfi ffi audit"
+SCM_SUITE_DIRS="smoke compliance continuations hygiene srfi ffi process audit"
 
 # A file that legitimately takes minutes under stress collection is fine; a
 # file that HANGS must not silently consume the whole CI job's budget with no

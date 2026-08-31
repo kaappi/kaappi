@@ -127,6 +127,21 @@ const spawn_c = struct {
     };
     pub extern "c" fn posix_spawn_file_actions_addchdir_np(actions: *FileActionsPtr, path: [*:0]const u8) c_int;
 
+    /// Darwin only: under POSIX_SPAWN_CLOEXEC_DEFAULT even the stdio slots
+    /// are closed unless a file action names them; addinherit_np is the
+    /// action the man page prescribes for a descriptor that must survive
+    /// as-is (kaappi#2442 review).
+    pub extern "c" fn posix_spawn_file_actions_addinherit_np(actions: *FileActionsPtr, filedes: c_int) c_int;
+
+    /// FreeBSD >= 13.1: close every child fd >= `from` in one action —
+    /// the kernel-side equivalent of the per-fd scan, with no upper bound,
+    /// so a 100k+ RLIMIT_NOFILE costs nothing (kaappi#2442 review: the
+    /// scan's old 65536 cap silently exempted valid high descriptors).
+    /// glibc >= 2.34 has it too, but Linux keeps the /proc-driven scan,
+    /// which works on every libc and glibc floor.
+    pub const has_addclosefrom = builtin.os.tag == .freebsd;
+    pub extern "c" fn posix_spawn_file_actions_addclosefrom_np(actions: *FileActionsPtr, from: c_int) c_int;
+
     /// NetBSD only: its posix_spawn is an in-kernel syscall whose *child*
     /// completes the exec after the parent's call has already returned — and
     /// a signal posted to the child before that exec has fully finished is
@@ -269,6 +284,16 @@ fn parseRedir(comptime proc: []const u8, val: Value) PrimitiveError!Redir {
         // own writes; the drain can park a fiber, and a re-executed spawn
         // re-parses the options idempotently.
         if (port.is_output) try primitives_io.drainPortWriteBufferForSpawn(port);
+        // The input mirror: software read-ahead makes the kernel offset run
+        // ahead of the port's logical position, so a child handed the raw
+        // fd would silently skip the buffered bytes. Seekable fds are
+        // rewound; an unseekable fd with pending read-ahead is rejected
+        // (kaappi#2442 review).
+        if (port.is_input) {
+            const unsynced = primitives_io.rewindPortReadAheadForSpawn(port);
+            if (unsynced != 0)
+                return primitives.argError(proc, "redirection port has {d} buffered byte(s) of read-ahead that its unseekable descriptor cannot give back to the child", .{unsynced});
+        }
         return .{ .fd = port.fd };
     }
     return primitives.typeError(proc, "redirection spec (inherit, pipe, null, stdout, or an fd-backed port)", val);
@@ -349,18 +374,28 @@ fn spawnImpl(cfg: SpawnConfig) PrimitiveError!Value {
         directory_z = try dupeZChecked("spawn-process", arena_al, dir.data[0..dir.len], "directory: path");
     }
 
-    // -- pipes. Cleanup discipline: every path before a successful spawn
-    // closes everything through the `spawned` defer; after it, the ports own
-    // the parent ends and the child ends were closed by hand.
+    // -- pipes. Cleanup discipline: every fd this function creates lives in
+    // one of the slots below, and the single defer closes whatever is still
+    // >= 0 on ANY exit path — success included. Ownership transfer is
+    // recorded by writing -1 into the slot: the child ends after their
+    // explicit post-spawn close, each parent end once a Port owns it, the
+    // staged redirect duplicates never (the parent must always release
+    // them). Nothing is disarmed wholesale, so an OOM between the spawn and
+    // the last port allocation cannot leak a descriptor (kaappi#2442
+    // review).
     var stdin_pipe: [2]platform.fd_t = .{ -1, -1 }; // [0] child read end, [1] parent write end
     var stdout_pipe: [2]platform.fd_t = .{ -1, -1 };
     var stderr_pipe: [2]platform.fd_t = .{ -1, -1 };
-    var spawned = false;
-    defer if (!spawned) {
+    var staged_fds: [3]platform.fd_t = .{ -1, -1, -1 }; // parent-side dups of low redirect sources
+    defer {
         closePipePair(&stdin_pipe);
         closePipePair(&stdout_pipe);
         closePipePair(&stderr_pipe);
-    };
+        for (&staged_fds) |*sfd| {
+            if (sfd.* >= 0) _ = platform.close(sfd.*);
+            sfd.* = -1;
+        }
+    }
     if (cfg.stdin == .pipe and pipeWithFdRetry(gc, &stdin_pipe) != 0)
         return raiseProcessError(gc, "cannot create stdin pipe", types.FALSE, std.c._errno().*);
     if (cfg.stdout == .pipe and pipeWithFdRetry(gc, &stdout_pipe) != 0)
@@ -368,84 +403,102 @@ fn spawnImpl(cfg: SpawnConfig) PrimitiveError!Value {
     if (cfg.stderr == .pipe and pipeWithFdRetry(gc, &stderr_pipe) != 0)
         return raiseProcessError(gc, "cannot create stderr pipe", types.FALSE, std.c._errno().*);
 
-    // -- file actions + attrs
+    // A launcher that closed a standard descriptor makes pipe(2) hand back
+    // 0, 1, or 2 — and a pipe end living IN a stdio slot corrupts the file
+    // actions (dup2(0,0) then close(0) destroys the stream it just
+    // installed; a parent end in 0..2 collides with the port close
+    // discipline). Lift every pipe end above the stdio range before any
+    // action names it (kaappi#2442 review).
+    try normalizePipeAboveStdio(gc, &stdin_pipe);
+    try normalizePipeAboveStdio(gc, &stdout_pipe);
+    try normalizePipeAboveStdio(gc, &stderr_pipe);
+
+    // Caller-port redirect sources in 0..2 must be staged into fds >= 3:
+    // the file actions run sequentially in the child, so a later action
+    // naming a low source reads whatever an earlier dup2 just installed
+    // there — `stdout: (current-error-port) stderr: (current-output-port)`
+    // queued dup2(2,1); dup2(1,2) and sent BOTH streams to the original
+    // stderr instead of swapping (kaappi#2442 review). The staged copies
+    // are parent-side CLOEXEC dups: actions reference them, exec drops
+    // them in the child, and the defer above releases the parent's copies.
+    var redirs = [3]Redir{ cfg.stdin, cfg.stdout, cfg.stderr };
+    for (&redirs, 0..) |*r, slot| {
+        if (r.* != .fd) continue;
+        if (r.*.fd > 2) continue;
+        const staged = platform.dupCloexecAtLeast(r.*.fd, 3);
+        if (staged < 0)
+            return raiseProcessError(gc, "cannot stage redirection descriptor", types.FALSE, std.c._errno().*);
+        staged_fds[slot] = staged;
+        r.* = .{ .fd = staged };
+    }
+
+    // -- file actions + attrs. Both initializers can fail (ENOMEM on the
+    // pointer-backed libcs), and their destroy must run only on a
+    // successfully initialized object (kaappi#2442 review).
     var actions_storage = spawn_c.zeroStorage();
     const actions: *spawn_c.FileActionsPtr = @ptrCast(&actions_storage);
-    _ = spawn_c.posix_spawn_file_actions_init(actions);
-    // Destroyed on every exit path below (arm the defer immediately; a
-    // mid-setup failure must not leak the malloc'd internals on the
-    // pointer-flavor platforms).
+    {
+        const rc = spawn_c.posix_spawn_file_actions_init(actions);
+        if (rc != 0) return spawnSetupError(gc, rc);
+    }
     defer _ = spawn_c.posix_spawn_file_actions_destroy(actions);
 
     const O_RDONLY: c_int = 0;
     const O_WRONLY: c_int = 1;
     const null_z: [*:0]const u8 = "/dev/null";
+    const child_pipe_ends = [3]platform.fd_t{ stdin_pipe[0], stdout_pipe[1], stderr_pipe[1] };
+    const slot_oflag = [3]c_int{ O_RDONLY, O_WRONLY, O_WRONLY };
 
-    // stdin (slot 0)
-    switch (cfg.stdin) {
-        .inherit => {},
-        .pipe => {
-            if (spawn_c.posix_spawn_file_actions_adddup2(actions, stdin_pipe[0], 0) != 0 or
-                spawn_c.posix_spawn_file_actions_addclose(actions, stdin_pipe[0]) != 0)
-                return spawnFileActionError(gc);
-        },
-        .null_sink => {
-            if (spawn_c.posix_spawn_file_actions_addopen(actions, 0, null_z, O_RDONLY, 0o666) != 0)
-                return spawnFileActionError(gc);
-        },
-        .fd => |fd| {
-            if (spawn_c.posix_spawn_file_actions_adddup2(actions, fd, 0) != 0)
-                return spawnFileActionError(gc);
-        },
-        .merge_stdout => return primitives.argError("spawn-process", "'stdout is a stderr-only redirection spec", .{}),
-    }
-    // stdout (slot 1)
-    switch (cfg.stdout) {
-        .inherit => {},
-        .pipe => {
-            if (spawn_c.posix_spawn_file_actions_adddup2(actions, stdout_pipe[1], 1) != 0 or
-                spawn_c.posix_spawn_file_actions_addclose(actions, stdout_pipe[1]) != 0)
-                return spawnFileActionError(gc);
-        },
-        .null_sink => {
-            if (spawn_c.posix_spawn_file_actions_addopen(actions, 1, null_z, O_WRONLY, 0o666) != 0)
-                return spawnFileActionError(gc);
-        },
-        .fd => |fd| {
-            if (spawn_c.posix_spawn_file_actions_adddup2(actions, fd, 1) != 0)
-                return spawnFileActionError(gc);
-        },
-        .merge_stdout => return primitives.argError("spawn-process", "'stdout is a stderr-only redirection spec", .{}),
-    }
-    // stderr (slot 2) — after stdout, so 'stdout merging duplicates the
-    // child's final slot-1 descriptor, whatever installed it.
-    switch (cfg.stderr) {
-        .inherit => {},
-        .pipe => {
-            if (spawn_c.posix_spawn_file_actions_adddup2(actions, stderr_pipe[1], 2) != 0 or
-                spawn_c.posix_spawn_file_actions_addclose(actions, stderr_pipe[1]) != 0)
-                return spawnFileActionError(gc);
-        },
-        .null_sink => {
-            if (spawn_c.posix_spawn_file_actions_addopen(actions, 2, null_z, O_WRONLY, 0o666) != 0)
-                return spawnFileActionError(gc);
-        },
-        .fd => |fd| {
-            if (spawn_c.posix_spawn_file_actions_adddup2(actions, fd, 2) != 0)
-                return spawnFileActionError(gc);
-        },
-        .merge_stdout => {
-            if (spawn_c.posix_spawn_file_actions_adddup2(actions, 1, 2) != 0)
-                return spawnFileActionError(gc);
-        },
+    // Slot actions, stdin/stdout/stderr in order — stderr last, so the
+    // 'stdout merge duplicates the child's final slot-1 descriptor,
+    // whatever installed it. `redirs` (not cfg) carries the staged sources.
+    for (redirs, 0..) |redir, slot_usize| {
+        const slot: c_int = @intCast(slot_usize);
+        switch (redir) {
+            .inherit => {
+                // Darwin's CLOEXEC_DEFAULT closes even the stdio slots
+                // unless a file action names them — a plain 'inherit spawn
+                // lost all three streams (kaappi#2442 review; the man page
+                // prescribes addinherit_np for exactly this). A slot the
+                // parent itself has closed is skipped: the child correctly
+                // sees it closed, and an addinherit on a bad fd would fail
+                // the whole spawn.
+                if (comptime spawn_c.apple_cloexec_default) {
+                    if (platform.getFdFlags(slot) >= 0) {
+                        const rc = spawn_c.posix_spawn_file_actions_addinherit_np(actions, slot);
+                        if (rc != 0) return spawnSetupError(gc, rc);
+                    }
+                }
+            },
+            .pipe => {
+                const child_end = child_pipe_ends[slot_usize];
+                var rc = spawn_c.posix_spawn_file_actions_adddup2(actions, child_end, slot);
+                if (rc == 0) rc = spawn_c.posix_spawn_file_actions_addclose(actions, child_end);
+                if (rc != 0) return spawnSetupError(gc, rc);
+            },
+            .null_sink => {
+                const rc = spawn_c.posix_spawn_file_actions_addopen(actions, slot, null_z, slot_oflag[slot_usize], 0o666);
+                if (rc != 0) return spawnSetupError(gc, rc);
+            },
+            .fd => |fd| {
+                const rc = spawn_c.posix_spawn_file_actions_adddup2(actions, fd, slot);
+                if (rc != 0) return spawnSetupError(gc, rc);
+            },
+            .merge_stdout => {
+                if (slot != 2)
+                    return primitives.argError("spawn-process", "'stdout is a stderr-only redirection spec", .{});
+                const rc = spawn_c.posix_spawn_file_actions_adddup2(actions, 1, 2);
+                if (rc != 0) return spawnSetupError(gc, rc);
+            },
+        }
     }
     // Comptime gate, not just the run-time one above: the extern is absent
     // from NetBSD/OpenBSD libc, so the call itself must not be analyzed
     // there (Zig only links referenced externs).
     if (comptime spawn_c.has_addchdir) {
         if (directory_z) |dir| {
-            if (spawn_c.posix_spawn_file_actions_addchdir_np(actions, dir) != 0)
-                return spawnFileActionError(gc);
+            const rc = spawn_c.posix_spawn_file_actions_addchdir_np(actions, dir);
+            if (rc != 0) return spawnSetupError(gc, rc);
         }
     }
 
@@ -466,15 +519,18 @@ fn spawnImpl(cfg: SpawnConfig) PrimitiveError!Value {
 
     var attr_storage = spawn_c.zeroStorage();
     const attr: *spawn_c.AttrPtr = @ptrCast(&attr_storage);
-    _ = spawn_c.posix_spawnattr_init(attr);
+    {
+        const rc = spawn_c.posix_spawnattr_init(attr);
+        if (rc != 0) return spawnSetupError(gc, rc);
+    }
     defer _ = spawn_c.posix_spawnattr_destroy(attr);
 
     var flags: u16 = 0;
     if (cfg.new_group) {
         // pgroup 0 = the child becomes its own group leader
         // (setpgid(child, 0) semantics), so pgid == pid after spawn.
-        if (spawn_c.posix_spawnattr_setpgroup(attr, 0) != 0)
-            return spawnFileActionError(gc);
+        const rc = spawn_c.posix_spawnattr_setpgroup(attr, 0);
+        if (rc != 0) return spawnSetupError(gc, rc);
         flags |= spawn_c.SPAWN_SETPGROUP;
     }
     {
@@ -488,13 +544,15 @@ fn spawnImpl(cfg: SpawnConfig) PrimitiveError!Value {
         // renamed ABI, so the plain symbols are not portably linkable.
         var sigset = std.posix.sigemptyset();
         std.posix.sigaddset(&sigset, std.posix.SIG.PIPE);
-        if (spawn_c.posix_spawnattr_setsigdefault(attr, &sigset) != 0)
-            return spawnFileActionError(gc);
+        const rc = spawn_c.posix_spawnattr_setsigdefault(attr, &sigset);
+        if (rc != 0) return spawnSetupError(gc, rc);
         flags |= spawn_c.SPAWN_SETSIGDEF;
     }
     if (spawn_c.apple_cloexec_default) flags |= spawn_c.SPAWN_CLOEXEC_DEFAULT;
-    if (flags != 0 and spawn_c.posix_spawnattr_setflags(attr, @bitCast(flags)) != 0)
-        return spawnFileActionError(gc);
+    if (flags != 0) {
+        const rc = spawn_c.posix_spawnattr_setflags(attr, @bitCast(flags));
+        if (rc != 0) return spawnSetupError(gc, rc);
+    }
 
     // OpenBSD pre-flight (see spawn_cannot_report_exec_failure): for a
     // slash-containing program path — the case with exactly one candidate
@@ -515,59 +573,112 @@ fn spawnImpl(cfg: SpawnConfig) PrimitiveError!Value {
     // -- spawn
     var pid: c_int = -1;
     const envp: [*:null]const ?[*:0]const u8 = env_block orelse @ptrCast(std.c.environ);
-    const spawn_rc = spawn_c.posix_spawnp(&pid, argv[0].?, actions, attr, argv, envp);
+    var spawn_rc: c_int = 0;
+    {
+        // A child-thread VM blocking in the vfork-style spawn (which waits
+        // through the exec and its filesystem lookups) — or in the NetBSD
+        // exec barrier — never reaches the dispatch-loop safepoint, so a
+        // concurrent parent collection would spin in markLiveChildRoots
+        // (the same #1933 shape process-wait already handles; kaappi#2442
+        // review). Publish the VM as markable-in-native for the syscall
+        // stretch, restoring .running before anything below allocates.
+        const spawn_vm: ?*vm_mod.VM = if (vm_mod.vm_instance) |vm|
+            (if (!vm.owns_globals) vm else null)
+        else
+            null;
+        if (spawn_vm) |vm| vm.setCollectionInNative();
+        defer if (spawn_vm) |vm| vm.setCollectionRunning();
+        spawn_rc = spawn_c.posix_spawnp(&pid, argv[0].?, actions, attr, argv, envp);
+        // Exec barrier (NetBSD; see needs_exec_barrier): block until the
+        // kernel reports the child's exec completed (or the child died), so
+        // the child is signalable from the moment spawn-process returns.
+        // Without this, a process-kill issued promptly after spawn is
+        // silently dropped.
+        if (comptime spawn_c.needs_exec_barrier) {
+            if (spawn_rc == 0) execBarrierWait(pid);
+        }
+    }
     if (spawn_rc != 0) {
         // posix_spawn returns the errno itself, not -1. ENOENT is the common
         // case (program not on PATH); the errno rides the condition so
-        // posix-error-name reports it precisely. The `spawned` defer closes
-        // the pipes; the destroy defers release actions/attr.
+        // posix-error-name reports it precisely. The function-wide defer
+        // closes the pipes and staged fds; the destroy defers release
+        // actions/attr.
         return raiseProcessError(gc, "cannot spawn process", cfg.argv[0], spawn_rc);
     }
-    spawned = true;
 
-    // The child owns the child ends now; the parent's copies must go.
+    // The child owns the child ends now; the parent's copies must go
+    // (recorded as -1 so the cleanup defer never double-closes them).
     if (stdin_pipe[0] >= 0) _ = platform.close(stdin_pipe[0]);
+    stdin_pipe[0] = -1;
     if (stdout_pipe[1] >= 0) _ = platform.close(stdout_pipe[1]);
+    stdout_pipe[1] = -1;
     if (stderr_pipe[1] >= 0) _ = platform.close(stderr_pipe[1]);
-
-    // Exec barrier (NetBSD; see needs_exec_barrier): block until the kernel
-    // reports the child's exec completed (or the child died), so the child
-    // is signalable from the moment spawn-process returns. Without this, a
-    // process-kill issued promptly after spawn is silently dropped.
-    if (comptime spawn_c.needs_exec_barrier) {
-        execBarrierWait(pid);
-    }
+    stderr_pipe[1] = -1;
 
     // -- Process object + parent-end ports. `proc_val` stays rooted across
     // the three port allocations; each port is stored into the Process as
-    // soon as it exists so the next allocation sees it reachable.
+    // soon as it exists so the next allocation sees it reachable. Each
+    // parent end's slot is blanked as its Port takes ownership; an OOM
+    // between any two steps leaves the remaining ends to the cleanup defer.
     const pgid: i32 = if (cfg.new_group) pid else 0;
-    const proc = gc.allocProcess(pid, pgid) catch return PrimitiveError.OutOfMemory;
+    const proc = gc.allocProcess(pid, pgid) catch {
+        // The child is alive but nothing tracks it (enrolment happens
+        // inside allocProcess): a Process the caller never sees cannot be
+        // waited, and the unreaped registry never learned the pid. On this
+        // one OOM path, terminate and reap the fresh child rather than
+        // leak a zombie (kaappi#2442 review).
+        _ = platform.procKill(pid, 9);
+        var st: c_int = 0;
+        while (platform.waitPid(pid, &st, 0) < 0) {
+            if (std.c._errno().* != @intFromEnum(std.c.E.INTR)) break;
+        }
+        return PrimitiveError.OutOfMemory;
+    };
     var proc_val = types.makePointer(&proc.header);
     gc.pushRoot(&proc_val);
     defer gc.popRoot();
 
     if (stdin_pipe[1] >= 0) {
         const port_val = try primitives_io.makeFdPort(gc, stdin_pipe[1], false, true, "process-stdin");
+        stdin_pipe[1] = -1;
         proc.stdin_port = port_val;
         gc.writeBarrier(&proc.header, port_val);
     }
     if (stdout_pipe[0] >= 0) {
         const port_val = try primitives_io.makeFdPort(gc, stdout_pipe[0], true, false, "process-stdout");
+        stdout_pipe[0] = -1;
         proc.stdout_port = port_val;
         gc.writeBarrier(&proc.header, port_val);
     }
     if (stderr_pipe[0] >= 0) {
         const port_val = try primitives_io.makeFdPort(gc, stderr_pipe[0], true, false, "process-stderr");
+        stderr_pipe[0] = -1;
         proc.stderr_port = port_val;
         gc.writeBarrier(&proc.header, port_val);
     }
     return proc_val;
 }
 
-fn spawnFileActionError(gc: *GC) PrimitiveError!Value {
-    const errno_val = std.c._errno().*;
-    return raiseProcessError(gc, "cannot set up process redirection", types.FALSE, errno_val);
+/// Raise the errno-carrying redirection-setup error. All posix_spawn
+/// file-action and attr functions RETURN the error number rather than
+/// setting errno (kaappi#2442 review) — callers pass that return code here.
+fn spawnSetupError(gc: *GC, rc: c_int) PrimitiveError!Value {
+    return raiseProcessError(gc, "cannot set up process redirection", types.FALSE, rc);
+}
+
+/// Lift both ends of a created pipe above the stdio range (fd >= 3) via
+/// F_DUPFD_CLOEXEC, closing the low originals. See the call site for why a
+/// pipe end in 0..2 is unusable in the file actions.
+fn normalizePipeAboveStdio(gc: *GC, fds: *[2]platform.fd_t) PrimitiveError!void {
+    for (fds) |*fd| {
+        if (fd.* < 0 or fd.* > 2) continue;
+        const high = platform.dupCloexecAtLeast(fd.*, 3);
+        if (high < 0)
+            _ = try raiseProcessError(gc, "cannot relocate pipe descriptor above the stdio range", types.FALSE, std.c._errno().*);
+        _ = platform.close(fd.*);
+        fd.* = high;
+    }
 }
 
 /// Add a close file-action for every open fd > 2 that is not close-on-exec
@@ -585,6 +696,16 @@ fn spawnFileActionError(gc: *GC) PrimitiveError!Value {
 /// slip through — the same race every enumerate-then-spawn implementation
 /// (CPython's subprocess on platforms without close_range) accepts.
 fn addInheritedFdCloses(gc: *GC, actions: *spawn_c.FileActionsPtr) PrimitiveError!void {
+    if (comptime spawn_c.has_addclosefrom) {
+        // One kernel-side action replaces the whole scan, with no upper
+        // bound to silently exempt high descriptors. It runs after the slot
+        // dup2s, so redirect sources have already been copied into 0..2;
+        // closing them (and everything else >= 3) is exactly
+        // close-by-default.
+        const rc = spawn_c.posix_spawn_file_actions_addclosefrom_np(actions, 3);
+        if (rc != 0) _ = try spawnSetupError(gc, rc);
+        return;
+    }
     if (comptime builtin.os.tag == .linux) {
         if (platform.DirIter.open("/proc/self/fd")) |it_state| {
             // The genuinely sparse enumeration must be collected before
@@ -606,17 +727,20 @@ fn addInheritedFdCloses(gc: *GC, actions: *spawn_c.FileActionsPtr) PrimitiveErro
             return;
         }
     }
-    // BSD fallback (and Linux without /proc): probe the descriptor range
-    // inline — materializing up to 65k entries per spawn would cost real
-    // allocation on the hot path for nothing, since the range is dense by
-    // construction (kaappi#2442 review).
-    const cap: u64 = 65536;
+    // NetBSD/OpenBSD fallback (and Linux without /proc): probe the
+    // descriptor range inline — no ArrayList (materializing the dense range
+    // costs allocation for nothing) and no arbitrary cap: a valid high
+    // descriptor silently exempted is a broken close-by-default guarantee
+    // (kaappi#2442 review), so the scan runs to the full soft limit. The
+    // targets that commonly raise RLIMIT_NOFILE into six figures (FreeBSD,
+    // Linux) never reach this loop — they use addclosefrom_np and /proc
+    // respectively.
+    const fallback: u64 = 65536;
     const limit: u64 = blk: {
-        const rl = std.posix.getrlimit(.NOFILE) catch break :blk cap;
+        const rl = std.posix.getrlimit(.NOFILE) catch break :blk fallback;
         // rlim_t is signed on some libcs (FreeBSD's i64); a negative
         // cur (RLIM_INFINITY representations aside) means "no info".
-        const cur = std.math.cast(u64, rl.cur) orelse break :blk cap;
-        break :blk @min(cur, cap);
+        break :blk std.math.cast(u64, rl.cur) orelse fallback;
     };
     var fd: platform.fd_t = 3;
     while (fd < limit) : (fd += 1) {
@@ -630,9 +754,8 @@ fn closeFdIfInheritable(gc: *GC, actions: *spawn_c.FileActionsPtr, fd: platform.
     const flags = platform.getFdFlags(fd);
     if (flags < 0) return; // closed (or the enumeration dir's own fd)
     if ((flags & FD_CLOEXEC) != 0) return; // exec closes it anyway
-    if (spawn_c.posix_spawn_file_actions_addclose(actions, fd) != 0) {
-        _ = try spawnFileActionError(gc);
-    }
+    const rc = spawn_c.posix_spawn_file_actions_addclose(actions, fd);
+    if (rc != 0) _ = try spawnSetupError(gc, rc);
 }
 
 /// NetBSD's exec barrier (see spawn_c.needs_exec_barrier): register a

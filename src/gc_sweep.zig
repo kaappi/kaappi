@@ -427,6 +427,19 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
                 // (EAGAIN) or any other failure just drops the remainder —
                 // programs that need the data call flush-output-port or
                 // close-port instead of leaking the port to the collector.
+                //
+                // For that promise to hold, the fd must actually RETURN
+                // EAGAIN: a port the scheduler never touched (a fresh
+                // process pipe, KEP-0022) is still in blocking mode, and a
+                // blocking write into a full pipe whose reader never drains
+                // would wedge the collector itself (kaappi#2442 review).
+                // Flip it non-blocking first — a no-op for regular files,
+                // whose flush still completes in full, and irrelevant to
+                // the fd's future since it is closed right below.
+                if (comptime !platform.is_windows and !platform.is_wasm) {
+                    if (!port.nonblocking and port.write_buf != null)
+                        _ = platform.setFdNonblockingForTeardown(port.fd);
+                }
                 if (port.write_buf) |wb| {
                     var start = port.write_buf_start;
                     while (start < port.write_buf_len) {

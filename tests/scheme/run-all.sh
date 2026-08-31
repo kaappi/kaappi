@@ -497,7 +497,7 @@ run_shell_suite() {
 # included fragment and never opens a SRFI-64 suite, while every real suite
 # file does. Verified against the whole tree — 11 fixture .scm files under
 # suite subdirectories, none containing `test-begin`, and no false positives.
-SCM_SUITE_DIRS="smoke compliance continuations hygiene srfi ffi audit"
+SCM_SUITE_DIRS="smoke compliance continuations hygiene srfi ffi process audit"
 
 check_unreachable_tests() {
     echo "=== Reachability check ==="
