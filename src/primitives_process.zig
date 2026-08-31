@@ -585,14 +585,15 @@ fn spawnFileActionError(gc: *GC) PrimitiveError!Value {
 /// slip through — the same race every enumerate-then-spawn implementation
 /// (CPython's subprocess on platforms without close_range) accepts.
 fn addInheritedFdCloses(gc: *GC, actions: *spawn_c.FileActionsPtr) PrimitiveError!void {
-    var fds: std.ArrayList(platform.fd_t) = .empty;
-    defer fds.deinit(gc.allocator);
-
-    var listed = false;
     if (comptime builtin.os.tag == .linux) {
         if (platform.DirIter.open("/proc/self/fd")) |it_state| {
+            // The genuinely sparse enumeration must be collected before
+            // probing: the directory's own fd is part of the listing, and
+            // only closing the iterator first lets the F_GETFD re-probe in
+            // closeFdIfInheritable see it as already gone.
+            var fds: std.ArrayList(platform.fd_t) = .empty;
+            defer fds.deinit(gc.allocator);
             var it = it_state;
-            listed = true;
             while (it.next()) |name| {
                 const n = std.fmt.parseInt(platform.fd_t, name, 10) catch continue;
                 fds.append(gc.allocator, n) catch {
@@ -601,32 +602,36 @@ fn addInheritedFdCloses(gc: *GC, actions: *spawn_c.FileActionsPtr) PrimitiveErro
                 };
             }
             it.close();
+            for (fds.items) |fd| try closeFdIfInheritable(gc, actions, fd);
+            return;
         }
     }
-    if (!listed) {
-        const cap: u64 = 65536;
-        const limit: u64 = blk: {
-            const rl = std.posix.getrlimit(.NOFILE) catch break :blk cap;
-            // rlim_t is signed on some libcs (FreeBSD's i64); a negative
-            // cur (RLIM_INFINITY representations aside) means "no info".
-            const cur = std.math.cast(u64, rl.cur) orelse break :blk cap;
-            break :blk @min(cur, cap);
-        };
-        var fd: platform.fd_t = 3;
-        while (fd < limit) : (fd += 1) {
-            fds.append(gc.allocator, fd) catch return PrimitiveError.OutOfMemory;
-        }
+    // BSD fallback (and Linux without /proc): probe the descriptor range
+    // inline — materializing up to 65k entries per spawn would cost real
+    // allocation on the hot path for nothing, since the range is dense by
+    // construction (kaappi#2442 review).
+    const cap: u64 = 65536;
+    const limit: u64 = blk: {
+        const rl = std.posix.getrlimit(.NOFILE) catch break :blk cap;
+        // rlim_t is signed on some libcs (FreeBSD's i64); a negative
+        // cur (RLIM_INFINITY representations aside) means "no info".
+        const cur = std.math.cast(u64, rl.cur) orelse break :blk cap;
+        break :blk @min(cur, cap);
+    };
+    var fd: platform.fd_t = 3;
+    while (fd < limit) : (fd += 1) {
+        try closeFdIfInheritable(gc, actions, fd);
     }
+}
 
+fn closeFdIfInheritable(gc: *GC, actions: *spawn_c.FileActionsPtr, fd: platform.fd_t) PrimitiveError!void {
     const FD_CLOEXEC: c_int = 1;
-    for (fds.items) |fd| {
-        if (fd < 3) continue;
-        const flags = platform.getFdFlags(fd);
-        if (flags < 0) continue; // closed (or the enumeration dir's own fd)
-        if ((flags & FD_CLOEXEC) != 0) continue; // exec closes it anyway
-        if (spawn_c.posix_spawn_file_actions_addclose(actions, fd) != 0) {
-            _ = try spawnFileActionError(gc);
-        }
+    if (fd < 3) return;
+    const flags = platform.getFdFlags(fd);
+    if (flags < 0) return; // closed (or the enumeration dir's own fd)
+    if ((flags & FD_CLOEXEC) != 0) return; // exec closes it anyway
+    if (spawn_c.posix_spawn_file_actions_addclose(actions, fd) != 0) {
+        _ = try spawnFileActionError(gc);
     }
 }
 

@@ -194,9 +194,9 @@ test "process: redirection matrix" {
     const vm = ctx.vm;
     _ = try vm.eval("(import (scheme file))");
 
-    // 'null: the child's stdout goes to the null device — the pipe
-    // accessor still exists (stdout was 'pipe), and reads EOF.
-    // (Two 'stdout: options: last wins — the null one.)
+    // 'null: the child's stdout goes to the null device. Two 'stdout:
+    // options are given and the last one wins, so the earlier 'pipe is
+    // discarded, no pipe is created, and the accessor is #f.
     try expectTrue(vm,
         \\(let* ((p (spawn-process '("/bin/echo" "discarded") 'stdout: 'pipe 'stdout: 'null)))
         \\  (and (eq? (process-stdout p) #f)

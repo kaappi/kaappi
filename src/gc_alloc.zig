@@ -1085,6 +1085,11 @@ pub fn allocChannel(self: *GC) !Value {
 /// pointer in it is valid for exactly as long as the object is.
 pub fn allocProcess(self: *GC, pid: i32, pgid: i32) !*types.Process {
     try self.maybeCollect();
+    // Reserve the tracking slot first: spawn-process is a user-driven path
+    // whose callers already handle error.OutOfMemory, so a list-growth
+    // failure must raise, not abort — and reserving before the create means
+    // no tracked-but-unenrolled (or enrolled-then-failed) Process can exist.
+    try self.unreaped_processes.ensureUnusedCapacity(self.allocator, 1);
     const proc = try self.allocator.create(types.Process);
     proc.* = .{
         .header = .{ .tag = .process },
@@ -1092,8 +1097,7 @@ pub fn allocProcess(self: *GC, pid: i32, pgid: i32) !*types.Process {
         .pgid = pgid,
     };
     self.finishAlloc(&proc.header, @sizeOf(types.Process));
-    self.unreaped_processes.append(self.allocator, proc) catch
-        @panic("GC: process tracking list OOM");
+    self.unreaped_processes.appendAssumeCapacity(proc);
     return proc;
 }
 

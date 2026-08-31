@@ -779,6 +779,13 @@ pub const VM = struct {
     fn ignoreSigpipe() void {
         const builtin = @import("builtin");
         if (comptime builtin.os.tag == .windows or builtin.os.tag == .wasi) return;
+        // Only upgrade the DEFAULT disposition (die by signal) to SIG_IGN.
+        // An embedder that deliberately installed its own SIGPIPE handler
+        // keeps it — their handler runs and the write still returns EPIPE,
+        // which is all the KEP-0022 contract needs (kaappi#2442 review).
+        var old: std.posix.Sigaction = undefined;
+        std.posix.sigaction(std.posix.SIG.PIPE, null, &old);
+        if (old.handler.handler != std.posix.SIG.DFL) return;
         var act: std.posix.Sigaction = .{
             .handler = .{ .handler = std.posix.SIG.IGN },
             .mask = std.posix.sigemptyset(),

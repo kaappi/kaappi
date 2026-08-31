@@ -195,10 +195,24 @@ pub fn getFdFlags(fd: fd_t) c_int {
 
 /// dup(2), except the copy is close-on-exec (fcntl F_DUPFD_CLOEXEC, the
 /// POSIX 2008 replacement for dup-then-F_SETFD that cannot be interrupted
-/// between the two steps). Returns -1 on failure.
+/// between the two steps). Returns -1 on failure. The command value is
+/// per-OS (POSIX names it but does not fix it: 1030 on Linux, 67 on macOS,
+/// 17/12/10 on the BSDs), so take it from std.c's per-target table — a
+/// hardcoded number lands on a different fcntl command entirely on every
+/// other libc (kaappi#2442 review: 6 was macOS's F_SETOWN and Linux's
+/// F_SETLK, so the dup silently never happened).
 pub fn fcntlDupCloexec(fd: fd_t) fd_t {
-    const F_DUPFD_CLOEXEC: c_int = 6;
-    return fcntlRaw(fd, F_DUPFD_CLOEXEC, 0);
+    if (comptime is_wasm or is_windows) return -1;
+    // std.c's per-target F table is the authority where it declares the
+    // command; OpenBSD's entry omits it (an upstream gap — the OS has had
+    // it since 5.0, value 10 per its <fcntl.h>).
+    const cmd: c_int = comptime if (@hasDecl(std.c.F, "DUPFD_CLOEXEC"))
+        @intCast(std.c.F.DUPFD_CLOEXEC)
+    else if (builtin.os.tag == .openbsd)
+        10
+    else
+        @compileError("F_DUPFD_CLOEXEC value unknown for this target");
+    return fcntlRaw(fd, cmd, 0);
 }
 
 /// fcntl(2) MUST be declared variadic — its C prototype is
