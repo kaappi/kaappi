@@ -640,7 +640,10 @@ fn spawnImpl(cfg: SpawnConfig) PrimitiveError!Value {
     // between any two steps leaves the remaining ends to the cleanup defer.
     const pgid: i32 = if (cfg.new_group) pid else 0;
     const proc = gc.allocProcess(pid, pgid) catch {
-        killAndReapFresh(pid);
+        // Nothing tracks this child (enrolment happens inside allocProcess),
+        // so an unreaped survivor here is lost for good — but that needs
+        // the kill itself to fail, which has no realistic path.
+        _ = killAndReapFresh(pid);
         return PrimitiveError.OutOfMemory;
     };
     var proc_val = types.makePointer(&proc.header);
@@ -655,9 +658,12 @@ fn spawnImpl(cfg: SpawnConfig) PrimitiveError!Value {
     // child, and record the status so freeObject does not reap a reused
     // pid later.
     errdefer {
-        killAndReapFresh(pid);
-        proc.status = 9; // (signaled . 9): the raw wait status of SIGKILL
-        removeFromUnreaped(gc, proc);
+        if (killAndReapFresh(pid)) {
+            proc.status = 9; // (signaled . 9): the raw wait status of SIGKILL
+            removeFromUnreaped(gc, proc);
+        }
+        // else: keep the registry entry — the WNOHANG sweeps reap it when
+        // the child does die, instead of the pid being forgotten.
     }
 
     if (stdin_pipe[1] >= 0) {
@@ -682,15 +688,37 @@ fn spawnImpl(cfg: SpawnConfig) PrimitiveError!Value {
 }
 
 /// Terminate and reap a child spawned moments ago that no caller will ever
-/// be able to wait on (a post-spawn allocation failed). SIGKILL cannot be
-/// caught, so the blocking reap is bounded by the process teardown itself;
-/// EINTR retries, any other waitpid failure gives up (nothing more can be
-/// done on an OOM path).
-fn killAndReapFresh(pid: c_int) void {
-    _ = platform.procKill(pid, 9);
+/// be able to wait on (a post-spawn allocation failed). Returns true when
+/// the child was actually reaped — the caller keeps its registry entry
+/// otherwise, so the ordinary WNOHANG sweeps can finish the job later
+/// rather than a pid being forgotten (kaappi#2442 review). The blocking
+/// reap runs only after the SIGKILL demonstrably went out (an unchecked
+/// kill followed by an unconditional wait could block on a child that was
+/// never signaled), under the same markable-in-native protocol as
+/// process-wait, since a child-thread VM blocking here would otherwise
+/// starve a concurrent parent collection (#1933 shape). SIGKILL cannot be
+/// caught, so the wait is bounded by the child's own teardown (an
+/// uninterruptible-sleep child can stretch that, but never indefinitely).
+fn killAndReapFresh(pid: c_int) bool {
+    if (platform.procKill(pid, 9) != 0) {
+        // Could not signal (already reaped elsewhere would be a bug; a
+        // bizarre EPERM leaves the child running): one non-blocking probe,
+        // then let the registry sweeps take over.
+        var st0: c_int = 0;
+        return platform.waitPid(pid, &st0, platform.WNOHANG) == pid;
+    }
+    const wait_vm: ?*vm_mod.VM = if (vm_mod.vm_instance) |vm|
+        (if (!vm.owns_globals) vm else null)
+    else
+        null;
+    if (wait_vm) |vm| vm.setCollectionInNative();
+    defer if (wait_vm) |vm| vm.setCollectionRunning();
     var st: c_int = 0;
-    while (platform.waitPid(pid, &st, 0) < 0) {
-        if (std.c._errno().* != @intFromEnum(std.c.E.INTR)) break;
+    while (true) {
+        const r = platform.waitPid(pid, &st, 0);
+        if (r == pid) return true;
+        if (r < 0 and std.c._errno().* == @intFromEnum(std.c.E.INTR)) continue;
+        return false;
     }
 }
 

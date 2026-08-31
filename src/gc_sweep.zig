@@ -428,27 +428,27 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
                 // programs that need the data call flush-output-port or
                 // close-port instead of leaking the port to the collector.
                 //
-                // For that promise to hold, the fd must actually RETURN
-                // EAGAIN: a port the scheduler never touched (a fresh
-                // process pipe, KEP-0022) is still in blocking mode, and a
+                // For that promise to hold, the drain must be unable to
+                // block. A port the scheduler never touched (a fresh
+                // process pipe, KEP-0022) is still in BLOCKING mode, and a
                 // blocking write into a full pipe whose reader never drains
-                // would wedge the collector itself (kaappi#2442 review).
-                // Flip it non-blocking first — a no-op for regular files,
-                // whose flush still completes in full. O_NONBLOCK lives on
-                // the SHARED open-file description, so the prior flags are
-                // restored before the close — dup/dup2 aliases (a child's
-                // stdio, an fd->port twin) must not come out of a
-                // collection permanently non-blocking — and if the flip
-                // itself fails, the blocking-capable drain is skipped
-                // entirely rather than risked (kaappi#2442 review).
-                var teardown_flags: ?c_int = null;
-                var drain_ok = true;
-                if (comptime !platform.is_windows and !platform.is_wasm) {
-                    if (!port.nonblocking and port.write_buf != null) {
-                        teardown_flags = platform.setFdNonblockingForTeardown(port.fd);
-                        if (teardown_flags == null) drain_ok = false;
-                    }
-                }
+                // would wedge the collector itself — while toggling
+                // O_NONBLOCK for the drain is no better: the flag lives on
+                // the SHARED open-file description, so every dup/dup2
+                // alias (a child's stdio, an fd->port twin) transiently —
+                // or, on a failed restore, permanently — turns non-blocking
+                // (kaappi#2442 review, twice). So no flag is ever touched;
+                // instead the drain is gated on seekability: a seekable fd
+                // is a regular file, whose blocking write completes without
+                // waiting on a peer (the flush-on-collect file ports have
+                // always had), while an unseekable one (pipe, socket, FIFO,
+                // tty — everything with a peer or flow control) simply
+                // drops its remainder, exactly the best-effort contract.
+                const drain_ok = if (comptime platform.is_windows or platform.is_wasm)
+                    true // the Windows arms below have their own non-blocking gates
+                else
+                    port.nonblocking or port.write_buf == null or
+                        platform.seek(port.fd, 0, platform.SEEK_CUR) >= 0;
                 if (drain_ok) {
                     if (port.write_buf) |wb| {
                         var start = port.write_buf_start;
@@ -472,7 +472,6 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
                         }
                     }
                 }
-                if (teardown_flags) |fl| platform.restoreFdStatusFlags(port.fd, fl);
                 _ = platform.close(port.fd);
             }
             if (port.write_buf) |wb| {

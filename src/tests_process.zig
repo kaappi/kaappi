@@ -627,17 +627,18 @@ test "process: collecting an abandoned pipe port never blocks the sweep" {
     // wedged the collector. Fill the pipe near capacity (flushed), buffer
     // more below the high-water mark (unflushed), abandon everything, and
     // require the full collection to come back promptly.
-    // 12000 flushed fits even the smallest fixed pipe (OpenBSD's 16 KiB),
-    // so the flush itself can never block; the 60000-byte unflushed tail
-    // then exceeds the REMAINING capacity on every platform (16 KiB fixed
-    // and 64 KiB big-pipe alike), so the sweep's drain always meets a full
-    // pipe partway through.
+    // A 4096-byte flushed prefill is at or below one pipe page everywhere
+    // (Linux under the per-user pipe-page soft limit may hand out 2-page,
+    // 8 KiB pipes — kaappi#2442 review), so the explicit flush can never
+    // block; the 68000-byte unflushed tail then exceeds even a 64 KiB
+    // pipe's remaining capacity, so the abandoned buffer is guaranteed
+    // larger than what any drain could sink.
     try expectTrue(vm,
         \\(let* ((p (spawn-process '("/bin/sleep" "3") 'stdin: 'pipe))
         \\       (in (process-stdin p)))
-        \\  (write-string (make-string 12000 #\x) in)
+        \\  (write-string (make-string 4096 #\x) in)
         \\  (flush-output-port in)
-        \\  (write-string (make-string 60000 #\y) in)
+        \\  (write-string (make-string 68000 #\y) in)
         \\  #t)
     );
     const platform = @import("platform.zig");
@@ -719,23 +720,39 @@ test "process: spawn failure paths leak no descriptors (OOM sweep)" {
         _ = vm.eval(src) catch {};
         gc.oom_countdown = null;
     }
-    gc.collectFull();
+    // Registry check BEFORE collectFull (kaappi#2442 review: a collection
+    // would drop an unreachable Process entry even with its child still
+    // live, hiding exactly the leak this guards). At this point every
+    // legitimate flow has emptied it — successful iterations reaped via
+    // process-wait, spawnImpl-internal failures via the errdefer's blocking
+    // kill+reap, caller-path SIGKILLed stragglers via the WNOHANG sweep —
+    // so a survivor is an abandoned child.
     sweepUnreapedForTest(gc);
+    try std.testing.expectEqual(@as(usize, 0), gc.unreaped_processes.items.len);
+
+    gc.collectFull();
     const after = countFds();
     try std.testing.expectEqual(before, after);
 
-    // No abandoned children either: every spawnImpl-internal failure must
-    // have killed AND reaped its fresh child (kaappi#2442 review) — the
-    // reap in killAndReapFresh is a BLOCKING waitpid, so those paths
-    // structurally cannot leave a zombie — and the registry must be empty.
-    // A countdown that fires in the *caller's* kill/wait after a
-    // successful spawn abandons the Process by the caller's own hand (the
-    // documented GC.unreaped_processes window, not spawnImpl's contract);
-    // its SIGKILLed child may still be mid-death on a slow box, so such
-    // stragglers are drained rather than asserted against.
-    try std.testing.expectEqual(@as(usize, 0), gc.unreaped_processes.items.len);
-    var zst: c_int = 0;
-    while (platform.waitPid(-1, &zst, platform.WNOHANG) > 0) {}
+    // And the OS agrees: within a bounded window, waitpid(-1) must reach
+    // -1/ECHILD — no child of ours left, living or zombie. A persistent 0
+    // is a LIVE abandoned child (the mutation shape: spawnImpl failing
+    // without killing) and fails the test; positive returns are killed
+    // stragglers mid-death on a slow box, reaped and retried. The caller's
+    // own kill runs before its first post-spawn allocation, so a countdown
+    // cannot abandon an un-killed child by the caller's hand here.
+    var reached_echild = false;
+    var tries: u32 = 0;
+    while (tries < 500) : (tries += 1) {
+        var zst: c_int = 0;
+        const r = platform.waitPid(-1, &zst, platform.WNOHANG);
+        if (r < 0) {
+            reached_echild = true;
+            break;
+        }
+        if (r == 0) platform.sleepNs(10 * std.time.ns_per_ms);
+    }
+    try std.testing.expect(reached_echild);
 }
 
 /// Reap any stragglers the OOM sweep left (children whose Process was
@@ -941,8 +958,19 @@ test "process: explicit stdio self-redirect needs no spare descriptor" {
     }
     if (!filled_up) return error.SkipZigTest; // could not exhaust the table
 
-    // Control: a staged duplicate is impossible right now.
+    // Control 1: a staged duplicate is impossible right now.
     try std.testing.expect(platform.dupCloexecAtLeast(1, 3) < 0);
+
+    // Control 2: a PLAIN spawn must work under the full table, or the
+    // premise doesn't hold in this environment and the redirect assertion
+    // below would blame the wrong thing. Concretely: under QEMU
+    // user-emulation (the ppc64le/s390x CI legs), binfmt needs a spare
+    // descriptor to load the interpreter before the child ever reaches its
+    // exec-time CLOEXEC cleanup, so no spawn at all survives a zero-free
+    // table there (kaappi#2442 review; CI jobs 99546383549/99546383648).
+    _ = vm.eval(
+        \\(let ((p (spawn-process '("true")))) (process-wait p) #t)
+    ) catch return error.SkipZigTest;
 
     try expectTrue(vm,
         \\(let ((p (spawn-process '("true") 'stdout: (current-output-port))))
