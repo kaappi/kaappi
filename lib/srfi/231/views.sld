@@ -87,10 +87,12 @@
                            ((storage-class-getter storage-class) body (apply new-indexer multi-index))))
              (raw-setter (lambda (val . multi-index)
                            ((storage-class-setter storage-class) body (apply new-indexer multi-index) val)))
-             (getter (if safe? (%safe-getter new-domain raw-getter) raw-getter))
+             ;; always checked; the raw pair is kept for bulk ops (#2448)
+             (getter (%safe-getter new-domain raw-getter))
              (setter (and mutable?
-                          (if safe? (%safe-setter new-domain (storage-class-checker storage-class) raw-setter) raw-setter))))
-        (%make-array new-domain getter setter body new-indexer storage-class safe?)))
+                          (%safe-setter new-domain (storage-class-checker storage-class) raw-setter))))
+        (%make-array/unsafe new-domain getter setter body new-indexer storage-class safe?
+                            raw-getter (and mutable? raw-setter))))
 
     ;; --- the 3-way dispatch shape shared by extract/translate/permute/reverse/sample ---
 
@@ -325,10 +327,20 @@
              (mutable? (%opt opts 1 (if specialized? (mutable-array? array) (specialized-array-default-mutable?))))
              (safe? (%opt opts 2 (if specialized? (array-safe? array) (specialized-array-default-safe?))))
              (domain (array-domain array))
-             (getter (array-getter array))
+             ;; indices come from interval-for-each over the source's own
+             ;; domain, so neither side needs the index check; values are
+             ;; still checked unless provably valid (#2448)
+             (getter (array-unsafe-getter array))
              (dest (make-specialized-array domain storage-class (storage-class-default storage-class) safe?))
-             (dest-setter (array-setter dest)))
-        (interval-for-each (lambda multi-index (apply dest-setter (apply getter multi-index) multi-index)) domain)
+             (dest-setter (array-unsafe-setter dest))
+             (checker (%copy-value-checker array storage-class)))
+        (interval-for-each (lambda multi-index
+                             (let ((val (apply getter multi-index)))
+                               (when (and checker (not (checker val)))
+                                 (error "array-copy: not all elements of the source can be stored in the destination"
+                                        val storage-class))
+                               (apply dest-setter val multi-index)))
+                           domain)
         (if mutable? dest (array-freeze! dest))))
 
     (define (array-copy array . opts) (%array-copy-impl array opts))
@@ -433,10 +445,11 @@
                                          ((storage-class-getter storage-class) body (apply new-indexer multi-index))))
                            (raw-setter (lambda (val . multi-index)
                                          ((storage-class-setter storage-class) body (apply new-indexer multi-index) val)))
-                           (getter (if safe? (%safe-getter new-domain raw-getter) raw-getter))
+                           (getter (%safe-getter new-domain raw-getter))
                            (setter (and mutable?
-                                        (if safe? (%safe-setter new-domain (storage-class-checker storage-class) raw-setter) raw-setter))))
-                      (%make-array new-domain getter setter body new-indexer storage-class safe?)))))
+                                        (%safe-setter new-domain (storage-class-checker storage-class) raw-setter))))
+                      (%make-array/unsafe new-domain getter setter body new-indexer storage-class safe?
+                                          raw-getter (and mutable? raw-setter))))))
             ;; NumPy's _attempt_nocopy_reshape, transcribed. Walk minimal
             ;; adjacent-axis groups of equal volume in the old and new
             ;; shapes; within each old group require C-contiguity so one

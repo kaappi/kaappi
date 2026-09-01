@@ -123,14 +123,16 @@ OTHER DEALINGS IN THE SOFTWARE.
 ;;; epilogue fails the suite unless every entry accounts exactly: an id
 ;;; that never executes, zero observed (stale -- prune it), more
 ;;; divergences than expected (an undocumented failure is hiding under
-;;; the id, e.g. a third unsafe-view evaluation absorbed by the 351
-;;; entry, whose site legitimately fires twice), or fewer but nonzero
-;;; (over-accounting -- re-count it).
+;;; the id), or fewer but nonzero (over-accounting -- re-count it).
+;;;
+;;; Entry 351 lived here until kaappi#2448: unsafe specialized views went
+;;; unchecked, which the spec text permits but the reference does not do.
+;;; kaappi now always checks the user-visible getter/setter, so that
+;;; divergence is resolved rather than documented.
 (define divergent-tests 0)
 (define diverged-counts (make-vector 10000 0))
 (define known-divergences
-  (list '(147 1 . "R7RS strings are mutable; the suite encodes Gambit's immutable-string expectation")
-        '(351 2 . "unsafe specialized views are unchecked per the spec text; the reference happens to check (see kaappi#2362)")))
+  (list '(147 1 . "R7RS strings are mutable; the suite encodes Gambit's immutable-string expectation")))
 (define (known-divergence id) (assq id known-divergences))
 
 (define (report-failure id line result expected)

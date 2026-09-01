@@ -64,14 +64,17 @@
       (unless (array? source) (error "array-assign!: source is not an array" source))
       (unless (interval= (array-domain destination) (array-domain source))
         (error "array-assign!: destination and source must have the same domain" destination source))
-      (let ((dest-setter (array-setter destination)) (src-getter (array-getter source)))
+      ;; Domains are equal (checked above) and the indices come from
+      ;; interval-for-each over them, so the index check is redundant on
+      ;; both sides -- but the VALUE check is not (#2448).
+      (let ((dest-setter (array-unsafe-setter destination)) (src-getter (array-unsafe-getter source)))
         ;; The reference validates every element against the destination's
         ;; checker even when the destination is an UNSAFE specialized array
-        ;; ("should check anyway", test-arrays.scm:4361); the raw setter
-        ;; below skips checking, which for e.g. u1 silently corrupts bits
+        ;; ("should check anyway", test-arrays.scm:4361); the unsafe setter
+        ;; skips checking, which for e.g. u1 silently corrupts bits
         ;; instead of erroring (#2359).
         (let ((checker (and (specialized-array? destination)
-                            (storage-class-checker (array-storage-class destination)))))
+                            (%copy-value-checker source (array-storage-class destination)))))
           (interval-for-each (lambda multi-index
                                (let ((val (apply src-getter multi-index)))
                                  (when (and checker (not (checker val)))
