@@ -163,6 +163,15 @@ test "stepper: a form error is reported but the program still finishes" {
     stepper.init(vm, src, "<test>");
     defer stepper.deinit();
 
+    // The expected KP3002 diagnostic goes to the process's real stderr.
+    // Discard it: under `zig build test` a green run whose captured stderr
+    // is non-empty is rendered with a red ` w` warning block and a
+    // "failed command:" line and no success summary — indistinguishable
+    // from a crash at a glance, which is how kaappi#2447 was filed.
+    var quiet: th.QuietStderr = .{};
+    quiet.init();
+    defer quiet.deinit();
+
     _ = try runToDone(&stepper, 1_000_000, 8);
     try testing.expect(stepper.had_error);
     // Execution continued past the error to the next form, matching runFile.
@@ -189,6 +198,13 @@ test "stepper: a form that pauses then raises unwinds roots cleanly" {
     var stepper: Stepper = undefined;
     stepper.init(vm, src, "<test>");
     defer stepper.deinit();
+
+    // Same stderr discipline as the form-error test above (kaappi#2447):
+    // the expected KP3002 from the resumed form must not end up in the
+    // build runner's captured stderr.
+    var quiet: th.QuietStderr = .{};
+    quiet.init();
+    defer quiet.deinit();
 
     var steps: usize = 0;
     while (steps < 1_000_000) : (steps += 1) {
