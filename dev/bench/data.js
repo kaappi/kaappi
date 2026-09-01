@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788254067289,
+  "lastUpdate": 1788269711189,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "55708cfa6d02cd3b86a74483f6305e108398fc35",
-          "message": "Store complex components as Values: exact complex arithmetic, make-rectangular, write/real-part, reader (#2268)\n\n* Store complex components as Values: exact complex arithmetic, make-rectangular, write/real-part, reader (Fixes #2166)\n\nComplex stored its components as two f64s plus exactness flags, so every\nconsumer had to choose between honest-but-inexact and exact-but-wrong:\n(+ 3/2+1i 1/2) returned inexact 2.0+1.0i, (make-rectangular\n9007199254740993 1) silently rounded 2^53+1, (exact? (make-rectangular\n(expt 10 400) 1)) claimed an exact infinity, and (write z) printed 3/2+1i\nwhile (real-part z) returned inexact 1.5.\n\nComponents are now Values (fixnum/bignum/rational/flonum) with no flags:\n\n- + - * / and expt with an integer exponent run componentwise over the\n  exact tower, which is exact-closed; the interim unary-negation\n  special-case dissolves.\n- make-rectangular never touches an f64; 2^53+1 and 10^400 survive\n  digit-exactly.\n- write prints components through the normal numeric printer (the\n  f64-unrounding path is deleted), so write and real-part agree.\n- The reader and string->number build components digit-exactly at any\n  size; the #2182/#2243 f64 round-trip gates dissolve.\n- eqv?/equal?/memv/assv/eqv-keyed hash tables compare components with\n  numeric eqv?, and hash by component value.\n- Per R7RS 6.2.2 a stored complex is never mixed-exactness; a zero imag\n  demotes, except that a literal's inexact zero imag stays complex\n  ((real? -2.5+0.0i) => #f) while an exact one demotes\n  ((integer? 3+0i) => #t).\n- .sbc: TAG_COMPLEX now writes the two component constants; the golden\n  byte test is updated.\n\nGC: complex is now a Value-bearing heap type (mark/sweep/deep-copy arms\nadded; the field pin re-pinned). The reader roots scanned complex\ncomponents until the datum constructor converts them.\n\nTest updates: the interim-slice assertions in the #2166/#2167 compliance\nsuite now pin the full behavior; the gate assertions in the reader\ndelimiter/exactness-gap suites and tests_numeric pin the digit-exact\nreads; new coverage for arithmetic, make-rectangular, write/real-part,\nreader, string->number, expt, and hash tables.\n\nSigned-off-by: bmuthuka <bmuthuka@users.noreply.github.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Fix GC use-after-free in radix complex reader; address review findings\n\n- HIGH: rootComplexImag now performs the lazy root registration too.\n  readIntegerWithRadix parses the imaginary part first (tryComplexTail\n  stores a heap imag via rootComplexImag) and only then builds the real\n  part, so with only rootComplexReal registering the slots the imag was\n  unrooted across that allocation — (read \"#x1/2+3/4i\") aborted with\n  'GC: marking freed object' under -Dgc-stress=true (found in review and\n  by the gc-stress-scheme CI job).\n- Printer: the +i/-i unit spelling is only used for an exact ±1 fixnum;\n  an inexact ±1.0 prints its magnitude, so write preserves exactness\n  (0.0+1.0i writes +1.0i, not +i which would read back exact).\n- expt with an exact integer exponent uses square-and-multiply (O(log n)\n  instead of O(n)): (expt +i 1000000000) => 1 no longer hangs.\n- inexact on an all-inexact complex returns it unchanged, keeping\n  -2.5+0.0i complex instead of demoting it to the real -2.5.\n- Unary (- z) and the (/ z) conjugation use IEEE negation (negate2), so\n  an inexact zero component flips its sign bit (0.0 -> -0.0).\n- makeFixnumChecked checks the i48 range before touching gc_instance, so\n  in-range values never need the GC in reader-only contexts.\n- .sbc: VERSION bumped 11 -> 12 (TAG_COMPLEX payload is incompatible);\n  the writer validates components are real before serializing; the\n  fuzz-seed fixture is regenerated; the round-trip test and the\n  sbc-constants probe now cover bignum/rational components.\n- toComplexParts (f64) removed as dead; complexPowGeneral's unused gc\n  parameter removed; string->number propagates OutOfMemory instead of\n  returning #f on the signless pure-imaginary path.\n- Tests: gc-stress regression tests for the radix complex literals\n  (#x1/2+3/4i, #x800000000000+99999999999999999999i), gc-tracing tests\n  for complex components, a deep-copy test with a bignum component, the\n  stale comments fixed, and the '1/2+3i real part is exact' pin enabled.\n\nSigned-off-by: bmuthuka <bmuthuka@users.noreply.github.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Root the bignum component across allocRational in the .sbc round-trip test\n\nThe new exact-complex constant in the bytecode round-trip test stored an\nunrooted bignum real across the allocRational in the second argument, so\n-Dgc-stress=true (collection on every allocation) freed it before\nallocComplex stored the dangling pointer: 'GC: marking freed object' in\nthe gc-stress CI job (found in review). Root it for the two allocations.\n\nSigned-off-by: bmuthuka <bmuthuka@users.noreply.github.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: bmuthuka <bmuthuka@users.noreply.github.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-09T14:39:44Z",
-          "tree_id": "ea699a2622bbe92926388825d3ccf01692fe9139",
-          "url": "https://github.com/kaappi/kaappi/commit/55708cfa6d02cd3b86a74483f6305e108398fc35"
-        },
-        "date": 1786288486047,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.250877,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.862564,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.563016,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.976347,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00463,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047276,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.304958,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.05655,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.746478,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.173357,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.58854,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.273561,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.789046,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.613227,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044094,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044727,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4aa2bab13522a185639856833dd09a05b5ae847c",
+          "message": "Add run-process and the process-timeout condition (KEP-0022 Phase 4) (#2455)\n\n* Add run-process and the process-timeout condition (KEP-0022 Phase 4)\n\n`spawn-process` gives you a child and three ports; getting a captured\nstring out of it correctly does not follow. Feed a child's stdin and then\nread its stdout and you deadlock the moment either side passes the pipe\nbuffer, and reading stdout to EOF before stderr deadlocks on a child that\ntalks on both. This is the bug Python's `communicate()` exists to work\naround, with a thread per stream and a `select` loop.\n\nKaappi already has the better answer, so `run-process` uses it: a feeder\nfiber writes `input:` and two drain fibers read the pipes, all three\nrunning while `process-wait` parks. Nothing blocks the thread and nothing\ndeadlocks, and the whole procedure is 90 lines of Scheme rather than a\nselect loop in Zig.\n\nThat is also why it is Scheme. Spawning and joining fibers is dispatch-loop\nwork a native frame cannot do, so `run-process` is a `bootstrapStub` whose\nbody `vm_bootstrap.install` evaluates -- the same route `map` and\n`for-each` take, and `%process-spawn` was added in Phase 1 as the stable\nentry point for exactly this. The install is gated on that primitive being\nregistered rather than on a mode flag, because the library is absent in two\nplaces for two unrelated reasons: WASM omits the module outright, and\n`--sandbox` skips every `.sandbox = false` spec. Evaluating the definition\nin either would have taken VM startup down on an undefined variable.\n\n`timeout:` needs somewhere to put what the child produced before it\nstalled, since the values return never happens. It raises a condition\ncarrying it: `process-timeout?`, `process-timeout-stdout`,\n`process-timeout-stderr`, built on a new `ErrorType` following the\n`channel_timeout` precedent. The partial output rides `uncaught_reason`\nrather than the irritants list -- an uncaught timeout prints its irritants,\nand a child that wrote megabytes before stalling should not print them.\n\nFour choices worth naming. `timeout:` implies `new-group: #t`, because\n`process-kill` refuses `'group:` on a child sharing the parent's own group\nand because the group kill is what lets the drains reach EOF when a\ngrandchild inherited the pipe. The kill is SIGKILL: a timeout is a bound,\nand a child ignoring SIGTERM would make it a suggestion. stdin is `'null`\nunless `input:` is given, so a one-shot capture never blocks on the\nterminal. And `output: 'bytevector` exists because the default path ends in\n`utf8->string`, which would otherwise fail a binary-producing child with a\ntype error naming a procedure the caller never called.\n\nNative-tier coverage extends the existing compile script rather than adding\na second one: `run-process` has its own reason to be there, since a\ncompiled binary runs `vm_bootstrap.install` from `runtime_exports.zig`\nrather than from `main.zig`.\n\n`docs/dev/subprocess.md` is new and covers all four phases -- the file\nlayout, the three park tiers, the thread-affinity rule, the two redirection\nrejections that are easy to trip over, and what the subsystem deliberately\ndoes not have.\n\nCloses #2417\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Make the run-process tests portable to NetBSD and OpenBSD\n\nTwo failures on the OpenBSD CI VM, both mine, both about assuming what a\nPOSIX box has.\n\nThe concurrent-drain test generated its bulk output with `yes | head -c`.\nOpenBSD's head has no -c, so the child exited non-zero and the assertion\nfailed for a reason unrelated to draining. `dd count=` is no better: on a\npipe it counts read() calls, not bytes. So the generator is /bin/cat and\nthe parent's own input is the bulk data — one case stdin -> stdout, one\nstdin -> stderr, both past the pipe buffer. All three streams at once is\nstill covered, portably, in process-run.scm, whose child is kaappi itself.\n\n`directory:` is not a portable option at all: NetBSD's and OpenBSD's libc\nhave no posix_spawn_file_actions_addchdir_np, so spawn-process rejects it\nthere with KP3007 rather than silently ignoring it. The test now asserts\nboth outcomes precisely -- the cwd on platforms that support it, that exact\ncode on the two that don't. A bare catch-all guard would have passed\neverywhere for the wrong reason, which is how an assertion becomes\ndecorative.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Pin the spawn-failure test to what POSIX actually guarantees\n\nThe Scheme suite asserted that a program that does not exist raises a file\nerror, using a bare name. OpenBSD returned (127 \"\" \"\") instead, and it is\nwithin its rights: POSIX leaves it unspecified whether a failed PATH search\nfails at posix_spawnp or lets the child exec fail and exit 127. OpenBSD's\nlibc does the search in the child, so the parent's spawn succeeds.\n\nThe strict assertion now uses an absolute path, where every supported\nplatform reports at the spawn -- which is what the unit suite was already\ndoing, and why it passed on the same VM.\n\nThe bare-name case is not dropped: it is pinned to whichever of the two\nPOSIX permits, so the difference is recorded rather than invisible, and\nthe test tightens when kaappi#2456 closes the gap with an exec error pipe.\nThat issue is why this is a test fix and not a shrug -- 127 is a plausible\nexit code for a program that really ran, so a mistyped command currently\nlooks like a completed run on OpenBSD.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Give riscv64 the same timeout headroom the Debug and macOS legs got\n\nThe riscv64 leg was cancelled at 30:21 with nothing in the log but the\nrunner terminating orphaned zig processes -- the exact signature the\ntimeout comment on the `test` matrix already describes twice. Healthy runs\nthere were sitting at 22-26 min against a 30-min cap before this branch,\nand the subprocess suites are expensive on that leg specifically: every\nchild a process test spawns is a whole /bin/sh emulated through binfmt\nQEMU, so it pays a large multiple of what the same tests cost natively.\n\n30 was a hang-bound when the suite was smaller. It is now exactly what the\ncomment says to avoid -- a cap that races the suite -- so this is the same\nfix, for the same reason, as PR #1635 (macOS) and PR #1728 (Debug).\n\nThe bulk-drain test also drops from 200_000 bytes to 70_000. Past the\n64 KiB pipe buffer is the only property it needs; the rest was byte\ntraffic the emulated legs paid for nothing.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: refuse an unbounded timeout, and fix three vacuous tests\n\nFive findings from the review, all verified against the code first.\n\n`timeout:` with an explicit `new-group: #f` could hang forever. `grouped`\nhonored the override, so the timeout path issued a child-only SIGKILL; a\ngrandchild holding the child's stdout keeps the write end open, drain-into\nnever sees EOF, and the join blocks with no bound -- `quietly` catches\nexceptions, it does not bound time. The call then neither returned nor\nraised, so the bound `timeout:` promises was simply void. The suite already\nasserted that mechanism in the tree-kill test; nothing covered the override.\nThe combination is now refused at option-parse time, since it cannot deliver\nwhat it promises, and the kill branch is unconditionally the group form.\n\nThree tests did not test what they claimed:\n\n- The EPIPE feed used 65536 bytes, which is *exactly* Linux's default pipe\n  capacity rather than past it, so the write could land in the buffer whole\n  and never break; the `st = 0` assertion passed either way. Now 256 KiB, in\n  both the Zig and the Scheme suite.\n- process-run.scm used current-jiffy and jiffies-per-second without\n  importing (scheme time). They resolved anyway; that is luck, not a\n  contract.\n- The bulk-drain test scaled to 4096 bytes under -Dgc-stress -- below the\n  pipe buffer, so the stress leg ran a backpressure test that could not\n  fail. The scale-down is gone: the cost under stress is per allocation, and\n  a bulk read is a handful of them, so the byte count was never what made\n  that leg slow.\n\nSix single-assertion tests now use th.expectEvalTrue directly, per the\ntesting guideline. The local expectTrue stays for the tests that share one\ninteraction environment across several evals, with a comment saying so --\nmixing the two inside one test leaves gc_instance dangling when the\nhelper's context deinits.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Assert that the overlap tests overlap, not that they are fast\n\n`(< dt 0.75)` for two 0.4s children failed on a loaded macOS CI runner. The\nmachine had simply been slow; the test reported a concurrency bug that did\nnot exist.\n\nA wall-clock budget is the wrong instrument for this property. What the test\nmeans to check is that one run-process call's internal drain fibers do not\nblock another call's wait — so assert exactly that: record each call's start\nand end, and require the two intervals to intersect. A serialized\nimplementation yields disjoint intervals however fast or slow the machine\nis, because the second call could not have started until the first returned.\nNo budget, nothing to tune, and it cannot pass for the wrong reason either.\n\nBoth the Zig and the Scheme version also had to spawn both fibers before\njoining either: joining the first before spawning the second serializes them\nby hand and makes the assertion unsatisfiable — which is how the first draft\nof this fix failed.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-09-01T12:51:33Z",
+          "tree_id": "67c6899913b27d0dd2556388e6e05f687e17ec71",
+          "url": "https://github.com/kaappi/kaappi/commit/4aa2bab13522a185639856833dd09a05b5ae847c"
+        },
+        "date": 1788269708678,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.896272,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.585014,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.548902,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.786939,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004689,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046969,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.291391,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.063003,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.442041,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.104176,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.621093,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.303683,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.613732,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.838616,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045845,
             "unit": "seconds"
           }
         ]
