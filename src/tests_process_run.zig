@@ -127,7 +127,10 @@ test "run-process: a pipe past its buffer drains while the wait parks" {
     // bytes" child unportable, and the three-streams-at-once case is
     // covered portably in tests/scheme/process/process-run.scm, whose
     // child is kaappi itself.
-    const n: usize = if (build_options.gc_stress) 4096 else 200_000;
+    // 70 KiB-ish: past the 64 KiB pipe buffer, which is the only property
+    // this test needs, and a third of the byte traffic a rounder 200_000
+    // would cost the QEMU-emulated riscv64/s390x legs.
+    const n: usize = if (build_options.gc_stress) 4096 else 70_000;
     var buf: [512]u8 = undefined;
 
     const to_stdout = try std.fmt.bufPrint(&buf,

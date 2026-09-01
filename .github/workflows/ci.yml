@@ -530,7 +530,14 @@ jobs:
     needs: format
     if: needs.format.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 30 stopped being a hang-bound here, exactly as it did for the Debug and
+    # macOS legs above: healthy runs already sat at 22-26 min, and KEP-0022's
+    # subprocess suites pushed one to a cancellation at 30:21 with no error in
+    # the log. Every child a process test spawns is a whole /bin/sh emulated
+    # through binfmt QEMU, so this job pays a multiple of what the same tests
+    # cost natively. 40 restores real headroom; the timeout exists to catch
+    # hangs, not to race the suite.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
