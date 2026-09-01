@@ -332,7 +332,7 @@ enum value followed by operands.
 
 ### Opcodes
 
-31 opcodes, defined by the `OpCode` enum in `src/types.zig`. Register, slot,
+32 opcodes, defined by the `OpCode` enum in `src/types.zig`. Register, slot,
 constant-index and symbol-index operands are u16 (big-endian); only `nargs` and
 a closure capture descriptor's `is_local` flag are u8.
 

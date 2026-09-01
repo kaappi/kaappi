@@ -658,6 +658,16 @@ expression in the body (~19x on kaappi#1803's arithmetic-loop reproducer). So
   ordinary indirect call through whatever `apply` resolves to in scope,
   matching the interpreter's plain `call_global`/local call.
 
+Since kaappi#2451 the interpreter has a **non-tail** `apply` opcode as well,
+which calls the flattened callee with an ordinary VM frame so a continuation
+captured in it survives the call's return. The native backend keeps routing
+both positions through `@kaappi_apply`, i.e. `applyFn`'s re-entrant
+`callWithArgs`, so that one guarantee is interpreter-only. Everything the
+`check_both*` cases in `tests/scheme/compile/native-apply-lowering-1803.sh`
+compare — results, and the non-tail `typeError` texts — is unaffected, because
+the opcode reproduces `applyFn`'s diagnostics verbatim for exactly that
+reason.
+
 Two consequences worth knowing. First, the free-variable analyses
 (`nodeHasFreeVars`/`collectNodeFreeVars` in `llvm_emit_freevars.zig`) walk an
 apply `passthrough`'s raw operands — a capture inside one must become a closure

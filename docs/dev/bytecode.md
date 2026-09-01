@@ -5,7 +5,7 @@ the ISA — the `/bytecode-isa` skill points here.
 
 ## Instruction set
 
-31 opcodes, register-based, variable-length encoding. Register/slot,
+32 opcodes, register-based, variable-length encoding. Register/slot,
 constant-index and symbol-index operands are all u16 (big-endian); jump
 offsets are i16 (signed, relative to the instruction after the jump). The
 only u8 operands are `nargs` and the `is_local` flag in a closure capture
@@ -49,10 +49,36 @@ operand-width table — it is what `ensureOperands` validates against, so the
 | 28 | `self_tail_call` | base:u16, nargs:u8 | 4 | Self-recursive tail call: copy args to frame base, reset IP |
 | 29 | `tail_call_cc` | base:u16, dst:u16 | 5 | `call/cc` in tail position: captures the continuation into dst, then tail-calls the receiver at base+0 |
 | 30 | `tail_eval` | base:u16, nargs:u8 | 4 | `eval` in tail position: compiles the expression at base+0 (optional environment at base+1) and tail-calls it |
+| 31 | `apply` | base:u16, nargs:u8 | 4 | Non-tail apply with list unpacking: flattens the final operand list into base+1… and calls the procedure at base+0 with an ordinary frame, result → base |
 
 `self_tail_call` skips the global lookup, type check, and arity check for
 direct self-recursion and named `let` loops — see
 [decisions/self-tail-call-optimization.md](decisions/self-tail-call-optimization.md).
+
+`apply` is numbered 31 rather than sitting next to `tail_apply` at 9 because
+an opcode's *number* is part of the `.sbc` encoding: inserting one renumbers
+every opcode after it, and `src/testdata/fuzz-seed.sbc` patches the header's
+compiler hash in at comptime, so it has none of the cross-build rejection that
+protects a real cache entry — it simply decoded as garbage. **New opcodes go on
+the end of the enum.**
+
+The `apply` handler's body is `dispatchApply` in `vm_dispatch_helpers.zig`,
+not the dispatch arm: `vm_dispatch.zig` sits at the 1500-line file-size
+ceiling, and operand validation plus argument staging are what that file
+already holds for every other opcode. The arm keeps only what a helper cannot
+express — the `continue` that resumes a restored continuation in *that*
+dispatch loop, and the ip rewind for a parked fiber's retry.
+
+`apply` and `tail_apply` differ in more than tail position. `tail_apply`
+rejects a flattened argument list longer than 255 (`tooManyApplyArgs`, KP3007)
+because it has nowhere to put the overflow; `apply` falls back to the native
+`applyFn`'s heap-staged `callWithArgs` route, since #649 established that
+non-tail `apply` has no such ceiling. That fallback is also the one route
+through `apply` that keeps the returned-native-call restriction (kaappi#2451).
+Their diagnostics differ too: `apply` reproduces `applyFn`'s `typeError` texts,
+which `tests/scheme/compile/native-apply-lowering-1803.sh` pins against the
+LLVM backend's; `tail_apply` keeps its own terser in-loop wording, which that
+suite deliberately exempts.
 
 ### Encoding details
 

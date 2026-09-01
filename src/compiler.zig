@@ -477,8 +477,9 @@ pub const Compiler = struct {
     /// Answers whether a free global reference spelled `sym_name` (a bare
     /// name like `apply`, or a hygiene-renamed `__hyg_N_apply`) would still
     /// resolve to the genuine `(scheme base)` primitive `base_name` at run
-    /// time — the gate the tail-position superinstructions
-    /// (apply/eval/call/cc/call-with-values) need so a top-level
+    /// time — the gate the builtin superinstructions
+    /// (apply/call-with-values in any position, eval/call/cc in tail
+    /// position) need so a top-level
     /// redefinition of one of those names routes to the user's procedure
     /// instead of the baked-in builtin (kaappi#2033). Mirrors
     /// IR.isRedefined's fold gate and the resolution order of
@@ -1028,7 +1029,7 @@ pub const Compiler = struct {
             } // end if (!is_local)
         }
 
-        if (is_tail and types.isSymbol(head)) {
+        if (types.isSymbol(head)) {
             const sym_name = types.symbolName(head);
             // A compiler-synthesized reference carries base_binding_prefix
             // (#1715) — the let-values/let*-values/define-values/case-lambda
@@ -1037,7 +1038,7 @@ pub const Compiler = struct {
             // through the (scheme base) registry at run time, so the fast
             // path is always sound for it and the gate below does not apply.
             const is_synth = globals_mod.stripBaseBindingPrefix(sym_name) != null;
-            // The five tail fast paths (apply / call-with-values / call/cc /
+            // The five fast paths (apply / call-with-values / call/cc /
             // eval) recognize their operator by spelling. Since #2003 a
             // macro template's free reference to one of these globals is
             // hygiene-renamed (__hyg_N_<name>), so compare the stripped name
@@ -1053,11 +1054,20 @@ pub const Compiler = struct {
             else
                 types.stripHygienicPrefix(sym_name);
 
-            if (std.mem.eql(u8, eff_name, "apply") or
-                std.mem.eql(u8, eff_name, "call-with-values") or
-                std.mem.eql(u8, eff_name, "call-with-current-continuation") or
-                std.mem.eql(u8, eff_name, "call/cc") or
-                std.mem.eql(u8, eff_name, "eval"))
+            // apply and call-with-values have a non-tail superinstruction
+            // too (kaappi#2451): `apply`, which calls the flattened callee
+            // with an ordinary VM frame instead of routing it through the
+            // native applyFn's `vm.callWithArgs` re-entry, so a continuation
+            // captured under a non-tail `(apply f ...)` can be resumed after
+            // the call returns. call/cc and eval have tail-only opcodes
+            // (tail_call_cc, tail_eval) and keep the ordinary call path
+            // elsewhere.
+            const has_nontail_form = std.mem.eql(u8, eff_name, "apply") or
+                std.mem.eql(u8, eff_name, "call-with-values");
+            if (has_nontail_form or
+                (is_tail and (std.mem.eql(u8, eff_name, "call-with-current-continuation") or
+                    std.mem.eql(u8, eff_name, "call/cc") or
+                    std.mem.eql(u8, eff_name, "eval"))))
             {
                 // #2033: a *user-text* reference must resolve like any other
                 // global — R7RS 5.3.1 makes a top-level redefinition
@@ -1071,8 +1081,8 @@ pub const Compiler = struct {
                         (try self.resolveUpvalue(sym_name)) == null and
                         self.globalBindingStillGenuine(sym_name, eff_name));
                 if (fast_ok) {
-                    if (std.mem.eql(u8, eff_name, "apply")) return passthrough.compileApplyTail(self, expr, dst);
-                    if (std.mem.eql(u8, eff_name, "call-with-values")) return passthrough.compileCallWithValuesTail(self, expr, dst);
+                    if (std.mem.eql(u8, eff_name, "apply")) return passthrough.compileApplyForm(self, expr, dst, is_tail);
+                    if (std.mem.eql(u8, eff_name, "call-with-values")) return passthrough.compileCallWithValuesForm(self, expr, dst, is_tail);
                     if (std.mem.eql(u8, eff_name, "call-with-current-continuation") or
                         std.mem.eql(u8, eff_name, "call/cc"))
                     {

@@ -36,6 +36,7 @@ const rejectImmutableEnv = vm_dispatch_helpers.rejectImmutableEnv;
 const raiseUndefinedVariable = vm_dispatch_helpers.raiseUndefinedVariable;
 const lookupGlobalLocked = vm_dispatch_helpers.lookupGlobalLocked;
 const raiseDeadNativeReturn = vm_dispatch_helpers.raiseDeadNativeReturn;
+const dispatchApply = vm_dispatch_helpers.dispatchApply;
 const raiseCrossHeapStoreVM = vm_dispatch_helpers.raiseCrossHeapStoreVM;
 
 /// True when a just-restored (or escape-unwound) frame stack should resume in
@@ -151,7 +152,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
         if (frame.ip >= frame.code.len) return VMError.InvalidBytecode;
 
         const raw_op = frame.code[frame.ip];
-        if (raw_op > @intFromEnum(OpCode.tail_eval)) return VMError.InvalidBytecode;
+        if (raw_op > @intFromEnum(OpCode.apply)) return VMError.InvalidBytecode;
         const op: OpCode = @enumFromInt(raw_op);
         frame.ip += 1;
 
@@ -162,7 +163,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
             .get_global => 4,
             .set_global => 4,
             .define_global => 4,
-            .tail_apply => 3,
+            .apply, .tail_apply => 3,
             .get_upvalue, .set_upvalue => 4,
             .call, .tail_call => 3,
             .@"return" => 2,
@@ -698,6 +699,23 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     self.setErrorDetail("not a procedure", .{});
                     return VMError.NotAProcedure;
                 }
+            },
+            .apply => {
+                // Non-tail `(apply f a ... lst)` (kaappi#2451). The work is
+                // `vm_dispatch_helpers.dispatchApply`; what stays here is the
+                // control flow only the loop can express.
+                const base_reg = readU16(self, frame);
+                const nargs = readU8(self, frame);
+                dispatchApply(self, frame.base, base_reg, nargs) catch |err| {
+                    if (err == VMError.ContinuationInvoked) {
+                        if (resumesHere(self, target_frame_count, scope_root_seq)) {
+                            continue;
+                        }
+                        return VMError.ContinuationInvoked;
+                    }
+                    if (err == VMError.Yielded) maybeRewindRetry(self, 1 + fixed_operand_bytes);
+                    return err;
+                };
             },
             .tail_apply => {
                 const base_reg = readU16(self, frame);

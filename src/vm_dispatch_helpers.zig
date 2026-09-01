@@ -123,6 +123,127 @@ pub fn toBase(base_wide: usize) VMError!u32 {
 /// as recoverable. Reporting StackOverflow both sent readers hunting for
 /// runaway recursion and, once limits stopped being catchable, would have
 /// made a bad argument list unrecoverable.
+/// The non-tail `apply` opcode's type errors, worded exactly like the native
+/// `applyFn`'s (`primitives.typeError("apply", ...)`) rather than like
+/// `tail_apply`'s terser in-loop texts (kaappi#2451).
+///
+/// The wording is load-bearing, not cosmetic: non-tail position is where
+/// `tests/scheme/compile/native-apply-lowering-1803.sh` pins the interpreter's
+/// diagnostics against the LLVM backend's, which reaches `applyFn`'s texts
+/// through `@kaappi_apply`. Tail position is deliberately exempt there — its
+/// texts have always differed — so only this opcode has parity to keep.
+pub noinline fn raiseApplyTypeError(vm: *VM, expected: []const u8, got: Value) VMError {
+    var buf: [128]u8 = undefined;
+    const primitives = @import("primitives.zig");
+    const desc = primitives.safeValueDescription(&buf, got);
+    vm.setErrorDetail("type error in 'apply': expected {s}, got {s}", .{ expected, desc });
+    return VMError.TypeError; // bare-ok: detail set above, matching primitives.typeError
+}
+
+/// The whole body of the non-tail `apply` opcode (kaappi#2451): validate the
+/// operands, stage the flattened arguments, and make the call. Lives here
+/// rather than in the dispatch arm because `vm_dispatch.zig` is at the
+/// 1500-line policy ceiling, and because operand validation and argument
+/// staging are what this file already holds for every other opcode.
+///
+/// The caller keeps exactly what a helper cannot express: the `continue` that
+/// resumes a restored continuation in *that* dispatch loop, and the ip rewind
+/// for a parked fiber's retry.
+///
+/// `registers[abs_base]` receives the result, matching the `call` opcode.
+pub fn dispatchApply(vm: *VM, frame_base: u32, base_reg: u16, nargs: u8) VMError!void {
+    const vm_calls = @import("vm_calls.zig");
+    if (nargs == 0) return VMError.InvalidBytecode;
+    const abs_base_wide = @as(usize, frame_base) + @as(usize, base_reg);
+    try ensureCallWindow(vm, abs_base_wide, nargs);
+    const abs_base: u32 = try toBase(abs_base_wide);
+    const proc = vm.registers[abs_base];
+
+    // applyFn's order and wording, both deliberate: the callee is rejected
+    // before the operand list is walked, and the texts are the native ones
+    // (see raiseApplyTypeError).
+    if (!types.isProcedure(proc) and !types.isNativeFn(proc))
+        return raiseApplyTypeError(vm, "procedure", proc);
+
+    const operand_list = vm.registers[abs_base + nargs];
+    const count = @as(usize, nargs - 1) + try properListLength(vm, operand_list);
+
+    if (count > std.math.maxInt(u8)) {
+        // More arguments than a call frame's u8 `nargs` can encode. #649
+        // settled that non-tail `apply` has no such ceiling — `(apply + (mk
+        // 500))` is a supported program — so this stays on applyFn's own
+        // route: stage the arguments on the heap and re-enter through
+        // `callWithArgs`. That route is exactly the one whose Zig frame makes
+        // a captured continuation unresumable, so a >255-argument apply keeps
+        // the restriction this opcode lifts for every other call. Tail
+        // position instead *rejects* the call (tooManyApplyArgs), because
+        // `tail_apply` has nowhere to put the overflow.
+        var big: std.ArrayList(Value) = .empty;
+        defer big.deinit(vm.gc.allocator);
+        big.ensureTotalCapacity(vm.gc.allocator, count) catch return VMError.OutOfMemory;
+        var fi: u8 = 0;
+        while (fi + 1 < nargs) : (fi += 1) big.appendAssumeCapacity(vm.registers[abs_base + 1 + fi]);
+        // Every staged Value is still reachable from a register (the fixed
+        // operands) or from the operand list (itself in a register), so the
+        // slice needs no rooting of its own. This path never overwrites the
+        // operand list's register, so it needs no repair below.
+        var walk = operand_list;
+        while (walk != types.NIL) : (walk = types.cdr(walk)) big.appendAssumeCapacity(types.car(walk));
+
+        vm.registers[abs_base] = try vm.callWithArgs(proc, big.items);
+        return;
+    }
+
+    var flat: [256]Value = undefined;
+    {
+        var fi: u8 = 0;
+        while (fi + 1 < nargs) : (fi += 1) flat[fi] = vm.registers[abs_base + 1 + fi];
+        var i: usize = nargs - 1;
+        var walk = operand_list;
+        while (walk != types.NIL) : (walk = types.cdr(walk)) {
+            flat[i] = types.car(walk);
+            i += 1;
+        }
+    }
+
+    const total: u8 = @intCast(count);
+    try ensureCallWindow(vm, abs_base_wide, total);
+    // This overwrites abs_base + nargs — the operand list's own register — as
+    // soon as the list is non-empty.
+    for (0..count) |i| vm.registers[abs_base + 1 + i] = flat[i];
+
+    vm_calls.callValue(vm, proc, abs_base, total) catch |err| {
+        // A parked fiber's retry rewinds ip and re-executes the whole
+        // instruction, which re-reads the register just overwritten. Repair it
+        // here, where the invariant was broken, rather than making every
+        // caller remember to.
+        if (err == VMError.Yielded and vm.yield_retry) vm.registers[abs_base + nargs] = operand_list;
+        return err;
+    };
+}
+
+/// The length of `list`, rejecting an improper or circular one with applyFn's
+/// own text. The tortoise-and-hare is applyFn's too: a circular final list
+/// must be named as an improper list, not walked forever (nor counted up to
+/// the 255-argument limit and reported as one).
+fn properListLength(vm: *VM, list: Value) VMError!usize {
+    var len: usize = 0;
+    var rest = list;
+    var slow = rest;
+    var step: bool = false;
+    while (rest != types.NIL) {
+        if (!types.isPair(rest)) return raiseApplyTypeError(vm, "proper list", rest);
+        len += 1;
+        rest = types.cdr(rest);
+        if (step) {
+            slow = types.cdr(slow);
+            if (slow == rest) return raiseApplyTypeError(vm, "proper list", rest);
+        }
+        step = !step;
+    }
+    return len;
+}
+
 pub fn tooManyApplyArgs(vm: *VM) VMError {
     vm.setErrorDetail("apply: too many arguments (limit 255)", .{});
     return VMError.InvalidArgument;
