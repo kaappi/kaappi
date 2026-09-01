@@ -530,7 +530,10 @@ jobs:
     needs: format
     if: needs.format.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # QEMU user-mode overhead puts this leg at 16-27m on main, close enough
+    # to 30m that ~1 in 15 runs is killed mid-suite on timing alone and reads
+    # as a failure in gh pr checks (kaappi#2458)
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
