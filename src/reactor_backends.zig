@@ -635,6 +635,13 @@ pub const WindowsEventBackend = struct {
     /// emulation), so entries exist only while a fiber is parked and the
     /// quantum is never paid otherwise.
     pipes: std.AutoHashMap(i32, PipeReg),
+    /// Watched child processes (KEP-0022 Phase 3): process id → the child's
+    /// process HANDLE, *borrowed* from the Process that owns it. A process
+    /// HANDLE is a genuine waitable object, so these join the
+    /// WaitForMultipleObjects set below and cost nothing while idle — up to
+    /// the API's 64-object ceiling, past which the surplus falls back to the
+    /// same bounded poll the pipe entries already use.
+    procs: std.AutoHashMap(i32, platform.win.HANDLE),
     ready: std.ArrayList(ReadyEvent) = .empty,
     /// Sweep scratch: fds whose socket died under the registration, and
     /// pipe fds whose armed interest was fully consumed this sweep.
@@ -673,6 +680,7 @@ pub const WindowsEventBackend = struct {
             .allocator = allocator,
             .sockets = std.AutoHashMap(i32, SockReg).init(allocator),
             .pipes = std.AutoHashMap(i32, PipeReg).init(allocator),
+            .procs = std.AutoHashMap(i32, platform.win.HANDLE).init(allocator),
         };
     }
 
@@ -694,6 +702,9 @@ pub const WindowsEventBackend = struct {
         _ = platform.win.CloseHandle(self.sock_event);
         self.sockets.deinit();
         self.pipes.deinit();
+        // The process handles are borrowed, never owned: the Process closes
+        // them in gc_sweep.freeObject. Dropping the map is the whole disarm.
+        self.procs.deinit();
         self.ready.deinit(self.allocator);
         self.dead.deinit(self.allocator);
     }
@@ -741,6 +752,18 @@ pub const WindowsEventBackend = struct {
         if (pre.readable or pre.writable) self.any_pre_ready = true;
     }
 
+    /// Arms a child-exit watch. Unlike the other two backends this needs the
+    /// kernel object as well as the key, because Windows has no
+    /// register-by-pid facility — `Reactor.armProcWatch` supplies it and the
+    /// Process keeps ownership.
+    pub fn armProcHandle(self: *WindowsEventBackend, pid: i32, h: platform.win.HANDLE) !void {
+        try self.procs.put(pid, h);
+    }
+
+    pub fn disarmProc(self: *WindowsEventBackend, pid: i32) void {
+        _ = self.procs.remove(pid);
+    }
+
     pub fn disarmAll(self: *WindowsEventBackend, fd: i32) void {
         if (self.sockets.fetchRemove(fd)) |kv| {
             // Best-effort cancel; errors (the socket may already be gone)
@@ -769,8 +792,28 @@ pub const WindowsEventBackend = struct {
         // Unreported pre-ready state turns the block into a collect pass.
         if (self.any_pre_ready) ms = 0;
 
-        var handles = [2]platform.win.HANDLE{ self.event, self.sock_event };
-        _ = platform.win.WaitForMultipleObjects(handles.len, &handles, 0, ms);
+        // The wait set: the notify event, the shared socket event, and as
+        // many watched process handles as the API's 64-object ceiling has
+        // room for. A watched child beyond that ceiling still exits
+        // promptly — the surplus is swept below on the pipe poll quantum,
+        // which is why the block is bounded whenever any handle was left out
+        // rather than silently waiting forever on the ones that fit.
+        var handles: [platform.win.MAXIMUM_WAIT_OBJECTS]platform.win.HANDLE = undefined;
+        handles[0] = self.event;
+        handles[1] = self.sock_event;
+        var nhandles: u32 = 2;
+        var procs_left_out = false;
+        var hit = self.procs.valueIterator();
+        while (hit.next()) |h| {
+            if (nhandles == handles.len) {
+                procs_left_out = true;
+                break;
+            }
+            handles[nhandles] = h.*;
+            nhandles += 1;
+        }
+        if (procs_left_out) ms = @min(ms, pipe_poll_quantum_ms);
+        _ = platform.win.WaitForMultipleObjects(nhandles, &handles, 0, ms);
 
         // Reset before sweeping, unconditionally: readiness detection
         // below comes from per-socket records and pre-ready flags, never
@@ -786,7 +829,7 @@ pub const WindowsEventBackend = struct {
         // WasiPollBackend guard with their own ensure-capacity calls.
         self.ready.clearRetainingCapacity();
         self.dead.clearRetainingCapacity();
-        const max_events = self.sockets.count() + self.pipes.count();
+        const max_events = self.sockets.count() + self.pipes.count() + self.procs.count();
         try self.ready.ensureTotalCapacity(self.allocator, max_events);
         try self.dead.ensureTotalCapacity(self.allocator, max_events);
         self.any_pre_ready = false;
@@ -841,6 +884,20 @@ pub const WindowsEventBackend = struct {
             if (!reg.want_read and !reg.want_write) self.dead.appendAssumeCapacity(fd);
         }
         for (self.dead.items) |fd| _ = self.pipes.remove(fd);
+
+        // Child-exit sweep (KEP-0022 Phase 3). A signaled process handle is
+        // level-triggered and stays signaled, so a zero-timeout wait is the
+        // whole test — and the `.proc` flag is what keeps a process id from
+        // ever being read as a same-numbered descriptor (the kqueue
+        // precedent; see Reactor.proc_events_are_flagged). Entries are left
+        // in place: `Reactor.handleProcessEvent` drops the registration once
+        // it has reaped, exactly as on every other backend.
+        var pr = self.procs.iterator();
+        while (pr.next()) |entry| {
+            if (platform.win.WaitForSingleObject(entry.value_ptr.*, 0) != platform.win.WAIT_OBJECT_0) continue;
+            self.ready.appendAssumeCapacity(.{ .fd = entry.key_ptr.*, .readable = false, .writable = false, .proc = true });
+        }
+
         // Timer expiry is decided by the reactor against clockNs()
         // (popExpiredTimers); a notify set wake_pending before SetEvent.
         return self.ready.items;

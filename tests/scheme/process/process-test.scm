@@ -1,17 +1,24 @@
 ;; End-to-end tests for (kaappi process) — KEP-0022 Phase 1 (POSIX).
 ;;
 ;; Children are spawned through the portable POSIX helpers (/bin/sh, cat,
-;; echo); the kaappi-as-a-child round trip lives in process-child-script.scm.
-;; The whole file skips on platforms without the library (WASM, Windows
-;; until Phase 3) via the cond-expand gate the KEP made the feature's
-;; presence check.
+;; echo); the kaappi-as-a-child round trip lives in process-child-script.scm
+;; and the OS-independent matrix in process-portable.scm. The whole file
+;; skips where those children do not exist (Windows) or the library is
+;; absent (WASM), via the cond-expand gates below.
 
 (import (scheme base) (scheme write) (srfi 64))
 
-;; Gate before the import: on platforms without subprocess support (WASM;
-;; Windows until KEP-0022 Phase 3) this exits 0 before `spawn-process` is
-;; ever referenced, and kaappi compiles forms one at a time so the later
-;; unbound references never compile either.
+;; Two gates, both before the first `spawn-process` reference (kaappi
+;; compiles forms one at a time, so the later ones never compile either).
+;; Windows first: since KEP-0022 Phase 3 the library IS present there, but
+;; every child below is a POSIX program (/bin/sh, cat, kill -9), so the
+;; portable matrix lives in process-portable.scm and the Windows-specific
+;; mechanisms in src/tests_process_win.zig. Then the library gate, for WASM.
+(cond-expand
+  (windows
+   (display "POSIX-only suite; Windows is covered by process-portable.scm\n")
+   (exit 0))
+  (else))
 (cond-expand
   ((library (kaappi process))
    (import (kaappi process)))

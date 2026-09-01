@@ -142,24 +142,34 @@ library itself stays native-only.
 
 `docs/dev/windows.md` explains why IOCP was rejected.
 
-## Child-exit readiness (KEP-0022 Phase 2)
+## Child-exit readiness (KEP-0022 Phases 2-3)
 
 The reactor also watches spawned children (`(kaappi process)`) for exit:
 kqueue registers an `EVFILT_PROC` + `NOTE_EXIT` knote by pid; epoll registers
 a `pidfd_open(2)` descriptor for read-readiness (a pidfd becomes readable on
 exit, and its lifetime *is* the registration's — opened in
-`Reactor.registerProcess`, closed when the registration drops). On the event,
-the reactor reaps — `waitpid(pid, WNOHANG)`, status into `proc.status`, the
-child off `GC.unreaped_processes` — and wakes every parked waiter at once.
-There is no SIGCHLD handler anywhere, so children spawned by C FFI libraries
-are unobserved and unaffected.
+`Reactor.registerProcess`, closed when the registration drops); Windows adds
+the child's process HANDLE to `WaitForMultipleObjects`'s wait set (Phase 3,
+kaappi#2416 — the handle is *borrowed*, since the `Process` owns it for its
+whole lifetime, and the 64-object ceiling sends any surplus to the same 10 ms
+quantum the pipe entries use). On the event, the reactor reaps —
+`types_process.reapNonBlocking`, which is `waitpid(pid, WNOHANG)` on POSIX
+and `GetExitCodeProcess` on a signaled handle on Windows; status into
+`proc.status`; the child off `GC.unreaped_processes` — and wakes every parked
+waiter at once. There is no SIGCHLD handler anywhere, so children spawned by
+C FFI libraries are unobserved and unaffected.
+
+The registration key shares a namespace with fd numbers on kqueue (a pid) and
+on Windows (a process id), so both backends flag their exit events
+explicitly (`ReadyEvent.proc`); only epoll, whose key is a real descriptor,
+can be routed by registry lookup (`Reactor.proc_events_are_flagged`).
 
 Four rules keep it honest:
 
 - **"Armed ⇔ a waiter is parked"**, the fd ONESHOT discipline: the last
   waiter's withdrawal (`removeProcessWaiter`) drops the whole registration,
   so zombie discipline for never-waited children stays with the Phase-1
-  WNOHANG sweeps rather than the registry pinning Processes alive.
+  sweeps rather than the registry pinning Processes alive.
   `Reactor.markRoots` traces registered Processes and their waiters.
 - **Arm-then-probe closes the exit-before-arm race**: an exit that beats the
   arm posts no kernel event, ever (and the arm itself may refuse with ESRCH

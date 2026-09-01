@@ -53,7 +53,8 @@ shim behind that surface:
   paths survive regardless of the ANSI code page, plus a handful of Win32
   calls for what the CRT lacks: `QueryPerformanceCounter` (monotonic
   clock), console UTF-8 + VT mode, `GetModuleFileNameW` (self-exe path),
-  `CreateProcessW` (process spawning with correct argument quoting),
+  `CreateProcessW` (process spawning with correct argument quoting — see
+  "Subprocesses" below),
   `LoadLibraryW`/`GetProcAddress` (FFI), `FindFirstFileW` (directory
   iteration), Win32 events for the reactor, and the ws2_32 slice behind
   socket readiness (`WSAEventSelect`, `recv`/`send`, `ioctlsocket` —
@@ -175,6 +176,84 @@ The issue's stage-2 question — do pipes/files justify a completion-based
    shape, and its 10 ms worst-case wake latency sits inside the latency
    envelope the platform's own timer granularity already imposes — and
    the quantum is paid only while a pipe waiter exists.
+
+## Subprocesses: `(kaappi process)` (KEP-0022 Phase 3, #2416)
+
+`(kaappi process)` is available on Windows with the same Scheme surface as
+POSIX — `spawn-process`, the three redirections, `process-wait` with
+`timeout:`, `process-kill`, `new-group:` — but none of the machinery under
+it is a translation of the POSIX one. The backend lives in
+`src/process_win.zig`; `src/primitives_process.zig` keeps everything
+platform-independent (option parsing, redirection validation, the `Process`
+object and its ports, the whole Phase-2 fiber park) and selects the backend
+at comptime, so neither OS's raw syscall surface is analyzed on the other.
+
+Three substitutions carry the port.
+
+**Spawn is `CreateProcessW` with an explicit inherit list.** There is no argv
+vector on Windows: the child's C runtime parses one command line back with
+`CommandLineToArgvW`'s rules, so `spawn-process` joins argv with
+`platform.buildCommandLineW` — the same encoder thottam already used for
+git, quoting and backslash-doubling included. Inheritance is confined by a
+`PROC_THREAD_ATTRIBUTE_HANDLE_LIST` naming exactly the three stdio handles.
+That is a *stronger* close-by-default guarantee than the POSIX side's
+enumerate-then-close scan: a descriptor Kaappi inherited from its launcher or
+acquired through FFI cannot reach the child at all, and there is no
+enumerate/spawn race to document. Every handle in the list is a fresh
+inheritable duplicate the spawner owns and closes right after the call, so no
+caller's port handle has its inheritance flag mutated behind its back.
+`lpApplicationName` is null, so `CreateProcessW` performs the PATH search and
+the implied `.exe` suffixing that `posix_spawnp` gives POSIX.
+
+**A process group is a Job Object.** `TerminateProcess` kills exactly one
+process and `CREATE_NEW_PROCESS_GROUP` only re-routes console Ctrl+C —
+neither reaches a grandchild. A Job Object does, because a child of a job
+member joins the job automatically. So `new-group: #t` creates one and
+assigns the child *before its primary thread is resumed* (`CREATE_SUSPENDED`):
+a child that ran even briefly outside the job could spawn a grandchild the
+tree-kill would miss. `process-kill 'group: #t` is `TerminateJobObject`. The
+job is deliberately created **without** `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`,
+so an abandoned `Process` leaves its group running exactly as an abandoned
+POSIX process group does.
+
+**Reaping is the process HANDLE.** It is the wait object the reactor polls,
+the source `GetExitCodeProcess` reads, and the target `TerminateProcess`
+kills, so the `Process` owns it for its whole lifetime and only
+`gc_sweep.freeObject` closes it (`types_process.releaseHandles`) — a reap
+must not, or a still-registered reactor wait would hold a dangling handle.
+There are no zombies: an exited process lingers exactly as long as a handle
+to it does. Liveness is tested by the handle's signaled state, never by
+`GetExitCodeProcess`'s `STILL_ACTIVE` (259), which a child that legitimately
+exits 259 is indistinguishable from.
+
+In the reactor, watched process handles join `WaitForMultipleObjects`'s wait
+set in `WindowsEventBackend` alongside the notify and socket events, and a
+signaled handle is reported as a `ReadyEvent` with `.proc = true` — the
+kqueue precedent, because the key is a process id and would otherwise be
+mistaken for a same-numbered descriptor. `WaitForMultipleObjects` caps at 64
+objects; past that the surplus is swept on the same 10 ms quantum the pipe
+entries already use, and the block is bounded so it still resolves promptly.
+
+**Signal mapping.** There is no signal delivery to map, so `signal:` folds
+into the exit code `TerminateProcess` stamps on the victim: **`128 + signal`**,
+the shell convention. The default `'signal: 15` surfaces as `143`, `'signal:
+9` as `137`, and `process-wait` returns that integer where POSIX returns
+`(signaled . n)` — Windows has one exit code and no second channel, so a
+child that deliberately exits 143 is indistinguishable. `'signal: 0` keeps its
+POSIX meaning: an existence probe that terminates nothing.
+
+Two smaller differences worth knowing: `directory:` is honored natively
+(`lpCurrentDirectory`), unlike NetBSD/OpenBSD whose libc lacks
+`addchdir_np`; and `env:` builds a `CREATE_UNICODE_ENVIRONMENT` block sorted
+case-insensitively by name, with the same validation and the same error
+messages as the POSIX `buildEnvp`.
+
+Tests: `src/tests_process_win.zig` (cmd.exe children; asserts the Job Object
+membership of the *grandchild* through
+`QueryInformationJobObject`), `tests/scheme/process/process-portable.scm`
+(the OS-independent matrix, with kaappi itself as the child — including the
+argv round trip through `CommandLineToArgvW` and the tree kill proved by
+pipe EOF). The two POSIX-child suites beside it self-skip here.
 
 ## Other deliberate degradations
 

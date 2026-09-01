@@ -241,8 +241,11 @@ fn fcntlRaw(fd: fd_t, cmd: c_int, arg: usize) c_int {
 }
 
 // ---------------------------------------------------------------------------
-// process control (KEP-0022 Phase 1) -- POSIX only; the Windows tier is
-// Phase 3 and gates every reference comptime.
+// process control (KEP-0022 Phase 1) -- POSIX only, and deliberately so: the
+// Windows tier has no waitpid/kill to shim (a process HANDLE and
+// TerminateProcess are different objects, not different spellings), so it
+// lives in process_win.zig rather than behind these names, and every
+// reference here is comptime-gated to POSIX.
 // ---------------------------------------------------------------------------
 
 /// waitpid(2)'s WNOHANG: poll without blocking. Same value on every POSIX

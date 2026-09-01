@@ -9,6 +9,7 @@
 
 const std = @import("std");
 const platform = @import("platform.zig");
+const types_process = @import("types_process.zig");
 const builtin = @import("builtin");
 const types = @import("types.zig");
 const types_port = @import("types_port.zig");
@@ -620,21 +621,17 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
                 }
             }
             if (proc.status == null) {
-                if (comptime !platform.is_wasm and !platform.is_windows) {
-                    var st: c_int = 0;
-                    _ = platform.waitPid(proc.pid, &st, platform.WNOHANG);
-                }
+                if (comptime !platform.is_wasm) _ = types_process.reapNonBlocking(proc);
             }
             // Belt: a live reactor registration roots the Process
             // (Reactor.markRoots), so a collected one is unregistered and
-            // its pidfd already closed — but a stray handle must never
-            // outlive the object (KEP-0022 Phase 2).
-            if (proc.wait_handle >= 0) {
-                if (comptime !platform.is_wasm and !platform.is_windows) {
-                    _ = platform.close(proc.wait_handle);
-                }
-                proc.wait_handle = -1;
-            }
+            // its pidfd already closed — but a stray OS object must never
+            // outlive the object. On Windows this is also the *only* place
+            // the process and Job Object handles are closed: they are the
+            // reactor's wait object and the kill target for the Process's
+            // whole lifetime, so no reap may release them (KEP-0022
+            // Phases 2-3).
+            types_process.releaseHandles(proc);
             poisonAndDestroy(gc, types.Process, proc);
         },
         .mutex => {

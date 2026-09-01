@@ -79,7 +79,7 @@ domain-mate (`Pair`, `Symbol`, `SchemeString`, `Closure`, `Function`,
 | `types_hashtable.zig` | `HashTable`, `HashEntry`, `HashEntryState`, `CompareMode` (SRFI 69) |
 | `types_filesystem.zig` | `FileInfo`, `UserInfo`, `GroupInfo`, `DirectoryObject` (SRFI 170) |
 | `types_weakrefs.zig` | `Ephemeron`, `Guardian`, `GuardEntry`, `TransportCell` (SRFI 254) |
-| `types_process.zig` | `Process` (KEP-0022, `(kaappi process)`), waitpid status decoders |
+| `types_process.zig` | `Process` (KEP-0022, `(kaappi process)`), the wait-status encodings and their decoder, the shared non-blocking reap, and the three types that form the seam to the two OS spawn backends |
 
 `Fiber` (`fiber.zig`) predates this split and follows neither convention:
 its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
@@ -148,7 +148,7 @@ its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
 | `primitives_srfi237.zig` | SRFI-237: R6RS record procedural layer (`(srfi 237 primitives)`) |
 | `primitives_srfi254.zig` | SRFI-254: ephemeron/guardian constructors, predicates, accessors (GC half lives in `gc_collect.zig`) |
 | `primitives_fiber.zig` | `(kaappi fibers)`: spawn, yield, fiber-join, channels |
-| `primitives_process.zig` | `(kaappi process)` (KEP-0022): posix_spawnp-based subprocess support — spawn-process, pipe ports, blocking process-wait, process-kill, zombie sweep. POSIX-only (Windows is Phase 3, WASM registers nothing) |
+| `primitives_process.zig` | `(kaappi process)` (KEP-0022): the platform-independent surface — option parsing, redirection validation, the Process object and its ports, the sweeps, the fiber-parking `process-wait`. Registered everywhere but WASM |
 | `primitives_parallel.zig` | KEP-0002: the single native primitive backing `lib/kaappi/parallel.sld` |
 | `primitives_random_port.zig` | SRFI-271 random port `%`-prefixed internals |
 | `primitives_sysinfo.zig` | System inquiry shared by SRFI 59 (vicinity), 112 (environment), 193 (command line) |
@@ -160,6 +160,8 @@ its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
 | `library.zig` | Library registry, standard library registration ((scheme base), etc.) |
 | `bignum.zig` | Arbitrary-precision integer arithmetic |
 | `ffi.zig` | C FFI call dispatcher (type marshaling, arity routing, `normalizeType` for extended integer types) |
+| `process_posix.zig` | `(kaappi process)`'s POSIX backend (KEP-0022 Phases 1-2): `posix_spawnp` + file actions, the close-by-default fd scan, `waitpid`, `kill` |
+| `process_win.zig` | `(kaappi process)`'s Windows backend (KEP-0022 Phase 3, #2416): `CreateProcessW` with an explicit inherit list, Job Objects for `new-group:`, handle-based reaping, the `128 + signal` exit-code mapping. See `docs/dev/windows.md` |
 | `bytecode_file.zig` | `.sbc` codec hub: shared format contract (magic, version, tags, limits), `BytecodeError`, `compilerHash`/`sourceHash`/`getSbcPath`, re-exports of the read/write halves |
 | `bytecode_file_write.zig` | Serializer: `Writer`, `writeConstant`, function collection, `writeFileWithTopLevel`/`writeFileWithBundle` |
 | `bytecode_file_read.zig` | Deserializer: `Reader`, `readConstant`, bytecode validation, `deserializeFromBuffer`, `readHeaderInfo`, `DeserializeResult`/`HeaderInfo` |

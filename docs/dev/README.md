@@ -23,7 +23,7 @@ investigation produced analysis worth keeping.
 | [ir.md](ir.md) | Compiler IR: 18 node types, the tail-position analysis pass, optimization passes |
 | [observing-the-pipeline.md](observing-the-pipeline.md) | `kaappi ast` / `expand` / `ir` / `--disassemble`: read-only dumps of every stage between source and bytecode |
 | [llvm-backend.md](llvm-backend.md) | LLVM native backend: what LLVM provides vs what the runtime provides |
-| [windows.md](windows.md) | Windows aarch64 port: the platform.zig shim, the two deliberate degradations, the `windows` feature identifier, how to test on a Windows machine |
+| [windows.md](windows.md) | Windows aarch64 port: the platform.zig shim, the two deliberate degradations, subprocesses (CreateProcess + Job Objects), the `windows` feature identifier, how to test on a Windows machine |
 | [freebsd.md](freebsd.md) | FreeBSD port: kqueue backend reuse, the sysctl self-exe lookup, zero runtime degradations, cross-compile + copy testing, the CI VM job |
 | [openbsd.md](openbsd.md) | OpenBSD port: the `PT_OPENBSD_NOBTCFI` opt-out around BTCFI enforcement, the `KERN_PROC_ARGS` self-exe lookup, the tight default stack/data limits, cross-compile + patch + copy testing, the CI VM job |
 | [netbsd.md](netbsd.md) | NetBSD port: the versioned-libc-symbol audit (`__kevent50`, `__opendir30`, `__getpwnam50`), the aarch64 FPCR flush-to-zero fix, no-swap OOM and default limits, pkgsrc clang for the native backend, the CI VM job |

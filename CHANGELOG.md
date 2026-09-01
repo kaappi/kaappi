@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`(kaappi process)` on Windows (KEP-0022 Phase 3, #2416)** — subprocess
+  support now covers every hosted platform, with the same Scheme surface as
+  POSIX. None of the machinery under it is a translation: spawn is
+  `CreateProcessW` with argv joined by the documented `CommandLineToArgvW`
+  quoting rules and inheritance confined to a
+  `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` naming exactly the three stdio handles
+  — a *stronger* close-by-default guarantee than the POSIX fd scan, with no
+  enumerate/spawn race; `new-group:` creates a Job Object and assigns the
+  child before its primary thread resumes, so `process-kill 'group: #t`
+  (`TerminateJobObject`) reaches grandchildren, which `TerminateProcess` and
+  `CREATE_NEW_PROCESS_GROUP` cannot; and the child's process HANDLE is the
+  reactor's wait object, the reap source and the kill target. `process-wait`
+  parks on that handle in `WaitForMultipleObjects`'s wait set, so siblings
+  keep running. Windows has no signal delivery, so `signal:` folds into the
+  exit code `TerminateProcess` stamps — `128 + n`, the shell convention, so
+  `'signal: 9` reports 137 — and a status is always that plain integer rather
+  than `(signaled . n)`. `directory:` is honored natively. See
+  `docs/dev/windows.md`.
 - **SRFI 274, extended list conversion procedures (#2409)** — `list-copy`, `list->string`, `list->vector`, `list->stream`, `list->ideque`, `list->generator`, and all twelve `list-><type>vector` conversions extended with optional `start`/`end` range arguments that operate on dotted and circular lists whenever `end` is supplied (the cdr of the endth pair is never inspected). Portable port of the reference implementation; ships as a bare `(srfi 274)` alias plus the `(srfi 274 base)`, `(srfi 274 41)`, `(srfi 274 134)`, `(srfi 274 158)`, and `(srfi 274 160 <type>)` sub-libraries, mirroring the SRFI's own layout so the extended names never displace the built-ins a program already imports.
 - **SRFI 231 `f16-storage-class`** (#2379) — software IEEE 754 binary16
   half-floats over `u16vector`, a faithful transliteration of the reference

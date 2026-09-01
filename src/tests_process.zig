@@ -1,9 +1,10 @@
-//! Unit tests for `(kaappi process)` — KEP-0022 Phase 1 (POSIX).
+//! Unit tests for `(kaappi process)` on POSIX — KEP-0022 Phases 1-2.
 //!
 //! Every test spawns real children through /bin/sh (present on every hosted
 //! POSIX CI target: macOS, Linux, the three BSDs), so these cover the actual
-//! posix_spawnp path, not a mock. The suite skips on WASM and Windows, where
-//! the library itself is unregistered.
+//! posix_spawnp path, not a mock. The suite skips on WASM, where the library
+//! is unregistered, and on Windows, whose `CreateProcessW` backend has its
+//! own cmd.exe-based suite in `tests_process_win.zig` (Phase 3).
 //!
 //! GC discipline inside the tests: any Value held in a Zig local across an
 //! allocating call is rooted (pushRoot/popRoot), and loops that would be
