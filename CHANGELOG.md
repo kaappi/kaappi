@@ -88,6 +88,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   code to the copy-out, where a capture re-enters with the destination
   already allocated and hands back the same object (with identical
   contents).
+- **A bare program name that resolves to nothing is a file error on
+  OpenBSD** (#2456) — `(spawn-process '("some-missing-command"))` there
+  "succeeded" and the child exited 127: OpenBSD's vfork-based userland
+  `posix_spawn` has no channel to report the child's exec failure, and
+  POSIX permits exactly that. 127 is also a plausible exit code of a
+  program that really ran, so a mistyped command looked like a completed
+  run. That platform now spawns through `fork` + `execvp` with a CLOEXEC
+  error pipe (CPython `subprocess`'s mechanism): the child writes its
+  exec errno and only then exits, so a miss raises the same
+  errno-carrying file error every other platform's libc reports — and
+  the parent resuming only at the exec restores the signalability
+  property the NetBSD exec barrier exists for. The bare-name assertions
+  in `process-run.scm` and `tests_process_run.zig` are strict again.
+- **`fd->port` leaves the wrapped descriptor inheritable** (#2424) — an
+  FFI descriptor (a kaappi-net socket, a foreign library's pipe) wrapped
+  as a port kept whatever close-on-exec state it arrived with, so on
+  Linux and the BSDs every `spawn-process` child inherited it — a live
+  listening socket could reach the child. The wrap is now the ownership
+  boundary: `makeFdPort` sets `FD_CLOEXEC`, which cannot break a
+  legitimate pass-through (Kaappi execs only through `spawn-process`,
+  whose stdio install clears the flag on exactly the child's slots); a
+  foreign side that wants a child to inherit its descriptor must prepare
+  the fd itself.
+- **Test/dev fd pairs are close-on-exec** (#2422) — the pair constructors
+  in `testing_helpers.zig` and `bench_reactor.zig` called `pipe(2)` and
+  `socketpair(2)` directly, bypassing `platform.pipe`'s CLOEXEC
+  discipline (the hand-rolled fork/exec plumbing in `test_runner.zig`
+  and `test_selection.zig` did the same). These descriptors never
+  intentionally cross an exec, but the fd-hygiene suites had to diff
+  against the parent's own fd set to tolerate them.
 - **Continuations captured under a non-tail `apply` or `call-with-values`
   (#2451)** — resuming one raised `KP3000: continuation cannot resume across a
   returned native call`. Both reached their callee through a native

@@ -200,37 +200,48 @@
              (and (string=? (process-timeout-stdout e) "printed")
                   (string=? (process-timeout-stderr e) "")
                   (error-object? e))))
-    (run-process (run stall-script "printed") 'timeout: 0.25)
+    ;; Generous deadline: on a loaded runner the child can lose its first
+    ;; scheduling slot past a tight one, the kill then lands before the
+    ;; printf, and the honest empty drain fails the content assertion
+    ;; (measured on the OpenBSD CI VM; twin comment in
+    ;; tests/scheme/compile/process-spawn-2414.sh).
+    (run-process (run stall-script "printed") 'timeout: 2)
     #f))
 
 ;; Reaching the guard clause at all is the assertion: the grandchild holds
 ;; the same stdout pipe, so only a group kill lets the drain reach EOF. A
-;; child-only kill hangs here instead of raising.
+;; child-only kill hangs here instead of raising. The grandchild must also
+;; get a slot to print "up" before the kill, so the same generous-deadline
+;; rule applies — with extra headroom for the interpreter grandchild's
+;; startup.
 (test-assert "the timeout kill reaches a grandchild holding the same pipe"
   (guard (e ((process-timeout? e) (string=? (process-timeout-stdout e) "up")))
-    (run-process (run tree-script kaappi-binary stall-script) 'timeout: 0.5)
+    (run-process (run tree-script kaappi-binary stall-script) 'timeout: 3)
     #f))
 
 ;; ------------------------------------------------------------------ errors
 
-;; An absolute path, deliberately. POSIX leaves it unspecified whether a
-;; *PATH search* that finds nothing fails at posix_spawnp or lets the child
-;; exec fail and exit 127, and OpenBSD takes the second option — so a bare
-;; name would assert a platform's choice rather than this library's
-;; contract. With a path, every supported platform reports the failure at
-;; the spawn (kaappi#2456 tracks closing the bare-name gap).
+;; An absolute path, deliberately kept as its own assertion alongside the
+;; bare-name one below: a path has exactly one candidate file, so the
+;; failure is attributed at the spawn on every platform by construction.
 (test-assert "a program that does not exist is a file error, not a timeout"
   (guard (e (#t (and (file-error? e) (not (process-timeout? e)))))
     (run-process '("/kaappi/no/such/program/2417"))
     #f))
 
-;; The bare-name case, pinned to whichever of the two POSIX permits rather
-;; than left invisible: an error, or a child that never ran. What it must
-;; never be is a normal-looking success.
-(test-assert "a bare name that resolves to nothing never looks like success"
-  (guard (e (#t (file-error? e)))
-    (call-with-values (lambda () (run-process '("kaappi-no-such-program-2417")))
-      (lambda (st out err) (and (not (eqv? st 0)) (string=? out ""))))))
+;; The bare-name case. POSIX leaves it unspecified whether a PATH search
+;; that finds nothing fails at posix_spawnp or lets the child exec fail
+;; and exit 127, and OpenBSD's libc took the second option — so this used
+;; to be pinned leniently (an error, or a non-zero status with no
+;; output). Since kaappi#2456 that platform spawns through fork+exec
+;; with a CLOEXEC error pipe, and the strict contract holds everywhere:
+;; a miss is a file error at the spawn, never an ordinary exit status a
+;; program that really ran could also have produced.
+(test-assert "a bare name that resolves to nothing is a file error"
+  (guard (e (#t (file-error? e))
+            (else #f))
+    (run-process '("kaappi-no-such-program-2417"))
+    #f))
 
 ;; `timeout:` promises a bound, and a child-only kill cannot deliver one: a
 ;; grandchild holding the pipes would keep the drains from ever reaching EOF,

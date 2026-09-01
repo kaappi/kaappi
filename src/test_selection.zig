@@ -467,7 +467,9 @@ fn runCapture(arena: std.mem.Allocator, argv: []const []const u8) ?CaptureResult
     if (comptime platform.is_wasm) return null;
 
     var pipe: [2]c_int = undefined;
-    if (std.c.pipe(&pipe) != 0) return null;
+    // platform.pipe for the CLOEXEC pair discipline (kaappi#2422); the
+    // child's dup2 onto 1 clears it on the installed slot only.
+    if (platform.pipe(&pipe) != 0) return null;
 
     const pid = std.posix.system.fork();
     if (pid < 0) {

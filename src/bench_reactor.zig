@@ -33,7 +33,10 @@ fn nowNs() u64 {
 
 fn makePipe() [2]std.c.fd_t {
     var fds: [2]std.c.fd_t = undefined;
-    if (std.c.pipe(&fds) != 0) unreachable;
+    // platform.pipe, not std.c.pipe: same CLOEXEC discipline as every
+    // other test/dev pair constructor (kaappi#2422), and no second call
+    // site to drift if pipe flags ever change.
+    std.debug.assert(platform.pipe(&fds) == 0);
     return fds;
 }
 

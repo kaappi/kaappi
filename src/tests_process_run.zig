@@ -218,16 +218,19 @@ test "run-process: timeout: raises process-timeout carrying the partial output" 
     if (comptime !is_posix) return error.SkipZigTest;
     // The child prints, then sleeps past the deadline. What it managed to
     // write must survive on the condition — the condition is the only route
-    // to it, since the values return never happens.
+    // to it, since the values return never happens. Generous deadline: the
+    // content assertions need the child to get a scheduling slot before the
+    // kill, which a loaded runner cannot promise inside 250 ms (measured on
+    // the OpenBSD CI VM; twin comment in process-spawn-2414.sh).
     try th.expectEvalTrue(
         \\(guard (e ((process-timeout? e)
         \\           (and (string=? (process-timeout-stdout e) "partial")
         \\                (string=? (process-timeout-stderr e) "half")
         \\                (error-object? e)
         \\                (equal? (error-object-irritants e)
-        \\                        (list '("/bin/sh" "-c" "printf partial; printf half 1>&2; sleep 30") 0.25)))))
+        \\                        (list '("/bin/sh" "-c" "printf partial; printf half 1>&2; sleep 30") 2)))))
         \\  (run-process '("/bin/sh" "-c" "printf partial; printf half 1>&2; sleep 30")
-        \\               'timeout: 0.25)
+        \\               'timeout: 2)
         \\  'no-condition-raised)
     );
 }
@@ -246,10 +249,12 @@ test "run-process: the timeout kill reaches a grandchild holding the same pipe" 
     // `timeout:` implies `new-group: #t`, and the group kill is what lets the
     // drain fibers reach EOF at all: the grandchild inherits stdout, so a
     // child-only kill would leave the pipe open and this call would never
-    // return. Reaching the guard clause *is* the assertion.
+    // return. Reaching the guard clause *is* the assertion — and "up" must
+    // reach the pipe before the kill, so the same loaded-runner headroom
+    // applies as in the partial-output test above.
     try th.expectEvalTrue(
         \\(guard (e ((process-timeout? e) (string=? (process-timeout-stdout e) "up")))
-        \\  (run-process '("/bin/sh" "-c" "sleep 30 & printf up; sleep 30") 'timeout: 0.25)
+        \\  (run-process '("/bin/sh" "-c" "sleep 30 & printf up; sleep 30") 'timeout: 2)
         \\  'no-condition-raised)
     );
 }
@@ -295,6 +300,16 @@ test "run-process: a spawn failure is a file error, not a timeout condition" {
     try th.expectEvalTrue(
         \\(guard (e (#t (and (file-error? e) (not (process-timeout? e)))))
         \\  (run-process '("/no/such/program/2417"))
+        \\  'no-error-raised)
+    );
+    // The bare-name form, which POSIX lets libc settle either way and
+    // OpenBSD's settled as an ordinary exit 127 until kaappi#2456 gave its
+    // spawn a CLOEXEC error pipe: the PATH miss must be a file error there
+    // too, never a status a program that ran could also have produced.
+    try th.expectEvalTrue(
+        \\(guard (e (#t (and (file-error? e) (not (process-timeout? e))))
+        \\          (else #f))
+        \\  (run-process '("kaappi-no-such-program-2456"))
         \\  'no-error-raised)
     );
 }

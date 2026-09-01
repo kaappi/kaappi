@@ -72,6 +72,19 @@
          (st (process-wait p)))
     (and (= st 0) (process-kill p) (process-kill p 'signal: 9) #t)))
 
+(test-assert "spawning a missing program is a file error, by path or by name"
+  ;; The file-error family is what keeps "could not start" distinguishable
+  ;; from "started and failed" — and the bare-name form is the one
+  ;; OpenBSD's vfork-based posix_spawn used to lose, reporting a missed
+  ;; PATH search as an ordinary exit 127 (kaappi#2456; that platform now
+  ;; spawns through fork+exec with a CLOEXEC error pipe).
+  (and (guard (e ((file-error? e) #t) (else #f))
+         (spawn-process '("/nonexistent/kaappi-test-program"))
+         #f)
+       (guard (e ((file-error? e) #t) (else #f))
+         (spawn-process '("kaappi-no-such-program-2456"))
+         #f)))
+
 ;; --------------------------------------------------------- pipes and specs
 
 (test-equal "stdin/stdout pipe round trip via cat"
