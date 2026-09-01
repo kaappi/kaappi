@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788237548730,
+  "lastUpdate": 1788239060993,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "8e4b801479054785c5801b1f6a3d55ad8ea05233",
-          "message": "Splice definition-context begins in body scans (Fixes #2075) (#2267)\n\nA begin-wrapped internal define in a let-family body escaped to the\nglobal environment unless an enclosing procedure existed. R7RS 4.2.3\nrequires a definition-context begin to behave exactly as if the wrapper\nwere absent, so\n\n  (let ((g 'outer)) (begin (define g 'inner)) g)\n\nmust answer 'inner at top level — the same answer it already gave\ninside a lambda — and must not overwrite a top-level g. It answered\n'outer, and the define_global that escaped the let silently replaced\nthe unrelated global with 'inner.\n\nTwo halves of the same defect:\n\n1. scanBodyDefs only recognized literal define-family heads as body\n   elements and never descended into a begin, so a begin-wrapped define\n   was neither pre-declared into the body's letrec* region nor compiled\n   as a body definition. The scan now unwraps spliceable begins\n   (recursively, mirroring the IR lowerer's shadow test for a begin\n   head) before its three passes run, so definitions inside them join\n   the letrec* region like unwrapped ones — mutual recursion, define-\n   record-type, define-values and define-syntax included.\n\n2. compileDefine chooses local vs define_global on in_body_scope, which\n   only the procedure-body paths set. The let-family bodies\n   (compileBodyForms' other callers) were missing it, so a definition\n   reached at compile time — a macro expansion producing one, or a\n   begin the scan could not splice — became a global at top level while\n   the identical text inside a lambda bound a local. compileBodyForms\n   now sets in_body_scope like compileBody and compileSyntaxBody do.\n\nThe native tier inherits both halves via its existing interpreter\nfallback for begin-spliced defines (pinned in\nnative-let-internal-define-root-1854.sh), which the new cases verify\nstill agrees with the interpreter's now-correct answers.\n\nAlso flips the srfi188.scm assertions that pinned the wrong answers,\nenables the four disabled R7RS-required ones, and rewrites the SRFI 188\n.sld header, whose flagship claim that the begin-wrapped form evaluates\nto 'outer at top level was the doc-truth half of this bug.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-09T16:58:08+05:30",
-          "tree_id": "5d2abea7563f759442a4c0c4e01e398af33dbc0b",
-          "url": "https://github.com/kaappi/kaappi/commit/8e4b801479054785c5801b1f6a3d55ad8ea05233"
-        },
-        "date": 1786277189435,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.452564,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.334852,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.594058,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.035733,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004747,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046891,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.313853,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057674,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.804002,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.234943,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.669461,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.281094,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.79181,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.69477,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046483,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046972,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3fce40d2d278013ad0d078d75fa4dec09553940a",
+          "message": "Port (kaappi process) to Windows: CreateProcess, Job Objects, handle reaping (#2450)\n\nKEP-0022 Phase 3. Windows has neither fork/exec nor signals, so nothing\nhere is a translation of the POSIX backend — three substitutions carry it.\n\nSpawn is CreateProcessW with an explicit inherit list. There is no argv\nvector on Windows: the child's C runtime parses one command line back with\nCommandLineToArgvW's rules, so argv is joined by platform.buildCommandLineW,\nthe encoder thottam already used for git. Inheritance is confined to a\nPROC_THREAD_ATTRIBUTE_HANDLE_LIST naming exactly the three stdio handles,\nwhich is a *stronger* close-by-default guarantee than the POSIX\nenumerate-then-close scan: nothing Kaappi inherited from its launcher or\nacquired through FFI can reach the child, and there is no enumerate/spawn\nrace to document.\n\nA process group is a Job Object. TerminateProcess kills exactly one process\nand CREATE_NEW_PROCESS_GROUP only re-routes console Ctrl+C — neither reaches\na grandchild, while a child of a job member joins the job automatically. So\nnew-group: creates one and assigns the child before its primary thread is\nresumed (CREATE_SUSPENDED): a child that ran even briefly outside the job\ncould spawn a grandchild the tree-kill would miss. The job deliberately\nomits KILL_ON_JOB_CLOSE, so an abandoned Process leaves its group running\nexactly as an abandoned POSIX process group does.\n\nReaping is the process HANDLE — the reactor's wait object, the\nGetExitCodeProcess source and the TerminateProcess target at once — so the\nProcess owns it for its whole lifetime and only freeObject closes it. It\njoins WaitForMultipleObjects' wait set in WindowsEventBackend; a signaled\nhandle is reported with ReadyEvent.proc set, because the key is a process id\nthat would otherwise be mistaken for a same-numbered descriptor (the kqueue\nprecedent). Liveness is the handle's signaled state, never GetExitCodeProcess'\nSTILL_ACTIVE, which a child exiting 259 is indistinguishable from.\n\nSignals have nothing to map onto, so signal: folds into the exit code\nTerminateProcess stamps: 128 + n, the shell convention, and a status is that\nplain integer rather than (signaled . n). signal: 0 stays an existence probe.\n\nThe primitive layer keeps everything platform-independent — option parsing,\nredirection validation, the Process object and its ports, the whole Phase-2\nfiber park — and picks one of process_posix.zig / process_win.zig at\ncomptime, so neither OS's syscall surface is analyzed on the other. The seam\nis three types in types_process.zig plus reapNonBlocking, which reactor.zig\nand gc_sweep.zig share so neither has to know which OS reaped.\n\nVerified on the win11 ARM64 reference VM and, under x64 emulation, on the\nx86_64 build: 1836 unit tests pass on each (including the new cmd.exe suite,\nwhose tree-kill assertion queries the Job Object's own process-id list), and\nthe new process-portable.scm passes its 18 cases on both — argv quoting\nround trip and grandchild-dies-too included. macOS stays at 2133/0 across\nthe full suite, with the process tests green under -Dgc-stress=true.\n\nCloses #2416\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-09-01T09:52:44+05:30",
+          "tree_id": "b67cd7af7a5db8dba37f9bddd371b929c48a7899",
+          "url": "https://github.com/kaappi/kaappi/commit/3fce40d2d278013ad0d078d75fa4dec09553940a"
+        },
+        "date": 1788239058190,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.306885,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.471299,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.575475,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.971876,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004956,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048671,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.306888,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055248,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.765957,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.233293,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.673173,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.290064,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.725131,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.680978,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045089,
             "unit": "seconds"
           }
         ]
