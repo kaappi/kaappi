@@ -37,7 +37,11 @@
 ;;; source's values before the destination exists, so the aliases
 ;;; inherit continuation-re-entry safety -- more than the spec asks of
 ;;; the `!` variants (which may skip exactly that guarantee), never
-;;; less.
+;;; less. The `!` twins do pay the same scratch cost as the non-! ones
+;;; (one pre-sized vector, N words -- the aliasing trades that memory
+;;; for one code path; splitting them apart to reclaim it would
+;;; re-diverge five fill loops for a cost the spec's `!` exemption
+;;; exists precisely to allow skipping).
 (define-library (srfi 231 assembly)
   (import (scheme base) (srfi 1)
           (srfi 231 misc) (srfi 231 intervals) (srfi 231 storage-classes)

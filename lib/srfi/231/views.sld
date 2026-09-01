@@ -314,55 +314,44 @@
     ;; documented difference from array-copy!): the re-entry gets a FRESH
     ;; array, and the array the first call already returned never mutates
     ;; under its holder. That requires collecting every source value
-    ;; BEFORE the destination exists, threading the values through a
-    ;; FUNCTIONAL accumulator -- a set! accumulator (or
-    ;; interval-fold-left/right, which use one) lets the re-entry keep
-    ;; appending to the first run's partial list, and a direct fill into
+    ;; BEFORE the destination exists, into a pre-sized scratch vector
+    ;; indexed by a position threaded FUNCTIONALLY through the walk --
+    ;; the threading is the safety mechanism (a set! position counter, or
+    ;; interval-fold-left/right, which use one, lets the re-entry keep
+    ;; counting on the first run's progress). The scratch itself is
+    ;; shared mutable state, deliberately: a re-entry resumes from the
+    ;; position captured at its capture point, so positions below it
+    ;; retain the first run's values and positions above are re-fetched
+    ;; -- observably identical to a functional cons accumulator, without
+    ;; that shape's cost (at 1M elements: 18.0M total pair allocations
+    ;; for a cons-list collector against 16.0M here, and its N live
+    ;; pairs gone; the churn that remains is the library apply shape
+    ;; every fill loop already shares -- kaappi#2464). A direct fill into
     ;; a pre-allocated destination (the pre-#2454 shape, and what
     ;; array-copy! still is -- the spec explicitly permits the `!`
     ;; variant to skip exactly this guarantee) lets the resumed fill
     ;; overwrite the already-returned array.
-    (define (%array-collect getter checker storage-class lowers uppers)
+    (define (%domain-walk lowers uppers leaf k)
       ;; Walk the domain in lexicographic order (first axis outermost,
-      ;; matching %interval-for-each-indices in intervals.sld), consing
-      ;; each (apply getter index) onto a reversed accumulator threaded
-      ;; functionally through both the axis loops and the recursion, so a
-      ;; re-invoked continuation re-runs the walk from its capture point
-      ;; over the accumulator value captured at that moment.
+      ;; matching %interval-for-each-indices in intervals.sld), calling
+      ;; (leaf index k) per multi-index with the index as a list, and
+      ;; threading the leaf's returned position functionally through the
+      ;; axis loops and the recursion. That threading is what makes a
+      ;; continuation captured inside a leaf re-run the walk from ITS
+      ;; captured position over ITS captured prefix, never the first
+      ;; run's. One helper serves both array-copy passes so they cannot
+      ;; drift out of order-agreement.
       (letrec ((walk
-                (lambda (ls us rev-index acc)
+                (lambda (ls us rev-index k)
                   (if (null? ls)
-                      (let ((val (apply getter (reverse rev-index))))
-                        (when (and checker (not (checker val)))
-                          (error "array-copy: not all elements of the source can be stored in the destination"
-                                 val storage-class))
-                        (cons val acc))
-                      (let loop ((i (car ls)) (acc acc))
+                      (leaf (reverse rev-index) k)
+                      (let loop ((i (car ls)) (k k))
                         (if (>= i (car us))
-                            acc
+                            k
                             (loop (+ i 1)
                                   (walk (cdr ls) (cdr us)
-                                        (cons i rev-index) acc))))))))
-        (reverse (walk lowers uppers '() '()))))
-
-    (define (%array-fill-from-list dest-setter vals lowers uppers)
-      ;; Second pass over the same domain order, consuming the collected
-      ;; values; only library code runs here (the destination's unsafe
-      ;; setter -- the value check already happened at collection), so no
-      ;; continuation can be captured mid-fill.
-      (letrec ((walk
-                (lambda (ls us rev-index vals)
-                  (if (null? ls)
-                      (begin
-                        (apply dest-setter (car vals) (reverse rev-index))
-                        (cdr vals))
-                      (let loop ((i (car ls)) (vals vals))
-                        (if (>= i (car us))
-                            vals
-                            (loop (+ i 1)
-                                  (walk (cdr ls) (cdr us)
-                                        (cons i rev-index) vals))))))))
-        (walk lowers uppers '() vals)))
+                                        (cons i rev-index) k))))))))
+        (walk lowers uppers '() k)))
 
     (define (%array-copy-impl array opts call/cc-safe?)
       (unless (array? array) (error "array-copy: not an array" array))
@@ -380,15 +369,42 @@
              (checker (%copy-value-checker array storage-class))
              (lowers (interval-lower-bounds->list domain))
              (uppers (interval-upper-bounds->list domain))
-             (vals (and call/cc-safe?
-                        (%array-collect getter checker storage-class lowers uppers)))
-             ;; allocated after collection completed (or immediately, for
-             ;; the direct-fill `!` path), so a continuation re-entry
-             ;; re-runs collection and materializes its own destination
+             ;; The whole collection runs here, inside the binding --
+             ;; strictly before the destination below is allocated --
+             ;; calling every getter (and the value checker) into the
+             ;; scratch, so a continuation captured in a getter re-runs
+             ;; collection and materializes its own destination.
+             (scratch (and call/cc-safe?
+                           (let ((buf (make-vector (interval-volume domain))))
+                             (%domain-walk lowers uppers
+                                           (lambda (index k)
+                                             (let ((val (apply getter index)))
+                                               (when (and checker (not (checker val)))
+                                                 (error "array-copy: not all elements of the source can be stored in the destination"
+                                                        val storage-class))
+                                               (vector-set! buf k val)
+                                               (+ k 1)))
+                                           0)
+                             buf)))
              (dest (make-specialized-array domain storage-class (storage-class-default storage-class) safe?))
              (dest-setter (array-unsafe-setter dest)))
         (if call/cc-safe?
-            (%array-fill-from-list dest-setter vals lowers uppers)
+            ;; Copy-out from the scratch: the values are already
+            ;; collected, so a getter re-entry cannot change what lands
+            ;; in dest. The dest-setter is library code for the built-in
+            ;; storage classes but USER code when the destination's
+            ;; storage class came from make-storage-class -- a
+            ;; continuation captured there re-enters this copy-out with
+            ;; dest already allocated, so it does not get a fresh array
+            ;; (the same residual exposure the reference implementation's
+            ;; own accumulate-then-materialize shape has; both runs write
+            ;; identical collected values, so only the identity of the
+            ;; re-entry's result object is affected).
+            (%domain-walk lowers uppers
+                          (lambda (index k)
+                            (apply dest-setter (vector-ref scratch k) index)
+                            (+ k 1))
+                          0)
             (interval-for-each (lambda multi-index
                                  (let ((val (apply getter multi-index)))
                                    (when (and checker (not (checker val)))
