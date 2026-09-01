@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788281770799,
+  "lastUpdate": 1788288598208,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "7606c110749f644aac5568ca37d608782af4ae61",
-          "message": "Keep an inexact zero imaginary part complex in make-rectangular, write, and c64/c128 decode (Fixes #2269) (#2271)\n\n* Keep an inexact zero imaginary part complex in make-rectangular, write, and c64/c128 decode (Fixes #2269)\n\nmake-rectangular demoted an inexact zero imaginary part to the real\ncomponent while the reader kept it complex, so the constructor and the\nliteral 1.5+0.0i disagreed, and the printer collapsed an inexact-zero-imag\ncomplex to its bare real — (write 1.5+0.0i) printed 1.5, which reads back\nas a different value, violating R7RS 6.2.7's number->string round-trip.\n\nPer R7RS 6.2.6's worked examples, an explicitly inexact zero imaginary\npart keeps the value complex ((real? -2.5+0.0i) => #f); only an exact\nzero demotes. Chez, Guile, chibi, and Gambit all behave this way.\n\n- make-rectangular now routes through makeComplexOrRealLiteral (the\n  reader's exact-zero-only demotion) instead of makeComplexOrRealV.\n- The complex printer collapses only an exact zero imag, emitting the\n  full form (\"1.5+0.0i\" / \"1.5-0.0i\") for the inexact case, so write\n  and number->string round-trip through read.\n- c64/c128 decodeElement preserves a +0.0 imaginary part instead of\n  demoting it to a plain real, so SRFI-160 refs agree with the\n  standalone constructor.\n\nTests: re-pinned the srfi160 control/decode assertions and the\nmake-rectangular demotion tests to the new behavior, added regressions\nfor the decomposition and write/read round-trips (starting from the\nreader value, the discriminating probe), and kept (real? -2.5+0.0i)\n=> #f green in the R7RS suite.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Extend exact-zero-only demotion to the arithmetic tower and make-polar (review #2271)\n\nReview feedback: the PR fixed make-rectangular, the reader, and the\nprinter, but the same demotion survived in two other construction sites\n— the arithmetic tower (+ - * /) built results through makeComplexOrRealV,\nwhich demoted ANY zero imag, and make-polar demoted an inexact 0.0 imag\nthrough the f64 makeComplexOrReal path. Chez, Guile, chibi, and Gambit\nkeep an inexact zero imag complex everywhere: (+ 1.0+2.0i 1.0-2.0i) is\n2.0+0.0i, (* 1.5+0.0i 2.0), (- 1.5+2.0i 0.0+2.0i), (+ 1.5+0.0i 0), and\n(make-polar 1.5 0.0) are all (real? => #f).\n\n- makeComplexOrRealV and makeComplexOrRealLiteral were identical except\n  for the demotion rule; collapsed into one exact-zero-only\n  makeComplexOrRealV, now the single Value-component construction site\n  for the reader, string->number, make-rectangular, arithmetic, and\n  exact/inexact conversion.\n- make-polar now demotes only an EXACT zero angle ((make-polar 1.5 0) =>\n  1.5) and keeps an inexact zero imag complex ((make-polar 1.5 0.0) =>\n  1.5+0.0i), preserving -0.0 ((make-polar 1.5 -0.0) => 1.5-0.0i).\n- (exact 1.5+0.0i) still demotes to 3/2 (exact zero), and (- z z) for an\n  exact z still yields exact 0, as the references do.\n- Regression tests for the arithmetic and make-polar cases, plus the\n  exact-zero survival pins.\n\nThe f64 transcendental paths (sin/cos/tan, sqrt, expt, exp, log, asin)\nare intentionally unchanged: they still demote an exactly-zero or\nbelow-1e-15-noise imaginary result via makeComplexOrReal and the\npre-existing epsilon guard, a deliberate noise-suppression design that\nis orthogonal to the construction-site rule (noted in the CHANGELOG).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* make-polar: demote only a numerically-zero exact angle; test-helper and import tidy-ups (review #2271)\n\nReview follow-up: the make-polar guard tested the angle's EXACTNESS rather\nthan that it is ZERO, so a tiny exact nonzero angle whose sin underflows to\n0.0 demoted incorrectly: (make-polar 1.5 (/ 1 (expt 10 400))) returned the\nreal 1.5 while Chez, Guile, chibi, and Gambit all keep 1.5+0.0i (real? => #f).\nRequire isZeroValue(args[1]) alongside the exactness check; the exact-zero\nangle pin (make-polar 1.5 0) => 1.5 is unchanged, and a regression covers the\nunderflow path, which the existing pins did not exercise.\n\nAlso per review: convert the make-rectangular unit test to th.TestContext\n(the documented multi-evaluation helper, docs/dev/testing.md) and import\n(scheme process-context) in tests/scheme/smoke/complex-neg-zero.scm so its\nexit calls do not rely on kaappi registering exit ambiently.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-09T17:53:23Z",
-          "tree_id": "4a9db3eaf2e334d18ea106d395840efe241d3be2",
-          "url": "https://github.com/kaappi/kaappi/commit/7606c110749f644aac5568ca37d608782af4ae61"
-        },
-        "date": 1786299948956,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.038368,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.095877,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.459412,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.19378,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.003761,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.035174,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.223541,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.041636,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.85257,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.912868,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.184398,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.240797,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.31139,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.322015,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.036308,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046326,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "997a2a259d7ef4e093cf36b3c9fcea4d5bd0973b",
+          "message": "Report OpenBSD exec failures at the spawn; close wrapped and test fds by default (#2462)\n\n* Report OpenBSD exec failures at the spawn, and close wrapped/test fds by default (#2456, #2424, #2422)\n\nThree fd-hygiene fixes around exec, one per issue:\n\nreport the child's exec failure, so a bare program name the PATH search\nmissed \"succeeded\" and the child exited 127 -- indistinguishable from a\nprogram that ran and failed. That platform now spawns through fork +\nexecvp with a CLOEXEC error pipe (CPython subprocess's mechanism): the\nchild installs the same redirections the file actions carried, closes\nevery inherited non-CLOEXEC fd >= 3, writes its exec errno to the pipe\nand only then _exits 127; a successful exec closes the pipe via\nFD_CLOEXEC, so the parent's read returns exactly at the exec and the\nerrno rides the same catchable file error every other libc reports. The\nparent resuming only at the exec is also the signalability property the\nNetBSD exec barrier exists to restore, gained for free here. The\nadvisory access() pre-flight for slash-paths is superseded and removed.\nThe bare-name assertions in process-run.scm (written leniently for this\ngap) and tests_process_run.zig are strict again; reproduced before/after\non the OpenBSD 7.9 aarch64 reference VM.\n\nFD_CLOEXEC state, so on Linux and the BSDs every spawn-process child\ninherited it (a live kaappi-net socket could reach the child). The wrap\n(makeFdPort) now sets FD_CLOEXEC -- safe by construction, since Kaappi\nexecs only through spawn-process, whose stdio install clears the flag\non exactly the child's slots. A foreign side that wants a child to\ninherit its descriptor must prepare the fd itself.\n\nmakeBidiFdPair, bench_reactor's makePipe) and the hand-rolled fork/exec\nplumbing in test_runner.zig and test_selection.zig called pipe(2) and\nsocketpair(2) directly, bypassing platform.pipe's CLOEXEC discipline.\nAll routed through platform.pipe / setFdCloexec; no direct std.c.pipe or\nstd.c.socketpair call remains outside platform.zig in test/dev code.\n\nCo-authored-by: ZCode <noreply@z.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Guard setFdCloexec/getFdFlags for Windows: fcntl does not link there\n\nmakeFdPort's new unconditional FD_CLOEXEC call (kaappi#2424) pulled\nplatform.setFdCloexec into the Windows link for the first time, and its\nplain extern fcntl has no CRT counterpart -- both windows-cross legs\nfailed at lld-link with 'undefined symbol: fcntl'. Both fd-flag helpers\nnow no-op for Windows targets like they already did for wasm: FD_CLOEXEC\nis a POSIX exec concept, and process_win confines child inheritance to\nan explicit stdio handle list, a stronger guarantee than any\nclose-by-default scan, so there is nothing for the flag to do there.\n\nCo-authored-by: ZCode <noreply@z.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Give the timeout-content tests loaded-runner headroom\n\nThe timeout tests that assert WHAT the drain recovers (\"partial\",\n\"printed\", \"half\", \"up\") all used 250-500 ms deadlines, which assume\nthe child gets a scheduling slot before the kill. On a loaded runner it\ndoes not always: the openbsd-test leg failed process-spawn-2414.sh this\nway (expected '(4 70000 err)\\npartial', got no partial), and on the\nOpenBSD reference VM under four CPU hogs the same shape loses its output\n11/50 times on unmodified main (4aa2bab1) and 4/50 on this branch -- a\npre-existing test race, not a spawn-path change (the fork+exec path, if\nanything, sampled better). The engine is behaving correctly: a kill that\nlands before the child ever wrote drains an honest empty string.\n\nEvery such deadline now has seconds of headroom (2 s, 3 s where a\ngrandchild interpreter must start up too); the deadline's job in these\ntests is only to fire eventually, and the assertion is about the\nrecovered content. Re-verified under the same CPU-hog load: 0/50.\n\nCo-authored-by: ZCode <noreply@z.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* ci: retrigger workflows for 97e5076c\n\nThe pull_request event for 97e5076c was lost — the branch and PR head\nboth point at it, but Actions shows zero runs for that SHA (the two\nprior pushes triggered normally). An empty commit to force a fresh\nsynchronize event; no content change.\n\nCo-authored-by: ZCode <noreply@z.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: ZCode <noreply@z.ai>",
+          "timestamp": "2026-09-01T18:02:53Z",
+          "tree_id": "3582afb745e3e61d8e34b18fc8272436077eca01",
+          "url": "https://github.com/kaappi/kaappi/commit/997a2a259d7ef4e093cf36b3c9fcea4d5bd0973b"
+        },
+        "date": 1788288596664,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.273142,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.246428,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.563154,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.980661,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004449,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.064223,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.305908,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056293,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.804267,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.211756,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.642774,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.284105,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.222084,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.667845,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046528,
             "unit": "seconds"
           }
         ]
