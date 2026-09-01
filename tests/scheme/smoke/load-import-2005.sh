@@ -51,7 +51,7 @@ out=$(cd "$work" && "$kaappi_abs" loader.scm 2>&1)
 status=$?
 set -e
 
-if [ "$status" -eq 0 ] && printf '%s' "$out" | grep -q 'inner ok'; then
+if [ "$status" -eq 0 ] && grep -q 'inner ok' <<< "$out"; then
     echo "PASS: load of an import-bearing file runs it"
     PASS=$((PASS + 1))
 else
@@ -80,7 +80,7 @@ berr=$(cd "$work" && "$kaappi_abs" driver.scm 2>&1)
 bstatus=$?
 set -e
 
-if [ "$bstatus" -ne 0 ] && printf '%s' "$berr" | grep -q 'bad.scm:2:'; then
+if [ "$bstatus" -ne 0 ] && grep -q 'bad.scm:2:' <<< "$berr"; then
     echo "PASS: a broken loaded file reports its own file:line"
     PASS=$((PASS + 1))
 else

@@ -62,7 +62,7 @@ fn disassembleInstruction(func: *types.Function, code: []const u8, offset: usize
     const off_str = std.fmt.bufPrint(&buf, "  {d:0>4}  ", .{offset}) catch "  ????  ";
     writeStderr(off_str);
 
-    if (raw_op > @intFromEnum(OpCode.tail_eval)) {
+    if (raw_op > @intFromEnum(OpCode.apply)) {
         const s = std.fmt.bufPrint(&buf, "<invalid opcode 0x{x:0>2}>\n", .{raw_op}) catch "<invalid opcode>\n";
         writeStderr(s);
         return ip;
@@ -75,7 +75,7 @@ fn disassembleInstruction(func: *types.Function, code: []const u8, offset: usize
         .move => 4,
         .get_global => 4,
         .set_global, .define_global => 4,
-        .tail_apply => 3,
+        .apply, .tail_apply => 3,
         .get_upvalue, .set_upvalue => 4,
         .call, .tail_call => 3,
         .@"return" => 2,
@@ -154,6 +154,13 @@ fn disassembleInstruction(func: *types.Function, code: []const u8, offset: usize
             const name = constName(func, idx, allocator);
             defer if (name.len > 0) allocator.free(name);
             const s = std.fmt.bufPrint(&buf, "define_global   {s}, r{d}\n", .{ name, src }) catch "define_global\n";
+            writeStderr(s);
+        },
+        .apply => {
+            const base = readU16(code, &ip);
+            const nargs = code[ip];
+            ip += 1;
+            const s = std.fmt.bufPrint(&buf, "apply           r{d}, {d}\n", .{ base, nargs }) catch "apply\n";
             writeStderr(s);
         },
         .tail_apply => {

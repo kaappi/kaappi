@@ -127,7 +127,7 @@ json="$(stderr_of "$KAAPPI" --timings=json "$IMP")"
 check_json_parses "imports json" "$json"
 check "imports json: recorded as a miss" '"status":"miss"' "$json"
 check "imports json: miss writes an entry" '"written":true' "$json"
-if printf '%s' "$json" | grep -q '"reason":"'; then
+if grep -q '"reason":"' <<< "$json"; then
     echo "FAIL: imports json: no decline reason"
     echo "  $json"
     FAIL=$((FAIL + 1))

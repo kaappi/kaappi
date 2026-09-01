@@ -269,7 +269,11 @@ fn compileSelfTailCall(self: *Compiler, expr: Value, dst: u16, nargs: u8) Compil
     }
 }
 
-pub fn compileApplyTail(self: *Compiler, expr: Value, dst: u16) CompileError!void {
+/// `(apply f a ... lst)` in either position (kaappi#2451). Tail position emits
+/// `tail_apply`; non-tail emits the `apply` opcode, which — unlike the native
+/// `applyFn` it replaces there — calls the flattened callee with an ordinary VM
+/// frame, so a continuation captured inside it survives the call's return.
+pub fn compileApplyForm(self: *Compiler, expr: Value, dst: u16, is_tail: bool) CompileError!void {
     var arg_list = types.cdr(expr);
     // A *proper* operand list of the wrong length (< 2) is an arity question,
     // not a syntax question: route the form through the ordinary call path so
@@ -284,7 +288,7 @@ pub fn compileApplyTail(self: *Compiler, expr: Value, dst: u16) CompileError!voi
             count += 1;
         }
         if (walk.cur != types.NIL) return CompileError.InvalidSyntax;
-        if (count < 2) return compileCall(self, expr, dst, true);
+        if (count < 2) return compileCall(self, expr, dst, is_tail);
     }
 
     const needs_rebase = (dst + 1 != self.next_register);
@@ -307,7 +311,7 @@ pub fn compileApplyTail(self: *Compiler, expr: Value, dst: u16) CompileError!voi
     if (nargs_count > 255) return CompileError.InternalLimit;
     const nargs: u8 = @intCast(nargs_count);
 
-    try self.emitOp(.tail_apply);
+    try self.emitOp(if (is_tail) .tail_apply else .apply);
     try self.emitU16(base);
     try self.emit(nargs);
 
@@ -316,21 +320,41 @@ pub fn compileApplyTail(self: *Compiler, expr: Value, dst: u16) CompileError!voi
         self.freeReg();
     }
     if (needs_rebase) {
+        // The non-tail opcode leaves its result in `base`, exactly as `call`
+        // does; `tail_apply` never returns here at all.
+        if (!is_tail) {
+            try self.emitOp(.move);
+            try self.emitU16(dst);
+            try self.emitU16(base);
+        }
         self.freeReg();
     }
 }
 
-pub fn compileCallWithValuesTail(self: *Compiler, expr: Value, dst: u16) CompileError!void {
-    // (call-with-values producer consumer) in tail position.
-    // Emits bytecode directly: load `list`/`call-with-values`, call the
-    // latter with (producer, list) -> values, then tail_apply(consumer,
-    // values). `list`/`call-with-values` are loaded via
-    // self.emitTrueBuiltinLoad, which marks the reference to resolve
-    // through the true (scheme base) binding at run time rather than
-    // by ordinary name lookup, so neither a lexical shadow NOR a later
-    // top-level redefinition of either name can affect this call (#1715;
-    // the previous plain get_global/call_global-by-name approach only
-    // ever protected against the former).
+pub fn compileCallWithValuesForm(self: *Compiler, expr: Value, dst: u16, is_tail: bool) CompileError!void {
+    // (call-with-values producer consumer), either position.
+    // Emits bytecode directly: call `%call-with-values->list` with (producer,
+    // consumer) -> the list of produced values, then apply/tail_apply the
+    // consumer over that list. Applying the consumer from the dispatch loop
+    // rather than from inside the native `call-with-values` is what lets a
+    // continuation captured in the consumer be resumed after the form
+    // returns: in non-tail position that used to be the native's own
+    // `vm.callWithArgs` re-entry, whose Zig frame is gone by the time the
+    // continuation is reinstated (kaappi#2451). The *producer* still runs
+    // under `%call-with-values->list`'s own native frame in both positions,
+    // so a continuation captured there keeps the restriction.
+    //
+    // `%call-with-values->list` takes the consumer only to type-check it —
+    // before running the producer, exactly where `callWithValuesFn` checked
+    // it — so a bad consumer is still reported as `call-with-values` rather
+    // than as the `apply` this compiles into.
+    //
+    // The callee is loaded via self.emitTrueBuiltinLoad, which marks the
+    // reference to resolve through the pristine registry at run time rather
+    // than by ordinary name lookup, so neither a lexical shadow NOR a later
+    // top-level redefinition can affect this call (#1715; the previous plain
+    // get_global/call_global-by-name approach only ever protected against the
+    // former).
     // A *proper* argument list of the wrong length is an arity question, not a
     // syntax question: route the form through the ordinary call path so the
     // runtime arity check reports KP3003 exactly as the same form one position
@@ -344,7 +368,7 @@ pub fn compileCallWithValuesTail(self: *Compiler, expr: Value, dst: u16) Compile
             count += 1;
         }
         if (walk.cur != types.NIL) return CompileError.InvalidSyntax;
-        if (count != 2) return compileCall(self, expr, dst, true);
+        if (count != 2) return compileCall(self, expr, dst, is_tail);
     }
     const args = types.cdr(expr);
     const producer = types.car(args);
@@ -358,25 +382,36 @@ pub fn compileCallWithValuesTail(self: *Compiler, expr: Value, dst: u16) Compile
 
     const cwv_base = try self.allocReg();
     const producer_reg = try self.allocReg();
-    const list_reg = try self.allocReg();
+    const consumer_reg = try self.allocReg();
 
     try self.compileExprViaIR(producer, producer_reg, false);
 
-    try self.emitTrueBuiltinLoad("list", list_reg);
-    try self.emitTrueBuiltinLoad("call-with-values", cwv_base);
+    // The consumer is already evaluated (in `base`); pass a copy for the
+    // type check.
+    try self.emitOp(.move);
+    try self.emitU16(consumer_reg);
+    try self.emitU16(base);
+    try self.emitTrueBuiltinLoad("%call-with-values->list", cwv_base);
     try self.emitOp(.call);
     try self.emitU16(cwv_base);
     try self.emit(2);
 
-    self.freeReg(); // list_reg
+    self.freeReg(); // consumer_reg
     self.freeReg(); // producer_reg
 
-    try self.emitOp(.tail_apply);
+    try self.emitOp(if (is_tail) .tail_apply else .apply);
     try self.emitU16(base);
     try self.emit(1);
 
     self.freeReg(); // cwv_base
-    if (needs_rebase) self.freeReg();
+    if (needs_rebase) {
+        if (!is_tail) {
+            try self.emitOp(.move);
+            try self.emitU16(dst);
+            try self.emitU16(base);
+        }
+        self.freeReg();
+    }
 }
 
 pub fn compileCallCCTail(self: *Compiler, expr: Value, dst: u16) CompileError!void {

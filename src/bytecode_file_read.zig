@@ -342,7 +342,7 @@ fn validateFunctionBytecode(func: *Function) BytecodeError!void {
     var ip: usize = 0;
     while (ip < code.len) {
         const raw = code[ip];
-        if (raw > @intFromEnum(OpCode.tail_eval)) return BytecodeError.CorruptedFile;
+        if (raw > @intFromEnum(OpCode.apply)) return BytecodeError.CorruptedFile;
         const op: OpCode = @enumFromInt(raw);
         ip += 1;
 
@@ -361,7 +361,7 @@ fn validateFunctionBytecode(func: *Function) BytecodeError!void {
                 if (ip + 4 > code.len) return BytecodeError.CorruptedFile;
                 ip += 4;
             },
-            .call, .tail_call, .tail_apply, .self_tail_call, .tail_eval => {
+            .call, .apply, .tail_call, .tail_apply, .self_tail_call, .tail_eval => {
                 if (ip + 3 > code.len) return BytecodeError.CorruptedFile;
                 ip += 3;
             },

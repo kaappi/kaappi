@@ -559,3 +559,73 @@ test "call/cc does not capture stale gap registers (#1464)" {
     );
     try std.testing.expectEqual(@as(i64, 1), types.toFixnum(result));
 }
+
+// --- kaappi#2451: non-tail apply / call-with-values are re-enterable -------
+//
+// Before the `apply` opcode, a non-tail `(apply f ...)` reached `f` through
+// the native applyFn's `vm.callWithArgs` — a fresh `runUntil` under a Zig
+// frame — so a continuation captured in `f` could not be reinstated once that
+// frame returned: "continuation cannot resume across a returned native call".
+// Tail position was already exempt (`tail_apply`), which is what made the
+// restriction unpredictable from the outside. These pin both positions.
+//
+// Each source is ONE top-level form on purpose: a continuation cannot be
+// resumed across the boundary between two of them, so the capture and the
+// re-invocation have to live in the same `let`.
+
+test "continuation captured under a non-tail apply resumes (#2451)" {
+    try th.expectEval(
+        \\(let ((saved #f) (n 0))
+        \\  (define (f x) (call/cc (lambda (k) (set! saved k))) (set! n (+ n 1)) x)
+        \\  (apply f (list 1))
+        \\  (if (< n 3) (saved 'again) n))
+    , 3);
+}
+
+test "continuation captured under a non-tail call-with-values resumes (#2451)" {
+    try th.expectEval(
+        \\(let ((saved #f) (n 0))
+        \\  (define (f x) (call/cc (lambda (k) (set! saved k))) (set! n (+ n 1)) x)
+        \\  (call-with-values (lambda () 1) f)
+        \\  (if (< n 3) (saved 'again) n))
+    , 3);
+}
+
+// The opcode only fires for a reference that still means the builtin (#2033).
+// A rebound or shadowed `apply` must reach the user's procedure, not the
+// superinstruction — including when the rebinding is an earlier child of the
+// same top-level `begin` (the gate reads the live global environment, and a
+// top-level `begin`'s children are compiled and run one at a time).
+test "a top-level redefinition of apply wins over the non-tail opcode (#2451)" {
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define (apply f xs) 'mine)
+        \\  (eq? (let ((v (apply + (list 1 2)))) v) 'mine))
+    );
+}
+
+test "a top-level redefinition of call-with-values wins over the non-tail opcode (#2451)" {
+    try th.expectEvalTrue(
+        \\(begin
+        \\  (define (call-with-values p c) 'mine)
+        \\  (eq? (let ((v (call-with-values (lambda () 1) (lambda (x) x)))) v) 'mine))
+    );
+}
+
+test "a lexically shadowed apply wins over the non-tail opcode (#2451)" {
+    try th.expectEvalTrue(
+        \\(let ((apply (lambda (f xs) 'shadow)))
+        \\  (eq? (let ((v (apply + (list 1 2)))) v) 'shadow))
+    );
+}
+
+// #649: non-tail apply has no 255-argument ceiling (tail position does, since
+// tail_apply has nowhere to put the overflow). The opcode keeps the overflow
+// on applyFn's heap-staged route rather than rejecting the call.
+test "non-tail apply still accepts more than 255 arguments (#649, #2451)" {
+    try th.expectEval(
+        \\(let ()
+        \\  (define (mk n) (if (= n 0) '() (cons n (mk (- n 1)))))
+        \\  (let ((v (apply + (mk 500)))) v))
+    , 125250);
+}

@@ -65,6 +65,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Continuations captured under a non-tail `apply` or `call-with-values`
+  (#2451)** — resuming one raised `KP3000: continuation cannot resume across a
+  returned native call`. Both reached their callee through a native
+  primitive's `vm.callWithArgs`, a fresh VM session under a Zig frame that is
+  gone by the time the continuation is reinstated. Tail position was already
+  exempt (the `tail_apply` opcode), which is what made the restriction
+  impossible to predict from the outside — `map`, `for-each`, `vector-map`,
+  `vector-for-each` and `string-for-each` were fine either way, these two only
+  in tail position, and R7RS requires all of them to be fully re-entrant. A new
+  non-tail `apply` opcode calls the flattened callee with an ordinary VM frame,
+  and `call-with-values` now applies its consumer through it in both positions,
+  so the consumer's frame lives in the continuation snapshot like any other.
+  An `apply` flattening more than 255 arguments still takes the native route
+  (#649 requires it to work at all, and the call opcode's argument count is one
+  byte), as does `call-with-values`' producer. Diagnostics are unchanged in
+  both wording and order, including the parity with the LLVM backend that
+  `tests/scheme/compile/native-apply-lowering-1803.sh` pins.
 - **SRFI 231 `array-ref`/`array-set!` are always checked** (#2448) — an
   array built with `safe?: #f` handed the user the raw, unchecked accessor,
   so an out-of-domain multi-index still computed a body offset. When that

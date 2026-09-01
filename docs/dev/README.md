@@ -80,7 +80,7 @@ investigations.
 
 | Document | Contents |
 |----------|----------|
-| [bytecode.md](bytecode.md) | Bytecode instruction set (31 opcodes), encoding, disassembler |
+| [bytecode.md](bytecode.md) | Bytecode instruction set (32 opcodes), encoding, disassembler |
 | [repl.md](repl.md) | REPL reference: line editing, comma commands, completion |
 | [unicode-case-mapping.md](unicode-case-mapping.md) | Case-conversion coverage by script |
 | [fuzzing-feasibility.md](fuzzing-feasibility.md) | Why neither Fuzzilli nor AFL++ is the tool, the existing `std.testing.fuzz` targets, and where fuzzing can improve |

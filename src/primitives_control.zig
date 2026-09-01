@@ -34,6 +34,13 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "dynamic-wind", .func = primitives.bootstrapStub("dynamic-wind"), .arity = .{ .exact = 3 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
     .{ .name = "values", .func = &valuesFn, .arity = .{ .variadic = 0 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
     .{ .name = "call-with-values", .func = &callWithValuesFn, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    // The producer half of `call-with-values`, for the compiler's
+    // apply/tail_apply lowering of the form (kaappi#1715, kaappi#2451): checks
+    // both operands the way callWithValuesFn does, runs the producer, and
+    // hands back the produced values as a list for the consumer to be applied
+    // to. Keeping the checks here is what lets the lowering report a bad
+    // consumer as `call-with-values`, not as the `apply` it compiles into.
+    .{ .name = "%call-with-values->list", .func = &callWithValuesToListFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.internal) },
     .{ .name = "%push-wind", .func = &pushWindFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.internal) },
     .{ .name = "%pop-wind", .func = &popWindFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.internal) },
     .{ .name = "%unwind-to-escape", .func = &unwindToEscapeFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.internal) },
@@ -545,6 +552,34 @@ fn callWithValuesFn(args: []const Value) PrimitiveError!Value {
         };
         return result;
     }
+}
+
+/// (%call-with-values->list producer consumer) → the list of values `producer`
+/// produced, after rejecting either operand that is not a procedure exactly as
+/// `callWithValuesFn` does.
+///
+/// The compiler lowers `(call-with-values p c)` to this followed by
+/// `apply`/`tail_apply` of `c` over the returned list, so the consumer runs in
+/// an ordinary VM frame and a continuation captured inside it can be resumed
+/// after the form returns (kaappi#2451). The producer still runs under this
+/// native frame — the restriction moved, it did not disappear.
+fn callWithValuesToListFn(args: []const Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const producer = args[0];
+    const consumer = args[1];
+
+    if (!types.isProcedure(producer)) return primitives.typeError("call-with-values", "procedure", producer);
+    if (!types.isProcedure(consumer)) return primitives.typeError("call-with-values", "procedure", consumer);
+
+    var produced = try vm.callThunk(producer);
+    gc.pushRoot(&produced);
+    defer gc.popRoot();
+    if (types.isMultipleValues(produced)) {
+        const mv = types.toObject(produced).as(types.MultipleValues);
+        return gc.makeList(mv.values) catch return PrimitiveError.OutOfMemory;
+    }
+    return gc.allocPair(produced, types.NIL) catch return PrimitiveError.OutOfMemory;
 }
 
 fn pushWindFn(args: []const Value) PrimitiveError!Value {

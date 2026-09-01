@@ -88,7 +88,9 @@ skip_without_zig() {
 # race a timeout.
 skip_on_debug_build() {
     local kaappi="$1" reason="$2"
-    if "$kaappi" features --json 2>/dev/null | grep -q '"build_mode":"Debug"'; then
+    local features_json
+    features_json="$("$kaappi" features --json 2>/dev/null || true)"
+    if grep -q '"build_mode":"Debug"' <<< "$features_json"; then
         echo "SKIP: $reason"
         exit 77
     fi
