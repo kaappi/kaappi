@@ -528,8 +528,11 @@ fn callWithValuesFn(args: []const Value) PrimitiveError!Value {
     if (!types.isProcedure(producer)) return primitives.typeError("call-with-values", "procedure", args[0]);
     if (!types.isProcedure(consumer)) return primitives.typeError("call-with-values", "procedure", args[1]);
 
-    // Call producer
-    const produced = vm.callThunk(producer) catch |err| {
+    // Call producer. Returns-to-native (#2453): its frame must report KP3000
+    // when a continuation captured inside it is resumed after this native
+    // call-with-values has returned, rather than delivering into whatever
+    // bytecode frame sits below the restored snapshot.
+    const produced = vm.callThunkReturningToNative(producer) catch |err| {
         return err;
     };
 
@@ -572,7 +575,7 @@ fn callWithValuesToListFn(args: []const Value) PrimitiveError!Value {
     if (!types.isProcedure(producer)) return primitives.typeError("call-with-values", "procedure", producer);
     if (!types.isProcedure(consumer)) return primitives.typeError("call-with-values", "procedure", consumer);
 
-    var produced = try vm.callThunk(producer);
+    var produced = try vm.callThunkReturningToNative(producer);
     gc.pushRoot(&produced);
     defer gc.popRoot();
     if (types.isMultipleValues(produced)) {

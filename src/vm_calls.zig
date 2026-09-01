@@ -974,6 +974,25 @@ pub fn callThunk(vm: *VM, thunk_val: Value) VMError!Value {
     }
 }
 
+/// callThunk for a thunk whose result belongs to THIS native caller, not to a
+/// bytecode frame: the pushed closure frame is marked `returns_to_native`, so
+/// a continuation captured inside the thunk and resumed after the native
+/// caller has returned reports KP3000 at the thunk's return
+/// (`raiseDeadNativeReturn`) instead of delivering its value into whatever
+/// bytecode frame happens to sit below the restored snapshot (kaappi#2453 —
+/// call-with-values' producer used to misfire that way, surfacing as a
+/// misleading `apply` type error). The same marker `callWithArgs`-driven
+/// natives (map, fold, hash-table-walk, ...) already get for their callbacks.
+/// Native and native-closure thunks push no VM frame and fall back to
+/// `callThunk` unchanged.
+pub fn callThunkReturningToNative(vm: *VM, thunk_val: Value) VMError!Value {
+    if (types.isClosure(thunk_val)) {
+        const closure = types.toObject(thunk_val).as(types.Closure);
+        return callReentrant(vm, closure, computeReentrantBase(vm), &.{}, 0, true);
+    }
+    return callThunk(vm, thunk_val);
+}
+
 pub fn callWithArgs(vm: *VM, proc: Value, args: []const Value) VMError!Value {
     vm.native_call_was_tail = false; // SRFI 248: apply-style call, not a tail call
     if (types.isFfiFunction(proc)) {
