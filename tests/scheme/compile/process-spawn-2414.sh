@@ -112,9 +112,15 @@ cat > "$DIR/run.scm" << 'SCHEME'
   (lambda (status out err)
     (display (list status (string-length out) err))
     (newline)))
-;; A timeout kills the group, drains what exists, and raises.
+;; A timeout kills the group, drains what exists, and raises. The deadline
+;; is deliberately generous: the assertion is about WHAT the drain recovers,
+;; not how fast the kill lands, and on a loaded runner (measured on the
+;; OpenBSD CI VM under full-suite load) a child can lose its first
+;; scheduling slot for well past 250 ms — the kill then lands before the
+;; printf and the honest empty drain fails the test (reproduced 11/50 under
+;; CPU hogs on unmodified main, 4aa2bab1).
 (display (guard (e ((process-timeout? e) (process-timeout-stdout e)))
-           (run-process '("sh" "-c" "printf partial; sleep 30") 'timeout: 0.25)
+           (run-process '("sh" "-c" "printf partial; sleep 30") 'timeout: 2)
            'no-condition))
 (newline)
 SCHEME

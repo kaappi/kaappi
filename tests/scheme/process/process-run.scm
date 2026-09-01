@@ -200,15 +200,23 @@
              (and (string=? (process-timeout-stdout e) "printed")
                   (string=? (process-timeout-stderr e) "")
                   (error-object? e))))
-    (run-process (run stall-script "printed") 'timeout: 0.25)
+    ;; Generous deadline: on a loaded runner the child can lose its first
+    ;; scheduling slot past a tight one, the kill then lands before the
+    ;; printf, and the honest empty drain fails the content assertion
+    ;; (measured on the OpenBSD CI VM; twin comment in
+    ;; tests/scheme/compile/process-spawn-2414.sh).
+    (run-process (run stall-script "printed") 'timeout: 2)
     #f))
 
 ;; Reaching the guard clause at all is the assertion: the grandchild holds
 ;; the same stdout pipe, so only a group kill lets the drain reach EOF. A
-;; child-only kill hangs here instead of raising.
+;; child-only kill hangs here instead of raising. The grandchild must also
+;; get a slot to print "up" before the kill, so the same generous-deadline
+;; rule applies — with extra headroom for the interpreter grandchild's
+;; startup.
 (test-assert "the timeout kill reaches a grandchild holding the same pipe"
   (guard (e ((process-timeout? e) (string=? (process-timeout-stdout e) "up")))
-    (run-process (run tree-script kaappi-binary stall-script) 'timeout: 0.5)
+    (run-process (run tree-script kaappi-binary stall-script) 'timeout: 3)
     #f))
 
 ;; ------------------------------------------------------------------ errors
