@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788239060993,
+  "lastUpdate": 1788254067289,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "7c1223ff434c5df6d9ad3906205ec15721ddbfec",
-          "message": "REPL: click inside the input to move the edit cursor (#2264) (#2265)\n\n* REPL: click inside the input to move the edit cursor (#2264)\n\nAdd opt-in SGR mouse support to the REPL, behind a `repl.mouse: true`\nsetting in ~/.kaappi/config (default off, so drag-to-select behavior never\nchanges unasked). A left click inside the current input repositions the\nedit cursor, on single-line, wrapped, and multi-line forms alike; clicks\noutside the editing area are safe no-ops.\n\nThis is the fifth Kaappi patch to vendored isocline (PATCHES.md):\n\n- Tracking: emit ?1000h (button presses, deliberately not ?1002h/?1003h\n  motion) + ?1006h (SGR coordinates) around each edit session, gated\n  `#if !defined(_WIN32)` — the Windows console reads INPUT_RECORD structs,\n  not a byte stream, so SGR has nothing to decode there; a follow-up needs\n  its own Console-API path (MOUSE_EVENT arm + ENABLE_MOUSE_INPUT, with\n  GetConsoleScreenBufferInfo for the anchor instead of ESC[6n).\n- Decode: `ESC[<b;x;yM|m` lands in the CSI decoder's \"special byte\" catch\n  and the generic parser only takes two parameters, so the three-part SGR\n  mouse event is intercepted right after the special-byte check. The\n  coordinates cannot fit the code_t keycode space, so the event is stashed\n  on the tty (tty_set_mouse_event) and surfaced as a single\n  KEY_EVENT_MOUSE code.\n- Anchor: the mouse reports absolute screen coordinates while isocline\n  works relative to the prompt, so the editor queries ESC[6n once per edit\n  session, right after the prompt is written, and maps the click through\n  the existing edit_set_pos_at_rowcol / sbuf_get_pos_at_rc machinery\n  (prompt width, continuation prompt, and line wrapping already handled).\n  A terminal that does not answer leaves the anchor unset and clicks\n  become no-ops. A delayed DSR response now decodes to KEY_NONE, which the\n  edit loop ignores instead of inserting a NUL.\n\nNew pty test tests/scheme/smoke/repl-mouse-click-2264.sh plays the\nterminal emulator: it answers the DSR query and feeds SGR presses relative\nto that anchor, asserting on what the evaluator prints (single-line and\ncontinuation-row clicks, plus a mouse-off run proving the bytes are\ninert). Also fixes the stale \"three patches\" count in the isocline.zig\nmodule doc, which PATCHES.md had already outgrown.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Harden the mouse-click pty test: fix undefined variable, add wrap case\n\nThree changes to tests/scheme/smoke/repl-mouse-click-2264.sh, two from\nCodeRabbit review:\n\n- The timeout-failure path referenced `typed`, undefined since the case\n  tuple was renamed to `send_bytes`; a timed-out echo would raise NameError\n  instead of recording the failure.\n- New narrow-pty (20-column) run exercises an automatically wrapped row:\n  \"(list 1 2 3 4 5 6)\" spills onto two visual rows and a click on the\n  wrapped row lands before the '4', proving the wrap-aware\n  sbuf_get_pos_at_rc mapping (the wrap threshold leaves 11 content columns\n  on a 20-column terminal, with the cursor column reserved).\n- The failure-report loop variable is renamed to match.\n\nThe wide runs now also assert with `send_bytes` instead of the undefined\n`typed`.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* REPL mouse: never eat type-ahead in the DSR anchor query, act on press only\n\nMaintainer review of #2265 raised the one blocking concern: the per-prompt\nESC[6n anchor query ran through tty_read_esc_response, which consumes the\nfirst queued byte and bails if it is not ESC. Typing ahead between forms is\ncommon in a REPL — press Enter, start typing the next form while the\nprevious one evaluates — so the first character of the next input was\nsilently lost for repl.mouse: true users, and the anchor was unset for that\nline anyway.\n\nNew tty_read_dsr_response in tty.c reads the response (ESC [ row ; col R)\nand pushes back every byte it read on any failure path, in order, so a\nqueued keystroke or a key sequence sent as ESC (arrows, Alt+key) still\nreaches the edit loop. The only consequence of an unreadable response is an\nunset anchor — clicks no-op for that line, input is never lost. A response\nthat arrives after the reader gave up decodes to KEY_NONE and is ignored\n(covered by the KEY_NONE guard). editline.c now uses it instead of\ntty_read_esc_response + ic_atoz2.\n\nAlso: the SGR decoder now carries the press/release flag ('M' vs 'm') on\nthe mouse event, and edit_mouse_click repositions on press only — with\n?1000h a single click reports both, so previously it moved the cursor\ntwice (idempotent but a redundant refresh per click).\n\nThe pty test gains a fourth run: submit a form and immediately type the\nnext one with no idle between; it asserts both results print, i.e. the\nDSR query ate nothing. Verified to fail without the push-back.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* docs: note that the DSR anchor query never consumes type-ahead input\n\nReflects the tty_read_dsr_response guarantee in docs/dev/repl.md: bytes\nthat are not a well-formed response are pushed back to be read as keys.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* REPL mouse: cap the DSR restore at TTY_PUSH_MAX, fix the tty_cpush guard\n\nMaintainer review (round 2) found a memory-safety bug in the type-ahead\nfix: the DSR reader's push-back path could write up to 66 bytes into the\n32-byte cpushbuf. The digit buffer was 64 bytes and the restore pushed\n1 (c) + n + 2 ('[' + ESC) back-to-back; tty_cpush's overflow guard tested\npush_count — the high-level code pushback buffer — while the writes land\nin cpushbuf via cpush_count, so it never tripped and no assert fired. The\nmismatched guard is pre-existing upstream, but this reader is the first\ncaller able to push back more than a couple of bytes.\n\nTwo fixes:\n\n- tty_read_dsr_response now caps the digit buffer at TTY_PUSH_MAX - 2\n  (29 digits; a real cursor report is a handful), so a restore is at most\n  32 bytes, and additionally skips the restore entirely if\n  cpush_count + n + 3 would exceed TTY_PUSH_MAX (defensive against\n  leftover bytes). A garbled or hostile 30+ digit CSI simply fails the\n  read; nothing is corrupted.\n- tty_cpush's guard now checks cpush_count, the counter the writes\n  actually use.\n\nThe pty test gains a fifth run: a 40-byte CSI of digits/semicolons with no\nR terminator, delivered while the DSR query is pending. It asserts the\nREPL survives and a later form still evaluates; verified to crash the\nchild (SIGTRAP via the OOB) without the fix.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* docs: record the DSR restore cap and the tty_cpush guard fix in PATCHES.md\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-09T11:32:22Z",
-          "tree_id": "2eba0db4c143db8a6a88949ddc61f5ef8ef67f8e",
-          "url": "https://github.com/kaappi/kaappi/commit/7c1223ff434c5df6d9ad3906205ec15721ddbfec"
-        },
-        "date": 1786277480831,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.348249,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.395516,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.58013,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.074869,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004703,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046909,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.313985,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.055902,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.744885,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.250482,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.594864,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.274429,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.794726,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.614696,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045841,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045089,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b29386c18e2e0dff8ea458ae8012a57aa45aaef2",
+          "message": "Give apply and call-with-values a non-tail resumable path (#2451) (#2452)\n\n* Give apply and call-with-values a non-tail resumable path\n\nA continuation captured under a non-tail (apply f ...) or\n(call-with-values p c) could not be resumed once the call had returned:\n\n  error[KP3000]: continuation cannot resume across a returned native call\n\nBoth reached their callee through a native primitive's vm.callWithArgs — a\nfresh runUntil under a Zig frame that is gone by the time the continuation\nis reinstated. Tail position was already exempt, because compileApplyTail\nand compileCallWithValuesTail emit tail_apply, which replaces the frame in\nthe dispatch loop. That asymmetry is what made the restriction impossible\nto predict from the outside: map, for-each, vector-map, vector-for-each and\nstring-for-each are fine in both positions; apply and call-with-values only\nin tail. R7RS-small requires all of them to be fully re-entrant.\n\nAdd a non-tail `apply` opcode. It flattens the operand list and hands the\ncallee to callValue, so the callee gets an ordinary VM frame that a\ncontinuation snapshot copies like any other. call-with-values now applies\nits consumer through apply/tail_apply in both positions, over the value\nlist returned by a new internal %call-with-values->list — which also keeps\nthe two type checks callWithValuesFn did, before the producer runs, so a\nbad consumer is still reported as call-with-values rather than as the\n`apply` the form compiles into. In tail position that is a small\nimprovement of its own: the consumer check used to be tail_apply's bare\n\"apply: not a procedure\".\n\nTwo corners deliberately stay on the native route, and are documented in\nREADME \"Known limitations -> Continuations\": call-with-values' producer,\nand an apply flattening more than 255 arguments (#649 requires that to\nwork at all, and a call frame's argument count is one byte, so the opcode\nfalls back to callWithArgs rather than rejecting the call the way\ntail_apply does).\n\nDiagnostics are unchanged in wording and order. The opcode reproduces\napplyFn's typeError texts, including its tortoise-and-hare rejection of a\ncircular final list, because non-tail position is where\ntests/scheme/compile/native-apply-lowering-1803.sh pins the interpreter's\ndiagnostics against the LLVM backend's; the backend keeps routing both\npositions through @kaappi_apply, so the resumability guarantee is\ninterpreter-only.\n\nThe opcode is appended to the end of the OpCode enum, not placed beside\ntail_apply: an opcode's number is part of the .sbc encoding, and while the\ncache load path rejects a foreign build by compiler hash,\nsrc/testdata/fuzz-seed.sbc patches that hash in at comptime and simply\ndecoded as garbage when the numbering shifted. The /bytecode-isa skill's\nchecklist gains that reason and the four steps the build did not catch.\n\nSRFI 231's two continuation test groups stop emitting 11 KP3000\ndiagnostics per run and now execute, reaching the library's own documented\ndivergence instead: %array-copy-impl (lib/srfi/231/views.sld) fills the\ndestination directly rather than accumulating first, so a getter that\nre-invokes a captured continuation after the copy returns overwrites the\narray already returned. Recorded as known-divergence ids 737-741 (one fill\nloop; array-append/stack/block/decurry all delegate to array-copy).\n\nCloses #2451\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Point the two carved-out corners at their follow-up issues\n\nBoth were named without a tracking number when they were carved out of\n#2451's scope: call-with-values' still-native producer (and the misleading\n\"apply: last argument must be a list\" a resume there reports) is #2453,\nand SRFI 231's direct-fill array-copy is #2454.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Review: move the apply body into vm_dispatch_helpers, use th wrappers\n\nThree CodeRabbit findings on #2452; two applied.\n\nFile size. The apply handler took vm_dispatch.zig from 1472 to 1590 lines,\npast the 1500-line policy. The body moves to vm_dispatch_helpers.zig as\n`dispatchApply` — the file that already holds operand readers, register-\nwindow validation and rest-argument building for every other opcode, so\nthis is the existing seam, not a new one. The arm keeps only what a helper\ncannot express: the `continue` that resumes a restored continuation in that\ndispatch loop, and the ip rewind a parked fiber's retry needs. 1490 lines.\n\nRepairing the staged-over operand register moved with it. The register is\nclobbered by `dispatchApply`, so `dispatchApply` restores it on the\nYielded-retry path instead of every caller having to remember to — which\ncollapses the arm's error mapping to the same shape as the `call` opcode's.\n\nTests. The five new unit tests each do one evaluation and one check, which\nis what docs/dev/testing.md's `th.expectEval*` wrappers are for; the two\nthat assert a symbol become `expectEvalTrue` over an `eq?`. tests_\ncontinuations.zig has no prior wrapper use, but the guidance is the doc's,\nnot the file's.\n\nDeclined the third: a preceding `define` in the same literal `begin` does\nNOT bypass the fast-path gate. `globalBindingStillGenuine` reads the live\nglobal environment, and a top-level `begin`'s children are compiled and run\none at a time, so the definition has executed by the time the use compiles.\nPinned for both names in the Scheme suite and the unit tests rather than\njust asserted.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-09-01T08:18:49Z",
+          "tree_id": "b97950517197d0eb8a9cb3fd2c8be52d8584aff8",
+          "url": "https://github.com/kaappi/kaappi/commit/b29386c18e2e0dff8ea458ae8012a57aa45aaef2"
+        },
+        "date": 1788254065933,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.334856,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.328113,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.583941,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.943849,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004921,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047146,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.310994,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056496,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.719496,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.217382,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.647119,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.28786,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.726619,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.674068,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044727,
             "unit": "seconds"
           }
         ]
