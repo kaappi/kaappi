@@ -401,6 +401,17 @@ library and vendored code are excluded).
   lexically** — exactly inverted. Mutating shared state through a global is a
   live hazard (kaappi#1924), not a supported idiom.
 
+- **Subprocesses (KEP-0022)** — `docs/dev/subprocess.md`. `(kaappi process)`
+  spawns without `fork` (`posix_spawnp` / `CreateProcessW`), hands back pipe
+  ends as ordinary reactor-integrated fd ports, and reaps child exit *at the
+  reactor* (kqueue `EVFILT_PROC` / Linux pidfd / a Windows process HANDLE) so
+  `process-wait` parks a fiber instead of blocking the thread. `run-process`
+  is the one-shot layer on top, and the one part written in Scheme
+  (`primitives_process.run_process_src`, installed by `vm_bootstrap`) —
+  feeding stdin and draining both pipes are sibling fibers. Absent on WASM
+  and under `--sandbox`; portable code gates with
+  `(cond-expand ((library (kaappi process)) …))`.
+
 - **Bounded-step execution (kaappi#2283)** — `docs/dev/bounded-step.md`. A
   resumable, instruction-budgeted entry point (`VM.beginStep`/`resumeStep`,
   driven by `vm_step.Stepper`; exported to WASM as `kaappi_step_*`) so a host —

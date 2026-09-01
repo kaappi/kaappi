@@ -1,11 +1,19 @@
 #!/bin/bash
-# Native-tier regression for (kaappi process) — KEP-0022 Phase 1, kaappi#2414.
+# Native-tier regression for (kaappi process) — KEP-0022 Phases 1 and 4,
+# kaappi#2414 and kaappi#2417.
 #
 # spawn-process and its accessors are ordinary primitives (no LLVM emitter
 # work), but a .scm test only ever exercises the interpreter tier, and three
 # regressions once passed for years that way while the native tier failed them.
 # So a compiled program that spawns a child, reads its stdout through a pipe
 # port, and reaps it must be checked through `kaappi compile` too.
+#
+# `run-process` (Phase 4) has a second reason to be here: it is not a native
+# function at all but Scheme source that vm_bootstrap.install evaluates over a
+# stub, and a compiled binary runs that install from `runtime_exports.zig`
+# rather than from `main.zig`. Its internal drain fibers therefore have to
+# work under the native tier's own runtime bring-up, which no .scm test
+# reaches.
 #
 # Usage: bash tests/scheme/compile/process-spawn-2414.sh [path-to-kaappi]
 
@@ -89,6 +97,29 @@ cat > "$DIR/spawn.scm" << 'SCHEME'
 (newline)
 SCHEME
 check_both "spawn" "native-ok 0"
+
+# Phase 4 (kaappi#2417): the one-shot layer, whose stdin feed and two pipe
+# drains are sibling fibers spawned inside the call. The input is past a
+# 64 KiB pipe buffer, so a compiled binary whose bootstrap or scheduler
+# bring-up differed from the interpreter's would deadlock here rather than
+# merely print the wrong thing.
+cat > "$DIR/run.scm" << 'SCHEME'
+(import (scheme base) (scheme write) (kaappi process))
+(call-with-values
+    (lambda ()
+      (run-process '("sh" "-c" "cat; printf err 1>&2; exit 4")
+                   'input: (make-string 70000 #\z)))
+  (lambda (status out err)
+    (display (list status (string-length out) err))
+    (newline)))
+;; A timeout kills the group, drains what exists, and raises.
+(display (guard (e ((process-timeout? e) (process-timeout-stdout e)))
+           (run-process '("sh" "-c" "printf partial; sleep 30") 'timeout: 0.25)
+           'no-condition))
+(newline)
+SCHEME
+check_both "run" "(4 70000 err)
+partial"
 
 if [[ $FAILED -ne 0 ]]; then
     exit 1

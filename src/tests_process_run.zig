@@ -1,0 +1,312 @@
+//! Unit tests for `run-process` and the `process-timeout` condition —
+//! KEP-0022 Phase 4 (kaappi#2417).
+//!
+//! Split out of `tests_process.zig` (already near the 1500-line policy
+//! ceiling) along the phase seam: everything here exercises the one-shot
+//! layer — option parsing, the concurrent drain, `input:`, `timeout:` and
+//! the condition it raises — rather than the spawn/wait/kill primitives
+//! underneath it.
+//!
+//! Like its sibling, every test drives a real child through /bin/sh, so the
+//! POSIX gate is the same. Windows coverage for the same surface lives in
+//! the portable Scheme matrix (`tests/scheme/process/process-portable.scm`),
+//! which runs kaappi itself as the child.
+
+const std = @import("std");
+const builtin = @import("builtin");
+const th = @import("testing_helpers.zig");
+const types = @import("types.zig");
+const vm_mod = @import("vm.zig");
+const build_options = @import("build_options");
+
+const is_posix = switch (builtin.os.tag) {
+    .windows, .wasi => false,
+    else => true,
+};
+
+fn expectTrue(vm: *vm_mod.VM, source: []const u8) !void {
+    const result = vm.eval(source) catch |e| {
+        std.debug.print("eval error from: {s}\n  detail: {s}\n", .{ source, vm.last_error_detail[0..vm.last_error_detail_len] });
+        return e;
+    };
+    if (result != types.TRUE) {
+        std.debug.print("expected #t from: {s}\n", .{source});
+        return error.TestExpectedTrue;
+    }
+}
+
+fn evalTo(vm: *vm_mod.VM, source: []const u8) ![]u8 {
+    const printer = @import("printer.zig");
+    const result = try vm.eval(source);
+    return printer.valueToString(std.testing.allocator, result, .write);
+}
+
+test "run-process: status, stdout and stderr come back as three values" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    const s = try evalTo(ctx.vm,
+        \\(call-with-values
+        \\  (lambda ()
+        \\    (run-process '("/bin/sh" "-c" "printf out; printf err 1>&2; exit 3")))
+        \\  list)
+    );
+    defer std.testing.allocator.free(s);
+    try std.testing.expectEqualStrings("(3 \"out\" \"err\")", s);
+}
+
+test "run-process: stdin is /dev/null unless input: is given" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // A child that reads stdin must see EOF immediately rather than the
+    // parent's terminal: a one-shot capture that blocks on the tty is the
+    // failure mode `'null` (Go's `exec.Cmd` default) exists to prevent.
+    const s = try evalTo(ctx.vm,
+        \\(call-with-values (lambda () (run-process '("/bin/cat"))) list)
+    );
+    defer std.testing.allocator.free(s);
+    try std.testing.expectEqualStrings("(0 \"\" \"\")", s);
+}
+
+test "run-process: input: feeds the child, as a string or a bytevector" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
+
+    try expectTrue(vm,
+        \\(call-with-values (lambda () (run-process '("/bin/cat") 'input: "hello"))
+        \\  (lambda (st out err) (and (= st 0) (string=? out "hello") (string=? err ""))))
+    );
+    try expectTrue(vm,
+        \\(call-with-values
+        \\  (lambda () (run-process '("/bin/cat") 'input: (string->utf8 "bytes")))
+        \\  (lambda (st out err) (string=? out "bytes")))
+    );
+}
+
+test "run-process: a child that never reads its stdin is not an error (EPIPE is swallowed)" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // The write side gets EPIPE the moment `true` exits; Python's
+    // communicate() swallows the same BrokenPipeError, because the child's
+    // verdict is its exit status, not a failure of the feed. 64 KiB is past
+    // every platform's pipe buffer, so the write really does have to fail
+    // rather than fit.
+    try expectTrue(ctx.vm,
+        \\(call-with-values
+        \\  (lambda () (run-process '("/usr/bin/true") 'input: (make-string 65536 #\x)))
+        \\  (lambda (st out err) (and (= st 0) (string=? out "")))) 
+    );
+}
+
+test "run-process: both pipes drain concurrently with the wait" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // The deadlock this API exists to prevent: a child that fills stdout,
+    // stderr *and* its stdin buffer at once. Serial "wait, then read" hangs
+    // forever; so does "read stdout to EOF, then stderr". Every byte count
+    // here is past the 64 KiB pipe buffer every supported platform uses.
+    const n: usize = if (build_options.gc_stress) 4096 else 200_000;
+    var buf: [512]u8 = undefined;
+    const src = try std.fmt.bufPrint(&buf,
+        \\(call-with-values
+        \\  (lambda ()
+        \\    (run-process (list "/bin/sh" "-c"
+        \\                       (string-append "cat >/dev/null; "
+        \\                                      "yes o | head -c {d}; "
+        \\                                      "yes e | head -c {d} 1>&2"))
+        \\                 'input: (make-string {d} #\i)))
+        \\  (lambda (st out err)
+        \\    (and (= st 0) (= (string-length out) {d}) (= (string-length err) {d}))))
+    , .{ n, n, n, n, n });
+    try expectTrue(ctx.vm, src);
+}
+
+test "run-process: output: 'bytevector returns raw bytes" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
+
+    const s = try evalTo(vm,
+        \\(call-with-values
+        \\  (lambda () (run-process '("/bin/sh" "-c" "printf abc") 'output: 'bytevector))
+        \\  (lambda (st out err) out))
+    );
+    defer std.testing.allocator.free(s);
+    try std.testing.expectEqualStrings("#u8(97 98 99)", s);
+
+    // The reason the option exists: a child emitting non-UTF-8 bytes has no
+    // string representation, and the default would fail in `utf8->string`
+    // with a type error naming a procedure the caller never called.
+    try expectTrue(vm,
+        \\(call-with-values
+        \\  (lambda () (run-process '("/bin/sh" "-c" "printf '\\377\\376'") 'output: 'bytevector))
+        \\  (lambda (st out err) (= 2 (bytevector-length out))))
+    );
+}
+
+test "run-process: directory: and env: pass through to the spawn" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
+
+    try expectTrue(vm,
+        \\(call-with-values
+        \\  (lambda () (run-process '("/bin/sh" "-c" "pwd") 'directory: "/"))
+        \\  (lambda (st out err) (string=? out "/\n")))
+    );
+    try expectTrue(vm,
+        \\(call-with-values
+        \\  (lambda () (run-process '("/bin/sh" "-c" "printf %s $KP2417")
+        \\                          'env: (cons (cons "KP2417" "set") (process-environment))))
+        \\  (lambda (st out err) (string=? out "set")))
+    );
+}
+
+test "run-process: timeout: raises process-timeout carrying the partial output" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // The child prints, then sleeps past the deadline. What it managed to
+    // write must survive on the condition — the condition is the only route
+    // to it, since the values return never happens.
+    try expectTrue(ctx.vm,
+        \\(guard (e ((process-timeout? e)
+        \\           (and (string=? (process-timeout-stdout e) "partial")
+        \\                (string=? (process-timeout-stderr e) "half")
+        \\                (error-object? e)
+        \\                (equal? (error-object-irritants e)
+        \\                        (list '("/bin/sh" "-c" "printf partial; printf half 1>&2; sleep 30") 0.25)))))
+        \\  (run-process '("/bin/sh" "-c" "printf partial; printf half 1>&2; sleep 30")
+        \\               'timeout: 0.25)
+        \\  'no-condition-raised)
+    );
+}
+
+test "run-process: a child finishing inside its timeout returns normally" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    try expectTrue(ctx.vm,
+        \\(call-with-values
+        \\  (lambda () (run-process '("/bin/sh" "-c" "printf quick") 'timeout: 30))
+        \\  (lambda (st out err) (and (= st 0) (string=? out "quick"))))
+    );
+}
+
+test "run-process: the timeout kill reaches a grandchild holding the same pipe" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // `timeout:` implies `new-group: #t`, and the group kill is what lets the
+    // drain fibers reach EOF at all: the grandchild inherits stdout, so a
+    // child-only kill would leave the pipe open and this call would never
+    // return. Reaching the guard clause *is* the assertion.
+    try expectTrue(ctx.vm,
+        \\(guard (e ((process-timeout? e) (string=? (process-timeout-stdout e) "up")))
+        \\  (run-process '("/bin/sh" "-c" "sleep 30 & printf up; sleep 30") 'timeout: 0.25)
+        \\  'no-condition-raised)
+    );
+}
+
+test "run-process: process-timeout accessors reject every other condition" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
+
+    _ = try vm.eval("(define plain (guard (e (#t e)) (error \"x\")))");
+    try expectTrue(vm, "(error-object? plain)");
+    try expectTrue(vm, "(not (process-timeout? plain))");
+    try expectTrue(vm, "(not (process-timeout? 42))");
+    try std.testing.expectError(
+        vm_mod.VMError.TypeError,
+        vm.eval("(process-timeout-stdout plain)"),
+    );
+    try std.testing.expectError(
+        vm_mod.VMError.TypeError,
+        vm.eval("(process-timeout-stderr 42)"),
+    );
+}
+
+test "run-process: option errors are loud" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    try expectTrue(ctx.vm,
+        \\(begin
+        \\  (define (bad thunk) (guard (e (#t #t)) (thunk) #f))
+        \\  (and (bad (lambda () (run-process '("/usr/bin/true") 'nonsense: 1)))
+        \\       (bad (lambda () (run-process '("/usr/bin/true") 'input:)))
+        \\       (bad (lambda () (run-process '("/usr/bin/true") 'input: 42)))
+        \\       (bad (lambda () (run-process '("/usr/bin/true") 'output: 'utf16)))
+        \\       (bad (lambda () (run-process '("/no/such/program/2417"))))))
+    );
+}
+
+test "run-process: a spawn failure is a file error, not a timeout condition" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // KEP-0005 taxonomy: program-not-found is the same family as a failed
+    // open, so `file-error?` sees it and errno tells ENOENT from EACCES.
+    try expectTrue(ctx.vm,
+        \\(guard (e (#t (and (file-error? e) (not (process-timeout? e)))))
+        \\  (run-process '("/no/such/program/2417"))
+        \\  'no-error-raised)
+    );
+}
+
+test "run-process: runs inside a spawned fiber, and siblings overlap" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // Two children that each sleep must finish in about one sleep, not two:
+    // the internal drain fibers of one call must not block the other call's
+    // wait. This also covers the dispatched-fiber entry path, where
+    // `process-wait` parks flat instead of driving the scheduler in place.
+    try expectTrue(ctx.vm,
+        \\(begin
+        \\  (import (kaappi fibers))
+        \\  (define (sleeper) (spawn (lambda ()
+        \\    (call-with-values (lambda () (run-process '("/bin/sh" "-c" "sleep 0.4; printf x")))
+        \\      (lambda (st out err) out)))))
+        \\  (let* ((t0 (current-jiffy))
+        \\         (a (sleeper))
+        \\         (b (sleeper))
+        \\         (ra (fiber-join a))
+        \\         (rb (fiber-join b))
+        \\         (dt (/ (- (current-jiffy) t0) (jiffies-per-second))))
+        \\    (and (string=? ra "x") (string=? rb "x") (< dt 0.75))))
+    );
+}

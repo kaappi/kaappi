@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`run-process` and the `process-timeout` condition (KEP-0022 Phase 4,
+  #2417)** — the one-shot layer over `spawn-process`:
+  `(run-process argv opt…)` spawns, feeds an optional `input:`, drains
+  stdout and stderr, waits, and returns `(values status out err)`. All three
+  streams move at once, through internal fibers that run while
+  `process-wait` parks — so a child that fills its stdin, stdout *and*
+  stderr buffers simultaneously completes instead of deadlocking, which is
+  the bug Python's `communicate()` exists to work around with threads.
+  Options are `input:` (string or bytevector), `timeout:` (seconds),
+  `output:` (`'string`, the default, or `'bytevector`, for children whose
+  output is not text), `directory:`, `env:` and `new-group:`; stdin is
+  `'null` unless `input:` is given, so a one-shot capture never blocks on
+  the terminal. `timeout:` kills the process group with SIGKILL, drains what
+  the child managed to produce, and raises a condition that `process-timeout?`
+  recognizes and `process-timeout-stdout`/`process-timeout-stderr` unpack —
+  the partial output has nowhere else to go, since the values return never
+  happens. It implies `new-group: #t` for that kill to be safe and to reach
+  a grandchild holding the same pipe. Spawn failures stay in the file-error
+  family with errno detail, so program-not-found and permission-denied
+  remain distinguishable. See `docs/dev/subprocess.md`, new with this
+  release and covering all four phases of the subsystem.
 - **`(kaappi process)` on Windows (KEP-0022 Phase 3, #2416)** — subprocess
   support now covers every hosted platform, with the same Scheme surface as
   POSIX. None of the machinery under it is a translation: spawn is
