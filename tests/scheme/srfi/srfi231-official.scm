@@ -130,27 +130,22 @@ OTHER DEALINGS IN THE SOFTWARE.
 ;;; kaappi now always checks the user-visible getter/setter, so that
 ;;; divergence is resolved rather than documented.
 ;;;
-;;; Entries 737-741 arrived with kaappi#2451. Before it, these five forms
-;;; could not run at all: their getters capture a continuation and re-invoke
-;;; it after the copy has returned, and re-entering a non-tail `apply` raised
-;;; "continuation cannot resume across a returned native call" (11 diagnostics
-;;; per run). The engine limit is gone, so the forms now run and reach the
-;;; library's own documented divergence instead -- %array-copy-impl
-;;; (lib/srfi/231/views.sld) fills the destination directly rather than
-;;; accumulating the source's values first, so the re-entry overwrites the
-;;; array the first copy already returned instead of materializing a fresh
-;;; one. array-append/stack/block/decurry all delegate to array-copy, which
-;;; is why one fill loop accounts for five ids. Tracked as kaappi#2454; prune
-;;; all five when it lands.
+;;; Entries 737-741 lived here until kaappi#2454. They arrived with
+;;; kaappi#2451: these five forms' getters capture a continuation and
+;;; re-invoke it after the copy has returned, which used to raise
+;;; "continuation cannot resume across a returned native call" and,
+;;; once #2452 removed that engine limit, reached a library divergence
+;;; instead -- %array-copy-impl (lib/srfi/231/views.sld) filled the
+;;; destination directly, so the re-entry overwrote the array the first
+;;; copy already returned. array-copy now collects the source's values
+;;; through a functional accumulator before the destination exists, so
+;;; the re-entry materializes its own array; array-append/stack/block/
+;;; decurry delegate to array-copy, which is why one change resolved
+;;; all five. That divergence is resolved rather than documented.
 (define divergent-tests 0)
 (define diverged-counts (make-vector 10000 0))
 (define known-divergences
-  (list '(147 1 . "R7RS strings are mutable; the suite encodes Gambit's immutable-string expectation")
-        '(737 1 . "array-copy fills the destination directly (lib/srfi/231/views.sld); a getter that re-invokes a captured continuation after the copy returns overwrites that array instead of getting a fresh one")
-        '(738 1 . "array-append delegates to array-copy's direct fill -- see 737")
-        '(739 1 . "array-stack delegates to array-copy's direct fill -- see 737")
-        '(740 1 . "array-block delegates to array-copy's direct fill -- see 737")
-        '(741 1 . "array-decurry delegates to array-copy's direct fill -- see 737")))
+  (list '(147 1 . "R7RS strings are mutable; the suite encodes Gambit's immutable-string expectation")))
 (define (known-divergence id) (assq id known-divergences))
 
 (define (report-failure id line result expected)

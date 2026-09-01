@@ -65,6 +65,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **SRFI 231 `array-copy` is continuation-safe** (#2454) — the fill wrote
+  directly into a destination allocated before the loop started, so a getter
+  that captured a continuation and re-invoked it after `array-copy` returned
+  kept writing into the array the first copy had already handed back: the
+  caller's array silently mutated under it (the official suite's own case —
+  the first copy reading `((4 1) (1 1))` instead of `((1 1) (1 1))`). The
+  spec's whole documented difference between `array-copy` and `array-copy!`
+  is that the non-`!` one must be safe under exactly this. `array-copy` (and
+  `array-append`, `array-stack`, `array-block`, `array-decurry`, which
+  delegate to it) now collect every source value through a functional
+  accumulator — no `set!`, so a re-entry re-runs the collection and
+  materializes its own destination — before the destination exists.
+  `array-copy!` keeps the direct fill, which the spec explicitly permits.
 - **Continuations captured under a non-tail `apply` or `call-with-values`
   (#2451)** — resuming one raised `KP3000: continuation cannot resume across a
   returned native call`. Both reached their callee through a native
