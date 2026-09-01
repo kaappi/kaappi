@@ -330,7 +330,13 @@ pub const QuietStderr = struct {
     }
 
     /// Point fd 2 back at the original stderr. A no-op on an inert receiver.
+    ///
+    /// On WASI the comptime guard must be the first statement of EVERY
+    /// method that names `dup`/`dup2`: semantic analysis of even an
+    /// unreachable-at-runtime call generates the `env::dup2` import, which
+    /// wasmtime then refuses (the wasm-job failure of kaappi#2447).
     pub fn deinit(self: *QuietStderr) void {
+        if (comptime platform.is_wasm) return;
         if (!self.active) return;
         _ = platform.dup2(self.saved, 2);
         _ = platform.close(self.saved);
