@@ -301,22 +301,40 @@ test "run-process: a spawn failure is a file error, not a timeout condition" {
 
 test "run-process: runs inside a spawned fiber, and siblings overlap" {
     if (comptime !is_posix) return error.SkipZigTest;
-    // Two children that each sleep must finish in about one sleep, not two:
-    // the internal drain fibers of one call must not block the other call's
-    // wait. This also covers the dispatched-fiber entry path, where
-    // `process-wait` parks flat instead of driving the scheduler in place.
+    // One call's internal drain fibers must not block another call's wait.
+    // This also covers the dispatched-fiber entry path, where `process-wait`
+    // parks flat instead of driving the scheduler in place.
+    //
+    // The assertion is that the two calls' lifetimes *intersect*, not that
+    // the pair finishes inside a wall-clock budget. A budget is the wrong
+    // instrument on shared CI: `(< dt 0.75)` for two 0.4s children failed on
+    // a loaded macOS runner that had simply been slow, reporting a
+    // concurrency bug that did not exist. Intersection is immune to that —
+    // a serialized implementation gives disjoint intervals however fast or
+    // slow the machine is, since the second call could not start until the
+    // first had returned.
     try th.expectEvalTrue(
         \\(begin
         \\  (import (kaappi fibers))
+        \\  (define (now) (/ (current-jiffy) (jiffies-per-second)))
+        \\  ;; Each fiber reports (start end out).
         \\  (define (sleeper) (spawn (lambda ()
-        \\    (call-with-values (lambda () (run-process '("/bin/sh" "-c" "sleep 0.4; printf x")))
-        \\      (lambda (st out err) out)))))
-        \\  (let* ((t0 (current-jiffy))
-        \\         (a (sleeper))
-        \\         (b (sleeper))
-        \\         (ra (fiber-join a))
-        \\         (rb (fiber-join b))
-        \\         (dt (/ (- (current-jiffy) t0) (jiffies-per-second))))
-        \\    (and (string=? ra "x") (string=? rb "x") (< dt 0.75))))
+        \\    (let* ((t0 (now))
+        \\           (r (call-with-values
+        \\                  (lambda () (run-process '("/bin/sh" "-c" "sleep 0.4; printf x")))
+        \\                (lambda (st out err) out))))
+        \\      (list t0 (now) r)))))
+        \\  ;; Both spawned before either is joined — joining the first
+        \\  ;; before spawning the second would serialize them by hand and
+        \\  ;; make the assertion unsatisfiable.
+        \\  (let* ((fa (sleeper))
+        \\         (fb (sleeper))
+        \\         (a (fiber-join fa))
+        \\         (b (fiber-join fb)))
+        \\    (and (string=? (caddr a) "x")
+        \\         (string=? (caddr b) "x")
+        \\         ;; [a0,a1) and [b0,b1) overlap
+        \\         (< (car a) (cadr b))
+        \\         (< (car b) (cadr a)))))
     );
 }

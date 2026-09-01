@@ -256,25 +256,36 @@
 
 ;; ---------------------------------------------------- fiber cooperation
 
-;; Two calls, each with a child that outlives the other's start: if either
-;; call's drain fibers blocked the other's wait, the pair would take twice as
-;; long. The bound is generous — this is a "did they overlap at all" check,
-;; not a benchmark.
+;; Two calls whose children outlive each other's start. The assertion is
+;; that their lifetimes *intersect*, not that the pair finishes inside a
+;; wall-clock budget: a budget reports a concurrency bug whenever a shared
+;; CI runner is merely slow, which is exactly what it did on macOS. A
+;; serialized implementation gives disjoint intervals however slow the
+;; machine is, since the second call could not start until the first
+;; returned.
+(define (now) (/ (current-jiffy) (jiffies-per-second)))
+
 (test-assert "two run-process calls in sibling fibers overlap"
   (let* ((sleeper (lambda ()
                     (spawn (lambda ()
-                             (call-with-values
-                                 (lambda () (run-process (run stall-script "x") 'timeout: 0.6))
-                               (lambda (st out err) out))))))
-         (t0 (current-jiffy))
-         (a (sleeper))
-         (b (sleeper))
-         (finish (lambda (f) (guard (e ((process-timeout? e) (process-timeout-stdout e)))
-                               (fiber-join f))))
-         (ra (finish a))
-         (rb (finish b))
-         (dt (/ (- (current-jiffy) t0) (jiffies-per-second))))
-    (and (string=? ra "x") (string=? rb "x") (< dt 1.1))))
+                             (let* ((t0 (now))
+                                    (r (guard (e ((process-timeout? e)
+                                                  (process-timeout-stdout e)))
+                                         (call-with-values
+                                             (lambda () (run-process (run stall-script "x")
+                                                                     'timeout: 0.6))
+                                           (lambda (st out err) out)))))
+                               (list t0 (now) r))))))
+         ;; Both spawned before either is joined; joining the first would
+         ;; serialize them by hand and make the assertion unsatisfiable.
+         (fa (sleeper))
+         (fb (sleeper))
+         (a (fiber-join fa))
+         (b (fiber-join fb)))
+    (and (string=? (caddr a) "x")
+         (string=? (caddr b) "x")
+         (< (car a) (cadr b))
+         (< (car b) (cadr a)))))
 
 (let ((runner (test-runner-current)))
   (test-end "kaappi-process-run")
