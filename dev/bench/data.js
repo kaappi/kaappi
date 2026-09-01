@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788228476736,
+  "lastUpdate": 1788237548730,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "042421e258a320442a69b471cd9a8ae4603668bc",
-          "message": "Honor top-level redefinitions of the five tail fast-path names (Fixes #2033) (#2263)\n\n* Honor top-level redefinitions of the five tail fast-path names (#2033)\n\ncompiler.zig's tail-position dispatch sent (apply ...), (eval ...),\n(call/cc ...), (call-with-current-continuation ...) and (call-with-values ...)\nto hand-written superinstructions guarded only by resolveLocal/resolveUpvalue.\nA *global* rebinding of the name was never consulted, so a program that\nredefined one of them at top level got its own definition everywhere except in\ntail position, where the builtin ran instead and the user's procedure was\nsilently discarded. R7RS 5.3.1 makes a top-level definition essentially an\nassignment, so both positions must resolve the user's binding.\n\nThe fix gates each fast path on the compile-time global binding, mirroring\nIR.isRedefined and lookupGlobalLocked's resolution order (raw name, then the\nhygienic-prefix fallback to the bare name). set! targets in the enclosing form\nand the restricted-env not-found case decline the fast path the same way the\nfold gate does; a truncated pre-scan (set_targets_all) conservatively blocks\ntoo. The gate costs nothing at run time — it only decides which bytecode the\ncompiler emits.\n\nAdjacent fixes the gate forced:\n\n- Compiler-synthesized references in the let-values / let*-values /\n  define-values / case-lambda / define-record-type desugarings minted bare\n  apply/call-with-values symbols that were indistinguishable from user text\n  and would have been routed to a user redefinition. They now carry the\n  base-binding prefix (#1715) so they stay bound to the pristine (scheme base)\n  procedures, and the dispatch recognizes the prefixed spelling as immune.\n  ir.zig lowers a base-prefixed special-form head as a passthrough so it\n  still reaches compileForm's dispatch instead of bypassing it as a plain call.\n- The LLVM native backend's emitApplyForm mirrored the interpreter's old\n  tail-applies-ignore-rebinding behavior; it now gates on the module's\n  rebound/native redefinitions the same way (#1803 parity).\n- define-values' single-name desugaring also synthesized a bare\n  consumer; it is base-prefixed too.\n\nTests: a new compliance suite (all five names, non-procedure redefinitions,\nhygiene-renamed macro-template references, set!-in-form, desugaring immunity),\nthe previously disabled audit assertions re-enabled with real top-level\nredefinitions, a Zig unit test, and the native apply-lowering test's rebound\ncase updated to the corrected expectation. Full suite: 700 Scheme files and\n1395 R7RS assertions green.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: R6RS record coverage, native <2-operand gating, doc cleanup\n\nReview findings on PR #2263:\n\n- CodeRabbit: the define-record-type test used R7RS constructor-first\n  syntax, where (parent ...) parses as a field spec — it never reached the\n  R6RS inherited-constructor paths in vm_records whose synthesized apply\n  references this fix touches. Replace it with top-level R6RS clause-syntax\n  records that exercise BOTH inherited-ctor variants: the protocol-less\n  split-args path and the protocol path. Both fail on main (the bare apply\n  resolved to the user's redefinition) and pass here. While in those paths,\n  the remaining bare synthesized references (list/append/car/cdr) get the\n  same base-binding-prefix treatment as apply, so a redefinition of any of\n  them cannot corrupt inherited record construction either.\n\n- baijum: emitApplyForm's '<2 operands' early return fired before the\n  rebound check, so a REBOUND apply in tail position with one operand\n  abandoned native compilation of the whole scope (correct result via the\n  eval fallback, but a needless de-opt and a doc/behavior mismatch). Gate\n  the early return on !rebound so that shape takes the generic indirect\n  call, matching the interpreter's #2033-gated ordinary call path; update\n  the llvm_emit_forms and llvm-backend.md bullets to say 'unrebound'.\n\n- baijum: buildLetValues' doc comment still described the removed\n  is_tail-dependent outermost-vs-nested reasoning; trim it to the\n  base-prefixed unconditional-reference behavior that is now the whole\n  truth.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-09T12:48:27+05:30",
-          "tree_id": "cf19394bd8a7397d6495f8312dc5ebd119a026d1",
-          "url": "https://github.com/kaappi/kaappi/commit/042421e258a320442a69b471cd9a8ae4603668bc"
-        },
-        "date": 1786261930365,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.343413,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.925938,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.57718,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.018789,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004776,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04715,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.316494,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056074,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.80206,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.240429,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.587061,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.281492,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.822763,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.626756,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04422,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044178,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5cdfc118d5c6f90ea113a0d81dfca53131d97ac3",
+          "message": "Always check SRFI 231 array-ref and array-set! (#2449)\n\nAn array built with safe?: #f handed the user the raw, unchecked\naccessor, so an out-of-domain multi-index still computed a body offset.\nWhen that offset landed inside the body it silently read or clobbered a\ndifferent, valid element. On a 2x3 u8 array, (array-ref a 0 5) returned\nelement (1 2), and (array-set! a 99 0 5) overwrote it -- no error either\ntime. Only an index wild enough to escape the body entirely was loud,\nand then the diagnostic came from the storage layer naming a flat offset\nthe user never wrote.\n\nThis was the default path: specialized-array-default-safe? is #f.\n\nThe spec makes safe?: #t *add* argument checking to the getter and\nsetter; it never says an unsafe array may return a wrong answer. The\nSRFI's author has since removed the distinction from the reference\nimplementation for the same reason, which is what this follows: the\nuser-visible getter and setter are now always wrapped, and an internal\nunchecked pair is kept on the array for bulk operations, which generate\ntheir own in-domain indices and so cannot present a bad one.\n\nValues are still validated on the way into a body, since an unchecked\nstore is what actually corrupts -- u1 silently drops bits. The check is\nskipped only where provably vacuous: a generic destination manipulates\nevery value, and a same-storage-class copy reads values that already\nsatisfy the destination's checker.\n\narray-safe? still reports what the caller asked for; it just no longer\ngates checking.\n\nTwo consequences beyond the fix. The vendored official suite recorded\nthis as known-divergence 351 (\"unsafe specialized views are unchecked\nper the spec text; the reference happens to check\"); that entry is now\nresolved and pruned, taking the suite from 2 unexpected failures to 0\nagainst the pruned list. And bulk operations over safe arrays no longer\nre-validate indices they just generated, which roughly halves their\ncost -- a 200x200 f64 array-copy goes from 0.348 s to 0.178 s.\n\nReported by Brad Lucier (gambiteer).\n\nCloses #2448\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-09-01T09:29:02+05:30",
+          "tree_id": "777df9a8e43e69f1b6b196b08a97a6fe29b58234",
+          "url": "https://github.com/kaappi/kaappi/commit/5cdfc118d5c6f90ea113a0d81dfca53131d97ac3"
+        },
+        "date": 1788237546165,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.930813,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.220599,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.561851,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.811487,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005309,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046244,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.294309,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.061661,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.416904,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.122722,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.623617,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.30927,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.633471,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.84468,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046972,
             "unit": "seconds"
           }
         ]
