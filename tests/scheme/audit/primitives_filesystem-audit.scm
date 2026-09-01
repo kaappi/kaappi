@@ -1031,10 +1031,15 @@
  (lambda (dir)
    (write-file (string-append dir "/a") "x")
    (let ((a (string-append dir "/a")))
-     ;; the full 12-bit mode is accepted; the kernel may still refuse to set
-     ;; setgid when the caller is not in the file's group (POSIX permits that
-     ;; silent clear), so only the 9 permission bits are asserted round-trip
-     (set-file-mode a #o7777)
+     ;; the accepted range is probed with setuid + setgid + the 9 permission
+     ;; bits. The sticky bit is deliberately excluded: on FreeBSD and NetBSD a
+     ;; non-root chmod(2) on a regular file rejects it with EFTYPE rather than
+     ;; clearing it silently as Linux and macOS do (kaappi#2443), and the CI
+     ;; legs run as root, where it works — so a #o7777 probe false-fails on
+     ;; exactly the unprivileged BSD runs. The kernel may still silently clear
+     ;; setgid when the caller is not in the file's group (POSIX permits
+     ;; that), so only the 9 permission bits and setuid are asserted round-trip
+     (set-file-mode a #o6777)
      (test-equal "(logand (file-info:mode (file-info a #t)) #o777)" #o777 (logand (file-info:mode (file-info a #t)) #o777))
      (test-equal "(logand (file-info:mode (file-info a #t)) #o4000)" #o4000 (logand (file-info:mode (file-info a #t)) #o4000))
      (set-file-mode a #o000)
