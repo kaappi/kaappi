@@ -1011,7 +1011,12 @@ test "kaappi#2415: the last waiter's withdrawal drops the registration" {
     // Clean up the sleeper ourselves — nothing watches it any more.
     _ = platform.procKill(pid, 9);
     var st: c_int = 0;
-    while (platform.waitPid(pid, &st, 0) != pid) {}
+    while (true) {
+        const r = platform.waitPid(pid, &st, 0);
+        if (r == pid) break;
+        // A persistent error (ECHILD) must fail the test, not hang the suite.
+        if (r < 0 and std.c._errno().* != @intFromEnum(std.c.E.INTR)) return error.ReapFailed;
+    }
 }
 
 test "kaappi#2415: registering an already-reaped child fails cleanly" {
@@ -1022,7 +1027,12 @@ test "kaappi#2415: registering an already-reaped child fails cleanly" {
 
     const pid = forkChild(.exit_now);
     var st: c_int = 0;
-    while (platform.waitPid(pid, &st, 0) != pid) {} // reap it first
+    while (true) {
+        const r = platform.waitPid(pid, &st, 0);
+        if (r == pid) break;
+        // A persistent error (ECHILD) must fail the test, not hang the suite.
+        if (r < 0 and std.c._errno().* != @intFromEnum(std.c.E.INTR)) return error.ReapFailed;
+    } // reap it first
 
     var proc: types_mod.Process = .{ .header = undefined, .pid = pid };
     var fiber: Fiber = undefined;

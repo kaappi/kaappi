@@ -1237,3 +1237,44 @@ test "process-wait phase2: option errors are loud" {
         \\       (begin (process-wait p) #t)))
     );
 }
+
+test "process-wait phase2: a child reaped behind kaappi's back raises, never #f-before-deadline" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    const platform = @import("platform.zig");
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
+
+    // Reap the child directly (the test binary IS the parent), bypassing the
+    // registry — the shape a misbehaving C FFI library's wait(-1) produces.
+    const pid_val = try vm.eval(
+        \\(begin (define p (spawn-process '("/bin/sleep" "30"))) (process-pid p))
+    );
+    const pid: i32 = @intCast(types.toFixnum(pid_val));
+    try std.testing.expectEqual(@as(c_int, 0), platform.procKill(pid, 9));
+    var st: c_int = 0;
+    while (true) {
+        const r = platform.waitPid(pid, &st, 0);
+        if (r == pid) break;
+        if (r < 0 and std.c._errno().* != @intFromEnum(std.c.E.INTR)) return error.ReapFailed;
+    }
+
+    // A timed wait must not report `#f` ahead of its generous deadline (the
+    // spurious-timeout hazard: a no-status wake flips `timed_out`), and an
+    // untimed wait must not hang or return `#f` either — both surface the
+    // waitpid error, catchably, and promptly.
+    const t0 = fiber_mod.clockNs();
+    try expectTrue(vm,
+        \\(guard (e (#t (file-error? e)))
+        \\  (process-wait p 'timeout: 30)
+        \\  'no-error-raised)
+    );
+    try expectTrue(vm,
+        \\(guard (e (#t (file-error? e)))
+        \\  (process-wait p)
+        \\  'no-error-raised)
+    );
+    const elapsed = fiber_mod.clockNs() - t0;
+    try std.testing.expect(elapsed < 20 * std.time.ns_per_s);
+}

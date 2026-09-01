@@ -1249,7 +1249,24 @@ fn polledWait(gc: *GC, proc: *types.Process, proc_val: Value, deadline_ns: ?u64)
     const ctx = try fiber_mod.ensureScheduler(vm);
     const me = ctx.sched.fibers.items[ctx.sched.current_idx].?;
     while (true) {
-        tryReapOne(gc, proc);
+        if (proc.status == null) {
+            // Inline probe rather than tryReapOne: this loop is the terminal
+            // resolver on kernels that cannot watch the process, so a
+            // persistent waitpid failure (ECHILD — something outside Kaappi
+            // reaped our child) must surface as the same error the blocking
+            // path raises, not spin at the cadence forever.
+            var st: c_int = 0;
+            const r = platform.waitPid(proc.pid, &st, platform.WNOHANG);
+            if (r == proc.pid) {
+                proc.status = @bitCast(st);
+                removeFromUnreaped(gc, proc);
+                wakeProcessWaiters(proc);
+            } else if (r < 0) {
+                const e = std.c._errno().*;
+                if (e != @intFromEnum(std.c.E.INTR))
+                    return raiseProcessError(gc, "cannot wait for process", types.FALSE, e);
+            }
+        }
         if (proc.status) |st| {
             me.timed_out = false;
             return types.decodeWaitStatus(gc, st) catch PrimitiveError.OutOfMemory;
@@ -1350,14 +1367,23 @@ fn processWait(args: []const Value) PrimitiveError!Value {
     const me = ctx.sched.fibers.items[my_idx].?;
 
     // Post-timeout redispatch of a flat-parked wait: the status checks above
-    // already gave delivery priority, so a fired timer here really is a
-    // timeout — clean up the park and report it. The child lives on.
+    // already gave delivery priority. `timed_out` alone is not proof of a
+    // timeout — the reactor's wake path flips it for every `.waiting` fiber
+    // it reports, including a wake with *no* status stored (a failed reap:
+    // something outside Kaappi took our child and waitpid says ECHILD) — so
+    // only a deadline that has actually passed reports `#f`. A spurious
+    // pre-deadline wake clears the flag and falls through to re-park; the
+    // dead-registration re-arm then fails and resolves through the polled
+    // path below, which surfaces the real waitpid error.
     if (me.waiting_on == proc_val and me.deadline_ns != null and me.timed_out) {
+        if (fiber_mod.clockNs() >= me.deadline_ns.?) {
+            me.timed_out = false;
+            me.deadline_ns = null;
+            ctx.reactor.removeProcessWaiter(proc, me);
+            me.waiting_on = types.VOID;
+            return types.FALSE;
+        }
         me.timed_out = false;
-        me.deadline_ns = null;
-        ctx.reactor.removeProcessWaiter(proc, me);
-        me.waiting_on = types.VOID;
-        return types.FALSE;
     }
 
     // Park fields first (the reactor holds `me` from registration on), then
@@ -1376,11 +1402,20 @@ fn processWait(args: []const Value) PrimitiveError!Value {
         // 5.3 and under Rosetta's syscall translation) — degrade to the
         // polled park, which keeps siblings running where a blocking waitpid
         // would deadlock a program whose child exits only after a sibling
-        // acts.
+        // acts. A flat retry may arrive with the previous park's preserved
+        // absolute deadline (and its still-armed timer): hand the polled
+        // wait that deadline, never the recomputed-and-extended one, and
+        // detach the stale timer so it cannot fire into the polled parks.
+        const eff_deadline = me.deadline_ns orelse deadline_ns;
+        if (me.deadline_ns != null) {
+            ctx.reactor.removeTimer(me);
+            me.deadline_ns = null;
+        }
+        me.timed_out = false;
         tryReapOne(gc, proc);
         if (proc.status) |st|
             return types.decodeWaitStatus(gc, st) catch PrimitiveError.OutOfMemory;
-        return polledWait(gc, proc, proc_val, deadline_ns);
+        return polledWait(gc, proc, proc_val, eff_deadline);
     };
     // Exit-before-arm race close: an exit that beat the arm posts no kernel
     // event, ever — the one probe after arming is what closes the window (an
@@ -1459,14 +1494,20 @@ fn processWait(args: []const Value) PrimitiveError!Value {
         me.timed_out = false;
         return types.decodeWaitStatus(gc, st) catch PrimitiveError.OutOfMemory;
     }
+    // `timed_out` alone is not a verdict (the wake path also flips it for a
+    // no-status wake — a failed reap at the reactor): only an actually
+    // expired deadline is a timeout.
     if (me.timed_out) {
         me.timed_out = false;
-        return types.FALSE;
+        if (deadline_ns) |d| {
+            if (fiber_mod.clockNs() >= d) return types.FALSE;
+        }
     }
-    // Unreachable while the registration exists (the reactor is never empty
-    // with a watched process, so the drive cannot conclude deadlock), kept
-    // as a loud diagnostic rather than a silent wrong answer.
-    return raiseProcessMessage("process-wait: wait ended without an exit or a timeout (internal)");
+    // No status, no expired timeout: the registration was dropped by a wake
+    // that could not reap (ECHILD — something outside Kaappi took our
+    // child). Finish through the polled path, which reaps a late arrival,
+    // honors the remaining deadline, or surfaces the waitpid error.
+    return polledWait(gc, proc, proc_val, deadline_ns);
 }
 
 fn processKill(args: []const Value) PrimitiveError!Value {
