@@ -40,11 +40,22 @@
           ;; and later phases) to build genuinely specialized arrays with
           ;; custom indexers, the same way (srfi 160 base)'s %uvec-* helpers
           ;; exist only for that package's own per-tag files to consume.
-          %make-array %safe-getter %safe-setter %make-lex-indexer %check-boolean!)
+          %make-array %make-array/unsafe %safe-getter %safe-setter
+          array-unsafe-getter array-unsafe-setter %copy-value-checker
+          %make-lex-indexer %check-boolean!)
   (begin
 
+    ;; getter/setter are ALWAYS the checked, user-visible pair; unsafe-getter
+    ;; and unsafe-setter are the internal, unchecked pair that bulk
+    ;; operations use because they only ever present in-domain multi-indices
+    ;; they generated themselves (#2448).
+    ;;
+    ;; safe? no longer gates whether array-ref/array-set! check -- they
+    ;; always do. It is retained because the spec exposes array-safe?, and
+    ;; it still records what the caller asked for.
     (define-record-type <array>
-      (%make-array domain getter setter body indexer storage-class safe?)
+      (%make-array/unsafe domain getter setter body indexer storage-class safe?
+                          unsafe-getter unsafe-setter)
       array?
       (domain array-domain)
       (getter array-getter)
@@ -52,7 +63,23 @@
       (body %array-body-raw)
       (indexer %array-indexer-raw)
       (storage-class %array-storage-class-raw)
-      (safe? %array-safe?-raw))
+      (safe? %array-safe?-raw)
+      (unsafe-getter %array-unsafe-getter-raw)
+      (unsafe-setter %array-unsafe-setter-raw %array-set-unsafe-setter!))
+
+    ;; An array with no separately-supplied raw pair -- a closure-backed
+    ;; generalized array, where no unchecked accessor exists to fall back
+    ;; to. Its "unsafe" accessors are the checked ones, so bulk operations
+    ;; stay correct; they simply do not get the speedup.
+    (define (%make-array domain getter setter body indexer storage-class safe?)
+      (%make-array/unsafe domain getter setter body indexer storage-class safe?
+                          getter setter))
+
+    ;; Bulk operations call these instead of array-getter/array-setter.
+    ;; ONLY valid when the caller generates the multi-index from the array's
+    ;; own domain (interval-for-each and friends). Never hand one to user code.
+    (define (array-unsafe-getter a) (%array-unsafe-getter-raw a))
+    (define (array-unsafe-setter a) (%array-unsafe-setter-raw a))
 
     (define (mutable-array? a) (and (array? a) (if (%array-setter-raw a) #t #f)))
     (define (specialized-array? a) (and (array? a) (if (%array-body-raw a) #t #f)))
@@ -77,6 +104,28 @@
       (unless (specialized-array? a) (error "array-safe?: not a specialized array" a))
       (%array-safe?-raw a))
 
+    ;; Values are still checked on the way INTO a destination body, even
+    ;; though the index check is skipped -- storing an out-of-range value
+    ;; is what actually corrupts (u1 silently drops bits) or raises from
+    ;; deep inside the storage layer, and neither is acceptable just
+    ;; because the caller asked for an unsafe array (#2448).
+    ;;
+    ;; Returns the checker to apply per element, or #f when the check is
+    ;; provably vacuous:
+    ;;   - a generic destination manipulates every value; or
+    ;;   - source and destination share a storage class, so every value
+    ;;     read out of the source body already satisfies the destination's
+    ;;     checker by construction.
+    ;; (The reference goes further with a widening table -- u8 into u32 and
+    ;; friends. Not needed for the paths here; the two cases above already
+    ;; cover same-class copies and generic destinations.)
+    (define (%copy-value-checker source dest-storage-class)
+      (if (or (eq? dest-storage-class generic-storage-class)
+              (and (specialized-array? source)
+                   (eq? (array-storage-class source) dest-storage-class)))
+          #f
+          (storage-class-checker dest-storage-class)))
+
     (define (array-dimension a) (interval-dimension (array-domain a)))
     (define (array-empty? a) (interval-empty? (array-domain a)))
 
@@ -88,6 +137,9 @@
     (define (array-freeze! a)
       (unless (array? a) (error "array-freeze!: not an array" a))
       (%array-set-setter! a #f)
+      ;; must clear BOTH -- leaving the unsafe setter live would keep a
+      ;; frozen array writable through the bulk-operation path (#2448)
+      (%array-set-unsafe-setter! a #f)
       a)
 
     (define (make-array interval getter . maybe-setter)
@@ -182,9 +234,13 @@
                              ((storage-class-getter storage-class) body (apply indexer multi-index))))
                (raw-setter (lambda (val . multi-index)
                              ((storage-class-setter storage-class) body (apply indexer multi-index) val)))
-               (getter (if safe? (%safe-getter interval raw-getter) raw-getter))
-               (setter (if safe? (%safe-setter interval (storage-class-checker storage-class) raw-setter) raw-setter)))
-          (%make-array interval getter setter body indexer storage-class safe?))))
+               ;; ALWAYS checked, whatever safe? says -- the spec makes
+               ;; safe? add checks, it never licenses an unchecked
+               ;; user-visible accessor (#2448).
+               (getter (%safe-getter interval raw-getter))
+               (setter (%safe-setter interval (storage-class-checker storage-class) raw-setter)))
+          (%make-array/unsafe interval getter setter body indexer storage-class safe?
+                              raw-getter raw-setter))))
 
     ;; Wraps EXTERNALLY supplied data (e.g. a plain vector or one of this
     ;; codebase's own (srfi 160 <tag>) numeric vectors) as the body of a
@@ -208,10 +264,11 @@
                (indexer (lambda (i) i))
                (raw-getter (lambda (i) ((storage-class-getter storage-class) body (indexer i))))
                (raw-setter (lambda (val i) ((storage-class-setter storage-class) body (indexer i) val)))
-               (getter (if safe? (%safe-getter interval raw-getter) raw-getter))
+               (getter (%safe-getter interval raw-getter))
                (setter (and mutable?
-                            (if safe? (%safe-setter interval (storage-class-checker storage-class) raw-setter) raw-setter))))
-          (%make-array interval getter setter body indexer storage-class safe?))))
+                            (%safe-setter interval (storage-class-checker storage-class) raw-setter))))
+          (%make-array/unsafe interval getter setter body indexer storage-class safe?
+                              raw-getter (and mutable? raw-setter)))))
 
     ;; #t iff lexicographic traversal order visits CONSECUTIVE, INCREASING
     ;; body positions -- per spec, "the elements of array, taken in

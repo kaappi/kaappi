@@ -217,6 +217,62 @@
 ;; an empty plain array errors on any access instead of running the closure
 (let ((e (make-array (make-interval '#(3 0)) (lambda (i j) 'should-never-run))))
   (test-equal #t (guard (e2 (#t #t)) ((array-getter e) 0 0) #f)))
+
+;;; --- #2448: safe? must not disable the user-visible checks ------------
+;;; Reported by the SRFI 231 author (gambiteer): the spec makes safe?: #t
+;;; ADD argument checking, it never licenses an unchecked array-ref /
+;;; array-set!. The dangerous case is NOT the wild index that escapes the
+;;; body and trips the storage layer -- it is the out-of-domain index that
+;;; lands INSIDE it, which used to silently read or clobber a different,
+;;; valid element with no error at all.
+(let ((a (make-specialized-array (make-interval (vector 2 3)) u8-storage-class 0 #f)))
+  (array-set! a 7 1 2)
+  (test-equal "unsafe array: in-domain ref still works" 7 (array-ref a 1 2))
+  ;; (0 5) is out of domain but maps to flat offset 5 -- the same cell as
+  ;; (1 2). Before the fix this returned 7 rather than raising.
+  (test-assert "unsafe array: out-of-domain ref that aliases a valid cell raises"
+               (guard (e (#t #t)) (array-ref a 0 5) #f))
+  (test-assert "unsafe array: out-of-domain set! that aliases a valid cell raises"
+               (guard (e (#t #t)) (array-set! a 99 0 5) #f))
+  (test-equal "unsafe array: the aliased cell was not clobbered" 7 (array-ref a 1 2))
+  ;; indices that escape the body entirely were already loud, but reported
+  ;; from the storage layer naming a flat offset the user never wrote
+  (test-assert "unsafe array: far out-of-domain ref raises"
+               (guard (e (#t #t)) (array-ref a 9 9) #f))
+  (test-assert "unsafe array: negative out-of-domain ref raises"
+               (guard (e (#t #t)) (array-ref a -4 0) #f))
+  ;; values are checked too, not just indices
+  (test-assert "unsafe array: out-of-range value raises"
+               (guard (e (#t #t)) (array-set! a 300 0 0) #f))
+  (test-assert "unsafe array: wrong-typed value raises"
+               (guard (e (#t #t)) (array-set! a (quote foo) 0 0) #f))
+  (test-equal "unsafe array: a rejected store left the cell alone" 0 (array-ref a 0 0)))
+
+;;; An unsafe array now reports exactly what a safe one does.
+(let ((u (make-specialized-array (make-interval (vector 2 3)) u8-storage-class 0 #f))
+      (s (make-specialized-array (make-interval (vector 2 3)) u8-storage-class 0 #t)))
+  (test-equal "safe and unsafe agree on out-of-domain ref"
+              (guard (e (#t (error-object-message e))) (array-ref s 0 5) (quote no-error))
+              (guard (e (#t (error-object-message e))) (array-ref u 0 5) (quote no-error)))
+  (test-equal "safe and unsafe agree on a rejected value"
+              (guard (e (#t (error-object-message e))) (array-set! s 300 0 0) (quote no-error))
+              (guard (e (#t (error-object-message e))) (array-set! u 300 0 0) (quote no-error))))
+
+;;; array-safe? still reports what the caller asked for -- the flag is
+;;; retained (the spec exposes it), it just no longer gates checking.
+(let ((u (make-specialized-array (make-interval (vector 2)) u8-storage-class 0 #f))
+      (s (make-specialized-array (make-interval (vector 2)) u8-storage-class 0 #t)))
+  (test-equal "array-safe? still reflects the constructor argument #f" #f (array-safe? u))
+  (test-equal "array-safe? still reflects the constructor argument #t" #t (array-safe? s)))
+
+;;; array-freeze! must close the bulk-operation write path too, not just
+;;; the user-visible setter.
+(let ((a (make-specialized-array (make-interval (vector 2 2)) u8-storage-class 0 #f)))
+  (array-freeze! a)
+  (test-equal "frozen unsafe array is immutable" #f (mutable-array? a))
+  (test-assert "frozen unsafe array rejects array-set!"
+               (guard (e (#t #t)) (array-set! a 1 0 0) #f)))
+
 (let ((runner (test-runner-current)))
   (test-end "srfi-231-arrays")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))

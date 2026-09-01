@@ -101,13 +101,13 @@
         (%check-same-domain! all "array-map")
         (make-array (array-domain array)
                     (lambda multi-index
-                      (apply f (map (lambda (a) (apply (array-getter a) multi-index)) all))))))
+                      (apply f (map (lambda (a) (apply (array-unsafe-getter a) multi-index)) all))))))
 
     (define (array-for-each f array . arrays)
       (%check-procedure! f "array-for-each")
       (let ((all (cons array arrays)))
         (%check-same-domain! all "array-for-each")
-        (interval-for-each (lambda multi-index (apply f (map (lambda (a) (apply (array-getter a) multi-index)) all)))
+        (interval-for-each (lambda multi-index (apply f (map (lambda (a) (apply (array-unsafe-getter a) multi-index)) all)))
                             (array-domain array))))
 
     (define (array-fold-left operator identity array . arrays)
@@ -115,7 +115,7 @@
       (let ((all (cons array arrays)) (acc identity))
         (%check-same-domain! all "array-fold-left")
         (interval-for-each (lambda multi-index
-                              (set! acc (apply operator acc (map (lambda (a) (apply (array-getter a) multi-index)) all))))
+                              (set! acc (apply operator acc (map (lambda (a) (apply (array-unsafe-getter a) multi-index)) all))))
                             (array-domain array))
         acc))
 
@@ -129,7 +129,7 @@
       (let ((all (cons array arrays)) (results '()))
         (%check-same-domain! all "array-fold-right")
         (interval-for-each (lambda multi-index
-                              (set! results (cons (map (lambda (a) (apply (array-getter a) multi-index)) all) results)))
+                              (set! results (cons (map (lambda (a) (apply (array-unsafe-getter a) multi-index)) all) results)))
                             (array-domain array))
         (let loop ((xs results) (acc identity))
           (if (null? xs) acc (loop (cdr xs) (apply operator (append (car xs) (list acc))))))))
@@ -146,7 +146,7 @@
       (unless (array? array) (error "array-reduce: not an array" array))
       (unless (procedure? operator) (error "array-reduce: not a procedure" operator))
       (when (array-empty? array) (error "array-reduce: cannot reduce an empty array" array))
-      (let ((acc %array-reduce-sentinel) (getter (array-getter array)))
+      (let ((acc %array-reduce-sentinel) (getter (array-unsafe-getter array)))
         (interval-for-each (lambda multi-index
                               (let ((val (apply getter multi-index)))
                                 (set! acc (if (eq? acc %array-reduce-sentinel) val (operator acc val)))))
@@ -163,7 +163,7 @@
         (call/cc
          (lambda (return)
            (interval-for-each (lambda multi-index
-                                 (let ((r (apply predicate (map (lambda (a) (apply (array-getter a) multi-index)) all))))
+                                 (let ((r (apply predicate (map (lambda (a) (apply (array-unsafe-getter a) multi-index)) all))))
                                    (when r (return r))))
                                (array-domain array))
            #f))))
@@ -177,7 +177,7 @@
         (call/cc
          (lambda (return)
            (interval-for-each (lambda multi-index
-                                 (let ((r (apply predicate (map (lambda (a) (apply (array-getter a) multi-index)) all))))
+                                 (let ((r (apply predicate (map (lambda (a) (apply (array-unsafe-getter a) multi-index)) all))))
                                    (if r (set! last-result r) (return #f))))
                                (array-domain array))
            last-result))))
@@ -192,8 +192,8 @@
             (d1 (array-dimension array1)))
         (make-array domain
                     (lambda multi-index
-                      (operator (apply (array-getter array1) (take multi-index d1))
-                                (apply (array-getter array2) (drop multi-index d1)))))))
+                      (operator (apply (array-unsafe-getter array1) (take multi-index d1))
+                                (apply (array-unsafe-getter array2) (drop multi-index d1)))))))
 
     (define (array-inner-product A f g B)
       (%check-procedure! f "array-inner-product")
@@ -218,7 +218,7 @@
     (define (array->list array)
       (unless (array? array) (error "array->list: not an array" array))
       (let ((acc '()))
-        (interval-for-each (lambda multi-index (set! acc (cons (apply (array-getter array) multi-index) acc)))
+        (interval-for-each (lambda multi-index (set! acc (cons (apply (array-unsafe-getter array) multi-index) acc)))
                             (array-domain array))
         (reverse acc)))
 
@@ -247,7 +247,10 @@
                       (error "list->array: not all elements of the source can be manipulated by the storage class" x storage-class)))
                   lst)
         (let* ((dest (make-specialized-array interval storage-class (storage-class-default storage-class) safe?))
-               (setter (array-setter dest))
+               ;; every element was checked above and the indices come from
+               ;; interval-for-each, so the checked setter would re-verify
+               ;; what is already known (#2448)
+               (setter (array-unsafe-setter dest))
                (remaining lst))
           (interval-for-each (lambda multi-index
                                (apply setter (car remaining) multi-index)
@@ -276,7 +279,8 @@
                      (vector-ref vect i) storage-class))
             (loop (+ i 1))))
         (let* ((dest (make-specialized-array interval storage-class (storage-class-default storage-class) safe?))
-               (setter (array-setter dest))
+               ;; see list->array
+               (setter (array-unsafe-setter dest))
                (i 0))
           (interval-for-each (lambda multi-index
                                (apply setter (vector-ref vect i) multi-index)

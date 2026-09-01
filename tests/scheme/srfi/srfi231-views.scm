@@ -316,6 +316,46 @@
                 (array-tile (make-array (make-interval (vector 0)) list)
                             (vector (vector 0))))))
 
+
+;;; --- #2448: unsafe VIEWS are checked too, and bulk ops stay correct ---
+;;; specialized-array-share and specialized-array-reshape build their own
+;;; getter/setter pair, so each needed the same fix as the two array
+;;; constructors. This is the case the vendored official suite recorded as
+;;; known-divergence 351 ("unsafe specialized views are unchecked") --
+;;; that entry is pruned as of this fix.
+(let* ((base (make-specialized-array (make-interval (vector 4 4)) u8-storage-class 0 #f))
+       (sub (specialized-array-share base (make-interval (vector 2 2))
+                                     (lambda (i j) (values i j)))))
+  (test-equal "unsafe view: in-domain ref works" 0 (array-ref sub 1 1))
+  (test-assert "unsafe view: out-of-domain ref raises"
+               (guard (e (#t #t)) (array-ref sub 2 0) #f))
+  (test-assert "unsafe view: out-of-domain set! raises"
+               (guard (e (#t #t)) (array-set! sub 1 0 3) #f))
+  (test-assert "unsafe view: rejected value raises"
+               (guard (e (#t #t)) (array-set! sub 300 0 0) #f)))
+
+;;; The bulk operations now use the unchecked accessors internally; they
+;;; must still traverse and produce exactly what they did before.
+(let* ((src (make-specialized-array (make-interval (vector 3 4)) u8-storage-class 0 #f))
+       (n 0))
+  (interval-for-each (lambda (i j) (array-set! src n i j) (set! n (+ n 1)))
+                     (array-domain src))
+  (let ((copy (array-copy src)))
+    (test-equal "array-copy over an unsafe source reproduces every element"
+                (array->list src) (array->list copy))
+    (test-equal "array-copy result has the source's domain"
+                #t (interval= (array-domain src) (array-domain copy))))
+  ;; a copy is still checked on the way in, and its own accessors are checked
+  (let ((copy (array-copy src)))
+    (test-assert "array-copy result rejects an out-of-domain ref"
+                 (guard (e (#t #t)) (array-ref copy 0 4) #f))))
+
+;;; Value checking on the copy path survives the switch to unchecked
+;;; setters: a generic source holding values a u8 body cannot store must
+;;; raise rather than corrupt (the u1 case silently drops bits).
+(let ((generic (array-copy (make-array (make-interval (vector 2 2)) (lambda (i j) 300)))))
+  (test-assert "array-copy into u8 rejects an unstorable value"
+               (guard (e (#t #t)) (array-copy generic u8-storage-class) #f)))
 (let ((runner (test-runner-current)))
   (test-end "srfi-231-views")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))

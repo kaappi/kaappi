@@ -25,6 +25,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **SRFI 231 `array-ref`/`array-set!` are always checked** (#2448) — an
+  array built with `safe?: #f` handed the user the raw, unchecked accessor,
+  so an out-of-domain multi-index still computed a body offset. When that
+  offset landed inside the body it silently read or clobbered a *different,
+  valid* element: on a 2x3 array, `(array-ref a 0 5)` returned element
+  `(1 2)` and `(array-set! a 99 0 5)` overwrote it, with no error. This was
+  the default, since `specialized-array-default-safe?` is `#f`. Reported by
+  the SRFI's author, who has removed the safe/unsafe distinction from the
+  reference implementation for the same reason: the spec makes `safe?: #t`
+  *add* checks, it never licenses an unchecked `array-ref`/`array-set!`.
+  The user-visible getter and setter are now always wrapped, in all four
+  constructors (`make-specialized-array`,
+  `make-specialized-array-from-data`, `specialized-array-share`,
+  `specialized-array-reshape`); an internal unchecked pair is kept on the
+  array and used only by bulk operations, which generate their own
+  in-domain indices. Values are still checked on the way into a body except
+  where provably vacuous. `array-safe?` still reports what the caller asked
+  for, it just no longer gates checking. Net effect on the official suite:
+  known-divergence 351 is resolved and pruned, and bulk operations over
+  *safe* arrays get about 2x faster (a 200x200 `f64` `array-copy` goes from
+  0.348 s to 0.178 s) since they no longer re-validate indices they just
+  generated.
 - **A "never" reactor deadline no longer fails the poll** (#2395) — SRFI-18
   reads `+inf.0` as "never times out" and saturates it to a maxInt-nanosecond
   deadline ~585 years out; handed to `kevent` as a timespec that far ahead,

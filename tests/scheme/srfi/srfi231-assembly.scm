@@ -5,8 +5,8 @@
 ;; Run directly: zig-out/bin/kaappi tests/scheme/srfi/srfi231-assembly.scm
 
 (import (scheme base) (scheme process-context) (srfi 64)
-        (srfi 231 intervals) (srfi 231 arrays) (srfi 231 views)
-        (srfi 231 combinators) (srfi 231 assembly))
+        (srfi 231 intervals) (srfi 231 storage-classes) (srfi 231 arrays)
+        (srfi 231 views) (srfi 231 combinators) (srfi 231 assembly))
 
 (test-begin "srfi-231-assembly")
 
@@ -173,6 +173,27 @@
                          '#(1 1))))
   (test-equal '(0 1 10 11) (array->list b))
   (test-equal 4 src-calls))
+
+
+;;; --- #2448: array-assign! uses the unchecked accessors internally ------
+;;; Both sides' domains are verified equal up front and the indices come
+;;; from interval-for-each over them, so the index check is redundant --
+;;; but the VALUE check is not, and must survive the switch.
+(let ((src (make-specialized-array (make-interval (vector 3 4)) u8-storage-class 0 #f))
+      (n 0))
+  (interval-for-each (lambda (i j) (array-set! src n i j) (set! n (+ n 1)))
+                     (array-domain src))
+  (let ((dest (make-specialized-array (make-interval (vector 3 4)) u8-storage-class 0 #f)))
+    (array-assign! dest src)
+    (test-equal "array-assign! into an unsafe destination copies every element"
+                (array->list src) (array->list dest))))
+
+;;; A value the destination body cannot hold must still raise, not corrupt
+;;; -- u1 is the sharp case, since an unchecked store silently drops bits.
+(let ((generic (array-copy (make-array (make-interval (vector 2 2)) (lambda (i j) 5))))
+      (dest (make-specialized-array (make-interval (vector 2 2)) u1-storage-class 0 #f)))
+  (test-assert "array-assign! into u1 rejects an unstorable value"
+               (guard (e (#t #t)) (array-assign! dest generic) #f)))
 
 (let ((runner (test-runner-current)))
   (test-end "srfi-231-assembly")
