@@ -34,13 +34,15 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "dynamic-wind", .func = primitives.bootstrapStub("dynamic-wind"), .arity = .{ .exact = 3 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
     .{ .name = "values", .func = &valuesFn, .arity = .{ .variadic = 0 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
     .{ .name = "call-with-values", .func = &callWithValuesFn, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
-    // The producer half of `call-with-values`, for the compiler's
-    // apply/tail_apply lowering of the form (kaappi#1715, kaappi#2451): checks
-    // both operands the way callWithValuesFn does, runs the producer, and
-    // hands back the produced values as a list for the consumer to be applied
-    // to. Keeping the checks here is what lets the lowering report a bad
-    // consumer as `call-with-values`, not as the `apply` it compiles into.
-    .{ .name = "%call-with-values->list", .func = &callWithValuesToListFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.internal) },
+    // The operand-check gate of `call-with-values`, for the compiler's
+    // call/values_list/apply lowering of the form (kaappi#1715, #2451,
+    // #2453): validates BOTH operands the way — and exactly where —
+    // callWithValuesFn does, producer first and before anything runs, so a
+    // bad producer or consumer is reported as `call-with-values`, not as the
+    // `apply` the form compiles into, and not after the other operand's side
+    // effects. Runs nothing; the lowering then calls the producer with an
+    // ordinary `call` opcode so its frame is resumable (#2453).
+    .{ .name = "%call-with-values-check", .func = &callWithValuesCheckFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.internal) },
     .{ .name = "%push-wind", .func = &pushWindFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.internal) },
     .{ .name = "%pop-wind", .func = &popWindFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.internal) },
     .{ .name = "%unwind-to-escape", .func = &unwindToEscapeFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.internal) },
@@ -557,32 +559,20 @@ fn callWithValuesFn(args: []const Value) PrimitiveError!Value {
     }
 }
 
-/// (%call-with-values->list producer consumer) → the list of values `producer`
-/// produced, after rejecting either operand that is not a procedure exactly as
-/// `callWithValuesFn` does.
-///
-/// The compiler lowers `(call-with-values p c)` to this followed by
-/// `apply`/`tail_apply` of `c` over the returned list, so the consumer runs in
-/// an ordinary VM frame and a continuation captured inside it can be resumed
-/// after the form returns (kaappi#2451). The producer still runs under this
-/// native frame — the restriction moved, it did not disappear.
-fn callWithValuesToListFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
-    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const producer = args[0];
-    const consumer = args[1];
-
-    if (!types.isProcedure(producer)) return primitives.typeError("call-with-values", "procedure", producer);
-    if (!types.isProcedure(consumer)) return primitives.typeError("call-with-values", "procedure", consumer);
-
-    var produced = try vm.callThunkReturningToNative(producer);
-    gc.pushRoot(&produced);
-    defer gc.popRoot();
-    if (types.isMultipleValues(produced)) {
-        const mv = types.toObject(produced).as(types.MultipleValues);
-        return gc.makeList(mv.values) catch return PrimitiveError.OutOfMemory;
-    }
-    return gc.allocPair(produced, types.NIL) catch return PrimitiveError.OutOfMemory;
+/// (%call-with-values-check producer consumer) → void, after rejecting either
+/// operand that is not a procedure exactly as `callWithValuesFn` does:
+/// producer-first, both before anything runs, same texts. The compiler lowers
+/// `(call-with-values p c)` to a call of this followed by an ordinary `call`
+/// of the producer, `values_list`, and `apply`/`tail_apply` of the consumer —
+/// so both halves run from the dispatch loop and a continuation captured in
+/// either is resumable after the form returns (kaappi#2451 for the consumer,
+/// #2453 for the producer). The checks living here, rather than in the
+/// opcodes, is what keeps the diagnostics identical to the native
+/// `call-with-values`.
+fn callWithValuesCheckFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isProcedure(args[0])) return primitives.typeError("call-with-values", "procedure", args[0]);
+    if (!types.isProcedure(args[1])) return primitives.typeError("call-with-values", "procedure", args[1]);
+    return types.VOID;
 }
 
 fn pushWindFn(args: []const Value) PrimitiveError!Value {

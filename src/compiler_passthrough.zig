@@ -333,28 +333,28 @@ pub fn compileApplyForm(self: *Compiler, expr: Value, dst: u16, is_tail: bool) C
 
 pub fn compileCallWithValuesForm(self: *Compiler, expr: Value, dst: u16, is_tail: bool) CompileError!void {
     // (call-with-values producer consumer), either position.
-    // Emits bytecode directly: call `%call-with-values->list` with (producer,
-    // consumer) -> the list of produced values, then apply/tail_apply the
-    // consumer over that list. Applying the consumer from the dispatch loop
-    // rather than from inside the native `call-with-values` is what lets a
-    // continuation captured in the consumer be resumed after the form
-    // returns: in non-tail position that used to be the native's own
-    // `vm.callWithArgs` re-entry, whose Zig frame is gone by the time the
-    // continuation is reinstated (kaappi#2451). The *producer* still runs
-    // under `%call-with-values->list`'s own native frame in both positions,
-    // so a continuation captured there keeps the restriction.
+    // Emits bytecode directly: check both operands, call the producer with an
+    // ordinary `call` opcode, spread the produced values into an argument
+    // list, then apply/tail_apply the consumer over that list. Both halves of
+    // the form now run from the dispatch loop: the consumer since #2451, the
+    // producer since #2453 — its frame is a VM frame in this function's
+    // bytecode, copied by continuation capture and restored by resume, so a
+    // continuation captured inside it is resumable after the form returns in
+    // both positions. (Before, the producer ran under a native primitive's
+    // Zig frame — `%call-with-values->list`'s, and `callWithValuesFn`'s before
+    // that — which the resumed continuation cannot reinstall.)
     //
-    // `%call-with-values->list` takes the consumer only to type-check it —
-    // before running the producer, exactly where `callWithValuesFn` checked
-    // it — so a bad consumer is still reported as `call-with-values` rather
-    // than as the `apply` this compiles into.
+    // Diagnostic parity is why the sequence starts with a call to
+    // `%call-with-values-check`: callWithValuesFn type-checks BOTH operands,
+    // producer first, before anything runs, and reports each through
+    // `typeError("call-with-values", ...)` — so a bad consumer or producer is
+    // still reported as `call-with-values` rather than as the `apply` this
+    // compiles into, and still before the other operand's side effects. The
+    // internal primitive is loaded via self.emitTrueBuiltinLoad, which marks
+    // the reference to resolve through the pristine registry at run time
+    // rather than by ordinary name lookup, so neither a lexical shadow NOR a
+    // top-level redefinition of anything can divert it (#1715).
     //
-    // The callee is loaded via self.emitTrueBuiltinLoad, which marks the
-    // reference to resolve through the pristine registry at run time rather
-    // than by ordinary name lookup, so neither a lexical shadow NOR a later
-    // top-level redefinition can affect this call (#1715; the previous plain
-    // get_global/call_global-by-name approach only ever protected against the
-    // former).
     // A *proper* argument list of the wrong length is an arity question, not a
     // syntax question: route the form through the ordinary call path so the
     // runtime arity check reports KP3003 exactly as the same form one position
@@ -380,30 +380,46 @@ pub fn compileCallWithValuesForm(self: *Compiler, expr: Value, dst: u16, is_tail
 
     try self.compileExprViaIR(consumer, base, false);
 
-    const cwv_base = try self.allocReg();
+    const check_base = try self.allocReg();
     const producer_reg = try self.allocReg();
     const consumer_reg = try self.allocReg();
 
     try self.compileExprViaIR(producer, producer_reg, false);
 
     // The consumer is already evaluated (in `base`); pass a copy for the
-    // type check.
+    // type check. check_base/producer_reg/consumer_reg are consecutive, the
+    // layout `call check_base, 2` reads its callee and two operands from.
     try self.emitOp(.move);
     try self.emitU16(consumer_reg);
     try self.emitU16(base);
-    try self.emitTrueBuiltinLoad("%call-with-values->list", cwv_base);
+    try self.emitTrueBuiltinLoad("%call-with-values-check", check_base);
     try self.emitOp(.call);
-    try self.emitU16(cwv_base);
+    try self.emitU16(check_base);
     try self.emit(2);
 
     self.freeReg(); // consumer_reg
+
+    // The producer call: an ordinary `call` opcode, so its frame lives in the
+    // copied VM state (#2453). The result (a single value or a MultipleValues
+    // object) lands in producer_reg, the register `call` delivers into.
+    try self.emitOp(.call);
+    try self.emitU16(producer_reg);
+    try self.emit(0);
+
+    // Spread the produced value(s) into the consumer's argument list.
+    // check_base is dead since the check call returned and is exactly base+1
+    // — the register the apply below reads its list operand from.
+    try self.emitOp(.values_list);
+    try self.emitU16(check_base);
+    try self.emitU16(producer_reg);
+
     self.freeReg(); // producer_reg
 
     try self.emitOp(if (is_tail) .tail_apply else .apply);
     try self.emitU16(base);
     try self.emit(1);
 
-    self.freeReg(); // cwv_base
+    self.freeReg(); // check_base
     if (needs_rebase) {
         if (!is_tail) {
             try self.emitOp(.move);

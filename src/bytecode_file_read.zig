@@ -342,7 +342,7 @@ fn validateFunctionBytecode(func: *Function) BytecodeError!void {
     var ip: usize = 0;
     while (ip < code.len) {
         const raw = code[ip];
-        if (raw > @intFromEnum(OpCode.apply)) return BytecodeError.CorruptedFile;
+        if (raw > @intFromEnum(OpCode.values_list)) return BytecodeError.CorruptedFile;
         const op: OpCode = @enumFromInt(raw);
         ip += 1;
 
@@ -358,6 +358,12 @@ fn validateFunctionBytecode(func: *Function) BytecodeError!void {
                 ip += 2;
             },
             .move, .get_upvalue, .set_upvalue, .get_box_local, .set_box_local => {
+                if (ip + 4 > code.len) return BytecodeError.CorruptedFile;
+                ip += 4;
+            },
+            .values_list => {
+                // dst:u16, src:u16 — the producer-spread half of
+                // call-with-values' lowering (kaappi#2453).
                 if (ip + 4 > code.len) return BytecodeError.CorruptedFile;
                 ip += 4;
             },

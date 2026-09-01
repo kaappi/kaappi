@@ -5,7 +5,7 @@ the ISA — the `/bytecode-isa` skill points here.
 
 ## Instruction set
 
-32 opcodes, register-based, variable-length encoding. Register/slot,
+33 opcodes, register-based, variable-length encoding. Register/slot,
 constant-index and symbol-index operands are all u16 (big-endian); jump
 offsets are i16 (signed, relative to the instruction after the jump). The
 only u8 operands are `nargs` and the `is_local` flag in a closure capture
@@ -50,6 +50,7 @@ operand-width table — it is what `ensureOperands` validates against, so the
 | 29 | `tail_call_cc` | base:u16, dst:u16 | 5 | `call/cc` in tail position: captures the continuation into dst, then tail-calls the receiver at base+0 |
 | 30 | `tail_eval` | base:u16, nargs:u8 | 4 | `eval` in tail position: compiles the expression at base+0 (optional environment at base+1) and tail-calls it |
 | 31 | `apply` | base:u16, nargs:u8 | 4 | Non-tail apply with list unpacking: flattens the final operand list into base+1… and calls the procedure at base+0 with an ordinary frame, result → base |
+| 32 | `values_list` | dst:u16, src:u16 | 5 | Spread a call-with-values producer's return value (single value or `MultipleValues`) into a fresh argument list → dst, for the apply that follows |
 
 `self_tail_call` skips the global lookup, type check, and arity check for
 direct self-recursion and named `let` loops — see
@@ -79,6 +80,13 @@ Their diagnostics differ too: `apply` reproduces `applyFn`'s `typeError` texts,
 which `tests/scheme/compile/native-apply-lowering-1803.sh` pins against the
 LLVM backend's; `tail_apply` keeps its own terser in-loop wording, which that
 suite deliberately exempts.
+
+`values_list` is the producer half of `call-with-values`' lowering
+(kaappi#2453): the form compiles to a `%call-with-values-check` call, an
+ordinary `call` of the producer, `values_list`, then `apply`/`tail_apply` of
+the consumer. Because the producer runs under an ordinary call opcode, its
+frame is part of the copied VM state and a continuation captured inside it is
+resumable after the form returns — the same property #2451 gave the consumer.
 
 ### Encoding details
 
