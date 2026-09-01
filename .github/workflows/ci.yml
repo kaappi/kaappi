@@ -1023,8 +1023,16 @@ jobs:
       - name: Scheme suites (VM-verified subset)
         shell: bash
         run: |
+          # `process` joined the list with KEP-0022 Phase 3 (#2416): the
+          # POSIX-child suites in it self-skip on Windows, and
+          # process-portable.scm runs the OS-independent matrix with kaappi
+          # itself as the child — which needs $KAAPPI and a writable scratch
+          # dir, exactly as run-all.sh provides on POSIX.
+          export KAAPPI="$(pwd -W)/bin/kaappi.exe"
+          export KAAPPI_HOME="$(pwd -W)/scheme-suite-home"
+          mkdir -p scheme-suite-home
           fail=0
-          for dir in smoke compliance continuations hygiene srfi ffi audit; do
+          for dir in smoke compliance continuations hygiene srfi ffi process audit; do
             for f in tests/scheme/$dir/*.scm; do
               if bin/kaappi.exe "$f" > out.log 2>&1; then
                 echo "  PASS  $f"
@@ -1184,8 +1192,16 @@ jobs:
       - name: Scheme suites (VM-verified subset)
         shell: bash
         run: |
+          # `process` joined the list with KEP-0022 Phase 3 (#2416): the
+          # POSIX-child suites in it self-skip on Windows, and
+          # process-portable.scm runs the OS-independent matrix with kaappi
+          # itself as the child — which needs $KAAPPI and a writable scratch
+          # dir, exactly as run-all.sh provides on POSIX.
+          export KAAPPI="$(pwd -W)/bin/kaappi.exe"
+          export KAAPPI_HOME="$(pwd -W)/scheme-suite-home"
+          mkdir -p scheme-suite-home
           fail=0
-          for dir in smoke compliance continuations hygiene srfi ffi audit; do
+          for dir in smoke compliance continuations hygiene srfi ffi process audit; do
             for f in tests/scheme/$dir/*.scm; do
               if bin/kaappi.exe "$f" > out.log 2>&1; then
                 echo "  PASS  $f"

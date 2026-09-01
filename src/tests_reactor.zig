@@ -898,6 +898,13 @@ fn processWatchAvailable() bool {
     return true;
 }
 
+/// Whether the fork-based fixtures below can build a child at all. Windows
+/// supports process watching (KEP-0022 Phase 3) but has no fork, and its
+/// registration needs a real process HANDLE rather than a bare pid — so it
+/// gets its own fixture and its own test at the end of this file rather than
+/// a skipped copy of these five.
+const process_watch_forkable = reactor_mod.supports_process_watch and builtin_os != .windows;
+
 /// fork() a bare child (the std.process.Child API is Io-based in Zig 0.16;
 /// raw fork is the thottam_proc precedent). `.sleeper` loops until the test
 /// kills it; `.exit_now` _exits 0 at once — _exit, so the forked copy of the
@@ -915,7 +922,7 @@ fn forkChild(mode: enum { sleeper, exit_now }) i32 {
 }
 
 test "kaappi#2415: child exit wakes the parked waiter and reaps at the reactor" {
-    if (comptime !reactor_mod.supports_process_watch) return error.SkipZigTest;
+    if (comptime !process_watch_forkable) return error.SkipZigTest;
     if (!processWatchAvailable()) return error.SkipZigTest;
     memory_mod.gc_instance = null;
     var reactor = try Reactor.init(std.testing.allocator);
@@ -955,7 +962,7 @@ test "kaappi#2415: child exit wakes the parked waiter and reaps at the reactor" 
 }
 
 test "kaappi#2415: every waiter parked on one child is woken by its exit" {
-    if (comptime !reactor_mod.supports_process_watch) return error.SkipZigTest;
+    if (comptime !process_watch_forkable) return error.SkipZigTest;
     if (!processWatchAvailable()) return error.SkipZigTest;
     memory_mod.gc_instance = null;
     var reactor = try Reactor.init(std.testing.allocator);
@@ -984,7 +991,7 @@ test "kaappi#2415: every waiter parked on one child is woken by its exit" {
 }
 
 test "kaappi#2415: the last waiter's withdrawal drops the registration" {
-    if (comptime !reactor_mod.supports_process_watch) return error.SkipZigTest;
+    if (comptime !process_watch_forkable) return error.SkipZigTest;
     if (!processWatchAvailable()) return error.SkipZigTest;
     memory_mod.gc_instance = null;
     var reactor = try Reactor.init(std.testing.allocator);
@@ -1020,7 +1027,7 @@ test "kaappi#2415: the last waiter's withdrawal drops the registration" {
 }
 
 test "kaappi#2415: registering an already-reaped child fails cleanly" {
-    if (comptime !reactor_mod.supports_process_watch) return error.SkipZigTest;
+    if (comptime !process_watch_forkable) return error.SkipZigTest;
     memory_mod.gc_instance = null;
     var reactor = try Reactor.init(std.testing.allocator);
     defer reactor.deinit();
@@ -1046,7 +1053,7 @@ test "kaappi#2415: registering an already-reaped child fails cleanly" {
 }
 
 test "kaappi#2415: an exited-but-unreaped child resolves promptly or refuses the arm" {
-    if (comptime !reactor_mod.supports_process_watch) return error.SkipZigTest;
+    if (comptime !process_watch_forkable) return error.SkipZigTest;
     memory_mod.gc_instance = null;
     var reactor = try Reactor.init(std.testing.allocator);
     defer reactor.deinit();
@@ -1075,4 +1082,96 @@ test "kaappi#2415: an exited-but-unreaped child resolves promptly or refuses the
         var st: c_int = 0;
         try std.testing.expectEqual(pid, platform.waitPid(pid, &st, 0));
     }
+}
+
+// ---------------------------------------------------------------------------
+// Windows child-exit readiness (KEP-0022 Phase 3, kaappi#2416)
+// ---------------------------------------------------------------------------
+//
+// The five fork-based tests above cannot run here: Windows has no fork, and a
+// registration needs the child's process HANDLE, not just its id. This is the
+// same arm -> exit -> wake -> reap -> drop cycle against a real
+// CreateProcessW child, exercising WindowsEventBackend.armProcHandle and the
+// handle sweep in its wait().
+
+/// A child that outlives the test unless killed. `ping -n 31 127.0.0.1` is
+/// the sleeper every Windows script uses: unlike `timeout`, it does not need
+/// a console input handle, so it works with stdio inherited from a test
+/// runner whose stdin may be redirected.
+fn winTestSleeper() !platform.win.ProcessInformation {
+    var cmdline = std.unicode.wtf8ToWtf16LeStringLiteral("cmd.exe /c ping -n 31 127.0.0.1 > NUL").*;
+    var si: platform.win.StartupInfoW = .{ .cb = @sizeOf(platform.win.StartupInfoW) };
+    var pi: platform.win.ProcessInformation = undefined;
+    if (platform.win.CreateProcessW(null, &cmdline, null, null, 0, 0, null, null, &si, &pi) == 0)
+        return error.SpawnFailed;
+    _ = platform.win.CloseHandle(pi.thread);
+    return pi;
+}
+
+test "kaappi#2416: a Windows child's exit wakes the parked waiter and reaps at the reactor" {
+    if (comptime builtin_os != .windows) return error.SkipZigTest;
+    memory_mod.gc_instance = null;
+    var reactor = try Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+
+    const pi = try winTestSleeper();
+    var proc: types_mod.Process = .{ .header = undefined, .pid = @bitCast(pi.process_id), .win_handle = pi.process };
+    defer _ = platform.win.CloseHandle(pi.process);
+    var fiber: Fiber = undefined;
+    fiber.status = .waiting;
+
+    try reactor.registerProcess(&proc, &fiber);
+    // A watched process is a pending wakeup: the deadlock detector must not
+    // read this reactor as empty.
+    try std.testing.expect(!reactor.isEmpty());
+    // Re-registration of the same waiter is idempotent.
+    try reactor.registerProcess(&proc, &fiber);
+
+    const code: u32 = 137;
+    try std.testing.expect(platform.win.TerminateProcess(pi.process, code) != 0);
+
+    var ready = newReady();
+    defer ready.deinit(std.testing.allocator);
+    try pollUntilReady(&reactor, &ready, poll_retry_bound_ns);
+
+    try std.testing.expectEqual(@as(usize, 1), ready.items.len);
+    try std.testing.expectEqual(&fiber, ready.items[0]);
+    // Reaped at the reactor: the exit code is the whole status on Windows.
+    try std.testing.expectEqual(code, proc.status.?);
+    // ...registration dropped, and the borrowed handle left untouched (the
+    // Process owns it; the reactor must never close it).
+    try std.testing.expectEqual(@as(usize, 0), reactor.procs.count());
+    try std.testing.expect(reactor.isEmpty());
+    var recheck: u32 = 0;
+    try std.testing.expect(platform.win.GetExitCodeProcess(pi.process, &recheck) != 0);
+    try std.testing.expectEqual(code, recheck);
+}
+
+test "kaappi#2416: the last waiter's withdrawal drops a Windows registration" {
+    if (comptime builtin_os != .windows) return error.SkipZigTest;
+    memory_mod.gc_instance = null;
+    var reactor = try Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+
+    const pi = try winTestSleeper();
+    defer _ = platform.win.CloseHandle(pi.process);
+    var proc: types_mod.Process = .{ .header = undefined, .pid = @bitCast(pi.process_id), .win_handle = pi.process };
+    var a: Fiber = undefined;
+    var b: Fiber = undefined;
+    a.status = .waiting;
+    b.status = .waiting;
+
+    try reactor.registerProcess(&proc, &a);
+    try reactor.registerProcess(&proc, &b);
+    reactor.removeProcessWaiter(&proc, &a);
+    // Still armed: b is parked.
+    try std.testing.expectEqual(@as(usize, 1), reactor.procs.count());
+    reactor.removeProcessWaiter(&proc, &b);
+    // "armed <=> a waiter is parked" — the whole registration goes with the
+    // last waiter, so an abandoned child never pins the reactor awake.
+    try std.testing.expectEqual(@as(usize, 0), reactor.procs.count());
+    try std.testing.expect(reactor.isEmpty());
+
+    _ = platform.win.TerminateProcess(pi.process, 1);
+    _ = platform.win.WaitForSingleObject(pi.process, platform.win.INFINITE);
 }

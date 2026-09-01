@@ -237,4 +237,95 @@ pub const api = if (builtin.os.tag == .windows) struct {
         process_id: u32,
         thread_id: u32,
     };
+
+    // --- KEP-0022 Phase 3: subprocess spawn, Job Objects, handle reaping ---
+    //
+    // Windows has no fork/exec and no signals, so `(kaappi process)` is built
+    // from a different set of primitives than the POSIX side: CreateProcess
+    // with an *explicit* inherit list (the close-by-default guarantee, which
+    // POSIX has to approximate with a file-descriptor scan), a Job Object for
+    // the process group (the only mechanism that reaches grandchildren), and
+    // the process HANDLE as both the wait object and the reap source.
+
+    pub const MAXIMUM_WAIT_OBJECTS: u32 = 64;
+    pub const WAIT_FAILED: u32 = 0xFFFF_FFFF;
+    pub const STD_INPUT_HANDLE: u32 = @bitCast(@as(i32, -10));
+
+    pub const SecurityAttributes = extern struct {
+        length: u32,
+        descriptor: ?*anyopaque = null,
+        inherit_handle: c_int,
+    };
+
+    pub extern "kernel32" fn CreatePipe(read: *HANDLE, write: *HANDLE, sa: ?*const SecurityAttributes, size: u32) callconv(.winapi) c_int;
+    pub extern "kernel32" fn SetHandleInformation(h: HANDLE, mask: u32, flags: u32) callconv(.winapi) c_int;
+    pub const HANDLE_FLAG_INHERIT: u32 = 0x1;
+    pub extern "kernel32" fn DuplicateHandle(src_proc: HANDLE, src: HANDLE, dst_proc: HANDLE, dst: *HANDLE, access: u32, inherit: c_int, options: u32) callconv(.winapi) c_int;
+    pub const DUPLICATE_SAME_ACCESS: u32 = 0x2;
+
+    pub extern "kernel32" fn CreateFileW(path: [*:0]const u16, access: u32, share: u32, sa: ?*const SecurityAttributes, disposition: u32, flags: u32, template: ?HANDLE) callconv(.winapi) HANDLE;
+    pub const GENERIC_READ: u32 = 0x8000_0000;
+    pub const GENERIC_WRITE: u32 = 0x4000_0000;
+    pub const FILE_SHARE_READ: u32 = 0x1;
+    pub const FILE_SHARE_WRITE: u32 = 0x2;
+    pub const OPEN_EXISTING: u32 = 3;
+    pub const FILE_ATTRIBUTE_NORMAL: u32 = 0x80;
+
+    /// STARTUPINFOEX's attribute list — the mechanism behind
+    /// PROC_THREAD_ATTRIBUTE_HANDLE_LIST. `Initialize...` is called twice
+    /// (once with a null list to size the buffer, once to build it), so the
+    /// first parameter is optional.
+    pub extern "kernel32" fn InitializeProcThreadAttributeList(list: ?*anyopaque, count: u32, flags: u32, size: *usize) callconv(.winapi) c_int;
+    pub extern "kernel32" fn UpdateProcThreadAttribute(list: *anyopaque, flags: u32, attribute: usize, value: ?*const anyopaque, size: usize, prev: ?*anyopaque, ret_size: ?*usize) callconv(.winapi) c_int;
+    pub extern "kernel32" fn DeleteProcThreadAttributeList(list: *anyopaque) callconv(.winapi) void;
+    pub const PROC_THREAD_ATTRIBUTE_HANDLE_LIST: usize = 0x0002_0002;
+
+    /// STARTUPINFOEXW. `startup_info` is first by definition, so a pointer to
+    /// the whole struct is also a valid `StartupInfoW*` for CreateProcessW —
+    /// which is exactly how the extended form is passed (with `cb` set to
+    /// this struct's size and EXTENDED_STARTUPINFO_PRESENT in the flags).
+    pub const StartupInfoExW = extern struct {
+        startup_info: StartupInfoW,
+        attribute_list: ?*anyopaque = null,
+    };
+    pub const EXTENDED_STARTUPINFO_PRESENT: u32 = 0x0008_0000;
+    pub const CREATE_SUSPENDED: u32 = 0x0000_0004;
+    pub const CREATE_UNICODE_ENVIRONMENT: u32 = 0x0000_0400;
+    /// Console Ctrl+C routing only — NOT a process tree. Kept named here so
+    /// the next reader does not reach for it expecting POSIX setpgid
+    /// semantics: the Job Object below is what `new-group:` uses.
+    pub const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+
+    pub extern "kernel32" fn ResumeThread(h: HANDLE) callconv(.winapi) u32;
+    pub extern "kernel32" fn TerminateProcess(h: HANDLE, code: u32) callconv(.winapi) c_int;
+    pub extern "kernel32" fn CreateJobObjectW(sa: ?*const SecurityAttributes, name: ?[*:0]const u16) callconv(.winapi) ?HANDLE;
+    pub extern "kernel32" fn AssignProcessToJobObject(job: HANDLE, process: HANDLE) callconv(.winapi) c_int;
+    pub extern "kernel32" fn TerminateJobObject(job: HANDLE, code: u32) callconv(.winapi) c_int;
+    pub extern "kernel32" fn IsProcessInJob(process: HANDLE, job: ?HANDLE, result: *c_int) callconv(.winapi) c_int;
+    pub extern "kernel32" fn QueryInformationJobObject(job: ?HANDLE, class: c_int, info: *anyopaque, len: u32, ret_len: ?*u32) callconv(.winapi) c_int;
+    /// JOBOBJECTINFOCLASS.JobObjectBasicProcessIdList. The struct is
+    /// variable-length (`ProcessIdList[1]` in the SDK); the tests that use it
+    /// over-allocate the tail, which is the documented calling convention.
+    pub const JobObjectBasicProcessIdList: c_int = 3;
+    pub const JobBasicProcessIdList = extern struct {
+        assigned: u32,
+        in_list: u32,
+        ids: [64]usize,
+    };
+
+    // Win32 error codes the process layer folds into errno (winerror.h).
+    pub const ERROR_FILE_NOT_FOUND: u32 = 2;
+    pub const ERROR_PATH_NOT_FOUND: u32 = 3;
+    pub const ERROR_TOO_MANY_OPEN_FILES: u32 = 4;
+    pub const ERROR_ACCESS_DENIED: u32 = 5;
+    pub const ERROR_INVALID_HANDLE: u32 = 6;
+    pub const ERROR_NOT_ENOUGH_MEMORY: u32 = 8;
+    pub const ERROR_BAD_FORMAT: u32 = 11;
+    pub const ERROR_OUTOFMEMORY: u32 = 14;
+    pub const ERROR_NOT_SUPPORTED: u32 = 50;
+    pub const ERROR_INVALID_PARAMETER: u32 = 87;
+    pub const ERROR_BROKEN_PIPE: u32 = 109;
+    pub const ERROR_DIRECTORY: u32 = 267;
+    pub const ERROR_BAD_EXE_FORMAT: u32 = 193;
+    pub const ERROR_NO_MORE_FILES: u32 = 18;
 } else struct {};

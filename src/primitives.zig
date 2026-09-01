@@ -230,14 +230,15 @@ pub const Lib = enum {
     }
 
     /// The Windows analogue of `wasmAvailable`, for libraries whose whole
-    /// implementation is absent on that platform. Only `(kaappi process)`
-    /// today: its Phase 1 surface is posix_spawn-only, and an empty library
-    /// registered there would make `(library (kaappi process))` gate true
-    /// while importing `spawn-process` fails — worse than absent. Phase 3
-    /// (CreateProcess + Job Objects) removes the entry.
+    /// implementation is absent on that platform. Empty since KEP-0022
+    /// Phase 3 (kaappi#2416) gave `(kaappi process)` its CreateProcess +
+    /// Job Object backend — the one entry this ever had. Kept because the
+    /// gate is load-bearing the moment a Windows-unavailable library
+    /// appears: registering an empty library would make
+    /// `(library (foo))` answer true while importing its bindings fails,
+    /// which is worse than absent.
     pub fn windowsAvailable(self: Lib) bool {
         return switch (self) {
-            .kaappi_process => false,
             else => true,
         };
     }
@@ -337,7 +338,6 @@ const core_specs = [_]PrimSpec{
 };
 
 const no_specs = [0]PrimSpec{};
-const is_windows = @import("builtin").os.tag == .windows;
 
 pub const all_specs = core_specs ++
     @import("primitives_list.zig").specs ++
@@ -367,10 +367,11 @@ pub const all_specs = core_specs ++
     primitives_random.specs ++
     @import("primitives_random_port.zig").specs ++
     (if (is_wasm) no_specs else primitives_filesystem.specs) ++
-    // (kaappi process): POSIX-only in Phase 1 (KEP-0022); the WASM and
-    // Windows gates keep the module — whose libc surface is naked posix —
-    // from even being analyzed on those targets.
-    (if (is_wasm or is_windows) no_specs else @import("primitives_process.zig").specs) ++
+    // (kaappi process): every hosted target since KEP-0022 Phase 3 gave it a
+    // CreateProcess backend (kaappi#2416). The WASM gate stays — WASI p1 has
+    // no process creation at all, and the module's backend selection has no
+    // arm for it.
+    (if (is_wasm) no_specs else @import("primitives_process.zig").specs) ++
     @import("primitives_fiber.zig").specs ++
     @import("primitives_parallel.zig").specs ++
     // SRFI-18's OS-thread machinery cannot exist on WASM, but its
