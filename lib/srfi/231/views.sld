@@ -309,16 +309,51 @@
     ;; call a true copy; otherwise omitted options fall back to
     ;; generic-storage-class/specialized-array-default-mutable?/-safe? --
     ;; confirmed via an explicit spec quote naming this exact asymmetry.
-    ;; array-copy! is documented to differ from array-copy only in
-    ;; call/cc re-entrancy safety during the fill (the spec permits it to
-    ;; be faster/leaner by skipping a safety guarantee, never in the
-    ;; final result for an ordinary, non-continuation-abusing caller);
-    ;; this port implements both identically (a direct fill loop, no
-    ;; accumulate-to-a-list-first indirection) as a deliberate, documented
-    ;; scope reduction -- getters that escape and re-invoke a captured
-    ;; continuation mid-copy are exotic enough that the extra allocation
-    ;; and complexity isn't justified for this phase.
-    (define (%array-copy-impl array opts)
+    ;; array-copy must be safe under a getter that captures a
+    ;; continuation and re-invokes it after the copy returned (the whole
+    ;; documented difference from array-copy!): the re-entry gets a FRESH
+    ;; array, and the array the first call already returned never mutates
+    ;; under its holder. That requires collecting every source value
+    ;; BEFORE the destination exists, into a pre-sized scratch vector
+    ;; indexed by a position threaded FUNCTIONALLY through the walk --
+    ;; the threading is the safety mechanism (a set! position counter, or
+    ;; interval-fold-left/right, which use one, lets the re-entry keep
+    ;; counting on the first run's progress). The scratch itself is
+    ;; shared mutable state, deliberately: a re-entry resumes from the
+    ;; position captured at its capture point, so positions below it
+    ;; retain the first run's values and positions above are re-fetched
+    ;; -- observably identical to a functional cons accumulator, without
+    ;; that shape's cost (at 1M elements: 18.0M total pair allocations
+    ;; for a cons-list collector against 16.0M here, and its N live
+    ;; pairs gone; the churn that remains is the library apply shape
+    ;; every fill loop already shares -- kaappi#2464). A direct fill into
+    ;; a pre-allocated destination (the pre-#2454 shape, and what
+    ;; array-copy! still is -- the spec explicitly permits the `!`
+    ;; variant to skip exactly this guarantee) lets the resumed fill
+    ;; overwrite the already-returned array.
+    (define (%domain-walk lowers uppers leaf k)
+      ;; Walk the domain in lexicographic order (first axis outermost,
+      ;; matching %interval-for-each-indices in intervals.sld), calling
+      ;; (leaf index k) per multi-index with the index as a list, and
+      ;; threading the leaf's returned position functionally through the
+      ;; axis loops and the recursion. That threading is what makes a
+      ;; continuation captured inside a leaf re-run the walk from ITS
+      ;; captured position over ITS captured prefix, never the first
+      ;; run's. One helper serves both array-copy passes so they cannot
+      ;; drift out of order-agreement.
+      (letrec ((walk
+                (lambda (ls us rev-index k)
+                  (if (null? ls)
+                      (leaf (reverse rev-index) k)
+                      (let loop ((i (car ls)) (k k))
+                        (if (>= i (car us))
+                            k
+                            (loop (+ i 1)
+                                  (walk (cdr ls) (cdr us)
+                                        (cons i rev-index) k))))))))
+        (walk lowers uppers '() k)))
+
+    (define (%array-copy-impl array opts call/cc-safe?)
       (unless (array? array) (error "array-copy: not an array" array))
       (%check-boolean! (%opt opts 1 (specialized-array-default-mutable?)) "array-copy: mutable?")
       (%check-boolean! (%opt opts 2 (specialized-array-default-safe?)) "array-copy: safe?")
@@ -327,24 +362,60 @@
              (mutable? (%opt opts 1 (if specialized? (mutable-array? array) (specialized-array-default-mutable?))))
              (safe? (%opt opts 2 (if specialized? (array-safe? array) (specialized-array-default-safe?))))
              (domain (array-domain array))
-             ;; indices come from interval-for-each over the source's own
-             ;; domain, so neither side needs the index check; values are
-             ;; still checked unless provably valid (#2448)
+             ;; indices come from a walk over the source's own domain, so
+             ;; neither side needs the index check; values are still
+             ;; checked unless provably valid (#2448)
              (getter (array-unsafe-getter array))
+             (checker (%copy-value-checker array storage-class))
+             (lowers (interval-lower-bounds->list domain))
+             (uppers (interval-upper-bounds->list domain))
+             ;; The whole collection runs here, inside the binding --
+             ;; strictly before the destination below is allocated --
+             ;; calling every getter (and the value checker) into the
+             ;; scratch, so a continuation captured in a getter re-runs
+             ;; collection and materializes its own destination.
+             (scratch (and call/cc-safe?
+                           (let ((buf (make-vector (interval-volume domain))))
+                             (%domain-walk lowers uppers
+                                           (lambda (index k)
+                                             (let ((val (apply getter index)))
+                                               (when (and checker (not (checker val)))
+                                                 (error "array-copy: not all elements of the source can be stored in the destination"
+                                                        val storage-class))
+                                               (vector-set! buf k val)
+                                               (+ k 1)))
+                                           0)
+                             buf)))
              (dest (make-specialized-array domain storage-class (storage-class-default storage-class) safe?))
-             (dest-setter (array-unsafe-setter dest))
-             (checker (%copy-value-checker array storage-class)))
-        (interval-for-each (lambda multi-index
-                             (let ((val (apply getter multi-index)))
-                               (when (and checker (not (checker val)))
-                                 (error "array-copy: not all elements of the source can be stored in the destination"
-                                        val storage-class))
-                               (apply dest-setter val multi-index)))
-                           domain)
+             (dest-setter (array-unsafe-setter dest)))
+        (if call/cc-safe?
+            ;; Copy-out from the scratch: the values are already
+            ;; collected, so a getter re-entry cannot change what lands
+            ;; in dest. The dest-setter is library code for the built-in
+            ;; storage classes but USER code when the destination's
+            ;; storage class came from make-storage-class -- a
+            ;; continuation captured there re-enters this copy-out with
+            ;; dest already allocated, so it does not get a fresh array
+            ;; (the same residual exposure the reference implementation's
+            ;; own accumulate-then-materialize shape has; both runs write
+            ;; identical collected values, so only the identity of the
+            ;; re-entry's result object is affected).
+            (%domain-walk lowers uppers
+                          (lambda (index k)
+                            (apply dest-setter (vector-ref scratch k) index)
+                            (+ k 1))
+                          0)
+            (interval-for-each (lambda multi-index
+                                 (let ((val (apply getter multi-index)))
+                                   (when (and checker (not (checker val)))
+                                     (error "array-copy: not all elements of the source can be stored in the destination"
+                                            val storage-class))
+                                   (apply dest-setter val multi-index)))
+                               domain))
         (if mutable? dest (array-freeze! dest))))
 
-    (define (array-copy array . opts) (%array-copy-impl array opts))
-    (define (array-copy! array . opts) (%array-copy-impl array opts))
+    (define (array-copy array . opts) (%array-copy-impl array opts #t))
+    (define (array-copy! array . opts) (%array-copy-impl array opts #f))
 
     ;; --- specialized-array-reshape: see the file header for the
     ;; algorithm description. ---

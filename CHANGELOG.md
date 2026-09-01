@@ -65,6 +65,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **SRFI 231 `array-copy` is continuation-safe** (#2454) — the fill wrote
+  directly into a destination allocated before the loop started, so a getter
+  that captured a continuation and re-invoked it after `array-copy` returned
+  kept writing into the array the first copy had already handed back: the
+  caller's array silently mutated under it (the official suite's own case —
+  the first copy reading `((4 1) (1 1))` instead of `((1 1) (1 1))`). The
+  spec's whole documented difference between `array-copy` and `array-copy!`
+  is that the non-`!` one must be safe under exactly this. `array-copy` (and
+  `array-append`, `array-stack`, `array-block`, `array-decurry`, which
+  delegate to it) now collect every source value — before the destination
+  exists — into a pre-sized scratch vector indexed by a position threaded
+  functionally through the walk (a cons-list accumulator instead holds N
+  pairs live and allocates 2N more across the reverse: 18.0M total pair
+  allocations for that shape against this one's 16.0M at 1M elements; the
+  churn that remains is the library apply shape every fill loop shares,
+  tracked in kaappi#2464), so a re-entry re-runs the collection from its
+  capture point and materializes its own destination. `array-copy!`
+  keeps the direct fill, which the spec explicitly permits. One residual
+  exposure remains, shared with the reference implementation: a destination
+  storage class from `make-storage-class` contributes user-written setter
+  code to the copy-out, where a capture re-enters with the destination
+  already allocated and hands back the same object (with identical
+  contents).
 - **Continuations captured under a non-tail `apply` or `call-with-values`
   (#2451)** — resuming one raised `KP3000: continuation cannot resume across a
   returned native call`. Both reached their callee through a native
