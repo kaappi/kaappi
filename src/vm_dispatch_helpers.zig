@@ -123,6 +123,23 @@ pub fn toBase(base_wide: usize) VMError!u32 {
 /// as recoverable. Reporting StackOverflow both sent readers hunting for
 /// runaway recursion and, once limits stopped being catchable, would have
 /// made a bad argument list unrecoverable.
+/// The non-tail `apply` opcode's type errors, worded exactly like the native
+/// `applyFn`'s (`primitives.typeError("apply", ...)`) rather than like
+/// `tail_apply`'s terser in-loop texts (kaappi#2451).
+///
+/// The wording is load-bearing, not cosmetic: non-tail position is where
+/// `tests/scheme/compile/native-apply-lowering-1803.sh` pins the interpreter's
+/// diagnostics against the LLVM backend's, which reaches `applyFn`'s texts
+/// through `@kaappi_apply`. Tail position is deliberately exempt there — its
+/// texts have always differed — so only this opcode has parity to keep.
+pub noinline fn raiseApplyTypeError(vm: *VM, expected: []const u8, got: Value) VMError {
+    var buf: [128]u8 = undefined;
+    const primitives = @import("primitives.zig");
+    const desc = primitives.safeValueDescription(&buf, got);
+    vm.setErrorDetail("type error in 'apply': expected {s}, got {s}", .{ expected, desc });
+    return VMError.TypeError; // bare-ok: detail set above, matching primitives.typeError
+}
+
 pub fn tooManyApplyArgs(vm: *VM) VMError {
     vm.setErrorDetail("apply: too many arguments (limit 255)", .{});
     return VMError.InvalidArgument;

@@ -1462,6 +1462,14 @@ pub const OpCode = enum(u8) {
     self_tail_call, // base:u16, nargs:u8
     tail_call_cc, // base:u16, dst:u16 (receiver at base+0; captures continuation at dst, tail-calls receiver)
     tail_eval, // base:u16, nargs:u8 (expr at base+0, optional env at base+1; compiles and tail-calls)
+    // Non-tail `apply` (kaappi#2451) — the sibling of `tail_apply` above, but
+    // appended here rather than placed beside it: an opcode's *number* is part
+    // of the on-disk `.sbc` encoding, and inserting one renumbers every opcode
+    // after it. `readFileWithTopLevel` rejects a cache entry from another build
+    // by compiler hash, but `src/testdata/fuzz-seed.sbc` patches that hash in at
+    // comptime and so has no such guard — it decoded as garbage the moment the
+    // numbering shifted. New opcodes go on the end.
+    apply, // base:u16, nargs:u8
 };
 
 // -- Doc sync gate ----------------------------------------------------------
@@ -1478,7 +1486,7 @@ pub const OpCode = enum(u8) {
 // than trusting the list — grep the *noun*, since the count is written at least
 // four ways ("31 opcodes", "31-opcode", "(31 opcodes)", and number-after-noun).
 comptime {
-    if (@typeInfo(OpCode).@"enum".fields.len != 31)
+    if (@typeInfo(OpCode).@"enum".fields.len != 32)
         @compileError("OpCode count changed. Update the table in docs/dev/bytecode.md, then every " ++
             "file quoting the count — known: docs/dev/architecture.md, docs/dev/README.md, " ++
             "docs/dev/claude-code-harness.md, .claude/skills/bytecode-isa/SKILL.md. Find any others " ++

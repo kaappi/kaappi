@@ -233,10 +233,12 @@ cat > "$DIR/cond-arm.scm" << 'SCHEME'
 SCHEME
 check_both "cond-arm" "$(printf '106\n0')"
 
-# 8. Error shapes, non-tail so both runtimes report through applyFn's
-#    typeError texts. (Tail-position errors go through the interpreter's
-#    tail_apply opcode, whose texts differ — dispatch parity for those is
-#    covered by the rebound case above.)
+# 8. Error shapes, non-tail so both runtimes report applyFn's typeError texts:
+#    the native tier through @kaappi_apply, and — since kaappi#2451 — the
+#    interpreter through its own non-tail `apply` opcode, which reproduces
+#    those texts verbatim precisely so this parity keeps holding. (Tail-position
+#    errors go through the interpreter's tail_apply opcode, whose texts differ —
+#    dispatch parity for those is covered by the rebound case above.)
 cat > "$DIR/err-not-proc.scm" << 'SCHEME'
 (define (s x) (+ 0 (apply x (list 1))))
 (display (s 5))
