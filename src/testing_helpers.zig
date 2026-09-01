@@ -144,23 +144,32 @@ const winsock_test = if (platform.is_windows) struct {
 /// A connected fd pair, [0] the read end and [1] the write end by the
 /// suites' convention. POSIX: a pipe — the exact object the port layer
 /// wraps for process pipes. Windows: a loopback TCP pair (bidirectional,
-/// which satisfies every unidirectional use).
+/// which satisfies every unidirectional use). Both ends are close-on-exec
+/// (kaappi#2422): these pairs live only for the life of an in-process
+/// test, and a CLOEXEC pair can never surface in a spawned child as a
+/// phantom inherited descriptor.
 pub fn makeFdPair() [2]platform.fd_t {
     if (comptime platform.is_windows) return makeWinLoopbackPair();
     if (comptime platform.is_wasm) wasmNoFdPairs();
     var fds: [2]std.c.fd_t = undefined;
-    if (std.c.pipe(&fds) != 0) unreachable;
+    std.debug.assert(platform.pipe(&fds) == 0);
     return fds;
 }
 
 /// A connected *bidirectional* fd pair backed by sockets on every
 /// platform: AF_UNIX socketpair on POSIX, the loopback TCP pair on
 /// Windows. For tests that need two-way traffic or socket buffer tuning.
+/// Both ends are made close-on-exec (kaappi#2422): SOCK_CLOEXEC is absent
+/// from the macOS SDK, so the flag is set via F_SETFD after the call —
+/// on the BSDs, where it exists, staying with the portable form keeps
+/// one code path.
 pub fn makeBidiFdPair() [2]platform.fd_t {
     if (comptime platform.is_windows) return makeWinLoopbackPair();
     if (comptime platform.is_wasm) wasmNoFdPairs();
     var fds: [2]std.c.fd_t = undefined;
     if (std.c.socketpair(std.c.AF.UNIX, std.c.SOCK.STREAM, 0, &fds) != 0) unreachable;
+    _ = platform.setFdCloexec(fds[0]);
+    _ = platform.setFdCloexec(fds[1]);
     return fds;
 }
 

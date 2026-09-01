@@ -297,6 +297,16 @@ test "run-process: a spawn failure is a file error, not a timeout condition" {
         \\  (run-process '("/no/such/program/2417"))
         \\  'no-error-raised)
     );
+    // The bare-name form, which POSIX lets libc settle either way and
+    // OpenBSD's settled as an ordinary exit 127 until kaappi#2456 gave its
+    // spawn a CLOEXEC error pipe: the PATH miss must be a file error there
+    // too, never a status a program that ran could also have produced.
+    try th.expectEvalTrue(
+        \\(guard (e (#t (and (file-error? e) (not (process-timeout? e))))
+        \\          (else #f))
+        \\  (run-process '("kaappi-no-such-program-2456"))
+        \\  'no-error-raised)
+    );
 }
 
 test "run-process: runs inside a spawned fiber, and siblings overlap" {

@@ -805,7 +805,10 @@ fn spawnWorker(allocator: std.mem.Allocator, exe_path: []const u8, file: []const
     defer freeChildEnv(allocator, envp);
 
     var pipe: [2]c_int = undefined;
-    if (std.c.pipe(&pipe) != 0) return error.PipeFailed;
+    // platform.pipe for the CLOEXEC pair discipline (kaappi#2422): the
+    // child's dup2s onto 1/2 clear it on exactly the installed slots, and
+    // the parent's ends never leak into the exec'd child.
+    if (platform.pipe(&pipe) != 0) return error.PipeFailed;
 
     const pid = std.posix.system.fork();
     if (pid < 0) {

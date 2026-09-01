@@ -946,6 +946,20 @@ fn openBinaryOutputFile(args: []const Value) PrimitiveError!Value {
 /// on it, and unregisters it from the reactor. The caller must not also
 /// close the fd through its own path.
 pub fn makeFdPort(gc: *memory.GC, fd: platform.fd_t, is_input: bool, is_output: bool, name: []const u8) PrimitiveError!Value {
+    // The wrap is the ownership boundary for exec too: a descriptor that
+    // arrives here without FD_CLOEXEC — an FFI socket from kaappi-net, a
+    // foreign library's pipe — would otherwise be inherited by every
+    // spawn-process child on Linux and the BSDs, where close-by-default is
+    // the CLOEXEC audit rather than macOS's wholesale
+    // POSIX_SPAWN_CLOEXEC_DEFAULT (kaappi#2424). Kaappi execs only through
+    // spawn-process, whose stdio install (dup2 into 0..2) clears the flag
+    // on exactly the child's slots, so this cannot break a legitimate
+    // pass-through; a foreign side that genuinely wants a child to inherit
+    // its descriptor must prepare the fd itself. Best-effort on failure: a
+    // descriptor too broken for F_SETFD is the port's problem to report on
+    // first I/O, not a wrap-time error the caller cannot distinguish from
+    // a bad fd number.
+    _ = platform.setFdCloexec(fd);
     const port_val = gc.allocPort(fd, is_input, is_output, name, false) catch return PrimitiveError.OutOfMemory;
     types.toObject(port_val).as(types.Port).is_binary = true;
     return port_val;

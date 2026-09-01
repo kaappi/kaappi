@@ -408,6 +408,18 @@ test "process: spawn failure raises a catchable file error" {
         \\  (spawn-process '("/nonexistent/kaappi-test-program")))
     );
 
+    // The bare-name form must fail the same way rather than "succeed" and
+    // have the child exit 127 — OpenBSD's vfork-based userland
+    // posix_spawn reported a missed PATH search exactly that way, and 127
+    // is indistinguishable from a program that ran and failed
+    // (kaappi#2456; its spawn is fork+exec with a CLOEXEC error pipe now,
+    // and this assertion is what pins the contract there — every other
+    // platform's libc already reports ENOENT synchronously).
+    try expectTrue(vm,
+        \\(guard (e ((file-error? e) #t) (else 'wrong-kind))
+        \\  (spawn-process '("kaappi-no-such-program-2456")))
+    );
+
     // argv must be a non-empty list of strings: '() fails the pair check
     // (TypeError), a non-string element the element check.
     try std.testing.expectError(vm_mod.VMError.TypeError, vm.eval("(spawn-process '())"));

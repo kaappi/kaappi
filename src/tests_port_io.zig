@@ -617,6 +617,39 @@ test "#1478: fd->port rejects the standard streams and non-fixnums" {
     try std.testing.expectError(error.TypeError, vm.eval("(fd->port \"nope\")"));
 }
 
+test "#2424: fd->port makes a foreign descriptor close-on-exec at wrap time" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no filesystem on WASI p1 (kaappi#1972)
+    if (comptime platform.is_windows) return error.SkipZigTest; // the FD_CLOEXEC contract is a POSIX exec concern
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // A raw open(2) with no O_CLOEXEC, deliberately: the inheritable shape
+    // an FFI call hands back (a kaappi-net socket arrives the same way).
+    // platform.pipe would already carry FD_CLOEXEC and prove nothing about
+    // the wrap.
+    const fd = std.c.open("/dev/null", .{ .ACCMODE = .RDONLY });
+    try std.testing.expect(fd >= 0);
+
+    var buf: [128]u8 = undefined;
+    const src = try std.fmt.bufPrint(&buf,
+        \\(import (kaappi ffi))
+        \\(fd->port {d})
+    , .{fd});
+    const port_val = try vm.eval(src);
+    _ = port_val; // the port owns fd from here; it stays open until GC
+
+    // The wrap is the ownership boundary: without this, the descriptor is
+    // inherited by every spawn-process child on Linux and the BSDs, where
+    // close-by-default is the CLOEXEC audit rather than macOS's wholesale
+    // POSIX_SPAWN_CLOEXEC_DEFAULT.
+    const FD_CLOEXEC: c_int = 1;
+    const flags = platform.getFdFlags(fd);
+    try std.testing.expect(flags >= 0);
+    try std.testing.expect((flags & FD_CLOEXEC) != 0);
+}
+
 // #1460: readOneByte reads a chunk into read_buf and serves subsequent bytes
 // from memory, so byte-at-a-time consumers (read-u8, read-char,
 // read-bytevector, read-string, read-line) pay one read(2) per burst rather
