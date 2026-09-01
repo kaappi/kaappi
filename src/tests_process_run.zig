@@ -109,30 +109,44 @@ test "run-process: a child that never reads its stdin is not an error (EPIPE is 
     );
 }
 
-test "run-process: both pipes drain concurrently with the wait" {
+test "run-process: a pipe past its buffer drains while the wait parks" {
     if (comptime !is_posix) return error.SkipZigTest;
     var ctx: th.TestContext = undefined;
     try ctx.init();
     defer ctx.deinit();
+    const vm = ctx.vm;
 
-    // The deadlock this API exists to prevent: a child that fills stdout,
-    // stderr *and* its stdin buffer at once. Serial "wait, then read" hangs
-    // forever; so does "read stdout to EOF, then stderr". Every byte count
-    // here is past the 64 KiB pipe buffer every supported platform uses.
+    // The deadlock this API exists to prevent. Both directions are past the
+    // 64 KiB pipe buffer every supported platform uses, so a serial
+    // "feed it, then read it" wedges: the parent blocks writing while the
+    // child blocks writing to a stdout nobody is draining.
+    //
+    // /bin/cat is the generator on purpose. `head -c` is a GNU/FreeBSD
+    // extension OpenBSD's head does not have, and `dd count=` on a pipe
+    // counts read() calls rather than bytes — both make a "generate N
+    // bytes" child unportable, and the three-streams-at-once case is
+    // covered portably in tests/scheme/process/process-run.scm, whose
+    // child is kaappi itself.
     const n: usize = if (build_options.gc_stress) 4096 else 200_000;
     var buf: [512]u8 = undefined;
-    const src = try std.fmt.bufPrint(&buf,
+
+    const to_stdout = try std.fmt.bufPrint(&buf,
         \\(call-with-values
-        \\  (lambda ()
-        \\    (run-process (list "/bin/sh" "-c"
-        \\                       (string-append "cat >/dev/null; "
-        \\                                      "yes o | head -c {d}; "
-        \\                                      "yes e | head -c {d} 1>&2"))
-        \\                 'input: (make-string {d} #\i)))
+        \\  (lambda () (run-process '("/bin/cat") 'input: (make-string {d} #\i)))
         \\  (lambda (st out err)
-        \\    (and (= st 0) (= (string-length out) {d}) (= (string-length err) {d}))))
-    , .{ n, n, n, n, n });
-    try expectTrue(ctx.vm, src);
+        \\    (and (= st 0) (= (string-length out) {d}) (string=? err ""))))
+    , .{ n, n });
+    try expectTrue(vm, to_stdout);
+
+    var buf2: [512]u8 = undefined;
+    const to_stderr = try std.fmt.bufPrint(&buf2,
+        \\(call-with-values
+        \\  (lambda () (run-process '("/bin/sh" "-c" "cat 1>&2")
+        \\                          'input: (make-string {d} #\i)))
+        \\  (lambda (st out err)
+        \\    (and (= st 0) (string=? out "") (= (string-length err) {d}))))
+    , .{ n, n });
+    try expectTrue(vm, to_stderr);
 }
 
 test "run-process: output: 'bytevector returns raw bytes" {
@@ -167,10 +181,18 @@ test "run-process: directory: and env: pass through to the spawn" {
     defer ctx.deinit();
     const vm = ctx.vm;
 
+    // `directory:` has no portable POSIX backing: NetBSD's and OpenBSD's
+    // libc have no `posix_spawn_file_actions_addchdir_np`, and
+    // `process_posix.supports_directory` is false there, so spawn-process
+    // rejects the option with an argument error (KP3007) rather than
+    // silently ignoring it. Both outcomes are asserted precisely — a bare
+    // `(guard (e (#t #t)) ...)` would pass on every platform for the wrong
+    // reason.
     try expectTrue(vm,
-        \\(call-with-values
-        \\  (lambda () (run-process '("/bin/sh" "-c" "pwd") 'directory: "/"))
-        \\  (lambda (st out err) (string=? out "/\n")))
+        \\(guard (e ((error-object? e) (eq? 'KP3007 (error-object-code e))))
+        \\  (call-with-values
+        \\    (lambda () (run-process '("/bin/sh" "-c" "pwd") 'directory: "/"))
+        \\    (lambda (st out err) (string=? out "/\n"))))
     );
     try expectTrue(vm,
         \\(call-with-values
