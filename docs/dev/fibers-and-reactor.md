@@ -8,10 +8,11 @@ thread), see `docs/dev/thread-value-sharing.md`.
 
 ## The reactor
 
-Each OS thread's scheduler owns a `Reactor` (`src/reactor.zig`:
-kqueue/epoll/WASI-`poll_oneoff`/Windows-`WSAEventSelect` backends plus a
-userspace timer heap), created lazily with the scheduler by
-`fiber.ensureScheduler`.
+Each OS thread's scheduler owns a `Reactor` (`src/reactor.zig` — the
+dispatch core, registries, and timer heap; the four OS backends —
+kqueue/epoll/WASI-`poll_oneoff`/Windows-`WSAEventSelect` — live in
+`src/reactor_backends.zig`, split along the dispatch-versus-backend seam),
+created lazily with the scheduler by `fiber.ensureScheduler`.
 
 The blocking-wait machinery — `waitForFd`, reactor parking (`parkOnReactor`),
 and the shared in-place scheduler drive (`runSchedulerStep`) — lives in
@@ -140,6 +141,54 @@ library itself stays native-only.
 | file | blocking | none — the POSIX baseline too; no OS has regular-file readiness |
 
 `docs/dev/windows.md` explains why IOCP was rejected.
+
+## Child-exit readiness (KEP-0022 Phase 2)
+
+The reactor also watches spawned children (`(kaappi process)`) for exit:
+kqueue registers an `EVFILT_PROC` + `NOTE_EXIT` knote by pid; epoll registers
+a `pidfd_open(2)` descriptor for read-readiness (a pidfd becomes readable on
+exit, and its lifetime *is* the registration's — opened in
+`Reactor.registerProcess`, closed when the registration drops). On the event,
+the reactor reaps — `waitpid(pid, WNOHANG)`, status into `proc.status`, the
+child off `GC.unreaped_processes` — and wakes every parked waiter at once.
+There is no SIGCHLD handler anywhere, so children spawned by C FFI libraries
+are unobserved and unaffected.
+
+Four rules keep it honest:
+
+- **"Armed ⇔ a waiter is parked"**, the fd ONESHOT discipline: the last
+  waiter's withdrawal (`removeProcessWaiter`) drops the whole registration,
+  so zombie discipline for never-waited children stays with the Phase-1
+  WNOHANG sweeps rather than the registry pinning Processes alive.
+  `Reactor.markRoots` traces registered Processes and their waiters.
+- **Arm-then-probe closes the exit-before-arm race**: an exit that beats the
+  arm posts no kernel event, ever (and the arm itself may refuse with ESRCH
+  once the child is reapable) — so `process-wait` follows every registration
+  with one WNOHANG probe. An exit before the arm is caught by the probe; one
+  after it, by the event.
+- **Status-first resolution everywhere**: a woken retry consults
+  `proc.status`, never a `waitpid` of its own, and a stored status outranks a
+  fired timeout timer (delivery-wins, the channel precedent). This is also
+  what makes the wake-all discipline safe against spurious `timed_out` flags.
+- **Reaps outside the reactor must wake too**: `process-status`'s targeted
+  reap and the WNOHANG sweeps call `wakeProcessWaiters`
+  (`Reactor.cancelProcessWatch`) so a parked waiter never depends on a kernel
+  event whose registration was already dropped.
+
+`process-wait` itself follows the standard park-versus-drive split above,
+with `timeout:` riding the reactor timer heap (`#f` on expiry, child lives —
+Python's contract). No scheduler and no timeout means the Phase-1 blocking
+`waitpid` fallback; a wait from a non-owning SRFI-18 thread raises via the
+`Object.owner` check like every other thread-affine handle.
+
+When the kernel cannot watch a process at all — `pidfd_open` is ENOSYS
+before Linux 5.3 and under Rosetta's x86_64 syscall translation (the podman
+amd64 leg) — `process-wait` degrades to a *polled* park
+(`primitives_process.polledWait`): a WNOHANG probe every 20 ms, parked on
+the reactor timer heap between probes, driving in place for every caller.
+Siblings keep running, which the blocking fallback cannot promise — a
+program whose child exits only after a sibling acts would deadlock in a
+blocking `waitpid`.
 
 ## Buffering and close
 

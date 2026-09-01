@@ -625,6 +625,16 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
                     _ = platform.waitPid(proc.pid, &st, platform.WNOHANG);
                 }
             }
+            // Belt: a live reactor registration roots the Process
+            // (Reactor.markRoots), so a collected one is unregistered and
+            // its pidfd already closed — but a stray handle must never
+            // outlive the object (KEP-0022 Phase 2).
+            if (proc.wait_handle >= 0) {
+                if (comptime !platform.is_wasm and !platform.is_windows) {
+                    _ = platform.close(proc.wait_handle);
+                }
+                proc.wait_handle = -1;
+            }
             poisonAndDestroy(gc, types.Process, proc);
         },
         .mutex => {
