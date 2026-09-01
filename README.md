@@ -407,7 +407,7 @@ mapped or walked freely.
 `append-map`, `pair-for-each`, `pair-fold`, the `lset-*` family, and
 `assoc`/`member` with a custom predicate, among others — plus two corners of
 the exempt pair: `call-with-values`' **producer** (the consumer is what runs in
-the dispatch loop; the producer still runs under the native call), and an
+the dispatch loop; the producer still runs under the native call — #2453), and an
 `apply` whose flattened argument list exceeds 255 arguments, which falls back to
 the native route because the call opcode's argument count is a single byte.
 

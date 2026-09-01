@@ -140,7 +140,8 @@ OTHER DEALINGS IN THE SOFTWARE.
 ;;; accumulating the source's values first, so the re-entry overwrites the
 ;;; array the first copy already returned instead of materializing a fresh
 ;;; one. array-append/stack/block/decurry all delegate to array-copy, which
-;;; is why one fill loop accounts for five ids.
+;;; is why one fill loop accounts for five ids. Tracked as kaappi#2454; prune
+;;; all five when it lands.
 (define divergent-tests 0)
 (define diverged-counts (make-vector 10000 0))
 (define known-divergences
