@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788199226791,
+  "lastUpdate": 1788228476736,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6b1795651cc1710f0b3056890b49acbf14eee4a0",
-          "message": "Fix SRFI-18 cross-thread state: symbol interning depth (#1935), mutex/terminate state machine (#1984), cross-thread continuation invoke (#1936) (#2262)\n\n* Fix SRFI-18 cross-thread state: symbol interning depth, mutex/terminate state machine, cross-thread continuation invoke\n\nThree Phase 5 audit findings (wrong-result, R7RS/SRFI-18 violations) in the\nSRFI-18 cross-thread machinery:\n\n#1935 - symbol interning was one thread level deep. GC.initForThread\npointed a child at its IMMEDIATE parent's symbol table, and a child GC's\nown 'symbols' field is never populated (its internings go to\nshared_symbols) -- so a grandchild interned into a table nothing else\nconsults: (eq? 'alpha (string->symbol \"alpha\")) at thread depth 2 was #f,\nan R7RS 6.5 violation, and the depth-1 ownership stamping that makes\nsymbols the one safe cross-heap write did not reach depth 2. Chain every\ndescendant to the ROOT's symbol table, foreign_symbols and owner id. The\nproduction path was already masked at depth 2 by #2230 passing the root\nVM to threadEntryFn; the latent trap in initForThread itself is now gone.\n\n#1984 - four SRFI-18 state-machine defects:\n  * mutex-unlock! never cleared 'abandoned' (spec: \"makes it\n    unlocked/not-abandoned\") -- a plain unlock of a mutex whose previous\n    owner died raised a spurious abandoned-mutex-exception on the next\n    lock.\n  * thread-terminate! destroyed an already-finished thread's result --\n    the terminated flag was stored before the status guard, and\n    thread-join! tests it first, so terminating a joined thread\n    retroactively erased what it returned. Terminating a finished thread\n    is now a no-op (\"If the _thread_ is not already terminated\").\n  * mutex-lock! accepted a terminated thread as owner -- per spec \"if T\n    is terminated the _mutex_ becomes unlocked/abandoned\"; the old code\n    recorded the dead thread as owner, permanently deadlocking every\n    later lock.\n  * self-termination joined as uncaught-exception with a void reason\n    instead of terminated-thread-exception -- the join reads the HANDLE\n    fiber, a different object from the thread's own current fiber, so the\n    handle's terminated flag is now set too.\n\n#1936 - invoking a continuation captured on another OS thread (reached\nonly through the shared-globals path, bypassing the deep-copy refusal)\noverwrote the invoking VM with the capturing thread's saved frames and\nproduced a value on which every R7RS type predicate answers #f -- a value\noutside the type lattice. Every continuation-invoke site now checks the\ncontinuation's owning GC and raises a catchable error instead.\nSame-thread invocation is unaffected.\n\nEach fix carries a regression test that fails without it (Scheme tests\nunder tests/scheme/srfi/, a GC unit test, and the audit file's pinned\n'TODAY' behaviours updated to the spec-correct ones). Two existing tests\nare updated: srfi18-mutex-state-owner-2125 (explicit owner must now be a\nlive thread) and srfi18-terminate-native-wait-1982 (the timed-lock case\nnow actually parks the child instead of passing only via the erase-a\nfinished-result bug).\n\nFull suite: 2093 Scheme/R7RS tests pass, 1716+ unit tests pass, and the\nunit suite stays green under -Dgc-stress=true.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: wake fast-path waiters, self-contained same-thread control, contended slow-path test, stale audit header\n\nReview findings on #2262, all verified against the code:\n\n* mutexLockFn's fast-path terminated-owner release now wakes local waiters\n  (ctx.sched.wakeMutexWaiters) like the slow path already did, so a waiter\n  enrolled from a previous foreign unlock observes the release instead of\n  sitting parked until its poll cap or the deadlock error.\n* The #1936 test's 'same continuation still works on its own thread'\n  control invoked a top-level continuation, which re-enters the capture\n  point and never returns to the assertion -- the verdict was silently\n  skipped (5 passes, not 6). The control now captures and invokes a\n  continuation inside the assertion.\n* Added a contended variant of the terminated-owner mutex test that parks\n  through the waited path of mutexLockFn, exercising its separate copy of\n  the transition (previously only the uncontended fast path was pinned).\n* Rewrote the audit file's stale '-- BUG:' header above the lc-12/lc-13\n  assertions (now '#1984 FIXED', obsolete line numbers removed).\n\nThe 'critical' review claim that the slow-path branch skips the reactor\ntimer / deadline_ns cleanup is not applicable: that cleanup runs above the\nbranch (primitives_srfi18.zig:1686-1687, before the owner resolution), and\nrunSchedulerStep's epilogue already restores me.status to .running -- no\ncode change needed there.\n\nVerified: full suite 2093 pass / 0 fail; unit tests 1716 pass; new and\nupdated tests pass under -Dgc-stress=true.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-08T20:09:46Z",
-          "tree_id": "996e499aeddb0a51c916842575a39fe078eb5003",
-          "url": "https://github.com/kaappi/kaappi/commit/6b1795651cc1710f0b3056890b49acbf14eee4a0"
-        },
-        "date": 1786221894320,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.01632,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.650348,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.593333,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.894013,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005295,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04656,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.302079,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.055025,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.445659,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.185997,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.579217,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.307104,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.744192,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.842122,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045558,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04492,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8b0f35044d14c32babb71a9787619c63668aece7",
+          "message": "Park process-wait on reactor child-exit readiness (KEP-0022 Phase 2) (#2445)\n\n* Park process-wait on reactor child-exit readiness (#2415)\n\nKEP-0022 Phase 2. The reactor gains a per-process registry alongside its\nfd registrations: kqueue watches children via EVFILT_PROC + NOTE_EXIT\n(registered by pid), epoll via pidfd_open(2) registered for\nread-readiness (the pidfd's lifetime is the registration's). On exit\nreadiness the reactor reaps exactly once — waitpid WNOHANG, status into\nproc.status, the child off the unreaped registry — and wakes every\nparked waiter. No SIGCHLD handler exists anywhere, so children spawned\nby C FFI libraries stay unobserved.\n\nprocess-wait now parks the calling fiber instead of blocking the OS\nthread: a dispatched fiber takes the flat yield-retry park, the main\nfiber drives the scheduler in place, and 'timeout: rides the reactor\ntimer heap with Python's contract (#f on expiry, child lives; a stored\nstatus outranks a fired timer — the channel delivery-wins precedent).\nThe Phase-1 blocking waitpid survives as the no-scheduler fallback and\nas the degradation when the kernel refuses the watch.\n\nThe races and disciplines that shaped the shape:\n\n- An exit that beats the arm posts no kernel event, ever — every\n  registration is followed by one WNOHANG probe (arm-then-probe), and an\n  ESRCH arm refusal reaps the same way.\n- \"Armed iff a waiter is parked\": the last waiter's withdrawal drops the\n  registration, so zombie discipline for never-waited children stays\n  with the Phase-1 sweeps instead of the registry pinning Processes\n  alive. Reactor.markRoots traces registered Processes and waiters.\n- Reaps outside the reactor (process-status, the WNOHANG sweeps, the\n  blocking fallback) wake parked waiters themselves — a waiter must\n  never depend on an event whose registration was already dropped.\n- Every error exit from a park unwinds the full park state\n  (waiter entry, timer, waiting_on, timed_out) — the #2433 discipline.\n\nGroup kill shipped in Phase 1; this adds its acceptance test (the\nchild's own child is dead after 'group: #t), the fiber-starvation test\n(a slow child must not starve a sibling — the wait can only resolve\nafter the sibling's 11th turn), and the timeout-contract tests, at the\nreactor level, the primitive level, and in the Scheme suite.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Degrade to a polled park when the kernel cannot watch a process\n\npidfd_open(2) is ENOSYS before Linux 5.3 and under Rosetta's x86_64\nsyscall translation (the podman amd64 test leg), so every registration\nfails there and process-wait fell back to the Phase-1 blocking waitpid —\nwhich is not a degradation but a deadlock for any program whose child\nexits only after a sibling fiber acts (the fiber-starvation test hung\nforever in wait4 instead of failing).\n\nReplace that arm with polledWait: a WNOHANG probe every 20 ms, parked on\nthe reactor timer heap between probes, driving in place for every caller\n(a dispatched fiber included — with no kernel event to wake a flat park,\na yield-retry would need to tell its polling timer from the user's\ntimeout: deadline, while a bounded drive needs no such split). The\nblocking path survives only where it always was: no scheduler, no\ntimeout.\n\nThe three kernel-watch reactor tests skip when pidfd_open probes ENOSYS\n— the polled degradation is covered by the tests_process eval tests,\nwhich pass under Rosetta with the same profile as main.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Split the reactor's OS backends into reactor_backends.zig\n\nreactor.zig crossed the 1500-line policy bound when the process-watch\nregistry landed (PR #2445 review). The dispatch-versus-backend line is\nthe natural seam: the four readiness multiplexers (kqueue, epoll,\npoll_oneoff, WSAEventSelect+pipes) consume only the reactor's normalized\nleaf types (ReadyEvent, Interest, NotifierBackend) and share nothing\nelse with the core, so they move wholesale together with the per-poll\nbuffer bound and NetBSD's versioned __kevent50 binding (which the\nnotifier's ring also uses, re-exported). msFromNs is aliased back so\ntests_reactor_parity's external reference is unchanged. Pure code\nmotion — 1641 lines becomes ~830 + ~850.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Never report a failed reap as a timeout; surface ECHILD as an error\n\nPR #2445 review (CodeRabbit): when the reactor's exit event finds\nwaitpid reporting ECHILD — something outside Kaappi (a C FFI library's\nwait(-1)) reaped our child — it wakes the parked waiters with no status\nstored, and the wake path flips timed_out for every .waiting fiber it\nreports. A timed process-wait then returned #f well before its\ndeadline, an untimed one could return #f at all (a contract violation),\nand the polled fallback would spin at its cadence forever on the same\nECHILD.\n\ntimed_out alone is no longer a verdict anywhere: the flat retry's\ndiscriminator and the drive path's tail both require the deadline to\nhave actually passed before reporting #f, a spurious pre-deadline wake\nfalls through to re-registration (which fails ESRCH on the vanished\npid) and resolves through the polled path, and polledWait now probes\nwaitpid inline so a persistent non-EINTR failure raises the same\ncatchable \"cannot wait for process\" file-error the blocking path\nraises. A flat retry entering that degradation also hands it the\npreserved absolute deadline (never the recomputed-and-extended one) and\ndetaches its stale timer first.\n\nAlso from the same review: the two blocking reap loops in\ntests_reactor now fail the test on a persistent waitpid error instead\nof hanging the suite. Regression test: reap a spawned child directly\nbehind the registry's back, then assert both a generously-timed and an\nuntimed process-wait raise file-error promptly — neither #f nor a hang.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Fix a stale comment: the reactor process tests fork, not std.process.Child\n\nThe section header still described the first draft's spawn mechanism;\nthe helper switched to raw fork() (the Io-based Zig 0.16 Child API is\nnot worth the ceremony here) before the tests ever landed.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-09-01T01:29:47Z",
+          "tree_id": "759c973bbb1815a8fa4333f23f6af22282ea9094",
+          "url": "https://github.com/kaappi/kaappi/commit/8b0f35044d14c32babb71a9787619c63668aece7"
+        },
+        "date": 1788228473965,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.231246,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.536661,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.558956,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.953835,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005045,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.049012,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.303439,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055354,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.760241,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.217562,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.643481,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.280651,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.712338,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.621087,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044178,
             "unit": "seconds"
           }
         ]
