@@ -187,9 +187,11 @@ fn isBufferedFdPort(port: *types.Port) bool {
 /// the wakeup (stage 1). A non-socket pipe fd is marked
 /// `fd_state.is_pipe`; once a scheduler exists the port enters *emulated*
 /// non-blocking mode — `nonblocking` set with no OS-level flip (pipe fds
-/// have no would-block mode) — routing its I/O through pipeRead/pipeWrite,
-/// whose peek/quota pre-checks synthesize the EAGAIN, and the reactor
-/// re-runs those checks on a poll cadence for the wakeup (stage 2). File
+/// have no would-block mode) — routing its I/O through pipeRead/pipeWrite:
+/// reads gate on the peek and park (stage 2), while writes clamp on the
+/// write-quota query and, when it reads zero — not a would-block oracle
+/// (kaappi#2459) — fall through to a blocking CRT write bounded by
+/// whoever drains the far end. File
 /// fds stay fully blocking, which is the POSIX baseline too (O_NONBLOCK
 /// is a no-op on regular files; epoll rejects them). The probe result is
 /// remembered per port (fd_state.probe_done) so file ports don't pay the
@@ -254,8 +256,10 @@ fn portFdRead(port: *types.Port, buf: [*]u8, len: usize) isize {
     return platform.read(port.fd, buf, len);
 }
 
-/// The port's fd byte sink; portFdRead's write-side twin (pipe ports gate
-/// on the write-quota query instead of the peek).
+/// The port's fd byte sink; portFdRead's write-side twin (pipe ports clamp
+/// on the write-quota query instead of gating on the peek — and a zero
+/// quota falls through to the plain write, since it is not a would-block
+/// oracle; kaappi#2459).
 fn portFdWrite(port: *types.Port, buf: [*]const u8, len: usize) isize {
     if (comptime platform.is_windows) {
         if (port.fd_state.is_socket) return platform.sockSend(port.fd, buf, len);

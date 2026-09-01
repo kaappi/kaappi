@@ -15,12 +15,15 @@
 //! event-driven fiber suspension through WSAEventSelect (reactor.zig's
 //! WindowsEventBackend), reading/writing through sockRecv/sockSend.
 //! Pipe ports have no OS-level would-block mode, so they enter *emulated*
-//! non-blocking mode under a scheduler: pipeRead/pipeWrite's
-//! non-destructive pre-checks synthesize EAGAIN and the reactor re-polls
-//! the same checks on a 10 ms quantum (platform_win_pipe.zig). File
-//! ports keep blocking reads — the POSIX baseline too, since no OS has
-//! regular-file readiness. Sequential programs and timer-driven fibers
-//! are unaffected either way. This file is the public facade; the
+//! non-blocking mode under a scheduler: pipeRead's peek pre-check
+//! synthesizes EAGAIN and the reactor re-polls it on a 10 ms quantum
+//! (platform_win_pipe.zig); writes clamp on the pipe's write quota and,
+//! when it reads zero — not a would-block oracle (kaappi#2459) — fall
+//! through to a blocking CRT write bounded by whoever drains the far
+//! end. File ports keep blocking reads — the POSIX baseline too, since
+//! no OS has regular-file readiness. Sequential programs and
+//! timer-driven fibers are unaffected either way. This file is the
+//! public facade; the
 //! Windows ABI declarations and the socket/pipe helpers live in
 //! platform_win.zig, platform_win_sock.zig, and platform_win_pipe.zig.
 
@@ -310,6 +313,7 @@ pub const fdKind = win_pipe.fdKind;
 pub const pipeHandleFromFd = win_pipe.pipeHandleFromFd;
 pub const pipeRead = win_pipe.pipeRead;
 pub const pipeWrite = win_pipe.pipeWrite;
+pub const pipeWriteNoBlock = win_pipe.pipeWriteNoBlock;
 pub const pipePollReady = win_pipe.pipePollReady;
 pub const SockReadiness = win_sock.SockReadiness;
 pub const sockPollReady = win_sock.sockPollReady;

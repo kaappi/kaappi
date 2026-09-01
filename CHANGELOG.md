@@ -118,6 +118,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   and `test_selection.zig` did the same). These descriptors never
   intentionally cross an exec, but the fd-hygiene suites had to diff
   against the parent's own fd set to tolerate them.
+- **Writing more than the pipe buffer to a child's stdin no longer hangs
+  forever on Windows** (#2459) — past 4096 bytes (the pipe size), a feed
+  through `input:` wedged with no error and no CPU whenever a fiber
+  scheduler was running. `pipeWrite` treated
+  `NtQueryInformationFile`'s `WriteQuotaAvailable` as "can I write
+  without blocking" and synthesized `EAGAIN` at zero — but that field
+  tracks whether the peer happens to be parked in a read on the far end,
+  not whether the buffer has room (it reads 0 on a freshly connected,
+  completely empty pipe), so the parked writer waited on a number that
+  never moves. A zero quota now falls through to the plain CRT write,
+  which blocks the OS thread until the reader drains — the graceful
+  degradation the query-failure path already took, and the pre-#1608
+  behavior; a non-zero quota still usefully clamps the request. The
+  collector's abandoned-port flush keeps a never-block flavor
+  (`pipeWriteNoBlock`), since nothing will ever drain an abandoned pipe.
+  Known residual cost, same as before #1608 stage 2: a child that echoes
+  its stdin back while the feed is still blocked can fill its own output
+  pipe and wedge both sides — a parked write with a truthful readiness
+  signal needs overlapped pipe handles, deliberately out of scope. The
+  Windows stdin cap in the concurrent-drain test is gone, and a
+  larger-than-pipe-buffer `input:` feed is asserted on every platform.
 - **Continuations captured under a non-tail `apply` or `call-with-values`
   (#2451)** — resuming one raised `KP3000: continuation cannot resume across a
   returned native call`. Both reached their callee through a native

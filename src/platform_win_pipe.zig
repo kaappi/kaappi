@@ -11,15 +11,19 @@
 //! buffer space could a write consume right now" (the same query libuv
 //! uses for its non-overlapped pipe writes).
 //!
-//! Those two queries carry the whole design. A pipe port in emulated
-//! non-blocking mode (port.nonblocking set with no OS-level flip —
-//! maybeSetNonblocking) reads/writes through pipeRead/pipeWrite below,
-//! whose pre-checks synthesize the EAGAIN that drives the shared
-//! park-and-retry protocol unchanged; the reactor's WindowsEventBackend
-//! answers "when is it ready again" by re-running the same checks on a
-//! bounded poll cadence (pipePollReady). Sequential programs never set the
-//! flag, so their pipe I/O keeps the plain blocking CRT calls and syscall
-//! profile.
+//! Those two queries carry the whole design — for reads. A pipe port in
+//! emulated non-blocking mode (port.nonblocking set with no OS-level
+//! flip — maybeSetNonblocking) reads through pipeRead, whose peek
+//! pre-check synthesizes the EAGAIN that drives the shared
+//! park-and-retry protocol (PeekNamedPipe answers "are there bytes right
+//! now" exactly); the reactor's WindowsEventBackend answers "when is it
+//! ready again" by re-running the same check on a bounded poll cadence
+//! (pipePollReady). Writes only *clamp* on the quota query: a zero
+//! WriteQuotaAvailable is not a would-block oracle (kaappi#2459 — see
+//! pipeWrite), so there the fall-through is a plain blocking CRT write,
+//! bounded by whatever process or fiber drains the far end. Sequential
+//! programs never set the flag, so their pipe I/O keeps the plain
+//! blocking CRT calls and syscall profile.
 //!
 //! One documented caveat rules the threading story: MSDN warns that
 //! PeekNamedPipe "can block thread execution the same way any I/O function
@@ -126,9 +130,10 @@ fn queryPipeInfo(h: win.HANDLE) ?winp.FilePipeLocalInfo {
 /// data-flow direction is fixed at creation (named_pipe_configuration) and
 /// each handle knows which end it holds (named_pipe_end); CreatePipe's
 /// anonymous pipes are INBOUND with the write handle on the client end.
-/// Load-bearing for pipeWrite: quota == 0 on a writable end means "full,
-/// park until the reader drains", but on a non-writable end it would mean
-/// "park forever" — that case must surface the real write error instead.
+/// Kept as a clamp-only signal: quota > 0 on a writable end bounds the
+/// request that can complete without blocking (pipeWrite's short-write
+/// hint), while a *read-only* end's quota says nothing useful and must not
+/// shape the request — the write itself surfaces the real error.
 fn isWritableEnd(info: winp.FilePipeLocalInfo) bool {
     return switch (info.named_pipe_configuration) {
         winp.FILE_PIPE_FULL_DUPLEX => true,
@@ -159,16 +164,45 @@ pub fn pipeRead(fd: fd_t, buf: [*]u8, len: usize) isize {
     return platform.read(fd, buf, len);
 }
 
-/// write(2)-shaped, quota-gated write on a pipe fd in emulated non-blocking
-/// mode. Byte-mode pipe writes block until *every* requested byte fits, so
-/// the request is clamped to the space known to be free — the caller's
-/// short-write loop (drainWriteBuffer) handles the remainder. Zero free
-/// space on a writable end synthesizes EAGAIN; a failed query or a
-/// non-writable end falls through to the plain CRT write, which surfaces
-/// the real error (or blocks, exactly as before stage 2 — the graceful
-/// degradation, never a wrong result).
+/// write(2)-shaped write on a pipe fd in emulated non-blocking mode —
+/// the port layer's byte sink under a scheduler. Byte-mode pipe writes
+/// block until *every* requested byte fits, so a non-zero
+/// WriteQuotaAvailable usefully bounds the request to what can complete
+/// without blocking — the caller's short-write loop (drainWriteBuffer)
+/// handles the remainder. A zero quota, however, is NOT a would-block
+/// oracle: whether it reads 0 or the buffer size tracks whether the peer
+/// happens to be parked in a read on the far end, not whether the buffer
+/// has room (measured on the Windows 11 ARM64 reference VM: a freshly
+/// connected, completely empty child-stdin pipe reported 0 while
+/// state=CONNECTED and a write would have succeeded immediately —
+/// kaappi#2459). Synthesizing EAGAIN on it wedged the parked writer on a
+/// number that never moves, so zero falls through to the plain CRT
+/// write, which blocks the OS thread until the reader drains — exactly
+/// the graceful degradation the query-failure and non-writable-end paths
+/// already take, and the behavior every pipe write had before the
+/// emulated non-blocking stage. (libuv reads the same field, but only to
+/// size a uv_try_write — never as the sole readiness signal behind a
+/// park.) A readiness signal that would let writes park again needs an
+/// overlapped handle, a larger change than this hang deserves. Callers
+/// that must never block (the collector's abandoned-port flush) use
+/// `pipeWriteNoBlock` instead.
 pub fn pipeWrite(fd: fd_t, buf: [*]const u8, len: usize) isize {
     if (comptime !is_windows) return -1;
+    return pipeWriteImpl(fd, buf, len, false);
+}
+
+/// The never-block flavor the collector's best-effort flush needs: an
+/// abandoned port's pending output must be dropped, not written — there
+/// is by definition no reader left, so the fall-through write of
+/// `pipeWrite` would block the sweep (and the whole OS thread) forever
+/// on a full pipe. Same clamp when the quota is non-zero; EAGAIN when it
+/// is zero.
+pub fn pipeWriteNoBlock(fd: fd_t, buf: [*]const u8, len: usize) isize {
+    if (comptime !is_windows) return -1;
+    return pipeWriteImpl(fd, buf, len, true);
+}
+
+fn pipeWriteImpl(fd: fd_t, buf: [*]const u8, len: usize, no_block: bool) isize {
     const h = pipeHandleFromFd(fd) orelse {
         win._errno().* = @intFromEnum(E.BADF);
         return -1;
@@ -176,8 +210,11 @@ pub fn pipeWrite(fd: fd_t, buf: [*]const u8, len: usize) isize {
     const info = queryPipeInfo(h) orelse return platform.write(fd, buf, len);
     if (!isWritableEnd(info)) return platform.write(fd, buf, len);
     if (info.write_quota_available == 0) {
-        win._errno().* = @intFromEnum(E.AGAIN);
-        return -1;
+        if (no_block) {
+            win._errno().* = @intFromEnum(E.AGAIN);
+            return -1;
+        }
+        return platform.write(fd, buf, len);
     }
     return platform.write(fd, buf, @min(len, info.write_quota_available));
 }
@@ -205,11 +242,11 @@ pub fn pipePollReady(fd: fd_t, want_read: bool, want_write: bool) PipeReadiness 
         }
     }
     if (want_write) {
-        if (queryPipeInfo(h)) |info| {
-            result.writable = !isWritableEnd(info) or info.write_quota_available > 0;
-        } else {
-            result.writable = true;
-        }
+        // Unconditionally writable: WriteQuotaAvailable is not a would-
+        // block oracle (see pipeWrite) — reporting not-ready on it parked
+        // writers forever (kaappi#2459). A spurious wake is always safe
+        // under the park-and-retry protocol; a missed one is not.
+        result.writable = true;
     }
     return result;
 }
