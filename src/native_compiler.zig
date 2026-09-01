@@ -3,6 +3,7 @@ const platform = @import("platform.zig");
 const types = @import("types.zig");
 const reader_mod = @import("reader.zig");
 const compiler = @import("compiler.zig");
+const compiler_passthrough = @import("compiler_passthrough.zig");
 const vm_mod = @import("vm.zig");
 const ir_mod = @import("ir.zig");
 const expander = @import("expander.zig");
@@ -138,6 +139,22 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
         return err;
     };
     defer allocator.free(source);
+
+    // Whole-unit top-level define/set! targets (kaappi#2457): the emitter's
+    // `apply` fast path (emitApplyForm) declines for a name the unit
+    // redefines ANYWHERE — the same interim the interpreter's
+    // globalBindingStillGenuine arm takes, closing the same use-compiled-
+    // before-define order its own in-order rebound_globals set could not see.
+    var unit_targets = std.StringHashMap(void).init(allocator);
+    defer {
+        var uit = unit_targets.keyIterator();
+        while (uit.next()) |k| allocator.free(k.*);
+        unit_targets.deinit();
+    }
+    compiler_passthrough.collectUnitTopLevelTargets(&unit_targets, vm.gc, source);
+    compiler_passthrough.unit_top_level_targets =
+        if (unit_targets.count() > 0) &unit_targets else null;
+    defer compiler_passthrough.unit_top_level_targets = null;
 
     const saved_lib_dir = vm.current_lib_dir;
     vm.current_lib_dir = if (std.mem.lastIndexOfScalar(u8, path, '/')) |pos| path[0 .. pos + 1] else "";

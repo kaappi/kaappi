@@ -883,14 +883,11 @@
             '(x ()) (with-exception-handler (lambda (a . rest) (list a rest))
                       (lambda () (raise-continuable 'x))))
 ;; tail_call_cc does check its receiver's arity — pinned so the fix for #2034
-;; does not have to guess which half was already right.  The receiver must sit
-;; in genuine tail position, so `raises?` wraps the call from outside.
-(test-equal "arity: a 2-argument call/cc receiver IS rejected in tail position"
-            "call/cc receiver: expected 1 argument, got arity 2"
-            (raised-msg ((lambda () (call/cc (lambda (a b) 1))))))
-(test-equal "arity: a 3-argument call/cc receiver IS rejected in tail position"
-            "call/cc receiver: expected 1 argument, got arity 3"
-            (raised-msg ((lambda () (call/cc (lambda (a b c) 1))))))
+;; does not have to guess which half was already right. Those two assertions
+;; live in tests/scheme/continuations/callcc-correctness.scm since #2457: this
+;; file redefines call/cc at top level (the #2033 section below), and a
+;; unit-wide define of the name now declines the superinstruction for the
+;; whole file, so the opcode's own diagnostic is unreachable from here.
 
 ;;; ------------------------------------------------------------------
 ;;; Tail-position superinstructions vs. the ordinary call path

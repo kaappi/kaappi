@@ -493,6 +493,18 @@ pub const Compiler = struct {
         if (self.set_targets) |st| {
             if (st.contains(sym_name) or st.contains(base_name)) return false;
         }
+        // A top-level `define`/`set!` of the name ANYWHERE in the compilation
+        // unit (kaappi#2457): a body compiled before the definition runs
+        // would otherwise bake the builtin in and silently discard the user's
+        // procedure, because this function's compile-time read of the global
+        // environment still sees the pristine binding. Whole-unit drivers
+        // populate the set; per-form entry points (REPL, eval) leave it null
+        // and keep the legacy answer. Declining only ever costs the
+        // superinstruction — the by-name call resolves the genuine binding
+        // when no redefinition intervenes.
+        if (passthrough.unit_top_level_targets) |unit_targets| {
+            if (unit_targets.contains(sym_name) or unit_targets.contains(base_name)) return false;
+        }
 
         // No environment info (standalone/unit-test paths): keep the legacy
         // optimistic behavior, mirroring IR.isRedefined's `orelse return false`.

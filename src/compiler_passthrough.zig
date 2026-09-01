@@ -3,9 +3,145 @@ const types = @import("types.zig");
 const compiler_mod = @import("compiler.zig");
 const globals_mod = @import("globals.zig");
 const expander = @import("expander.zig");
+const reader_mod = @import("reader.zig");
+const memory = @import("memory.zig");
 const Compiler = compiler_mod.Compiler;
 const CompileError = compiler_mod.CompileError;
 const Value = types.Value;
+
+// -- Compilation-unit top-level targets (kaappi#2457) ------------------------
+//
+// `globalBindingStillGenuine` decides the builtin superinstruction fast paths
+// (apply / call-with-values in any position, eval / call/cc in tail) by
+// reading the live global environment at COMPILE time. That answer is wrong
+// for a procedure body compiled BEFORE a later top-level `(define apply ...)`
+// runs: R7RS 5.3.1 makes the definition essentially an assignment, so which
+// binding a call resolves is a run-time question the compile-time read cannot
+// settle in that order. The honest fix is a run-time decision (follow-up); the
+// interim is this set: when a driver that knows the whole compilation unit
+// (the file runner, stdin scripts, `kaappi compile`, `kaappi check`) sees the
+// name defined or assigned at top level ANYWHERE in the unit, every fast-path
+// decision in the unit declines, costing the superinstruction only in the
+// programs whose semantics it was getting wrong.
+//
+// Per-form entry points (the REPL, `eval`) have no future knowledge and leave
+// this null, keeping the legacy compile-time answer — a redefinition typed
+// later in a REPL session still cannot retro-fix an earlier-compiled body,
+// exactly as before.
+
+/// Names defined (define / define-values) or assigned (set!) at top level
+/// anywhere in the compilation unit currently being compiled. Keys are owned
+/// by the driver that populated the set and outlive every compile in the
+/// unit. Null on entry points without whole-unit knowledge.
+pub threadlocal var unit_top_level_targets: ?*const std.StringHashMap(void) = null;
+
+/// Fill `out` with every name a top-level `define`, `define-values` or `set!`
+/// targets anywhere in `source`, recursing into top-level `begin` and
+/// `cond-expand` splices (R7RS 5.1 / 4.2.1) like check.zig's lint collector.
+/// Names are duped into the map, which must outlive the unit's compiles; the
+/// transient datums read here are rooted only for the walk.
+///
+/// Structure-only, like Part B of the set! pre-scan: a redefinition that only
+/// materializes when a macro expands is not seen, so such a unit keeps the
+/// legacy behavior. (The per-form pre-scan catches those at the define's own
+/// form; a unit-level speculative expansion pass would cost the whole
+/// expansion budget on every file for the rare case.) A read error stops the
+/// scan — the real run reports it, and nothing past it executes.
+pub fn collectUnitTopLevelTargets(out: *std.StringHashMap(void), gc: *memory.GC, source: []const u8) void {
+    var r = reader_mod.Reader.init(gc, source);
+    defer r.deinit();
+    while (r.hasMore() catch false) {
+        var expr = r.readDatum() catch return;
+        gc.pushRoot(&expr);
+        collectTargetsFromUnitForm(out, expr);
+        gc.popRoot();
+    }
+}
+
+fn collectTargetsFromUnitForm(out: *std.StringHashMap(void), expr: Value) void {
+    if (!types.isPair(expr) or !types.isSymbol(types.car(expr))) return;
+    const head = types.stripHygienicPrefix(types.symbolName(types.car(expr)));
+    const rest = types.cdr(expr);
+
+    // Every spine walked below can carry a datum-label cycle in code position
+    // (R7RS 7.1.2 `#n=`/`#n#` — `(begin . #0=(1 . #0#))` is a real program
+    // the run loop diagnoses as KP2001), so each walk is a guarded SpineWalk,
+    // never a bare `while isPair` (the #2405 family).
+    if (std.mem.eql(u8, head, "define")) {
+        // (define name ...) or (define (name . formals) ...)
+        if (types.isPair(rest)) addUnitTarget(out, types.car(rest));
+    } else if (std.mem.eql(u8, head, "set!")) {
+        if (types.isPair(rest) and types.isSymbol(types.car(rest))) {
+            addUnitName(out, types.symbolName(types.car(rest)));
+        }
+    } else if (std.mem.eql(u8, head, "define-values")) {
+        // (define-values (a b . rest) expr) — every formal is bound.
+        if (types.isPair(rest)) {
+            var f = compiler_mod.SpineWalk.init(types.car(rest));
+            while (types.isPair(f.cur)) : (f.next()) {
+                if (f.cyclic()) return;
+                if (types.isSymbol(types.car(f.cur))) addUnitName(out, types.symbolName(types.car(f.cur)));
+            }
+            if (types.isSymbol(f.cur)) addUnitName(out, types.symbolName(f.cur));
+        }
+    } else if (std.mem.eql(u8, head, "begin")) {
+        // Top-level begin splices: each child is a top-level form (R7RS 5.1).
+        // The walk stops at a cycle rather than reporting it — the real run's
+        // own begin handler is the one that diagnoses, and it runs after (and
+        // independently of) this scan.
+        var cur = compiler_mod.SpineWalk.init(rest);
+        while (types.isPair(cur.cur)) : (cur.next()) {
+            if (cur.cyclic()) return;
+            collectTargetsFromUnitForm(out, types.car(cur.cur));
+        }
+    } else if (std.mem.eql(u8, head, "cond-expand")) {
+        // A top-level cond-expand splices the selected clause's body as
+        // top-level forms; without evaluating the feature requirements, take
+        // every clause body — the same conservative over-approximation
+        // check.zig's collector uses (the safe direction here too: an extra
+        // name only declines a fast path).
+        var clauses = compiler_mod.SpineWalk.init(rest);
+        while (types.isPair(clauses.cur)) : (clauses.next()) {
+            if (clauses.cyclic()) return;
+            const clause = types.car(clauses.cur);
+            if (!types.isPair(clause)) continue;
+            var body = compiler_mod.SpineWalk.init(types.cdr(clause));
+            while (types.isPair(body.cur)) : (body.next()) {
+                if (body.cyclic()) return;
+                collectTargetsFromUnitForm(out, types.car(body.cur));
+            }
+        }
+    }
+}
+
+/// The target of a `define`: a bare symbol, or the head of a possibly-curried
+/// procedure form `((name a) b)` — peel the leading pairs to the name symbol.
+/// The peel advances by car, so a car-side datum-label cycle
+/// (`(define #0=(#0# 1) ...)`) cannot use a cdr SpineWalk; a step cap bounds
+/// it instead (real curried definitions are two or three deep).
+fn addUnitTarget(out: *std.StringHashMap(void), target: Value) void {
+    var t = target;
+    var steps: usize = 0;
+    while (types.isPair(t)) : (t = types.car(t)) {
+        steps += 1;
+        if (steps > 256) return;
+    }
+    if (types.isSymbol(t)) addUnitName(out, types.symbolName(t));
+}
+
+fn addUnitName(out: *std.StringHashMap(void), name: []const u8) void {
+    if (out.contains(name)) return;
+    const owned = out.allocator.dupe(u8, name) catch return;
+    out.put(owned, {}) catch out.allocator.free(owned);
+    // Also record the hygiene-stripped spelling: since #2003 a macro
+    // template's define/set! target is renamed (__hyg_N_<name>), and the
+    // gate compares both the as-written and stripped spellings.
+    const stripped = types.stripHygienicPrefix(name);
+    if (stripped.len != name.len and !out.contains(stripped)) {
+        const owned2 = out.allocator.dupe(u8, stripped) catch return;
+        out.put(owned2, {}) catch out.allocator.free(owned2);
+    }
+}
 
 pub fn compileQuote(self: *Compiler, args: Value, dst: u16) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
@@ -531,4 +667,46 @@ fn compileCallGlobal(self: *Compiler, expr: Value, operator: Value, dst: u16, is
         try self.emitU16(base);
         self.freeReg();
     }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+test "collectUnitTopLevelTargets: define shapes, splices, and non-captures" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    var out = std.StringHashMap(void).init(std.testing.allocator);
+    defer {
+        var it = out.keyIterator();
+        while (it.next()) |k| std.testing.allocator.free(k.*);
+        out.deinit();
+    }
+
+    collectUnitTopLevelTargets(&out, &gc,
+        \\(define (nt) (apply + (list 1 2)))
+        \\(define (apply f xs) 'user)
+        \\(begin (define (call-with-values p c) 'user) 'ignored)
+        \\(cond-expand (kaappi (define eval 'user)) (else (define eval 'other)))
+        \\(define-values (call/cc rest-arg . r) (values 1 2 3))
+        \\(set! call-with-current-continuation (lambda (k) 'user))
+        \\(define (other xs) (apply f (list xs)))
+        \\(let ((q (quote (define not-a-target define)))) q)
+    );
+
+    // All five #2033 names, via every define shape and splice, plus set!.
+    try std.testing.expect(out.contains("apply"));
+    try std.testing.expect(out.contains("call-with-values"));
+    try std.testing.expect(out.contains("eval"));
+    try std.testing.expect(out.contains("call/cc"));
+    try std.testing.expect(out.contains("call-with-current-continuation"));
+    // define-values formals, including the rest formal.
+    try std.testing.expect(out.contains("rest-arg"));
+    // A lambda-local define, lambda formals, and quoted data contribute
+    // nothing: the walk is top-level-only (through begin/cond-expand
+    // splices) and never descends into other forms.
+    try std.testing.expect(!out.contains("not-a-target"));
+    try std.testing.expect(!out.contains("xs"));
+    try std.testing.expect(!out.contains("q"));
 }

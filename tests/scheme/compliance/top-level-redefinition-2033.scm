@@ -94,6 +94,30 @@
 (define call-with-current-continuation saved-2033-orig-ccc)
 
 ;;; ------------------------------------------------------------------
+;;; A redefinition that is an earlier child of the SAME top-level `begin`.
+;;; The begin's children are compiled and executed one at a time, so the
+;;; definition has run by the time the use compiles — the gate's live-global
+;;; read sees the user's procedure and declines. (Moved here from
+;;; callcc-native-driver-reentry-2451.scm by #2457: a top-level define of one
+;;; of these names anywhere in a unit now declines the superinstruction for
+;;; the whole unit, so the two files' concerns no longer mix.)
+;;; ------------------------------------------------------------------
+
+(test-eq "a define earlier in the same begin beats the apply opcode"
+  'mine
+  (begin
+    (define (apply f xs) 'mine)
+    (let ((v (apply + (list 1 2)))) v)))
+(define apply saved-2033-orig-apply)
+
+(test-eq "a define earlier in the same begin beats the call-with-values lowering"
+  'mine
+  (begin
+    (define (call-with-values p c) 'mine)
+    (let ((v (call-with-values (lambda () 1) (lambda (x) x)))) v)))
+(define call-with-values saved-2033-orig-cwv)
+
+;;; ------------------------------------------------------------------
 ;;; A redefinition to a non-procedure value: the builtin must not run —
 ;;; the ordinary call path reports the type error.
 ;;; ------------------------------------------------------------------

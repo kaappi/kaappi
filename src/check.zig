@@ -28,6 +28,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const reader = @import("reader.zig");
 const compiler = @import("compiler.zig");
+const compiler_passthrough = @import("compiler_passthrough.zig");
 const vm_mod = @import("vm.zig");
 const vm_library = @import("vm_library.zig");
 const ir_mod = @import("ir.zig");
@@ -81,6 +82,15 @@ pub fn run(vm: *VM, path: []const u8, opts: Options) u8 {
     collectTopLevelDefines(&user_defined, arena, vm.gc, source);
 
     var ctx: check_lint.Context = .{ .arena = arena, .user_defined = &user_defined };
+
+    // The same whole-unit set drives the superinstruction gate during the
+    // compiles analysis performs (kaappi#2457): a top-level define of one of
+    // the five fast-path names anywhere in the file declines the fast path
+    // everywhere in it, matching what a run of the file would compile. Its
+    // define-syntax names are extra but conservative for this purpose.
+    compiler_passthrough.unit_top_level_targets =
+        if (user_defined.count() > 0) &user_defined else null;
+    defer compiler_passthrough.unit_top_level_targets = null;
 
     analyzeSource(vm, &ctx, source, path);
 
