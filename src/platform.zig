@@ -175,8 +175,14 @@ pub fn pipe(fds: *[2]fd_t) c_int {
 /// Set FD_CLOEXEC on `fd` (the fcntl(2) F_SETFD form; O_CLOEXEC at open is
 /// unavailable for fds other calls hand back -- kqueue(), pipe(2) on
 /// platforms without pipe2). Returns false on failure; callers treat that
-/// as best-effort.
+/// as best-effort. A no-op on Windows: FD_CLOEXEC is a POSIX exec concept
+/// with no analog on CRT fds, and needs none -- process_win confines child
+/// inheritance to an explicit stdio handle list, a stronger guarantee than
+/// any close-by-default scan. No-op, not link-error: makeFdPort calls this
+/// unconditionally at the fd->port wrap (kaappi#2424), and the plain
+/// extern `fcntl` does not exist for Windows targets.
 pub fn setFdCloexec(fd: fd_t) bool {
+    if (comptime is_windows) return false;
     if (comptime is_wasm) return false;
     const F_SETFD: c_int = 2;
     const FD_CLOEXEC: usize = 1;
@@ -186,8 +192,9 @@ pub fn setFdCloexec(fd: fd_t) bool {
 /// fcntl(F_GETFD): the fd-flags word (bit 0 = FD_CLOEXEC), or -1 when `fd`
 /// is not open. The subprocess spawner's close-by-default scan uses it both
 /// as an is-open probe and to skip descriptors exec will close anyway
-/// (KEP-0022).
+/// (KEP-0022). POSIX-only for the same linking reason as setFdCloexec.
 pub fn getFdFlags(fd: fd_t) c_int {
+    if (comptime is_windows) return -1;
     if (comptime is_wasm) return -1;
     const F_GETFD: c_int = 1;
     return fcntlRaw(fd, F_GETFD, 0);
