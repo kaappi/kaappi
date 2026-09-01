@@ -77,11 +77,14 @@ pub const Port = struct {
         is_socket: bool = false,
         /// `fd` wraps a non-socket pipe end (#1608 stage 2). Under a
         /// scheduler the port enters *emulated* non-blocking mode
-        /// (`nonblocking` set with no OS-level flip): reads/writes route
-        /// through platform.pipeRead/pipeWrite, whose peek/write-quota
-        /// pre-checks synthesize the EAGAIN that parks the fiber, and the
-        /// reactor re-runs the same checks on a poll cadence for the
-        /// wakeup.
+        /// (`nonblocking` set with no OS-level flip): reads route through
+        /// platform.pipeRead, whose peek pre-check synthesizes the EAGAIN
+        /// that parks the fiber, and the reactor re-runs the same check
+        /// on a poll cadence for the wakeup. Writes route through
+        /// platform.pipeWrite, which clamps on the write-quota query and —
+        /// a zero quota not being a would-block oracle (kaappi#2459) —
+        /// falls through to a blocking write bounded by whoever drains
+        /// the far end.
         is_pipe: bool = false,
         _pad: u5 = 0,
     } = .{},

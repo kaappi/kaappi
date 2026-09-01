@@ -130,6 +130,24 @@
       (lambda () (run-process (run cat-script) 'input: (string->utf8 "bytes")))
     (lambda (st out err) out)))
 
+(test-equal "input: larger than the pipe buffer still completes"
+  '(0 0)
+  ;; Past every platform's pipe buffer (64 KiB on POSIX tiers; Windows
+  ;; pipes are 4 KiB, and a feed even one byte past that hung forever
+  ;; before kaappi#2459 — the parent's write parked on
+  ;; WriteQuotaAvailable, which reads 0 whenever the child is parked in
+  ;; its own read, empty buffer or not, so the number never moves). The
+  ;; child drains without echoing: an interleaved echoer whose own
+  ;; output outgrows its pipe would need the parent's drain fibers to
+  ;; run mid-feed, which a blocking write cannot allow — the
+  ;; overlapped-handle route #2459 deliberately defers. 'timeout: makes
+  ;; the pre-fix wedge fail loudly as a raised process-timeout instead
+  ;; of hanging the suite.
+  (call-with-values
+      (lambda ()
+        (run-process (run flood-script "0") 'input: (make-string 16384 #\i) 'timeout: 30))
+    (lambda (st out err) (list st (string-length out)))))
+
 (test-equal "stdin is empty, not inherited, when input: is omitted"
   '(0 "")
   (call-with-values (lambda () (run-process (run cat-script)))
@@ -151,15 +169,12 @@
 
 ;; The deadlock this whole API exists to avoid: stdin, stdout and stderr all
 ;; past the pipe buffer at the same time. Feed-then-read, or read-stdout-
-;; then-stderr, hangs forever here.
-;;
-;; The stdin leg is capped at the pipe buffer on Windows: a write past it
-;; from a fiber-scheduled program hangs there outright (kaappi#2459 — the
-;; `WriteQuotaAvailable` readiness query reads 0 both when the pipe is full
-;; and when a reader is waiting, and the writer parks on a number that never
-;; moves). Both *output* legs stay at full size on every platform, so what
-;; is lost on Windows is the stdin half of the assertion, not the test.
-(define feed-size (cond-expand (windows 4096) (else 40000)))
+;; then-stderr, hangs forever here. All three legs run at full size on
+;; every platform — the Windows stdin cap this test used to carry is gone
+;; with kaappi#2459 (a zero WriteQuotaAvailable no longer parks the
+;; writer), which is also what lets the dedicated larger-than-buffer
+;; input: test above assert a full round trip.
+(define feed-size 40000)
 
 (test-equal "stdin, stdout and stderr all move at once"
   (list 0 40000 40000)

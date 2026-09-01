@@ -813,10 +813,12 @@ test "a parked mid-read-bytevector retry over a pipe loses no bytes" {
 // #1608 stage 2: OS-pipe pairs (makePipeFdPair). On POSIX these re-cover
 // native pipe readiness with real pipe fds; on Windows they are the
 // end-to-end coverage of the polled pipe backend — fd-kind probe →
-// emulated non-blocking (no OS flip) → pipeRead/pipeWrite EAGAIN →
+// emulated non-blocking (no OS flip) → pipeRead's peek EAGAIN →
 // pipePollReady wakeup. Before stage 2, every parked-fiber test below
 // would deadlock on Windows: the read blocked the OS thread and the
-// writer fiber never ran.
+// writer fiber never ran. (Pipe *writes* stopped parking on Windows with
+// kaappi#2459 — a zero write-quota is not a would-block oracle — so the
+// write-park test below is POSIX-only now.)
 // ---------------------------------------------------------------------------
 
 test "#1608: two fibers reading two OS-pipe ports park and interleave" {
@@ -861,6 +863,7 @@ test "#1608: two fibers reading two OS-pipe ports park and interleave" {
 
 test "#1608: OS-pipe write beyond the pipe buffer parks the writer; a reader fiber drains it" {
     if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
+    if (comptime platform.is_windows) return error.SkipZigTest; // pipe writes no longer park on Windows (kaappi#2459): a zero write-quota falls through to a blocking CRT write, which with a same-thread fiber reader deadlocks — the reader never gets a slot while the writer holds the thread. The same feed with a process on the far end (the run-process shape) is covered end-to-end by the larger-than-pipe-buffer input: test in tests/scheme/process/process-run.scm.
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -873,10 +876,9 @@ test "#1608: OS-pipe write beyond the pipe buffer parks the writer; a reader fib
     _ = try vm.eval("(import (kaappi fibers))");
     // 100000 bytes exceeds every platform's pipe capacity (16-64 KiB, and
     // the 64 KiB CRT _pipe buffer on Windows), so the flush hits
-    // would-block mid-buffer — on Windows that is pipeWrite's quota gate,
-    // whose clamp must also keep each retry's blocking CRT write inside
-    // the known-free space. The final count and content check prove no
-    // byte was lost or duplicated across the park/retry cycles.
+    // would-block mid-buffer — real O_NONBLOCK on the POSIX tiers this
+    // test now runs on. The final count and content check prove no byte
+    // was lost or duplicated across the park/retry cycles.
     _ = try vm.eval("(define n 100000)");
     _ = try vm.eval(
         \\(define writer (spawn (lambda ()
@@ -973,10 +975,12 @@ test "#1608: GC finalization of an abandoned pipe port with a full pipe drops th
     const pipe = th.makePipeFdPair();
     defer platform.close(pipe[0]);
 
-    // Fill the pipe to exactly-full without ever blocking: quota-gated
-    // raw writes on Windows, O_NONBLOCK raw writes on POSIX. Reaching
-    // EAGAIN is the test's precondition — a plain blocking write in the
-    // sweep below would then hang forever.
+    // Fill the pipe to exactly-full without ever blocking: the never-block
+    // pipe flavor on Windows (its zero-quota EAGAIN — pipeWrite proper
+    // falls through to a blocking write there since kaappi#2459),
+    // O_NONBLOCK raw writes on POSIX. Reaching EAGAIN is the test's
+    // precondition — a plain blocking write in the sweep below would then
+    // hang forever.
     if (comptime !platform.is_windows) th.setFdNonblocking(pipe[1]);
     var chunk: [4096]u8 = undefined;
     @memset(&chunk, 'f');
@@ -984,7 +988,7 @@ test "#1608: GC finalization of an abandoned pipe port with a full pipe drops th
     var guard: usize = 0;
     while (guard < 10_000) : (guard += 1) {
         const rc = if (comptime platform.is_windows)
-            platform.pipeWrite(pipe[1], &chunk, chunk.len)
+            platform.pipeWriteNoBlock(pipe[1], &chunk, chunk.len)
         else
             platform.write(pipe[1], &chunk, chunk.len);
         if (rc < 0) {
@@ -1015,9 +1019,10 @@ test "#1608: GC finalization of an abandoned pipe port with a full pipe drops th
     }
     gc.popRoot();
 
-    // freeObject's best-effort flush hits the full pipe. The quota gate
-    // (Windows) / O_NONBLOCK (POSIX) turns that into an EAGAIN that drops
-    // the remainder, per the flush's own contract; a blocking write here
-    // would hang this collection — and the whole OS thread — forever.
+    // freeObject's best-effort flush hits the full pipe. The never-block
+    // pipe flavor (Windows) / O_NONBLOCK (POSIX) turns that into an EAGAIN
+    // that drops the remainder, per the flush's own contract; a blocking
+    // write here would hang this collection — and the whole OS thread —
+    // forever.
     gc.collect();
 }

@@ -456,15 +456,17 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
                         while (start < port.write_buf_len) {
                             // A Windows socket port must send() — CRT _write
                             // cannot operate on a SOCKET handle — and a pipe
-                            // port in emulated non-blocking mode must keep its
-                            // quota gate: plain _write on a full pipe would
-                            // block this sweep forever, exactly the would-block
-                            // this loop promises to drop (#1608).
+                            // port in emulated non-blocking mode needs the
+                            // never-block pipe flavor: pipeWrite's zero-quota
+                            // fall-through is a plain _write that would block
+                            // this sweep forever on a full pipe nobody will
+                            // ever drain, exactly the would-block this loop
+                            // promises to drop (#1608; the split is #2459).
                             const remaining = port.write_buf_len - start;
                             const rc = if (platform.is_windows and port.fd_state.is_socket)
                                 platform.sockSend(port.fd, wb.ptr + start, remaining)
                             else if (platform.is_windows and port.fd_state.is_pipe and port.nonblocking)
-                                platform.pipeWrite(port.fd, wb.ptr + start, remaining)
+                                platform.pipeWriteNoBlock(port.fd, wb.ptr + start, remaining)
                             else
                                 platform.write(port.fd, wb.ptr + start, remaining);
                             if (rc < 0 and platform.errno(rc) == .INTR) continue;

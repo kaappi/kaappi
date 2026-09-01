@@ -600,15 +600,18 @@ pub const WasiPollBackend = struct {
 //   waitable readiness objects and carry no would-block mode; completion
 //   I/O is off the table too (CRT/inherited anonymous pipes lack
 //   FILE_FLAG_OVERLAPPED — see platform_win_pipe.zig). What they do
-//   offer is non-destructive state queries, so a pipe port EAGAINs
-//   through pipeRead/pipeWrite's peek/quota pre-checks, and while any
-//   pipe interest is armed wait() bounds its block at
-//   `pipe_poll_quantum_ns` and re-runs the same checks (pipePollReady)
-//   in its sweep — level-triggered by construction, so none of the
-//   edge-record races above apply and no pre-ready snapshot is needed.
-//   The quantum is the same order as the ~15 ms OS timer granularity
-//   that already bounds this backend's timers, and it is paid only
-//   while a fiber is actually parked on a pipe.
+//   offer is non-destructive state queries, so a pipe READ EAGAINs
+//   through pipeRead's peek pre-check, and while any pipe read interest
+//   is armed wait() bounds its block at `pipe_poll_quantum_ns` and
+//   re-runs the same check (pipePollReady) in its sweep —
+//   level-triggered by construction, so none of the edge-record races
+//   above apply and no pre-ready snapshot is needed. The quantum is the
+//   same order as the ~15 ms OS timer granularity that already bounds
+//   this backend's timers, and it is paid only while a fiber is actually
+//   parked on a pipe. Pipe writes never park: WriteQuotaAvailable is not
+//   a would-block oracle (kaappi#2459 — pipeWrite falls through to a
+//   blocking write on a zero quota), so pipePollReady reports them
+//   writable unconditionally.
 //
 // Files stay fully blocking — which is the POSIX baseline as well
 // (O_NONBLOCK is a no-op on regular files; epoll rejects them), so
