@@ -199,10 +199,24 @@
 
 ;; ------------------------------------------------------------------ errors
 
+;; An absolute path, deliberately. POSIX leaves it unspecified whether a
+;; *PATH search* that finds nothing fails at posix_spawnp or lets the child
+;; exec fail and exit 127, and OpenBSD takes the second option — so a bare
+;; name would assert a platform's choice rather than this library's
+;; contract. With a path, every supported platform reports the failure at
+;; the spawn (kaappi#2456 tracks closing the bare-name gap).
 (test-assert "a program that does not exist is a file error, not a timeout"
   (guard (e (#t (and (file-error? e) (not (process-timeout? e)))))
-    (run-process '("kaappi-no-such-program-2417"))
+    (run-process '("/kaappi/no/such/program/2417"))
     #f))
+
+;; The bare-name case, pinned to whichever of the two POSIX permits rather
+;; than left invisible: an error, or a child that never ran. What it must
+;; never be is a normal-looking success.
+(test-assert "a bare name that resolves to nothing never looks like success"
+  (guard (e (#t (file-error? e)))
+    (call-with-values (lambda () (run-process '("kaappi-no-such-program-2417")))
+      (lambda (st out err) (and (not (eqv? st 0)) (string=? out ""))))))
 
 (test-assert "option errors are loud"
   (let ((bad (lambda (thunk) (guard (e (#t #t)) (thunk) #f))))

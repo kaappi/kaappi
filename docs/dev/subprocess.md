@@ -191,6 +191,12 @@ definition; the explicit escape has no macro underneath it.
 | A bad option value or an unknown option | `primitives.argError` / `typeError`, as everywhere |
 | `run-process` exceeded `timeout:` | `process-timeout?`, carrying partial output |
 
+One platform gap, tracked as kaappi#2456: POSIX leaves it unspecified
+whether a failed *PATH search* fails at `posix_spawnp` or lets the child
+exec fail and exit 127, and OpenBSD takes the second option. So a bare
+program name that resolves to nothing arrives there as a status, not a
+condition. An argv head with a path is a spawn failure everywhere.
+
 The timeout condition is an `ErrorObject` with `error_type = .process_timeout`
 — the `channel_timeout` precedent. Its irritants are `(argv seconds)`; the
 partial output rides `uncaught_reason` as a `(stdout . stderr)` pair, read
