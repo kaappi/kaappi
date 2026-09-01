@@ -104,6 +104,23 @@
   (let ((call-with-values (lambda (p c) 'shadow)))
     (call-with-values (lambda () 1) (lambda (x) x))))
 
+;; ...and when the rebinding is an earlier child of the SAME top-level `begin`.
+;; The gate reads the live global environment rather than a set!-target list,
+;; so it needs the definition to have run by the time the use is compiled; a
+;; top-level `begin`'s children are compiled and executed one at a time, which
+;; is what makes that hold. (A body compiled BEFORE a later top-level
+;; redefinition does keep the builtin — the same compile-time property the
+;; constant folder has for `+`, and unchanged by #2451.)
+(test-eq "a define earlier in the same begin beats the apply opcode" 'mine
+  (begin
+    (define (apply f xs) 'mine)
+    (let ((v (apply + (list 1 2)))) v)))
+
+(test-eq "a define earlier in the same begin beats the call-with-values lowering" 'mine
+  (begin
+    (define (call-with-values p c) 'mine)
+    (let ((v (call-with-values (lambda () 1) (lambda (x) x)))) v)))
+
 ;; Diagnostics: non-tail apply reports through the native applyFn's texts,
 ;; which the LLVM backend also produces (tests/scheme/compile/
 ;; native-apply-lowering-1803.sh pins the two against each other).

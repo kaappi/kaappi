@@ -62,6 +62,13 @@ compiler hash in at comptime, so it has none of the cross-build rejection that
 protects a real cache entry — it simply decoded as garbage. **New opcodes go on
 the end of the enum.**
 
+The `apply` handler's body is `dispatchApply` in `vm_dispatch_helpers.zig`,
+not the dispatch arm: `vm_dispatch.zig` sits at the 1500-line file-size
+ceiling, and operand validation plus argument staging are what that file
+already holds for every other opcode. The arm keeps only what a helper cannot
+express — the `continue` that resumes a restored continuation in *that*
+dispatch loop, and the ip rewind for a parked fiber's retry.
+
 `apply` and `tail_apply` differ in more than tail position. `tail_apply`
 rejects a flattened argument list longer than 255 (`tooManyApplyArgs`, KP3007)
 because it has nowhere to put the overflow; `apply` falls back to the native

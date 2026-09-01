@@ -36,7 +36,7 @@ const rejectImmutableEnv = vm_dispatch_helpers.rejectImmutableEnv;
 const raiseUndefinedVariable = vm_dispatch_helpers.raiseUndefinedVariable;
 const lookupGlobalLocked = vm_dispatch_helpers.lookupGlobalLocked;
 const raiseDeadNativeReturn = vm_dispatch_helpers.raiseDeadNativeReturn;
-const raiseApplyTypeError = vm_dispatch_helpers.raiseApplyTypeError;
+const dispatchApply = vm_dispatch_helpers.dispatchApply;
 const raiseCrossHeapStoreVM = vm_dispatch_helpers.raiseCrossHeapStoreVM;
 
 /// True when a just-restored (or escape-unwound) frame stack should resume in
@@ -701,119 +701,19 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 }
             },
             .apply => {
-                // Non-tail `(apply f a ... lst)` (kaappi#2451). The point of
-                // the opcode is what it does NOT do: the native `applyFn`
-                // reached the callee through `vm.callWithArgs`, i.e. a fresh
-                // `runUntil` under a Zig frame, so a continuation captured in
-                // the callee could not be resumed once that frame returned
-                // ("continuation cannot resume across a returned native
-                // call"). Here the callee's frame is an ordinary VM frame in
-                // the same dispatch loop, so it lives in a continuation
-                // snapshot like any other — matching what tail_apply already
-                // gave tail position, and what map/for-each give their
-                // callbacks.
+                // Non-tail `(apply f a ... lst)` (kaappi#2451). The work is
+                // `vm_dispatch_helpers.dispatchApply`; what stays here is the
+                // control flow only the loop can express.
                 const base_reg = readU16(self, frame);
                 const nargs = readU8(self, frame);
-                if (nargs == 0) return VMError.InvalidBytecode;
-                const abs_base_wide = @as(usize, frame.base) + @as(usize, base_reg);
-                try ensureCallWindow(self, abs_base_wide, nargs);
-                const abs_base: u32 = try toBase(abs_base_wide);
-                const proc = self.registers[abs_base];
-
-                // applyFn's order and wording, both deliberate: the callee is
-                // rejected before the operand list is walked, and the texts
-                // are the native ones (see raiseApplyTypeError).
-                if (!types.isProcedure(proc) and !types.isNativeFn(proc))
-                    return raiseApplyTypeError(self, "procedure", proc);
-
-                // Validate and measure the operand list before touching any
-                // register, so the two argument-staging paths below both start
-                // from a known count. The tortoise-and-hare is applyFn's: a
-                // circular final list must be named as an improper list, not
-                // walked forever.
-                const operand_list = self.registers[abs_base + nargs];
-                var list_len: usize = 0;
-                var rest = operand_list;
-                var slow = rest;
-                var step: bool = false;
-                while (rest != types.NIL) {
-                    if (!types.isPair(rest)) return raiseApplyTypeError(self, "proper list", rest);
-                    list_len += 1;
-                    rest = types.cdr(rest);
-                    if (step) {
-                        slow = types.cdr(slow);
-                        if (slow == rest) return raiseApplyTypeError(self, "proper list", rest);
-                    }
-                    step = !step;
-                }
-                const count = @as(usize, nargs - 1) + list_len;
-
-                if (count > std.math.maxInt(u8)) {
-                    // More arguments than a call frame's u8 `nargs` can
-                    // encode. #649 settled that non-tail `apply` has no such
-                    // ceiling — `(apply + (mk 500))` is a supported program —
-                    // so this stays on applyFn's own route: stage the
-                    // arguments on the heap and re-enter through
-                    // `callWithArgs`. That route is exactly the one whose Zig
-                    // frame makes a captured continuation unresumable, so a
-                    // >255-argument apply keeps the restriction this opcode
-                    // lifts for every other call. Tail position instead
-                    // *rejects* the call (tooManyApplyArgs), because
-                    // `tail_apply` has nowhere to put the overflow.
-                    var big: std.ArrayList(Value) = .empty;
-                    defer big.deinit(self.gc.allocator);
-                    big.ensureTotalCapacity(self.gc.allocator, count) catch return VMError.OutOfMemory;
-                    var fi: u8 = 0;
-                    while (fi + 1 < nargs) : (fi += 1) big.appendAssumeCapacity(self.registers[abs_base + 1 + fi]);
-                    // Every staged Value is still reachable from a register
-                    // (the fixed operands) or from the operand list (itself in
-                    // a register), so the slice needs no rooting of its own.
-                    var walk = operand_list;
-                    while (walk != types.NIL) : (walk = types.cdr(walk)) big.appendAssumeCapacity(types.car(walk));
-
-                    const result = self.callWithArgs(proc, big.items) catch |err| {
-                        if (err == VMError.ContinuationInvoked) {
-                            if (resumesHere(self, target_frame_count, scope_root_seq)) continue;
-                            return VMError.ContinuationInvoked;
-                        }
-                        if (err == VMError.Yielded) maybeRewindRetry(self, 1 + fixed_operand_bytes);
-                        return err;
-                    };
-                    self.registers[abs_base] = result;
-                    continue;
-                }
-
-                var flat_args: [256]Value = undefined;
-                {
-                    var fi: u8 = 0;
-                    while (fi + 1 < nargs) : (fi += 1) flat_args[fi] = self.registers[abs_base + 1 + fi];
-                    var i: usize = nargs - 1;
-                    var walk = operand_list;
-                    while (walk != types.NIL) : (walk = types.cdr(walk)) {
-                        flat_args[i] = types.car(walk);
-                        i += 1;
-                    }
-                }
-
-                const total: u8 = @intCast(count);
-                try ensureCallWindow(self, abs_base_wide, total);
-                // This overwrites abs_base + nargs (the operand list's own
-                // register) as soon as the list is non-empty, so the
-                // Yielded-retry path below — which rewinds ip and re-executes
-                // this whole instruction — has to put the list back first.
-                for (0..count) |i| self.registers[abs_base + 1 + i] = flat_args[i];
-
-                vm_calls.callValue(self, proc, abs_base, total) catch |err| {
+                dispatchApply(self, frame.base, base_reg, nargs) catch |err| {
                     if (err == VMError.ContinuationInvoked) {
                         if (resumesHere(self, target_frame_count, scope_root_seq)) {
                             continue;
                         }
                         return VMError.ContinuationInvoked;
                     }
-                    if (err == VMError.Yielded) {
-                        if (self.yield_retry) self.registers[abs_base + nargs] = operand_list;
-                        maybeRewindRetry(self, 1 + fixed_operand_bytes);
-                    }
+                    if (err == VMError.Yielded) maybeRewindRetry(self, 1 + fixed_operand_bytes);
                     return err;
                 };
             },
