@@ -5,7 +5,8 @@
 ;; and a bare Windows box alike, so every assertion here runs on both tiers.
 ;; run-all.sh exports KAAPPI; the suite skips cleanly without it.
 
-(import (scheme base) (scheme write) (scheme file) (scheme process-context) (srfi 64))
+(import (scheme base) (scheme write) (scheme file) (scheme process-context)
+        (scheme time) (srfi 64))
 
 ;; Gate before the import: on WASM there is no subprocess support at all, so
 ;; this exits 0 before `run-process` is ever referenced, and kaappi compiles
@@ -136,10 +137,14 @@
 
 (test-equal "a child that never reads its stdin is not an error"
   0
-  ;; 64 KiB is past every platform's pipe buffer, so the feed really does
-  ;; fail; the child's exit status is the verdict, not the broken pipe.
+  ;; 256 KiB, not 64: Linux's default pipe capacity is *exactly* 65536, so a
+  ;; 64 KiB feed can land in the buffer whole and never break at all -- the
+  ;; assertion would then pass without the swallow it exists to check.
+  ;; Unaffected by kaappi#2459: the child is gone before the second write,
+  ;; so the quota query fails outright and the write surfaces the real error
+  ;; instead of parking.
   (call-with-values
-      (lambda () (run-process (run deaf-script) 'input: (make-string 65536 #\x)))
+      (lambda () (run-process (run deaf-script) 'input: (make-string 262144 #\x)))
     (lambda (st out err) st)))
 
 ;; --------------------------------------------------- concurrent draining
@@ -147,11 +152,20 @@
 ;; The deadlock this whole API exists to avoid: stdin, stdout and stderr all
 ;; past the pipe buffer at the same time. Feed-then-read, or read-stdout-
 ;; then-stderr, hangs forever here.
+;;
+;; The stdin leg is capped at the pipe buffer on Windows: a write past it
+;; from a fiber-scheduled program hangs there outright (kaappi#2459 — the
+;; `WriteQuotaAvailable` readiness query reads 0 both when the pipe is full
+;; and when a reader is waiting, and the writer parks on a number that never
+;; moves). Both *output* legs stay at full size on every platform, so what
+;; is lost on Windows is the stdin half of the assertion, not the test.
+(define feed-size (cond-expand (windows 4096) (else 40000)))
+
 (test-equal "stdin, stdout and stderr all move at once"
   (list 0 40000 40000)
   (call-with-values
       (lambda () (run-process (run flood-script "40000")
-                              'input: (make-string 40000 #\i)))
+                              'input: (make-string feed-size #\i)))
     (lambda (st out err) (list st (string-length out) (string-length err)))))
 
 ;; ----------------------------------------------------------------- output:
@@ -217,6 +231,15 @@
   (guard (e (#t (file-error? e)))
     (call-with-values (lambda () (run-process '("kaappi-no-such-program-2417")))
       (lambda (st out err) (and (not (eqv? st 0)) (string=? out ""))))))
+
+;; `timeout:` promises a bound, and a child-only kill cannot deliver one: a
+;; grandchild holding the pipes would keep the drains from ever reaching EOF,
+;; and process-kill refuses 'group: on a child sharing our own group. The
+;; combination is refused rather than silently unbounded.
+(test-assert "timeout: with an explicit new-group: #f is refused, not unbounded"
+  (guard (e ((process-timeout? e) #f) (#t #t))
+    (run-process (run stall-script "x") 'timeout: 0.25 'new-group: #f)
+    #f))
 
 (test-assert "option errors are loud"
   (let ((bad (lambda (thunk) (guard (e (#t #t)) (thunk) #f))))

@@ -1042,11 +1042,18 @@ pub const run_process_src =
     \\                          ((string? input) (string->utf8 input))
     \\                          ((bytevector? input) input)
     \\                          (else (error "run-process: input: expects a string or a bytevector" input))))
-    \\               ;; A timeout has to be able to kill the whole tree, and
-    \\               ;; process-kill refuses 'group: on a child sharing our own
-    \\               ;; group -- so `timeout:` implies `new-group: #t` unless the
-    \\               ;; caller says otherwise.
-    \\               (grouped (if (eq? new-group 'unset) (if timeout #t #f) new-group))
+    \\               ;; A timeout has to be able to kill the whole tree: the
+    \\               ;; group kill is what reaches a grandchild, and a grandchild
+    \\               ;; holding the pipe is what would otherwise keep the drains
+    \\               ;; from ever reaching EOF. So `timeout:` implies
+    \\               ;; `new-group: #t`, and an explicit #f alongside it is
+    \\               ;; refused rather than silently unbounded -- process-kill
+    \\               ;; also refuses 'group: on a child sharing our own group, so
+    \\               ;; the combination cannot deliver the bound it promises.
+    \\               (grouped (cond ((eq? new-group 'unset) (if timeout #t #f))
+    \\                              ((and timeout (not new-group))
+    \\                               (error "run-process: timeout: needs new-group: #t -- a child-only kill cannot reach a grandchild holding the pipes, so the timeout could not be bounded" argv))
+    \\                              (else new-group)))
     \\               (p (%process-spawn argv (if fed 'pipe 'null) 'pipe 'pipe
     \\                                  directory env grouped))
     \\               (out-port (process-stdout p))
@@ -1076,12 +1083,11 @@ pub const run_process_src =
     \\              (begin
     \\                ;; SIGKILL, not SIGTERM: `timeout:` is a bound, and a child
     \\                ;; that ignores SIGTERM would make it a suggestion (Python's
-    \\                ;; run() kills for the same reason). The group form is also
-    \\                ;; what lets the drains reach EOF, since a grandchild holds
-    \\                ;; the same pipe.
-    \\                (if (process-group p)
-    \\                    (process-kill p 'signal: 9 'group: #t)
-    \\                    (process-kill p 'signal: 9))
+    \\                ;; run() kills for the same reason). Always the group form --
+    \\                ;; `grouped` is #t on every path that reaches here -- since
+    \\                ;; that is what reaches a grandchild holding the same pipe,
+    \\                ;; and so what lets the drains below reach EOF at all.
+    \\                (process-kill p 'signal: 9 'group: #t)
     \\                (process-wait p)
     \\                (quietly (lambda () (fiber-join out-fiber)))
     \\                (quietly (lambda () (fiber-join err-fiber)))

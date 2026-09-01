@@ -17,13 +17,19 @@ const builtin = @import("builtin");
 const th = @import("testing_helpers.zig");
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
-const build_options = @import("build_options");
 
 const is_posix = switch (builtin.os.tag) {
     .windows, .wasi => false,
     else => true,
 };
 
+/// `th.expectEvalTrue` on a *caller-owned* VM. Every test below that needs
+/// only one assertion uses the shared helper directly (it builds and tears
+/// down its own VM); this one exists for the tests that must share a single
+/// interaction environment across several evals, which the shared helper
+/// cannot do — and mixing the two in one test would leave `gc_instance`
+/// dangling when the helper's context deinits. Same split, and the same
+/// reason, as `tests_process.zig`.
 fn expectTrue(vm: *vm_mod.VM, source: []const u8) !void {
     const result = vm.eval(source) catch |e| {
         std.debug.print("eval error from: {s}\n  detail: {s}\n", .{ source, vm.last_error_detail[0..vm.last_error_detail_len] });
@@ -93,19 +99,18 @@ test "run-process: input: feeds the child, as a string or a bytevector" {
 
 test "run-process: a child that never reads its stdin is not an error (EPIPE is swallowed)" {
     if (comptime !is_posix) return error.SkipZigTest;
-    var ctx: th.TestContext = undefined;
-    try ctx.init();
-    defer ctx.deinit();
 
     // The write side gets EPIPE the moment `true` exits; Python's
     // communicate() swallows the same BrokenPipeError, because the child's
-    // verdict is its exit status, not a failure of the feed. 64 KiB is past
-    // every platform's pipe buffer, so the write really does have to fail
-    // rather than fit.
-    try expectTrue(ctx.vm,
+    // verdict is its exit status, not a failure of the feed.
+    //
+    // 256 KiB, not 64: Linux's default pipe capacity is *exactly* 65536, so
+    // a 64 KiB feed can land in the buffer whole and never break at all —
+    // the assertion would pass without the swallow it exists to check.
+    try th.expectEvalTrue(
         \\(call-with-values
-        \\  (lambda () (run-process '("/usr/bin/true") 'input: (make-string 65536 #\x)))
-        \\  (lambda (st out err) (and (= st 0) (string=? out "")))) 
+        \\  (lambda () (run-process '("/usr/bin/true") 'input: (make-string 262144 #\x)))
+        \\  (lambda (st out err) (and (= st 0) (string=? out ""))))
     );
 }
 
@@ -129,8 +134,12 @@ test "run-process: a pipe past its buffer drains while the wait parks" {
     // child is kaappi itself.
     // 70 KiB-ish: past the 64 KiB pipe buffer, which is the only property
     // this test needs, and a third of the byte traffic a rounder 200_000
-    // would cost the QEMU-emulated riscv64/s390x legs.
-    const n: usize = if (build_options.gc_stress) 4096 else 70_000;
+    // would cost the QEMU-emulated riscv64/s390x legs. Deliberately *not*
+    // scaled down under -Dgc-stress: a size below the pipe buffer produces
+    // no backpressure at all, so the stress leg would run a test that
+    // cannot fail. The byte count costs it nothing either way — the cost
+    // under stress is per allocation, and a bulk read is a handful.
+    const n: usize = 70_000;
     var buf: [512]u8 = undefined;
 
     const to_stdout = try std.fmt.bufPrint(&buf,
@@ -207,14 +216,10 @@ test "run-process: directory: and env: pass through to the spawn" {
 
 test "run-process: timeout: raises process-timeout carrying the partial output" {
     if (comptime !is_posix) return error.SkipZigTest;
-    var ctx: th.TestContext = undefined;
-    try ctx.init();
-    defer ctx.deinit();
-
     // The child prints, then sleeps past the deadline. What it managed to
     // write must survive on the condition — the condition is the only route
     // to it, since the values return never happens.
-    try expectTrue(ctx.vm,
+    try th.expectEvalTrue(
         \\(guard (e ((process-timeout? e)
         \\           (and (string=? (process-timeout-stdout e) "partial")
         \\                (string=? (process-timeout-stderr e) "half")
@@ -229,11 +234,7 @@ test "run-process: timeout: raises process-timeout carrying the partial output" 
 
 test "run-process: a child finishing inside its timeout returns normally" {
     if (comptime !is_posix) return error.SkipZigTest;
-    var ctx: th.TestContext = undefined;
-    try ctx.init();
-    defer ctx.deinit();
-
-    try expectTrue(ctx.vm,
+    try th.expectEvalTrue(
         \\(call-with-values
         \\  (lambda () (run-process '("/bin/sh" "-c" "printf quick") 'timeout: 30))
         \\  (lambda (st out err) (and (= st 0) (string=? out "quick"))))
@@ -242,15 +243,11 @@ test "run-process: a child finishing inside its timeout returns normally" {
 
 test "run-process: the timeout kill reaches a grandchild holding the same pipe" {
     if (comptime !is_posix) return error.SkipZigTest;
-    var ctx: th.TestContext = undefined;
-    try ctx.init();
-    defer ctx.deinit();
-
     // `timeout:` implies `new-group: #t`, and the group kill is what lets the
     // drain fibers reach EOF at all: the grandchild inherits stdout, so a
     // child-only kill would leave the pipe open and this call would never
     // return. Reaching the guard clause *is* the assertion.
-    try expectTrue(ctx.vm,
+    try th.expectEvalTrue(
         \\(guard (e ((process-timeout? e) (string=? (process-timeout-stdout e) "up")))
         \\  (run-process '("/bin/sh" "-c" "sleep 30 & printf up; sleep 30") 'timeout: 0.25)
         \\  'no-condition-raised)
@@ -280,11 +277,7 @@ test "run-process: process-timeout accessors reject every other condition" {
 
 test "run-process: option errors are loud" {
     if (comptime !is_posix) return error.SkipZigTest;
-    var ctx: th.TestContext = undefined;
-    try ctx.init();
-    defer ctx.deinit();
-
-    try expectTrue(ctx.vm,
+    try th.expectEvalTrue(
         \\(begin
         \\  (define (bad thunk) (guard (e (#t #t)) (thunk) #f))
         \\  (and (bad (lambda () (run-process '("/usr/bin/true") 'nonsense: 1)))
@@ -297,13 +290,9 @@ test "run-process: option errors are loud" {
 
 test "run-process: a spawn failure is a file error, not a timeout condition" {
     if (comptime !is_posix) return error.SkipZigTest;
-    var ctx: th.TestContext = undefined;
-    try ctx.init();
-    defer ctx.deinit();
-
     // KEP-0005 taxonomy: program-not-found is the same family as a failed
     // open, so `file-error?` sees it and errno tells ENOENT from EACCES.
-    try expectTrue(ctx.vm,
+    try th.expectEvalTrue(
         \\(guard (e (#t (and (file-error? e) (not (process-timeout? e)))))
         \\  (run-process '("/no/such/program/2417"))
         \\  'no-error-raised)
@@ -312,15 +301,11 @@ test "run-process: a spawn failure is a file error, not a timeout condition" {
 
 test "run-process: runs inside a spawned fiber, and siblings overlap" {
     if (comptime !is_posix) return error.SkipZigTest;
-    var ctx: th.TestContext = undefined;
-    try ctx.init();
-    defer ctx.deinit();
-
     // Two children that each sleep must finish in about one sleep, not two:
     // the internal drain fibers of one call must not block the other call's
     // wait. This also covers the dispatched-fiber entry path, where
     // `process-wait` parks flat instead of driving the scheduler in place.
-    try expectTrue(ctx.vm,
+    try th.expectEvalTrue(
         \\(begin
         \\  (import (kaappi fibers))
         \\  (define (sleeper) (spawn (lambda ()

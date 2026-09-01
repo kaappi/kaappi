@@ -165,11 +165,13 @@ Four behaviours that are decisions rather than accidents:
 - **stdin is `'null` unless `input:` is given.** A one-shot capture that
   blocks on the terminal is the failure `'inherit` would produce; Go's
   `exec.Cmd` defaults the same way. stdout and stderr are always `'pipe`.
-- **`timeout:` implies `new-group: #t`.** `process-kill` refuses `'group:`
-  on a child sharing the parent's own group, and the group kill is also what
-  lets the drain fibers reach EOF when a grandchild inherited the pipe. A
-  caller who passes `new-group: #f` explicitly gets a child-only kill, and
-  with it the risk that a surviving grandchild holds the drain open.
+- **`timeout:` implies `new-group: #t`, and refuses an explicit `#f`.**
+  `process-kill` rejects `'group:` on a child sharing the parent's own group,
+  and the group kill is also what lets the drain fibers reach EOF when a
+  grandchild inherited the pipe. A child-only kill therefore cannot deliver
+  the bound `timeout:` promises: a surviving grandchild holds the drains open
+  and the join never returns. The combination raises at option-parse time
+  rather than becoming an unbounded wait.
 - **The timeout kill is SIGKILL.** A timeout is a bound; a child that
   ignores SIGTERM would turn it into a suggestion. Python's `run()` kills
   for the same reason.
@@ -177,6 +179,17 @@ Four behaviours that are decisions rather than accidents:
   reading gives the write `EPIPE`; its verdict is the exit status, not a
   failure of the feed. Read errors on the *drains* are not swallowed — they
   are this call's failure and reach the caller.
+
+**Known limitation on Windows (kaappi#2459).** An `input:` larger than the
+4096-byte pipe buffer hangs. The emulated non-blocking pipe write asks
+`NtQueryInformationFile` for `WriteQuotaAvailable` and parks the fiber when
+it reads 0 — but that field reads 0 both when the buffer is full *and* when
+a reader is waiting on the far end, which is the state a spawned child is
+almost always in. The writer then parks on a number that never moves. The
+naive fix (never refuse; let the blocking write run) hangs the opposite
+case — a writer whose only reader is a sibling fiber on the same thread —
+so the real fix is overlapped pipe handles, and the issue owns it. POSIX is
+unaffected.
 
 `run-process` uses `call/cc` + `with-exception-handler` rather than `guard`
 for those swallows. `guard`'s desugaring reaches `%unwind-to-escape`, which

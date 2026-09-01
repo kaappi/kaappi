@@ -25,8 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the child managed to produce, and raises a condition that `process-timeout?`
   recognizes and `process-timeout-stdout`/`process-timeout-stderr` unpack —
   the partial output has nowhere else to go, since the values return never
-  happens. It implies `new-group: #t` for that kill to be safe and to reach
-  a grandchild holding the same pipe. Spawn failures stay in the file-error
+  happens. It implies `new-group: #t`, because only a group kill reaches a
+  grandchild holding the same pipes; an explicit `new-group: #f` alongside
+  `timeout:` is refused rather than accepted as an unbounded wait. Spawn failures stay in the file-error
   family with errno detail, so program-not-found and permission-denied
   remain distinguishable. See `docs/dev/subprocess.md`, new with this
   release and covering all four phases of the subsystem.
