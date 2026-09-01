@@ -532,7 +532,9 @@ jobs:
     runs-on: ubuntu-latest
     # QEMU user-mode overhead puts this leg at 16-27m on main, close enough
     # to 30m that ~1 in 15 runs is killed mid-suite on timing alone and reads
-    # as a failure in gh pr checks (kaappi#2458)
+    # as a failure in gh pr checks (kaappi#2458). KEP-0022 adds to it: every
+    # child a process test spawns is a whole /bin/sh emulated through binfmt,
+    # so this job pays a multiple of what those tests cost natively.
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -1,15 +1,20 @@
 const std = @import("std");
 const reporting = @import("reporting.zig");
 const vm_mod = @import("vm.zig");
+const platform = @import("platform.zig");
+const primitives_process = @import("primitives_process.zig");
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 
-/// Scheme-level implementations of higher-order procedures that must drive
-/// callbacks through the bytecode dispatch loop (not the Zig call stack) so
-/// that fibers can park and continuations can be captured/restored inside
-/// callbacks. Called at init time between registerAll() and
-/// registerStandardLibraries(). Each (define ...) overwrites the native
-/// stub already in vm.globals (see primitives.bootstrapStub).
+/// Scheme-level implementations of procedures that must drive callbacks
+/// through the bytecode dispatch loop (not the Zig call stack) so that
+/// fibers can park and continuations can be captured/restored inside
+/// callbacks. Mostly higher-order drivers (`map`, `for-each`, `fold`);
+/// `run-process` is here for the same reason with no user callback at all —
+/// the callbacks it drives are its own drain fibers. Called at init time
+/// between registerAll() and registerStandardLibraries(). Each (define ...)
+/// overwrites the native stub already in vm.globals (see
+/// primitives.bootstrapStub).
 ///
 /// Every definition is wrapped in a `let` that captures its dependencies
 /// (car, cdr, apply, %push-wind, ...) as closure upvalues at install time,
@@ -18,14 +23,22 @@ const VMError = vm_mod.VMError;
 /// implementations had (#1375).
 pub fn install(vm: *VM) VMError!void {
     inline for (definitions, 0..) |src, i| {
-        _ = vm.eval(src) catch |err| {
-            // A failed bootstrap would otherwise abort VM startup with a bare
-            // exit code; say which definition broke.
-            var buf: [128]u8 = undefined;
-            const msg = std.fmt.bufPrint(&buf, "vm_bootstrap.install: definition {d} ({s}...) failed: {s}\n", .{ i, src[0..@min(src.len, 24)], @errorName(err) }) catch "vm_bootstrap.install failed\n";
-            reporting.writeStderr(msg);
-            return err;
-        };
+        try evalDefinition(vm, src, i);
+    }
+    // `(kaappi process)`'s `run-process` (KEP-0022 Phase 4) is Scheme for the
+    // same reason as everything above — it drives callbacks, three sibling
+    // fibers, through the dispatch loop — but unlike them it exists only
+    // where the library it belongs to does: nowhere on WASM
+    // (`primitives.all_specs`), and nowhere under `--sandbox`, whose
+    // `registerSandboxed` skips every `.sandbox = false` spec. Evaluating it
+    // there would abort VM startup on an undefined variable.
+    //
+    // The gate is the presence of the primitive the definition is built from,
+    // not a mode flag: registration is the authority on what exists, and
+    // `main.zig` sets `vm.sandbox_mode` only *after* this runs.
+    if (comptime !platform.is_wasm) {
+        if (vm.globals.contains("%process-spawn"))
+            try evalDefinition(vm, primitives_process.run_process_src, definitions.len);
     }
     // The %-helpers registered by primitives_control.zig / primitives_lazy.zig
     // exist only to be captured by the closures above. Remove them from the
@@ -50,6 +63,18 @@ pub fn install(vm: *VM) VMError!void {
         }
     }
     vm.global_version +%= 1;
+}
+
+/// One definition, with the failure reported by index instead of as a bare
+/// exit code: a broken bootstrap would otherwise take VM startup down with
+/// nothing to go on.
+fn evalDefinition(vm: *VM, src: []const u8, index: usize) VMError!void {
+    _ = vm.eval(src) catch |err| {
+        var buf: [128]u8 = undefined;
+        const msg = std.fmt.bufPrint(&buf, "vm_bootstrap.install: definition {d} ({s}...) failed: {s}\n", .{ index, src[0..@min(src.len, 24)], @errorName(err) }) catch "vm_bootstrap.install failed\n";
+        reporting.writeStderr(msg);
+        return err;
+    };
 }
 
 /// The `.internal` specs that must not merely be unexported but unreachable:

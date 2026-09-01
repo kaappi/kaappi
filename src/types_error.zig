@@ -25,6 +25,16 @@ pub const ErrorObject = struct {
         /// accessor pair. uncaught_reason carries the offending character
         /// for i/o-encoding-error-char.
         io_encoding,
+        /// KEP-0022 Phase 4: `run-process` exceeded its `timeout:`. The
+        /// child (and its group) has already been killed and reaped by the
+        /// time this is raised, so the condition is the *only* route to
+        /// what the child managed to produce: `uncaught_reason` carries
+        /// the partial output as a `(stdout . stderr)` pair, which
+        /// `process-timeout-stdout`/`-stderr` read back. Irritants hold
+        /// the argv and the elapsed-timeout seconds, which are small; the
+        /// output rides the reason slot instead precisely so an uncaught
+        /// timeout does not print however many megabytes the child wrote.
+        process_timeout,
     };
 
     header: Object,

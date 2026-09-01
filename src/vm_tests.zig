@@ -68,6 +68,7 @@ test {
     // Windows one (Phase 3, kaappi#2416) through cmd.exe. Both are gated out
     // of the WASM build, where the specs are not registered at all.
     _ = @import("tests_process.zig");
+    _ = @import("tests_process_run.zig");
     _ = @import("tests_process_win.zig");
     // Byte-order pins. The unit suite is one of only three things that runs
     // on the big-endian s390x leg, so this is where an endian assertion

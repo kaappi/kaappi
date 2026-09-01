@@ -24,6 +24,7 @@ belongs here.
 | GC safety | `gc-safety-and-error-handling.md` |
 | SRFI-18 threads / what may cross a thread boundary | `thread-value-sharing.md` |
 | Fibers, the I/O reactor, port blocking | `fibers-and-reactor.md` |
+| Subprocesses / `(kaappi process)` | `subprocess.md` |
 | Implementing or editing a SRFI library | `srfi-implementation-notes.md` |
 | The package manager | `thottam.md` |
 | Tests | `testing.md`, `test-runner.md` |

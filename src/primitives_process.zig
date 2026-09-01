@@ -870,6 +870,68 @@ fn processKill(args: []const Value) PrimitiveError!Value {
     return types.VOID;
 }
 
+// ---------------------------------------------------------------------------
+// process-timeout condition (KEP-0022 Phase 4, kaappi#2417)
+// ---------------------------------------------------------------------------
+
+/// (%raise-process-timeout argv seconds out err) — the raise half of
+/// `run-process`'s `timeout:` path, kept in Zig because a typed condition
+/// object cannot be built from Scheme.
+///
+/// The child is already killed and reaped by the time this runs, so the
+/// condition is the only surviving route to what it produced: the partial
+/// output rides `uncaught_reason` as a `(stdout . stderr)` pair. Irritants
+/// carry `(argv seconds)` — the two small things a printed, uncaught
+/// timeout should say — and never the output itself.
+fn raiseProcessTimeoutFn(args: []const Value) PrimitiveError!Value {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidBytecode; // no VM: internal invariant
+
+    var reason = gc.allocPair(args[2], args[3]) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&reason);
+    var irritants = gc.makeList(&.{ args[0], args[1] }) catch {
+        gc.popRoot();
+        return PrimitiveError.OutOfMemory;
+    };
+    gc.pushRoot(&irritants);
+    const msg = gc.allocString("run-process: timed out") catch {
+        gc.popRoot();
+        gc.popRoot();
+        return PrimitiveError.OutOfMemory;
+    };
+    // allocErrorObject roots its own Value arguments, so `msg` needs no
+    // root of its own; `reason` and `irritants` do, and are popped strictly
+    // LIFO right after the last allocation that could collect.
+    const err_val = gc.allocErrorObject(msg, irritants) catch {
+        gc.popRoot();
+        gc.popRoot();
+        return PrimitiveError.OutOfMemory;
+    };
+    gc.popRoot();
+    gc.popRoot();
+    const err = types.toObject(err_val).as(types.ErrorObject);
+    err.error_type = .process_timeout;
+    err.uncaught_reason = reason;
+    vm.current_exception = err_val;
+    return PrimitiveError.ExceptionRaised;
+}
+
+fn processTimeoutP(args: []const Value) PrimitiveError!Value {
+    return if (srfi18.isErrorOfType(args[0], .process_timeout)) types.TRUE else types.FALSE;
+}
+
+fn processTimeoutStdout(args: []const Value) PrimitiveError!Value {
+    if (!srfi18.isErrorOfType(args[0], .process_timeout))
+        return primitives.typeError("process-timeout-stdout", "process-timeout condition", args[0]);
+    return types.car(types.toObject(args[0]).as(types.ErrorObject).uncaught_reason);
+}
+
+fn processTimeoutStderr(args: []const Value) PrimitiveError!Value {
+    if (!srfi18.isErrorOfType(args[0], .process_timeout))
+        return primitives.typeError("process-timeout-stderr", "process-timeout condition", args[0]);
+    return types.cdr(types.toObject(args[0]).as(types.ErrorObject).uncaught_reason);
+}
+
 fn processEnvironment(_: []const Value) PrimitiveError!Value {
     // Same alist shape as (get-environment-variables) — (name . value)
     // string pairs — so `env:` replace-wholesale composes with copy-and-
@@ -894,4 +956,169 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "process-wait", .func = &processWait, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.kaappi_process), .sandbox = false, .wasm = false },
     .{ .name = "process-kill", .func = &processKill, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.kaappi_process), .sandbox = false, .wasm = false },
     .{ .name = "process-environment", .func = &processEnvironment, .arity = .{ .exact = 0 }, .libs = LS.initOne(.kaappi_process), .sandbox = false, .wasm = false },
+    // Phase 4 (kaappi#2417). `run-process` is Scheme source (`run_process_src`
+    // below) installed over this stub by vm_bootstrap.install: its whole job
+    // is to drive three sibling fibers through the dispatch loop, which a
+    // native frame cannot do.
+    .{ .name = "run-process", .func = primitives.bootstrapStub("run-process"), .arity = .{ .variadic = 1 }, .libs = LS.initOne(.kaappi_process), .sandbox = false, .wasm = false },
+    .{ .name = "%raise-process-timeout", .func = &raiseProcessTimeoutFn, .arity = .{ .exact = 4 }, .libs = primitives.INTERNAL, .sandbox = false, .wasm = false },
+    .{ .name = "process-timeout?", .func = &processTimeoutP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.kaappi_process), .sandbox = false, .wasm = false },
+    .{ .name = "process-timeout-stdout", .func = &processTimeoutStdout, .arity = .{ .exact = 1 }, .libs = LS.initOne(.kaappi_process), .sandbox = false, .wasm = false },
+    .{ .name = "process-timeout-stderr", .func = &processTimeoutStderr, .arity = .{ .exact = 1 }, .libs = LS.initOne(.kaappi_process), .sandbox = false, .wasm = false },
 };
+
+// ---------------------------------------------------------------------------
+// run-process (KEP-0022 Phase 4, kaappi#2417)
+// ---------------------------------------------------------------------------
+
+/// The Scheme body behind the `run-process` bootstrap stub above, installed
+/// by `vm_bootstrap.install` (which skips it on WASM, where none of the
+/// names it captures is registered).
+///
+/// Scheme, not Zig, because the whole procedure is fiber choreography:
+/// stdin is fed and both pipes are drained by sibling fibers *while*
+/// `process-wait` parks, which is the fiber-native answer to the classic
+/// "write to stdin, read stdout, deadlock" bug that Python's
+/// `communicate()` exists to work around. Spawning and joining fibers is
+/// dispatch-loop work; a native frame cannot do it.
+///
+/// The `let`-captured dependencies follow the vm_bootstrap discipline: a
+/// later top-level redefinition of `car` or `process-wait` must not change
+/// what `run-process` does.
+pub const run_process_src =
+    \\(define run-process
+    \\  (let ((%process-spawn %process-spawn)
+    \\        (%raise-process-timeout %raise-process-timeout)
+    \\        (process-stdin process-stdin)
+    \\        (process-stdout process-stdout)
+    \\        (process-stderr process-stderr)
+    \\        (process-group process-group)
+    \\        (process-wait process-wait)
+    \\        (process-kill process-kill)
+    \\        (spawn spawn)
+    \\        (fiber-join fiber-join)
+    \\        (read-bytevector read-bytevector)
+    \\        (write-bytevector write-bytevector)
+    \\        (open-output-bytevector open-output-bytevector)
+    \\        (get-output-bytevector get-output-bytevector)
+    \\        (utf8->string utf8->string)
+    \\        (string->utf8 string->utf8)
+    \\        (flush-output-port flush-output-port)
+    \\        (close-port close-port)
+    \\        (eof-object? eof-object?)
+    \\        (bytevector? bytevector?)
+    \\        (string? string?)
+    \\        (call/cc call-with-current-continuation)
+    \\        (with-exception-handler with-exception-handler)
+    \\        (values values) (error error) (eq? eq?) (not not)
+    \\        (null? null?) (pair? pair?) (car car) (cdr cdr))
+    \\    (lambda (argv . opts)
+    \\      ;; `guard` is unavailable here: its desugaring reaches %unwind-to-escape,
+    \\      ;; which vm_bootstrap.install purges from globals right after evaluating
+    \\      ;; this definition. call/cc + with-exception-handler is the same escape
+    \\      ;; with no macro underneath.
+    \\      (define (quietly thunk)
+    \\        (call/cc (lambda (k) (with-exception-handler (lambda (e) (k #f)) thunk))))
+    \\      ;; One drain fiber per pipe, each appending into its own bytevector
+    \\      ;; sink. The sink -- not the fiber's return value -- is what holds the
+    \\      ;; output, so a timeout can report the partial bytes without the fiber
+    \\      ;; having finished.
+    \\      (define (drain-into port sink)
+    \\        (let loop ()
+    \\          (let ((chunk (read-bytevector 65536 port)))
+    \\            (if (eof-object? chunk)
+    \\                #t
+    \\                (begin (write-bytevector chunk sink) (loop))))))
+    \\      (define (harvest sink port want-bytes)
+    \\        (quietly (lambda () (close-port port)))
+    \\        (let ((bytes (get-output-bytevector sink)))
+    \\          (if want-bytes bytes (utf8->string bytes))))
+    \\      (define (go input timeout output directory env new-group)
+    \\        (let* ((want-bytes
+    \\                (cond ((eq? output 'bytevector) #t)
+    \\                      ((eq? output 'string) #f)
+    \\                      (else (error "run-process: output: expects 'string or 'bytevector" output))))
+    \\               (fed (cond ((not input) #f)
+    \\                          ((string? input) (string->utf8 input))
+    \\                          ((bytevector? input) input)
+    \\                          (else (error "run-process: input: expects a string or a bytevector" input))))
+    \\               ;; A timeout has to be able to kill the whole tree: the
+    \\               ;; group kill is what reaches a grandchild, and a grandchild
+    \\               ;; holding the pipe is what would otherwise keep the drains
+    \\               ;; from ever reaching EOF. So `timeout:` implies
+    \\               ;; `new-group: #t`, and an explicit #f alongside it is
+    \\               ;; refused rather than silently unbounded -- process-kill
+    \\               ;; also refuses 'group: on a child sharing our own group, so
+    \\               ;; the combination cannot deliver the bound it promises.
+    \\               (grouped (cond ((eq? new-group 'unset) (if timeout #t #f))
+    \\                              ((and timeout (not new-group))
+    \\                               (error "run-process: timeout: needs new-group: #t -- a child-only kill cannot reach a grandchild holding the pipes, so the timeout could not be bounded" argv))
+    \\                              (else new-group)))
+    \\               (p (%process-spawn argv (if fed 'pipe 'null) 'pipe 'pipe
+    \\                                  directory env grouped))
+    \\               (out-port (process-stdout p))
+    \\               (err-port (process-stderr p))
+    \\               (in-port (process-stdin p))
+    \\               (out-sink (open-output-bytevector))
+    \\               (err-sink (open-output-bytevector))
+    \\               ;; Spawned before the wait, so all three run while it parks:
+    \\               ;; this is the deadlock Python's communicate() exists to avoid,
+    \\               ;; answered with fibers instead of threads.
+    \\               (feeder (if in-port
+    \\                           (spawn (lambda ()
+    \\                                    ;; A child that exits without reading gives
+    \\                                    ;; the write EPIPE. That is a verdict the
+    \\                                    ;; exit status already carries, not an
+    \\                                    ;; error of ours -- Python swallows the
+    \\                                    ;; same BrokenPipeError in communicate().
+    \\                                    (quietly (lambda ()
+    \\                                               (write-bytevector fed in-port)
+    \\                                               (flush-output-port in-port)))
+    \\                                    (quietly (lambda () (close-port in-port)))))
+    \\                           #f))
+    \\               (out-fiber (spawn (lambda () (drain-into out-port out-sink))))
+    \\               (err-fiber (spawn (lambda () (drain-into err-port err-sink))))
+    \\               (status (if timeout (process-wait p 'timeout: timeout) (process-wait p))))
+    \\          (if (and timeout (not status))
+    \\              (begin
+    \\                ;; SIGKILL, not SIGTERM: `timeout:` is a bound, and a child
+    \\                ;; that ignores SIGTERM would make it a suggestion (Python's
+    \\                ;; run() kills for the same reason). Always the group form --
+    \\                ;; `grouped` is #t on every path that reaches here -- since
+    \\                ;; that is what reaches a grandchild holding the same pipe,
+    \\                ;; and so what lets the drains below reach EOF at all.
+    \\                (process-kill p 'signal: 9 'group: #t)
+    \\                (process-wait p)
+    \\                (quietly (lambda () (fiber-join out-fiber)))
+    \\                (quietly (lambda () (fiber-join err-fiber)))
+    \\                (if feeder (quietly (lambda () (fiber-join feeder))))
+    \\                (%raise-process-timeout
+    \\                 argv timeout
+    \\                 (harvest out-sink out-port want-bytes)
+    \\                 (harvest err-sink err-port want-bytes)))
+    \\              (begin
+    \\                ;; No `quietly` here: a read error on a pipe is this call's
+    \\                ;; failure and must reach the caller.
+    \\                (fiber-join out-fiber)
+    \\                (fiber-join err-fiber)
+    \\                (if feeder (quietly (lambda () (fiber-join feeder))))
+    \\                (values status
+    \\                        (harvest out-sink out-port want-bytes)
+    \\                        (harvest err-sink err-port want-bytes))))))
+    \\      (let loop ((o opts) (input #f) (timeout #f) (output 'string)
+    \\                 (directory #f) (env #f) (new-group 'unset))
+    \\        (cond
+    \\         ((null? o) (go input timeout output directory env new-group))
+    \\         ((not (pair? o)) (error "run-process: improper option list" opts))
+    \\         ((not (pair? (cdr o))) (error "run-process: option has no value" (car o)))
+    \\         (else
+    \\          (let ((k (car o)) (v (car (cdr o))) (rest (cdr (cdr o))))
+    \\            (cond
+    \\             ((eq? k 'input:) (loop rest v timeout output directory env new-group))
+    \\             ((eq? k 'timeout:) (loop rest input v output directory env new-group))
+    \\             ((eq? k 'output:) (loop rest input timeout v directory env new-group))
+    \\             ((eq? k 'directory:) (loop rest input timeout output v env new-group))
+    \\             ((eq? k 'env:) (loop rest input timeout output directory v new-group))
+    \\             ((eq? k 'new-group:) (loop rest input timeout output directory env (if v #t #f)))
+    \\             (else (error "run-process: unknown option" k))))))))))
+;
