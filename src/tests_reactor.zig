@@ -872,8 +872,8 @@ test "#2395: a ring is a real OS event that ends a blocking reactor poll" {
 
 // ---------------------------------------------------------------------------
 // Child-exit readiness (KEP-0022 Phase 2, kaappi#2415). Real children via
-// std.process.Child (spawn only — the reactor must reap them itself, that
-// being the property under test, so no child.wait() anywhere). Fake Process
+// raw fork() (forkChild below — the reactor must reap them itself, that
+// being the property under test, so nothing else ever waits them). Fake Process
 // values are stack locals like the fake Fibers above: the reactor reads
 // pid/wait_handle/status and never touches the header. `memory.gc_instance`
 // is nulled per test — an earlier VM test's TestContext.deinit leaves the
