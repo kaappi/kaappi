@@ -8,10 +8,11 @@ thread), see `docs/dev/thread-value-sharing.md`.
 
 ## The reactor
 
-Each OS thread's scheduler owns a `Reactor` (`src/reactor.zig`:
-kqueue/epoll/WASI-`poll_oneoff`/Windows-`WSAEventSelect` backends plus a
-userspace timer heap), created lazily with the scheduler by
-`fiber.ensureScheduler`.
+Each OS thread's scheduler owns a `Reactor` (`src/reactor.zig` — the
+dispatch core, registries, and timer heap; the four OS backends —
+kqueue/epoll/WASI-`poll_oneoff`/Windows-`WSAEventSelect` — live in
+`src/reactor_backends.zig`, split along the dispatch-versus-backend seam),
+created lazily with the scheduler by `fiber.ensureScheduler`.
 
 The blocking-wait machinery — `waitForFd`, reactor parking (`parkOnReactor`),
 and the shared in-place scheduler drive (`runSchedulerStep`) — lives in
