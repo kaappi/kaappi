@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788269711189,
+  "lastUpdate": 1788281770799,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "88432dd1563027afaf6e3fc274425202feff71a5",
-          "message": "Split repl.zig along its natural seams (#2266) (#2270)\n\n* Split repl.zig along its natural seams (Fixes #2266)\n\nrepl.zig had grown to ~1,590 lines, over the 1,500-line guideline, with\ngenuinely tangled coupling: the REPL loop, the isocline callbacks\n(completeness, completion, highlighting, structural editing), and the\ncomma-command dispatch all lived in one file. The split is pure motion —\nno behavior changes — so the unit tests that covered the pure functions\nand the pty smoke tests that covered the loop still pass unchanged.\n\nThree seams, three new files:\n\n- repl_highlight.zig: the token scanner (scanHighlight), the isocline\n  highlighter callback, and the theme-to-isocline style bridge\n  (ansiToIcStyle, applyTheme), with all of its unit tests. Driven by\n  Reader.isDelimiter and config.zig's theme escapes, so colors cannot\n  disagree with the parse.\n- repl_commands.zig: the comma-command dispatch (handleCommand, returning\n  tri-state so `,quit` can end the REPL rather than continue it), the\n  handlers, the command-name completion helpers, and the usage table.\n- repl_eval.zig: the read -> compile -> execute -> print driver\n  (evalInputInner and friends, with EvalMode), shared by the main loop\n  and the commands, plus the pretty-print terminal width.\n\nrepl.zig keeps the main loop, line editing, the completeness/completion/\nsexp-edit callbacks, and inputIncomplete's tests — now ~490 lines, and\nthe new files are each well under the limit. The dependency graph is\nacyclic: repl -> {highlight, eval, commands}, commands -> eval.\n\nAlso dropped the write-only `theme` global (assigned at startup, never\nread), and updated docs/dev/repl.md's file map plus the repl.zig file\nreferences in docs/dev/crash-reporting.md and docs/dev/porting.md.\n\nVerified behavior-identical against the pre-split binary: unit tests\n(plain and -Dgc-stress), the full Scheme suite (2097 pass), the six\nrepl-* pty smoke tests, `zig build wasm`, and a pty-driven pass over\nevery comma command (byte-identical output to the original binary).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: GC-safe ,import/,expand, tidy moved helpers\n\nCodeRabbit review of #2270 flagged that the moved ,import and ,expand\nhandlers skip two GC-safety steps the rest of the codebase takes (see\n.claude/rules/gc-safety.md): the ,import spine write\n`Pair.cdr = pair` had no writeBarrier, and the ,expand datum and its\nexpansion were unrooted across the allocating expander calls. Both are\npre-existing (the code moved verbatim from repl.zig), but they are\nbehavior-identical to fix and this PR is where that code lands in its\nnew home, so harden it now:\n\n- ,import: barrier the old->young cdr edge after a collection promotes\n  the spine, matching primitives_fiber.zig / bytecode_file_read.zig;\n  also declare the pair const and drop the `_ = &pair` suppression.\n- ,expand: root expr before expandMacro and the expansion before\n  stripUsertextMarkers, mirroring evalInputInner's own rooting of read\n  datums (pushRoot + defer popRoot, LIFO-safe here).\n\nPlus three low-value cleanups of the moved code: ,apropos now uses\nstd.mem.indexOf instead of the hand-rolled containsSubstring (same\nempty-needle semantics), describeSymbol drops its unused allocator\nparameter, and docs/dev/repl.md's intro names all four REPL files.\n\nDeliberately not done in this PR: the ,load path-escaping gap (fixing\nit changes behavior and wants its own regression test — filed\nseparately) and collapsing evalInputInner's duplicated print blocks\n(control-flow risk in a pure-motion split; both copies pre-existing).\n\nVerified: unit tests (plain and -Dgc-stress), full Scheme suite (2097\npass), the six repl-* pty smoke tests, `zig build wasm`, and the pty\ncommand matrix against the pre-split binary (still byte-identical).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-09T17:02:01Z",
-          "tree_id": "814d1cadf3a4b77044665877e9d01bb8703c1ca5",
-          "url": "https://github.com/kaappi/kaappi/commit/88432dd1563027afaf6e3fc274425202feff71a5"
-        },
-        "date": 1786297081633,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.933419,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.050128,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.583881,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.834753,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004955,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.045557,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.289583,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.055682,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.356782,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.158163,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.574651,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.311336,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.727524,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.814207,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045167,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045845,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e8070ab0838b0ff23d4afc50724adbdb06c3b62f",
+          "message": "Make SRFI 231 array-copy continuation-safe (#2461)\n\n* Make SRFI 231 array-copy continuation-safe (#2454)\n\n%array-copy-impl filled the destination directly: one interval-for-each\npass calling the source's getter and the destination's setter per index,\ninto a dest allocated before the loop. A getter that captured a\ncontinuation and re-invoked it after array-copy returned kept writing\ninto the array the first copy had already handed back, so the caller's\narray silently mutated under it -- the official suite's own case 737\nread ((4 1) (1 1)) where ((1 1) (1 1)) was required. The spec's whole\ndocumented difference between array-copy and array-copy! is that the\nnon-! one must be safe under exactly this.\n\narray-copy now collects every source value through a functional\naccumulator (no set!, so a re-entry re-runs the collection from its\ncapture point and materializes its own destination) before allocating\nthe destination, then fills it in a second pass. array-append, -stack,\n-block and -decurry delegate to array-copy, so one change resolves all\nfive known-divergence ids (737-741), which are pruned here.\narray-copy! keeps the direct fill, which the spec explicitly permits;\nthe assembly.sld header note about the four ! twins being pure aliases\nof the now-safe path is updated to match.\n\nMeasured on the 200x300 copies the perf note asked for: no regression\n(0.327s -> 0.327s specialized u8, 0.403s -> 0.395s generic-getter per\ncopy) -- one extra cons per element against a loop that already\nallocates a rest list per apply is noise.\n\nCo-authored-by: ZCode <noreply@z.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Collect array-copy's values into a scratch vector, not a cons list (review)\n\nThe cons accumulator the first cut used holds N pairs live (2N more\ntransiently across the reverse) for exactly the same continuation\nsemantics a pre-sized scratch vector gives: the review's suggested\nshape -- a lexicographic index threaded functionally through the walk,\n(cons val acc) becoming (begin (vector-set! buf k val) (+ k 1)) -- so\nthe two passes now share one %domain-walk helper (they differed only in\nleaf body and could not drift out of order-agreement), and at 1M\nelements total pair allocations drop 18.0M -> 16.0M with the N live\npairs gone. The churn that remains is the library apply shape every\nfill loop already shares (kaappi#2464).\n\nThe copy-out's no-continuation-here claim is also corrected: a\ndestination storage class from make-storage-class contributes\nuser-written setter code there, so a capture re-enters with the\ndestination already allocated and hands back the same object (identical\ncontents) -- the same residual the reference implementation has; the\ncomments and CHANGELOG now say so instead of asserting an absolute.\n\nCo-authored-by: ZCode <noreply@z.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: ZCode <noreply@z.ai>",
+          "timestamp": "2026-09-01T16:14:02Z",
+          "tree_id": "8988f1e7eec585b519c67bc0da0af75deb0a2177",
+          "url": "https://github.com/kaappi/kaappi/commit/e8070ab0838b0ff23d4afc50724adbdb06c3b62f"
+        },
+        "date": 1788281768926,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.32406,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.949911,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.562163,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.937856,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004452,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04786,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.300155,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056359,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.954474,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.210457,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.662571,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.271313,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.703104,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.640784,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046326,
             "unit": "seconds"
           }
         ]
