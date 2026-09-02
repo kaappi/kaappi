@@ -105,21 +105,12 @@
     (call-with-values (lambda () 1) (lambda (x) x))))
 
 ;; ...and when the rebinding is an earlier child of the SAME top-level `begin`.
-;; The gate reads the live global environment rather than a set!-target list,
-;; so it needs the definition to have run by the time the use is compiled; a
-;; top-level `begin`'s children are compiled and executed one at a time, which
-;; is what makes that hold. (A body compiled BEFORE a later top-level
-;; redefinition does keep the builtin — the same compile-time property the
-;; constant folder has for `+`, and unchanged by #2451.)
-(test-eq "a define earlier in the same begin beats the apply opcode" 'mine
-  (begin
-    (define (apply f xs) 'mine)
-    (let ((v (apply + (list 1 2)))) v)))
-
-(test-eq "a define earlier in the same begin beats the call-with-values lowering" 'mine
-  (begin
-    (define (call-with-values p c) 'mine)
-    (let ((v (call-with-values (lambda () 1) (lambda (x) x)))) v)))
+;; Those two cases live in tests/scheme/compliance/top-level-redefinition-2033.scm
+;; since #2457: a top-level define of one of these names anywhere in a
+;; compilation unit now declines the superinstruction for the WHOLE unit, so
+;; keeping them here would route this file's re-entry tests through the native
+;; by-name path and conflate the two assertions (the opcode's re-entry
+;; guarantee with the gate's resolution rules).
 
 ;; Diagnostics: non-tail apply reports through the native applyFn's texts,
 ;; which the LLVM backend also produces (tests/scheme/compile/

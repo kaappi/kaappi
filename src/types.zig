@@ -1470,6 +1470,11 @@ pub const OpCode = enum(u8) {
     // comptime and so has no such guard — it decoded as garbage the moment the
     // numbering shifted. New opcodes go on the end.
     apply, // base:u16, nargs:u8
+    // Spread a call-with-values producer's return value (a single value or a
+    // MultipleValues object from `values`) into a fresh argument list for the
+    // apply/tail_apply that follows it (kaappi#2453). Appended at the end for
+    // the same .sbc-numbering reason as `apply` above.
+    values_list, // dst:u16, src:u16
 };
 
 // -- Doc sync gate ----------------------------------------------------------
@@ -1486,7 +1491,7 @@ pub const OpCode = enum(u8) {
 // than trusting the list — grep the *noun*, since the count is written at least
 // four ways ("31 opcodes", "31-opcode", "(31 opcodes)", and number-after-noun).
 comptime {
-    if (@typeInfo(OpCode).@"enum".fields.len != 32)
+    if (@typeInfo(OpCode).@"enum".fields.len != 33)
         @compileError("OpCode count changed. Update the table in docs/dev/bytecode.md, then every " ++
             "file quoting the count — known: docs/dev/architecture.md, docs/dev/README.md, " ++
             "docs/dev/claude-code-harness.md, .claude/skills/bytecode-isa/SKILL.md. Find any others " ++

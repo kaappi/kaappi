@@ -49,6 +49,23 @@
 (test-equal "dynamic-wind ordering" '(before during after)
   (reverse trace))
 
+;; 6. The tail_call_cc opcode checks its receiver's arity — pinned so a fix
+;;    like #2034 never has to guess which half was already right. The receiver
+;;    must sit in genuine tail position, so each call is wrapped from outside.
+;;    (Lives here since #2457, not in the primitives_control audit: that file
+;;    redefines call/cc at top level, which now declines the superinstruction
+;;    for its whole compilation unit.)
+(define-syntax raised-msg-cc
+  (syntax-rules ()
+    ((_ e) (guard (ex (#t (if (error-object? ex) (error-object-message ex) ex)))
+             (begin e 'no-raise)))))
+(test-equal "tail_call_cc: a 2-argument receiver IS rejected in tail position"
+  "call/cc receiver: expected 1 argument, got arity 2"
+  (raised-msg-cc ((lambda () (call/cc (lambda (a b) 1))))))
+(test-equal "tail_call_cc: a 3-argument receiver IS rejected in tail position"
+  "call/cc receiver: expected 1 argument, got arity 3"
+  (raised-msg-cc ((lambda () (call/cc (lambda (a b c) 1))))))
+
 (set! %test-fail-count (test-runner-fail-count (test-runner-current)))
 (test-end "callcc-correctness")
 (if (> %test-fail-count 0) (exit 1))

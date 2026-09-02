@@ -1379,6 +1379,13 @@ pub const VM = struct {
         return vm_calls.callThunk(self, thunk_val);
     }
 
+    /// callThunk variant for thunks owned by a native caller: the closure
+    /// frame carries returns_to_native, so a late continuation resume past the
+    /// returned native raises KP3000 instead of mis-delivering (kaappi#2453).
+    pub fn callThunkReturningToNative(self: *VM, thunk_val: Value) VMError!Value {
+        return vm_calls.callThunkReturningToNative(self, thunk_val);
+    }
+
     pub fn callWithArgs(self: *VM, proc: Value, args: []const Value) VMError!Value {
         return vm_calls.callWithArgs(self, proc, args);
     }

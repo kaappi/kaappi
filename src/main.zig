@@ -10,6 +10,7 @@ pub const memory = @import("memory.zig");
 pub const reader = @import("reader.zig");
 pub const compiler = @import("compiler.zig");
 pub const compiler_forms = @import("compiler_forms.zig");
+const compiler_passthrough = @import("compiler_passthrough.zig");
 pub const vm_mod = @import("vm.zig");
 pub const vm_eval = @import("vm_eval.zig");
 pub const primitives = @import("primitives.zig");
@@ -746,6 +747,38 @@ fn runCachedTopLevelFunc(vm: *vm_mod.VM, func: *types.Function, source: []const 
     printTopLevelResult(allocator, result);
 }
 
+/// Whole-unit top-level target set for one compilation unit (kaappi#2457):
+/// every name a top-level `define` / `define-values` / `set!` targets anywhere
+/// in the source, known before any form compiles. Installed into
+/// `compiler_passthrough.unit_top_level_targets` for the unit's duration so
+/// the superinstruction gate declines for names the unit redefines — a body
+/// compiled before the definition runs must not bake in the builtin. Owns its
+/// duped keys; `deinit` frees them.
+const UnitTargets = struct {
+    map: std.StringHashMap(void),
+
+    fn init(gc: *memory.GC, source: []const u8) UnitTargets {
+        var map = std.StringHashMap(void).init(gc.allocator);
+        compiler_passthrough.collectUnitTopLevelTargets(&map, gc, source);
+        return .{ .map = map };
+    }
+
+    fn deinit(self: *UnitTargets) void {
+        var it = self.map.keyIterator();
+        while (it.next()) |k| self.map.allocator.free(k.*);
+        self.map.deinit();
+    }
+
+    /// Point the compiler's threadlocal at this set (null when empty: an
+    /// unset threadlocal and an empty set behave identically, and most units
+    /// never touch these names). Call before the first compile of the unit;
+    /// the caller's `defer reset` must be registered after this.
+    fn install(self: *UnitTargets) void {
+        compiler_passthrough.unit_top_level_targets =
+            if (self.map.count() > 0) &self.map else null;
+    }
+};
+
 fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     const allocator = vm.gc.allocator;
 
@@ -778,6 +811,15 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         return;
     };
     defer allocator.free(source);
+
+    // Whole-unit define/set! targets, before any form of this unit compiles —
+    // both the cold compile and a cache HIT's declaration replay consult the
+    // same set (kaappi#2457). The reset defer is registered after install so
+    // it runs before the map's deinit.
+    var unit_targets = UnitTargets.init(vm.gc, source);
+    defer unit_targets.deinit();
+    unit_targets.install();
+    defer compiler_passthrough.unit_top_level_targets = null;
 
     const source_hash = bytecode_file.sourceHash(source);
 
@@ -1157,6 +1199,13 @@ fn runStdin(vm: *vm_mod.VM) !void {
     };
     defer allocator.free(source);
 
+    // Whole-unit define/set! targets before any form compiles (kaappi#2457);
+    // see runFile.
+    var unit_targets = UnitTargets.init(vm.gc, source);
+    defer unit_targets.deinit();
+    unit_targets.install();
+    defer compiler_passthrough.unit_top_level_targets = null;
+
     crash.note(.reading, "<stdin>");
 
     var r = reader.Reader.initWithName(vm.gc, source, "<stdin>");
@@ -1289,6 +1338,14 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
         return;
     };
     defer allocator.free(source);
+
+    // Whole-unit define/set! targets before any form compiles (kaappi#2457);
+    // see runFile. The decisions this scan drives are baked into the .sbc the
+    // same way the compile-time global read always was.
+    var unit_targets = UnitTargets.init(vm.gc, source);
+    defer unit_targets.deinit();
+    unit_targets.install();
+    defer compiler_passthrough.unit_top_level_targets = null;
 
     const source_hash = bytecode_file.sourceHash(source);
 

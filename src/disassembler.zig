@@ -62,7 +62,7 @@ fn disassembleInstruction(func: *types.Function, code: []const u8, offset: usize
     const off_str = std.fmt.bufPrint(&buf, "  {d:0>4}  ", .{offset}) catch "  ????  ";
     writeStderr(off_str);
 
-    if (raw_op > @intFromEnum(OpCode.apply)) {
+    if (raw_op > @intFromEnum(OpCode.values_list)) {
         const s = std.fmt.bufPrint(&buf, "<invalid opcode 0x{x:0>2}>\n", .{raw_op}) catch "<invalid opcode>\n";
         writeStderr(s);
         return ip;
@@ -91,6 +91,7 @@ fn disassembleInstruction(func: *types.Function, code: []const u8, offset: usize
         .self_tail_call => 3,
         .tail_call_cc => 4,
         .tail_eval => 3,
+        .values_list => 4,
     };
     if (ip + fixed_operand_bytes > code.len) {
         writeStderr("<truncated instruction>\n");
@@ -161,6 +162,12 @@ fn disassembleInstruction(func: *types.Function, code: []const u8, offset: usize
             const nargs = code[ip];
             ip += 1;
             const s = std.fmt.bufPrint(&buf, "apply           r{d}, {d}\n", .{ base, nargs }) catch "apply\n";
+            writeStderr(s);
+        },
+        .values_list => {
+            const dst = readU16(code, &ip);
+            const src = readU16(code, &ip);
+            const s = std.fmt.bufPrint(&buf, "values_list     r{d}, r{d}\n", .{ dst, src }) catch "values_list\n";
             writeStderr(s);
         },
         .tail_apply => {

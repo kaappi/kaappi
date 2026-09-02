@@ -28,6 +28,7 @@ const llvm_emit = @import("llvm_emit.zig");
 const LLVMEmitter = llvm_emit.LLVMEmitter;
 const EmitError = llvm_emit.EmitError;
 const NativeLambda = llvm_emit.NativeLambda;
+const compiler_passthrough = @import("compiler_passthrough.zig");
 
 const Value = types.Value;
 
@@ -37,6 +38,15 @@ const void_bits: i64 = @bitCast(types.VOID);
 // Cap on `do` loop variables — bounds the fixed-size scratch arrays below and
 // matches emitLet's 32-binding ceiling. A wider `do` falls back to eval.
 const MAX_DO_VARS = 32;
+
+/// Whether the compilation unit's whole-source scan saw a top-level
+/// define/set! of `name` (kaappi#2457) — the emitter-side mirror of the
+/// interpreter gate's unit arm. Null threadlocal (REPL-time evals, tests)
+/// answers false, keeping the legacy in-order behavior.
+fn unitRedefines(name: []const u8) bool {
+    const targets = compiler_passthrough.unit_top_level_targets orelse return false;
+    return targets.contains(name);
+}
 
 fn fmt(self: *LLVMEmitter, comptime f: []const u8, a: anytype) EmitError![]const u8 {
     return std.fmt.allocPrint(self.allocator(), f, a) catch return error.OutOfMemory;
@@ -1046,8 +1056,15 @@ pub fn emitApplyForm(self: *LLVMEmitter, expr: Value, is_tail: bool) EmitError![
     if (cur != types.NIL) return error.UnsupportedNodeType;
 
     const shadowed = self.isNameShadowed("apply");
+    // rebound: the name no longer denotes the builtin. rebound_globals and
+    // native_fns are in-order (a define/set! emitted BEFORE this form); the
+    // unit scan (kaappi#2457) adds the whole-unit answer — a define/set! of
+    // `apply` anywhere in the program declines the structural shape even for
+    // uses that precede it, the same interim the interpreter's
+    // globalBindingStillGenuine arm takes.
     const rebound = self.rebound_globals.contains("apply") or
-        self.native_fns.contains("apply");
+        self.native_fns.contains("apply") or
+        unitRedefines("apply");
 
     // Abandon to the interpreter only for the genuinely builtin shape: a
     // rebound `apply` with too few operands is a runtime arity/behavior

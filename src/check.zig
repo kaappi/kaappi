@@ -28,6 +28,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const reader = @import("reader.zig");
 const compiler = @import("compiler.zig");
+const compiler_passthrough = @import("compiler_passthrough.zig");
 const vm_mod = @import("vm.zig");
 const vm_library = @import("vm_library.zig");
 const ir_mod = @import("ir.zig");
@@ -128,8 +129,37 @@ pub fn analyzeSource(vm: *VM, ctx: *check_lint.Context, source: []const u8, path
         check_lint.active = null;
         ir_mod.optimize_enabled = saved_opt;
     }
+
+    // The exact whole-unit target set a run of this source would install
+    // (kaappi#2457) drives the superinstruction gate during the compiles
+    // below: a top-level define OR set! of one of the five fast-path names
+    // anywhere in the file declines the fast path everywhere in it, so an
+    // analysis compiles exactly what a run compiles. Collected by
+    // unitTargetSet — not the lint's user_defined, which misses top-level
+    // `set!` targets — and installed here, the shared path, so every entry
+    // point (`run`, tests, the LSP) gets it and the three surfaces cannot
+    // drift (kaappi#1981).
+    var unit_targets = unitTargetSet(ctx.arena, vm.gc, source);
+    compiler_passthrough.unit_top_level_targets =
+        if (unit_targets.count() > 0) &unit_targets else null;
+    defer compiler_passthrough.unit_top_level_targets = null;
+
     analyze(vm, ctx, ctx.arena, source, path);
     std.mem.sort(check_lint.Finding, ctx.findings.items, {}, findingLess);
+}
+
+/// The exact whole-unit target set for the superinstruction gate
+/// (kaappi#2457): every name a top-level `define` / `define-values` / `set!`
+/// targets anywhere in `source`, collected by
+/// `compiler_passthrough.collectUnitTopLevelTargets` — the same scan a run of
+/// the file installs. Deliberately NOT the lint's user_defined set, which
+/// additionally gathers define-syntax names and, crucially, misses top-level
+/// `set!` targets. Keys are duped into `arena`; the returned map is valid as
+/// long as the arena is.
+pub fn unitTargetSet(arena: std.mem.Allocator, gc: *@import("memory.zig").GC, source: []const u8) std.StringHashMap(void) {
+    var out = std.StringHashMap(void).init(arena);
+    compiler_passthrough.collectUnitTopLevelTargets(&out, gc, source);
+    return out;
 }
 
 fn analyze(vm: *VM, ctx: *check_lint.Context, arena: std.mem.Allocator, source: []const u8, path: []const u8) void {

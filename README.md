@@ -395,7 +395,8 @@ a continuation on every `yield`) breaks when consumed inside such a driver.
 
 Which procedures are exempt is not guessable from the outside, so here is the
 list. **Exempt** — a continuation captured in the callback resumes freely:
-`apply` and `call-with-values` (both positions, #2451 for the non-tail half),
+`apply` and `call-with-values` (both positions, and both halves of the latter:
+`#2451` for its consumer, `#2453` for its producer),
 `map`, `for-each`, `vector-map`, `vector-for-each`, `string-for-each`, and — as
 of #2060 — the SRFI-1 `fold`, `filter`, `any`, `every`, `unfold` and SRFI-69
 `hash-table-walk`. A coroutine generator can be applied, folded, filtered,
@@ -405,11 +406,10 @@ mapped or walked freely.
 `reduce`, `reduce-right`, `find`, `find-tail`, `count`, `partition`, `remove`,
 `take-while`, `drop-while`, `delete`, `delete-duplicates`, `filter-map`,
 `append-map`, `pair-for-each`, `pair-fold`, the `lset-*` family, and
-`assoc`/`member` with a custom predicate, among others — plus two corners of
-the exempt pair: `call-with-values`' **producer** (the consumer is what runs in
-the dispatch loop; the producer still runs under the native call — #2453), and an
-`apply` whose flattened argument list exceeds 255 arguments, which falls back to
-the native route because the call opcode's argument count is a single byte.
+`assoc`/`member` with a custom predicate, among others — plus one corner of
+the exempt pair: an `apply` whose flattened argument list exceeds 255
+arguments, which falls back to the native route because the call opcode's
+argument count is a single byte.
 
 SRFI 248's delimited continuations (`with-unwind-handler`, and the extended
 `guard`) are built on this `call/cc` via a sticky exception handler, with three

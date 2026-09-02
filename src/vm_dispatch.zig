@@ -152,7 +152,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
         if (frame.ip >= frame.code.len) return VMError.InvalidBytecode;
 
         const raw_op = frame.code[frame.ip];
-        if (raw_op > @intFromEnum(OpCode.apply)) return VMError.InvalidBytecode;
+        if (raw_op > @intFromEnum(OpCode.values_list)) return VMError.InvalidBytecode;
         const op: OpCode = @enumFromInt(raw_op);
         frame.ip += 1;
 
@@ -179,6 +179,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
             .self_tail_call => 3,
             .tail_call_cc => 4,
             .tail_eval => 3,
+            .values_list => 4,
         };
         try ensureOperands(self, frame, fixed_operand_bytes);
 
@@ -716,6 +717,31 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     if (err == VMError.Yielded) maybeRewindRetry(self, 1 + fixed_operand_bytes);
                     return err;
                 };
+            },
+            .values_list => {
+                // Spread a call-with-values producer's return value — a single
+                // value, or a MultipleValues object from `values` — into a
+                // fresh argument list for the apply/tail_apply the form's
+                // lowering emits right after this (kaappi#2453). The producer
+                // itself ran under an ordinary `call`, so by the time this
+                // executes its frame is bytecode like any other and a
+                // continuation captured inside it survives the form's return.
+                const dst = readU16(self, frame);
+                const src = readU16(self, frame);
+                const src_idx = try registerIndex(self, frame.base, src);
+                const dst_idx = try registerIndex(self, frame.base, dst);
+                var v = self.registers[src_idx];
+                // Root across the list allocation below: the pair/list
+                // constructors can collect, and `v` is a local the register
+                // window will not re-mark until the store lands.
+                self.gc.pushRoot(&v);
+                defer self.gc.popRoot();
+                if (types.isMultipleValues(v)) {
+                    const mv = types.toObject(v).as(types.MultipleValues);
+                    self.registers[dst_idx] = try buildRestList(self.gc, mv.values);
+                } else {
+                    self.registers[dst_idx] = self.gc.allocPair(v, types.NIL) catch return VMError.OutOfMemory;
+                }
             },
             .tail_apply => {
                 const base_reg = readU16(self, frame);
