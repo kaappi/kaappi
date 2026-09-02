@@ -1230,10 +1230,12 @@ fn grandchildIsZombie(pid: i32) bool {
     if (comptime builtin.os.tag != .linux) return false;
     var path_buf: [32]u8 = undefined;
     const path = std.fmt.bufPrint(&path_buf, "/proc/{d}/stat", .{pid}) catch return false;
-    var file = std.fs.openFileAbsolute(path, .{}) catch return false;
-    defer file.close();
+    // std.fs file APIs were reworked in 0.16; raw posix (as in platform.zig)
+    // compiles identically on every target.
+    const fd = std.posix.openat(std.posix.AT.FDCWD, path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0) catch return false;
+    defer _ = std.posix.system.close(fd);
     var buf: [256]u8 = undefined;
-    const n = file.read(&buf) catch return false;
+    const n = std.posix.read(fd, &buf) catch return false;
     // Fields: pid (comm) state ... — skip past the last ')' so a comm
     // containing ')' or spaces can't fool the parse.
     var i: usize = 0;
