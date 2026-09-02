@@ -1,5 +1,5 @@
 ---
-description: Cut a GitHub release for Kaappi — bumps version strings, updates CHANGELOG.md and the downloads page, commits, tags, pushes, and verifies the release workflow. Use when the user asks to make a release, cut a release, publish a version, tag a release, ship a version, or prepare a release.
+description: Cut a GitHub release for Kaappi — bumps version strings, writes the CHANGELOG.md section from the commit log, updates the downloads page, commits, tags, pushes, and verifies the release workflow. Use when the user asks to make a release, cut a release, publish a version, tag a release, ship a version, or prepare a release.
 ---
 
 # GitHub Release
@@ -40,11 +40,13 @@ Present the analysis and recommendation, then ask for confirmation before contin
 
 ## Step 2: Generate release notes
 
-**Derive the notes from `git log` since the previous tag** — that is the primary
-source. There is no CI gate requiring a `CHANGELOG.md` entry per PR (it was
-removed: it conflicted constantly across concurrent branches, since every PR
-edited the same few lines at the top of one file), so `[Unreleased]` is
-normally sparse or empty and cannot be relied on.
+**Derive the notes from `git log` since the previous tag** — that is the only
+source. PRs do not edit `CHANGELOG.md`: a per-PR CI gate was tried twice
+(dropped in #2103, restored with a wider scope in #2475, dropped again in
+2026-09) and each time concurrent branches conflicted on the same few lines
+at the top of one file. So `[Unreleased]` is empty by design, and this step
+is where the version's section gets written — budget for it (v0.22.0 had
+100 commits to cover).
 
 ```bash
 git log --no-merges --pretty='%h %s' "$(git describe --tags --abbrev=0)"..HEAD

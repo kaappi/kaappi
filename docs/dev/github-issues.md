@@ -59,7 +59,6 @@ Three of these are load-bearing beyond navigation, because they predict the
 | `fuzz-finding` | Automated report from the scheduled Fuzz workflow |
 | `epic` | Umbrella tracking issue; children are separate issues |
 | `blocked-upstream` | Blocked on an upstream dependency fix |
-| `no-changelog` | Not user-visible; exempt from the CHANGELOG check |
 | `good first issue`, `help wanted` | Contributor onboarding |
 
 ## The priority rubric
