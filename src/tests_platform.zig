@@ -151,31 +151,25 @@ test "denormal arithmetic survives after normalizeFpEnvBestEffort" {
 // memory.spinLock, VM.stopForCollection, markLiveChildRoots and reapOsThread
 // all rely on. The cap iteration (five doublings past the phases) sleeps a
 // full millisecond.
-fn monotonicNs() u64 {
-    var ts: std.c.timespec = undefined;
-    _ = std.c.clock_gettime(.MONOTONIC, &ts);
-    return @as(u64, @intCast(ts.sec)) * 1_000_000_000 + @as(u64, @intCast(ts.nsec));
-}
-
 test "kaappi#2446: spinBackoff spins, then yields, then sleeps" {
     if (comptime is_wasm or builtin.single_threaded) return error.SkipZigTest;
     const phases = platform.spin_backoff_hint_iters + platform.spin_backoff_yield_iters;
     // Every iteration inside the two non-sleeping phases together must stay
     // far below one sleep quantum: 96 hints and yields are microseconds.
-    const t0 = monotonicNs();
+    const t0 = platform.monotonicNs();
     var i: u32 = 0;
     while (i < phases) : (i += 1) platform.spinBackoff(i);
-    const non_sleeping_ns = monotonicNs() - t0;
+    const non_sleeping_ns = platform.monotonicNs() - t0;
     // The first sleeping iteration is 32 us; the capped one (>= 5 doublings
     // past the phases) is 1 ms. nanosleep never returns early, so the lower
     // bounds are exact; there is deliberately no upper bound (a loaded box
     // oversleeps freely).
-    const t1 = monotonicNs();
+    const t1 = platform.monotonicNs();
     platform.spinBackoff(phases);
-    const first_sleep_ns = monotonicNs() - t1;
-    const t2 = monotonicNs();
+    const first_sleep_ns = platform.monotonicNs() - t1;
+    const t2 = platform.monotonicNs();
     platform.spinBackoff(phases + 5);
-    const capped_sleep_ns = monotonicNs() - t2;
+    const capped_sleep_ns = platform.monotonicNs() - t2;
     try std.testing.expect(first_sleep_ns >= 32_000);
     try std.testing.expect(capped_sleep_ns >= 1_000_000);
     if (non_sleeping_ns >= 1_000_000) {
