@@ -108,7 +108,10 @@ Five things load-bearing enough to be worth knowing before touching this:
   `platform.spinBackoff`: a short pure spin, then `sched_yield`, then
   `nanosleep` doubling from 32 µs to 1 ms — and that includes the registry
   lock itself (`memory.spinLock`), the stop-the-world handshake on both sides
-  (`VM.stopForCollection`, `markLiveChildRoots`) and the globals RW lock. A
+  (`VM.stopForCollection`, `markLiveChildRoots`), the globals RW lock, and
+  `thread-join!`'s wait for a detached OS thread's exit flag (`reapOsThread`,
+  which replaced `pthread_join` — the joining LWP would otherwise inherit the
+  dead thread's CPU-usage estimate on NetBSD). A
   pure spin only works while the thread being waited for is *running*; once
   the kernel preempts it, the spinners compete with it for CPU, and on a
   priority-decay scheduler they win outright. That was kaappi#2446: on

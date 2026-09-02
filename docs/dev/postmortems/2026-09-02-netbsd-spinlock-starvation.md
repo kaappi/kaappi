@@ -2,7 +2,7 @@
 
 ## Status
 
-**Fixed** (2026-09-02, kaappi#2446), in two parts. (1) SRFI-18 OS threads
+**Fixed** (2026-09-02, commit 96934bde via kaappi#2468, closing kaappi#2446), in two parts. (1) SRFI-18 OS threads
 are detached at spawn and `thread-join!` waits on a per-spawn exit flag
 instead of `pthread_join`, because on NetBSD the joining LWP absorbs a
 reaped LWP's CPU-usage estimate with no cap and sinks, with every thread it
@@ -54,7 +54,9 @@ priority. Two samples five seconds apart on a hung process:
 3808 20262 R    -           0   0 2:04.32  290
 3808 18430 R    -           0   0 2:04.32  290     <- kevent, holds the lock
 3808  3455 R    -           0  26 2:04.32  290
-   ... 13 more R/O LWPs at PRI 25-27 ...
+   ... 13 more R/O LWPs at PRI 25-27, one Z (an exited, unreaped
+       grandchild) and one more I/lwpwait (the interpreter thread,
+       joining a middle) elided ...
 3808  3808 I    lwpwait     2  85 2:04.32  290
 --- +5s ---                                2:20.20  291
 ```
@@ -85,7 +87,10 @@ milliseconds, which is why this test and not another.
 
 NetBSD's default scheduler is 4BSD (`sys/kern/sched_4bsd.c`):
 
-- A user LWP's priority is `63 − estcpu/2048`. `estcpu` grows by 1024 on
+- A user LWP's priority is `63 − estcpu/2048 − p_nice`, where `p_nice` is
+  the nice value offset by 20 (so 20 for an ordinary process) and the
+  per-tick accumulation clamps `estcpu` at `18 × 2048`: running alone takes a
+  nice-0 thread no lower than 25. `estcpu` grows by 1024 on
   every clock tick the LWP is *running* and decays 90% over `5 × loadavg`
   seconds — tens of seconds under load.
 - A new LWP inherits its spawner's `estcpu` (`sched_lwp_fork`).
@@ -209,8 +214,13 @@ is a separate trade-off.
   starved", and "this thread is asleep in a page fault". Only the kernel's
   per-thread state distinguishes them. On NetBSD:
   `ps -s -o pid,lid,lstate,wchan,cpuid,pri,time,pcpu -p <pid>`, sampled
-  twice — climbing `TIME` in a "hung" process means it is spinning, not
-  stuck. Linux: `/proc/<pid>/task/*/stat` (state, priority, utime);
+  twice. `TIME` there is the whole process, so climbing `TIME` alone only
+  says *something* is consuming CPU; it is the per-LWP columns that classify
+  the hang — many `R`/`O` rows with no wait channel while `TIME` climbs is a
+  spin, an `R` row that never becomes `O` is starvation, an `S` row with a
+  wait channel is a kernel sleep (and under a fair scheduler the *thread*
+  under investigation may be blocked while a sibling burns).
+  Linux: `/proc/<pid>/task/*/stat` (state, priority, utime);
   macOS: `top -pid` thread counts plus `sample`.
 - **A userspace pure spin is a scheduler-policy bet.** It assumes the thread
   being waited for is running, or will be run promptly. That holds on fair

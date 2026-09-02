@@ -1006,9 +1006,11 @@ test "a channel-send park that errors out leaves the fiber runnable (#2433)" {
 // kaappi#2446: waiting on a held spin lock must not burn CPU
 // ---------------------------------------------------------------------------
 
-fn processCpuNs() u64 {
+fn processCpuNs() !u64 {
     var ts: std.c.timespec = undefined;
-    _ = std.c.clock_gettime(.PROCESS_CPUTIME_ID, &ts);
+    // Every current POSIX target supports this clock; a future one that
+    // rejects it must skip loudly, not compare against an undefined `ts`.
+    if (std.c.clock_gettime(.PROCESS_CPUTIME_ID, &ts) != 0) return error.SkipZigTest;
     return @as(u64, @intCast(ts.sec)) * 1_000_000_000 + @as(u64, @intCast(ts.nsec));
 }
 
@@ -1029,8 +1031,10 @@ test "kaappi#2446: contenders on a held spin lock sleep instead of burning CPU" 
     if (comptime (platform.is_wasm or platform.is_windows or builtin.single_threaded)) return error.SkipZigTest;
     const Ctx = struct {
         lock: std.atomic.Mutex = .unlocked,
+        contending: std.atomic.Value(u32) = .init(0),
         acquired: std.atomic.Value(u32) = .init(0),
         fn contend(self: *@This()) void {
+            _ = self.contending.fetchAdd(1, .release);
             memory.spinLock(&self.lock);
             _ = self.acquired.fetchAdd(1, .acq_rel);
             memory.spinUnlock(&self.lock);
@@ -1039,13 +1043,18 @@ test "kaappi#2446: contenders on a held spin lock sleep instead of burning CPU" 
     var ctx: Ctx = .{};
     const hold_ns: u64 = 120_000_000;
     memory.spinLock(&ctx.lock);
-    const cpu_before = processCpuNs();
     var threads: [4]std.Thread = undefined;
     for (&threads) |*t| t.* = try std.Thread.spawn(.{}, Ctx.contend, .{&ctx});
+    // Under load a worker may not run until after the hold ends, and would
+    // then acquire the lock uncontended -- passing without exercising the
+    // held-lock path. Start the clock only once every worker has reached
+    // the lock call.
+    while (ctx.contending.load(.acquire) != @as(u32, threads.len)) std.Thread.yield() catch {};
+    const cpu_before = try processCpuNs();
     platform.sleepNs(hold_ns);
     memory.spinUnlock(&ctx.lock);
     for (threads) |t| t.join();
-    const cpu_ns = processCpuNs() - cpu_before;
+    const cpu_ns = (try processCpuNs()) - cpu_before;
     try std.testing.expectEqual(@as(u32, 4), ctx.acquired.load(.acquire));
     // 60 ms: half of what even ONE pure spinner burns through the hold, so a
     // regression to spinning fails regardless of how many CPUs the box has.

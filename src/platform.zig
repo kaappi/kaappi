@@ -956,8 +956,8 @@ pub fn dirIterDestroy(it: *DirIter) void {
 // ---------------------------------------------------------------------------
 
 /// How many iterations `spinBackoff` spends in its pure-spin phase, then in
-/// its yield phase, before it starts sleeping. `pub` so a test can drive a
-/// wait loop past both.
+/// its yield phase, before it starts sleeping. `pub` for tests_platform.zig,
+/// which checks the phase schedule against them.
 pub const spin_backoff_hint_iters: u32 = 32;
 pub const spin_backoff_yield_iters: u32 = 64;
 

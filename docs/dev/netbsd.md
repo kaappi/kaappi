@@ -123,8 +123,11 @@ the call is a comptime no-op there and everywhere else.
 ## Scheduler: a preempted lock holder starves under a pure spin
 
 NetBSD's default scheduler is 4BSD (`sys/kern/sched_4bsd.c`): a user LWP's
-priority is `63 − estcpu/2048`, `estcpu` grows by 1024 on every clock tick
-the LWP is running and decays only slowly (90% in `5 × loadavg` seconds),
+priority is `63 − estcpu/2048 − p_nice` (`p_nice` is the nice value offset by
+20, so 20 for an ordinary process), `estcpu` grows by 1024 on every clock
+tick the LWP is running, is clamped at `18 × 2048` by that per-tick path —
+so running alone floors a nice-0 thread at 25 — and decays only slowly
+(90% in `5 × loadavg` seconds),
 and a new LWP **inherits its spawner's `estcpu`**. Each CPU always runs the
 highest-priority runnable LWP, and `sched_yield` requeues an LWP behind the
 others *of its own priority* — never behind a lower one.
