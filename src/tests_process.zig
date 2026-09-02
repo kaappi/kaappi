@@ -1208,11 +1208,39 @@ test "process-wait phase2: group kill reaches the child's own child" {
     // The grandchild dies with the group; once init reaps it, signaling it
     // reports ESRCH. Bounded: a surviving grandchild fails the test at the
     // deadline (and its 30-second sleep ends it soon after regardless).
+    //
+    // The ESRCH poll assumes an init that reaps the reparented zombie. Under
+    // a container PID 1 that never wait()s (e.g. `sleep infinity`), the zombie
+    // persists and kill(gpid, 0) keeps succeeding forever (#2466). On Linux a
+    // dead-but-unreaped grandchild shows state `Z` in /proc/<pid>/stat —
+    // exactly what a successful group kill looks like — so treat that as
+    // success and keep the ESRCH poll only for the genuinely-alive case.
     const deadline = fiber_mod.clockNs() + 10 * std.time.ns_per_s;
     while (platform.procKill(gpid, 0) == 0) {
+        if (builtin.os.tag == .linux and grandchildIsZombie(gpid)) break;
         if (fiber_mod.clockNs() > deadline) return error.GrandchildSurvivedGroupKill;
         platform.sleepNs(10 * std.time.ns_per_ms);
     }
+}
+
+/// Linux-only (#2466): read /proc/<pid>/stat and report whether the process
+/// is a zombie (`Z` in the state field after the comm column, which is
+/// itself parenthesized and may contain spaces and a closing paren).
+fn grandchildIsZombie(pid: i32) bool {
+    if (comptime builtin.os.tag != .linux) return false;
+    var path_buf: [32]u8 = undefined;
+    const path = std.fmt.bufPrint(&path_buf, "/proc/{d}/stat", .{pid}) catch return false;
+    var file = std.fs.openFileAbsolute(path, .{}) catch return false;
+    defer file.close();
+    var buf: [256]u8 = undefined;
+    const n = file.read(&buf) catch return false;
+    // Fields: pid (comm) state ... — skip past the last ')' so a comm
+    // containing ')' or spaces can't fool the parse.
+    var i: usize = 0;
+    while (i < n and buf[i] != ')') i += 1;
+    if (i + 1 >= n) return false;
+    // buf[i] == ')'; the state letter follows the following space.
+    return buf[i + 1] == ' ' and i + 2 < n and buf[i + 2] == 'Z';
 }
 
 test "process-wait phase2: re-waiting a reactor-reaped process returns the stored status" {
