@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788288598208,
+  "lastUpdate": 1788310919033,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c692aed681e62ee31bb146464ba9ebb7ae0b0328",
-          "message": ",load: build the form as Values so paths with quotes or backslashes load (Fixes #2273) (#2274)\n\n* Fix ,load mangling paths with quotes or backslashes (#2273)\n\nThe command spliced the path into a (load \"...\") string literal, so the\nreader's escapes broke or changed it: a quote ended the string (reader\nerror), a backslash started an escape (\\s is invalid, \\t decodes to a\nTAB and loads a different file). On Windows every path uses backslashes,\nso ,load was effectively broken there for normal use.\n\nBuild the form as Values instead — a load symbol, a Scheme string holding\nthe raw path bytes, and the two pairs — and evaluate it through a new\nrepl_eval.evalInputValue that shares the compile/execute/print driver\nwith the text path (the loop body was extracted into evalExpr so the\nerror handling, stack trace, multiple-values printing, and _ binding\nstay byte-for-byte the same). No escaping to get wrong, and the old\n1024-byte path limit is gone.\n\nThe pty smoke test creates files whose names contain a quote, a\nbackslash, and the literal \\t sequence and asserts each loads; all\nthree fail on the old code (unterminated string, invalid escape, and\ncannot-open-file on the TAB-mangled name).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Root path/symbol values only after assignment (kaappi#2274 review)\n\nThe previous ,load handler declared the two locals as = undefined, rooted\ntheir slots, and only then assigned the allocString/allocSymbol results.\nBut allocXxx copies its bytes and calls maybeCollect() before returning, so\nthe collection during that call marks a slot still holding undefined. In\nDebug and ReleaseSafe the 0xAA fill keeps isPointer false, but under\nReleaseFast the slot is genuinely uninitialized: bits that happen to look\nlike a pointer make markRoots dereference a bogus address. Assign first,\nthen root, matching the ,expand and ,import handlers in this file.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-09T18:40:43Z",
-          "tree_id": "11dcf8948be341b0d0a6bbf2789cd1612a4a06c2",
-          "url": "https://github.com/kaappi/kaappi/commit/c692aed681e62ee31bb146464ba9ebb7ae0b0328"
-        },
-        "date": 1786302990925,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.101684,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.895877,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.433625,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.201107,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00379,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.035431,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.229697,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.042121,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.878348,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.956293,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.192534,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.24381,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.339722,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.401928,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.035918,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046528,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "17fe3fbe33671b43faceafe12d62250559c87723",
+          "message": "Discard expected-error stderr in the stepper tests (#2447) (#2465)\n\n* Discard expected-error stderr in the stepper tests (#2447)\n\ntests_step looked like it killed the unit-test binary in the aarch64\npodman container: after the two expected-error stepper tests the output\nended in a red warning block and a \"failed command: .../unit-tests\n--listen=-\" line with no pass/fail summary. It never crashed. The two\ntests legitimately drive the runFile-style error path, whose KP3002\ndiagnostics go to the process's real stderr; zig's build runner captures\nthat fd, and a step whose captured stderr is non-empty -- even a fully\ngreen one -- is rendered with a red ' w' marker, the stderr, and a red\n\"failed command\" provenance line, while the default summary mode prints\nno summary at all for a successful run. Expected output plus silent\nsuccess reads exactly like a crash.\n\nVerified in kaappi-builder-arm64 on the exact repro from the issue: the\nfiltered run exits 0 with all 13 tests passing (reproduced the display\nunder a pty byte-for-byte), the full suite runs to completion --\n1990/2010 passed, 20 skipped, 0 failed, exit 0 -- and running the test\nbinary directly prints \"All 13 tests passed\". Nothing was ever lost.\n\nFix the confusion at its source: a new QuietStderr test helper (the same\ndup/dup2 juggling the fuzz harness uses for stdout) redirects fd 2 onto\nthe null sink for the two expected-error stepper tests, so a green run\nof that filter is now completely silent everywhere. With it, the issue's\nrepro command prints nothing and exits 0, and the full container suite\nshows no warning marker on the unit-tests step. The helper is\nmutation-tested: breaking the dup2 round-trip fails its unit test.\n\nSide finding, out of scope here: 'process-wait phase2: group kill\nreaches the child's own child' fails under a container whose PID 1 never\nreaps adopted orphans (e.g. 'podman run -d ... sleep infinity'): the\nkilled grandchild stays a zombie, kill(pid, 0) keeps succeeding, and the\nESRCH poll times out. The issue's one-shot 'bash -c' PID 1 reaps, so\nthat test passes in the reported environment.\n\nCo-authored-by: ZCode <noreply@z.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Guard QuietStderr.deinit against wasm sema of dup2 (#2447)\n\nThe wasm CI job failed at the wasmtime door with \"unknown import:\nenv::dup2 has not been defined\": init/initOnto bail at comptime under\nis_wasm, so their bodies are never analyzed on that target, but deinit\nwas guarded only by the runtime if (!self.active) return; -- semantic\nanalysis of platform.dup2(...) ran regardless and exported the call as\na wasm import that nothing defines. The comptime bail is now the first\nstatement of deinit as well, and a doc note on the method records the\nrule: on WASI every method that names dup/dup2 needs the guard, because\neven an unreachable-at-runtime call generates the import.\n\nVerified: the tests_step filter stays silent and green, the helper's\nown unit test passes, the wasm32-wasi test binary no longer imports\nenv::dup/env::dup2, and the CI invocation (wasmtime run --dir=.\n--dir=/tmp zig-out/bin/unit-tests.wasm) reports 1628 passed;\n295 skipped; 0 failed.\n\nCo-authored-by: ZCode <noreply@z.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: ZCode <noreply@z.ai>",
+          "timestamp": "2026-09-02T05:46:09+05:30",
+          "tree_id": "be88c47fce8a24568c3be1ca401c77226ce8ff28",
+          "url": "https://github.com/kaappi/kaappi/commit/17fe3fbe33671b43faceafe12d62250559c87723"
+        },
+        "date": 1788310917363,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.270634,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.282676,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.563164,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.932285,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004443,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.050013,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.300429,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055733,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.837296,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.212612,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.707366,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.283297,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.689081,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.634631,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046578,
             "unit": "seconds"
           }
         ]
