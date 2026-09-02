@@ -241,12 +241,17 @@ jobs:
           # default here: a clean ReleaseSafe run now lands at ~35 min (build
           # ~2, unit tests ~10, Scheme suites ~18+), so the cap cancels healthy
           # runs mid-suite — the recurrence the timeout comment above predicted
-          # ("hit macOS ReleaseSafe repeatedly"). 40 restores headroom, same as
-          # the Debug leg; timeout is an include-only key that merges into this
-          # existing os+optimize combination without renaming its required check.
+          # ("hit macOS ReleaseSafe repeatedly"). 40 restored headroom, same as
+          # the Debug leg, until a slow runner ate that too: PR #2481's re-run
+          # (2026-09-02) was cancelled at 40:04 on its LAST step with every
+          # suite green — build 4, unit tests 13.5, Scheme suites 21.5 min.
+          # 50 leaves ~10 min over that run while still catching a real hang
+          # (healthy runs sit at 18–24 min). timeout is an include-only key
+          # that merges into this existing os+optimize combination without
+          # renaming its required check.
           - os: macos-latest
             optimize: ReleaseSafe
-            timeout: 40
+            timeout: 50
           - os: ubuntu-latest
             optimize: ReleaseFast
 
