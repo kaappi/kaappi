@@ -3,145 +3,9 @@ const types = @import("types.zig");
 const compiler_mod = @import("compiler.zig");
 const globals_mod = @import("globals.zig");
 const expander = @import("expander.zig");
-const reader_mod = @import("reader.zig");
-const memory = @import("memory.zig");
 const Compiler = compiler_mod.Compiler;
 const CompileError = compiler_mod.CompileError;
 const Value = types.Value;
-
-// -- Compilation-unit top-level targets (kaappi#2457) ------------------------
-//
-// `globalBindingStillGenuine` decides the builtin superinstruction fast paths
-// (apply / call-with-values in any position, eval / call/cc in tail) by
-// reading the live global environment at COMPILE time. That answer is wrong
-// for a procedure body compiled BEFORE a later top-level `(define apply ...)`
-// runs: R7RS 5.3.1 makes the definition essentially an assignment, so which
-// binding a call resolves is a run-time question the compile-time read cannot
-// settle in that order. The honest fix is a run-time decision (follow-up); the
-// interim is this set: when a driver that knows the whole compilation unit
-// (the file runner, stdin scripts, `kaappi compile`, `kaappi check`) sees the
-// name defined or assigned at top level ANYWHERE in the unit, every fast-path
-// decision in the unit declines, costing the superinstruction only in the
-// programs whose semantics it was getting wrong.
-//
-// Per-form entry points (the REPL, `eval`) have no future knowledge and leave
-// this null, keeping the legacy compile-time answer — a redefinition typed
-// later in a REPL session still cannot retro-fix an earlier-compiled body,
-// exactly as before.
-
-/// Names defined (define / define-values) or assigned (set!) at top level
-/// anywhere in the compilation unit currently being compiled. Keys are owned
-/// by the driver that populated the set and outlive every compile in the
-/// unit. Null on entry points without whole-unit knowledge.
-pub threadlocal var unit_top_level_targets: ?*const std.StringHashMap(void) = null;
-
-/// Fill `out` with every name a top-level `define`, `define-values` or `set!`
-/// targets anywhere in `source`, recursing into top-level `begin` and
-/// `cond-expand` splices (R7RS 5.1 / 4.2.1) like check.zig's lint collector.
-/// Names are duped into the map, which must outlive the unit's compiles; the
-/// transient datums read here are rooted only for the walk.
-///
-/// Structure-only, like Part B of the set! pre-scan: a redefinition that only
-/// materializes when a macro expands is not seen, so such a unit keeps the
-/// legacy behavior. (The per-form pre-scan catches those at the define's own
-/// form; a unit-level speculative expansion pass would cost the whole
-/// expansion budget on every file for the rare case.) A read error stops the
-/// scan — the real run reports it, and nothing past it executes.
-pub fn collectUnitTopLevelTargets(out: *std.StringHashMap(void), gc: *memory.GC, source: []const u8) void {
-    var r = reader_mod.Reader.init(gc, source);
-    defer r.deinit();
-    while (r.hasMore() catch false) {
-        var expr = r.readDatum() catch return;
-        gc.pushRoot(&expr);
-        collectTargetsFromUnitForm(out, expr);
-        gc.popRoot();
-    }
-}
-
-fn collectTargetsFromUnitForm(out: *std.StringHashMap(void), expr: Value) void {
-    if (!types.isPair(expr) or !types.isSymbol(types.car(expr))) return;
-    const head = types.stripHygienicPrefix(types.symbolName(types.car(expr)));
-    const rest = types.cdr(expr);
-
-    // Every spine walked below can carry a datum-label cycle in code position
-    // (R7RS 7.1.2 `#n=`/`#n#` — `(begin . #0=(1 . #0#))` is a real program
-    // the run loop diagnoses as KP2001), so each walk is a guarded SpineWalk,
-    // never a bare `while isPair` (the #2405 family).
-    if (std.mem.eql(u8, head, "define")) {
-        // (define name ...) or (define (name . formals) ...)
-        if (types.isPair(rest)) addUnitTarget(out, types.car(rest));
-    } else if (std.mem.eql(u8, head, "set!")) {
-        if (types.isPair(rest) and types.isSymbol(types.car(rest))) {
-            addUnitName(out, types.symbolName(types.car(rest)));
-        }
-    } else if (std.mem.eql(u8, head, "define-values")) {
-        // (define-values (a b . rest) expr) — every formal is bound.
-        if (types.isPair(rest)) {
-            var f = compiler_mod.SpineWalk.init(types.car(rest));
-            while (types.isPair(f.cur)) : (f.next()) {
-                if (f.cyclic()) return;
-                if (types.isSymbol(types.car(f.cur))) addUnitName(out, types.symbolName(types.car(f.cur)));
-            }
-            if (types.isSymbol(f.cur)) addUnitName(out, types.symbolName(f.cur));
-        }
-    } else if (std.mem.eql(u8, head, "begin")) {
-        // Top-level begin splices: each child is a top-level form (R7RS 5.1).
-        // The walk stops at a cycle rather than reporting it — the real run's
-        // own begin handler is the one that diagnoses, and it runs after (and
-        // independently of) this scan.
-        var cur = compiler_mod.SpineWalk.init(rest);
-        while (types.isPair(cur.cur)) : (cur.next()) {
-            if (cur.cyclic()) return;
-            collectTargetsFromUnitForm(out, types.car(cur.cur));
-        }
-    } else if (std.mem.eql(u8, head, "cond-expand")) {
-        // A top-level cond-expand splices the selected clause's body as
-        // top-level forms; without evaluating the feature requirements, take
-        // every clause body — the same conservative over-approximation
-        // check.zig's collector uses (the safe direction here too: an extra
-        // name only declines a fast path).
-        var clauses = compiler_mod.SpineWalk.init(rest);
-        while (types.isPair(clauses.cur)) : (clauses.next()) {
-            if (clauses.cyclic()) return;
-            const clause = types.car(clauses.cur);
-            if (!types.isPair(clause)) continue;
-            var body = compiler_mod.SpineWalk.init(types.cdr(clause));
-            while (types.isPair(body.cur)) : (body.next()) {
-                if (body.cyclic()) return;
-                collectTargetsFromUnitForm(out, types.car(body.cur));
-            }
-        }
-    }
-}
-
-/// The target of a `define`: a bare symbol, or the head of a possibly-curried
-/// procedure form `((name a) b)` — peel the leading pairs to the name symbol.
-/// The peel advances by car, so a car-side datum-label cycle
-/// (`(define #0=(#0# 1) ...)`) cannot use a cdr SpineWalk; a step cap bounds
-/// it instead (real curried definitions are two or three deep).
-fn addUnitTarget(out: *std.StringHashMap(void), target: Value) void {
-    var t = target;
-    var steps: usize = 0;
-    while (types.isPair(t)) : (t = types.car(t)) {
-        steps += 1;
-        if (steps > 256) return;
-    }
-    if (types.isSymbol(t)) addUnitName(out, types.symbolName(t));
-}
-
-fn addUnitName(out: *std.StringHashMap(void), name: []const u8) void {
-    if (out.contains(name)) return;
-    const owned = out.allocator.dupe(u8, name) catch return;
-    out.put(owned, {}) catch out.allocator.free(owned);
-    // Also record the hygiene-stripped spelling: since #2003 a macro
-    // template's define/set! target is renamed (__hyg_N_<name>), and the
-    // gate compares both the as-written and stripped spellings.
-    const stripped = types.stripHygienicPrefix(name);
-    if (stripped.len != name.len and !out.contains(stripped)) {
-        const owned2 = out.allocator.dupe(u8, stripped) catch return;
-        out.put(owned2, {}) catch out.allocator.free(owned2);
-    }
-}
 
 pub fn compileQuote(self: *Compiler, args: Value, dst: u16) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
@@ -405,11 +269,93 @@ fn compileSelfTailCall(self: *Compiler, expr: Value, dst: u16, nargs: u8) Compil
     }
 }
 
+// -- Builtin superinstructions and their run-time gate (kaappi#2469) ---------
+//
+// `(apply f a ... lst)` and `(call-with-values p c)` in any position, and
+// `(call/cc r)` / `(call-with-current-continuation r)` / `(eval e [env])` in
+// tail position, lower to a superinstruction instead of an ordinary call.
+// R7RS 5.3.1 makes a top-level definition essentially an assignment, so
+// *which* binding one of those names denotes when the call runs is a
+// run-time question: a body compiled before `(define (apply f xs) ...)`
+// executed must still reach the user's procedure. The compiler used to answer
+// it by reading the global environment at compile time (#2033), then by
+// pre-scanning the whole compilation unit for later definitions (#2457); both
+// baked the answer into bytecode compiled before the redefinition ran, and
+// the scan could not see `load`, `eval`, the REPL, or a `set!` a macro
+// materializes.
+//
+// The decision is now made where it belongs, by the `guard_builtin` opcode
+// emitted between a form's operands and its superinstruction:
+//
+//     <operands into base+1 ...>
+//     guard_builtin  base, sym, kind, ->slow   ; base := current global; jump
+//                                              ; unless still the pristine one
+//     <superinstruction over base+1 ...>       ; fast path
+//     move dst, <result>                       ; (non-tail only)
+//     jump ->end
+//   slow:
+//     call / tail_call  base, n                ; whatever the global holds now
+//     move dst, base                           ; (non-tail, rebased only)
+//   end:
+//
+// `base` is reserved for the fetched binding so the slow path is an ordinary
+// call over the operands already in place. Only a compiler-synthesized
+// reference (`globals_mod.baseBindingSymbol`, which resolves through the
+// pristine registry by construction) is emitted unguarded; every user-text
+// reference is guarded, whichever entry point compiled it.
+
+/// Emit `guard_builtin` for the operator `operator` — as spelled, so the
+/// run-time lookup resolves it exactly as `get_global` would, hygienic rename
+/// and all — into `callee_reg`; returns the offset of its jump operand for
+/// `patchJump` once the slow path's position is known.
+fn emitBuiltinGuard(self: *Compiler, operator: Value, kind: u8, callee_reg: u16) CompileError!usize {
+    const sym_idx = try self.addConstant(operator);
+    try self.emitOp(.guard_builtin);
+    try self.emitU16(callee_reg);
+    try self.emitU16(sym_idx);
+    try self.emit(kind);
+    const jump = self.currentOffset();
+    try self.emitI16(0);
+    return jump;
+}
+
+/// Close a guarded superinstruction: move the non-tail fast path's result
+/// from `result_reg` to `dst`, jump over the slow path, then emit the slow
+/// path itself — an ordinary call of the fetched binding in `base` over the
+/// `nargs` operands at base+1.. — leaving `dst` holding the result either way.
+///
+/// The jump is emitted in tail position too, although a tail
+/// superinstruction never falls through: a continuation `tail_call_cc`
+/// captured resumes at the instruction after it, which must be the form's
+/// exit, not the slow path's call.
+fn emitBuiltinSlowPath(self: *Compiler, guard_jump: usize, base: u16, nargs: u8, result_reg: u16, dst: u16, is_tail: bool) CompileError!void {
+    if (!is_tail) {
+        try self.emitOp(.move);
+        try self.emitU16(dst);
+        try self.emitU16(result_reg);
+    }
+    try self.emitOp(.jump);
+    const end_jump = self.currentOffset();
+    try self.emitI16(0);
+    try self.patchJump(guard_jump);
+    try self.emitOp(if (is_tail) .tail_call else .call);
+    try self.emitU16(base);
+    try self.emit(nargs);
+    if (!is_tail and base != dst) {
+        try self.emitOp(.move);
+        try self.emitU16(dst);
+        try self.emitU16(base);
+    }
+    try self.patchJump(end_jump);
+}
+
 /// `(apply f a ... lst)` in either position (kaappi#2451). Tail position emits
 /// `tail_apply`; non-tail emits the `apply` opcode, which — unlike the native
 /// `applyFn` it replaces there — calls the flattened callee with an ordinary VM
 /// frame, so a continuation captured inside it survives the call's return.
-pub fn compileApplyForm(self: *Compiler, expr: Value, dst: u16, is_tail: bool) CompileError!void {
+/// `guard` is the operator's `fast_path_builtins` index for a user-text
+/// reference (gated at run time, see above) and null for a synthesized one.
+pub fn compileApplyForm(self: *Compiler, expr: Value, dst: u16, is_tail: bool, guard: ?u8) CompileError!void {
     var arg_list = types.cdr(expr);
     // A *proper* operand list of the wrong length (< 2) is an arity question,
     // not a syntax question: route the form through the ordinary call path so
@@ -425,12 +371,18 @@ pub fn compileApplyForm(self: *Compiler, expr: Value, dst: u16, is_tail: bool) C
         }
         if (walk.cur != types.NIL) return CompileError.InvalidSyntax;
         if (count < 2) return compileCall(self, expr, dst, is_tail);
+        // The guarded slow path is a call over the operator's binding plus
+        // every operand, and a call's nargs is a u8.
+        if (guard != null and count > 254) return compileCall(self, expr, dst, is_tail);
     }
 
+    // Layout: `base` holds the operator's run-time binding (guarded forms),
+    // the procedure sits at base+1 and its operands follow.
     const needs_rebase = (dst + 1 != self.next_register);
     const base = if (needs_rebase) try self.allocReg() else dst;
+    const proc_reg = try self.allocReg();
 
-    try self.compileExprViaIR(types.car(arg_list), base, false);
+    try self.compileExprViaIR(types.car(arg_list), proc_reg, false);
     arg_list = types.cdr(arg_list);
 
     // The count walk above proved this spine acyclic; cyclic() stays as the
@@ -447,27 +399,29 @@ pub fn compileApplyForm(self: *Compiler, expr: Value, dst: u16, is_tail: bool) C
     if (nargs_count > 255) return CompileError.InternalLimit;
     const nargs: u8 = @intCast(nargs_count);
 
+    const guard_jump: ?usize = if (guard) |kind| try emitBuiltinGuard(self, types.car(expr), kind, base) else null;
     try self.emitOp(if (is_tail) .tail_apply else .apply);
-    try self.emitU16(base);
+    try self.emitU16(proc_reg);
     try self.emit(nargs);
 
     var i: u8 = 0;
     while (i < nargs) : (i += 1) {
         self.freeReg();
     }
-    if (needs_rebase) {
-        // The non-tail opcode leaves its result in `base`, exactly as `call`
-        // does; `tail_apply` never returns here at all.
-        if (!is_tail) {
-            try self.emitOp(.move);
-            try self.emitU16(dst);
-            try self.emitU16(base);
-        }
-        self.freeReg();
+    if (guard_jump) |gj| {
+        try emitBuiltinSlowPath(self, gj, base, nargs + 1, proc_reg, dst, is_tail);
+    } else if (!is_tail) {
+        // The non-tail opcode leaves its result in `proc_reg`, exactly as
+        // `call` does; `tail_apply` never returns here at all.
+        try self.emitOp(.move);
+        try self.emitU16(dst);
+        try self.emitU16(proc_reg);
     }
+    self.freeReg(); // proc_reg
+    if (needs_rebase) self.freeReg();
 }
 
-pub fn compileCallWithValuesForm(self: *Compiler, expr: Value, dst: u16, is_tail: bool) CompileError!void {
+pub fn compileCallWithValuesForm(self: *Compiler, expr: Value, dst: u16, is_tail: bool, guard: ?u8) CompileError!void {
     // (call-with-values producer consumer), either position.
     // Emits bytecode directly: check both operands, call the producer with an
     // ordinary `call` opcode, spread the produced values into an argument
@@ -480,7 +434,7 @@ pub fn compileCallWithValuesForm(self: *Compiler, expr: Value, dst: u16, is_tail
     // Zig frame — `%call-with-values->list`'s, and `callWithValuesFn`'s before
     // that — which the resumed continuation cannot reinstall.)
     //
-    // Diagnostic parity is why the sequence starts with a call to
+    // Diagnostic parity is why the fast path starts with a call to
     // `%call-with-values-check`: callWithValuesFn type-checks BOTH operands,
     // producer first, before anything runs, and reports each through
     // `typeError("call-with-values", ...)` — so a bad consumer or producer is
@@ -489,7 +443,9 @@ pub fn compileCallWithValuesForm(self: *Compiler, expr: Value, dst: u16, is_tail
     // internal primitive is loaded via self.emitTrueBuiltinLoad, which marks
     // the reference to resolve through the pristine registry at run time
     // rather than by ordinary name lookup, so neither a lexical shadow NOR a
-    // top-level redefinition of anything can divert it (#1715).
+    // top-level redefinition of anything can divert it (#1715). The check
+    // sits after the guard: a user's `call-with-values` decides for itself
+    // what it accepts.
     //
     // A *proper* argument list of the wrong length is an arity question, not a
     // syntax question: route the form through the ordinary call path so the
@@ -508,65 +464,78 @@ pub fn compileCallWithValuesForm(self: *Compiler, expr: Value, dst: u16, is_tail
     }
     const args = types.cdr(expr);
     const producer = types.car(args);
-    const rest = types.cdr(args);
-    const consumer = types.car(rest);
+    const consumer = types.car(types.cdr(args));
 
+    // Layout: `base` holds the operator's run-time binding (guarded forms);
+    // the producer and consumer follow in operand order, which is the slow
+    // path's `call base, 2`; three scratch registers above them serve the
+    // fast path. The producer is called from the topmost of those so its
+    // callee window cannot clobber the consumer or the spread list below it.
     const needs_rebase = (dst + 1 != self.next_register);
     const base = if (needs_rebase) try self.allocReg() else dst;
-
-    try self.compileExprViaIR(consumer, base, false);
-
-    const check_base = try self.allocReg();
     const producer_reg = try self.allocReg();
     const consumer_reg = try self.allocReg();
-
     try self.compileExprViaIR(producer, producer_reg, false);
+    try self.compileExprViaIR(consumer, consumer_reg, false);
 
-    // The consumer is already evaluated (in `base`); pass a copy for the
-    // type check. check_base/producer_reg/consumer_reg are consecutive, the
-    // layout `call check_base, 2` reads its callee and two operands from.
+    const guard_jump: ?usize = if (guard) |kind| try emitBuiltinGuard(self, types.car(expr), kind, base) else null;
+
+    // check_base/producer_copy/consumer_copy are consecutive, the layout
+    // `call check_base, 2` reads its callee and two operands from.
+    const check_base = try self.allocReg();
+    const producer_copy = try self.allocReg();
+    const consumer_copy = try self.allocReg();
     try self.emitOp(.move);
+    try self.emitU16(producer_copy);
+    try self.emitU16(producer_reg);
+    try self.emitOp(.move);
+    try self.emitU16(consumer_copy);
     try self.emitU16(consumer_reg);
-    try self.emitU16(base);
     try self.emitTrueBuiltinLoad("%call-with-values-check", check_base);
     try self.emitOp(.call);
     try self.emitU16(check_base);
     try self.emit(2);
 
-    self.freeReg(); // consumer_reg
+    self.freeReg(); // consumer_copy
 
     // The producer call: an ordinary `call` opcode, so its frame lives in the
     // copied VM state (#2453). The result (a single value or a MultipleValues
-    // object) lands in producer_reg, the register `call` delivers into.
-    try self.emitOp(.call);
+    // object) lands in producer_copy, the register `call` delivers into.
+    try self.emitOp(.move);
+    try self.emitU16(producer_copy);
     try self.emitU16(producer_reg);
+    try self.emitOp(.call);
+    try self.emitU16(producer_copy);
     try self.emit(0);
 
     // Spread the produced value(s) into the consumer's argument list.
-    // check_base is dead since the check call returned and is exactly base+1
-    // — the register the apply below reads its list operand from.
+    // check_base is dead since the check call returned and is exactly
+    // consumer_reg+1 — the register the apply below reads its list operand
+    // from.
     try self.emitOp(.values_list);
     try self.emitU16(check_base);
-    try self.emitU16(producer_reg);
+    try self.emitU16(producer_copy);
 
-    self.freeReg(); // producer_reg
+    self.freeReg(); // producer_copy
 
     try self.emitOp(if (is_tail) .tail_apply else .apply);
-    try self.emitU16(base);
+    try self.emitU16(consumer_reg);
     try self.emit(1);
 
     self.freeReg(); // check_base
-    if (needs_rebase) {
-        if (!is_tail) {
-            try self.emitOp(.move);
-            try self.emitU16(dst);
-            try self.emitU16(base);
-        }
-        self.freeReg();
+    if (guard_jump) |gj| {
+        try emitBuiltinSlowPath(self, gj, base, 2, consumer_reg, dst, is_tail);
+    } else if (!is_tail) {
+        try self.emitOp(.move);
+        try self.emitU16(dst);
+        try self.emitU16(consumer_reg);
     }
+    self.freeReg(); // consumer_reg
+    self.freeReg(); // producer_reg
+    if (needs_rebase) self.freeReg();
 }
 
-pub fn compileCallCCTail(self: *Compiler, expr: Value, dst: u16) CompileError!void {
+pub fn compileCallCCTail(self: *Compiler, expr: Value, dst: u16, guard: ?u8) CompileError!void {
     // A *proper* argument list of the wrong length is an arity question, not a
     // syntax question: route the form through the ordinary call path so the
     // runtime arity check reports KP3003 exactly as the same form one position
@@ -586,18 +555,20 @@ pub fn compileCallCCTail(self: *Compiler, expr: Value, dst: u16) CompileError!vo
 
     const needs_rebase = (dst + 1 != self.next_register);
     const base = if (needs_rebase) try self.allocReg() else dst;
-    try self.compileExprViaIR(receiver, base, false);
+    const receiver_reg = try self.allocReg();
+    try self.compileExprViaIR(receiver, receiver_reg, false);
 
+    const guard_jump: ?usize = if (guard) |kind| try emitBuiltinGuard(self, types.car(expr), kind, base) else null;
     try self.emitOp(.tail_call_cc);
-    try self.emitU16(base);
+    try self.emitU16(receiver_reg);
     try self.emitU16(dst);
+    if (guard_jump) |gj| try emitBuiltinSlowPath(self, gj, base, 1, receiver_reg, dst, true);
 
-    if (needs_rebase) {
-        self.freeReg();
-    }
+    self.freeReg(); // receiver_reg
+    if (needs_rebase) self.freeReg();
 }
 
-pub fn compileEvalTail(self: *Compiler, expr: Value, dst: u16) CompileError!void {
+pub fn compileEvalTail(self: *Compiler, expr: Value, dst: u16, guard: ?u8) CompileError!void {
     // (eval expr) or (eval expr env) in tail position
     // Emits tail_eval opcode: compiles expr at runtime and tail-calls the result.
     const args = types.cdr(expr);
@@ -605,21 +576,25 @@ pub fn compileEvalTail(self: *Compiler, expr: Value, dst: u16) CompileError!void
 
     const needs_rebase = (dst + 1 != self.next_register);
     const base = if (needs_rebase) try self.allocReg() else dst;
+    const expr_reg = try self.allocReg();
 
-    try self.compileExprViaIR(types.car(args), base, false);
+    try self.compileExprViaIR(types.car(args), expr_reg, false);
     const rest = types.cdr(args);
     var nargs: u8 = 1;
     if (rest != types.NIL and types.isPair(rest)) {
-        const arg_reg = try self.allocReg();
-        try self.compileExprViaIR(types.car(rest), arg_reg, false);
+        const env_reg = try self.allocReg();
+        try self.compileExprViaIR(types.car(rest), env_reg, false);
         nargs = 2;
     }
 
+    const guard_jump: ?usize = if (guard) |kind| try emitBuiltinGuard(self, types.car(expr), kind, base) else null;
     try self.emitOp(.tail_eval);
-    try self.emitU16(base);
+    try self.emitU16(expr_reg);
     try self.emit(nargs);
+    if (guard_jump) |gj| try emitBuiltinSlowPath(self, gj, base, nargs, expr_reg, dst, true);
 
     if (nargs == 2) self.freeReg();
+    self.freeReg(); // expr_reg
     if (needs_rebase) self.freeReg();
 }
 
@@ -667,46 +642,4 @@ fn compileCallGlobal(self: *Compiler, expr: Value, operator: Value, dst: u16, is
         try self.emitU16(base);
         self.freeReg();
     }
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-test "collectUnitTopLevelTargets: define shapes, splices, and non-captures" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-
-    var out = std.StringHashMap(void).init(std.testing.allocator);
-    defer {
-        var it = out.keyIterator();
-        while (it.next()) |k| std.testing.allocator.free(k.*);
-        out.deinit();
-    }
-
-    collectUnitTopLevelTargets(&out, &gc,
-        \\(define (nt) (apply + (list 1 2)))
-        \\(define (apply f xs) 'user)
-        \\(begin (define (call-with-values p c) 'user) 'ignored)
-        \\(cond-expand (kaappi (define eval 'user)) (else (define eval 'other)))
-        \\(define-values (call/cc rest-arg . r) (values 1 2 3))
-        \\(set! call-with-current-continuation (lambda (k) 'user))
-        \\(define (other xs) (apply f (list xs)))
-        \\(let ((q (quote (define not-a-target define)))) q)
-    );
-
-    // All five #2033 names, via every define shape and splice, plus set!.
-    try std.testing.expect(out.contains("apply"));
-    try std.testing.expect(out.contains("call-with-values"));
-    try std.testing.expect(out.contains("eval"));
-    try std.testing.expect(out.contains("call/cc"));
-    try std.testing.expect(out.contains("call-with-current-continuation"));
-    // define-values formals, including the rest formal.
-    try std.testing.expect(out.contains("rest-arg"));
-    // A lambda-local define, lambda formals, and quoted data contribute
-    // nothing: the walk is top-level-only (through begin/cond-expand
-    // splices) and never descends into other forms.
-    try std.testing.expect(!out.contains("not-a-target"));
-    try std.testing.expect(!out.contains("xs"));
-    try std.testing.expect(!out.contains("q"));
 }

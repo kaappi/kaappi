@@ -118,6 +118,12 @@ pub export fn kaappi_set_global(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_len
     const name = name_ptr[0..len];
     if (v.globals.getPtr(name)) |ptr| {
         ptr.* = val;
+        // Invalidate every function's per-function global cache, as the
+        // interpreter's set_global does: an interpreted body (an eval
+        // fallback, say) that cached this global — including the pristine
+        // primitive a guard_builtin compares against (kaappi#2469) — must
+        // not keep serving the old value.
+        v.global_version +%= 1;
     } else {
         _ = platform.write(2, "set!: unbound variable '", 24);
         _ = platform.write(2, name_ptr, len);
@@ -447,6 +453,20 @@ pub export fn kaappi_apply(vm: ?*vm_mod.VM, callee: u64, fixed_args: ?[*]const u
     };
     return applySpliced(v, callee, fixed_args, n_fixed, list) catch |err|
         fatalVMError(v, "runtime error in apply", err);
+}
+
+// The native tier's half of the run-time builtin-superinstruction gate
+// (kaappi#2469), the counterpart of the interpreter's `guard_builtin` opcode:
+// 1 when `val` — the *current* global binding a compiled call site just
+// resolved — is still the pristine primitive `library.fast_path_builtins[kind]`,
+// so the site may take its structural @kaappi_apply shape; 0 otherwise, so it
+// calls `val` like any procedure. A never-registered primitive (VOID slot) or
+// an out-of-range kind answers 0: the ordinary call is always the safe path.
+pub export fn kaappi_builtin_is_pristine(vm: ?*vm_mod.VM, val: u64, kind: u64) callconv(.c) u64 {
+    const v = vm orelse return 0;
+    if (kind >= library.fast_path_builtins.len) return 0;
+    const pristine = v.libraries.fast_path_pristine[@intCast(kind)];
+    return @intFromBool(pristine != types.VOID and val == pristine);
 }
 
 fn applySpliced(v: *vm_mod.VM, callee: u64, fixed_args: ?[*]const u64, n_fixed: u64, list: u64) !u64 {

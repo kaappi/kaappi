@@ -635,17 +635,20 @@ expression in the body (~19x on kaappi#1803's arithmetic-loop reproducer). So
 `emitApplyForm` (`llvm_emit.zig`), which mirrors the interpreter's own dispatch
 (`compiler.zig`) case for case:
 
-- **tail + unshadowed + unrebound + ≥2 operands** — structural apply with
-  built-in semantics: the callee and fixed arguments are emitted like
-  `emitCallNode`'s, and the final operand is passed as a Value to `@kaappi_apply`
-  (`runtime_exports.zig`), which splices it with `primitives.applyFn`'s exact
-  semantics — same `isProcedure` validation, same tortoise-and-hare
-  proper-list check (a circular list raises rather than hangs), same
-  `typeError` texts. Since #2033 the interpreter's `tail_apply` opcode honours
-  a top-level rebinding of `apply` (R7RS 5.3.1), gated on the compile-time
-  global binding — so this path is gated the same way: a define/set! of
-  `apply` in the module marks it rebound and routes the form through an
-  ordinary indirect call instead.
+- **unshadowed + unrebound + ≥2 operands** — the guarded shape (kaappi#2469).
+  The operands are emitted once, the `apply` global is resolved, and
+  `@kaappi_builtin_is_pristine` (`runtime_exports.zig`) decides at run time
+  which of two arms runs: the structural apply with built-in semantics — the
+  callee and fixed arguments passed like `emitCallNode`'s, the final operand
+  as a Value to `@kaappi_apply`, which splices it with `primitives.applyFn`'s
+  exact semantics (same `isProcedure` validation, same tortoise-and-hare
+  proper-list check, same `typeError` texts) — or an ordinary indirect call
+  of whatever the global holds now. This is the same decision the
+  interpreter's `guard_builtin` opcode makes (R7RS 5.3.1 makes a top-level
+  redefinition essentially an assignment, so a body compiled before
+  `(define (apply …))` ran must still reach it); `rebound_globals`/`native_fns`
+  only short-circuit to the indirect call when the emitter can already see
+  the name rebound in an earlier form.
 - **tail + unshadowed + unrebound + <2 operands** — the interpreter raises
   InvalidSyntax at compile time; abandoning native compilation of the enclosing
   scope (`error.UnsupportedNodeType`) routes the form to that exact error. A
@@ -653,10 +656,10 @@ expression in the body (~19x on kaappi#1803's arithmetic-loop reproducer). So
   routes it through the ordinary call path (its #2033 gate), and so does the
   generic indirect call here, raising whatever the user's procedure (or the
   built-in arity check) raises at run time.
-- **everything else resolvable** — a lexically shadowed `apply`, a rebound
-  `apply` (tail or non-tail), or a non-tail form with too few operands — is an
-  ordinary indirect call through whatever `apply` resolves to in scope,
-  matching the interpreter's plain `call_global`/local call.
+- **everything else resolvable** — a lexically shadowed `apply`, an `apply`
+  already seen rebound (tail or non-tail), or a non-tail form with too few
+  operands — is an ordinary indirect call through whatever `apply` resolves
+  to in scope, matching the interpreter's plain `call_global`/local call.
 
 Since kaappi#2451 the interpreter has a **non-tail** `apply` opcode as well,
 which calls the flattened callee with an ordinary VM frame so a continuation

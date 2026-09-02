@@ -15,6 +15,7 @@ const VMError = vm_mod.VMError;
 const CallFrame = vm_mod.CallFrame;
 
 const memory = @import("memory.zig");
+const library = @import("library.zig");
 
 /// kaappi#1924: the catchable error a bytecode store (set_upvalue,
 /// set_box_local, set_global, define_global) raises when it would install a
@@ -356,6 +357,96 @@ inline fn resolveBaseBindingLocked(self: *VM, env: *std.StringHashMap(Value), ba
     self.lockGlobalsShared();
     defer self.unlockGlobalsShared();
     return env.get(base_name);
+}
+
+/// Resolve the global that constant `sym_idx` names, through `func`'s
+/// per-function global cache when it has one — the read `get_global`
+/// performs, shared with `guard_builtin` (kaappi#2469). A cache entry is
+/// only ever a closure or native procedure resolved through the ordinary
+/// (non-def-env, #1812) route, and the whole cache is dropped whenever
+/// `global_version` moves, so a stale procedure can never be served after a
+/// rebinding (#812). Raises the undefined-variable error for an unbound name.
+pub fn lookupGlobalCached(self: *VM, func: *types.Function, sym_idx: u16) VMError!Value {
+    if (func.env == null) {
+        if (func.global_cache) |cache| {
+            if (func.cache_version == self.global_version and
+                sym_idx < cache.len and cache[sym_idx] != types.VOID)
+            {
+                return cache[sym_idx];
+            }
+            if (func.cache_version != self.global_version) {
+                @memset(cache, types.VOID);
+                func.cache_version = self.global_version;
+            }
+        }
+    }
+    const sym = try constantAt(self, func, sym_idx);
+    if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
+    const name = types.symbolName(sym);
+    // #1812: skip caching a def_env_binding_prefix reference — its
+    // resolution isn't invalidated by self.global_version (a library's own
+    // internal set! on its def_env doesn't bump it, since that mutation's
+    // func.env isn't null), so caching it under that version could go stale.
+    const def_env_parts = vm_mod.globals_mod.parseDefEnvBindingSymbolName(name);
+    const val = lookupGlobalLocked(self, func, name) orelse
+        return raiseUndefinedVariable(self, name);
+    if (func.env == null and def_env_parts == null and (types.isClosure(val) or types.isNativeFn(val))) {
+        if (func.global_cache) |cache| {
+            if (sym_idx < cache.len) cache[sym_idx] = val;
+        } else {
+            // A cache is an optimization: no memory for one just means the
+            // next reference resolves by name again.
+            const cache = self.gc.allocator.alloc(Value, func.constants.items.len) catch return val;
+            @memset(cache, types.VOID);
+            cache[sym_idx] = val;
+            func.global_cache = cache;
+            func.cache_version = self.global_version;
+        }
+        // #1961 (review): the cached value is root-marked right now (it is
+        // also in the globals map), but a later rebinding by another
+        // function orphans this slot — only this function's own next global
+        // op clears it — and the generational minor mark reaches the
+        // orphaned young value only through the remembered set. The function
+        // itself may already be promoted, including on the fresh-cache path.
+        self.gc.writeBarrier(&func.header, val);
+    }
+    return val;
+}
+
+/// `guard_builtin dst, sym_idx, kind, offset` (kaappi#2469): the run-time
+/// half of the builtin-superinstruction gate. Resolves the operator's global
+/// into `dst` exactly as `get_global` would, then lets execution fall through
+/// to the superinstruction only while that value is still the pristine
+/// primitive `library.fast_path_builtins[kind]`; anything else — a user
+/// procedure, a non-procedure, a re-registered primitive — jumps `offset` to
+/// the ordinary call the compiler emitted after the fast path, which calls
+/// whatever `dst` now holds. R7RS 5.3.1 makes a top-level definition
+/// essentially an assignment, so this is the only place the question can be
+/// answered honestly: a compile-time read (#2033) or a whole-unit pre-scan
+/// (#2457) is baked into bytecode that may run after a `load`, an `eval`, a
+/// REPL form, or a macro-materialized `set!` rebinds the name.
+///
+/// A pristine slot left VOID (the primitive was never registered, e.g. a
+/// sandbox that excludes `eval`) never matches, so such a guard always takes
+/// the ordinary call — which is also where an unbound name reports its
+/// undefined-variable error, from the lookup above.
+pub fn guardBuiltin(self: *VM, frame: *CallFrame) VMError!void {
+    const dst = readU16(self, frame);
+    const sym_idx = readU16(self, frame);
+    const kind = readU8(self, frame);
+    const offset = readI16(self, frame);
+    const closure = frame.closure orelse return VMError.InvalidBytecode;
+    const dst_idx = try registerIndex(self, frame.base, dst);
+    if (kind >= library.fast_path_builtins.len) return VMError.InvalidBytecode;
+    const val = try lookupGlobalCached(self, closure.func, sym_idx);
+    self.registers[dst_idx] = val;
+    const pristine = self.libraries.fast_path_pristine[kind];
+    if (pristine != types.VOID and val == pristine) return;
+    const new_ip = @as(isize, @intCast(frame.ip)) + offset;
+    if (new_ip < 0) return VMError.InvalidBytecode;
+    const target: usize = @intCast(new_ip);
+    if (target > frame.code.len) return VMError.InvalidBytecode;
+    frame.ip = target;
 }
 
 pub fn buildRestList(gc: *memory.GC, args: []const Value) VMError!Value {

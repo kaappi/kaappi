@@ -499,6 +499,66 @@ test "top-level redefinition honoured in tail position (#2033)" {
     try std.testing.expectEqualStrings("user-ccc", types.symbolName(try ctx.vm.eval("(ccc-tail)")));
 }
 
+// #2469: the decision moved to run time. A body compiled BEFORE the
+// redefinition — here form by form through vm.eval, the REPL's own route,
+// which #2457's whole-unit pre-scan could never cover — must still reach the
+// user's procedure, and restoring the genuine binding brings the builtin
+// back through the very same bytecode.
+test "per-form use-before-define of every fast-path name is honoured (REPL route, #2469)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    _ = try ctx.vm.eval("(define (nt-apply) (let ((v (apply + (list 1 2)))) v))");
+    _ = try ctx.vm.eval("(define (t-apply) (apply + (list 1 2)))");
+    _ = try ctx.vm.eval("(define (nt-cwv) (let ((v (call-with-values (lambda () 1) (lambda (x) x)))) v))");
+    _ = try ctx.vm.eval("(define (t-cwv) (call-with-values (lambda () 1) (lambda (x) x)))");
+    _ = try ctx.vm.eval("(define (t-cc) (call/cc (lambda (k) 1)))");
+    _ = try ctx.vm.eval("(define (t-ccc) (call-with-current-continuation (lambda (k) 1)))");
+    _ = try ctx.vm.eval("(define (t-eval) (eval '(+ 1 2)))");
+    _ = try ctx.vm.eval("(define (all) (list (nt-apply) (t-apply) (nt-cwv) (t-cwv) (t-cc) (t-ccc) (t-eval)))");
+    _ = try ctx.vm.eval("(define saved (list apply call-with-values call/cc call-with-current-continuation eval))");
+
+    try std.testing.expect(types.isTruthy(try ctx.vm.eval("(equal? (all) '(3 3 1 1 1 1 3))")));
+
+    _ = try ctx.vm.eval("(define (apply f xs) 'ua)");
+    _ = try ctx.vm.eval("(define (call-with-values p c) 'uc)");
+    _ = try ctx.vm.eval("(define (call/cc r) 'uk)");
+    _ = try ctx.vm.eval("(define (call-with-current-continuation r) 'ukk)");
+    _ = try ctx.vm.eval("(define (eval x . env) 'ue)");
+    try std.testing.expect(types.isTruthy(try ctx.vm.eval("(equal? (all) '(ua ua uc uc uk ukk ue))")));
+
+    _ = try ctx.vm.eval("(set! apply (list-ref saved 0))");
+    _ = try ctx.vm.eval("(set! call-with-values (list-ref saved 1))");
+    _ = try ctx.vm.eval("(set! call/cc (list-ref saved 2))");
+    _ = try ctx.vm.eval("(set! call-with-current-continuation (list-ref saved 3))");
+    _ = try ctx.vm.eval("(set! eval (list-ref saved 4))");
+    try std.testing.expect(types.isTruthy(try ctx.vm.eval("(equal? (all) '(3 3 1 1 1 1 3))")));
+}
+
+// #2469: a redefinition drops the pristine primitive from globals, but every
+// guard_builtin compiled before it still compares against that object. The
+// registry's fast_path_pristine slots are root-marked so a full collection
+// in between neither frees it (a dangling compare) nor lets a recycled
+// object alias it (a false "still pristine").
+test "pristine fast-path primitives survive a full collection after a redefinition (#2469)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    _ = try ctx.vm.eval("(define (t) (apply + (list 1 2)))");
+    _ = try ctx.vm.eval("(define orig apply)");
+    _ = try ctx.vm.eval("(define (apply f xs) 'user)");
+    ctx.vm.gc.collectFull();
+    ctx.vm.gc.collectFull();
+    // Churn the heap so a freed slot would be recycled before the compare.
+    _ = try ctx.vm.eval("(let loop ((i 0) (acc '())) (if (< i 2000) (loop (+ i 1) (cons (make-string 8 #\\a) acc)) (length acc)))");
+    try std.testing.expectEqualStrings("user", types.symbolName(try ctx.vm.eval("(t)")));
+    _ = try ctx.vm.eval("(set! apply orig)");
+    ctx.vm.gc.collectFull();
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(try ctx.vm.eval("(t)")));
+}
+
 test "environment accepts import-set modifiers (#1189)" {
     var ctx: th.TestContext = undefined;
     try ctx.init();

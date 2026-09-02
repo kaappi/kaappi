@@ -5,7 +5,7 @@ the ISA — the `/bytecode-isa` skill points here.
 
 ## Instruction set
 
-33 opcodes, register-based, variable-length encoding. Register/slot,
+34 opcodes, register-based, variable-length encoding. Register/slot,
 constant-index and symbol-index operands are all u16 (big-endian); jump
 offsets are i16 (signed, relative to the instruction after the jump). The
 only u8 operands are `nargs` and the `is_local` flag in a closure capture
@@ -51,6 +51,7 @@ operand-width table — it is what `ensureOperands` validates against, so the
 | 30 | `tail_eval` | base:u16, nargs:u8 | 4 | `eval` in tail position: compiles the expression at base+0 (optional environment at base+1) and tail-calls it |
 | 31 | `apply` | base:u16, nargs:u8 | 4 | Non-tail apply with list unpacking: flattens the final operand list into base+1… and calls the procedure at base+0 with an ordinary frame, result → base |
 | 32 | `values_list` | dst:u16, src:u16 | 5 | Spread a call-with-values producer's return value (single value or `MultipleValues`) into a fresh argument list → dst, for the apply that follows |
+| 33 | `guard_builtin` | dst:u16, sym:u16, kind:u8, offset:i16 | 8 | Run-time gate for a builtin superinstruction: resolve global sym → dst like `get_global`, fall through while it is still the pristine primitive `kind`, else jump offset to the ordinary call emitted after the fast path |
 
 `self_tail_call` skips the global lookup, type check, and arity check for
 direct self-recursion and named `let` loops — see
@@ -87,6 +88,38 @@ ordinary `call` of the producer, `values_list`, then `apply`/`tail_apply` of
 the consumer. Because the producer runs under an ordinary call opcode, its
 frame is part of the copied VM state and a continuation captured inside it is
 resumable after the form returns — the same property #2451 gave the consumer.
+
+`guard_builtin` is what makes every superinstruction honest about
+redefinition (kaappi#2469). R7RS 5.3.1 makes a top-level definition
+essentially an assignment, so which binding `(apply f xs)` reaches is a
+run-time question; a compile-time read of the global (#2033) or a whole-unit
+pre-scan for later definitions (#2457) is baked into bytecode that may run
+after a `load`, an `eval`, a REPL form, or a macro-materialized `set!` rebinds
+the name. Every user-text `apply` / `call-with-values` / `call/cc` /
+`call-with-current-continuation` / `eval` fast path is therefore emitted as
+
+```text
+<operands into base+1 ...>
+guard_builtin  base, sym, kind, ->slow   ; base := current global binding
+<superinstruction over base+1 ...>       ; only while still pristine
+move dst, <result>                       ; (non-tail)
+jump ->end
+slow:
+call / tail_call  base, n                ; whatever the global holds now
+end:
+```
+
+`kind` indexes `library.fast_path_builtins`, and the value compared against
+is `LibraryRegistry.fast_path_pristine[kind]`, snapshotted at registration
+and root-marked so a redefinition cannot free it. The lookup goes through
+the same per-function global cache as `get_global`
+(`vm_dispatch_helpers.lookupGlobalCached`), so a genuine call pays one cached
+load and one compare. The jump over the slow path is emitted in tail
+position too: a continuation captured by `tail_call_cc` resumes at the
+instruction after it, which must be the form's exit rather than the slow
+path's call. Only compiler-synthesized references (`baseBindingSymbol`),
+which resolve through the pristine registry by construction, are emitted
+unguarded.
 
 ### Encoding details
 

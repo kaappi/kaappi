@@ -10,6 +10,7 @@
 const std = @import("std");
 const platform = @import("platform.zig");
 const types = @import("types.zig");
+const library = @import("library.zig");
 const memory = @import("memory.zig");
 const file_utils = @import("file_utils.zig");
 const bf = @import("bytecode_file.zig");
@@ -342,7 +343,7 @@ fn validateFunctionBytecode(func: *Function) BytecodeError!void {
     var ip: usize = 0;
     while (ip < code.len) {
         const raw = code[ip];
-        if (raw > @intFromEnum(OpCode.values_list)) return BytecodeError.CorruptedFile;
+        if (raw > @intFromEnum(OpCode.guard_builtin)) return BytecodeError.CorruptedFile;
         const op: OpCode = @enumFromInt(raw);
         ip += 1;
 
@@ -374,6 +375,20 @@ fn validateFunctionBytecode(func: *Function) BytecodeError!void {
             .tail_call_cc => {
                 if (ip + 4 > code.len) return BytecodeError.CorruptedFile;
                 ip += 4;
+            },
+            .guard_builtin => {
+                // dst:u16, sym_idx:u16, kind:u8, offset:i16 (kaappi#2469): the
+                // symbol must be a constant, the kind a fast_path_builtins
+                // index, and the jump must land inside the function.
+                if (ip + 7 > code.len) return BytecodeError.CorruptedFile;
+                ip += 2; // dst
+                const idx = try readU16FromCode(code, &ip);
+                try validateSymbolConstant(func, idx);
+                if (code[ip] >= library.fast_path_builtins.len) return BytecodeError.CorruptedFile;
+                ip += 1; // kind
+                const off = try readI16FromCode(code, &ip);
+                const target = @as(i64, @intCast(ip)) + @as(i64, off);
+                if (target < 0 or target > code.len) return BytecodeError.CorruptedFile;
             },
             .get_global => {
                 if (ip + 4 > code.len) return BytecodeError.CorruptedFile;

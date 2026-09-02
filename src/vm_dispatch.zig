@@ -35,6 +35,8 @@ const tooManyApplyArgs = vm_dispatch_helpers.tooManyApplyArgs;
 const rejectImmutableEnv = vm_dispatch_helpers.rejectImmutableEnv;
 const raiseUndefinedVariable = vm_dispatch_helpers.raiseUndefinedVariable;
 const lookupGlobalLocked = vm_dispatch_helpers.lookupGlobalLocked;
+const lookupGlobalCached = vm_dispatch_helpers.lookupGlobalCached;
+const guardBuiltin = vm_dispatch_helpers.guardBuiltin;
 const raiseDeadNativeReturn = vm_dispatch_helpers.raiseDeadNativeReturn;
 const dispatchApply = vm_dispatch_helpers.dispatchApply;
 const raiseCrossHeapStoreVM = vm_dispatch_helpers.raiseCrossHeapStoreVM;
@@ -152,7 +154,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
         if (frame.ip >= frame.code.len) return VMError.InvalidBytecode;
 
         const raw_op = frame.code[frame.ip];
-        if (raw_op > @intFromEnum(OpCode.values_list)) return VMError.InvalidBytecode;
+        if (raw_op > @intFromEnum(OpCode.guard_builtin)) return VMError.InvalidBytecode;
         const op: OpCode = @enumFromInt(raw_op);
         frame.ip += 1;
 
@@ -180,6 +182,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
             .tail_call_cc => 4,
             .tail_eval => 3,
             .values_list => 4,
+            .guard_builtin => 7,
         };
         try ensureOperands(self, frame, fixed_operand_bytes);
 
@@ -235,55 +238,12 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const dst = readU16(self, frame);
                 const sym_idx = readU16(self, frame);
                 const closure = frame.closure orelse return VMError.InvalidBytecode;
-                const func = closure.func;
                 const dst_idx = try registerIndex(self, frame.base, dst);
-                if (func.env == null) {
-                    if (func.global_cache) |cache| {
-                        if (func.cache_version == self.global_version and
-                            sym_idx < cache.len and cache[sym_idx] != types.VOID)
-                        {
-                            self.registers[dst_idx] = cache[sym_idx];
-                            continue;
-                        }
-                        if (func.cache_version != self.global_version) {
-                            @memset(cache, types.VOID);
-                            func.cache_version = self.global_version;
-                        }
-                    }
-                }
-                const sym = try constantAt(self, func, sym_idx);
-                if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
-                const name = types.symbolName(sym);
-                // #1812: skip caching a def_env_binding_prefix reference — its
-                // resolution isn't invalidated by self.global_version (a
-                // library's own internal set! on its def_env doesn't bump it,
-                // since that mutation's func.env isn't null), so caching it
-                // under that version could go stale.
-                const def_env_parts = vm_mod.globals_mod.parseDefEnvBindingSymbolName(name);
-                const val = lookupGlobalLocked(self, func, name) orelse
-                    return raiseUndefinedVariable(self, name);
-                self.registers[dst_idx] = val;
-                if (func.env == null and def_env_parts == null and (types.isClosure(val) or types.isNativeFn(val))) {
-                    if (func.global_cache) |cache| {
-                        if (sym_idx < cache.len) cache[sym_idx] = val;
-                    } else {
-                        const cache = self.gc.allocator.alloc(Value, func.constants.items.len) catch continue;
-                        @memset(cache, types.VOID);
-                        cache[sym_idx] = val;
-                        func.global_cache = cache;
-                        func.cache_version = self.global_version;
-                    }
-                    // #1961 (review): the cached value is root-marked right
-                    // now (it is also in the globals map), but a later
-                    // rebinding by another function orphans this slot — only
-                    // this function's own next global op clears it — and the
-                    // generational minor mark reaches the orphaned young
-                    // value only through the remembered set. The function
-                    // itself may already be promoted, including on the
-                    // fresh-cache path.
-                    self.gc.writeBarrier(&func.header, val);
-                }
+                self.registers[dst_idx] = try lookupGlobalCached(self, closure.func, sym_idx);
             },
+            // The run-time builtin-superinstruction gate (kaappi#2469); the
+            // body is `guardBuiltin` in vm_dispatch_helpers.zig.
+            .guard_builtin => try guardBuiltin(self, frame),
             .set_global => {
                 const sym_idx = readU16(self, frame);
                 const src = readU16(self, frame);

@@ -1,14 +1,17 @@
-//! Redefinition-awareness for the compiler (kaappi#2033, #2457, #1775).
+//! Redefinition-awareness for the compiler (kaappi#2033, #2457, #2469, #1775).
 //!
 //! Two cooperating pieces live here because they answer the same question —
 //! "can a compile-time decision that a name still resolves to its built-in
 //! survive until the code runs?" — for two different redefinition routes:
 //!
-//!   * the builtin-bypass gate `globalBindingStillGenuine`, which decides the
-//!     `apply` / `call-with-values` / `call/cc` / `eval` superinstructions in
-//!     `compiler.zig` and the native tier's `emitApplyForm`, consuming both
-//!     the per-form `set!` pre-scan below and the whole-unit target set a
-//!     whole-unit driver installs (`compiler_passthrough.unit_top_level_targets`);
+//!   * the builtin-bypass heuristic `globalBindingStillGenuine`, which decides
+//!     whether the `apply` / `call-with-values` / `call/cc` / `eval`
+//!     superinstructions in `compiler.zig` are worth emitting for a form,
+//!     consuming the per-form `set!` pre-scan below. It is no longer what
+//!     keeps them correct: since kaappi#2469 every emitted superinstruction
+//!     sits behind a run-time `guard_builtin` (see `compiler_passthrough.zig`),
+//!     so this read only avoids emitting a fast path the guard would reject
+//!     on every execution;
 //!   * the `set!` pre-scan (`collectSetTargets` and its budget), which
 //!     discovers the names a form (or a macro it uses) assigns before the
 //!     form compiles, feeding `Compiler.set_targets` and the LLVM backend's
@@ -24,23 +27,30 @@ const expander = @import("expander.zig");
 const macro = @import("compiler_macro.zig");
 const globals_mod = @import("globals.zig");
 const compiler_mod = @import("compiler.zig");
-const passthrough = @import("compiler_passthrough.zig");
 
 const Compiler = compiler_mod.Compiler;
 const CompileError = compiler_mod.CompileError;
 const Value = types.Value;
 
 /// Answers whether a free global reference spelled `sym_name` (a bare
-/// name like `apply`, or a hygiene-renamed `__hyg_N_apply`) would still
-/// resolve to the genuine `(scheme base)` primitive `base_name` at run
-/// time — the gate the builtin superinstructions
-/// (apply/call-with-values in any position, eval/call/cc in tail
-/// position) need so a top-level
-/// redefinition of one of those names routes to the user's procedure
-/// instead of the baked-in builtin (kaappi#2033). Mirrors
+/// name like `apply`, or a hygiene-renamed `__hyg_N_apply`) resolves to
+/// the genuine `(scheme base)` primitive `base_name` as far as the
+/// compiler can tell — the heuristic that decides whether the builtin
+/// superinstructions (apply/call-with-values in any position, eval/call/cc
+/// in tail position) are worth emitting for a user-text reference.
+///
+/// This is an optimization, not the correctness mechanism. R7RS 5.3.1 makes
+/// a top-level redefinition essentially an assignment, so a body compiled
+/// before `(define (apply f xs) ...)` runs cannot know at compile time which
+/// binding its call will reach; since kaappi#2469 every emitted
+/// superinstruction sits behind a run-time `guard_builtin` that compares the
+/// global's current binding against the pristine primitive and falls back to
+/// an ordinary call. A `true` here therefore never bakes the builtin in; a
+/// `false` only skips emitting a guarded fast path that the compile-time
+/// environment already shows would be rejected on every execution (#2033's
+/// define-before-use order, or a `set!` in the enclosing form). Mirrors
 /// IR.isRedefined's fold gate and the resolution order of
-/// vm_dispatch_helpers.lookupGlobalLocked so the compile-time decision
-/// cannot disagree with what get_global would fetch.
+/// vm_dispatch_helpers.lookupGlobalLocked.
 pub fn globalBindingStillGenuine(self: *const Compiler, sym_name: []const u8, base_name: []const u8) bool {
     // A `set!` target in the enclosing top-level form (or a truncated
     // pre-scan) means the global may hold a different value by the time
@@ -49,19 +59,6 @@ pub fn globalBindingStillGenuine(self: *const Compiler, sym_name: []const u8, ba
     if (self.set_targets) |st| {
         if (st.contains(sym_name) or st.contains(base_name)) return false;
     }
-    // A top-level `define`/`set!` of the name ANYWHERE in the compilation
-    // unit (kaappi#2457): a body compiled before the definition runs
-    // would otherwise bake the builtin in and silently discard the user's
-    // procedure, because this function's compile-time read of the global
-    // environment still sees the pristine binding. Whole-unit drivers
-    // populate the set; per-form entry points (REPL, eval) leave it null
-    // and keep the legacy answer. Declining only ever costs the
-    // superinstruction — the by-name call resolves the genuine binding
-    // when no redefinition intervenes.
-    if (passthrough.unit_top_level_targets) |unit_targets| {
-        if (unit_targets.contains(sym_name) or unit_targets.contains(base_name)) return false;
-    }
-
     // No environment info (standalone/unit-test paths): keep the legacy
     // optimistic behavior, mirroring IR.isRedefined's `orelse return false`.
     const g = self.globals orelse return true;

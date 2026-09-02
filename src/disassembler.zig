@@ -62,7 +62,7 @@ fn disassembleInstruction(func: *types.Function, code: []const u8, offset: usize
     const off_str = std.fmt.bufPrint(&buf, "  {d:0>4}  ", .{offset}) catch "  ????  ";
     writeStderr(off_str);
 
-    if (raw_op > @intFromEnum(OpCode.values_list)) {
+    if (raw_op > @intFromEnum(OpCode.guard_builtin)) {
         const s = std.fmt.bufPrint(&buf, "<invalid opcode 0x{x:0>2}>\n", .{raw_op}) catch "<invalid opcode>\n";
         writeStderr(s);
         return ip;
@@ -92,6 +92,7 @@ fn disassembleInstruction(func: *types.Function, code: []const u8, offset: usize
         .tail_call_cc => 4,
         .tail_eval => 3,
         .values_list => 4,
+        .guard_builtin => 7,
     };
     if (ip + fixed_operand_bytes > code.len) {
         writeStderr("<truncated instruction>\n");
@@ -343,6 +344,16 @@ fn disassembleInstruction(func: *types.Function, code: []const u8, offset: usize
             const s = std.fmt.bufPrint(&buf, "tail_eval       r{d}, {d}\n", .{ base, nargs }) catch "tail_eval\n";
             writeStderr(s);
         },
+        .guard_builtin => {
+            const dst = readU16(code, &ip);
+            const sym_idx = readU16(code, &ip);
+            const kind = code[ip];
+            ip += 1;
+            const off = readI16(code, &ip);
+            const target = @as(i64, @intCast(ip)) + @as(i64, off);
+            const s = std.fmt.bufPrint(&buf, "guard_builtin   r{d}, const[{d}], {d}, -> {d}\n", .{ dst, sym_idx, kind, target }) catch "guard_builtin\n";
+            writeStderr(s);
+        },
     }
     return ip;
 }
@@ -506,6 +517,14 @@ test "disassemble all opcodes" {
     emit.op(func, allocator, .self_tail_call);
     emit.u16val(func, allocator, 0); // base register
     emit.byte(func, allocator, 1); // nargs (stays u8)
+
+    // guard_builtin r0, const[0], 0, +0 (kaappi#2469)
+    emit.op(func, allocator, .guard_builtin);
+    emit.u16val(func, allocator, 0); // dst register
+    emit.u16val(func, allocator, 0); // symbol constant index
+    emit.byte(func, allocator, 0); // kind: fast_path_builtins[0] = apply
+    emit.byte(func, allocator, 0); // jump offset high
+    emit.byte(func, allocator, 0); // jump offset low
 
     // Verify all opcodes are present in the bytecode
     try std.testing.expect(func.code.items.len > 120);

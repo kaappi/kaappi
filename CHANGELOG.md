@@ -71,6 +71,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The builtin-superinstruction gate is now a run-time decision** (#2469,
+  R7RS 5.3.1) — #2457 pre-scanned a compilation unit for top-level
+  redefinitions of `apply`, `call-with-values`, `eval`, `call/cc` and
+  `call-with-current-continuation`, which left every route without
+  whole-unit knowledge baking the builtin into bodies compiled before the
+  redefinition ran: a file's own use-before-define order under `load`, a
+  redefinition inside an `eval`'d `begin` or performed by a later `eval`,
+  the REPL and the WASM playground, and a `set!` that only materializes
+  when a macro expands. Each superinstruction now sits behind a new
+  `guard_builtin` opcode that resolves the operator's global (through the
+  same per-function cache as `get_global`), takes the fast path only while
+  that value is still the pristine primitive, and otherwise jumps to an
+  ordinary call of whatever the global holds; the native backend's
+  `emitApplyForm` makes the same decision through
+  `kaappi_builtin_is_pristine`. The whole-unit scan, its install sites in
+  the file, stdin, `compile` and `check` drivers, and the REPL/`eval`
+  carve-outs are gone, and `call-with-values` now evaluates its producer
+  before its consumer, like any other call. Found alongside: a natively
+  compiled `set!` of a global (`kaappi_set_global`) never invalidated the
+  interpreter's per-function global caches, so an interpreted body could
+  keep serving the old binding; it now bumps `global_version` like the
+  `set_global` opcode.
 - **A continuation captured inside `call-with-values`' producer can be
   resumed after the form returned** (#2453) — the producer kept running
   under the native `%call-with-values->list` frame even after #2451 moved

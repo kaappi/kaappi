@@ -317,45 +317,12 @@ test "cond-expand: an unsatisfied top-level clause is not an error (#1661)" {
     try expectCounts("(cond-expand (no-such-feature (import (srfi 1))))", 0, 0, 0);
 }
 
-// ── Whole-unit superinstruction gate during analysis (kaappi#2457) ──────────
-// analyzeSource — the shared path of `run`, the tests, and the LSP — installs
-// the EXACT target set a run of the file would install, not the lint's
-// user_defined set: top-level `set!` targets count (PR #2467 review), and
-// define-syntax names are not part of it.
+// ── Superinstruction gate during analysis (kaappi#2457, #2469) ──────────────
+// A file that uses `apply` before assigning it at top level analyzes clean:
+// the compiles `check` runs emit the same run-time-guarded fast path a run
+// would, with no whole-unit pre-scan to install or forget (the #2467 scan
+// that once lived here was retired by #2469).
 
-test "unit gate: a top-level set! target reaches the gate set" {
-    // The reviewer's scenario: a unit using `apply` early and assigning it
-    // later. user_defined misses the set!; the gate set must not.
-    var h: Harness = .{};
-    try h.tc.init();
-    defer h.tc.deinit();
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    var targets = check.unitTargetSet(arena.allocator(), &h.tc.gc,
-        \\(define (f) (apply + (list 1 2)))
-        \\(set! apply (lambda args 'user))
-    );
-    try testing.expect(targets.contains("apply"));
-}
-
-test "unit gate: define-syntax names are not gate targets" {
-    var h: Harness = .{};
-    try h.tc.init();
-    defer h.tc.deinit();
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    var targets = check.unitTargetSet(arena.allocator(), &h.tc.gc,
-        \\(define-syntax m (syntax-rules () ((_ x) x)))
-        \\(m 1)
-    );
-    try testing.expect(!targets.contains("m"));
-    try testing.expectEqual(@as(usize, 0), targets.count());
-}
-
-test "unit gate: installed only for the duration of the analysis" {
-    const compiler_passthrough = @import("compiler_passthrough.zig");
-    try testing.expect(compiler_passthrough.unit_top_level_targets == null);
+test "use-before-set! of a fast-path name analyzes without findings" {
     try expectCounts("(define (f) (apply + (list 1 2)))\n(set! apply (lambda args 'user))", 0, 0, 0);
-    // The defer-based cleanup restored the per-form (null) answer.
-    try testing.expect(compiler_passthrough.unit_top_level_targets == null);
 }
