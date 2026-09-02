@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788329193423,
+  "lastUpdate": 1788329760234,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ffa87145d79aa287e90b071192fe864d4b4971be",
-          "message": "Fix four SRFI audit findings: and-let*, SRFI 222, set->bag!, random seed (#2277)\n\n* Fix four SRFI audit findings: and-let*, SRFI 222, set->bag!, random seed (2073, 2072, 2086, 1913)\n\nFour independent SRFI conformance defects, one PR:\n\n- #2073: and-let* with claws and an empty body returned #t instead of the\n  last claw's value (eval[(AND-LET* (CLAW))] = eval_claw[CLAW] in the SRFI 2\n  formal semantics). The expansion now ends on the last claw and returns its\n  value for all three claw shapes, keeping the #f short-circuit.\n\n- #2072: (srfi 222) exported 5 of the spec's 10 procedures, make-compound\n  did not flatten nested compounds, and compound-subobjects was the bare\n  record accessor, raising on a non-compound. The library now ships all ten\n  procedures with spec semantics: flattening make-compound, a one-element-list\n  compound-subobjects, and compound-map/-map->list/-filter/-predicate/-access.\n\n- #2086: set->bag! only inserted set elements the bag did not already hold,\n  silently dropping the set's contribution to existing elements. It now\n  increments unconditionally (bag-increment! b k 1), matching the reference\n  implementation and chibi-scheme.\n\n- #1913: %random-port-make-from-seed accepted an all-zero seed, putting the\n  xoshiro256** state at its degenerate fixed point (zero bytes forever). The\n  sibling entry points already rejected it; the raw seed primitive now does\n  too. Unit test added alongside the Scheme-level test.\n\nEach fix enables the disabled regression tests that pinned it. Full Scheme\nsuite: 703 pass (the single WASM differential failure is pre-existing, verified\nagainst the clean tree).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Make (srfi 222) self-contained: local filter/append-map instead of vm.globals fallback\n\nCodeRabbit review caught that filter and append-map are not (scheme base)\nbindings: they are tagged .srfi_1 and reach lib/srfi/222.sld only through\nkaappi's vm.globals fallback for library bodies (lookupGlobalLocked in\nvm_dispatch_helpers.zig), which other R7RS implementations do not have.\n\nThe SRFI 222 reference implementation defines its own filter, and\nlib/srfi/217.sld does the same, so this library now defines both helpers\nlocally using only R7RS base functionality. Verified by poisoning the\nglobal filter/append-map bindings before importing (srfi 222): the library\nstill loads and behaves correctly.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-10T08:19:15+05:30",
-          "tree_id": "368ab01a277d570f09ed4660e29324d5ca2ca960",
-          "url": "https://github.com/kaappi/kaappi/commit/ffa87145d79aa287e90b071192fe864d4b4971be"
-        },
-        "date": 1786332020903,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.230582,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.990166,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.560255,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.983902,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004622,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046898,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.301467,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056327,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.73538,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.173447,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.584265,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.282245,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.771137,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.458734,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04314,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.036065,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ce0137242f842a77d61ab3cfb9db52e9099736c3",
+          "message": "Detach SRFI-18 OS threads and back off in cross-thread waits (#2446) (#2468)\n\n* Detach SRFI-18 OS threads and back off in cross-thread waits (#2446)\n\nsrfi18-join-spawn-grandchild-2129.scm hung intermittently on NetBSD under\nCPU load, and the first investigation read gdb's \"frozen PC, no syscall\"\nchild thread as the kernel stranding a freshly created LWP. The kernel's\nown per-LWP view (ps -s) showed the process with 23 LWPs, 18 runnable,\nburning three CPUs: 17 threads leaving thread-sleep! spinning in\nmemory.spinLock inside withdrawCrossThreadWaiter at priority 25-27, while\nthe holder -- preempted inside the kevent ring wakeCrossThreadWaiters\nissues under the lock -- sat runnable at priority 0 and never ran again.\n\nTwo NetBSD 4BSD-scheduler facts combine into that. First, a nice-0 LWP's\npriority is 63 - estcpu/2048 - 20 and the per-tick accumulation is capped\nat 18*2048, so running can take a thread no lower than 25 -- but\nsched_lwp_collect, run in _lwp_wait on the JOINING LWP, adds the reaped\nLWP's estcpu with no cap, and sched_lwp_fork copies the joiner's estimate\ninto every LWP it creates. The interpreter thread joins every middle\nthread; after three joins it is at priority 0 and so is every thread it\nspawns from then on -- born below every ordinary process, which under CPU\ncontention starves them outright (the \"child parked at\npthread__create_tramp+0 forever\" of the original report). A 40-line C\nprogram reproduces it: join three busy threads, then a trivial child of\nmain takes 0.8 s to run under four burners; detach them instead and it\ntakes 0 ms, like the no-join control. Second, sched_yield requeues only\nbehind LWPs of the same priority, so a crowd spinning -- or yielding -- on\na lock held by a preempted thread never lets it back in.\n\nSo: SRFI-18 OS threads are detached the instant they are spawned (a\ndetached LWP is freed at exit with no estcpu transfer) and thread-join!\nwaits on a per-spawn exit flag (Fiber.os_exit) the child raises after its\noutermost defer, which covers exactly what pthread_join covered. And every\ncross-thread wait that was a pure spin -- memory.spinLock, the GC\nstop-the-world handshake on both sides, GlobalsRwLock, and the new reap\nwait -- goes through platform.spinBackoff: 32 spins, 64 yields, then\nsleeps doubling from 32 us to 1 ms, so a waiter leaves the run queue and a\npreempted holder gets its turn. Neither changes the uncontended path.\n\nOn the NetBSD 10.1 aarch64 reference VM (40 s bound per run), unmodified\nmain hung 5 of 8 runs under four CPU burners and 4 of 10 under eight; the\nbackoff alone still hung 4 of 8; with the detach as well, 0 of 20 under\nfour burners (and 0 of 10 of srfi18-terminate-native-wait-1982.scm, the\nother test the CI kill hit) and 0 of 30 under eight. Regression tests pin the\ntwo properties the hang needed: contenders on a held spin lock must not\nburn CPU (four spinners cost 518 ms of CPU across a 120 ms hold before),\nand thread-join! must not return before the child's whole epilogue.\nPostmortem: docs/dev/postmortems/2026-09-02-netbsd-spinlock-starvation.md.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Note the upstream NetBSD estcpu fix and its netbsd-10 gap (#2446)\n\nNetBSD fixed sched_lwp_collect's missing ESTCPULIM in sched_4bsd.c rev\n1.48 (2026-03-01) and pulled it up to netbsd-11 (ticket #233), but not to\nnetbsd-10, so every 10.x release -- the reference VM and the CI image --\nstill has the bug. Record that where the postmortem and the NetBSD port\ndoc describe the defect, so nobody reads them as \"report this upstream\"\nor as \"the detach can go once the kernel is fixed\": it stays for as long\nas 10.x is a supported target.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review on #2468: synchronize the CPU-burn test, pin the backoff schedule, tighten the docs\n\n- The contention test now waits for all four workers to reach the lock\n  call before the 120 ms hold starts, so a loaded box cannot let them\n  acquire it uncontended after the unlock and pass vacuously; and a\n  clock_gettime failure skips the test instead of comparing garbage.\n- The pub phase constants now have the consumer their comment promised:\n  tests_platform.zig checks that spinBackoff's spin and yield phases do not\n  sleep, that the first iteration past them sleeps >= 32 us, and that the\n  capped one sleeps >= 1 ms.\n- Docs: the reactor guide's wait inventory names the reapOsThread exit-flag\n  wait; the postmortem's Status carries the fixing commit, its LWP table\n  accounts for all 23 rows, its priority formula includes the nice offset\n  (as does netbsd.md's) so the 25 floor derives on the page, and the\n  process-TIME lesson defers to the per-LWP columns.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-02T05:17:50Z",
+          "tree_id": "5b9f7d35e0d4c7d3964a0916ab961b5fdf6feddc",
+          "url": "https://github.com/kaappi/kaappi/commit/ce0137242f842a77d61ab3cfb9db52e9099736c3"
+        },
+        "date": 1788329757477,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.313321,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.772569,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.59801,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.999578,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004667,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048177,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.304969,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055319,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.777503,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.219861,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.657983,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.303951,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.723082,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.71136,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045544,
             "unit": "seconds"
           }
         ]
