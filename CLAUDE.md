@@ -481,6 +481,15 @@ every release across `ubuntu-latest`, `ubuntu-24.04-arm`, and `macos-latest`.
 Adding a platform means teaching its `detect_platform` the `uname` spelling and
 its `rt_artifact` case — `docs/dev/porting.md` Stage 6.
 
+## Changelog
+
+**Do not edit `CHANGELOG.md` in a PR.** Each version's section is written
+once, at release time, by `/github-release` Step 2 from `git log` since the
+previous tag — so the commit body is the release-note source, and the *why*
+belongs there. Per-PR entries were tried twice as a CI gate (dropped
+in #2103, restored in #2475, dropped again) and both times every concurrent
+PR conflicted on the same few lines at the top of one file.
+
 ## Issue tracker
 
 **Every issue you file or triage gets exactly one `priority:` label** —
@@ -541,6 +550,7 @@ Skills in `.claude/skills/`: `/add-builtin`, `/audit-primitives`,
 | GC safety checklist | Path-scoped rule (auto-loaded) | `.claude/rules/gc-safety.md` |
 | Compiler form checklist | Path-scoped rule (auto-loaded) | `.claude/rules/compiler-forms.md` |
 | Bug fixes need tests | Advisory only | This file (Tests) |
+| No per-PR `CHANGELOG.md` edits | Advisory only | This file (Changelog) |
 | Files ≤ 1500 lines | Advisory only | This file (File size policy) |
 | One `priority:` label per issue | Advisory only | This file, `docs/dev/github-issues.md` |
 | Commit message format | Advisory only | Parent `CLAUDE.md` (Conventions) |

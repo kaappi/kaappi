@@ -32,8 +32,9 @@ All of the following must be met before tagging `1.0.0`:
 
 ## Release process
 
-1. Update `CHANGELOG.md`: move the `[Unreleased]` section to a new version
-   heading.
+1. Write the new version section in `CHANGELOG.md` from `git log` since the
+   previous tag (`/github-release` Step 2). Entries are not accumulated per
+   PR — the commit body is the source.
 2. Update `pub const version` in `src/main.zig`.
 3. Commit, tag (`git tag v0.2.0`), and push (`git push --tags`).
 4. The release workflow builds cross-compiled binaries and creates a GitHub
