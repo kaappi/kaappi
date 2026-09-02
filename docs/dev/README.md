@@ -75,6 +75,7 @@ investigations.
 | [deep-recursion-register-overflow](postmortems/2026-06-17-deep-recursion-register-overflow.md) | Fixed-capacity register file overflowed under deep non-tail recursion | Fixed 2026-06-30 |
 | [fixnum-overflow-promotion](postmortems/2026-06-18-fixnum-overflow-promotion.md) | Arithmetic results in the fixnum/i64 gap silently wrapped | Fixed 2026-06-18 |
 | [complex-number-test-precision](postmortems/2026-06-18-complex-number-test-precision.md) | `test-approx=?` didn't compare complex numbers component-wise | Fixed 2026-06-18 |
+| [netbsd-spinlock-starvation](postmortems/2026-09-02-netbsd-spinlock-starvation.md) | Pure spin-waits starved a preempted lock holder under NetBSD's 4BSD scheduler; misdiagnosed as an OS stranding the thread | Fixed 2026-09-02 |
 
 ## Reference notes
 

@@ -38,6 +38,13 @@ pub const FiberStatus = enum(u8) {
     io_waiting,
 };
 
+/// kaappi#2446: the per-spawn exit flag an OS thread's joiner waits on in
+/// place of `pthread_join` (see `Fiber.os_exit`).
+pub const OsThreadExit = struct {
+    exited: std.atomic.Value(bool) = .init(false),
+    refs: std.atomic.Value(u32) = .init(2),
+};
+
 pub const Fiber = struct {
     header: types.Object,
     registers: []Value,
@@ -86,7 +93,23 @@ pub const Fiber = struct {
     /// them there too reproduces #1440's symptom by a different path.
     driving: bool = false,
     terminated: bool = false,
+    /// The `std.Thread` handle of a `thread-start!`ed OS thread, or null.
+    /// A **marker only** since kaappi#2446: the thread is detached the
+    /// instant it is spawned and is never joined -- see `os_exit`. Code
+    /// tests it for null to tell an OS thread from a cooperative fiber.
     os_thread: ?std.Thread = null,
+    /// kaappi#2446: how a joiner learns the OS thread has fully exited,
+    /// replacing the raw `pthread_join`. On NetBSD the joining LWP absorbs a
+    /// reaped LWP's CPU-usage estimate without a cap (`sched_lwp_collect`),
+    /// so a thread that joins a few busy threads sinks to the lowest user
+    /// priority and every thread it spawns is born there -- starved for
+    /// good behind any ordinary process under CPU contention. A detached
+    /// LWP is freed at exit without that transfer. Heap-allocated with two
+    /// references (the child releases its own as its very last action, the
+    /// joiner after observing `exited`); a never-joined thread leaks it,
+    /// exactly as its child GC/VM already leak. Never a Value: nothing for
+    /// the GC to trace.
+    os_exit: ?*OsThreadExit = null,
     /// #2129 (handle half): OS threads this fiber's thread has directly
     /// started (via `thread-start!`) whose `threadEntryFn` exit defer has
     /// not yet fired. Incremented in `threadStartImpl` before spawning,

@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const platform = @import("platform.zig");
 const th = @import("testing_helpers.zig");
 const types = @import("types.zig");
@@ -999,4 +1000,81 @@ test "a channel-send park that errors out leaves the fiber runnable (#2433)" {
     ,
         \\(guard (e (#t (error-object-message e))) (read-bytevector 4 p))
     , "channel-send");
+}
+
+// ---------------------------------------------------------------------------
+// kaappi#2446: waiting on a held spin lock must not burn CPU
+// ---------------------------------------------------------------------------
+
+fn processCpuNs() u64 {
+    var ts: std.c.timespec = undefined;
+    _ = std.c.clock_gettime(.PROCESS_CPUTIME_ID, &ts);
+    return @as(u64, @intCast(ts.sec)) * 1_000_000_000 + @as(u64, @intCast(ts.nsec));
+}
+
+// A thread that finds a spin lock held must stop consuming CPU while it
+// waits. On NetBSD's 4BSD scheduler a crowd of pure spinners outranks the
+// preempted holder for good -- the holder's priority is decayed by the work
+// it did, the spinners' is not, and sched_yield never requeues behind a
+// lower priority -- so srfi18-join-spawn-grandchild-2129.scm hung at 290%
+// CPU with 17 threads in withdrawCrossThreadWaiter's spinLock and the
+// holder runnable but never run. That scheduler-level hang cannot be
+// reproduced on a fair scheduler, so this pins the property that prevents
+// it: contenders on a held lock burn (almost) no CPU. Pre-fix, four
+// contenders spinning through a 120 ms hold cost the process ~4 x 120 ms of
+// CPU time (all of one CPU for the whole hold on a single-core box); with
+// platform.spinBackoff they spin for microseconds, yield a few dozen times
+// and then sleep, so the process gains a few milliseconds at most.
+test "kaappi#2446: contenders on a held spin lock sleep instead of burning CPU" {
+    if (comptime (platform.is_wasm or platform.is_windows or builtin.single_threaded)) return error.SkipZigTest;
+    const Ctx = struct {
+        lock: std.atomic.Mutex = .unlocked,
+        acquired: std.atomic.Value(u32) = .init(0),
+        fn contend(self: *@This()) void {
+            memory.spinLock(&self.lock);
+            _ = self.acquired.fetchAdd(1, .acq_rel);
+            memory.spinUnlock(&self.lock);
+        }
+    };
+    var ctx: Ctx = .{};
+    const hold_ns: u64 = 120_000_000;
+    memory.spinLock(&ctx.lock);
+    const cpu_before = processCpuNs();
+    var threads: [4]std.Thread = undefined;
+    for (&threads) |*t| t.* = try std.Thread.spawn(.{}, Ctx.contend, .{&ctx});
+    platform.sleepNs(hold_ns);
+    memory.spinUnlock(&ctx.lock);
+    for (threads) |t| t.join();
+    const cpu_ns = processCpuNs() - cpu_before;
+    try std.testing.expectEqual(@as(u32, 4), ctx.acquired.load(.acquire));
+    // 60 ms: half of what even ONE pure spinner burns through the hold, so a
+    // regression to spinning fails regardless of how many CPUs the box has.
+    if (cpu_ns > 60_000_000) {
+        std.debug.print("contenders burned {d} ms of CPU across a {d} ms hold\n", .{ cpu_ns / 1_000_000, hold_ns / 1_000_000 });
+        return error.SpinLockContendersBurnCpu;
+    }
+}
+
+// kaappi#2446: OS threads are detached at spawn and thread-join! waits on
+// the spawn's exit flag instead of pthread_join. That flag is raised after
+// the thread's very last defer, so by the time a join returns the child has
+// released its live-thread count and every registry entry: hasLiveChildThreads
+// is false again immediately, never "still true for a few microseconds while
+// the LWP finishes". A reap that returned early (or a defer accidentally
+// declared after the flag's) shows up here as a true reading.
+test "kaappi#2446: thread-join! returns only after the child's whole epilogue" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // thread-start! is unregistered on wasm
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    var i: usize = 0;
+    while (i < 8) : (i += 1) {
+        const v = try ctx.vm.eval(
+            \\(let ((t (make-thread (lambda () (thread-sleep! 0.001) 'done))))
+            \\  (thread-start! t)
+            \\  (thread-join! t))
+        );
+        try std.testing.expect(types.isSymbol(v));
+        try std.testing.expect(!srfi18.hasLiveChildThreads());
+    }
 }

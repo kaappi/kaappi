@@ -1801,8 +1801,11 @@ test "gc tracing: heap-struct field inventory is unchanged" {
         "thunk",             "result",               "waiting_on",         "id",
         "name",              "specific",             "param_overrides",    "deadline_ns",
         "timed_out",         "driving",              "terminated",         "os_thread",
-        "live_descendants",  "io_fd",                "io_interest",        "io_buffer",
-        "sched_idx",         "queued",               "rv_demand_on",       "owned_mutexes",
+        // #2446: a plain pointer to the spawn's exit flag, never a Value --
+        // no marking or sweeping obligation, only this re-pin.
+        "os_exit",           "live_descendants",     "io_fd",              "io_interest",
+        "io_buffer",         "sched_idx",            "queued",             "rv_demand_on",
+        "owned_mutexes",
     });
     expectFields(types.Channel, &.{
         "header", "head", "tail", "queue_len", "capacity", "rv_demand", "closed", "shared",

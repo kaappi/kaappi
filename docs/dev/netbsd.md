@@ -120,6 +120,65 @@ the call is a comptime no-op there and everywhere else.
   is a test-harness concern only — the interpreter itself runs fine in the
   default limits.
 
+## Scheduler: a preempted lock holder starves under a pure spin
+
+NetBSD's default scheduler is 4BSD (`sys/kern/sched_4bsd.c`): a user LWP's
+priority is `63 − estcpu/2048`, `estcpu` grows by 1024 on every clock tick
+the LWP is running and decays only slowly (90% in `5 × loadavg` seconds),
+and a new LWP **inherits its spawner's `estcpu`**. Each CPU always runs the
+highest-priority runnable LWP, and `sched_yield` requeues an LWP behind the
+others *of its own priority* — never behind a lower one.
+
+That combination turns any userspace pure spin into a hang under CPU
+contention (kaappi#2446): a thread that has been doing real work sits at
+priority 0; the moment the kernel preempts it while it holds a lock — say,
+inside the `kevent` ring `wakeCrossThreadWaiters` issues per parked thread —
+every thread that then arrives at that lock spins at a *higher* priority
+(fresh from a sleep, or a new LWP whose spawner had been idle), and with
+more spinners than CPUs the holder is never scheduled again. Observed as
+`srfi18-join-spawn-grandchild-2129.scm` running until killed at ~290% CPU:
+17 LWPs in `memory.spinLock` from `withdrawCrossThreadWaiter`, one LWP
+runnable (`R`, no wchan) at priority 0 inside `_sys___kevent50`. Linux CFS
+and macOS never reproduce it — a fair scheduler always gives the holder its
+share, so the same spin is a latency cost there, not a liveness one.
+
+Two kaappi-side rules follow, both of which hold everywhere but were only
+ever *needed* here:
+
+* **Never `pthread_join` a `thread-start!`ed thread.** `_lwp_wait` makes the
+  joining LWP absorb the dead LWP's `estcpu` with no cap
+  (`sched_lwp_collect` lacks the `ESTCPULIM` every other path applies), and
+  `sched_lwp_fork` copies the estimate into every LWP the joiner creates. A
+  nice-0 thread cannot get below priority 25 by running, but three joins of
+  busy threads put the joiner — and all its future children — at 0, below
+  every ordinary process, where CPU contention starves them outright. SRFI-18
+  threads are therefore detached at spawn and joined through a per-spawn
+  exit flag (`Fiber.os_exit`, raised after the child's outermost defer).
+* **Every cross-thread wait loop goes through `platform.spinBackoff`** (spin,
+  then yield, then sleep 32 µs doubling to 1 ms): `memory.spinLock`, the GC
+  stop-the-world handshake on both sides, the globals RW lock and the reap
+  wait above. A sleep is what a yield is not — it takes the waiter off the
+  run queue, so a preempted holder at the same priority gets its turn. A
+  bare `spinLoopHint` loop reintroduces the convoy on this platform.
+
+**Diagnosing a hang here.** gdb alone misleads: a starved LWP shows a frozen
+PC and no syscall, which reads as "the OS never scheduled this thread" (the
+original diagnosis of kaappi#2446). The kernel-side view is what settles
+it — per-LWP state, wait channel, priority and whether the process's CPU
+time is still climbing:
+
+```bash
+ps -s -o pid,lid,lstate,wchan,cpuid,pri,time,pcpu -p <pid>   # twice, a few seconds apart
+gdb -batch -p <pid> -ex 'info threads' -ex 'thread apply all bt 8'
+```
+
+`R` with no wchan and `pri 0` while other LWPs sit at 25+ and `TIME` grows by
+seconds per second is starvation by spinners; `S` with a wchan is a kernel
+sleep; a lone `R` LWP in an otherwise idle process would be the scheduler's
+fault. Measure under load (`sh -c 'while :; do :; done' &` × ncpu) — the
+hang needs more runnable LWPs than CPUs — and kill the burners by PID
+afterwards; orphaned ones poison every later measurement.
+
 ## Self-exe path
 
 NetBSD has `KERN_PROC_PATHNAME`, but filed under the `KERN_PROC_ARGS`

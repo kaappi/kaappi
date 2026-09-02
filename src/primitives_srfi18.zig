@@ -305,16 +305,18 @@ pub fn markLiveChildRoots(gc: *memory.GC) void {
         // Once a full pass adds no child, every live child is armed; wait for
         // each to leave `.running` (safepoint stop, park, FFI, or a raw
         // thread join). A running child reaches its next safepoint within
-        // 1024 instructions, so spin-yield rather than sleep: a fixed 1ms
-        // poll would cost ~1ms per parent collection with a live child —
-        // pathological under -Dgc-stress, where collections run per
-        // allocation.
+        // 1024 instructions, so the wait STARTS as a spin, not a sleep: a
+        // fixed 1ms poll would cost ~1ms per parent collection with a live
+        // child — pathological under -Dgc-stress, where collections run per
+        // allocation. It must not STAY a spin, though (kaappi#2446): a child
+        // the kernel has preempted needs CPU to reach that safepoint, and on
+        // a priority-decay scheduler a spinning collector outranks it for
+        // good. spinBackoff sleeps once its spin and yield phases are spent.
         if (!added) break;
         for (armed.items) |vm| {
             var spins: u32 = 0;
-            while (vm.collection_state.load(.acquire) == .running) {
-                spins +%= 1;
-                if (spins & 0xFF == 0) std.Thread.yield() catch {};
+            while (vm.collection_state.load(.acquire) == .running) : (spins +|= 1) {
+                platform.spinBackoff(spins);
             }
         }
     }
@@ -565,8 +567,8 @@ pub fn raiseError(error_type: types.ErrorObject.ErrorType, msg: []const u8, reas
 /// spawns, and a child's own `(current-thread)` is a distinct fiber that
 /// ensureScheduler allocated on the child heap. So a fiber whose `owner` is not
 /// this GC is exactly the shared-global situation behind #1484: two threads
-/// clearing the same `os_thread` and double-`thread.join()`ing it (pthread-level
-/// UB), a losing joiner reading `target.result` before the winner has stored
+/// clearing the same `os_thread` and double-reaping it (a double release of
+/// the exit flag), a losing joiner reading `target.result` before the winner has stored
 /// it, or a foreign thread-terminate! mutating another scheduler's fiber. Refuse
 /// it up front -- the same total treatment channel-send/-receive/-close!/-closed?
 /// give a foreign channel (only the `thread?` predicate is exempt, mirroring
@@ -759,9 +761,10 @@ fn threadStartImpl(args: []const Value) PrimitiveError!Value {
     // markRoots reads the field; the stored value is always the same
     // function pointer, but the write must not be a plain store.
     @atomicStore(?*const fn (*memory.GC) void, &root_vm.gc.child_marker, &markLiveChildRoots, .release);
-    fiber.os_thread = std.Thread.spawn(.{}, threadEntryFn, .{
-        fiber, spawner, gc.allocator, root_vm, envelope,
-    }) catch {
+    // #2446: the exit flag the join waits on instead of pthread_join (see
+    // Fiber.os_exit). Allocated before the spawn so the child can never
+    // outrun it; c_allocator because it outlives both heaps' owners.
+    const exit_flag = std.heap.c_allocator.create(fiber_mod.OsThreadExit) catch {
         _ = @atomicRmw(usize, &live_child_threads, .Sub, 1, .release);
         if (spawner) |s| {
             _ = @atomicRmw(u32, &s.live_descendants, .Sub, 1, .release);
@@ -769,11 +772,55 @@ fn threadStartImpl(args: []const Value) PrimitiveError!Value {
         envelope.deinit();
         return PrimitiveError.OutOfMemory;
     };
+    exit_flag.* = .{};
+    fiber.os_exit = exit_flag;
+    const thread = std.Thread.spawn(.{}, threadEntryFn, .{
+        fiber, spawner, gc.allocator, root_vm, envelope, exit_flag,
+    }) catch {
+        fiber.os_exit = null;
+        std.heap.c_allocator.destroy(exit_flag);
+        _ = @atomicRmw(usize, &live_child_threads, .Sub, 1, .release);
+        if (spawner) |s| {
+            _ = @atomicRmw(u32, &s.live_descendants, .Sub, 1, .release);
+        }
+        envelope.deinit();
+        return PrimitiveError.OutOfMemory;
+    };
+    fiber.os_thread = thread;
+    // #2446: detach at once -- nothing ever joins this thread. On NetBSD a
+    // pthread_join (`_lwp_wait`) makes the joining LWP absorb the dead LWP's
+    // CPU-usage estimate uncapped (sched_lwp_collect lacks the ESTCPULIM the
+    // per-tick and process-exit paths apply), so after a few joins of busy
+    // threads the interpreter thread sits at user priority 0 -- below every
+    // nice-0 process at 25+ -- and so does every thread it spawns from then
+    // on (sched_lwp_fork copies the estimate). Under any CPU contention
+    // those LWPs get no CPU at all: the "child parked at
+    // pthread__create_tramp+0 forever" of the original report. A detached
+    // LWP is freed at exit with no transfer. reapOsThread waits on the exit
+    // flag instead, which the child raises after its very last defer.
+    thread.detach();
 
     return args[0];
 }
 
-fn threadEntryFn(fiber: *fiber_mod.Fiber, spawner: ?*fiber_mod.Fiber, allocator: std.mem.Allocator, root_vm: *vm_mod.VM, envelope: *shared_channel.Envelope) void {
+/// #2446: drop one of the two references to a spawn's exit flag. The child
+/// passes `exited = true` from threadEntryFn's outermost defer -- after every
+/// other defer, so once a joiner sees the flag the thread touches nothing of
+/// kaappi's again (only Zig's spawn-argument free and the pthread epilogue
+/// remain). The joiner passes false once it has observed the flag. Whoever
+/// drops the last reference frees it.
+fn releaseOsThreadExit(flag: *fiber_mod.OsThreadExit, exited: bool) void {
+    if (exited) flag.exited.store(true, .release);
+    if (flag.refs.fetchSub(1, .acq_rel) == 1) std.heap.c_allocator.destroy(flag);
+}
+
+fn threadEntryFn(fiber: *fiber_mod.Fiber, spawner: ?*fiber_mod.Fiber, allocator: std.mem.Allocator, root_vm: *vm_mod.VM, envelope: *shared_channel.Envelope, exit_flag: *fiber_mod.OsThreadExit) void {
+    // #2446: declared FIRST so it runs LAST -- after the live_child_threads
+    // decrement below and everything that precedes it. This is the signal
+    // reapOsThread's wait (the pthread_join replacement) accepts as "the
+    // thread is done with every kaappi structure"; nothing may be deferred
+    // above it.
+    defer releaseOsThreadExit(exit_flag, true);
     // `root_vm` is the ROOT VM (see threadStartImpl): its struct, GC and
     // shared maps are never freed, so the whole prologue below -- and this
     // thread's later symbol interning into GC.initForThread's shared tables
@@ -1011,7 +1058,7 @@ pub const SleepWait = struct {
     // costs one wakeup rather than 60,000. The cap is what a sleep falls
     // back to when the enrolment could not allocate -- the pre-#2395
     // behaviour, kept because losing termination visibility would hang the
-    // joining thread in reapOsThread's thread.join().
+    // joining thread in reapOsThread's exit-flag wait.
     pub fn pollCapNs(self: SleepWait) ?u64 {
         return if (self.enrolment.active()) null else CROSS_THREAD_POLL_NS;
     }
@@ -1198,7 +1245,8 @@ fn threadTerminateFn(args: []const Value) PrimitiveError!Value {
         // thread terminating itself would join as uncaught-exception with a
         // void reason instead of terminated-thread-exception. The store is
         // on the parent-heap handle, exactly like an external terminate's
-        // store: the parent's join (thread.join() in reapOsThread)
+        // store: the parent's join (reapOsThread's acquire of the exit flag
+        // this thread releases last)
         // synchronizes with this thread's exit, so threadJoinResult's plain
         // read is safe. Null on the main thread and on local fibers.
         if (ctx.vm.thread_handle) |h| {
@@ -1492,14 +1540,27 @@ fn reapOsThread(target: *fiber_mod.Fiber, fiber_val: Value) PrimitiveError!Value
         // — a livelock (seen as a multi-minute hang in
         // channel-promoted-owner-1934 under -Dgc-stress). During the join the
         // VM's frames/registers are stable, so it is safe to mark. Function-
-        // scope defer: a block-scoped one would fire before thread.join().
+        // scope defer: a block-scoped one would fire before the wait.
         const join_vm: ?*vm_mod.VM = if (vm_mod.vm_instance) |vm|
             if (!vm.owns_globals) vm else null
         else
             null;
         if (join_vm) |vm| vm.setCollectionInNative();
         defer if (join_vm) |vm| vm.setCollectionRunning();
-        thread.join();
+        // #2446: the thread was detached at spawn (see threadStartImpl);
+        // wait for its exit flag instead of joining it. The status this
+        // reap was gated on is stored well before the flag, so what remains
+        // is the child's epilogue -- its defers, including the drain of its
+        // own descendants -- which pthread_join used to cover the same way.
+        // spinBackoff sleeps once its spin and yield phases pass, so a long
+        // epilogue costs one wakeup per millisecond, not a CPU.
+        _ = thread;
+        if (target.os_exit) |flag| {
+            var spins: u32 = 0;
+            while (!flag.exited.load(.acquire)) : (spins +|= 1) platform.spinBackoff(spins);
+            target.os_exit = null;
+            releaseOsThreadExit(flag, false);
+        }
         target.os_thread = null;
     }
 
@@ -1639,7 +1700,7 @@ fn freeChildResourcesEntry(res: ChildThreadResources, heir: ?*memory.GC) void {
         // allocator, so the parent's next mark reads FREED_OWNER and panics
         // instead of finding a recycled object. gc-stress only; a no-op
         // elsewhere. Safe here -- the joining parent's thread, past
-        // reapOsThread's thread.join() -- because the handoff appends to the
+        // reapOsThread's exit-flag wait -- because the handoff appends to the
         // heir's quarantine list from this very thread; threadEntryFn's
         // descendant-side free passes null instead, since handing off from
         // THAT thread would race the heir's own concurrent collection.

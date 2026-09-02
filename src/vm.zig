@@ -1,6 +1,7 @@
 const std = @import("std");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
+const platform = @import("platform.zig");
 
 const diagnostics = @import("diagnostics.zig");
 const compiler_mod = @import("compiler.zig");
@@ -1023,7 +1024,12 @@ pub const VM = struct {
     /// registers/frames are consistent for the parent's mark pass.
     pub fn stopForCollection(self: *VM) void {
         self.collection_state.store(.stopped, .release);
-        while (self.collection_stop.load(.acquire)) std.atomic.spinLoopHint();
+        // Spin, then yield, then sleep -- never a pure spin: the parent's
+        // mark phase runs for milliseconds, and every stopped child that
+        // keeps spinning competes with the collector for the CPU it needs
+        // to finish (kaappi#2446; see platform.spinBackoff).
+        var spins: u32 = 0;
+        while (self.collection_stop.load(.acquire)) : (spins +|= 1) platform.spinBackoff(spins);
         self.collection_state.store(.running, .release);
     }
 

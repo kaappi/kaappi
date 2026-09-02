@@ -93,8 +93,15 @@ fn nextGcId() u32 {
     }
 }
 
+/// Acquire a `std.atomic.Mutex`, backing off through `platform.spinBackoff`
+/// (spin, then yield, then sleep) while it is held. Every critical section
+/// under one of these locks is short, but "short" is not "unpreemptible":
+/// a holder the kernel has descheduled needs CPU to finish, and a crowd of
+/// pure spinners can deny it that CPU indefinitely on a priority-decay
+/// scheduler -- the NetBSD hang of kaappi#2446 (see spinBackoff).
 pub fn spinLock(m: *std.atomic.Mutex) void {
-    while (!m.tryLock()) std.atomic.spinLoopHint();
+    var spins: u32 = 0;
+    while (!m.tryLock()) : (spins +|= 1) platform.spinBackoff(spins);
 }
 pub fn spinUnlock(m: *std.atomic.Mutex) void {
     m.unlock();

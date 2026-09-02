@@ -955,6 +955,53 @@ pub fn dirIterDestroy(it: *DirIter) void {
 // sleep
 // ---------------------------------------------------------------------------
 
+/// How many iterations `spinBackoff` spends in its pure-spin phase, then in
+/// its yield phase, before it starts sleeping. `pub` so a test can drive a
+/// wait loop past both.
+pub const spin_backoff_hint_iters: u32 = 32;
+pub const spin_backoff_yield_iters: u32 = 64;
+
+/// Back off one step in a wait loop on another OS thread: `spins` is how
+/// many times the caller has already found its condition false. The first
+/// `spin_backoff_hint_iters` are a pure spin (`spinLoopHint`), the next
+/// `spin_backoff_yield_iters` a `sched_yield`, and everything after sleeps,
+/// 32 us doubling to a 1 ms cap, so a waiter that has been at it for a while
+/// leaves the run queue entirely instead of competing for CPU.
+///
+/// The sleep phase is load-bearing, not a courtesy (kaappi#2446). A pure
+/// spin is only harmless while the thread it waits for is running on
+/// another CPU; the moment the kernel preempts that thread, every spinner
+/// competes with it for CPU. Under a fair scheduler (Linux CFS, macOS) that
+/// costs latency. Under a priority-decay scheduler -- NetBSD's 4BSD, where a
+/// user LWP's priority is 63 - estcpu/2048, estcpu grows with every tick
+/// spent running, and a new LWP inherits its spawner's -- a holder that has
+/// been doing real work sits at priority 0, below a crowd of freshly woken
+/// waiters at 25-27, and the crowd runs forever: 17 threads leaving
+/// `thread-sleep!` spun in `withdrawCrossThreadWaiter`'s lock while the
+/// holder, preempted inside a `kevent` ring, stayed runnable and never ran
+/// again (srfi18-join-spawn-grandchild-2129.scm, 40+ s at 290% CPU, until
+/// killed). Yielding alone does not help there either: `sched_yield`
+/// requeues behind LWPs of the same priority, and the holder is below all of
+/// them. Only a sleep takes the spinner off the run queue and lets the
+/// holder become the best runnable LWP.
+pub fn spinBackoff(spins: u32) void {
+    if (comptime builtin.single_threaded) {
+        std.atomic.spinLoopHint();
+        return;
+    }
+    if (spins < spin_backoff_hint_iters) {
+        std.atomic.spinLoopHint();
+        return;
+    }
+    if (spins < spin_backoff_hint_iters + spin_backoff_yield_iters) {
+        std.Thread.yield() catch {};
+        return;
+    }
+    const step = spins - (spin_backoff_hint_iters + spin_backoff_yield_iters);
+    const shift: u6 = @intCast(@min(step, 5));
+    sleepNs(@as(u64, 32_000) << shift);
+}
+
 /// Blocking whole-thread sleep. The fiber layer never calls this (its
 /// sleeps go through the reactor's bounded waits); only genuinely
 /// synchronous paths do.
