@@ -887,9 +887,18 @@ test "#2395: a ring is a real OS event that ends a blocking reactor poll" {
 /// (Linux only) a second for its notifier's eventfd. Stay under the soft
 /// NOFILE limit rather than assuming it is generous.
 fn reactorBudget() usize {
-    const lim = std.posix.getrlimit(.NOFILE) catch return 4;
+    // Windows has no getrlimit in std.posix (the test never runs there — the
+    // cross build is a compile gate), and the BSDs type rlim_t as signed i64,
+    // so clamp through a cast rather than assuming the unsigned Linux/macOS
+    // shape (kaappi PR #2479 CI).
+    const soft: u64 = if (comptime builtin_os == .windows)
+        256
+    else blk: {
+        const lim = std.posix.getrlimit(.NOFILE) catch return 4;
+        break :blk @intCast(@max(0, lim.cur));
+    };
     const worst_case = 2; // epoll + eventfd
-    const headroom = lim.cur / 2; // half the soft limit is already ours to use
+    const headroom = soft / 2; // half the soft limit is already ours to use
     return @max(2, @min(130, headroom / worst_case));
 }
 
