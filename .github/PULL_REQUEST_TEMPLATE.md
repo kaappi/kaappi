@@ -9,3 +9,5 @@
 - [ ] Scheme test suites pass (`bash tests/scheme/run-all.sh`)
 - [ ] New tests added for new behavior
 - [ ] Documentation updated (if applicable)
+- [ ] Commit body explains *why* — release notes are written from it at
+      release time; do not edit `CHANGELOG.md`

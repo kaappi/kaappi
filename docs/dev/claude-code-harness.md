@@ -267,8 +267,9 @@ when working on the compiler or VM.
 Full release workflow with 10 steps and multiple confirmation gates:
 
 1. Analyze changes since last tag, recommend semver bump.
-2. Generate release notes from CHANGELOG.md and unreflected commits.
-3. Update CHANGELOG.md (clear Unreleased, insert new version section).
+2. Generate release notes from `git log` since the previous tag — this is
+   where `CHANGELOG.md` gets written; PRs never touch it.
+3. Update CHANGELOG.md (insert the new version section).
 4. Bump version in `main.zig`, `thottam.zig`, `build.zig.zon`, and the docs
    site download page.
 5. Build verification (`zig build`).
