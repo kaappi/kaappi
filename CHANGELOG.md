@@ -69,28 +69,6 @@ this file — put the *why* in the commit body instead.
 
 ### Fixed
 
-- **The builtin-superinstruction gate is now a run-time decision** (#2469,
-  R7RS 5.3.1) — #2457 pre-scanned a compilation unit for top-level
-  redefinitions of `apply`, `call-with-values`, `eval`, `call/cc` and
-  `call-with-current-continuation`, which left every route without
-  whole-unit knowledge baking the builtin into bodies compiled before the
-  redefinition ran: a file's own use-before-define order under `load`, a
-  redefinition inside an `eval`'d `begin` or performed by a later `eval`,
-  the REPL and the WASM playground, and a `set!` that only materializes
-  when a macro expands. Each superinstruction now sits behind a new
-  `guard_builtin` opcode that resolves the operator's global (through the
-  same per-function cache as `get_global`), takes the fast path only while
-  that value is still the pristine primitive, and otherwise jumps to an
-  ordinary call of whatever the global holds; the native backend's
-  `emitApplyForm` makes the same decision through
-  `kaappi_builtin_is_pristine`. The whole-unit scan, its install sites in
-  the file, stdin, `compile` and `check` drivers, and the REPL/`eval`
-  carve-outs are gone, and `call-with-values` now evaluates its producer
-  before its consumer, like any other call. Found alongside: a natively
-  compiled `set!` of a global (`kaappi_set_global`) never invalidated the
-  interpreter's per-function global caches, so an interpreted body could
-  keep serving the old binding; it now bumps `global_version` like the
-  `set_global` opcode.
 - **A continuation captured inside `call-with-values`' producer can be
   resumed after the form returned** (#2453) — the producer kept running
   under the native `%call-with-values->list` frame even after #2451 moved
@@ -265,10 +243,9 @@ this file — put the *why* in the commit body instead.
   `MultipleValues` object from `values` — into the fresh argument list the
   consumer's apply reads. `%call-with-values-check` replaces
   `%call-with-values->list` for the operand type checks, still reported as
-  `call-with-values` before anything runs. `values_list` is appended
-  last per the `.sbc` numbering rule (the count is 34 with #2469's
-  `guard_builtin`); no `.sbc` format bump, since the cache is keyed by
-  compiler hash. Internally, the
+  `call-with-values` before anything runs. The opcode count is now 33
+  (`values_list` appended last per the `.sbc` numbering rule); no `.sbc`
+  format bump, since the cache is keyed by compiler hash. Internally, the
   builtin gate (`globalBindingStillGenuine`) and the `set!` pre-scan moved
   from `compiler.zig` to the new `compiler_gate.zig` (file-size policy).
 - **Cross-thread SRFI-18 waits are woken by the reactor notifier instead of a
