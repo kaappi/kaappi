@@ -549,13 +549,16 @@ jobs:
     # the unit-test step at 41-43m -- 15m past the slowest success -- with
     # the `unit-tests` binary alive: a hang, not a slow tail (kaappi#2488).
     # That step printed nothing until it finished, so the log said nothing
-    # about which test. The unit suite therefore runs as three chunks
+    # about which test. The unit suite therefore runs as chunks
     # (tools/run-unit-test-chunk.sh), each its own step with its own
     # `timeout-minutes`, so the next hang names its chunk. The step caps are
     # what localise; the job cap below only backstops several chunks
     # overrunning at once, and is sized so a single hung chunk hits ITS cap
-    # first (setup + build + two healthy chunks + the hung one's cap stays
-    # inside it). Measured healthy total: 35m on the first chunked run.
+    # first (setup + build + every other chunk healthy + the hung one's cap
+    # stays inside it). The first three-way split measured 35m healthy and
+    # localised the first recurrence to its `rest` chunk (1646 tests); the
+    # eight-way split below cuts that remainder along its QEMU-sensitive
+    # seams at the price of five more test-binary compiles (~1.5m each).
     timeout-minutes: 55
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -576,15 +579,18 @@ jobs:
       - name: Build (cross-compile for riscv64)
         run: zig build -Dtarget=riscv64-linux
 
-      # Three chunks, not one step: see the job comment and the script's
-      # header. Measured under QEMU on the first chunked run (job
-      # 33674064049): process 1.9m, concurrency 3.3m, rest 25.8m, each
-      # including its own test-binary compile. The caps below leave the
-      # rest chunk ~10m over its measured time (the pre-chunk unit step
-      # varied 23-28m run to run) while still firing well before the hung
-      # runs' 41-43m. A chunk that hangs is cancelled by its own step's
-      # cap, and the step name in the job log is the localisation
-      # kaappi#2488 asks for.
+      # Chunks, not one step: see the job comment and the script's header.
+      # Measured under QEMU on the three-way split (jobs 33674064049 and
+      # 100407731878): process 1.4-1.9m, concurrency 3.3-5.4m, the old
+      # 1646-test rest 25.8m healthy and hung once at its 36m cap -- each
+      # figure including the chunk's own test-binary compile. The five
+      # chunks carved out of that remainder measured natively io 11s,
+      # fuzz 1m, gc 9s, native 2s (skips on this tier), tooling and the new
+      # rest ~3m; the QEMU factor on the old rest was ~3.3x on top of
+      # ~1.5m of compile, which is what the caps below are sized from, with
+      # roughly 2x headroom each. A chunk that hangs is cancelled by its
+      # own step's cap, and the step name in the job log is the
+      # localisation kaappi#2488 asks for.
       - name: Unit tests, process chunk (riscv64 via QEMU)
         timeout-minutes: 12
         run: bash tools/run-unit-test-chunk.sh process -Dtarget=riscv64-linux
@@ -593,8 +599,28 @@ jobs:
         timeout-minutes: 12
         run: bash tools/run-unit-test-chunk.sh concurrency -Dtarget=riscv64-linux
 
+      - name: Unit tests, io chunk (riscv64 via QEMU)
+        timeout-minutes: 12
+        run: bash tools/run-unit-test-chunk.sh io -Dtarget=riscv64-linux
+
+      - name: Unit tests, fuzz chunk (riscv64 via QEMU)
+        timeout-minutes: 15
+        run: bash tools/run-unit-test-chunk.sh fuzz -Dtarget=riscv64-linux
+
+      - name: Unit tests, gc chunk (riscv64 via QEMU)
+        timeout-minutes: 10
+        run: bash tools/run-unit-test-chunk.sh gc -Dtarget=riscv64-linux
+
+      - name: Unit tests, native chunk (riscv64 via QEMU)
+        timeout-minutes: 8
+        run: bash tools/run-unit-test-chunk.sh native -Dtarget=riscv64-linux
+
+      - name: Unit tests, tooling chunk (riscv64 via QEMU)
+        timeout-minutes: 12
+        run: bash tools/run-unit-test-chunk.sh tooling -Dtarget=riscv64-linux
+
       - name: Unit tests, rest chunk (riscv64 via QEMU)
-        timeout-minutes: 36
+        timeout-minutes: 24
         run: bash tools/run-unit-test-chunk.sh rest -Dtarget=riscv64-linux
 
       - name: R7RS test suite (riscv64 via QEMU)

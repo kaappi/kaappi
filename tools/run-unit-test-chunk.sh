@@ -19,28 +19,53 @@
 # declared in that file: `ffi.test.` also matches `tests_ffi.test.…`, but a
 # test is included ONCE however many filters match it (the filter prunes
 # `builtin.test_functions` at compile time), so overlap costs nothing and
-# every filter is emitted unconditionally.
+# every filter is emitted unconditionally. The one consequence across
+# chunks: a listed file whose basename ENDS with an unlisted file's basename
+# also runs in `rest` (`native_compiler` ends with `compiler`, so its five
+# tests run in both `native` and `rest`). That is a few seconds of
+# duplicated work, never a dropped test, and the exact per-chunk counts are
+# in the PR that introduced each chunk.
 #
 #   process      the KEP-0022 subprocess tests: every child they spawn is a
 #                whole /bin/sh emulated through binfmt on the QEMU legs
 #   concurrency  fibers, reactor, scheduler, channels, SRFI-18 threads --
 #                the parking and timing paths
+#   io           ports and the reactor-driven reads behind them: file and
+#                string ports, transcoded ports (SRFI 181), the incremental
+#                reader, the filesystem primitives (SRFI 170)
+#   fuzz         the fuzz generators and their wall-clock/instruction-bounded
+#                harness (#1573 was this family flaking under QEMU)
+#   gc           the collector: tracing, runtime stress, root-boundary OOM
+#                sweeps, deep copy, and the robustness edge-case suite
+#   native       the LLVM native tier (skips almost entirely on the
+#                interpreter-tier QEMU legs, so this chunk is cheap there)
+#   tooling      the CLI surface and its subcommands (check, fmt, doctor,
+#                explain, features, the `kaappi test` runner -- whose worker
+#                processes are emulated children on the QEMU legs), the
+#                bytecode/library caches, the REPL, and thottam (this is
+#                where the `thottam-tests` binary runs its full suite)
 #   rest         EVERY OTHER `src/*.zig` file that declares a `test "…"`,
 #                derived from the tree, so a new test file lands here
 #                automatically and cannot be silently dropped
+#
+# The first split (process / concurrency / rest) localised kaappi#2488's
+# first recurrence to `rest`, which was 1646 tests wide; the io / fuzz / gc /
+# native chunks are the second cut, along the seams in that remainder with
+# QEMU-sensitive behaviour. Add a chunk by adding a list and a case below;
+# `rest` shrinks by itself because it is derived from what is NOT listed.
 #
 # Two things keep the split honest. A name in the explicit lists that matches
 # no file FAILS the run (a list cannot rot into a silent no-op -- the same
 # rule `KAAPPI_GC_STRESS_SKIP` follows). And every chunk asserts it ran more
 # tests than the unnamed `test { _ = @import(…); }` reference blocks, which
 # a filtered build keeps regardless of filter (five of them in the unit
-# binary today; they are why three chunk totals sum to the unfiltered total
-# plus ten). A chunk whose filters matched nothing therefore fails instead
-# of passing vacuously.
+# binary today; they are why N chunk totals sum to the unfiltered total
+# plus 5*(N-1), before the duplicate noted above). A chunk whose filters
+# matched nothing therefore fails instead of passing vacuously.
 #
 # The `thottam-tests` binary takes the same filters (build.zig hands both
-# test steps the same list): it runs its full 88 in `rest`, whose derived
-# list includes the thottam files, and only its own unnamed block elsewhere.
+# test steps the same list): it runs its full 88 in `tooling`, which lists
+# the thottam files, and only its own unnamed block in every other chunk.
 #
 # Works for any target: pass `-Dtarget=riscv64-linux` (or nothing, for the
 # host) after the chunk name. Exit status is `zig build test`'s, or 2 for a
@@ -53,9 +78,26 @@ PROCESS_FILES="tests_process tests_process_run tests_process_win"
 CONCURRENCY_FILES="tests_fibers tests_reactor tests_reactor_parity tests_scheduler
                    tests_shared_channel tests_shared_channel_rendezvous tests_srfi18
                    tests_waitforfd"
+IO_FILES="tests_io tests_port_io tests_random_port tests_srfi181
+          tests_reader_incremental tests_filesystem primitives_io"
+FUZZ_FILES="tests_fuzz fuzz_gen fuzz_gen_native fuzz_gen_portable"
+GC_FILES="tests_gc_tracing tests_gc_runtime_stress tests_gc_root_boundary
+          tests_deepcopy tests_robustness memory"
+NATIVE_FILES="tests_native tests_native_dispatch tests_native_gate
+              native_compiler llvm_emit"
+TOOLING_FILES="cli cli_spec completions config check_lint tests_check doctor
+               explain features fmt tests_fmt kaappi_paths lsp_diagnostic
+               test_runner test_selection timings crash repl disassembler
+               tests_diagnostics bytecode_file cache tests_bytecode_cache
+               tests_vm_library_cache thottam thottam_fs thottam_proc
+               thottam_semver thottam_state tests_thottam"
+# Every explicitly listed file, for the `rest` derivation and the existence
+# check. Extend this when adding a list.
+LISTED_FILES="$PROCESS_FILES $CONCURRENCY_FILES $IO_FILES $FUZZ_FILES $GC_FILES $NATIVE_FILES $TOOLING_FILES"
+CHUNK_NAMES="process|concurrency|io|fuzz|gc|native|tooling|rest"
 
 usage() {
-    echo "usage: $0 [--list] <process|concurrency|rest> [zig build args...]" >&2
+    echo "usage: $0 [--list] <$CHUNK_NAMES> [zig build args...]" >&2
     exit 2
 }
 
@@ -73,7 +115,7 @@ cd "$(dirname "$0")/.." || exit 2
 
 # Every explicitly listed name must be a real test file, or the list has
 # rotted and the chunk would quietly shrink.
-for name in $PROCESS_FILES $CONCURRENCY_FILES; do
+for name in $LISTED_FILES; do
     if [ ! -f "src/$name.zig" ]; then
         echo "$0: '$name' names no src/$name.zig -- update the chunk lists" >&2
         exit 2
@@ -90,12 +132,17 @@ in_list() { # in_list <name> <list...>
 case "$chunk" in
     process)     names="$PROCESS_FILES" ;;
     concurrency) names="$CONCURRENCY_FILES" ;;
+    io)          names="$IO_FILES" ;;
+    fuzz)        names="$FUZZ_FILES" ;;
+    gc)          names="$GC_FILES" ;;
+    native)      names="$NATIVE_FILES" ;;
+    tooling)     names="$TOOLING_FILES" ;;
     rest)
         names=""
         for f in src/*.zig; do
             n="$(basename "$f" .zig)"
             # shellcheck disable=SC2086
-            in_list "$n" $PROCESS_FILES $CONCURRENCY_FILES && continue
+            in_list "$n" $LISTED_FILES && continue
             grep -q '^test "' "$f" || continue
             names="$names $n"
         done
