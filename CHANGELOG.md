@@ -267,9 +267,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `MultipleValues` object from `values` — into the fresh argument list the
   consumer's apply reads. `%call-with-values-check` replaces
   `%call-with-values->list` for the operand type checks, still reported as
-  `call-with-values` before anything runs. The opcode count is now 33
-  (`values_list` appended last per the `.sbc` numbering rule); no `.sbc`
-  format bump, since the cache is keyed by compiler hash. Internally, the
+  `call-with-values` before anything runs. `values_list` is appended
+  last per the `.sbc` numbering rule (the count is 34 with #2469's
+  `guard_builtin`); no `.sbc` format bump, since the cache is keyed by
+  compiler hash. Internally, the
   builtin gate (`globalBindingStillGenuine`) and the `set!` pre-scan moved
   from `compiler.zig` to the new `compiler_gate.zig` (file-size policy).
 - **Cross-thread SRFI-18 waits are woken by the reactor notifier instead of a

@@ -20,7 +20,7 @@
 ;;; listed as still baking the builtin in.
 
 (import (scheme base) (scheme write) (scheme eval) (scheme load) (scheme file)
-        (scheme process-context) (srfi 64))
+        (scheme process-context) (scheme time) (srfi 64))
 
 (define %test-fail-count 0)
 (test-begin "top-level-redefinition-runtime-2469")
@@ -139,6 +139,25 @@
 (test-eq "library body: use-before-define of a library-local apply honours it"
   'lib-user (lib-use))
 (test-eq "library body: the program's own apply is untouched" 3 (apply + '(1 2)))
+
+;;; ------------------------------------------------------------------
+;;; A tail-position `eval` with a third operand is an arity question for
+;;; whatever `eval` is bound to, so the redefined procedure must receive
+;;; every operand, evaluated in order (PR #2481 review).
+;;; ------------------------------------------------------------------
+
+(define eval-3-log '())
+(define (t-eval-3)
+  (eval 'e (begin (set! eval-3-log (cons 'env eval-3-log)) 'env-arg)
+        (begin (set! eval-3-log (cons 'extra eval-3-log)) 'extra-arg)))
+(define (eval x env extra) (list 'user-eval-3 x env extra))
+(test-equal "eval: a redefined 3-ary eval receives all three operands"
+  '(user-eval-3 e env-arg extra-arg) (t-eval-3))
+(test-equal "eval: the third operand's side effect ran, after the second's"
+  '(extra env) eval-3-log)
+(define eval saved-2469-orig-eval)
+(test-assert "eval: genuine 3-operand eval reports an arity error, not silence"
+  (guard (e (#t (error-object? e))) (t-eval-3) #f))
 
 ;;; ------------------------------------------------------------------
 ;;; A non-procedure rebinding through eval reports the ordinary call's type

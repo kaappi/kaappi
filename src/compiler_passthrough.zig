@@ -571,8 +571,25 @@ pub fn compileCallCCTail(self: *Compiler, expr: Value, dst: u16, guard: ?u8) Com
 pub fn compileEvalTail(self: *Compiler, expr: Value, dst: u16, guard: ?u8) CompileError!void {
     // (eval expr) or (eval expr env) in tail position
     // Emits tail_eval opcode: compiles expr at runtime and tail-calls the result.
+    //
+    // A *proper* argument list of the wrong length is an arity question, not a
+    // syntax question: route the form through the ordinary call path so the
+    // runtime arity check reports KP3003 exactly as the same form one position
+    // away does (#2036) — and so a redefined `eval` receives every operand,
+    // not the two this lowering knows about (PR #2481 review). Only an
+    // improper list is malformed syntax. #2405: guarded — a cyclic argument
+    // spine spun the count forever.
+    {
+        var count: usize = 0;
+        var walk = compiler_mod.SpineWalk.init(types.cdr(expr));
+        while (types.isPair(walk.cur)) : (walk.next()) {
+            if (walk.cyclic()) return compiler_mod.circularFormError();
+            count += 1;
+        }
+        if (walk.cur != types.NIL) return CompileError.InvalidSyntax;
+        if (count < 1 or count > 2) return compileCall(self, expr, dst, true);
+    }
     const args = types.cdr(expr);
-    if (args == types.NIL or !types.isPair(args)) return CompileError.InvalidSyntax;
 
     const needs_rebase = (dst + 1 != self.next_register);
     const base = if (needs_rebase) try self.allocReg() else dst;
