@@ -154,6 +154,9 @@ ever *needed* here:
   every ordinary process, where CPU contention starves them outright. SRFI-18
   threads are therefore detached at spawn and joined through a per-spawn
   exit flag (`Fiber.os_exit`, raised after the child's outermost defer).
+  Upstream fixed the cap in trunk (`sched_4bsd.c` 1.48, 2026-03-01) and
+  netbsd-11, not netbsd-10 — so the rule stands for as long as 10.x is a
+  supported target (kaappi#2471 tracks the pull-up).
 * **Every cross-thread wait loop goes through `platform.spinBackoff`** (spin,
   then yield, then sleep 32 µs doubling to 1 ms): `memory.spinLock`, the GC
   stop-the-world handshake on both sides, the globals RW lock and the reap

@@ -148,6 +148,13 @@ three threads that each spin for 1.5 s, then spawn a trivial child under
 four burners. The child's join took 0.8 s; with the same three threads
 *detached* instead of joined, 0 ms, as in the no-join control.
 
+NetBSD fixed this independently: `sys/kern/sched_4bsd.c` rev 1.48
+(2026-03-01, "honor the upper bound of l_estcpu", commit `a650477792e9`)
+adds exactly that `ESTCPULIM`, motivated by 10-second pauses in git's
+worker threads; it was pulled up to netbsd-11 (ticket #233) but **not to
+netbsd-10**, so every 10.x release — the reference VM and the CI image
+among them — still has the bug. kaappi#2471 tracks the pull-up.
+
 Detached LWPs are freed in `lwp_exit` without `sched_lwp_collect`. Hence
 part (1) of the fix: SRFI-18 OS threads are detached the instant they are
 spawned, and `reapOsThread` waits on a per-spawn exit flag the child raises
