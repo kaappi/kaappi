@@ -119,10 +119,12 @@ Five things load-bearing enough to be worth knowing before touching this:
   registry lock at priority 25–27 while the holder — preempted inside the
   `kevent` ring, at priority 0 after the work it had done — stayed runnable
   and never ran again. Yielding does not help (it requeues behind LWPs of the
-  *same* priority); only a sleep takes the spinner off the run queue. The
-  holder's ring is still issued under the lock (one `notify()` per parked
-  thread); with the backoff that costs the ringed threads latency, never
-  liveness.
+  *same* priority); only a sleep takes the spinner off the run queue.
+  Since kaappi#2470 the ring itself is issued *outside* the lock — the
+  first 128 entries are snapshotted (retained) under it, then notified and
+  released after it is dropped, so the critical section is bounded by the
+  copy, not by one syscall per parked thread; entries past 128 are the
+  overflow tail, still rung under the lock.
 
 A "never" deadline is a real one and reaches the backends: SRFI-18 reads
 `+inf.0` as "never times out", `saturatedNsFromSeconds` turns that into

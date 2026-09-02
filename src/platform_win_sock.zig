@@ -37,7 +37,12 @@ var winsock_mutex: std.atomic.Mutex = .unlocked;
 pub fn ensureWinsock() void {
     if (comptime !is_windows) return;
     if (winsock_ready.load(.acquire)) return;
-    while (!winsock_mutex.tryLock()) std.atomic.spinLoopHint();
+    // spinBackoff, not a bare spinLoopHint loop: the rule #2446/#2468 wrote
+    // down — a pure spin starves a preempted lock holder on schedulers
+    // without starvation boost (and Windows' boost only mitigates, it does
+    // not exempt). Same shape as memory.spinLock.
+    var spins: u32 = 0;
+    while (!winsock_mutex.tryLock()) : (spins +|= 1) platform.spinBackoff(spins);
     defer winsock_mutex.unlock();
     if (winsock_ready.load(.acquire)) return;
     var data: win.WSAData = undefined;

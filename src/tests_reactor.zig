@@ -871,6 +871,96 @@ test "#2395: a ring is a real OS event that ends a blocking reactor poll" {
 }
 
 // ---------------------------------------------------------------------------
+// #2470: wakeCrossThreadWaiters rings outside the registry lock
+//
+// The ring used to run under `wait_registry_lock` — one syscall per parked
+// thread inside the critical section. It now snapshots the first 128
+// entries (retained under the lock), drops the lock, then notifies and
+// releases. The two properties these tests pin: every snapshotted waiter
+// still wakes with many enrolled (the snapshot path, including the
+// >128 overflow tail), and the retain/release pair keeps a notifier that
+// withdraws mid-ring alive until the ring's own release — the dangling
+// pointer a naive snapshot-without-retain would leave.
+// ---------------------------------------------------------------------------
+
+/// fd budget for the multi-reactor test: a Reactor owns one backend fd plus
+/// (Linux only) a second for its notifier's eventfd. Stay under the soft
+/// NOFILE limit rather than assuming it is generous.
+fn reactorBudget() usize {
+    const lim = std.posix.getrlimit(.NOFILE) catch return 4;
+    const worst_case = 2; // epoll + eventfd
+    const headroom = lim.cur / 2; // half the soft limit is already ours to use
+    return @max(2, @min(130, headroom / worst_case));
+}
+
+test "#2470: wakeCrossThreadWaiters rings every waiter from outside the lock" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no OS reactors to multiply on WASI
+    const notifier_baseline = reactor_mod.notifierLiveCount();
+    const n_reactors = reactorBudget();
+    // Deliberately straddles the 128-entry snapshot when the fd budget
+    // allows, so the under-lock overflow tail is covered too.
+    var reactors: [130]reactor_mod.Reactor = undefined;
+    var live: usize = 0;
+    defer for (reactors[0..live]) |*r| {
+        r.deinit();
+    };
+
+    for (0..n_reactors) |i| {
+        reactors[i] = try reactor_mod.Reactor.init(std.testing.allocator);
+        live += 1;
+        try std.testing.expect(reactor_mod.enrollCrossThreadWaiter(reactors[i].notifyHandle()));
+    }
+    try std.testing.expectEqual(n_reactors, reactor_mod.crossThreadWaiterCount());
+    try std.testing.expectEqual(notifier_baseline + n_reactors, reactor_mod.notifierLiveCount());
+
+    reactor_mod.wakeCrossThreadWaiters();
+
+    for (reactors[0..live]) |*r| {
+        try std.testing.expect(r.notifier.wake_pending.load(.acquire));
+    }
+
+    for (reactors[0..live]) |*r| reactor_mod.withdrawCrossThreadWaiter(r.notifyHandle());
+    try std.testing.expectEqual(@as(usize, 0), reactor_mod.crossThreadWaiterCount());
+    try std.testing.expectEqual(notifier_baseline + n_reactors, reactor_mod.notifierLiveCount());
+}
+
+test "#2470: a waiter withdrawing during an unlocked ring leaves no dangling notifier" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no OS threads on wasm32-wasi
+    const notifier_baseline = reactor_mod.notifierLiveCount();
+
+    var reactor = try reactor_mod.Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+    const n = reactor.notifyHandle();
+
+    var stop = std.atomic.Value(bool).init(false);
+    const Ringer = struct {
+        fn run(s: *std.atomic.Value(bool)) void {
+            while (!s.load(.acquire)) reactor_mod.wakeCrossThreadWaiters();
+        }
+    };
+    const ringer = try std.Thread.spawn(.{}, Ringer.run, .{&stop});
+    defer {
+        stop.store(true, .release);
+        ringer.join();
+    }
+
+    // Repeatedly enrol then withdraw while the ringer hammers the registry.
+    // The ringer's snapshot holds a reference from its copy under the lock to
+    // its release after the ring, so this withdraw's release can never be
+    // the zero transition while a snapshotted copy exists. Without that
+    // retain/release pair the withdraw frees the notifier out from under the
+    // ring's `notify()` — use-after-free on the fd and the struct.
+    var i: usize = 0;
+    while (i < 500) : (i += 1) {
+        try std.testing.expect(reactor_mod.enrollCrossThreadWaiter(n));
+        reactor_mod.withdrawCrossThreadWaiter(n);
+    }
+
+    try std.testing.expectEqual(@as(usize, 0), reactor_mod.crossThreadWaiterCount());
+    try std.testing.expectEqual(notifier_baseline + 1, reactor_mod.notifierLiveCount()); // reactor's own
+}
+
+// ---------------------------------------------------------------------------
 // Child-exit readiness (KEP-0022 Phase 2, kaappi#2415). Real children via
 // raw fork() (forkChild below — the reactor must reap them itself, that
 // being the property under test, so nothing else ever waits them). Fake Process

@@ -314,16 +314,46 @@ pub fn withdrawCrossThreadWaiter(n: *ThreadNotifier) void {
 /// RMW on paths (`mutex-unlock!`, `condition-variable-signal!`) that already
 /// perform several atomic stores and a hash lookup.
 ///
-/// Rings *under* the lock too, unlike `shared_channel.ring`'s
-/// snapshot-then-ring: the list is one entry per blocked OS thread (single
-/// digits in any real program), `notify()` takes no lock of its own so there
-/// is no lock-order hazard, and holding the lock is what keeps each entry
-/// alive without a retain/release round trip per ring. The alternative —
-/// snapshotting — would need an allocation on a path that must not fail.
+/// Rings via a **snapshot taken under the lock, rung outside it** —
+/// `shared_channel.ring`'s shape, with the allocation problem that kept the
+/// ring under the lock solved by a fixed stack array (#2470): the first
+/// `ring_snapshot_len` entries are snapshotted (retained under the lock, so
+/// a waiter that withdraws and frees its notifier during the unlocked ring
+/// cannot leave a dangling pointer), then notified and released after the
+/// lock is dropped. The release matters outside the lock twice over:
+/// `notify()` is a syscall (kevent/eventfd write/SetEvent) apiece, and
+/// `releaseNotifier`'s zero transition closes the backend fd — neither
+/// belongs in the critical section, where #2446 showed a ringer preempted
+/// mid-syscall stalls every waiter arriving at enrol/withdraw. Entries past
+/// the array are the overflow tail, rung under the lock as before: more
+/// than 128 blocked OS threads is already pathological, and the tail costs
+/// latency only (post-#2468 there is no starvation to fear).
 pub fn wakeCrossThreadWaiters() void {
-    memory.spinLock(&wait_registry_lock);
-    defer memory.spinUnlock(&wait_registry_lock);
-    for (wait_registry.items) |e| e.notifier.notify();
+    // 128 retained pointers on the stack: big enough that real programs (one
+    // entry per blocked OS thread) never reach the overflow tail, small
+    // enough not to eat the thread's stack. Not an allocation — this path
+    // must not fail (see the enrol note above).
+    const ring_snapshot_len = 128;
+    var snapshot: [ring_snapshot_len]*ThreadNotifier = undefined;
+    var snap_count: usize = 0;
+    {
+        memory.spinLock(&wait_registry_lock);
+        defer memory.spinUnlock(&wait_registry_lock);
+        for (wait_registry.items) |e| {
+            if (snap_count < ring_snapshot_len) {
+                retainNotifier(e.notifier);
+                snapshot[snap_count] = e.notifier;
+                snap_count += 1;
+            } else {
+                // Overflow tail: rung under the lock, as pre-#2470.
+                e.notifier.notify();
+            }
+        }
+    }
+    for (snapshot[0..snap_count]) |n| {
+        n.notify();
+        releaseNotifier(n);
+    }
 }
 
 /// Test/leak-check hook, mirroring `notifierLiveCount`: every enrolment must
