@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **CI CHANGELOG gate (#2475)** — a `changelog` job in CI fails a PR that
+  changes `src/`, `lib/` or `vendor/` without also touching `CHANGELOG.md`,
+  unless the PR carries the `no-changelog` label (read live, so labelling
+  and re-running the job is enough). Tests-only and docs-only changes are
+  outside the gate, and the check is presence-only — entry wording stays
+  with the author. Restores, with a wider scope, the gate dropped in #2103.
 - **`run-process` and the `process-timeout` condition (KEP-0022 Phase 4,
   #2417)** — the one-shot layer over `spawn-process`:
   `(run-process argv opt…)` spawns, feeds an optional `input:`, drains
