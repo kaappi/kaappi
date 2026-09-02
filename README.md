@@ -396,7 +396,7 @@ a continuation on every `yield`) breaks when consumed inside such a driver.
 Which procedures are exempt is not guessable from the outside, so here is the
 list. **Exempt** — a continuation captured in the callback resumes freely:
 `apply` and `call-with-values` (both positions, and both halves of the latter:
-#2451 for its consumer, #2453 for its producer),
+`#2451` for its consumer, `#2453` for its producer),
 `map`, `for-each`, `vector-map`, `vector-for-each`, `string-for-each`, and — as
 of #2060 — the SRFI-1 `fold`, `filter`, `any`, `every`, `unfold` and SRFI-69
 `hash-table-walk`. A coroutine generator can be applied, folded, filtered,
