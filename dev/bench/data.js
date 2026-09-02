@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788333209597,
+  "lastUpdate": 1788338426051,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "59e473cf7f01fbd8dd28d39e5767334b0891a83c",
-          "message": "Fix SRFI-170 validation gaps and implement the posix-error protocol (Fixes #1977, #1978) (#2279)\n\n* Fix SRFI-170 validation gaps and implement the posix-error protocol (Fixes #1977, #1978)\n\nTwo audit findings (systematic audit v2, Phase 2.12) covered together\nbecause they touch the same file and the same raise helpers:\n\n#1977 — a mistyped argument was discarded rather than rejected:\n- (nice \"x\") was treated as \"no argument supplied\" and really renice'd\n  the process by the default +1; only the type test was missing.\n- platform.setEnv/unsetEnv discarded setenv(3)'s return, so an EINVAL\n  name (containing '=' or empty) returned normally while setting nothing.\n- create-directory/create-fifo silently defaulted the mode, create-temp-\n  file silently defaulted the prefix, and set-file-times stamped both\n  timestamps to now on a mistyped time argument.\n- The variadic specs had no upper bound, so surplus arguments were\n  accepted and ignored.\nEach now raises, set-file-times enforces SRFI-170's \"exactly one time is\nan error\" rule, and the seven variadic SRFI-170 signatures declare a new\n.range arity (min..max) so surplus arguments are an arity mismatch.\n\n#1978 — the spec's error protocol was absent and the taxonomy was wrong:\n- Added posix-error?, posix-error-name and posix-error-message. Every\n  SRFI-170 file error now captures the thread-local errno on the\n  condition object at the failing syscall (raiseFileError snapshots\n  std.c._errno() before any allocation); posix-error-name scans std.c.E\n  per-OS enums so the name (ENOENT/ENOTDIR/EACCES/ELOOP/...) is portable\n  even though the numbers differ; posix-error-message calls strerror(3).\n  Non-syscall raises (NUL pre-check, symlink-target-too-long, Windows\n  stubs) pass errno 0 explicitly so posix-error? stays false.\n- Argument-range validation (mode/uid-gid/nice/prefix) is now raised as\n  KP3007 invalid-argument via raiseArgError instead of a file error, so\n  file-error? answers #f for failures that never touched the filesystem.\n- file-info/user-info/group-info are pure value records but were listed\n  as UncopyableType; gc_deep_copy.zig now copies them by value across\n  the SRFI-18 boundary (directory-object stays uncopyable - live DIR*),\n  and the \"uncopyable type (port, continuation, etc.)\" messages name\n  the real uncopyable set instead of implying these records are in it.\n\nTests: the audit suite's disabled FAIL rows for both issues are enabled\n(the bug-pinning controls are removed), section G2 adds the posix-error\nprotocol matrix incl. errno survival through the thread boundary, the\ndeep-copy matrix audit flips the three SRFI-170 rows to cross, and\ntests_deepcopy.zig gains unit tests for the three copyable types, the\ndirectory-object refusal, and errno preservation on error-object copy.\nAll 2099 Scheme files + 1395 R7RS tests + unit suite (incl. -Dgc-stress)\npass; all 8 cross-compile targets and wasm still build.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Capture the real errno from statx on Linux (Fixes CI regression in #2279)\n\ndoStat's Linux path calls the raw statx(2) syscall, which reports failure\nby returning -errno as the syscall result rather than setting the libc\nerrno. The posix-error protocol (#1978) snapshots errno at the raise site,\nso on Linux a failed stat carried a stale thread-local: posix-error?\nanswered #f and posix-error-name/message could not name ENOENT/ELOOP.\ndoStat now reports the errno itself — statx's huge-usize raw result is\nbitcast back to isize and negated, and the libc paths read _errno() — and\nfile-info raises through raiseFileErrorCode with that value. Caught by the\nubuntu CI legs (the first attempt even panicked: an @intCast of the raw\nusize to c_int). Verified in an alpine container: the audit suite's\nposix-error matrix and all 49 protocol smoke tests now pass on x86_64\nLinux; macOS and the cross-compile matrix are unaffected.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review comments on #2279\n\nCode-review follow-ups (CodeRabbit + maintainer):\n\n- Bound  to 0..1 arguments — it was the one remaining variadic\n  SRFI-170 signature without an upper bound, so (nice 1 2 3) silently\n  ignored the surplus (the exact #1977 defect class). Audit pins it.\n- Thread the calling procedure name through validateMode and\n  expectPosixError, which hard-coded 'set-file-mode' / 'posix-error-name':\n  (create-directory d \"x\") reported a type error naming set-file-mode,\n  and (posix-error-message 42) named posix-error-name. Reached for the\n  first time by this PR's validation fixes.\n- Copy posix_errno out of the ErrorObject before gc.allocSymbol /\n  gc.allocString in posix-error-name/-message: the raw object pointer\n  must not survive an allocation unrooted (gc-safety rule).\n- set-file-times now rejects non-UTC time objects: a monotonic clock's\n  seconds are an arbitrary epoch and were being written to utimensat as\n  wall-clock time (SRFI-170 requires time-utc).\n- doStat's Windows widen failure no longer reads a stale errno (it is a\n  UTF conversion, not a syscall) — reports 0.\n- vm_dispatch's two inline native-arity switches now call the shared\n  vm_calls.checkNativeArity (made pub), so a future Arity variant is\n  edited once, not three times.\n- check_lint renders a range with the plural noun (\"0 to 1 arguments\").\n- platform.zig: drop the stale \"We ignore the return either way\" note —\n  unsetEnv now propagates the errno.\n- thread-value-sharing.md:287: 14-tag -> 11-tag refusal list.\n\nTests: audit adds (nice 0 'extra), the monotonic-time rejection plus a\nposix-time round-trip control for set-file-times, splits section H into\ncopies?/refused? so the directory-object refusal is actually pinned (the\nold out-of-thread helper returned #t for both a successful copy and a\nclean refusal), drops the locale-dependent strerror literal for a\nstring? check, and tests_deepcopy asserts every FileInfo/UserInfo field.\n\nFull suite green: 2099 Scheme files, 1395 R7RS, unit + gc-stress, wasm\nand all cross-compile targets.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-10T15:10:10+05:30",
-          "tree_id": "34d52b57aea059bf5f3950e75e19c9d099d1f478",
-          "url": "https://github.com/kaappi/kaappi/commit/59e473cf7f01fbd8dd28d39e5767334b0891a83c"
-        },
-        "date": 1786356935276,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.359135,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.565846,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.56452,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.034818,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004608,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.049571,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.305412,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.055954,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.855033,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.232895,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.676086,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.280126,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.773581,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.478451,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044857,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045952,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fc7fda625d17debf39937aeb95037eefef441a07",
+          "message": "thread-start!: unwind the extra_roots entry on spawn failure (#2473) (#2480)\n\nThe two pre-spawn failure paths after the extra_roots append (the\nOsThreadExit c_allocator.create and std.Thread.spawn) undid the\nlive_child_threads / live_descendants counters and the envelope but left\nthe fiber rooted in gc.extra_roots forever: its status stayed .running,\nso no later thread-join! ever reached reapOsThread, the only other\nremover, and the fiber, its thunk and everything the thunk closes over\nstayed reachable for the life of the GC.\n\nRevive an abandonSpawn-style single unwind helper that swap-removes the\nhandle from extra_roots alongside the counter decrements and envelope\ndeinit, and restores the fiber to .created so it is again an unstarted\nhandle. The exit-flag create now goes through os_thread_exit_allocator\n(a test seam defaulting to the C heap) so a unit test can force the\nfailure with a memory.OomAllocator countdown and assert extra_roots\nreturns to its pre-call length.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude <noreply@anthropic.com>",
+          "timestamp": "2026-09-02T07:57:54Z",
+          "tree_id": "fedb22fb2861d8c9322a689bf22180990ae2257b",
+          "url": "https://github.com/kaappi/kaappi/commit/fc7fda625d17debf39937aeb95037eefef441a07"
+        },
+        "date": 1788338424742,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.378913,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.393157,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.560804,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.050313,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004474,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04825,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.414726,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056155,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.728257,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.21693,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.641048,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.274909,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.686224,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.607787,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044955,
             "unit": "seconds"
           }
         ]
