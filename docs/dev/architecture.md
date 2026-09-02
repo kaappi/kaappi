@@ -30,7 +30,7 @@ Source code
 | **Reader** | `reader.zig` + `reader_tokens.zig`, `reader_datum.zig` | Tokenizer + recursive descent parser. Handles full R7RS lexical syntax including Unicode identifiers, `#\lambda` character literals, `#(...)` vectors, `#u8(...)` bytevectors, datum labels. |
 | **Expander** | `expander.zig` + `expander_instantiate.zig` | `syntax-rules` pattern matching with ellipsis, literal identifiers, and underscore wildcards. Template instantiation with hygienic renaming (gensym-based). |
 | **IR** | `ir.zig` | Lowers S-expressions to a tree-structured IR (18 node types, one of which — `sexpr_form` — carries 18 `FormKind`s). Runs 1 analysis pass (tail positions) and 5 optimization passes (constant folding, dead branch elimination, boolean simplification, identity elimination, begin simplification). See [ir.md](ir.md) for details. |
-| **Compiler** | `compiler.zig` + 9 sub-modules | Emits register-based bytecode from IR nodes via `compileFromNode()` (in `compiler_ir.zig`). Retains `compileExpr()` for forms delegated via `passthrough`. See the [Compiler & IR](#compiler--ir-11-files) table for the per-file split. |
+| **Compiler** | `compiler.zig` + 10 sub-modules | Emits register-based bytecode from IR nodes via `compileFromNode()` (in `compiler_ir.zig`). Retains `compileExpr()` for forms delegated via `passthrough`. See the [Compiler & IR](#compiler--ir-12-files) table for the per-file split. |
 | **VM** | `vm.zig` + 10 sub-modules | Executes bytecode with a growable register file, call frame stack, exception handler stack, and dynamic-wind stack (all heap-allocated, double-on-overflow; exceeding a hard cap is an uncatchable KP3008). First-class continuations via stack copying, plus a stepping debugger. |
 | **GC** | `memory.zig` | Generational (young/old) mark-and-sweep collector over an intrusive linked list, with a write barrier and remembered set for old→young references. Root tracking via `pushRoot`/`popRoot`. Triggered after N allocations. |
 | **Primitives** | 32 `primitives_*.zig` files | 696 built-in procedures organized by domain. |
@@ -84,7 +84,7 @@ domain-mate (`Pair`, `Symbol`, `SchemeString`, `Closure`, `Function`,
 `Fiber` (`fiber.zig`) predates this split and follows neither convention:
 its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
 
-### Compiler & IR (11 files)
+### Compiler & IR (12 files)
 
 | File | Responsibility |
 |------|---------------|
@@ -97,7 +97,8 @@ its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
 | `compiler_advanced.zig` | case, case-lambda, guard, quasiquote |
 | `compiler_macro.zig` | Macro-use path: expandAndCompileMacroUse, hygiene injection walks, free-ref collection; re-exports compiler_define_syntax.zig |
 | `compiler_define_syntax.zig` | Macro-defining forms: define-syntax, let-syntax, letrec-syntax, define-property, transformer-spec resolution (SRFI 147), syntax-rules parsing, transformer finalization |
-| `compiler_passthrough.zig` | The `passthrough` path's form compilers: quote, if, call, and the tail-position specializations (`apply`, `call-with-values`, `call/cc`, `eval`) |
+| `compiler_passthrough.zig` | The `passthrough` path's form compilers: quote, if, call, and the tail-position specializations (`apply`, `call-with-values`, `call/cc`, `eval`); owns the whole-unit top-level target set (`unit_top_level_targets`, kaappi#2457) |
+| `compiler_gate.zig` | Redefinition-awareness: the builtin-bypass gate `globalBindingStillGenuine` (superinstruction decisions for redefined built-ins) and the `set!` pre-scan that feeds it (`collectSetTargets`, `scanSetTargetsWithoutMacros`) |
 | `compiler_forms.zig` | Re-export hub (thin file, don't edit directly) |
 
 ### VM (split into 11 files)

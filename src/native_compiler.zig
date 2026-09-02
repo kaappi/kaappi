@@ -4,6 +4,7 @@ const types = @import("types.zig");
 const reader_mod = @import("reader.zig");
 const compiler = @import("compiler.zig");
 const compiler_passthrough = @import("compiler_passthrough.zig");
+const compiler_gate = @import("compiler_gate.zig");
 const vm_mod = @import("vm.zig");
 const ir_mod = @import("ir.zig");
 const expander = @import("expander.zig");
@@ -280,7 +281,7 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
         // truncation stay temporally correct). Only pathological inputs
         // reach the caps, so ordinary files keep their native lowering.
         if (!native_scan_truncated) {
-            native_scan_truncated = try compiler.scanSetTargetsWithoutMacros(expr, &redefined_names);
+            native_scan_truncated = try compiler_gate.scanSetTargetsWithoutMacros(expr, &redefined_names);
         }
         if (native_scan_truncated) {
             const passthrough_node = ir_instance.makePassthrough(expr) catch continue;
@@ -634,7 +635,7 @@ fn collectRedefinedNamesMacroAware(vm: *vm_mod.VM, expr: types.Value, map: *std.
         if (tobj.as(types.Transformer).kind != .syntax_rules) return;
 
         // Best-effort expansion with an empty use-site check (no locals at top
-        // level), mirroring compiler.collectSetTargets' pre-scan path. Held in
+        // level), mirroring compiler_gate.collectSetTargets' pre-scan path. Held in
         // the batch's existing no_collect window; take an extra guard anyway so
         // this is correct independent of the caller.
         vm.gc.no_collect += 1;

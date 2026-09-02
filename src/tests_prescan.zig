@@ -1,18 +1,18 @@
-// Regressions for the top-level `set!` pre-scan (compiler.collectSetTargets)
+// Regressions for the top-level `set!` pre-scan (compiler_gate.collectSetTargets)
 // and its work limit (kaappi#1775).
 //
 // The pre-scan expands macros so it can see a `set!` a macro template
 // introduces, which is what makes #1250's macro-introduced-set! cases box
 // correctly. That makes it a speculative evaluator of compile-time macro
 // code, and it can explore exponentially many branches the real compiler
-// never takes. It is therefore bounded (compiler.prescan_expansion_limit),
+// never takes. It is therefore bounded (compiler_gate.prescan_expansion_limit),
 // and hitting the bound must fall back to "assume every name is a `set!`
 // target" rather than silently returning a partial answer — the tests here
 // pin both halves of that contract.
 const std = @import("std");
 const th = @import("testing_helpers.zig");
 const types = @import("types.zig");
-const compiler = @import("compiler.zig");
+const compiler_gate = @import("compiler_gate.zig");
 
 /// Evaluate `body` with the pre-scan limit lowered, assert it yields
 /// `expected`, and report how many top-level forms truncated meanwhile.
@@ -20,18 +20,18 @@ const compiler = @import("compiler.zig");
 /// than returned because the VM (and any heap value it produced) is gone
 /// once this returns.
 fn evalWithPrescanLimit(limit: u32, expected: i64, body: []const u8) !u64 {
-    const saved = compiler.prescan_expansion_limit;
-    defer compiler.prescan_expansion_limit = saved;
-    compiler.prescan_expansion_limit = limit;
+    const saved = compiler_gate.prescan_expansion_limit;
+    defer compiler_gate.prescan_expansion_limit = saved;
+    compiler_gate.prescan_expansion_limit = limit;
 
     var ctx: th.TestContext = undefined;
     try ctx.init();
     defer ctx.deinit();
 
-    const before = compiler.prescan_truncations;
+    const before = compiler_gate.prescan_truncations;
     const value = try ctx.vm.eval(body);
     try std.testing.expectEqual(expected, types.toFixnum(value));
-    return compiler.prescan_truncations - before;
+    return compiler_gate.prescan_truncations - before;
 }
 
 test "#1775: a truncated set! pre-scan still boxes a macro-introduced set! target" {
@@ -140,8 +140,8 @@ test "#1802: a macro use in transformer-spec position does not consume the pre-s
     //
     // With the limit at 0, ANY spec expansion truncates, so this fails
     // without the fix.
-    const saved = compiler.prescan_expansion_limit;
-    defer compiler.prescan_expansion_limit = saved;
+    const saved = compiler_gate.prescan_expansion_limit;
+    defer compiler_gate.prescan_expansion_limit = saved;
 
     var ctx: th.TestContext = undefined;
     try ctx.init();
@@ -152,11 +152,11 @@ test "#1802: a macro use in transformer-spec position does not consume the pre-s
         \\(define-syntax gen (syntax-rules () ((_) (syntax-rules () ((_ x) x)))))
     );
 
-    compiler.prescan_expansion_limit = 0;
-    const before = compiler.prescan_truncations;
+    compiler_gate.prescan_expansion_limit = 0;
+    const before = compiler_gate.prescan_truncations;
     _ = try ctx.vm.eval("(define-syntax my-id (gen))");
-    try std.testing.expectEqual(@as(u64, 0), compiler.prescan_truncations - before);
-    compiler.prescan_expansion_limit = saved;
+    try std.testing.expectEqual(@as(u64, 0), compiler_gate.prescan_truncations - before);
+    compiler_gate.prescan_expansion_limit = saved;
 
     // The real SRFI 147 resolution must be unaffected by the pre-scan skip.
     const result = try ctx.vm.eval("(my-id 42)");
@@ -173,8 +173,8 @@ test "#1802: let-syntax specs are skipped but the body keeps the budgeted scan" 
     //     to 7 before the reassignment runs => result 7.
     //   - correct: the one expansion goes to the body's `rebind`, `+` is a
     //     known target, the fold is suppressed => result 3, truncations 0.
-    const saved = compiler.prescan_expansion_limit;
-    defer compiler.prescan_expansion_limit = saved;
+    const saved = compiler_gate.prescan_expansion_limit;
+    defer compiler_gate.prescan_expansion_limit = saved;
 
     var ctx: th.TestContext = undefined;
     try ctx.init();
@@ -187,8 +187,8 @@ test "#1802: let-syntax specs are skipped but the body keeps the budgeted scan" 
         \\(define-syntax rebind (syntax-rules () ((_ a b) (set! a b))))
     );
 
-    compiler.prescan_expansion_limit = 1;
-    const before = compiler.prescan_truncations;
+    compiler_gate.prescan_expansion_limit = 1;
+    const before = compiler_gate.prescan_truncations;
     const result = try ctx.vm.eval(
         \\(let-syntax ((local-id (gen)))
         \\  (define (f) (+ 5 2))
@@ -196,7 +196,7 @@ test "#1802: let-syntax specs are skipped but the body keeps the budgeted scan" 
         \\  (local-id (f)))
     );
     try std.testing.expectEqual(@as(i64, 3), types.toFixnum(result));
-    try std.testing.expectEqual(@as(u64, 0), compiler.prescan_truncations - before);
+    try std.testing.expectEqual(@as(u64, 0), compiler_gate.prescan_truncations - before);
 }
 
 test "#1775: ordinary code does not trigger the pre-scan fallback" {
@@ -207,7 +207,7 @@ test "#1775: ordinary code does not trigger the pre-scan fallback" {
     try ctx.init();
     defer ctx.deinit();
 
-    const before = compiler.prescan_truncations;
+    const before = compiler_gate.prescan_truncations;
     const result = try ctx.vm.eval(
         \\(begin
         \\  (define-syntax swap!
@@ -218,7 +218,7 @@ test "#1775: ordinary code does not trigger the pre-scan fallback" {
         \\    (+ (* 10 x) y)))
     );
     try std.testing.expectEqual(@as(i64, 12), types.toFixnum(result));
-    try std.testing.expectEqual(@as(u64, 0), compiler.prescan_truncations - before);
+    try std.testing.expectEqual(@as(u64, 0), compiler_gate.prescan_truncations - before);
 }
 
 // #2404/#2401 review: the scan's caps must REPORT, never silently return a
@@ -236,13 +236,13 @@ test "#2404: scanSetTargetsWithoutMacros reports truncation on a cyclic form" {
     const cyclic = try ctx.vm.eval("'#0=(zz . #0#)");
     var targets = std.StringHashMap(void).init(std.testing.allocator);
     defer targets.deinit();
-    try std.testing.expect(try compiler.scanSetTargetsWithoutMacros(cyclic, &targets));
+    try std.testing.expect(try compiler_gate.scanSetTargetsWithoutMacros(cyclic, &targets));
 
     // The reporting is not hair-trigger: an ordinary small form scans to
     // completion and reports false.
     var targets2 = std.StringHashMap(void).init(std.testing.allocator);
     defer targets2.deinit();
-    try std.testing.expect(!try compiler.scanSetTargetsWithoutMacros(
+    try std.testing.expect(!try compiler_gate.scanSetTargetsWithoutMacros(
         try ctx.vm.eval("'(begin (set! a 1) (if x (set! b 2)))"),
         &targets2,
     ));
