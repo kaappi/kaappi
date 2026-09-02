@@ -248,6 +248,25 @@ this file — put the *why* in the commit body instead.
   format bump, since the cache is keyed by compiler hash. Internally, the
   builtin gate (`globalBindingStillGenuine`) and the `set!` pre-scan moved
   from `compiler.zig` to the new `compiler_gate.zig` (file-size policy).
+- **Cross-thread wakeups ring outside the wait registry lock** (#2470) —
+  `wakeCrossThreadWaiters` used to notify every parked thread while holding
+  the registry lock: one syscall (a kevent, an eventfd write, or a SetEvent)
+  per enrolled thread inside the critical section, so a ringer preempted
+  mid-ring stalled every thread then arriving at `mutex-lock!`,
+  `thread-join!` or a condition-variable wait — post-#2468 a latency hit
+  only, but with a dozen parked threads a scheduler-quantum-long one. The
+  ring now snapshots the first 128 enrolled notifiers under the lock (each
+  retained), drops the lock, and notifies and releases outside it — the
+  same snapshot-then-ring shape channel wakes already use — so within
+  those 128 the critical section is constant-size again, and the teardown
+  close (`releaseNotifier`'s zero transition) never runs under the lock on
+  any path. Entries past 128 (more simultaneously blocked OS threads than
+  that is already pathological) keep the old under-lock tail — their
+  `notify()` still runs while the lock is held, so past 128 the critical
+  section grows with waiters as before. Windows socket
+  initialisation's last bare spin loop now backs off through the same
+  spin-then-yield-then-sleep ladder every other cross-thread wait uses
+  (#2472), so an auditor grepping for spin-hint-only waits finds zero.
 - **Cross-thread SRFI-18 waits are woken by the reactor notifier instead of a
   1 ms poll** (#2395, KEP-0002 unresolved question 3) — `thread-join!` on a
   running OS thread, `mutex-lock!` and condition-variable waits contended

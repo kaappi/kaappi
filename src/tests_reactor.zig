@@ -871,6 +871,212 @@ test "#2395: a ring is a real OS event that ends a blocking reactor poll" {
 }
 
 // ---------------------------------------------------------------------------
+// #2470: wakeCrossThreadWaiters rings outside the registry lock
+//
+// The ring used to run under `wait_registry_lock` — one syscall per parked
+// thread inside the critical section. It now snapshots the first 128
+// entries (retained under the lock), drops the lock, then notifies and
+// releases. Three tests, three properties: every snapshotted waiter still
+// wakes with many enrolled (the snapshot path, including the >128 overflow
+// tail); the registry stays consistent under enroll/withdraw churn against
+// a hammering ringer; and — the property a naive snapshot-without-retain
+// would get wrong, pinned deterministically via `reactor.ring_test_gate` —
+// the snapshot's retain is *by itself* what keeps a notifier allocated when
+// its reactor tears down and its waiter withdraws mid-ring.
+// ---------------------------------------------------------------------------
+
+/// fd budget for the multi-reactor test: a Reactor owns one backend fd plus
+/// (Linux only) a second for its notifier's eventfd. Stay under the soft
+/// NOFILE limit rather than assuming it is generous.
+fn reactorBudget() usize {
+    // Windows has no getrlimit in std.posix (the test never runs there — the
+    // cross build is a compile gate), and the BSDs type rlim_t as signed i64,
+    // so clamp through a cast rather than assuming the unsigned Linux/macOS
+    // shape (kaappi PR #2479 CI).
+    const soft: u64 = if (comptime builtin_os == .windows)
+        256
+    else blk: {
+        const lim = std.posix.getrlimit(.NOFILE) catch return 4;
+        break :blk @intCast(@max(0, lim.cur));
+    };
+    const worst_case = 2; // epoll + eventfd
+    const headroom = soft / 2; // half the soft limit is already ours to use
+    return @max(2, @min(130, headroom / worst_case));
+}
+
+test "#2470: wakeCrossThreadWaiters rings every waiter from outside the lock" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no OS reactors to multiply on WASI
+    const notifier_baseline = reactor_mod.notifierLiveCount();
+    const n_reactors = reactorBudget();
+    // Deliberately straddles the 128-entry snapshot when the fd budget
+    // allows, so the under-lock overflow tail is covered too.
+    var reactors: [130]reactor_mod.Reactor = undefined;
+    var live: usize = 0;
+    defer for (reactors[0..live]) |*r| {
+        r.deinit();
+    };
+
+    for (0..n_reactors) |i| {
+        reactors[i] = try reactor_mod.Reactor.init(std.testing.allocator);
+        live += 1;
+        try std.testing.expect(reactor_mod.enrollCrossThreadWaiter(reactors[i].notifyHandle()));
+    }
+    try std.testing.expectEqual(n_reactors, reactor_mod.crossThreadWaiterCount());
+    try std.testing.expectEqual(notifier_baseline + n_reactors, reactor_mod.notifierLiveCount());
+
+    reactor_mod.wakeCrossThreadWaiters();
+
+    for (reactors[0..live]) |*r| {
+        try std.testing.expect(r.notifier.wake_pending.load(.acquire));
+    }
+
+    for (reactors[0..live]) |*r| reactor_mod.withdrawCrossThreadWaiter(r.notifyHandle());
+    try std.testing.expectEqual(@as(usize, 0), reactor_mod.crossThreadWaiterCount());
+    try std.testing.expectEqual(notifier_baseline + n_reactors, reactor_mod.notifierLiveCount());
+}
+
+// Churn coverage: real enroll/withdraw pairs raced against a ringer
+// hammering the registry. What this pins is registry consistency — no lost
+// or duplicated entries, every enrolment balanced, no leaked notifiers —
+// under contention. It deliberately does NOT claim to pin the snapshot's
+// retain: this test's reactor holds its base reference until after the
+// ringer joins, so a withdraw here can never reach the refcount's zero
+// transition and a missing retain would slip through. That property is the
+// gate test below, which parks the ring at the exact point (PR #2479
+// review).
+test "#2470: enroll/withdraw churn against a hammering ringer leaves the registry consistent" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no OS threads on wasm32-wasi
+    const notifier_baseline = reactor_mod.notifierLiveCount();
+
+    var reactor = try reactor_mod.Reactor.init(std.testing.allocator);
+    defer reactor.deinit();
+    const n = reactor.notifyHandle();
+
+    var stop = std.atomic.Value(bool).init(false);
+    const Ringer = struct {
+        fn run(s: *std.atomic.Value(bool)) void {
+            while (!s.load(.acquire)) reactor_mod.wakeCrossThreadWaiters();
+        }
+    };
+    const ringer = try std.Thread.spawn(.{}, Ringer.run, .{&stop});
+    defer {
+        stop.store(true, .release);
+        ringer.join();
+    }
+
+    var i: usize = 0;
+    while (i < 500) : (i += 1) {
+        try std.testing.expect(reactor_mod.enrollCrossThreadWaiter(n));
+        reactor_mod.withdrawCrossThreadWaiter(n);
+    }
+
+    try std.testing.expectEqual(@as(usize, 0), reactor_mod.crossThreadWaiterCount());
+    try std.testing.expectEqual(notifier_baseline + 1, reactor_mod.notifierLiveCount()); // reactor's own
+}
+
+/// Context for `ringGateHook`: parks the ringer inside the unlocked ring,
+/// holding the snapshot's reference to `target`, until the test opens it.
+/// Bare atomics with `platform.spinBackoff`, per the house rule for every
+/// cross-thread wait loop since #2468 — this std.Thread has no semaphore,
+/// and a two-flag handoff is less machinery than anything futex-shaped.
+var ring_gate_ctx: ?*RingGate = null;
+
+const RingGate = struct {
+    target: *reactor_mod.ThreadNotifier,
+    /// Set by the hook once the ringer is parked on `target`.
+    entered: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
+    /// Cleared by the test to let the parked ringer out.
+    open: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
+};
+
+fn ringGateHook(n: *reactor_mod.ThreadNotifier) void {
+    const g = ring_gate_ctx orelse return;
+    if (n != g.target) return;
+    g.entered.store(true, .release);
+    // Unbounded by design: every exit path of the gate test below opens the
+    // gate through a defer, so even a failing assertion cannot strand the
+    // ringer here and hang the suite.
+    var spins: u32 = 0;
+    while (!g.open.load(.acquire)) : (spins +|= 1) platform.spinBackoff(spins);
+}
+
+test "#2470: the snapshot retain alone keeps a torn-down notifier alive through the ring" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no OS threads on wasm32-wasi
+    const notifier_baseline = reactor_mod.notifierLiveCount();
+
+    var reactor = try reactor_mod.Reactor.init(std.testing.allocator);
+    var reactor_open = true;
+    defer if (reactor_open) reactor.deinit();
+    const n = reactor.notifyHandle();
+    try std.testing.expect(reactor_mod.enrollCrossThreadWaiter(n));
+    var enrolled = true;
+    defer if (enrolled) reactor_mod.withdrawCrossThreadWaiter(n);
+
+    var gate = RingGate{ .target = n };
+    ring_gate_ctx = &gate;
+    reactor_mod.ring_test_gate = ringGateHook;
+    const Ringer = struct {
+        fn run() void {
+            reactor_mod.wakeCrossThreadWaiters();
+        }
+    };
+    // On spawn failure the cleanup defer below is not installed yet (LIFO:
+    // it appears only after a successful spawn), so clear the gate globals
+    // here — otherwise a later ring anywhere in the suite walks the dead
+    // stack-local `gate` through `ringGateHook`.
+    const ringer = std.Thread.spawn(.{}, Ringer.run, .{}) catch |err| {
+        ring_gate_ctx = null;
+        reactor_mod.ring_test_gate = null;
+        return err;
+    };
+    var joined = false;
+    // Registered last, runs first on every exit path (LIFO): release the
+    // parked ringer, join it, then uninstall the gate so nothing after this
+    // test rings through the hook.
+    defer {
+        gate.open.store(true, .release);
+        if (!joined) ringer.join();
+        ring_gate_ctx = null;
+        reactor_mod.ring_test_gate = null;
+    }
+
+    // The ringer is now somewhere between its snapshot and its release; wait
+    // until the gate proves it is parked on OUR notifier. Bounded, so a ring
+    // that somehow skipped the enrolled waiter fails the test instead of
+    // hanging the suite.
+    const deadline = fiber_mod.clockNs() + poll_retry_bound_ns;
+    var spins: u32 = 0;
+    while (!gate.entered.load(.acquire)) : (spins +|= 1) {
+        if (fiber_mod.clockNs() > deadline) return error.RingNeverEnteredGate;
+        platform.spinBackoff(spins);
+    }
+
+    // Drop BOTH other references while the ring holds its snapshot:
+    // deinit releases the reactor's base (and flips `alive`, making the
+    // ring's notify on it the documented skip-the-syscall path), withdraw
+    // releases the registry's. Refcount 3 -> 2 -> 1, neither a zero
+    // transition. Without the snapshot's retain the withdraw IS the zero
+    // transition — notifier freed, backend fd closed — while the parked
+    // ringer still holds the raw pointer it is about to notify and release.
+    reactor.deinit();
+    reactor_open = false;
+    reactor_mod.withdrawCrossThreadWaiter(n);
+    enrolled = false;
+
+    // The snapshot's retain is now the only live reference: the notifier
+    // must still be allocated.
+    try std.testing.expectEqual(notifier_baseline + 1, reactor_mod.notifierLiveCount());
+
+    gate.open.store(true, .release);
+    ringer.join();
+    joined = true;
+
+    // The ring's own releaseNotifier was the zero transition: backend
+    // closed, notifier freed, live count back at the baseline.
+    try std.testing.expectEqual(notifier_baseline, reactor_mod.notifierLiveCount());
+}
+
+// ---------------------------------------------------------------------------
 // Child-exit readiness (KEP-0022 Phase 2, kaappi#2415). Real children via
 // raw fork() (forkChild below — the reactor must reap them itself, that
 // being the property under test, so nothing else ever waits them). Fake Process
