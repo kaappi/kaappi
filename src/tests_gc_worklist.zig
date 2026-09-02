@@ -119,3 +119,30 @@ test "#2464: the worklist buffer is retained below the 1M-entry floor" {
     gc.collect();
     try std.testing.expectEqual(cap_after_first, gc.mark_worklist.capacity);
 }
+
+test "#2464: an over-floor frontier re-reserves exactly the floor" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    gc.enabled = false;
+
+    // Hardcoded against markValue's max_retained, deliberately: this is
+    // the pin for the over-floor branch (clearAndFree + re-reserve), so a
+    // future edit that drops the re-reserve — or moves the floor — must
+    // fail here, not pass silently.
+    const floor = 1024 * 1024;
+    var pair = try gc.allocPair(types.makeFixnum(1), types.NIL);
+    gc.pushRoot(&pair);
+    defer gc.popRoot();
+    // One pair, referenced floor+64 times: the vector arm pushes every slot
+    // before the drain pops any, so the worklist peaks above the floor with
+    // a single heap object behind it.
+    var vec = try gc.allocVectorFill(floor + 64, pair);
+    gc.pushRoot(&vec);
+    defer gc.popRoot();
+
+    gc.collect();
+    try std.testing.expectEqual(@as(usize, floor), gc.mark_worklist.capacity);
+    gc.collect();
+    try std.testing.expectEqual(@as(usize, floor), gc.mark_worklist.capacity);
+    try std.testing.expect(types.isPair(types.toVector(vec).data[floor]));
+}
