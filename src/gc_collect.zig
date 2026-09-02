@@ -807,7 +807,7 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
 //
 // One enumeration of a port's Values, three different things to do with
 // each. This is what replaced the hand-kept triplicate: markPortValues
-// (recursive, for markObjectContents), an inline worklist.append list in
+// (recursive, for markObjectContents), an inline wlPush list in
 // markValueInner, and an inline isYoungPointer list in referencesYoung.
 // Each visitor keeps its own arm's exact previous semantics -- in
 // particular markValueInner still appends to the caller's worklist rather
@@ -825,16 +825,35 @@ fn markVisitor(gc: *GC, v: Value) bool {
     return false;
 }
 
-/// markValueInner: push every referent onto the caller's worklist.
+/// markValueInner: push every pointer referent onto the caller's worklist
+/// (immediates skipped — see wlPush).
 const WorklistVisitor = struct {
     gc: *GC,
     worklist: *std.ArrayList(Value),
 
     fn visit(self: WorklistVisitor, v: Value) bool {
-        self.worklist.append(self.gc.allocator, v) catch @panic("GC mark: worklist OOM");
+        wlPush(self.gc, self.worklist, v);
         return false;
     }
 };
+
+/// Push one referent onto the mark worklist, skipping immediates. The
+/// drain's markValueInner returns at its `isPointer` check, so an immediate
+/// on the worklist could only ever be popped and discarded — pushing one is
+/// pure transient growth. #2464: a wide container of immediates (the
+/// array-copy scratch vector of fixnums that motivated the issue) peaked
+/// the worklist at the container's full width every full collection, and
+/// the post-drain buffer release made each collection regrow through the
+/// same realloc chain — the backing libc malloc never decommits those freed
+/// large blocks, so peak RSS accumulated ~10 MB of resident-dirty pages per
+/// full collection (~65x the live heap) until the program ended. The pair
+/// arm's car push keeps its own car_is_ptr guard (it also steers the cdr
+/// tail-iteration); wlPush's check is what covers every container arm's
+/// fields.
+inline fn wlPush(gc: *GC, worklist: *std.ArrayList(Value), v: Value) void {
+    if (!types.isPointer(v)) return;
+    worklist.append(gc.allocator, v) catch @panic("GC mark: worklist OOM");
+}
 
 /// Record a reachable ephemeron for the post-mark weak fixpoint without tracing
 /// its key or value — those are decided by processWeakRefs.
@@ -955,8 +974,18 @@ pub fn markValue(gc: *GC, v: Value) void {
     gc.marking = false;
 
     // Cap retained capacity so one pathologically wide object (e.g. a
-    // 10M-element vector) doesn't keep ~80 MB allocated forever.
-    const max_retained = 64 * 1024;
+    // 10M-element vector of pointers) doesn't keep ~80 MB allocated
+    // forever. The floor is generous (#2464): releasing the buffer after
+    // every collection made each full mark regrow it through the same
+    // realloc chain, and the backing libc malloc does not decommit the
+    // freed large blocks — on macOS each freed ~10 MB top block stayed
+    // resident-dirty, so peak RSS accumulated roughly one chain per full
+    // collection (observed ~65x the live heap) even though every byte was
+    // freed. Retaining up to 8 MB (1M entries) of a buffer whose growth
+    // was driven by live pointer-reachability costs at most a fraction of
+    // the structure that caused it; only the excess past the floor is
+    // released.
+    const max_retained = 1024 * 1024;
     if (gc.mark_worklist.capacity > max_retained)
         gc.mark_worklist.clearAndFree(gc.allocator);
 }
@@ -1008,7 +1037,7 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
                 // Push car onto worklist instead of recursing -- this is
                 // the key change that prevents stack overflow on deep
                 // structures like (((((...)))))).
-                worklist.append(gc.allocator, car) catch @panic("GC mark: worklist OOM");
+                wlPush(gc, worklist, car);
                 cur = cdr;
             } else if (cdr_is_ptr) {
                 cur = cdr;
@@ -1026,82 +1055,82 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
         .pair => unreachable,
         .closure => {
             const cls = obj.as(Closure);
-            worklist.append(gc.allocator, types.makePointer(&cls.func.header)) catch @panic("GC mark: worklist OOM");
+            wlPush(gc, worklist, types.makePointer(&cls.func.header));
             for (cls.upvalues) |uv| {
-                worklist.append(gc.allocator, uv) catch @panic("GC mark: worklist OOM");
+                wlPush(gc, worklist, uv);
             }
         },
         .function => {
             const func = obj.as(Function);
             for (func.constants.items) |c| {
-                worklist.append(gc.allocator, c) catch @panic("GC mark: worklist OOM");
+                wlPush(gc, worklist, c);
             }
             if (func.global_cache) |cache| {
-                for (cache) |c| worklist.append(gc.allocator, c) catch @panic("GC mark: worklist OOM");
+                for (cache) |c| wlPush(gc, worklist, c);
             }
-            worklist.append(gc.allocator, func.env_val) catch @panic("GC mark: worklist OOM");
+            wlPush(gc, worklist, func.env_val);
         },
         .transformer => {
             const tx = obj.as(Transformer);
             for (tx.literals) |lit| {
-                worklist.append(gc.allocator, lit) catch @panic("GC mark: worklist OOM");
+                wlPush(gc, worklist, lit);
             }
             for (tx.patterns) |pat| {
-                worklist.append(gc.allocator, pat) catch @panic("GC mark: worklist OOM");
+                wlPush(gc, worklist, pat);
             }
             for (tx.templates) |tmpl| {
-                worklist.append(gc.allocator, tmpl) catch @panic("GC mark: worklist OOM");
+                wlPush(gc, worklist, tmpl);
             }
-            worklist.append(gc.allocator, tx.def_env_val) catch @panic("GC mark: worklist OOM");
-            worklist.append(gc.allocator, tx.proc) catch @panic("GC mark: worklist OOM");
+            wlPush(gc, worklist, tx.def_env_val);
+            wlPush(gc, worklist, tx.proc);
             for (tx.let_syntax_peer_vals) |pv| {
-                worklist.append(gc.allocator, pv) catch @panic("GC mark: worklist OOM");
+                wlPush(gc, worklist, pv);
             }
         },
         .error_object => {
             const err = obj.as(types.ErrorObject);
-            worklist.append(gc.allocator, err.message) catch @panic("GC mark: worklist OOM");
-            worklist.append(gc.allocator, err.irritants) catch @panic("GC mark: worklist OOM");
-            worklist.append(gc.allocator, err.uncaught_reason) catch @panic("GC mark: worklist OOM");
+            wlPush(gc, worklist, err.message);
+            wlPush(gc, worklist, err.irritants);
+            wlPush(gc, worklist, err.uncaught_reason);
         },
         .record_type => {
             const rt = obj.as(RecordType);
             if (rt.parent) |p| {
-                worklist.append(gc.allocator, types.makePointer(&p.header)) catch @panic("GC mark: worklist OOM");
+                wlPush(gc, worklist, types.makePointer(&p.header));
             }
         },
         .record_instance => {
             const ri = obj.as(RecordInstance);
-            worklist.append(gc.allocator, types.makePointer(&ri.record_type.header)) catch @panic("GC mark: worklist OOM");
+            wlPush(gc, worklist, types.makePointer(&ri.record_type.header));
             for (ri.fields) |field| {
-                worklist.append(gc.allocator, field) catch @panic("GC mark: worklist OOM");
+                wlPush(gc, worklist, field);
             }
         },
         .continuation => {
             const cont = obj.as(Continuation);
             for (cont.registers) |reg| {
-                worklist.append(gc.allocator, reg) catch @panic("GC mark: worklist OOM");
+                wlPush(gc, worklist, reg);
             }
             for (cont.frames[0..cont.frame_count]) |frame| {
                 if (frame.closure) |cls| {
-                    worklist.append(gc.allocator, types.makePointer(&cls.header)) catch @panic("GC mark: worklist OOM");
+                    wlPush(gc, worklist, types.makePointer(&cls.header));
                 }
                 if (frame.native) |nf| {
-                    worklist.append(gc.allocator, types.makePointer(&nf.header)) catch @panic("GC mark: worklist OOM");
+                    wlPush(gc, worklist, types.makePointer(&nf.header));
                 }
             }
             for (cont.handlers[0..cont.handler_count]) |handler| {
-                worklist.append(gc.allocator, handler.handler) catch @panic("GC mark: worklist OOM");
+                wlPush(gc, worklist, handler.handler);
             }
             for (cont.wind_records[0..cont.wind_count]) |wr| {
-                worklist.append(gc.allocator, wr.before) catch @panic("GC mark: worklist OOM");
-                worklist.append(gc.allocator, wr.after) catch @panic("GC mark: worklist OOM");
+                wlPush(gc, worklist, wr.before);
+                wlPush(gc, worklist, wr.after);
             }
         },
         .multiple_values => {
             const mv = obj.as(MultipleValues);
             for (mv.values) |val| {
-                worklist.append(gc.allocator, val) catch @panic("GC mark: worklist OOM");
+                wlPush(gc, worklist, val);
             }
         },
         .vector => {
@@ -1110,19 +1139,19 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
             // iterate the last element directly via tail call.
             if (vec.data.len > 0) {
                 for (vec.data[0 .. vec.data.len - 1]) |elem| {
-                    worklist.append(gc.allocator, elem) catch @panic("GC mark: worklist OOM");
+                    wlPush(gc, worklist, elem);
                 }
                 markValueInner(gc, vec.data[vec.data.len - 1], worklist);
             }
         },
         .promise => {
             const p = obj.as(Promise);
-            worklist.append(gc.allocator, p.value) catch @panic("GC mark: worklist OOM");
+            wlPush(gc, worklist, p.value);
         },
         .parameter => {
             const param = obj.as(types.ParameterObject);
-            worklist.append(gc.allocator, param.value) catch @panic("GC mark: worklist OOM");
-            worklist.append(gc.allocator, param.converter) catch @panic("GC mark: worklist OOM");
+            wlPush(gc, worklist, param.value);
+            wlPush(gc, worklist, param.converter);
         },
         // Same enumeration as markObjectContents and referencesYoung, a
         // different action: this switch drives an explicit worklist rather
@@ -1134,33 +1163,33 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
         ),
         .hash_table => {
             const ht = obj.as(HashTable);
-            if (ht.equiv_fn != 0) worklist.append(gc.allocator, ht.equiv_fn) catch @panic("GC mark: worklist OOM");
-            if (ht.hash_fn != 0) worklist.append(gc.allocator, ht.hash_fn) catch @panic("GC mark: worklist OOM");
+            if (ht.equiv_fn != 0) wlPush(gc, worklist, ht.equiv_fn);
+            if (ht.hash_fn != 0) wlPush(gc, worklist, ht.hash_fn);
             for (ht.entries[0..ht.capacity]) |entry| {
                 if (entry.state == .occupied) {
-                    worklist.append(gc.allocator, entry.key) catch @panic("GC mark: worklist OOM");
-                    worklist.append(gc.allocator, entry.value) catch @panic("GC mark: worklist OOM");
+                    wlPush(gc, worklist, entry.key);
+                    wlPush(gc, worklist, entry.value);
                 }
             }
         },
         .rational => {
             const rat = obj.as(Rational);
-            worklist.append(gc.allocator, rat.numerator) catch @panic("GC mark: worklist OOM");
-            worklist.append(gc.allocator, rat.denominator) catch @panic("GC mark: worklist OOM");
+            wlPush(gc, worklist, rat.numerator);
+            wlPush(gc, worklist, rat.denominator);
         },
         .complex => {
             const cx = obj.as(types.Complex);
-            worklist.append(gc.allocator, cx.real) catch @panic("GC mark: worklist OOM");
-            worklist.append(gc.allocator, cx.imag) catch @panic("GC mark: worklist OOM");
+            wlPush(gc, worklist, cx.real);
+            wlPush(gc, worklist, cx.imag);
         },
         .ffi_library => {},
         .ffi_function => {
             const ffi_fn = obj.as(FfiFunction);
-            worklist.append(gc.allocator, ffi_fn.library) catch @panic("GC mark: worklist OOM");
+            wlPush(gc, worklist, ffi_fn.library);
         },
         .ffi_callback => {
             const cb = obj.as(FfiCallback);
-            worklist.append(gc.allocator, cb.closure) catch @panic("GC mark: worklist OOM");
+            wlPush(gc, worklist, cb.closure);
         },
         .fiber => {
             const fiber_mod = @import("fiber.zig");
@@ -1169,30 +1198,30 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
         },
         .channel => {
             const ch = obj.as(types.Channel);
-            worklist.append(gc.allocator, ch.head) catch @panic("GC mark: worklist OOM");
-            worklist.append(gc.allocator, ch.tail) catch @panic("GC mark: worklist OOM");
+            wlPush(gc, worklist, ch.head);
+            wlPush(gc, worklist, ch.tail);
         },
         .process => {
             const proc = obj.as(types.Process);
-            worklist.append(gc.allocator, proc.stdin_port) catch @panic("GC mark: worklist OOM");
-            worklist.append(gc.allocator, proc.stdout_port) catch @panic("GC mark: worklist OOM");
-            worklist.append(gc.allocator, proc.stderr_port) catch @panic("GC mark: worklist OOM");
+            wlPush(gc, worklist, proc.stdin_port);
+            wlPush(gc, worklist, proc.stdout_port);
+            wlPush(gc, worklist, proc.stderr_port);
         },
         .mutex => {
             const m = obj.as(types.Mutex);
-            worklist.append(gc.allocator, m.name) catch @panic("GC mark: worklist OOM");
-            worklist.append(gc.allocator, m.owner) catch @panic("GC mark: worklist OOM");
-            worklist.append(gc.allocator, m.owner_thread) catch @panic("GC mark: worklist OOM");
-            worklist.append(gc.allocator, m.specific) catch @panic("GC mark: worklist OOM");
+            wlPush(gc, worklist, m.name);
+            wlPush(gc, worklist, m.owner);
+            wlPush(gc, worklist, m.owner_thread);
+            wlPush(gc, worklist, m.specific);
         },
         .condition_variable => {
             const cv = obj.as(types.ConditionVariable);
-            worklist.append(gc.allocator, cv.name) catch @panic("GC mark: worklist OOM");
-            worklist.append(gc.allocator, cv.specific) catch @panic("GC mark: worklist OOM");
+            wlPush(gc, worklist, cv.name);
+            wlPush(gc, worklist, cv.specific);
         },
         .native_closure => {
             const nc = obj.as(types.NativeClosure);
-            for (nc.upvalues) |uv| worklist.append(gc.allocator, uv) catch @panic("GC mark: worklist OOM");
+            for (nc.upvalues) |uv| wlPush(gc, worklist, uv);
         },
         .scheme_environment => {
             const se = obj.as(types.SchemeEnvironment);
@@ -1202,7 +1231,7 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
             // redundancy.
             if (!se.owned) return;
             var vit = se.env.valueIterator();
-            while (vit.next()) |val| worklist.append(gc.allocator, val.*) catch @panic("GC mark: worklist OOM");
+            while (vit.next()) |val| wlPush(gc, worklist, val.*);
         },
         .ephemeron => {
             // Weak key, conditional value: the ephemeron object survives (it
@@ -1216,8 +1245,8 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
             if (g.is_transport) {
                 // Transport cells are held strongly; marking each cell defers
                 // its key and traces its value via the `.transport_cell` arm.
-                for (g.registered.items) |e| worklist.append(gc.allocator, e.watched) catch @panic("GC mark: worklist OOM");
-                for (g.ready.items) |e| worklist.append(gc.allocator, e.watched) catch @panic("GC mark: worklist OOM");
+                for (g.registered.items) |e| wlPush(gc, worklist, e.watched);
+                for (g.ready.items) |e| wlPush(gc, worklist, e.watched);
             } else {
                 // Both queues are weakly held — ready (resurrected) contents
                 // are weak resurrections, registered elements await their
@@ -1228,7 +1257,7 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
         .transport_cell => {
             // Value strong, key deferred to processWeakRefs (#2006).
             const tc = obj.as(TransportCell);
-            worklist.append(gc.allocator, tc.value) catch @panic("GC mark: worklist OOM");
+            wlPush(gc, worklist, tc.value);
             gc.pending_transport_cells.append(gc.allocator, cur) catch @panic("GC mark: pending transport cells OOM");
         },
         .symbol, .string, .native_fn, .flonum, .bytevector, .bignum, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time, .numeric_vector => {},
