@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788340234215,
+  "lastUpdate": 1788361345214,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f65c99129c242feedb2c0e9232b8bc41b2fd4312",
-          "message": "Add bounded-step, resumable execution entry point (Fixes #2283) (#2284)\n\n* Add bounded-step, resumable execution entry point (Fixes #2283)\n\nThe WASM playground could only run programs through a synchronous WASI\n`_start` that blocks until completion, so its only runaway guard was a hard\n5 s `terminate()` on the Web Worker — which kills legitimately long-running,\nconstant-space programs like `((call/cc call/cc) (call/cc call/cc))` and\ndiscards output already produced.\n\nGive hosts a resumable, instruction-budgeted entry point instead, reusing the\nmachinery the SRFI-18 scheduler and GC already need: the dispatch-loop\nsafepoint, `error.Yielded`, and frames that live in the VM struct rather than\non the host C stack across a yield. A step budget is one more thing the\nsafepoint checks; when the outermost stepped loop reaches its deadline it\nreturns `error.Yielded` with `step_paused` set — between instructions, so\nevery stack and the ip are consistent and no rewind is needed.\n\nThe pause fires only in the outermost stepped `runUntil`, guarded by\n`step_active`, which runUntil save/restores exactly as it does\n`dispatched_from_scheduler`. A nested runUntil (eval, a native higher-order\ndriver's callback, a scheduler fiber slice, a file-backed library load) runs\nwith `step_active == false` and cannot pause, so a mid-form pause never\nstrands a half-finished native frame. beginStep/resumeStep arm stepping only\nwhen no scheduler exists, so a fibered program runs its scheduler slice to\ncompletion within a step rather than pausing mid-fiber.\n\n- VM: `beginStep`/`resumeStep` (vm_calls.zig), sharing `prepareTopLevelFrame`\n  and the success/error tails with `execute`; the pause is intercepted before\n  those tails so nothing is torn down while the form is merely suspended.\n- Driver: `vm_step.Stepper` iterates top-level forms like runFile — quick\n  forms and library declarations run to completion, ordinary forms are\n  stepped — under one shared budget, with matching result echoing and error\n  reporting, plus a cooperative stop flag wired through `vm.terminate_flag`.\n- WASM: `kaappi_step_*` C-ABI exports (wasm_step.zig, built rdynamic) the\n  playground drives instead of `_start`; stdout/stderr already stream through\n  WASI fd_write as produced (fd 1/2 are unbuffered).\n\nTests: src/tests_step.zig covers finish, pause/resume-to-batch-result, the\nconstant-space infinite program stepping forever, cooperative stop, and\nerror-then-continue; loop bounds scale down under -Dgc-stress. docs/dev/\nbounded-step.md documents the mechanism and the outermost-loop invariant.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: resumed-form root boundary, zero-budget, setup leak\n\nFixes from the PR #2284 review:\n\n- Root boundary (major): the Stepper pushed a redundant GC root for the\n  compiled function before beginStep and popped it after, which made\n  beginStep record the form's root-stack base one slot too high. On a\n  *resumed* form that raised, finishRunError then truncated to that stale\n  depth, leaving a bogus root the GC would later mark. The func is already\n  kept alive by gc.extra_roots (Compiler.init leaves it there on success), so\n  the manual root was unnecessary as well as harmful — dropped it, so the\n  recorded base matches the real one. New regression test drives a form that\n  pauses and then raises, then allocates in the next form (fails under\n  -Dgc-stress with the old boundary).\n\n- Zero budget (minor): step() clamped the deadline with `@max(budget, 1024)`;\n  a zero budget previously returned .running without reading any form, so a\n  host pumping kaappi_step_run(0) spun forever. Sub-1024 budgets cannot pause\n  earlier than the safepoint anyway. New test pumps budget 0 to completion.\n\n- Setup leak (minor): kaappi_step_setup's stepper-allocation failure path now\n  frees the source buffer ownedSource had taken ownership of, instead of\n  leaking one program's linear memory per failed setup.\n\nFull unit suite green (normal and -Dgc-stress); wasm end-to-end harness green.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Fix reader complex-root LIFO violation exposed by the new VM fields\n\nThe bounded-step VM fields added in this PR changed the VM struct layout,\nwhich shifted GC collection timing enough to make the riscv64 CI job abort\ndeterministically in the R7RS suite: a minor collection marked a root slot\nholding a pointer-tagged null (`0xFFFC…0000`) and `toObject` panicked. The\nbatch execution path is otherwise byte-for-byte identical to main, and the\nsame suite passed on every other platform and under native gc-stress, so the\nstruct-size change only *revealed* a latent bug — it did not introduce one.\n\nThe bug is in the complex-number reader (kaappi#2166). `rootComplexReal`/\n`rootComplexImag` pushed the two `complex_root` component slots onto the LIFO\nroot stack once, lazily, and popped them only in `Reader.deinit`. When a\ncomplex or rational number was an element of a list, that persistent push\nlanded *between* the balanced `pushRoot`/`popRoot` pairs `readList`/`readDatum`\nwrap around every element. The list's `defer popRoot()` then popped the\nreader's slot instead of its own (`popRoot` is LIFO, not per-variable —\n.claude/rules/gc-safety.md), orphaning a live list root that dangled once its\nframe returned. Whether the dangling slot later crashed a collection depended\non GC scheduling and stack contents, so it hid on x86_64/aarch64/s390x/ppc64le\n(the stale bits read as a benign non-pointer) and fired only on riscv64.\n\nScope the component roots to a single number's tokenization instead of the\nReader's lifetime: `beginComplexRootScope` pushes both slots at the tokenizer\nentry (readNumber / readNumberPrefixed) and a `defer` pops them on exit, so the\nstack stays strictly nested with the surrounding list/datum roots. The\ncomponents still outlive the other component's allocation — the actual\nkaappi#2166 hazard — and the token→datum window that follows performs no\nallocation before `makeComplexOrRealV` (which roots its own args). The nested\nreadNumberPrefixed→readNumber pair opens the scope exactly once via the\n`complex_roots_pushed` guard.\n\nRegression test (tests_gc_root_boundary.zig): reading one complex/rational\ndatum must leave `root_count` unchanged. It fails \"expected 0, found 2\" on the\nold code (the leaked pair) and passes with the fix — deterministic and\nplatform-independent. Verified: riscv64 R7RS now runs panic-free, the full\nunit suite is green normally and the reader/root/numeric/step tests under\n-Dgc-stress, and complex arithmetic still reads correctly.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-23T05:06:16+05:30",
-          "tree_id": "cc36e571b5f7beb9670af5f178d3a3f7c825dc6a",
-          "url": "https://github.com/kaappi/kaappi/commit/f65c99129c242feedb2c0e9232b8bc41b2fd4312"
-        },
-        "date": 1787443900576,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.059856,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.970765,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.547554,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.896893,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004881,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04658,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.279932,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.053545,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.560108,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.145201,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.593236,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.301872,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.680732,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.779303,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.048379,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044912,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "02984593ce2374fe6f7da7fdc56b026d6a1fa143",
+          "message": "CI: raise the macOS ReleaseSafe test cap to 50 minutes (#2484)\n\nThe 40-minute cap (set when 30 started cancelling healthy runs, with a\n~35-minute clean run estimated) no longer covers slow-runner variance.\nPR #2481's re-run on 2026-09-02 was cancelled at 40:04 on its last step\nwith every suite green: build 4 min, unit tests 13.5, Scheme suites\n21.5. Healthy macOS runs still land at 18-24 minutes, so 50 keeps hang\ndetection while leaving ~10 minutes over the slowest observed run.\nInclude-only key, so the pinned job name and required check are unchanged.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-02T19:14:09+05:30",
+          "tree_id": "7e4abeefa5d9bf1c9cd0b7e4f0bc4637776e329d",
+          "url": "https://github.com/kaappi/kaappi/commit/02984593ce2374fe6f7da7fdc56b026d6a1fa143"
+        },
+        "date": 1788361343107,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.277534,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 5.274717,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.27631,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 1.493197,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.002818,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.024276,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.142468,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.028177,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.29146,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.585727,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 0.845738,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.192362,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 0.911197,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.246706,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.025765,
             "unit": "seconds"
           }
         ]
