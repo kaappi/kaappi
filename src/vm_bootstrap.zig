@@ -62,7 +62,7 @@ pub fn install(vm: *VM) VMError!void {
             _ = vm.globals.remove(name);
         }
     }
-    vm.global_version +%= 1;
+    _ = vm.bumpGlobalVersion();
 }
 
 /// One definition, with the failure reported by index instead of as a bare

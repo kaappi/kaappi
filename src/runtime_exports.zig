@@ -123,7 +123,7 @@ pub export fn kaappi_set_global(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_len
         // fallback, say) that cached this global — including the pristine
         // primitive a guard_builtin compares against (kaappi#2469) — must
         // not keep serving the old value.
-        v.global_version +%= 1;
+        _ = v.bumpGlobalVersion();
     } else {
         _ = platform.write(2, "set!: unbound variable '", 24);
         _ = platform.write(2, name_ptr, len);

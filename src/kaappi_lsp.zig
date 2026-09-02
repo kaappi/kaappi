@@ -871,7 +871,7 @@ fn pruneImportedGlobals(vm: *vm_mod.VM, allocator: std.mem.Allocator) void {
     }
     if (to_remove.items.len == 0) return;
     for (to_remove.items) |k| _ = vm.globals.remove(k);
-    vm.global_version +%= 1;
+    _ = vm.bumpGlobalVersion();
 }
 
 // Convert a `file://` URI to a native filesystem path in `buf`, percent-decoding

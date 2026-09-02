@@ -240,6 +240,23 @@ raise.
 Nothing else is checked. Every other type on the uncopyable list is fully
 usable from a child thread through a global.
 
+The map's *generation counter* is shared the same way. Every function
+caches the globals it resolves (`Function.global_cache`, validated by
+`cache_version` against the current generation), and the generation lives
+on the `GlobalsRwLock` object every VM chained to the map holds by pointer
+(`GlobalsRwLock.version`, read through `VM.globalVersion`). Until
+kaappi#2483 it was a per-VM field that `initForThread` neither copied nor
+shared, so a child's caches were invalidated only by the child's own
+rebindings: after the root redefined a global, a child that had already
+cached it kept calling the old binding, and a `guard_builtin`
+(kaappi#2469) in the child stayed on its fast path after the root
+redefined the builtin. Two ordering rules keep the shared counter honest
+across threads: a writer bumps it inside the locked region that made the
+store and re-validates its own slot with the value *that* bump returned,
+and a reader snapshots it once *before* the map read and stamps the
+snapshot — a fresh load after the read could bless a value another thread
+had rebound in between (`VM.bumpGlobalVersion`, `VM.globalVersion`).
+
 ## The actual matrix
 
 Verified at `e24e594e`, ReleaseSafe, isolated `KAAPPI_HOME` — except the
@@ -389,6 +406,7 @@ thread gets its own VM and GC with an independent heap.
 | `GC.deepCopy` / `deepCopyValue` | `src/memory.zig` (impl in `gc_deep_copy.zig`) | Deep-copies values between GC heaps; owns the 11-tag refusal list |
 | `VM.initForThread` | `src/vm.zig` | Per-thread VM, sharing the **root's** globals and libraries **by pointer** |
 | `VM.owns_globals` | `src/vm.zig` | Stops a child VM freeing the shared maps on deinit |
+| `GlobalsRwLock.version` | `src/globals.zig` | kaappi#2483: the globals generation every per-function global cache is validated against, on the lock object all threads share by pointer — so the root's rebinding invalidates a child's cache and vice versa |
 | `symbol_mutex` | `src/memory.zig` | Spinlock protecting concurrent symbol interning |
 | `child_resources` | `src/primitives_srfi18.zig` | Global map holding child GC/VM references; entries are freed at `thread-join!` or, when the join retires them because the thread still has live descendants, by the last descendant's `threadEntryFn` defer once the subtree drains (kaappi#2129) |
 | `markLiveChildRoots` | `src/primitives_srfi18.zig` | kaappi#1933: registered on the **root** GC as `gc.child_marker`; the root's collector stops every live child at a dispatch-loop safepoint (or finds it already parked / in an FFI call) and marks its roots with the root's gc, so a parent-heap object referenced only from a live child's registers is never freed under it. Children spawned mid-collection spin on `collection_in_progress` before their first shared-globals read. The child side reports `collection_state` (`.running`/`.parked`/`.stopped`/`.in_native`) from the safepoint (`stopForCollection`), the park (`parkOnReactor`) and FFI (`callFfi`) sites |

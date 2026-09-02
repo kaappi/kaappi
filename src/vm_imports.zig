@@ -65,7 +65,7 @@ fn importBinding(vm: *VM, target: *std.StringHashMap(Value), name: []const u8, v
         return;
     }
     if (target == vm.globals) {
-        vm.global_version +%= 1;
+        _ = vm.bumpGlobalVersion();
     }
 }
 
@@ -160,9 +160,9 @@ fn copyOneDefEnvBinding(
                     vm.globals_lock.unlock();
                     return error.OutOfMemory;
                 };
+                _ = vm.bumpGlobalVersion();
             }
             vm.globals_lock.unlock();
-            if (missing) vm.global_version +%= 1;
         }
     } else if (!target.contains(fname)) {
         target.put(fname, fval) catch return error.OutOfMemory;

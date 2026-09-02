@@ -849,8 +849,9 @@ test "bootstrap stubs fail loudly without vm_bootstrap.install (#1375)" {
 // re-stamp); the two call opcodes did not.
 //
 // Asserting the stamp rather than timing keeps this deterministic. Child
-// SRFI-18 VMs masked the bug: initForThread leaves global_version at 0, which
-// happens to match the un-stamped default.
+// SRFI-18 VMs masked the bug at the time: initForThread left the child's own
+// (then per-VM) global_version at 0, which happened to match the un-stamped
+// default. The counter is shared with the root since kaappi#2483.
 test "call_global stamps cache_version so its inline cache can hit" {
     var ctx: th.TestContext = undefined;
     try ctx.init();
@@ -865,10 +866,10 @@ test "call_global stamps cache_version so its inline cache can hit" {
 
     // The cache must exist and be valid for this VM, or it can never hit.
     try std.testing.expect(func.global_cache != null);
-    try std.testing.expectEqual(ctx.vm.global_version, func.cache_version);
-    // global_version is non-zero in a real VM: that is precisely why an
+    try std.testing.expectEqual(ctx.vm.globalVersion(), func.cache_version);
+    // The global version is non-zero in a real VM: that is precisely why an
     // un-stamped (default 0) cache_version could never match.
-    try std.testing.expect(ctx.vm.global_version != 0);
+    try std.testing.expect(ctx.vm.globalVersion() != 0);
 }
 
 // The heal must clear the whole cache before re-stamping (issue #812's rule),

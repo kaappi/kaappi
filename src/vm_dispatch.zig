@@ -320,15 +320,19 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     // barrier, so this order is as safe as barrier-first.
                     self.gc.envStoreBarrier(func.env_val, val);
                 }
+                // kaappi#2483: the version is shared with every child VM, so
+                // bump it inside the locked region that made the store, and
+                // stamp the cache below with the value THIS bump produced —
+                // see VM.bumpGlobalVersion.
+                const new_version: ?u32 = if (ptr != null and func.env == null) self.bumpGlobalVersion() else null;
                 self.unlockGlobalsShared();
                 if (ptr == null) {
                     self.setErrorDetail("set!: unbound variable '{s}'", .{name});
                     return VMError.UndefinedVariable;
                 }
-                if (func.env == null) {
-                    self.global_version +%= 1;
+                if (new_version) |nv| {
                     if (func.global_cache) |cache| {
-                        // Bumping global_version invalidates every function's
+                        // Bumping the version invalidates every function's
                         // cache, including this one's other entries. Clear the
                         // whole cache before revalidating the written slot —
                         // stamping cache_version without the memset would
@@ -336,7 +340,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         // serving them stale (issue #812). Mirrors get_global.
                         @memset(cache, types.VOID);
                         if (sym_idx < cache.len) cache[sym_idx] = val;
-                        func.cache_version = self.global_version;
+                        func.cache_version = nv;
                         // #1961 (review): same orphaned-slot hazard as
                         // get_global's cache fill.
                         self.gc.writeBarrier(&func.header, val);
@@ -367,27 +371,31 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     const root_vm = self.root_vm orelse self;
                     if (types.toObject(val).owner != root_vm.gc.id) return raiseCrossHeapStoreVM(self, "define");
                 }
+                var new_version: ?u32 = null;
                 if (env == self.globals) {
                     // Structural mutation of the shared globals map: may
                     // rehash, so it must exclude child-thread readers.
                     self.globals_lock.lock();
                     defer self.globals_lock.unlock();
                     env.put(name, val) catch return VMError.OutOfMemory;
+                    // kaappi#2483: bump under the same exclusive lock as
+                    // the put, and stamp the cache below with this bump's
+                    // own value — see set_global / VM.bumpGlobalVersion.
+                    if (func.env == null) new_version = self.bumpGlobalVersion();
                 } else {
                     env.put(name, val) catch return VMError.OutOfMemory;
                     // #1961: same rule as set_global, via the shared helper
                     // (envStoreBarrier) so the exclusion lives once.
                     self.gc.envStoreBarrier(func.env_val, val);
                 }
-                if (func.env == null) {
-                    self.global_version +%= 1;
+                if (new_version) |nv| {
                     if (func.global_cache) |cache| {
                         // See set_global: clear the whole cache before
                         // revalidating so unrelated stale entries aren't
                         // re-blessed by the version stamp (issue #812).
                         @memset(cache, types.VOID);
                         if (sym_idx < cache.len) cache[sym_idx] = val;
-                        func.cache_version = self.global_version;
+                        func.cache_version = nv;
                         // #1961 (review): same orphaned-slot hazard as
                         // get_global's cache fill.
                         self.gc.writeBarrier(&func.header, val);
@@ -989,15 +997,18 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const base: u32 = try toBase(base_wide);
 
                 if (the_func.env == null) {
+                    // kaappi#2483: one snapshot before the map read stamps
+                    // every fill below — see VM.globalVersion.
+                    const gv = self.globalVersion();
                     if (the_func.global_cache) |cache| {
-                        if (the_func.cache_version == self.global_version and
+                        if (the_func.cache_version == gv and
                             sym_idx < cache.len and cache[sym_idx] != types.VOID)
                         {
                             self.registers[base] = cache[sym_idx];
                         } else {
-                            if (the_func.cache_version != self.global_version) {
+                            if (the_func.cache_version != gv) {
                                 @memset(cache, types.VOID);
-                                the_func.cache_version = self.global_version;
+                                the_func.cache_version = gv;
                             }
                             const sym = try constantAt(self, the_func, sym_idx);
                             if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
@@ -1005,8 +1016,8 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             const val = lookupGlobalLocked(self, the_func, name) orelse return raiseUndefinedVariable(self, name);
                             self.registers[base] = val;
                             // #1812: don't cache a def_env_binding_prefix
-                            // resolution — see the get_global handler's own
-                            // comment on why self.global_version can't be
+                            // resolution — see lookupGlobalCached's own
+                            // comment on why the global version can't be
                             // trusted to invalidate it.
                             if ((types.isClosure(val) or types.isNativeFn(val)) and
                                 vm_mod.globals_mod.parseDefEnvBindingSymbolName(name) == null)
@@ -1040,7 +1051,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             @memset(cache, types.VOID);
                             cache[sym_idx] = val;
                             the_func.global_cache = cache;
-                            the_func.cache_version = self.global_version;
+                            the_func.cache_version = gv;
                             // #1961 (review): fresh caches too — the function
                             // can already be promoted by its first global op.
                             self.gc.writeBarrier(&the_func.header, val);
@@ -1108,9 +1119,12 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const abs_base: u32 = try toBase(abs_base_wide);
 
                 var callee: Value = types.VOID;
+                // kaappi#2483: one snapshot before the map read stamps every
+                // fill below — see VM.globalVersion.
+                const gv = self.globalVersion();
                 if (func.env == null) {
                     if (func.global_cache) |cache| {
-                        if (func.cache_version == self.global_version and
+                        if (func.cache_version == gv and
                             sym_idx < cache.len and cache[sym_idx] != types.VOID)
                         {
                             callee = cache[sym_idx];
@@ -1123,15 +1137,15 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     const name = types.symbolName(sym);
                     callee = lookupGlobalLocked(self, func, name) orelse return raiseUndefinedVariable(self, name);
                     // #1812: don't cache a def_env_binding_prefix resolution
-                    // — see get_global's own comment on why self.global_version
-                    // can't be trusted to invalidate it.
+                    // — see lookupGlobalCached's own comment on why the global
+                    // version can't be trusted to invalidate it.
                     if (func.env == null and (types.isClosure(callee) or types.isNativeFn(callee)) and
                         vm_mod.globals_mod.parseDefEnvBindingSymbolName(name) == null)
                     {
                         if (func.global_cache) |cache| {
-                            if (func.cache_version != self.global_version) {
+                            if (func.cache_version != gv) {
                                 @memset(cache, types.VOID);
-                                func.cache_version = self.global_version;
+                                func.cache_version = gv;
                             }
                             if (sym_idx < cache.len) cache[sym_idx] = callee;
                         } else {
@@ -1141,7 +1155,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             @memset(cache, types.VOID);
                             cache[sym_idx] = callee;
                             func.global_cache = cache;
-                            func.cache_version = self.global_version;
+                            func.cache_version = gv;
                         }
                         // #1961 (review): same orphaned-slot hazard as
                         // get_global's cache fill.

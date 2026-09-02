@@ -15,6 +15,18 @@ const Value = types.Value;
 pub const GlobalsRwLock = struct {
     /// Bit 31 = writer holds/wants the lock; low 31 bits = active readers.
     state: std.atomic.Value(u32) = .init(0),
+    /// Generation of the globals map this lock guards: bumped by every
+    /// rebinding that can invalidate a per-function global cache
+    /// (`Function.cache_version` is compared against it). It lives on the
+    /// lock rather than on the VM because the lock is the one object
+    /// `VM.initForThread` shares by pointer with every SRFI-18 child: a
+    /// per-VM counter meant a child's caches were invalidated only by the
+    /// child's own rebindings, so after the root redefined a global the
+    /// child kept serving the old binding -- and kept a `guard_builtin`
+    /// on its fast path after the root redefined the builtin (kaappi#2483).
+    /// Read through `VM.globalVersion`, advanced through
+    /// `VM.bumpGlobalVersion`; see those for the ordering rules.
+    version: std.atomic.Value(u32) = .init(0),
 
     const WRITER: u32 = 0x8000_0000;
 
