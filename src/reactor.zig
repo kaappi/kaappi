@@ -351,10 +351,27 @@ pub fn wakeCrossThreadWaiters() void {
         }
     }
     for (snapshot[0..snap_count]) |n| {
+        // Test-only observation point, never set in production: this is the
+        // instant the snapshot's retain exists for — lock dropped, notify and
+        // release still pending — so tests_reactor.zig's #2470 gate test can
+        // park a ringer here and drop every other reference around it.
+        if (ring_test_gate) |gate| gate(n);
         n.notify();
         releaseNotifier(n);
     }
 }
+
+/// Test-only gate on the unlocked ring (#2470 tests): when non-null, called
+/// with each snapshotted notifier after the registry lock is dropped and
+/// before its notify+release pair. That moment is the whole reason the
+/// snapshot retains: a waiter withdrawing concurrently has dropped the
+/// registry's reference and the reactor may already have dropped its base
+/// one, and only the ring's own retain keeps the notifier allocated until
+/// its release. Production never sets it, and it never fires for the
+/// overflow tail (that path holds the registry lock — parking inside it
+/// would deadlock). One branch on a cold global per entry, on a path that
+/// is about to do a syscall apiece.
+pub var ring_test_gate: ?*const fn (n: *ThreadNotifier) void = null;
 
 /// Test/leak-check hook, mirroring `notifierLiveCount`: every enrolment must
 /// be withdrawn, so this is 0 between waits.
