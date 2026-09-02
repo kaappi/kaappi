@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788329760234,
+  "lastUpdate": 1788333209597,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "56b189830bc55868d68bc4060d62bf1d16a7696a",
-          "message": "Implement the full SRFI-189 spec surface: all 82 names with spec signatures (Fixes #2087) (#2278)\n\nlib/srfi/189.sld exported 24 names, of which 23 were spec names: 59 of the\nspec's 82 identifiers were absent, four signatures were narrower than the\nspec requires, and `either` was exported without ever being defined, so a\nprogram importing it failed at the point of use. cond-expand answered yes\nto both feature tests throughout, so portable code had no way to detect\nthe gap.\n\nThe library is now a port of the reference implementation, exporting all\n82 spec identifiers with their spec signatures:\n\n- maybe-ref/either-ref take a required failure procedure and an optional\n  success procedure (default values) instead of only the container; the\n  Left payload is readable again through either-ref's failure argument\n  and either-swap.\n- maybe-bind/either-bind are variadic in the mprocs, short-circuiting\n  Nothing/Left immediately; the spec defines the result as if compose had\n  been applied, and the implementation inlines a local loop over the\n  mprocs through maybe-ref/either-ref.\n- either-filter/either-remove take obj ... for the Left payload.\n- values->maybe/values->either invoke a producer thunk rather than\n  taking bare values, per the spec's values protocol.\n- The list-protocol procedures (maybe->list, either->list,\n  maybe->list-truth, either->list-truth) return a copy of the payload,\n  so mutating a result cannot corrupt an immutable container.\n- The phantom `either` export is gone.\n\nA Just/Right/Left may hold zero or more payload objects, stored as a\nlist, so a Just with no payload is not Nothing (success with no values),\nas the spec requires. The syntax group (maybe-if, maybe-and, maybe-or,\nmaybe-let*, maybe-let*-values, either-guard, ...) is portable\nsyntax-rules over the library's own bindings.\n\nThe audit suite's 18 disabled FAIL: #2087 assertions are now live, the\nold-signature tests were updated to the spec, and the export-completeness\nsection grew to cover each spec group (protocol conversions, trivalent\nlogic, sequence ops, map/fold/unfold, compose, generation and two-values\nprotocols). 237 assertions pass, plus the older srfi189.scm regression\nfile. Full Scheme suite: 703 pass; R7RS suite: 1395 pass.\n\nOne known engine interaction, documented in compileGuard: when no guard\nclause matches, kaappi's guard re-raises in its own dynamic environment\nand does not resume the original raise-continuable site, so the reference\nsuite's continuable-reraise edge check cannot pass until that engine\ndeviation is addressed. Matching raises are caught into a Left and\nnon-matching raises propagate; both are pinned in the audit.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-10T10:15:10+05:30",
-          "tree_id": "0dba96808e9ecf18b78e6be0f7d3cf7e8d0e9619",
-          "url": "https://github.com/kaappi/kaappi/commit/56b189830bc55868d68bc4060d62bf1d16a7696a"
-        },
-        "date": 1786339231903,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.213376,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.110483,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.578728,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.954365,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004641,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047134,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.302173,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056387,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.77386,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.154052,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.582496,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.282872,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.765021,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.666517,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044707,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045544,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ebc418ed73711dd57390d375f9203893f973a441",
+          "message": "CI: require a CHANGELOG.md entry for src/lib/vendor changes unless labeled no-changelog (#2475) (#2477)\n\nA PR that changes src/, lib/ or vendor/ but not CHANGELOG.md now fails\nthe new 'changelog' job, unless the PR carries the 'no-changelog'\nlabel. The label is read live via gh pr view rather than from the\nreplayed event payload, so applying the label and re-running the job is\nenough -- no new push needed (a re-run replays the original event).\n\nScope and semantics per #2475: all of src/, lib/ and vendor/ (wider\nthan the src/ + lib/srfi/ gate dropped in #2103), tests/-only and\ndocs-only changes outside the gate, presence-only check -- entry\nwording stays with the author. The file list comes from the same\npaginated pulls/files endpoint the format classifier uses.\n\nValidated by dry-running the decision logic against 12 synthetic\nchanged-file sets (src/lib/vendor alone, with CHANGELOG.md, with the\nlabel, tests-only, docs-only, workflow-only, prefix near-miss,\nmixed). No CI-script test harness exists in the repo; noted in the PR.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude <noreply@anthropic.com>",
+          "timestamp": "2026-09-02T06:09:36Z",
+          "tree_id": "9a4cb0afb289fac048a8e95930d279810a567bac",
+          "url": "https://github.com/kaappi/kaappi/commit/ebc418ed73711dd57390d375f9203893f973a441"
+        },
+        "date": 1788333207321,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.953322,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.094736,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.57193,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.842288,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004766,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04763,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.29872,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054908,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.524368,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.164586,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.610071,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.303225,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.638308,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.788325,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045952,
             "unit": "seconds"
           }
         ]
