@@ -1,4 +1,5 @@
 const std = @import("std");
+const testing = std.testing;
 const types = @import("types.zig");
 const platform = @import("platform.zig");
 pub const memory = @import("memory.zig");
@@ -277,6 +278,101 @@ pub fn setFdNonblocking(fd: platform.fd_t) void {
     std.debug.assert(flags >= 0);
     const nonblock: c_int = @intCast(@as(u32, @bitCast(std.posix.O{ .NONBLOCK = true })));
     std.debug.assert(std.c.fcntl(fd, std.posix.F.SETFL, flags | nonblock) >= 0);
+}
+
+/// Redirect the process's real stderr (fd 2) away for the receiver's
+/// lifetime, restoring it on `deinit` — for tests whose expected outcome
+/// includes `runFile`-style diagnostics on fd 2 (kaappi#2447).
+///
+/// Why that matters under `zig build test`: the build runner captures the
+/// test binary's stderr, and a step whose captured stderr is non-empty —
+/// even a fully green one — is rendered with a red ` w` warning marker, the
+/// stderr itself, and a red `failed command: <argv>` provenance line, while
+/// the default summary mode prints no pass/fail line for a successful run.
+/// Expected-error output therefore reads exactly like a crash ("the binary
+/// died with no summary"), which is how kaappi#2447 was filed. Discarding
+/// the expected diagnostics keeps a green run silent.
+///
+/// The same fd juggling the fuzz harness uses for stdout (tests_fuzz's
+/// evalNormalized). WASI has neither dup nor a null device (kaappi#2153),
+/// so the comptime bails leave the receiver inert there and the expected
+/// output stays on the runner's stderr.
+pub const QuietStderr = struct {
+    /// The saved original stderr, valid while `active`.
+    saved: platform.fd_t = -1,
+    /// Whether fd 2 was actually redirected; inert until it is.
+    active: bool = false,
+
+    /// Redirect fd 2 onto the null sink. Inert (not an error) when the swap
+    /// cannot be made: the caller's diagnostics then simply stay on the real
+    /// stderr, the pre-helper behavior.
+    pub fn init(self: *QuietStderr) void {
+        if (comptime platform.is_wasm) return;
+        const devnull = platform.openNullSink() catch return;
+        defer _ = platform.close(devnull);
+        _ = self.initOnto(devnull);
+    }
+
+    /// Redirect fd 2 onto `sink`, which the caller keeps open for the
+    /// receiver's lifetime. Returns false — leaving the receiver inert —
+    /// when the swap cannot be made.
+    pub fn initOnto(self: *QuietStderr, sink: platform.fd_t) bool {
+        if (comptime platform.is_wasm) return false;
+        const saved = platform.dup(2);
+        if (saved < 0) return false;
+        if (platform.dup2(sink, 2) < 0) {
+            _ = platform.close(saved);
+            return false;
+        }
+        self.saved = saved;
+        self.active = true;
+        return true;
+    }
+
+    /// Point fd 2 back at the original stderr. A no-op on an inert receiver.
+    ///
+    /// On WASI the comptime guard must be the first statement of EVERY
+    /// method that names `dup`/`dup2`: semantic analysis of even an
+    /// unreachable-at-runtime call generates the `env::dup2` import, which
+    /// wasmtime then refuses (the wasm-job failure of kaappi#2447).
+    pub fn deinit(self: *QuietStderr) void {
+        if (comptime platform.is_wasm) return;
+        if (!self.active) return;
+        _ = platform.dup2(self.saved, 2);
+        _ = platform.close(self.saved);
+        self.saved = -1;
+        self.active = false;
+    }
+};
+
+test "QuietStderr routes fd 2 onto the sink and restores it" {
+    if (comptime platform.is_wasm) return error.SkipZigTest;
+    const pair = makePipeFdPair();
+    defer closeFd(pair[0]);
+    defer closeFd(pair[1]);
+
+    // Asserted, not skipped: a false here means the dup/dup2 juggling is
+    // broken, and every expected-error test relying on the helper would be
+    // silently leaking diagnostics again.
+    var quiet: QuietStderr = .{};
+    try testing.expect(quiet.initOnto(pair[1]));
+    // While active, the process's own stderr writes land in the pipe —
+    // exactly the route the runFile-style diagnostics take — and stay there
+    // across writes (no intervening restore).
+    _ = platform.write(2, "sink", 4);
+    _ = platform.write(2, "!", 1);
+    quiet.deinit();
+    try testing.expect(!quiet.active);
+
+    var buf: [8]u8 = undefined;
+    const n = platform.read(pair[0], &buf, buf.len);
+    try testing.expectEqual(@as(isize, 5), n);
+    try testing.expectEqualStrings("sink!", buf[0..@intCast(n)]);
+
+    // fd 2 is a valid, distinct descriptor again after the restore.
+    const restored = platform.dup(2);
+    try testing.expect(restored >= 0);
+    if (restored >= 0) platform.close(restored);
 }
 
 pub const SockBuf = enum { snd, rcv };
