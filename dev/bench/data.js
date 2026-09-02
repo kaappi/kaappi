@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788310919033,
+  "lastUpdate": 1788321496411,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "cb71bd209d00d8f728e8ce0d04a00c7378026dcf",
-          "message": "Remove syntax-rules rule/literal caps; fix define-property in templates (Fixes #2184, #2089) (#2275)\n\n* Remove the syntax-rules 32-rule and 32-literal caps (Fixes #2184)\n\nparseSyntaxRules parsed into fixed [32]Value stack buffers and rejected\nthe 33rd rule or literal with a bare KP2001 InvalidSyntax, making a\nlegal macro fail as if it were malformed. R7RS places no bound on\neither count, and a 33+ rule dispatcher macro is a normal shape.\n\nThe buffers are now growable ArrayLists (raw allocator, never\nGC-triggering; every held Value is a subpart of the rooted spec), with\na u16 guard where the old cap used to make Transformer.num_rules\noverflow unreachable.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Keep define-property bare in templates and dispatch it on the legacy path (Fixes #2089)\n\nA syntax-rules template emitting define-property failed with 'undefined\nvariable' two ways: the keyword was missing from the expander's\nreserved_template_forms, so the template head was hygiene-renamed to\n__hyg_N_define-property (well_known_forms alone does not stop the\nrename - instantiateTemplate consults isTemplateReserved); and even\nleft bare, the legacy compileForm path that compiles macro expansions\nhad no define-property dispatch, only the IR path did.\n\ndefine-property now sits in both reserved_template_forms and\nwell_known_forms (mirroring define-values), and compileForm dispatches\nit like the IR path.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Merge srfi 42's split qualifier macro back into a single %do-ec\n\nThe qualifier processor was split into %do-ec (generators) and\n%do-ec-more (grouping/command/control/guard) purely to dodge the\nengine's old 32-rule cap. With that cap gone the merged form is 34\nrules - back to one macro, with the workaround comment rewritten.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Update CHANGELOG for the syntax-rules cap removal and define-property fix\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Broaden the parseSyntaxRules GC-safety comment to cover the body-scan caller\n\nThe comment credited resolveTransformerSpecRec for rooting the spec,\nwhich is right for the primary caller but not for the define-syntax\nbranch of the lambda/let body scan (compiler_lambda.zig), which calls\nparseSyntaxRules directly without a root. Safety holds there for a\ndifferent reason - nothing in the parse loops GC-allocates and\nallocTransformer dupes the slices before it can collect - so the\ncomment now states the guarantee in terms of what this code itself\nensures, with an explicit warning not to add a GC-triggering call to\nthe loops.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-09T20:07:37Z",
-          "tree_id": "4f72d54ea8c1d1a4a5f67079c0c2ef1ff28f4bf5",
-          "url": "https://github.com/kaappi/kaappi/commit/cb71bd209d00d8f728e8ce0d04a00c7378026dcf"
-        },
-        "date": 1786308225631,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.266241,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.956004,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.562442,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.978641,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00468,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046857,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.304812,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.055533,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.765175,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.180279,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.584985,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.277058,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.785844,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.589952,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044776,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046578,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f7d6173a730ca9c3336501ef59afa8e547dc25e8",
+          "message": "apply/call-with-values: resumable cwv producer (#2453) and unit-wide gate decline for redefined names (#2457) (#2467)\n\n* Report KP3000 when a resumed call-with-values producer returns past its native driver (#2453, part 1)\n\nA continuation captured inside call-with-values' PRODUCER, resumed after\nthe form returned, did not report the honest 'continuation cannot resume\nacross a returned native call' (KP3000) that every other returned-native-\ncall resume raises. The producer's frame was pushed by callThunk with\nreturns_to_native = false, so its late return fell through the dispatch\nloop's raiseDeadNativeReturn check and delivered the value into a stale\nregister of the enclosing bytecode frame, which the following apply then\nmisread: 'error[KP3002]: apply: last argument must be a list', blaming an\noperand the user never wrote.\n\ncallThunkReturningToNative pushes the closure frame with\nreturns_to_native = true, the same marker callWithArgs-driven natives\n(map, fold, hash-table-walk, ...) already get for their callbacks, so the\nresumed producer's return raises the accurate catchable error instead.\ncallWithValuesFn and %call-with-values->list both use it for their\nproducer call. Native and native-closure thunks push no VM frame and are\nunchanged.\n\nThe superinstruction lowering's own producer stops running under a native\nframe entirely in part 2; this fix keeps the diagnostic accurate for every\nroute that still drives it natively -- the by-name call a declined fast\npath compiles to, once the name is restored to the genuine binding.\n\nTests: tests/scheme/continuations/callcc-cwv-native-kp3000-2453.scm --\nnon-tail and tail, asserting the KP3000 message (the guard encloses the\ncapture: a resume restores the handler stack as of capture time, so a\nguard entered after the form returned cannot see the error).\n\nCo-authored-by: ZCode <noreply@z.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Lower call-with-values' producer with an ordinary call opcode (#2453, part 2)\n\n#2451 moved call-with-values' consumer into the dispatch loop; the producer\nkept running under the native %call-with-values->list frame, so a\ncontinuation captured inside it still could not be resumed after the form\nreturned -- R7RS-small requires call/cc to produce fully re-entrant\ncontinuations, and call-with-values is a core procedure.\n\nThe lowering now emits, in order:\n\n  - a call of %call-with-values-check, which type-checks BOTH operands\n    exactly where callWithValuesFn did -- producer first, before anything\n    runs, same typeError texts -- so a bad producer or consumer is still\n    reported as call-with-values, not as the apply the form compiles into,\n    and not after the other operand's side effects;\n  - an ordinary `call` of the producer (0 args): its frame is a VM frame in\n    the caller's bytecode, copied by continuation capture and restored by\n    resume like any other, so a resume re-enters the producer's body and\n    its return delivers through the normal frame path;\n  - a new `values_list` opcode (dst:u16, src:u16, appended last in the\n    OpCode enum per the .sbc numbering constraint) that spreads the\n    produced value -- single, or a MultipleValues object from values --\n    into the fresh argument list the following apply reads;\n  - the same apply/tail_apply of the consumer as before.\n\nA resume therefore re-runs the spread and the consumer with the newly\nproduced values. %call-with-values->list is gone: nothing emits it, and\nthe native callWithValuesFn (the by-name route a declined fast path\ncompiles to) keeps part 1's honest KP3000 for its own producer.\n\nREADME's Known limitations drops the producer corner from the restricted\nlist; the exempt list now credits both halves. New opcode documented in\ndocs/dev/bytecode.md, the OpCode count gate and the four files quoting it\nupdated (33).\n\nTests: tests/scheme/continuations/callcc-cwv-producer-reentry-2453.scm --\nnon-tail and tail producer re-entry, several/no values, a resume\nre-spreading newly produced values, and the ordinary semantics plus all\nthree diagnostic shapes (bad consumer before the producer runs, bad\nproducer, both bad producer-first, consumer arity).\n\nCo-authored-by: ZCode <noreply@z.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Decline the five fast paths for names the compilation unit redefines (#2457)\n\nA top-level redefinition of apply, call-with-values, eval, call/cc or\ncall-with-current-continuation was ignored by any procedure body compiled\nBEFORE the redefinition ran, in both tail and non-tail position: the body\nsilently ran the builtin and discarded the user's procedure. R7RS 5.3.1\nmakes a top-level definition essentially an assignment, so which binding a\ncall resolves is a run-time question; `globalBindingStillGenuine` answered\nit by reading the live global environment at COMPILE time, which is wrong\nwhenever compile order and definition order differ. #2033 fixed the\ndefine-first order that way; the use-first order kept baking in the builtin.\n\nEstablished while investigating (the issue's caveat): the #2033 gate is the\nONLY interpreter-tier decision that bakes these names in -- its decline path\nresolves by name at run time (isContinuationBarrier routes these names away\nfrom call_global toward the same by-name get_global + call, and neither the\ncompiler's nor the IR's constant folders fold them). Pre-#2452 the same gate\ndecided the in-body non-tail path, which is why the issue's A/B was clean.\nThe native tier has a second, independent gate: emitApplyForm's\nrebound_globals/native_fns sets are populated in emission order, so it had\nthe same use-before-define hole for the one name it lowers structurally.\n\nThe interim fix (the issue's cheaper option; the run-time-decision redesign\nis the recorded follow-up): drivers that know the whole compilation unit\npre-scan its top-level define/define-values/set! targets (through begin and\ncond-expand splices, like check.zig's lint collector), and\nglobalBindingStillGenuine declines for those names everywhere in the unit.\nThat costs the superinstruction only in programs that shadow these names at\nall -- the programs whose semantics were wrong. Wired into the file runner\n(cold and .sbc-HIT replay), stdin scripts, `kaappi compile`'s .sbc pass,\n`kaappi check` (reusing its existing collected set), and the native backend:\ncompileNative installs the same scan and emitApplyForm's `rebound` consults\nit, so the compiled binary honours a later redefinition too.\n\nEvery spine the scan walks is a guarded SpineWalk and the curried-define\npeel is step-capped: a datum-label cycle in code position (`(begin .\n#0=(1 . #0#))`, the #2405 family) must reach the run loop's own KP2001\ndiagnosis, not spin in the pre-scan.\n\nLeft on the legacy compile-time answer, deliberately: the REPL and `eval`\n(no future knowledge), and a redefinition that only materializes when a\nmacro expands. Library bodies inherit the enclosing run's set when there is\none (conservative, never wrong).\n\nThree tests moved, each because a unit-wide define of these names now\ndeclines the superinstruction for the whole file, which would conflate what\nthey pin with the gate's resolution rules: the begin-sibling-define pair\nfrom callcc-native-driver-reentry-2451.scm to top-level-redefinition-2033.scm,\nand the two tail_call_cc receiver-arity pins from the primitives_control\naudit to callcc-correctness.scm (the audit file redefines call/cc at top\nlevel, so the opcode's own diagnostic is unreachable from it).\n\nTests: tests/scheme/compliance/top-level-redefinition-order-2457.scm (all\nfive names, both positions, use-before-define plus define-first control,\nset! and begin-spliced redefinitions, non-procedure redefinition, car/map\ncontrast); tests/scheme/compile/native-apply-redefinition-order-2457.sh\n(compiled binary agrees with the interpreter for both orders, and a clean\nprogram keeps its native @kaappi_apply site with zero eval fallbacks); a\nZig unit test for the collector's shapes and non-captures.\n\nCo-authored-by: ZCode <noreply@z.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Wrap README's line-initial issue refs in code spans (MD018)\n\nA wrapped line beginning with `#2451` parses as an ATX heading missing\nits space, which is the exact MD018 trap .markdownlint-cli2.jsonc names\n(the #1836 bug) and what turned the format job red on this PR. Wrap both\nissue refs of the call-with-values sentence in code spans - the wording\nstays as written; only the line-initial hash stops being heading syntax.\n\nCo-authored-by: ZCode <noreply@z.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Give every check analysis entry point the exact unit target set (#2457)\n\n`kaappi check` installed the lint's user_defined set as the\nsuperinstruction gate's whole-unit target set. That set misses top-level\n`set!` targets, so a unit using `apply` early and assigning it late kept\nthe fast path during check's compiles while a run of the same file\ndeclines it - analysis and execution could disagree about what a form\ncompiles to. The install also lived in `run`, so the shared\n`analyzeSource` path (the language server, kaappi#1981) got no gate at\nall.\n\nCollect the gate set separately, with\n`compiler_passthrough.collectUnitTopLevelTargets` - the same scan a run\ninstalls, set! targets included, define-syntax names excluded - and\ninstall it in `analyzeSource` itself with the existing defer-based\ncleanup, so `run`, `analyzeForTest`, and the LSP all analyse under the\nexact set and only for the duration of the analysis. The lint keeps its\nown user_defined set, whose extra define-syntax names remain\nconservative for the unbound-variable warning.\n\nCo-authored-by: ZCode <noreply@z.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Split the builtin gate and set! pre-scan out of compiler.zig\n\ncompiler.zig crossed the 1500-line file-size cap this PR pushed it over\n(1739 on main, 1751 after). Move the one cohesive section the PR grew -\nthe redefinition-awareness machinery - to a new compiler_gate.zig,\nverbatim: `globalBindingStillGenuine` (the builtin-bypass gate behind\nthe five superinstructions, including the #2457 unit-targets check) and\nthe `set!` pre-scan that feeds it (`SetScanBudget`,\n`collectSetTargets`, `scanSetTargetsWithoutMacros`, and the prescan\ncounters). Both halves answer the same question - can a compile-time\ndecision that a name still resolves to its built-in survive until the\ncode runs - for two redefinition routes; neither emits bytecode.\n\nCall sites updated (compiler.zig's compile paths, native_compiler.zig,\ntests_prescan.zig) and architecture.md's compiler table gains the row.\ncompiler.zig lands at 1406 lines; behavior is unchanged - the unit and\nScheme suites, including the #2457 ordering regressions and the native\ntier, pass as before.\n\nCo-authored-by: ZCode <noreply@z.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: ZCode <noreply@z.ai>",
+          "timestamp": "2026-09-02T08:46:02+05:30",
+          "tree_id": "50f7d49ad6b3c08ebde43aeeb2494bc9e5e8bbf3",
+          "url": "https://github.com/kaappi/kaappi/commit/f7d6173a730ca9c3336501ef59afa8e547dc25e8"
+        },
+        "date": 1788321495025,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.005575,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.044807,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.561214,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.867025,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004639,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046935,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.290514,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053862,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.393927,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.147514,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.646628,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.297557,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.640167,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.769752,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.0453,
             "unit": "seconds"
           }
         ]
