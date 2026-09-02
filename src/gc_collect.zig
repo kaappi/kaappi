@@ -983,11 +983,19 @@ pub fn markValue(gc: *GC, v: Value) void {
     // collection (observed ~65x the live heap) even though every byte was
     // freed. Retaining up to 8 MB (1M entries) of a buffer whose growth
     // was driven by live pointer-reachability costs at most a fraction of
-    // the structure that caused it; only the excess past the floor is
-    // released.
+    // the structure that caused it. A frontier wider than the floor
+    // releases the whole grown buffer but re-reserves the floor, so the
+    // next collection's regrowth starts at 8 MB rather than zero — the
+    // above-floor portion is still rebuilt (and, on mallocs that keep
+    // freed large blocks dirty, still accrues); a decommitting backing
+    // allocator is the follow-up #2464 suggests.
     const max_retained = 1024 * 1024;
-    if (gc.mark_worklist.capacity > max_retained)
+    if (gc.mark_worklist.capacity > max_retained) {
         gc.mark_worklist.clearAndFree(gc.allocator);
+        // A failed re-reserve just means the next collection grows from
+        // zero, exactly the pre-fix behaviour — not worth failing over.
+        gc.mark_worklist.ensureTotalCapacityPrecise(gc.allocator, max_retained) catch {};
+    }
 }
 
 fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
@@ -1163,8 +1171,10 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
         ),
         .hash_table => {
             const ht = obj.as(HashTable);
-            if (ht.equiv_fn != 0) wlPush(gc, worklist, ht.equiv_fn);
-            if (ht.hash_fn != 0) wlPush(gc, worklist, ht.hash_fn);
+            // The raw-0 empty fields need no explicit guard: 0 is the
+            // flonum +0.0, which wlPush's isPointer check rejects.
+            wlPush(gc, worklist, ht.equiv_fn);
+            wlPush(gc, worklist, ht.hash_fn);
             for (ht.entries[0..ht.capacity]) |entry| {
                 if (entry.state == .occupied) {
                     wlPush(gc, worklist, entry.key);

@@ -32,10 +32,12 @@ const build_options = @import("build_options");
 // 40k pushes grew capacity to ~52k — *under* the old floor, hence retained
 // and visible; 70k grew past it, so the old code cleared the buffer to zero
 // after every collection. Under gc-stress the collection-per-allocation
-// makes a 70k-pair build quadratic, so only the single-allocation
-// immediate-only case runs there.
+// makes the 70k-pair build quadratic, so only that one test skips; the
+// other two run there too (the immediate-only case is a single allocation,
+// and the pointer-elements case allocates with `enabled = false`, so its
+// 1000 allocPairs never collect).
 const immediate_len = 40_000;
-const wide_len = if (build_options.gc_stress) 50_000 else 70_000;
+const wide_len = 70_000;
 
 test "#2464: a wide vector of immediates never grows the mark worklist" {
     var gc = memory.GC.init(std.testing.allocator);
@@ -47,9 +49,10 @@ test "#2464: a wide vector of immediates never grows the mark worklist" {
     defer gc.popRoot();
 
     gc.collect();
-    // Pre-fix: every element was pushed, growing capacity to ~52k (under
-    // the old 64K floor, so retained). Post-fix: no push happens at all,
-    // so the threshold has generous margin.
+    // Pre-fix: every element was pushed (all but the tail-iterated last,
+    // which still grew capacity to ~52k — under the old 64K floor, so
+    // retained). Post-fix: no push happens at all, so the threshold has
+    // generous margin.
     try std.testing.expect(gc.mark_worklist.capacity <= 4096);
     // The container itself must still be live and intact.
     try std.testing.expect(types.isVector(vec));
@@ -94,9 +97,9 @@ test "#2464: the worklist buffer is retained below the 1M-entry floor" {
     defer gc.deinit();
     gc.enabled = false;
 
-    // wide_len pair-referents: marking pushes one entry per pair, landing
-    // above the old 64K floor (which freed the whole buffer) and far below
-    // the new 1M floor.
+    // wide_len pair-referents: the vector arm pushes every element except
+    // the last (that one is iterated directly), landing above the old 64K
+    // floor (which freed the whole buffer) and far below the new 1M floor.
     const n = wide_len;
     var items: [n]types.Value = undefined;
     for (&items, 0..) |*slot, i| {
@@ -107,7 +110,9 @@ test "#2464: the worklist buffer is retained below the 1M-entry floor" {
     defer gc.popRoot();
 
     gc.collect();
-    try std.testing.expect(gc.mark_worklist.capacity >= n);
+    // n-1 is what the mark path guarantees; capacity today exceeds it by
+    // the ~50% growth slack, but the guarantee is the bound to pin.
+    try std.testing.expect(gc.mark_worklist.capacity >= n - 1);
     // And a second collection keeps it — no regrowth from zero, which is
     // the churn that left the freed realloc tops resident-dirty.
     const cap_after_first = gc.mark_worklist.capacity;
