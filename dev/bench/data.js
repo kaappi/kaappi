@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788361345214,
+  "lastUpdate": 1788388365460,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "4a6ba93151a81ca0d3681d83413482b4e20cd1e3",
-          "message": "Release v0.23.0\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-23T07:04:59+05:30",
-          "tree_id": "99df048dc2fdefd2a925a5de23acb8d2cfc5f48c",
-          "url": "https://github.com/kaappi/kaappi/commit/4a6ba93151a81ca0d3681d83413482b4e20cd1e3"
-        },
-        "date": 1787451962846,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.657807,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.483615,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.576732,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.087228,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004726,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.049033,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.314243,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.058221,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.916164,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.224279,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.701785,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.281271,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.836046,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.636878,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04994,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.025765,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "274ff4f86f06066b8b2ec1d1507a97879516ce89",
+          "message": "CI: run the riscv64 unit suite as capped chunks so a hang names its chunk (#2488) (#2490)\n\n* CI: run the riscv64 unit suite as three capped chunks so a hang names its chunk (#2488)\n\nriscv64-test is cancelled at its 45-minute cap in about one run in four\nsince 2026-09-02. Every one of those runs was still inside the single\n\"Unit tests (riscv64 via QEMU)\" step at 41-43 minutes with the unit-tests\nbinary alive, while every success finishes that step in 23-28 minutes.\nNothing lands in between, so this is a hang, not the slow tail #2458\ndiagnosed -- and the step printed nothing until it finished, so a 43-minute\nlog said nothing about which test.\n\nRaising the cap again would only make the same red arrive later. Instead\nthe unit suite now runs as three chunks through tools/run-unit-test-chunk.sh\n-- process (KEP-0022 subprocess tests, whose children are whole emulated\n/bin/sh processes under binfmt), concurrency (fibers, reactor, scheduler,\nchannels, SRFI-18), and rest (every other test-bearing src file, derived\nfrom the tree so a new file cannot be silently dropped) -- each its own\nworkflow step with its own timeout-minutes. The next hang is cancelled by\nits chunk's cap and the step name in the job log localises it. Chunking is\na diagnostic, not a fix.\n\nThe cut is exact: -Dtest-filter is a substring match on the qualified name\n\"<basename>.test.<title>\", the filter prunes builtin.test_functions at\ncompile time, and a test is included once however many filters match it.\nNatively the chunks report 66 + 231 + 1646 against an unfiltered 1933; the\n10 extra are the five unnamed `test { _ = @import(...); }` reference blocks\nevery filtered binary keeps, counted once per chunk. The script fails if a\nlisted name matches no file, and if a chunk ran no more tests than those\nreference blocks, so a rotted list cannot pass vacuously.\n\nThe job cap moves from 45 to 55 only as a backstop for several chunks\noverrunning at once; it is sized so a single hung chunk hits its own step\ncap first. The healthy total grows by a few minutes for the two extra\ntest-binary compiles (~35m expected).\n\nRefs #2488\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* CI: widen the riscv64 rest-chunk cap to 36m from the first measured run\n\nThe first chunked run (job 33674064049) measured process 1.9m,\nconcurrency 3.3m and rest 25.8m under QEMU, 35.1m for the whole job. A\n32m cap on the rest chunk left ~6m over its measured time, while the\npre-chunk unit step varied 23-28m run to run; 36m keeps ~10m of headroom\nand still fires well before the 41-43m the hung runs reached. The comments\nnow carry the measured numbers instead of estimates.\n\nRefs #2488\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* CI: split the riscv64 rest chunk into io, fuzz, gc, native and tooling\n\nThe first three-way split localised kaappi#2488's first recurrence (job\n100407731878) to the rest chunk: process and concurrency passed, rest hit\nits 36m cap with the unit-tests binary alive. That rules out the two\nsuspects the issue named, but rest was 1646 tests wide -- too wide to act\non. This cuts it along the seams in that remainder with QEMU-sensitive\nbehaviour: io (ports and reactor-driven reads, SRFI 181/170, the\nincremental reader), fuzz (wall-clock/instruction-bounded generators,\n#1573's family), gc (tracing, runtime stress, root-boundary OOM sweeps,\ndeep copy, robustness), native (skips on this tier; cheap), and tooling\n(the CLI subcommands, the `kaappi test` runner whose workers are emulated\nchildren, the caches, the REPL, and thottam -- where the thottam-tests\nbinary now runs its full suite). rest is still derived from what is not\nlisted and shrinks to 840 tests.\n\nNative measurements: io 11s (150), fuzz 1m (26), gc 9s (220), native 2s\n(141), tooling 17s (301), rest 1m (840). One cross-chunk duplicate is\ninherent to substring filters and documented in the script: native_compiler\nends with compiler, so its five tests also run in rest. Caps are sized\nfrom the ~3.3x QEMU factor the old rest chunk showed plus ~1.5m of compile\nper chunk, with about 2x headroom; the job cap stays 55 and still lets a\nsingle hung chunk hit its own step cap first.\n\nRefs #2488\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-02T21:50:59Z",
+          "tree_id": "32a152d2d11ef2e106281b53902a4967b952d859",
+          "url": "https://github.com/kaappi/kaappi/commit/274ff4f86f06066b8b2ec1d1507a97879516ce89"
+        },
+        "date": 1788388363811,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.158978,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.712762,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.428008,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.229215,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003648,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.039036,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.224284,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.041734,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.930556,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.895239,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.237362,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.237089,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.291655,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.459189,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.036962,
             "unit": "seconds"
           }
         ]
