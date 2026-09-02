@@ -555,8 +555,7 @@ jobs:
     # what localise; the job cap below only backstops several chunks
     # overrunning at once, and is sized so a single hung chunk hits ITS cap
     # first (setup + build + two healthy chunks + the hung one's cap stays
-    # inside it). Expected healthy total: ~35m (the two extra test-binary
-    # compiles cost a few minutes).
+    # inside it). Measured healthy total: 35m on the first chunked run.
     timeout-minutes: 55
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -578,11 +577,14 @@ jobs:
         run: zig build -Dtarget=riscv64-linux
 
       # Three chunks, not one step: see the job comment and the script's
-      # header. Natively the process and concurrency chunks take ~15s each
-      # and the rest ~7m; under QEMU the whole suite was 23-28m, so the
-      # per-step caps below are each well above the chunk's healthy share.
-      # A chunk that hangs is cancelled by its own step's cap, and the step
-      # name in the job log is the localisation kaappi#2488 asks for.
+      # header. Measured under QEMU on the first chunked run (job
+      # 33674064049): process 1.9m, concurrency 3.3m, rest 25.8m, each
+      # including its own test-binary compile. The caps below leave the
+      # rest chunk ~10m over its measured time (the pre-chunk unit step
+      # varied 23-28m run to run) while still firing well before the hung
+      # runs' 41-43m. A chunk that hangs is cancelled by its own step's
+      # cap, and the step name in the job log is the localisation
+      # kaappi#2488 asks for.
       - name: Unit tests, process chunk (riscv64 via QEMU)
         timeout-minutes: 12
         run: bash tools/run-unit-test-chunk.sh process -Dtarget=riscv64-linux
@@ -592,7 +594,7 @@ jobs:
         run: bash tools/run-unit-test-chunk.sh concurrency -Dtarget=riscv64-linux
 
       - name: Unit tests, rest chunk (riscv64 via QEMU)
-        timeout-minutes: 32
+        timeout-minutes: 36
         run: bash tools/run-unit-test-chunk.sh rest -Dtarget=riscv64-linux
 
       - name: R7RS test suite (riscv64 via QEMU)
