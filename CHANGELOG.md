@@ -211,11 +211,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   only, but with a dozen parked threads a scheduler-quantum-long one. The
   ring now snapshots the first 128 enrolled notifiers under the lock (each
   retained), drops the lock, and notifies and releases outside it — the
-  same snapshot-then-ring shape channel wakes already use — so the critical
-  section is constant-size again and the teardown close
-  (`releaseNotifier`'s zero transition) never runs under the lock. Entries
-  past 128 (more simultaneously blocked OS threads than that is already
-  pathological) keep the old under-lock tail. Windows socket
+  same snapshot-then-ring shape channel wakes already use — so within
+  those 128 the critical section is constant-size again, and the teardown
+  close (`releaseNotifier`'s zero transition) never runs under the lock on
+  any path. Entries past 128 (more simultaneously blocked OS threads than
+  that is already pathological) keep the old under-lock tail — their
+  `notify()` still runs while the lock is held, so past 128 the critical
+  section grows with waiters as before. Windows socket
   initialisation's last bare spin loop now backs off through the same
   spin-then-yield-then-sleep ladder every other cross-thread wait uses
   (#2472), so an auditor grepping for spin-hint-only waits finds zero.

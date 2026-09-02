@@ -1020,7 +1020,15 @@ test "#2470: the snapshot retain alone keeps a torn-down notifier alive through 
             reactor_mod.wakeCrossThreadWaiters();
         }
     };
-    const ringer = try std.Thread.spawn(.{}, Ringer.run, .{});
+    // On spawn failure the cleanup defer below is not installed yet (LIFO:
+    // it appears only after a successful spawn), so clear the gate globals
+    // here — otherwise a later ring anywhere in the suite walks the dead
+    // stack-local `gate` through `ringGateHook`.
+    const ringer = std.Thread.spawn(.{}, Ringer.run, .{}) catch |err| {
+        ring_gate_ctx = null;
+        reactor_mod.ring_test_gate = null;
+        return err;
+    };
     var joined = false;
     // Registered last, runs first on every exit path (LIFO): release the
     // parked ringer, join it, then uninstall the gate so nothing after this
