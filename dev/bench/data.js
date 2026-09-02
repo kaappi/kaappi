@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788338426051,
+  "lastUpdate": 1788340234215,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6209f7fdcb00f5cf23aa10a7cdaa649d09e3f3cd",
-          "message": "Fix SRFI 150 hygiene collapse: resolve field identity at expansion time (Fixes #2051) (#2280)\n\n* Fix SRFI 150 hygiene collapse: resolve field identity at expansion time (Fixes #2051)\n\nlib/srfi/150.sld carried field names from macro-expansion time to run\ntime inside `quote`. The compiler strips a `__hyg_N_` rename from any\nquoted datum (required for syntax-rules templates), so two field\nidentifiers the expander had correctly distinguished -- a macro\ntemplate's own field-name literal and the same-spelled identifier the\nuse site supplies, e.g. __hyg_2_a and a -- stripped to one runtime name\nand collapsed into a single field. All four of the reference suite's\nhygiene assertions failed on it; the attribution to #1832 (pre-existing\ntop-level binding of the colliding spelling) was wrong -- the no-binding\ncontrol fails identically.\n\nThe redesign resolves field identity entirely at macro-expansion time,\nwhile the renamed symbols are still in hand:\n\n- A constructor spec entry matches the current form's own fields by full\n  spelling (bound-identifier=? in this engine's rename-by-spelling\n  model, then inherited fields by hygiene-stripped spelling against the\n  parent's stored property (free-identifier=?), and resolves to a\n  numeric absolute layout index. named-constructor fills the field\n  vector by index; no runtime by-name lookup happens at all.\n- Each own field gets a runtime name for the rtd and accessor/mutator\n  creation: its stripped spelling, deduped with a numeric suffix when\n  two own fields strip to the same spelling. An own field matching an\n  inherited field's spelling is deliberately not deduped -- that is\n  ordinary shadowing. Constant field names get generated field-<index>\n  names, which also makes the SRFI's promised non-identifier field\n  names actually work (they previously errored in symbol->string).\n- The property table stores the total field count plus stripped-spelling\n  keys to absolute indices -- keys and indices only, no renamed symbols.\n- The emitted type-name binding is hygiene-stripped too: a\n  template-introduced __hyg_N_<t> reference whose base <t> is already\n  bound is intercepted by the #1832 referential-transparency alias\n  (loading the pre-existing global even inside the same expansion that\n  defines it), so accessors bound against the old record type whenever a\n  macro redefined an already-bound type name.\n\nThe reference suite passes in full (previously 21/25); the four\ntest-expect-fail cases are unmarked. tests/scheme/srfi/srfi150.scm gains\nthe issue's discriminating controls as regressions: the no-binding C5\nvariant, the non-colliding-spelling C6 control, the minimal repro, and\nconstant field names (including inherited constants).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nEOF\n)\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: field-name precedence, explicit (srfi 13) import, valid C5 control\n\nThree review findings on the SRFI 150 fix (kaappi#2051):\n\n- own-field-data interleaved each field's field-name and accessor-name\n  keys, so a label that was field j's field name and field i's accessor\n  name (i < j) resolved to the accessor's index. The SRFI 150 precedence\n  rule -- the field name wins -- only held when the coinciding field sat\n  at a lower index, which the reference suite's field-referral case\n  happened to exercise. Emit all field-name keys before all accessor-name\n  keys (in field order within each group), for both the full-spelling own\n  alist and the stripped-spelling property alist; add the discriminating\n  reversed-order shape as a regression test.\n- string-prefix?/string-index are (srfi 13) exports, previously reached\n  only through the vm.globals fallback (the #1831 hazard documented in\n  this file's header); import them explicitly via (only (srfi 13) ...).\n- The C5 regression control reused the spelling `a`, which the reference\n  suite binds at top level just above -- so it never tested the\n  \"no pre-existing binding\" claim. Use the unbound spelling `nb` for\n  both the template literal and the use site.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-11T13:30:36+05:30",
-          "tree_id": "e624993ccdddefb3e33089984d4f40a03c25f0e7",
-          "url": "https://github.com/kaappi/kaappi/commit/6209f7fdcb00f5cf23aa10a7cdaa649d09e3f3cd"
-        },
-        "date": 1786437117604,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.048015,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.975505,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.565163,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.870736,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005181,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047312,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.288196,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.053821,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.334925,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.136643,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.62624,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.303613,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.699701,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.812943,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.048875,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044955,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "627052493a628c21bfe5d928cd8d46b1b5c45196",
+          "message": "Treat a zombie grandchild as success in the group-kill test (#2466) (#2478)\n\nThe test polled kill(gpid, 0) until ESRCH, assuming PID 1 reaps the\nreparented grandchild. Under a container PID 1 that never wait()s\n(e.g. `sleep infinity`), the zombie persists and the poll times out\nafter 10 s, failing with error.GrandchildSurvivedGroupKill even though\nthe group kill itself worked.\n\nOn Linux, once kill(gpid, 0) keeps succeeding, read /proc/<gpid>/stat\nand treat state Z (zombie) as success — a dead-but-unreaped grandchild\nis exactly what a successful group kill looks like. Other platforms\nkeep the existing ESRCH poll; the deadline for a genuinely-alive\ngrandchild is unchanged.\n\nThe bug is in the test itself, so this test correction is the fix; no\nproduct code changed.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude <noreply@anthropic.com>",
+          "timestamp": "2026-09-02T08:19:20Z",
+          "tree_id": "deb4c4ca142c1cf1228d94f164eb0841d63713de",
+          "url": "https://github.com/kaappi/kaappi/commit/627052493a628c21bfe5d928cd8d46b1b5c45196"
+        },
+        "date": 1788340232362,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.324346,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.620408,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.568566,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.019383,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00443,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047384,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.30125,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056065,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.902122,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.209973,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.635871,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.281962,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.688203,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.677437,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044912,
             "unit": "seconds"
           }
         ]
