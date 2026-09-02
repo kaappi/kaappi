@@ -6,16 +6,15 @@
 # emitApplyForm's structural @kaappi_apply shape was gated on
 # rebound_globals/native_fns, both populated IN ORDER as forms are emitted, so
 # a use preceding the define still baked in the builtin's flattening
-# semantics and the user's procedure was silently discarded. The native
-# compile driver now installs the same whole-unit top-level target scan the
-# interpreter's gate consults (compiler_passthrough.unit_top_level_targets),
-# and emitApplyForm declines the structural shape for any name the unit
-# redefines — the by-name generic call resolves the user's binding at
-# runtime, exactly like the interpreter.
+# semantics and the user's procedure was silently discarded. #2457's interim
+# was a whole-unit pre-scan; since #2469 the emitted code decides at run
+# time: it resolves the `apply` global, asks @kaappi_builtin_is_pristine
+# whether it is still the genuine primitive, and branches to the structural
+# shape or to an ordinary indirect call of whatever the global holds.
 #
 # The convergence guarantee from #1803 is pinned too: a program that never
-# touches these names must keep its native @kaappi_apply call site (the unit
-# scan must not cost the fast path in clean programs).
+# touches these names must keep its native @kaappi_apply call site (the
+# guard must not cost the fast path in clean programs).
 #
 # Usage: bash tests/scheme/compile/native-apply-redefinition-order-2457.sh [path-to-kaappi]
 

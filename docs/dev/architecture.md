@@ -97,8 +97,8 @@ its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
 | `compiler_advanced.zig` | case, case-lambda, guard, quasiquote |
 | `compiler_macro.zig` | Macro-use path: expandAndCompileMacroUse, hygiene injection walks, free-ref collection; re-exports compiler_define_syntax.zig |
 | `compiler_define_syntax.zig` | Macro-defining forms: define-syntax, let-syntax, letrec-syntax, define-property, transformer-spec resolution (SRFI 147), syntax-rules parsing, transformer finalization |
-| `compiler_passthrough.zig` | The `passthrough` path's form compilers: quote, if, call, and the tail-position specializations (`apply`, `call-with-values`, `call/cc`, `eval`); owns the whole-unit top-level target set (`unit_top_level_targets`, kaappi#2457) |
-| `compiler_gate.zig` | Redefinition-awareness: the builtin-bypass gate `globalBindingStillGenuine` (superinstruction decisions for redefined built-ins) and the `set!` pre-scan that feeds it (`collectSetTargets`, `scanSetTargetsWithoutMacros`) |
+| `compiler_passthrough.zig` | The `passthrough` path's form compilers: quote, if, call, and the builtin superinstructions (`apply`, `call-with-values`, `call/cc`, `eval`) with the run-time `guard_builtin` gate and slow path each is emitted behind (kaappi#2469) |
+| `compiler_gate.zig` | Redefinition-awareness: the builtin-bypass heuristic `globalBindingStillGenuine` (whether a superinstruction is worth emitting; correctness is `guard_builtin`'s since kaappi#2469) and the `set!` pre-scan that feeds it (`collectSetTargets`, `scanSetTargetsWithoutMacros`) |
 | `compiler_forms.zig` | Re-export hub (thin file, don't edit directly) |
 
 ### VM (split into 11 files)
@@ -333,7 +333,7 @@ enum value followed by operands.
 
 ### Opcodes
 
-33 opcodes, defined by the `OpCode` enum in `src/types.zig`. Register, slot,
+34 opcodes, defined by the `OpCode` enum in `src/types.zig`. Register, slot,
 constant-index and symbol-index operands are u16 (big-endian); only `nargs` and
 a closure capture descriptor's `is_local` flag are u8.
 

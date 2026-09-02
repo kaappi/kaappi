@@ -11,19 +11,17 @@
 ;;; and the definition order differ. #2033 fixed the define-BEFORE-use order
 ;;; that way; the use-BEFORE-define order kept silently running the builtin.
 ;;;
-;;; The interim fix is a whole-unit conservative arm: a driver that knows the
-;;; entire compilation unit (file runs, stdin scripts, `kaappi compile`,
-;;; `kaappi check`) pre-scans the unit's top-level define/set! targets, and the
-;;; gate declines the fast path for those names everywhere in the unit. This
-;;; file's every section defines one of the five names at top level, so the
-;;; whole unit compiles by-name — which is exactly what the sections assert:
-;;; the user's binding wins from the first call, and restoring the genuine
-;;; binding makes the builtin visible again.
-;;;
-;;; NOT covered by the interim (kept as the legacy behavior, by design):
-;;; the REPL and `eval`, which have no future knowledge; and a redefinition
-;;; that only materializes when a macro expands. The honest run-time decision
-;;; is the recorded follow-up.
+;;; #2457's interim fix was a whole-unit pre-scan of top-level define/set!
+;;; targets that declined the fast path for those names everywhere in the
+;;; unit. #2469 replaced it with the honest run-time decision: every
+;;; superinstruction now sits behind a `guard_builtin` opcode that compares
+;;; the global's current binding against the pristine primitive at each call
+;;; and falls back to an ordinary call. This file keeps asserting what both
+;;; fixes had to deliver — the user's binding wins from the first call, and
+;;; restoring the genuine binding makes the builtin visible again — through
+;;; every whole-unit shape (a later define, a later set!, a begin-spliced
+;;; define). The routes the scan could not see (`load`, `eval`, the REPL, a
+;;; macro-materialized set!) are top-level-redefinition-runtime-2469.scm.
 ;;;
 ;;; `car` and `map` in the identical shape were always correct (they never had
 ;;; a superinstruction to bake in) and run here as the contrast.

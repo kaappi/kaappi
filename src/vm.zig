@@ -305,6 +305,11 @@ pub fn markVmRoots(gc: *memory.GC, vm: *VM) void {
         // name is all it takes for globals to stop holding them.
         var iit = vm.libraries.internal_bindings.valueIterator();
         while (iit.next()) |v| gc.markValue(v.*);
+        // The run-time builtin gate's reference values (kaappi#2469): a user
+        // redefinition of `apply` drops the pristine primitive from globals,
+        // and every `guard_builtin` compiled before it still compares
+        // against it.
+        for (vm.libraries.fast_path_pristine) |v| gc.markValue(v);
     }
 
     // Mark library environments being built by handleDefineLibrary

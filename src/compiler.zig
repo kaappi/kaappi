@@ -6,6 +6,7 @@ const forms = @import("compiler_forms.zig");
 const advanced = @import("compiler_advanced.zig");
 const passthrough = @import("compiler_passthrough.zig");
 const gate = @import("compiler_gate.zig");
+const library = @import("library.zig");
 const macro = @import("compiler_macro.zig");
 const ir_mod = @import("ir.zig");
 const compiler_ir = @import("compiler_ir.zig");
@@ -1020,26 +1021,35 @@ pub const Compiler = struct {
                     std.mem.eql(u8, eff_name, "call/cc") or
                     std.mem.eql(u8, eff_name, "eval"))))
             {
-                // #2033: a *user-text* reference must resolve like any other
-                // global — R7RS 5.3.1 makes a top-level redefinition
-                // essentially an assignment, so the builtin's superinstruction
-                // is only sound while the global binding is still the genuine
-                // primitive. Local/upvalue shadowing and the compile-time
-                // global binding (plus the form's own set! pre-scan) gate the
-                // fast path; synthesized references skip the gate entirely.
+                // A *user-text* reference is gated at RUN time (kaappi#2469):
+                // each fast path below is emitted behind a `guard_builtin`
+                // that compares the global's current binding against the
+                // pristine primitive and falls back to an ordinary call, so
+                // a top-level redefinition — in a later form, via `load`,
+                // `eval`, the REPL, or a macro-materialized `set!` — reaches
+                // the user's procedure even from a body compiled before it
+                // ran (R7RS 5.3.1 makes the definition essentially an
+                // assignment). The compile-time checks here only decide
+                // whether the guarded shape is worth emitting: a lexical
+                // shadow, or a global the compiler can already see rebound
+                // (#2033's define-before-use order), takes the ordinary call
+                // path outright. Synthesized references resolve through the
+                // pristine registry by construction and are emitted unguarded.
                 const fast_ok = is_synth or
                     (self.resolveLocal(sym_name) == null and
                         (try self.resolveUpvalue(sym_name)) == null and
                         gate.globalBindingStillGenuine(self, sym_name, eff_name));
                 if (fast_ok) {
-                    if (std.mem.eql(u8, eff_name, "apply")) return passthrough.compileApplyForm(self, expr, dst, is_tail);
-                    if (std.mem.eql(u8, eff_name, "call-with-values")) return passthrough.compileCallWithValuesForm(self, expr, dst, is_tail);
+                    const guard: ?u8 = if (is_synth) null else (library.fastPathKind(eff_name) orelse
+                        return passthrough.compileCall(self, expr, dst, is_tail));
+                    if (std.mem.eql(u8, eff_name, "apply")) return passthrough.compileApplyForm(self, expr, dst, is_tail, guard);
+                    if (std.mem.eql(u8, eff_name, "call-with-values")) return passthrough.compileCallWithValuesForm(self, expr, dst, is_tail, guard);
                     if (std.mem.eql(u8, eff_name, "call-with-current-continuation") or
                         std.mem.eql(u8, eff_name, "call/cc"))
                     {
-                        return passthrough.compileCallCCTail(self, expr, dst);
+                        return passthrough.compileCallCCTail(self, expr, dst, guard);
                     }
-                    if (std.mem.eql(u8, eff_name, "eval")) return passthrough.compileEvalTail(self, expr, dst);
+                    if (std.mem.eql(u8, eff_name, "eval")) return passthrough.compileEvalTail(self, expr, dst, guard);
                 }
             }
         }

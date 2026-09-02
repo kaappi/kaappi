@@ -820,7 +820,7 @@ test "native declare table covers all runtime exports in preamble" {
             return error.TestExpectedEqual;
         }
     }
-    try std.testing.expectEqual(@as(usize, 28), native_decls.decls.len);
+    try std.testing.expectEqual(@as(usize, 29), native_decls.decls.len);
 }
 
 // -- Compile-once eval-fallback cache (#1494) --

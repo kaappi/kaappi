@@ -86,6 +86,17 @@ pub const LibraryRegistry = struct {
     /// call them from Scheme source — that export is the program-facing half
     /// and has nothing to do with this snapshot.
     internal_bindings: std.StringHashMap(Value),
+    /// The pristine `(scheme base)` primitive behind each name in
+    /// `fast_path_builtins`, snapshotted at registration (kaappi#2469). The
+    /// `guard_builtin` opcode and the native tier's
+    /// `kaappi_builtin_is_pristine` compare a call site's *current* global
+    /// binding against this entry at run time — which is what lets a
+    /// top-level redefinition from a later form, `load`, `eval`, the REPL, or
+    /// a macro-materialized `set!` reach bodies compiled before it ran. VOID
+    /// when the primitive was never registered (a sandbox that excludes it);
+    /// a guard then never takes its fast path. Root-marked by `markVmRoots`,
+    /// since a redefinition drops the object from `globals`.
+    fast_path_pristine: [fast_path_builtins.len]Value = [_]Value{types.VOID} ** fast_path_builtins.len,
 
     pub fn init(allocator: std.mem.Allocator) LibraryRegistry {
         return .{
@@ -175,6 +186,22 @@ fn addExportsForLib(library: *Library, lib: Lib, globals: *std.StringHashMap(Val
 /// hence safe under `--sandbox` and on WASM.
 pub const extra_std_libraries = [_][]const u8{ "scheme.case-lambda", "srfi.9" };
 
+/// The names whose calls the compiler lowers to a superinstruction —
+/// `apply` and `call-with-values` in any position, `call/cc`,
+/// `call-with-current-continuation` and `eval` in tail position — and the
+/// `kind` operand of the `guard_builtin` opcode that gates each one
+/// (kaappi#2469). The index is part of the bytecode encoding and of the
+/// native tier's `kaappi_builtin_is_pristine` ABI: append, never reorder.
+pub const fast_path_builtins = [_][]const u8{ "apply", "call-with-values", "call/cc", "call-with-current-continuation", "eval" };
+
+/// `name`'s index in `fast_path_builtins`, or null for any other name.
+pub fn fastPathKind(name: []const u8) ?u8 {
+    for (fast_path_builtins, 0..) |candidate, i| {
+        if (std.mem.eql(u8, candidate, name)) return @intCast(i);
+    }
+    return null;
+}
+
 /// Snapshot the `.internal` primitives into `registry.internal_bindings` —
 /// see that field for why they live outside `libraries` (#1856). Runs from
 /// both registrars, since compiler-synthesized code needs these under
@@ -186,6 +213,12 @@ fn snapshotInternalBindings(registry: *LibraryRegistry, globals: *std.StringHash
         if (globals.get(spec.name)) |val| {
             try registry.internal_bindings.put(spec.name, val);
         }
+    }
+    // The run-time gate's reference values (kaappi#2469): whatever the
+    // registrar just bound each fast-path name to is, by definition, the
+    // pristine primitive a guard compares against.
+    for (fast_path_builtins, 0..) |name, i| {
+        if (globals.get(name)) |val| registry.fast_path_pristine[i] = val;
     }
 }
 

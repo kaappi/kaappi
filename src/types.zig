@@ -1475,6 +1475,15 @@ pub const OpCode = enum(u8) {
     // apply/tail_apply that follows it (kaappi#2453). Appended at the end for
     // the same .sbc-numbering reason as `apply` above.
     values_list, // dst:u16, src:u16
+    // Run-time gate for the builtin superinstructions (kaappi#2469): resolve
+    // the global that `sym_idx` names into `dst` exactly as `get_global`
+    // would, then fall through to the fast path that follows only while that
+    // value is still the pristine `(scheme base)` primitive `kind` (an index
+    // into `library.fast_path_builtins`); otherwise jump `offset` to the
+    // ordinary call of whatever the global holds now, emitted right after the
+    // fast path. Appended at the end for the same .sbc-numbering reason as
+    // `apply` above.
+    guard_builtin, // dst:u16, sym_idx:u16, kind:u8, offset:i16
 };
 
 // -- Doc sync gate ----------------------------------------------------------
@@ -1491,7 +1500,7 @@ pub const OpCode = enum(u8) {
 // than trusting the list — grep the *noun*, since the count is written at least
 // four ways ("31 opcodes", "31-opcode", "(31 opcodes)", and number-after-noun).
 comptime {
-    if (@typeInfo(OpCode).@"enum".fields.len != 33)
+    if (@typeInfo(OpCode).@"enum".fields.len != 34)
         @compileError("OpCode count changed. Update the table in docs/dev/bytecode.md, then every " ++
             "file quoting the count — known: docs/dev/architecture.md, docs/dev/README.md, " ++
             "docs/dev/claude-code-harness.md, .claude/skills/bytecode-isa/SKILL.md. Find any others " ++

@@ -22,13 +22,13 @@
 const std = @import("std");
 const ir = @import("ir.zig");
 const types = @import("types.zig");
+const library = @import("library.zig");
 const printer = @import("printer.zig");
 
 const llvm_emit = @import("llvm_emit.zig");
 const LLVMEmitter = llvm_emit.LLVMEmitter;
 const EmitError = llvm_emit.EmitError;
 const NativeLambda = llvm_emit.NativeLambda;
-const compiler_passthrough = @import("compiler_passthrough.zig");
 
 const Value = types.Value;
 
@@ -38,15 +38,6 @@ const void_bits: i64 = @bitCast(types.VOID);
 // Cap on `do` loop variables — bounds the fixed-size scratch arrays below and
 // matches emitLet's 32-binding ceiling. A wider `do` falls back to eval.
 const MAX_DO_VARS = 32;
-
-/// Whether the compilation unit's whole-source scan saw a top-level
-/// define/set! of `name` (kaappi#2457) — the emitter-side mirror of the
-/// interpreter gate's unit arm. Null threadlocal (REPL-time evals, tests)
-/// answers false, keeping the legacy in-order behavior.
-fn unitRedefines(name: []const u8) bool {
-    const targets = compiler_passthrough.unit_top_level_targets orelse return false;
-    return targets.contains(name);
-}
 
 fn fmt(self: *LLVMEmitter, comptime f: []const u8, a: anytype) EmitError![]const u8 {
     return std.fmt.allocPrint(self.allocator(), f, a) catch return error.OutOfMemory;
@@ -1054,17 +1045,18 @@ pub fn emitApplyForm(self: *LLVMEmitter, expr: Value, is_tail: bool) EmitError![
         operands.append(self.backing_alloc, types.car(cur)) catch return error.OutOfMemory;
     }
     if (cur != types.NIL) return error.UnsupportedNodeType;
+    const nargs = operands.items.len;
 
     const shadowed = self.isNameShadowed("apply");
-    // rebound: the name no longer denotes the builtin. rebound_globals and
-    // native_fns are in-order (a define/set! emitted BEFORE this form); the
-    // unit scan (kaappi#2457) adds the whole-unit answer — a define/set! of
-    // `apply` anywhere in the program declines the structural shape even for
-    // uses that precede it, the same interim the interpreter's
-    // globalBindingStillGenuine arm takes.
-    const rebound = self.rebound_globals.contains("apply") or
-        self.native_fns.contains("apply") or
-        unitRedefines("apply");
+    // rebound: the emitter can already see that the name no longer denotes
+    // the builtin — rebound_globals and native_fns are in-order (a
+    // define/set! emitted BEFORE this form). That knowledge only saves
+    // emitting a guarded fast path whose guard would fail on every
+    // execution; the run-time guard below is what makes a redefinition no
+    // scan can see — a later form, `load`, `eval`, a macro-materialized
+    // `set!` — reach the user's procedure (kaappi#2469), exactly as the
+    // interpreter's `guard_builtin` opcode does.
+    const rebound = self.rebound_globals.contains("apply") or self.native_fns.contains("apply");
 
     // Abandon to the interpreter only for the genuinely builtin shape: a
     // rebound `apply` with too few operands is a runtime arity/behavior
@@ -1072,67 +1064,17 @@ pub fn emitApplyForm(self: *LLVMEmitter, expr: Value, is_tail: bool) EmitError![
     // (whose #2033 gate routes it through the ordinary call path), so it
     // falls through to the generic indirect call below, not this compile
     // error.
-    if (!shadowed and !rebound and is_tail and operands.items.len < 2)
+    if (!shadowed and !rebound and is_tail and nargs < 2)
         return error.UnsupportedNodeType;
 
-    const is_builtin_apply = !shadowed and !rebound;
+    const guarded = !shadowed and !rebound and nargs >= 2;
 
-    if (is_builtin_apply and operands.items.len >= 2) {
-        const n_fixed = operands.items.len - 2;
-        const callee = try self.emitScopedOperand(operands.items[0]);
-        // Root the callee and every fixed argument across the remaining
-        // operand emissions (each can allocate). The final list operand
-        // needs no root: nothing allocates between its value and the call
-        // (emitCallNode's discipline for its own last argument).
-        var root_count: usize = 1;
-        try self.emitRootPush(callee);
-        const fixed_tmps = self.allocator().alloc([]const u8, n_fixed) catch return error.OutOfMemory;
-        for (0..n_fixed) |i| {
-            fixed_tmps[i] = try self.emitScopedOperand(operands.items[1 + i]);
-            try self.emitRootPush(fixed_tmps[i]);
-            root_count += 1;
-        }
-        const list_tmp = try self.emitScopedOperand(operands.items[operands.items.len - 1]);
-        try self.emitPopRoots(root_count);
-
-        const result = try self.freshTemp();
-        if (n_fixed == 0) {
-            const call_prefix: []const u8 = if (is_tail) "tail call" else "call";
-            try self.print("  {s} = {s} i64 @kaappi_apply(ptr %vm, i64 {s}, ptr null, i64 0, i64 {s})\n", .{ result, call_prefix, callee, list_tmp });
-        } else {
-            const args_alloca = try self.freshTemp();
-            try self.print("  {s} = alloca [{d} x i64], align 8\n", .{ args_alloca, n_fixed });
-            for (0..n_fixed) |i| {
-                const gep = try self.freshTemp();
-                try self.print("  {s} = getelementptr [1 x i64], ptr {s}, i64 {d}\n", .{ gep, args_alloca, i });
-                try self.print("  store i64 {s}, ptr {s}\n", .{ fixed_tmps[i], gep });
-            }
-            try self.print("  {s} = call i64 @kaappi_apply(ptr %vm, i64 {s}, ptr {s}, i64 {d}, i64 {s})\n", .{ result, callee, args_alloca, n_fixed, list_tmp });
-        }
-
-        if (is_tail) {
-            // Balance the frame-entry GC roots and any live let-binding
-            // roots before returning through this tail call, exactly as
-            // emitCallNode does (#1498/#1585) — a deep apply-driven loop
-            // must not leak one root set per iteration.
-            try self.emitPopRoots(self.frame_entry_roots + self.body_scope_roots);
-            try self.print("  ret i64 {s}\n", .{result});
-            try self.emitOrphanAfterTail();
-        }
-        return result;
-    }
-
-    // Generic path: resolve `apply` like any variable reference (a
-    // parameter, local, upvalue, or the current global binding) and call
-    // it with the operands — emitCallNode's indirect-call tail, inlined.
-    const callee = try self.emitGlobalRef(types.car(expr));
-    const nargs = operands.items.len;
-    var root_count: usize = 0;
-    if (nargs > 0) {
-        try self.emitRootPush(callee);
-        root_count += 1;
-    }
+    // Every operand once, in order, each rooted across the operand emissions
+    // that follow it (any can allocate). The final operand needs no root:
+    // nothing allocates between its value and either call below
+    // (emitCallNode's discipline for its own last argument).
     const arg_tmps = self.allocator().alloc([]const u8, nargs) catch return error.OutOfMemory;
+    var root_count: usize = 0;
     for (operands.items, 0..) |operand, i| {
         arg_tmps[i] = try self.emitScopedOperand(operand);
         if (i + 1 < nargs) {
@@ -1140,8 +1082,88 @@ pub fn emitApplyForm(self: *LLVMEmitter, expr: Value, is_tail: bool) EmitError![
             root_count += 1;
         }
     }
+    // The operator resolves after its operands, as the interpreter's
+    // call_global and guard_builtin do — a parameter, local, upvalue, or the
+    // current global binding. Resolution allocates nothing, so it needs no
+    // root of its own.
+    const callee = try self.emitGlobalRef(types.car(expr));
     try self.emitPopRoots(root_count);
 
+    if (!guarded) return emitApplyIndirect(self, callee, arg_tmps, is_tail);
+
+    // Guarded: branch on whether the global still holds the pristine
+    // primitive. Each arm is a complete call. In tail position each arm
+    // returns through the frame (both helpers balance the frame roots first,
+    // as emitCallNode does); otherwise the arms meet in a phi.
+    const kind_apply: u8 = comptime library.fastPathKind("apply").?;
+    const pristine = try self.freshTemp();
+    try self.print("  {s} = call i64 @kaappi_builtin_is_pristine(ptr %vm, i64 {s}, i64 {d})\n", .{ pristine, callee, kind_apply });
+    const cmp = try self.freshTemp();
+    try self.print("  {s} = icmp ne i64 {s}, 0\n", .{ cmp, pristine });
+    const fast_label = try self.freshLabel("apply_fast");
+    const slow_label = try self.freshLabel("apply_slow");
+    const merge_label = try self.freshLabel("apply_merge");
+    try self.print("  br i1 {s}, label %{s}, label %{s}\n", .{ cmp, fast_label, slow_label });
+
+    try self.startBlock(fast_label);
+    const fast_val = try emitApplyStructural(self, arg_tmps, is_tail);
+    const fast_end = self.current_block;
+    // In tail position the structural arm has already `ret`ed and left an
+    // orphan block open; LLVM IR still wants a terminator on it.
+    try self.print("  br label %{s}\n", .{if (is_tail) slow_label else merge_label});
+
+    try self.startBlock(slow_label);
+    const slow_val = try emitApplyIndirect(self, callee, arg_tmps, is_tail);
+    if (is_tail) return slow_val;
+    const slow_end = self.current_block;
+    try self.print("  br label %{s}\n", .{merge_label});
+
+    try self.startBlock(merge_label);
+    const result = try self.freshTemp();
+    try self.print("  {s} = phi i64 [ {s}, %{s} ], [ {s}, %{s} ]\n", .{ result, fast_val, fast_end, slow_val, slow_end });
+    return result;
+}
+
+/// The structural `@kaappi_apply` shape of a builtin `(apply f a ... lst)`
+/// (kaappi#1803): arg_tmps[0] is the callee, the last operand the list, and
+/// everything between them the fixed arguments — at least two operands. In
+/// tail position this returns through the frame.
+fn emitApplyStructural(self: *LLVMEmitter, arg_tmps: []const []const u8, is_tail: bool) EmitError![]const u8 {
+    const callee = arg_tmps[0];
+    const n_fixed = arg_tmps.len - 2;
+    const fixed_tmps = arg_tmps[1 .. 1 + n_fixed];
+    const list_tmp = arg_tmps[arg_tmps.len - 1];
+    const result = try self.freshTemp();
+    if (n_fixed == 0) {
+        const call_prefix: []const u8 = if (is_tail) "tail call" else "call";
+        try self.print("  {s} = {s} i64 @kaappi_apply(ptr %vm, i64 {s}, ptr null, i64 0, i64 {s})\n", .{ result, call_prefix, callee, list_tmp });
+    } else {
+        const args_alloca = try self.freshTemp();
+        try self.print("  {s} = alloca [{d} x i64], align 8\n", .{ args_alloca, n_fixed });
+        for (fixed_tmps, 0..) |tmp, i| {
+            const gep = try self.freshTemp();
+            try self.print("  {s} = getelementptr [1 x i64], ptr {s}, i64 {d}\n", .{ gep, args_alloca, i });
+            try self.print("  store i64 {s}, ptr {s}\n", .{ tmp, gep });
+        }
+        try self.print("  {s} = call i64 @kaappi_apply(ptr %vm, i64 {s}, ptr {s}, i64 {d}, i64 {s})\n", .{ result, callee, args_alloca, n_fixed, list_tmp });
+    }
+    if (is_tail) {
+        // Balance the frame-entry GC roots and any live let-binding roots
+        // before returning through this tail call, exactly as emitCallNode
+        // does (#1498/#1585) — a deep apply-driven loop must not leak one
+        // root set per iteration.
+        try self.emitPopRoots(self.frame_entry_roots + self.body_scope_roots);
+        try self.print("  ret i64 {s}\n", .{result});
+        try self.emitOrphanAfterTail();
+    }
+    return result;
+}
+
+/// Call `callee` — whatever `apply` resolved to — with the operands as
+/// ordinary arguments: emitCallNode's indirect-call tail, inlined. In tail
+/// position this returns through the frame.
+fn emitApplyIndirect(self: *LLVMEmitter, callee: []const u8, arg_tmps: []const []const u8, is_tail: bool) EmitError![]const u8 {
+    const nargs = arg_tmps.len;
     const result = try self.freshTemp();
     if (nargs == 0) {
         const call_prefix: []const u8 = if (is_tail) "tail call" else "call";
@@ -1149,10 +1171,10 @@ pub fn emitApplyForm(self: *LLVMEmitter, expr: Value, is_tail: bool) EmitError![
     } else {
         const args_alloca = try self.freshTemp();
         try self.print("  {s} = alloca [{d} x i64], align 8\n", .{ args_alloca, nargs });
-        for (0..nargs) |i| {
+        for (arg_tmps, 0..) |tmp, i| {
             const gep = try self.freshTemp();
             try self.print("  {s} = getelementptr [1 x i64], ptr {s}, i64 {d}\n", .{ gep, args_alloca, i });
-            try self.print("  store i64 {s}, ptr {s}\n", .{ arg_tmps[i], gep });
+            try self.print("  store i64 {s}, ptr {s}\n", .{ tmp, gep });
         }
         try self.print("  {s} = call i64 @kaappi_call_scheme(ptr %vm, i64 {s}, ptr {s}, i64 {d})\n", .{ result, callee, args_alloca, nargs });
     }
