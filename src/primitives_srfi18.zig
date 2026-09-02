@@ -764,12 +764,8 @@ fn threadStartImpl(args: []const Value) PrimitiveError!Value {
     // #2446: the exit flag the join waits on instead of pthread_join (see
     // Fiber.os_exit). Allocated before the spawn so the child can never
     // outrun it; c_allocator because it outlives both heaps' owners.
-    const exit_flag = std.heap.c_allocator.create(fiber_mod.OsThreadExit) catch {
-        _ = @atomicRmw(usize, &live_child_threads, .Sub, 1, .release);
-        if (spawner) |s| {
-            _ = @atomicRmw(u32, &s.live_descendants, .Sub, 1, .release);
-        }
-        envelope.deinit();
+    const exit_flag = os_thread_exit_allocator.create(fiber_mod.OsThreadExit) catch {
+        abandonSpawn(gc, fiber, args[0], spawner, envelope);
         return PrimitiveError.OutOfMemory;
     };
     exit_flag.* = .{};
@@ -779,11 +775,7 @@ fn threadStartImpl(args: []const Value) PrimitiveError!Value {
     }) catch {
         fiber.os_exit = null;
         std.heap.c_allocator.destroy(exit_flag);
-        _ = @atomicRmw(usize, &live_child_threads, .Sub, 1, .release);
-        if (spawner) |s| {
-            _ = @atomicRmw(u32, &s.live_descendants, .Sub, 1, .release);
-        }
-        envelope.deinit();
+        abandonSpawn(gc, fiber, args[0], spawner, envelope);
         return PrimitiveError.OutOfMemory;
     };
     fiber.os_thread = thread;
@@ -801,6 +793,36 @@ fn threadStartImpl(args: []const Value) PrimitiveError!Value {
     thread.detach();
 
     return args[0];
+}
+
+/// #2473 test seam: the exit flag is allocated from the C heap because it
+/// outlives both heaps' owners (and freed there by releaseOsThreadExit). In
+/// unit tests this is swapped for an OomAllocator-backed allocator to force
+/// the create failure; only the failure path ever runs under a substitute,
+/// so no flag is allocated or freed through it.
+pub var os_thread_exit_allocator: std.mem.Allocator = std.heap.c_allocator;
+
+/// #2473: single unwind for every pre-spawn failure after the extra_roots
+/// append in threadStartImpl. Without it, a failed `c_allocator.create` or
+/// `std.Thread.spawn` undid the counters and the envelope but left the fiber
+/// rooted in extra_roots forever: its status stays `.running`, so
+/// no later thread-join! ever reaches reapOsThread (the only other remover)
+/// and the fiber, its thunk and everything the thunk closes over stay
+/// reachable for the life of the GC. Restores the fiber to exactly its
+/// pre-start state so it is again an unstarted handle.
+fn abandonSpawn(gc: *memory.GC, fiber: *fiber_mod.Fiber, handle: Value, spawner: ?*fiber_mod.Fiber, envelope: *shared_channel.Envelope) void {
+    for (gc.extra_roots.items, 0..) |v, idx| {
+        if (v == handle) {
+            _ = gc.extra_roots.swapRemove(idx);
+            break;
+        }
+    }
+    _ = @atomicRmw(usize, &live_child_threads, .Sub, 1, .release);
+    if (spawner) |s| {
+        _ = @atomicRmw(u32, &s.live_descendants, .Sub, 1, .release);
+    }
+    envelope.deinit();
+    fiber.status = .created;
 }
 
 /// #2446: drop one of the two references to a spawn's exit flag. The child

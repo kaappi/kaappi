@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **CI CHANGELOG gate (#2475)** — a `changelog` job in CI fails a PR that
+  changes `src/`, `lib/` or `vendor/` without also touching `CHANGELOG.md`,
+  unless the PR carries the `no-changelog` label (read live, so labelling
+  and re-running the job is enough). Tests-only and docs-only changes are
+  outside the gate, and the check is presence-only — entry wording stays
+  with the author. Restores, with a wider scope, the gate dropped in #2103.
 - **`run-process` and the `process-timeout` condition (KEP-0022 Phase 4,
   #2417)** — the one-shot layer over `spawn-process`:
   `(run-process argv opt…)` spawns, feeds an optional `input:`, drains
@@ -65,6 +71,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A continuation captured inside `call-with-values`' producer can be
+  resumed after the form returned** (#2453) — the producer kept running
+  under the native `%call-with-values->list` frame even after #2451 moved
+  the consumer into the dispatch loop, so its frame was not part of the
+  state a continuation copies and a resume delivered its value into a
+  stale register of the enclosing bytecode frame, which the following
+  apply misread as `apply: last argument must be a list` — blaming an
+  operand the user never wrote. The lowering now calls the producer with
+  an ordinary `call` opcode, so its frame is copied and restored like any
+  other and a resume re-enters the producer's body; a new `values_list`
+  opcode (see Changed) spreads the produced values into the argument list
+  the consumer's apply reads. The remaining native route — a declined
+  fast path reaching the built-in `call-with-values` — now reports the
+  honest, catchable KP3000 (`continuation cannot resume across a returned
+  native call`) instead of the misleading apply error. README's Known
+  limitations no longer lists the producer corner.
+- **A top-level redefinition of `apply`, `call-with-values`, `eval`,
+  `call/cc` or `call-with-current-continuation` now takes effect in
+  procedure bodies compiled before the redefinition ran** (#2457,
+  R7RS 5.3.1) — the builtin-bypass gate answered which binding a call
+  resolves by reading the global environment at compile time, which is
+  wrong whenever compile order and definition order differ: a body
+  compiled before the redefinition silently ran the builtin and discarded
+  the user's procedure. Whole-unit drivers (file runs, cold and `.sbc`
+  cache-HIT; stdin; `kaappi compile`; `kaappi check`, including its
+  shared `analyzeSource` path; and the native backend's `emitApplyForm`)
+  now pre-scan the unit's top-level `define`/`define-values`/`set!`
+  targets and decline the superinstruction for those names everywhere in
+  the unit, so the cost falls only on the programs whose semantics were
+  wrong. The REPL, `eval`, and macro-materialized redefinitions keep the
+  previous compile-time answer — tracked as #2469.
 - **SRFI 231 `array-copy` is continuation-safe** (#2454) — the fill wrote
   directly into a destination allocated before the loop started, so a getter
   that captured a continuation and re-invoked it after `array-copy` returned
@@ -202,6 +239,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **New `values_list` opcode, replacing `%call-with-values->list`** — the
+  producer-spread half of the `call-with-values` lowering: `values_list`
+  (dst:u16, src:u16) spreads the produced value — single, or a
+  `MultipleValues` object from `values` — into the fresh argument list the
+  consumer's apply reads. `%call-with-values-check` replaces
+  `%call-with-values->list` for the operand type checks, still reported as
+  `call-with-values` before anything runs. The opcode count is now 33
+  (`values_list` appended last per the `.sbc` numbering rule); no `.sbc`
+  format bump, since the cache is keyed by compiler hash. Internally, the
+  builtin gate (`globalBindingStillGenuine`) and the `set!` pre-scan moved
+  from `compiler.zig` to the new `compiler_gate.zig` (file-size policy).
 - **Cross-thread wakeups ring outside the wait registry lock** (#2470) —
   `wakeCrossThreadWaiters` used to notify every parked thread while holding
   the registry lock: one syscall (a kevent, an eventfd write, or a SetEvent)

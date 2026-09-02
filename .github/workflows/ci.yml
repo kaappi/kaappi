@@ -179,6 +179,62 @@ jobs:
   # than written as the work lands -- v0.22.0 shipped with 14 of 100 commits
   # reflected in it, v0.22.1 with 5 of 16. Ask for the entry here, while the
   # change is fresh and its author is present to write it.
+  #
+  # A previous version of this gate was dropped in #2103 because concurrent
+  # PRs appending under [Unreleased] conflict with each other. #2475 brought it
+  # back anyway: the alternative (reconstructing entries at release time) put
+  # the bulk of the work on whoever cut v0.22.0/v0.22.1, and #2467 merged with
+  # no entry at all. Scope is now all of src/, lib/ and vendor/ (#2475);
+  # tests/**-only changes are deliberately outside it, and the check is
+  # presence-only -- wording stays with the author.
+  changelog:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Require a CHANGELOG entry for user-visible changes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Labels are read live rather than from github.event, because
+          # re-running a job replays the ORIGINAL event payload -- a
+          # `no-changelog` label added in response to this job failing would
+          # be invisible to it, making the documented escape hatch a dead end.
+          if gh pr view "$PR" --repo "$REPO" --json labels \
+               --jq '.labels[].name' | grep -qx 'no-changelog'; then
+            echo "Labelled 'no-changelog' -- skipping."
+            exit 0
+          fi
+
+          # Same paginated endpoint as the `format` classifier: no checkout
+          # needed, and push/pull_request would share a shape if this ever
+          # grows beyond PRs.
+          files=$(gh api --paginate \
+            "repos/${REPO}/pulls/${PR}/files" --jq '.[].filename')
+
+          if ! grep -qE '^(src|lib|vendor)/' <<<"$files"; then
+            echo "No src/, lib/ or vendor/ changes -- CHANGELOG entry not required."
+            exit 0
+          fi
+          if grep -qx 'CHANGELOG.md' <<<"$files"; then
+            echo "CHANGELOG.md updated."
+            exit 0
+          fi
+
+          echo "::error::This PR changes src/, lib/ or vendor/ but does not touch CHANGELOG.md."
+          echo "::error::Add an entry under [Unreleased] describing the user-visible effect."
+          echo "::error::If the change is not user-visible (refactor, tests, CI), apply the"
+          echo "::error::'no-changelog' label and re-run this job -- labels are read live, so"
+          echo "::error::a re-run picks it up without pushing a commit."
+          exit 1
+
   test:
     needs: format
     # Deliberately NOT gated `if: docs_only != 'true'` at the job level, unlike
