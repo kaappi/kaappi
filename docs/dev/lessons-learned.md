@@ -199,3 +199,11 @@ Full write-up: [postmortems/2026-06-17-deep-recursion-register-overflow.md](post
 **Lesson:** Approximate comparison must recurse into compound numeric types (component-wise for complex); when a conformance test fails, suspect the comparison machinery as well as the implementation.
 
 Full write-up: [postmortems/2026-06-18-complex-number-test-precision.md](postmortems/2026-06-18-complex-number-test-precision.md).
+
+## 15. A pure spin-wait is a bet on the scheduler
+
+**Symptom:** `thread-join!` hung intermittently on NetBSD and nowhere else (kaappi#2446). gdb showed a child thread with a frozen PC and no syscall, and the first diagnosis was that the OS never scheduled it — `blocked-upstream`. The kernel's per-LWP view (`ps -s`) showed the opposite: 17 threads spinning in `memory.spinLock` at priority 25–27 while the preempted lock holder sat runnable at priority 0, never chosen again by NetBSD's 4BSD scheduler.
+
+**Lesson:** A spin loop assumes the thread it waits for is running or will be run promptly. Fair schedulers (Linux, macOS) make that true; priority-decay schedulers do not, and the spinners starve the holder. Every wait on another OS thread goes through `platform.spinBackoff`, which sleeps after a bounded spin and yield. Underneath, a second NetBSD quirk made the starvation absolute: `pthread_join` transfers the dead LWP's CPU-usage estimate to the joiner uncapped, sinking it and all its future children to priority 0 — so SRFI-18 threads are detached at spawn and joined through an exit flag. And a frozen PC in gdb says nothing about *why* a thread is not running — get the scheduler's state before blaming the scheduler.
+
+Full write-up: [postmortems/2026-09-02-netbsd-spinlock-starvation.md](postmortems/2026-09-02-netbsd-spinlock-starvation.md).

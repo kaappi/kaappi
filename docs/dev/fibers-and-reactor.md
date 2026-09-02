@@ -67,7 +67,7 @@ of these waits instead re-checked their own state every millisecond
 (`sleepNs(CROSS_THREAD_POLL_NS)` and the `pollCapNs` caps), which is why a
 `(thread-sleep! 60)` on a child thread used to wake 60,000 times.
 
-Four things load-bearing enough to be worth knowing before touching this:
+Five things load-bearing enough to be worth knowing before touching this:
 
 - **Enrolment is unconditional, and must stay that way.** Gating it on
   `crossThreadWaitPossible()` at entry looks like an obvious saving and is a
@@ -104,6 +104,25 @@ Four things load-bearing enough to be worth knowing before touching this:
   An atomic length gate read outside the lock is a store-buffering pattern
   against the enroller — both sides can miss the other's store — and with no
   poll cap left as a backstop that is a hang, not a latency blip.
+- **Every wait on another OS thread backs off to a sleep** —
+  `platform.spinBackoff`: a short pure spin, then `sched_yield`, then
+  `nanosleep` doubling from 32 µs to 1 ms — and that includes the registry
+  lock itself (`memory.spinLock`), the stop-the-world handshake on both sides
+  (`VM.stopForCollection`, `markLiveChildRoots`), the globals RW lock, and
+  `thread-join!`'s wait for a detached OS thread's exit flag (`reapOsThread`,
+  which replaced `pthread_join` — the joining LWP would otherwise inherit the
+  dead thread's CPU-usage estimate on NetBSD). A
+  pure spin only works while the thread being waited for is *running*; once
+  the kernel preempts it, the spinners compete with it for CPU, and on a
+  priority-decay scheduler they win outright. That was kaappi#2446: on
+  NetBSD's 4BSD scheduler, 17 threads leaving `thread-sleep!` spun on the
+  registry lock at priority 25–27 while the holder — preempted inside the
+  `kevent` ring, at priority 0 after the work it had done — stayed runnable
+  and never ran again. Yielding does not help (it requeues behind LWPs of the
+  *same* priority); only a sleep takes the spinner off the run queue. The
+  holder's ring is still issued under the lock (one `notify()` per parked
+  thread); with the backoff that costs the ringed threads latency, never
+  liveness.
 
 A "never" deadline is a real one and reaches the backends: SRFI-18 reads
 `+inf.0` as "never times out", `saturatedNsFromSeconds` turns that into

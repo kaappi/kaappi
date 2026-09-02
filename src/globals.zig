@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const platform = @import("platform.zig");
 const types = @import("types.zig");
 const Value = types.Value;
 
@@ -7,7 +8,10 @@ const Value = types.Value;
 /// std.Thread.RwLock; std.Io.RwLock needs an Io instance). Writer-preferring:
 /// once a writer sets its bit, new readers spin, existing readers drain, then
 /// the writer runs. Critical sections here are single hash-map operations, so
-/// spinning is bounded and short. Not reentrant — never nest acquisitions.
+/// contention is short -- but a holder the kernel preempts mid-operation is
+/// not, and waiters back off through `platform.spinBackoff` (spin, yield,
+/// then sleep) rather than spinning it into starvation (kaappi#2446). Not
+/// reentrant — never nest acquisitions.
 pub const GlobalsRwLock = struct {
     /// Bit 31 = writer holds/wants the lock; low 31 bits = active readers.
     state: std.atomic.Value(u32) = .init(0),
@@ -15,12 +19,13 @@ pub const GlobalsRwLock = struct {
     const WRITER: u32 = 0x8000_0000;
 
     pub fn lockShared(self: *GlobalsRwLock) void {
-        while (true) {
+        var spins: u32 = 0;
+        while (true) : (spins +|= 1) {
             const s = self.state.load(.monotonic);
             if (s & WRITER == 0) {
                 if (self.state.cmpxchgWeak(s, s + 1, .acquire, .monotonic) == null) return;
             }
-            std.atomic.spinLoopHint();
+            platform.spinBackoff(spins);
         }
     }
 
@@ -29,14 +34,16 @@ pub const GlobalsRwLock = struct {
     }
 
     pub fn lock(self: *GlobalsRwLock) void {
-        while (true) {
+        var spins: u32 = 0;
+        while (true) : (spins +|= 1) {
             const s = self.state.load(.monotonic);
             if (s & WRITER == 0) {
                 if (self.state.cmpxchgWeak(s, s | WRITER, .acquire, .monotonic) == null) break;
             }
-            std.atomic.spinLoopHint();
+            platform.spinBackoff(spins);
         }
-        while (self.state.load(.acquire) != WRITER) std.atomic.spinLoopHint();
+        var drain_spins: u32 = 0;
+        while (self.state.load(.acquire) != WRITER) : (drain_spins +|= 1) platform.spinBackoff(drain_spins);
     }
 
     pub fn unlock(self: *GlobalsRwLock) void {
