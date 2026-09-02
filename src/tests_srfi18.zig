@@ -1087,3 +1087,43 @@ test "kaappi#2446: thread-join! returns only after the child's whole epilogue" {
         try std.testing.expect(!srfi18.hasLiveChildThreads());
     }
 }
+
+// kaappi#2473: the two pre-spawn failure paths after the extra_roots append
+// (the exit-flag create and std.Thread.spawn) used to unwind the counters and
+// the envelope but leave the fiber rooted in extra_roots forever -- its status
+// never returned to .created, so no thread-join! ever reached reapOsThread,
+// the only other remover. This forces the exit-flag allocation to fail via an
+// OomAllocator countdown (std.Thread.spawn failure has no injection point)
+// and asserts the root count comes back down. Single-threaded by design: the
+// injector is thread-affine, and no child is ever spawned.
+test "kaappi#2473: thread-start! unwinds extra_roots when the spawn setup fails" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // thread-start! is unregistered on wasm
+    // The injector wraps ONLY the exit-flag seam allocator: a countdown on
+    // the GC's own allocator would fire during compilation of the form,
+    // before thread-start! is ever reached.
+    var oom = memory.OomAllocator.init(std.testing.allocator);
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Build the handle without starting it.
+    _ = try vm.eval("(define leak-t (make-thread (lambda () 1)))");
+    // extra_roots doubles as the VM's scratch during execution, so compare
+    // relative to the post-define baseline, not to zero.
+    const before = gc.extra_roots.items.len;
+
+    // Route the exit-flag create through the armed injector: the very next
+    // raw allocation on this thread fails, which is the OsThreadExit create.
+    const saved = srfi18.os_thread_exit_allocator;
+    srfi18.os_thread_exit_allocator = oom.allocator();
+    defer srfi18.os_thread_exit_allocator = saved;
+    oom.countdown = 0;
+    const result = vm.eval("(thread-start! leak-t)");
+    oom.countdown = null;
+    try std.testing.expectError(error.OutOfMemory, result);
+
+    // The fiber must no longer be rooted: without the fix the failed spawn
+    // leaves one extra entry, which stays for the life of the GC.
+    try std.testing.expectEqual(before, gc.extra_roots.items.len);
+}
