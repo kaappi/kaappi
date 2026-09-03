@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788462894089,
+  "lastUpdate": 1788463737751,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e5bd7747e235ff10a1a7a8866eb695016165ab88",
-          "message": "Fix fmt round-trip, lexer, idempotence, and width audit findings (#2291)\n\n* Fix fmt round-trip, lexer, idempotence, and width audit findings\n\nFive defects from the systematic audit (Phase 6), all in the formatter\nand the reader it mirrors:\n\n- #2079: a lone CR now ends a `;` comment, per R7RS 7.1.1. The reader's\n  comment scan stopped only at `\\n`, so a classic-Mac-line-ending file\n  swallowed everything after the first `;`. fmt's CST lexer mirrors the\n  fix, and the pinned \"known deviation\" test and doc section are updated.\n\n- #2080: `kaappi fmt` no longer reports a user syntax error as \"internal\n  error\". `verifyRoundTrip` reads the original first and reports the\n  reader's own KP1xxx diagnostic with its position; the internal-error\n  wording is reserved for a genuine mismatch between two successfully-read\n  datum sequences.\n\n- #2142: `hasBodyBlank` counted head-line items by index while the printer\n  counted code items, so a same-line block comment shifted the body\n  boundary and broke idempotence. It now counts code items the same way.\n\n- #2143: fmt's atom scan ran to the next delimiter, so a `#`-led lexeme\n  glued to an identifier split differently than the reader's identifier\n  scan. Non-`#` atoms now end at the first non-<subsequent> byte, matching\n  readSymbol, while `#`-led atoms keep their interior-`#` carve-outs.\n\n- #2149: fmt measured line width in bytes, so Unicode identifiers counted\n  double/triple against the 80-column budget. Width is now measured in\n  Unicode code points, in both `measure` and the printer's column cursor.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review feedback: line/col for lone CR, UTF-8 width, OOM message\n\n- reader.getLineCol/recordSpan now count a lone CR and CRLF as one line\n  ending (R7RS 7.1.1), matching the #2079 comment change, so a user syntax\n  error in a CR-only file reports the right line. Both go through a shared\n  lineColAt helper.\n\n- fmt_print.columnCount validates each UTF-8 sequence with utf8Decode, so a\n  malformed lead byte (e.g. 0xC2 followed by an ASCII byte) counts as one\n  column rather than swallowing the following byte. Made pub for direct\n  testing.\n\n- verifyRoundTrip gains an `oom` variant so an allocator failure during the\n  check is reported as \"out of memory\", not as a formatter mismatch.\n\n- Fix a dangling scanAtom -> scanHashAtom reference in a scanHash comment.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-23T19:12:14Z",
-          "tree_id": "9d0faf8e1d0d889eb0bdc97e3f68498988ef4652",
-          "url": "https://github.com/kaappi/kaappi/commit/e5bd7747e235ff10a1a7a8866eb695016165ab88"
-        },
-        "date": 1787514631514,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.373326,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.857712,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.584848,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.9897,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004754,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.050729,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.307715,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.074399,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.925498,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.213091,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.684448,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.283001,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.87827,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.647286,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045126,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044819,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "f952327d5f8861bc9a40ce6340fc69bb645382fa",
+          "message": "Release v0.26.0\n\nAdds (kaappi process) across all four KEP-0022 phases, SRFI 273 and 274,\nSRFI 231 f16-storage-class, channel identity comparators, the\nkaappi-shared-channels feature identifier, and live kaappi.pkg name:/source:\nfields. Makes the builtin-superinstruction gate a run-time decision, the\nminor GC mark generational, er-macro compare binding-aware, and cross-thread\nSRFI-18 waits notifier-driven. Full notes in CHANGELOG.md.\n\nProcedure count 696 -> 717 (21 added, none removed); SRFI count 178 -> 180.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-09-04T00:12:46+05:30",
+          "tree_id": "475e5022ee0f27771bf6c4408e814cc3a7e27904",
+          "url": "https://github.com/kaappi/kaappi/commit/f952327d5f8861bc9a40ce6340fc69bb645382fa"
+        },
+        "date": 1788463734477,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.157582,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.042171,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.561985,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.812418,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004825,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046592,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.288807,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054686,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.900097,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.557116,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.567075,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.260922,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.675659,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.036432,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042144,
             "unit": "seconds"
           }
         ]
