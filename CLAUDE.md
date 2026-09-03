@@ -513,6 +513,17 @@ issue up *within* its level, not a level of its own.
 boundary rules, severity-vs-priority, and the triage commands, including the
 query that finds every open issue with none *or* more than one priority label.
 
+## Upstream Zig: no LLM / no AI
+
+Kaappi is written in Zig, so we routinely touch the Zig ecosystem. Zig enforces
+a **Strict No LLM / No AI Policy** in the spaces its CoC governs (the `ziglang`
+org on Codeberg, the `#zig` Libera.chat IRC, the Zig Zulip — GitHub is *not*
+among them), and we respect it in full: nothing an LLM produced or touched goes
+upstream — issues, PRs, comments, edits, translations, or LLM-found bugs — and
+don't discuss chatbot/LLM use there. The boundary is the destination: this
+restricts *contributions to Zig*, not AI-assisted work on Kaappi's own Zig code.
+**`docs/dev/zig-upstream-policy.md`** is the full note.
+
 ## Claude Code harness
 
 Hooks, permissions, path-scoped rules, and skills that enforce the conventions
