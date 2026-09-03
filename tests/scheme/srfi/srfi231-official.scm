@@ -66,7 +66,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 
 (import (srfi 231) (srfi 27) (srfi 143) (srfi 4)
         (srfi 160 u64) (srfi 160 s64)
-        (scheme base) (scheme write) (scheme char) (scheme cxr)
+        (scheme base) (scheme inexact) (scheme write) (scheme char) (scheme cxr)
         (scheme file) (scheme read) (scheme lazy)
         (scheme process-context))
 

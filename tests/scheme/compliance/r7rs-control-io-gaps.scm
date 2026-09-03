@@ -5,7 +5,7 @@
 ;; guard/parameterize) are Phase 4B's unit, not covered here.
 ;; Spec references cite docs/errata-corrected-r7rs.pdf.
 
-(import (scheme base) (scheme write) (scheme read) (scheme eval) (scheme file)
+(import (scheme base) (scheme inexact) (scheme write) (scheme read) (scheme eval) (scheme file)
         (scheme time) (scheme char) (scheme process-context) (srfi 64))
 
 ;; Windows preserves case but names are case-insensitive ("Path"), so

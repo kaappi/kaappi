@@ -293,7 +293,7 @@ old_include = '''(begin
   (include "generic-arrays.scm"))'''
 new_include = '''(import (srfi 231) (srfi 27) (srfi 143) (srfi 4)
         (srfi 160 u64) (srfi 160 s64)
-        (scheme base) (scheme write) (scheme char) (scheme cxr)
+        (scheme base) (scheme inexact) (scheme write) (scheme char) (scheme cxr)
         (scheme file) (scheme read) (scheme lazy))'''
 assert old_include in src
 src = src.replace(old_include, new_include)
@@ -741,6 +741,19 @@ NEW_REPORT = ''';;; --- kaappi vendoring: known-divergence accounting ----------
 ;;; unchecked, which the spec text permits but the reference does not do.
 ;;; kaappi now always checks the user-visible getter/setter, so that
 ;;; divergence is resolved rather than documented.
+;;;
+;;; Entries 737-741 lived here until kaappi#2454. They arrived with
+;;; kaappi#2451: these five forms' getters capture a continuation and
+;;; re-invoke it after the copy has returned, which used to raise
+;;; "continuation cannot resume across a returned native call" and,
+;;; once #2452 removed that engine limit, reached a library divergence
+;;; instead -- %array-copy-impl (lib/srfi/231/views.sld) filled the
+;;; destination directly, so the re-entry overwrote the array the first
+;;; copy already returned. array-copy now collects the source's values
+;;; through a functional accumulator before the destination exists, so
+;;; the re-entry materializes its own array; array-append/stack/block/
+;;; decurry delegate to array-copy, which is why one change resolved
+;;; all five. That divergence is resolved rather than documented.
 (define divergent-tests 0)
 (define diverged-counts (make-vector 10000 0))
 (define known-divergences

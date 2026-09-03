@@ -94,7 +94,7 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "inexact", .func = &inexactFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "expt", .func = &exptFn, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
     .{ .name = "square", .func = &squareFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
-    .{ .name = "sqrt", .func = &sqrtFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_inexact, .scheme_r5rs }) },
+    .{ .name = "sqrt", .func = &sqrtFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_inexact, .scheme_r5rs }) },
     .{ .name = "exact-integer-sqrt", .func = &exactIntegerSqrt, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "sin", .func = &sinFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_inexact, .scheme_r5rs }) },
     .{ .name = "cos", .func = &cosFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_inexact, .scheme_r5rs }) },
