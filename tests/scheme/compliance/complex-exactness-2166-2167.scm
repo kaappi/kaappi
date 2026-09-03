@@ -120,7 +120,7 @@
 (test-assert "expt exact zero exponent is 1" (eqv? (expt 1+2i 0) 1))
 (test-assert "negation exact round-trip" (eqv? (- (- z)) z))
 (test-assert "magnitude stays inexact (out of scope)" (inexact? (magnitude z)))
-(test-assert "sqrt of exact complex stays inexact (out of scope)" (inexact? (sqrt -4)))
+(test-assert "sqrt of a negative exact square is exact (kaappi#2503)" (eqv? (sqrt -4) +2i))
 
 ;; --- #2166 (full): make-rectangular never rounds ---------------------------
 

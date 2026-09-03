@@ -40,9 +40,37 @@
 (test-assert "(sqrt 4.0) inexact" (inexact? (sqrt 4.0)))
 (test-equal "(sqrt 4.0)" 2.0 (sqrt 4.0))
 
-;; Negative exact rational -> complex (inexact) result, not an error
-(test-approximate "(sqrt -9/4) imag" 1.5 (imag-part (sqrt -9/4)) 1e-9)
-(test-approximate "(sqrt -9/4) real" 0.0 (real-part (sqrt -9/4)) 1e-9)
+;; Negative exact perfect squares -> exact complex (kaappi#2503).
+;; R7RS 6.2.6: (sqrt -1) => +i, exact under the section's own convention.
+(test-assert "(sqrt -1) is +i" (eqv? (sqrt -1) +i))
+(test-assert "(sqrt -1) exact" (exact? (sqrt -1)))
+(test-equal "(sqrt -1) real-part" 0 (real-part (sqrt -1)))
+(test-equal "(sqrt -1) imag-part" 1 (imag-part (sqrt -1)))
+(test-assert "(sqrt -4) is +2i" (eqv? (sqrt -4) +2i))
+(test-assert "(sqrt -9/4) is +3/2i" (eqv? (sqrt -9/4) (make-rectangular 0 3/2)))
+(test-assert "(sqrt -1/4) is +1/2i" (eqv? (sqrt -1/4) (make-rectangular 0 1/2)))
+(test-equal "(sqrt -4) imaginary part is non-negative" 2 (imag-part (sqrt -4)))
+(test-assert "negative bignum perfect square"
+  (eqv? (sqrt (- (* big big))) (make-rectangular 0 big)))
+(test-assert "negative rational with bignum denominator"
+  (eqv? (sqrt (/ -9 (* big big))) (make-rectangular 0 (/ 3 big))))
+(test-assert "most negative fixnum squares stay exact"
+  (eqv? (sqrt (- (* 140737488355328 140737488355328)))
+        (make-rectangular 0 140737488355328)))   ; 2^47
+(test-assert "(sqrt -1) squares back to -1" (eqv? (* (sqrt -1) (sqrt -1)) -1))
+(test-assert "(sqrt -1) is not eqv? to its inexact twin" (not (eqv? (sqrt -1) +1.0i)))
+
+;; Negative exact non-squares stay inexact complex, with the right sign
+(test-assert "(sqrt -2) inexact" (inexact? (sqrt -2)))
+(test-approximate "(sqrt -2) imag" 1.4142135623730951 (imag-part (sqrt -2)) 1e-12)
+(test-assert "(sqrt -2/3) inexact" (inexact? (sqrt -2/3)))
+(test-assert "(sqrt -9/2) inexact" (inexact? (sqrt -9/2)))
+
+;; Negative inexact arguments are unchanged
+(test-assert "(sqrt -1.0) inexact" (inexact? (sqrt -1.0)))
+(test-assert "(sqrt -1.0) is +1.0i" (eqv? (sqrt -1.0) +1.0i))
+(test-assert "(sqrt -4.0) is +2.0i" (eqv? (sqrt -4.0) +2.0i))
+(test-assert "(sqrt -0.0) is -0.0" (eqv? (sqrt -0.0) -0.0))
 
 ;; exact-integer-sqrt still works through the shared helper
 (test-equal "(exact-integer-sqrt 17)" '(4 1)
