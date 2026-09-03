@@ -11,6 +11,45 @@ this file — put the *why* in the commit body instead.
 
 ## [Unreleased]
 
+## [0.26.1] - 2026-09-04
+
+### Changed
+
+- **`sqrt` is no longer exported from `(scheme base)` (#2504)** — R7RS 6.2.6
+  makes `sqrt` an inexact-library procedure: `(scheme inexact)` exports it,
+  `(scheme base)` does not, and Appendix A lists only `exact-integer-sqrt`
+  among the base exports. Kaappi carried an extra `.scheme_base` tag, the
+  only `(scheme inexact)` procedure to do so. Since v0.22.0 enforces R7RS
+  5.2 — importing one identifier from two libraries with different bindings
+  is an error — that stray tag turned a portable, spec-legal program into a
+  load failure: a user library defining and exporting its own `sqrt` could
+  not be imported alongside `(scheme base)`, and KP2001 named both
+  libraries. `kaappi-mpl` already worked around it with an `except`/`rename`
+  dance. **Breaking, for a non-standard extension:** any import selector
+  naming `sqrt` out of `(scheme base)` — `(only (scheme base) sqrt)`,
+  `(except (scheme base) sqrt)`, `(rename (scheme base) (sqrt …))` — now
+  raises KP2001, and `(environment '(scheme base))` no longer resolves
+  `sqrt`. `(scheme inexact)` and `(scheme r5rs)` still export it, and
+  library and program bodies still resolve an unimported `sqrt` through the
+  globals map, so code that merely *calls* `sqrt` after importing only
+  `(scheme base)` keeps running. Portable code imports `(scheme inexact)`.
+
+### Fixed
+
+- **`sqrt` of a negative exact perfect square returns an exact complex
+  (#2503)** — R7RS 6.2.6 gives `(sqrt -1)` ⇒ `+i`, and the section's own
+  convention makes a constant written in exact notation an exact number.
+  Kaappi returned `+1.0i`: the exact bignum and rational paths were guarded
+  by `!isNegative`, and the fixnum perfect-square check ran only after the
+  `f < 0.0` branch had already returned, so every negative exact argument
+  fell through to the f64 path. `(sqrt -1)` and `(sqrt -1.0)` were
+  indistinguishable, `(eqv? (sqrt -1) +i)` was `#f`, and
+  `(* (sqrt -1) (sqrt -1))` was `-1.0+0.0i` rather than `-1`. The three
+  exact paths now fold into one helper that takes the exact root of the
+  negation and builds `0+root*i` with an exact fixnum zero real part.
+  Negative non-squares still fall through to the inexact complex path, and
+  negative inexact arguments are untouched.
+
 ## [0.26.0] - 2026-09-04
 
 ### Added
