@@ -85,7 +85,21 @@ zig build test 2>&1 | head                # Quick check for failures
 zig build test -Dtest-filter=tests_io     # Only tests whose names match
 zig build test -Dtest-filter="eval quote" # Substring match on test names
 zig build test -Dgc-stress=true           # Collection on every allocation
+zig build test -Dtest-strip=true          # macOS: ~20x faster, bounded memory; no symbolized traces
 ```
+
+`-Dtest-strip=true` strips the *test* binaries only. It exists for
+aarch64-macOS, where `std.testing.allocator`'s per-allocation stack capture
+goes through Zig 0.16's Mach-O DWARF unwinder and its never-freed scratch
+arena: the unit binary's footprint grows to ~44 GB over the suite and the run
+takes ~7–10 minutes, against 20 s and 91 MB stripped (kaappi#2489 — the CI
+macOS leg was being SIGKILLed by the kernel when the runner's swap filled).
+Stripping turns the capture off (`allow_stack_tracing` defaults to
+`!strip_debug_info`; the test binary's root is Zig's test runner, so it
+cannot be set from `main.zig`). The cost is that a panic or a leak report in
+the test binary prints raw addresses, so leave it off when you need a trace.
+The macOS CI leg passes it; Linux runs the same suite in under a minute
+without it.
 
 Individual test files cannot be run in isolation -- `zig build test` runs all
 tests discovered through the import graph from `main.zig`. Use

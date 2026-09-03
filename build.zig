@@ -50,6 +50,24 @@ pub fn build(b: *std.Build) void {
 
     const test_filters = b.option([]const []const u8, "test-filter", "Only run unit tests whose names match the filter (repeatable)") orelse &.{};
 
+    // Strip the TEST binaries only (kaappi#2489). `std.testing.allocator`
+    // captures a 10-frame stack trace on every allocation, and on
+    // aarch64-macOS Zig 0.16 walks it with the Mach-O DWARF unwinder, whose
+    // scratch comes from std.debug's process-lifetime arena: the unit
+    // binary's footprint grows ~100 MB/s to ~44 GB over the suite, which a
+    // 7 GB CI runner answers with a kernel "no paging space" SIGKILL, and
+    // the unwinding itself makes the suite ~20x slower there (7 min vs 20 s
+    // locally; Linux runs the same suite in 47 s). `allow_stack_tracing`
+    // defaults to `!strip_debug_info`, and the test binary's root is Zig's
+    // own test runner (it owns `std_options`), so stripping the test module
+    // is the one lever this build has. Cost: a panic or a leak report in the
+    // test binary prints addresses, not symbolized frames -- hence opt-in;
+    // the macOS CI leg passes it, and local runs can when a trace is not
+    // what they are after. Test-only: `-Dstrip` still governs the shipped
+    // binaries, and the kcov coverage modules keep their DWARF regardless.
+    const test_strip = b.option(bool, "test-strip", "Strip the unit-test binaries: no symbolized traces, but ~20x faster and bounded memory on macOS (kaappi#2489)") orelse false;
+    const test_strip_opt: ?bool = if (test_strip) true else null;
+
     // A cross-compiled test binary runs under an emulator: CI cross-compiles to
     // riscv64-linux and runs the unit tests under QEMU user-mode (~10-30x slower
     // than native). The fuzz generator "programs evaluate without error" gates in
@@ -453,6 +471,7 @@ pub fn build(b: *std.Build) void {
         // Match the wasm executable's own threading model (see `main_mod`
         // above): wasm32-wasi without wasi-threads is single-threaded.
         .single_threaded = if (is_wasm_target) true else null,
+        .strip = test_strip_opt,
     });
     const unit_tests = b.addTest(.{
         .name = "unit-tests",
@@ -482,6 +501,7 @@ pub fn build(b: *std.Build) void {
         .root = "src/thottam.zig",
         .target = target,
         .optimize = optimize,
+        .strip = test_strip_opt,
     });
     const thottam_tests = b.addTest(.{
         .name = "thottam-tests",
