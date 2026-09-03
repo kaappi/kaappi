@@ -288,6 +288,36 @@ jobs:
           fi
           exit "$code"
 
+      # kaappi#2489 diagnostics. On some macOS runs the unit binary is
+      # SIGKILLed mid-suite ("'<test>' terminated with signal KILL") with no
+      # runner-side event in the debug log, always 11-13 min into a step a
+      # healthy run finishes in 10, and always in the last ~2% of the suite
+      # (the process tests). The two live hypotheses are a kernel memory
+      # kill (macOS memorystatus, which writes a JetsamEvent report and a
+      # kernel log line naming the reason) and a stray kill(2) from inside
+      # the suite (which leaves neither). Nothing in a plain step log can
+      # tell them apart, so: a sampler records swap usage, free/compressed
+      # pages, and the largest processes every 5 s for the whole step, and
+      # the failure-only step below prints the sampler's tail, any
+      # JetsamEvent report, and the kernel's memorystatus lines. Harmless
+      # on a green run (a background loop and one small file). Remove both
+      # steps once #2489 is closed.
+      - name: Start memory sampler (kaappi#2489 diagnostics)
+        if: matrix.os == 'macos-latest' && env.DOCS_ONLY != 'true'
+        run: |
+          log="$RUNNER_TEMP/kaappi-2489-sampler.log"
+          echo "KAAPPI_2489_SAMPLER_LOG=$log" >> "$GITHUB_ENV"
+          echo "== $(date -u +%FT%TZ) host: $(sysctl -n hw.memsize) bytes RAM, $(sysctl -n hw.ncpu) cpus" > "$log"
+          nohup bash -c '
+            while :; do
+              echo "=== $(date -u +%FT%TZ) $(sysctl -n vm.swapusage)"
+              vm_stat | sed -n "2,4p;8p;9p" | tr "\n" " "; echo
+              ps -axo pid,ppid,pgid,rss,etime,comm | sort -k4 -n -r | head -6
+              sleep 5
+            done' >> "$log" 2>&1 &
+          disown
+          echo "sampler started, log at $log"
+
       # --summary all deliberately: `zig build test` prints NOTHING on success,
       # so a passing run and a run that compiled everything and executed no
       # test produce byte-identical logs. The summary's `run test unit-tests
@@ -296,6 +326,40 @@ jobs:
       - name: Unit tests (leak detection via std.testing.allocator)
         if: env.DOCS_ONLY != 'true'
         run: zig build test -Doptimize=${{ matrix.optimize }} --summary all
+
+      - name: Memory-kill diagnostics (kaappi#2489)
+        if: failure() && matrix.os == 'macos-latest' && env.DOCS_ONLY != 'true'
+        run: |
+          echo "## sampler tail (last 150 lines)"
+          tail -n 150 "$KAAPPI_2489_SAMPLER_LOG" || true
+          echo "## memory now"
+          sysctl hw.memsize vm.swapusage || true
+          vm_stat || true
+          echo "## JetsamEvent reports"
+          found=0
+          for f in /Library/Logs/DiagnosticReports/JetsamEvent*.ips "$HOME"/Library/Logs/DiagnosticReports/JetsamEvent*.ips; do
+            [ -f "$f" ] || continue
+            found=1
+            echo "--- $f"
+            head -c 6000 "$f"; echo
+          done
+          [ "$found" = 1 ] || echo "(no JetsamEvent report on this runner)"
+          echo "## kernel memorystatus / kill lines, last 40 min"
+          log show --last 40m --style compact --predicate '(process == "kernel") AND (eventMessage CONTAINS[c] "memorystatus" OR eventMessage CONTAINS[c] "jetsam" OR eventMessage CONTAINS[c] "kill")' 2>&1 | tail -n 80 || true
+          echo "## any log line naming unit-tests, last 40 min"
+          log show --last 40m --style compact --predicate 'eventMessage CONTAINS "unit-tests"' 2>&1 | tail -n 40 || true
+
+      - name: Upload memory sampler log (kaappi#2489)
+        if: failure() && matrix.os == 'macos-latest' && env.DOCS_ONLY != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: kaappi-2489-macos-sampler-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.KAAPPI_2489_SAMPLER_LOG }}
+          if-no-files-found: ignore
+
+      - name: Stop memory sampler (kaappi#2489)
+        if: always() && matrix.os == 'macos-latest' && env.DOCS_ONLY != 'true'
+        run: pkill -f 'vm.swapusage' || true
 
       - name: Scheme suites
         if: env.DOCS_ONLY != 'true'
