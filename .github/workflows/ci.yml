@@ -564,14 +564,22 @@ jobs:
     # That step printed nothing until it finished, so the log said nothing
     # about which test. The unit suite therefore runs as chunks
     # (tools/run-unit-test-chunk.sh), each its own step with its own
-    # `timeout-minutes`, so the next hang names its chunk. The step caps are
-    # what localise; the job cap below only backstops several chunks
-    # overrunning at once, and is sized so a single hung chunk hits ITS cap
-    # first (setup + build + every other chunk healthy + the hung one's cap
-    # stays inside it). The first three-way split measured 35m healthy and
-    # localised the first recurrence to its `rest` chunk (1646 tests); the
-    # eight-way split below cuts that remainder along its QEMU-sensitive
-    # seams at the price of five more test-binary compiles (~1.5m each).
+    # `timeout-minutes`, so the next hang names its chunk. The first
+    # three-way split measured 35m healthy and localised the first
+    # recurrence to its `rest` chunk (1646 tests); the eight-way split below
+    # cuts that remainder along its QEMU-sensitive seams at the price of
+    # five more test-binary compiles (~1.5m each).
+    #
+    # The chunk script also passes `zig build test --test-timeout` (8m by
+    # default; see its header). That is what localises to a TEST: the build
+    # runner otherwise waits forever for a test's result, and with the bound
+    # it kills the overrunning test, prints its name, and carries on with
+    # the rest of the chunk, so the log ends with a named failure and a full
+    # verdict for every other test instead of a cancel. For that to happen
+    # the step must outlive the per-test bound, so every step cap below is
+    # its healthy time plus the 8m bound plus margin -- the cap is now the
+    # backstop, not the localiser. The job cap backstops the same way: setup
+    # + build + every chunk healthy (30m) + one hung test (8m) stays inside.
     timeout-minutes: 55
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -601,35 +609,40 @@ jobs:
       # fuzz 1m, gc 9s, native 2s (skips on this tier), tooling and the new
       # rest ~3m; the QEMU factor on the old rest was ~3.3x on top of
       # ~1.5m of compile, which is what the caps below are sized from, with
-      # roughly 2x headroom each. A chunk that hangs is cancelled by its
-      # own step's cap, and the step name in the job log is the
-      # localisation kaappi#2488 asks for.
+      # roughly 2x headroom each -- and then the script's 8m per-test bound
+      # on top, so a hung test is killed and NAMED by `zig build` while the
+      # step is still alive (a step cap that fires first would lose the
+      # name again). Measured healthy times on the eight-way split under
+      # QEMU, two runs (33684320694 and PR #2491's), slowest of each:
+      # process 1.8m, concurrency 7.0m (3.3m on the other run -- the
+      # timing-sensitive chunk varies most with runner load), io 2.1m,
+      # fuzz 6.0m, gc 6.1m (2.9m), native 1.7m, tooling 2.1m, rest 6.9m.
       - name: Unit tests, process chunk (riscv64 via QEMU)
-        timeout-minutes: 12
+        timeout-minutes: 14
         run: bash tools/run-unit-test-chunk.sh process -Dtarget=riscv64-linux
 
       - name: Unit tests, concurrency chunk (riscv64 via QEMU)
-        timeout-minutes: 12
+        timeout-minutes: 20
         run: bash tools/run-unit-test-chunk.sh concurrency -Dtarget=riscv64-linux
 
       - name: Unit tests, io chunk (riscv64 via QEMU)
-        timeout-minutes: 12
+        timeout-minutes: 14
         run: bash tools/run-unit-test-chunk.sh io -Dtarget=riscv64-linux
 
       - name: Unit tests, fuzz chunk (riscv64 via QEMU)
-        timeout-minutes: 15
+        timeout-minutes: 20
         run: bash tools/run-unit-test-chunk.sh fuzz -Dtarget=riscv64-linux
 
       - name: Unit tests, gc chunk (riscv64 via QEMU)
-        timeout-minutes: 10
+        timeout-minutes: 18
         run: bash tools/run-unit-test-chunk.sh gc -Dtarget=riscv64-linux
 
       - name: Unit tests, native chunk (riscv64 via QEMU)
-        timeout-minutes: 8
+        timeout-minutes: 12
         run: bash tools/run-unit-test-chunk.sh native -Dtarget=riscv64-linux
 
       - name: Unit tests, tooling chunk (riscv64 via QEMU)
-        timeout-minutes: 12
+        timeout-minutes: 14
         run: bash tools/run-unit-test-chunk.sh tooling -Dtarget=riscv64-linux
 
       - name: Unit tests, rest chunk (riscv64 via QEMU)
@@ -675,8 +688,12 @@ jobs:
       - name: Build (cross-compile for s390x)
         run: zig build -Dtarget=s390x-linux
 
+      # Same per-test bound as the riscv64 chunks (kaappi#2488): a test that
+      # hangs under emulation is killed and named after 8m, and the rest of
+      # the suite still reports, instead of the step going silent until the
+      # job cap. This leg's whole unit step is ~10m healthy.
       - name: Unit tests (s390x via QEMU)
-        run: zig build test -Dtarget=s390x-linux
+        run: zig build test -Dtarget=s390x-linux --test-timeout 8m
 
       - name: R7RS test suite (s390x via QEMU)
         run: bash tools/run-r7rs-suite.sh zig-out/bin/kaappi
@@ -719,8 +736,10 @@ jobs:
       - name: Build (cross-compile for ppc64le)
         run: zig build -Dtarget=powerpc64le-linux
 
+      # Per-test bound as on the s390x and riscv64 legs (kaappi#2488); this
+      # unit step is ~4m healthy.
       - name: Unit tests (ppc64le via QEMU)
-        run: zig build test -Dtarget=powerpc64le-linux
+        run: zig build test -Dtarget=powerpc64le-linux --test-timeout 8m
 
       - name: R7RS test suite (ppc64le via QEMU)
         run: bash tools/run-r7rs-suite.sh zig-out/bin/kaappi

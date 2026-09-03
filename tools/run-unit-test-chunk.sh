@@ -3,6 +3,7 @@
 #
 #     bash tools/run-unit-test-chunk.sh <process|concurrency|rest> [zig build args...]
 #     bash tools/run-unit-test-chunk.sh --list <chunk>      # print the filters, run nothing
+#     KAAPPI_TEST_TIMEOUT=90s bash tools/run-unit-test-chunk.sh <chunk>   # per-test bound
 #
 # WHY THIS EXISTS. `riscv64-test` runs the whole unit suite under QEMU
 # user-mode as ONE `zig build test` step that prints nothing until it
@@ -12,6 +13,28 @@
 # few chunks, each its own workflow step with its own `timeout-minutes`,
 # makes the next hang say WHICH chunk it was in. Chunking is a diagnostic,
 # not a fix; the chunks exist to be narrowed, not to grow.
+#
+# THE PER-TEST TIMEOUT. `zig build test` talks to the test binary over the
+# binary's stdin/stdout (`--listen=-`): it asks for one test at a time and,
+# by default, waits for that test's result FOREVER -- which is the whole
+# 43-minute silence above. Zig 0.16's `--test-timeout <duration>` bounds
+# that wait per test: a test that overruns it is reported by NAME
+# ("'<file>.test.<title>' timed out after 8m"), its process is killed, and
+# the runner respawns the binary and carries on from the next test, so one
+# hang costs the timeout, names its test, and still leaves every other
+# test's verdict in the log. The same bound covers the other way a run can
+# go silent: a test that writes to fd 1 corrupts the IPC stream (the build
+# runner reads the stray bytes as a message header and waits for a body
+# that never comes), and the runner now gives up on that test too instead
+# of on the whole step. The chunks stay: the timeout localises to a test
+# only once the step is allowed to outlive it, so every step cap in the
+# workflow is sized as its healthy time plus this timeout plus margin.
+#
+# $KAAPPI_TEST_TIMEOUT overrides the bound (a Zig duration such as 8m or
+# 90s). The default is sized from the slowest chunk under QEMU: the fuzz
+# chunk's 20 tests (the fixed-seed generator gates among them) take about
+# 4.5m TOGETHER, so no single test is anywhere near 8m, and under emulation
+# a legitimately slow test must never be mistaken for a hang.
 #
 # HOW THE CHUNKS ARE CUT. `-Dtest-filter` is a substring match on a test's
 # qualified name, `<file basename>.test.<title>` (build.zig; repeatable).
@@ -165,8 +188,10 @@ floor="$(grep -l '^test {' src/*.zig | wc -l | tr -d ' ')"
 log="$(mktemp)"
 trap 'rm -f "$log"' EXIT
 
-echo "== unit-test chunk '$chunk': ${#filters[@]} filter(s), extra args: $*"
-zig build test "${filters[@]}" "$@" --summary all 2>&1 | tee "$log"
+test_timeout="${KAAPPI_TEST_TIMEOUT:-8m}"
+
+echo "== unit-test chunk '$chunk': ${#filters[@]} filter(s), per-test timeout $test_timeout, extra args: $*"
+zig build test "${filters[@]}" "$@" --test-timeout "$test_timeout" --summary all 2>&1 | tee "$log"
 status=${PIPESTATUS[0]}
 [ "$status" = 0 ] || exit "$status"
 
