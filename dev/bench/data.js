@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788465383291,
+  "lastUpdate": 1788473993623,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e96c185c7d71e0ec38d8bb198cb8f43bc45b7afa",
-          "message": "Make equal? recurse into record fields (structural record equality) (#2295)\n\n* Make equal? recurse into record fields (structural record equality)\n\nR7RS §6.1 leaves records in the \"all other cases\" clause for equal?,\nso the result is implementation-defined. Kaappi compared record\ninstances by identity only, which made it the lone holdout among\nnative-R7RS implementations: Gambit, Guile, and Chibi all recurse into\nfields, and the report's own (non-normative) \"print the same\" rule of\nthumb points the same way.\n\ndeepEqualWithVisited now has a record_instance arm: two instances are\nequal? only when they share the same record type (compared by identity,\nso a type that crossed an SRFI-18 thread boundary still matches,\nkaappi#1932) and their fields are pairwise deep-equal?. Records route\nthrough the same VisitedMap as pairs and vectors, so cyclic records\nterminate. eq?/eqv? stay identity-based, as §6.1 requires.\n\n- distinct-but-equal records => #t; different types or differing fields\n  => #f; nested and procedure-bearing fields recurse correctly\n- Zig unit tests in src/tests_records.zig and a Scheme smoke test under\n  tests/scheme/smoke/record-equal-2293.scm\n- CONFORMANCE.md SRFI 9 section records the decision and its §6.1 basis\n\nFixes #2293\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Update SRFI 9 test: equal? on records is now structural\n\nThe record arm in equal? makes two distinct instances of the same type\nwith equal fields compare #t, so the srfi9 equivalence block no longer\nholds for equal?. Keep the identity assertions for eqv?/eq?; assert\nequal? returns #t for the distinct-but-equal pair.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Hash records structurally, matching the new structural equal?\n\nMaking equal? recurse into record fields (kaappi#2293) broke the\nhash/equality contract: deepEqual became structural while valueHash\nstill hashed records by address, so a default SRFI 69 table\n(equal? + valueHash) silently lost every record entry once the table\ngrew past a tiny mask. Same bug class as the f64vector fix in #2023.\n\nAdd a record_instance arm to valueHashDepth that folds the record\ntype's identity (the discriminator sameRecordType gates on — a type\nthat crossed an SRFI-18 thread boundary keeps its identity at a new\naddress) with the first few field hashes, capped like the vector arm.\nCyclic fields are absorbed by the MAX_HASH_DEPTH sentinel. Flip the\nnow-stale identity-fallback comment.\n\nAlso pin that member/assoc find records structurally (they share the\ndeepEqual path), and that equal records hash alike.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-24T14:47:25+05:30",
-          "tree_id": "147027ee7c2dded320eb6f7551a668b6f9b9a857",
-          "url": "https://github.com/kaappi/kaappi/commit/e96c185c7d71e0ec38d8bb198cb8f43bc45b7afa"
-        },
-        "date": 1787565380893,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.364214,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.49406,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.561623,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.044966,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004945,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.048175,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.308476,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056164,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.781897,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.22622,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.685079,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.279384,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.819363,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.440785,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043887,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044254,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7313700fca2fd24109694b9c7d3e3f274b71ed66",
+          "message": "Return an exact complex from sqrt of a negative exact perfect square (#2505)\n\n* Return an exact complex from sqrt of a negative exact perfect square\n\nR7RS 6.2.6 gives (sqrt -1) => +i, and the section's own convention says a\nconstant written in exact notation denotes an exact number, so that +i is\nexact. Kaappi returned +1.0i: the exact bignum and rational paths in sqrtFn\nwere guarded by !isNegative, and the fixnum perfect-square check ran only\nafter the f < 0.0 branch had already returned, so every negative exact\nargument fell through to the f64 path and came back with flonum components.\n(sqrt -1) and (sqrt -1.0) were indistinguishable, (eqv? (sqrt -1) +i) was\n#f, and (* (sqrt -1) (sqrt -1)) was -1.0+0.0i rather than -1.\n\nExact complex values already exist since kaappi#2166, so the fix is to fold\nthe three exact paths into one exactSqrt helper and, for a negative exact\nargument, take the exact root of its negation and build 0+root*i with an\nexact fixnum zero real part. A negative non-square still falls through to\nthe inexact complex path, and negative inexact arguments are untouched.\n\nThe gap was recorded rather than accidental: the #2166 compliance suite\nasserted (inexact? (sqrt -4)) as \"out of scope\". That assertion now checks\n(eqv? (sqrt -4) +2i), and sqrt-exact.scm gains the negative fixnum, bignum,\nrational, 2^47-boundary, non-square, and inexact-argument cases. Verified\nunder -Dgc-stress=true.\n\nFixes #2503\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Pin the two non-local safety facts in sqrtFn with comments\n\nReview of #2505 asked for two comments, neither changing behaviour. The\nisRationalObj arm of the sign test looks like it could be flattened to a\nbare bignum_mod.isNegative, but that helper answers false for rationals,\nso the flattening would route (sqrt -9/4) into isqrtNonNegative with a\nnegative numerator and a ReleaseSafe panic on @intFromFloat(NaN). And the\nunrooted root handed to allocComplex is safe only because allocComplex\nroots its arguments before collecting, which is invisible at the call site.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-03T21:36:13Z",
+          "tree_id": "f22ffc1f407d424ec1fd64e9cd0ea0eb689f97ad",
+          "url": "https://github.com/kaappi/kaappi/commit/7313700fca2fd24109694b9c7d3e3f274b71ed66"
+        },
+        "date": 1788473990554,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.351313,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.873668,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.564096,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.031248,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00467,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048926,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.316045,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055628,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.808819,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.245341,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.658025,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.276188,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.728766,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.643909,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04548,
             "unit": "seconds"
           }
         ]
