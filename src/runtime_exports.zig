@@ -91,12 +91,18 @@ pub export fn kaappi_global_lookup(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_
     const v = vm orelse return 0;
     const len: usize = @intCast(name_len);
     const name = name_ptr[0..len];
-    return v.globals.get(name) orelse {
-        _ = platform.write(2, "undefined variable: ", 20);
-        _ = platform.write(2, name_ptr, len);
-        _ = platform.write(2, "\n", 1);
-        std.process.exit(1);
-    };
+    // Map read under the shared lock when this VM is an SRFI-18 child
+    // sharing the map (the interpreter's lookupGlobalLocked does the same):
+    // an unlocked read can walk a bucket array another thread is
+    // concurrently rehashing away (#2487). Lock-free on the owner VM.
+    v.lockGlobalsShared();
+    const found = v.globals.get(name);
+    v.unlockGlobalsShared();
+    if (found) |val| return val;
+    _ = platform.write(2, "undefined variable: ", 20);
+    _ = platform.write(2, name_ptr, len);
+    _ = platform.write(2, "\n", 1);
+    std.process.exit(1);
 }
 
 pub export fn kaappi_define_global(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_len: u64, val: u64) callconv(.c) void {
@@ -116,15 +122,47 @@ pub export fn kaappi_set_global(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_len
     const v = vm orelse return;
     const len: usize = @intCast(name_len);
     const name = name_ptr[0..len];
-    if (v.globals.getPtr(name)) |ptr| {
-        ptr.* = val;
+    // #1924: same rule as the interpreter's set_global opcode — a child
+    // thread (owns_globals == false) storing its OWN heap's object into the
+    // shared map leaves a pointer the root collector cannot trace, dangling
+    // once the child's heap is freed at join. Checked before any lock is
+    // taken so the rejection never unwinds out of the locked region. The
+    // native tier cannot raise a catchable error from here, so the store is
+    // refused with a fatal diagnostic instead — the interpreter's text
+    // (raiseCrossHeapStoreVM) verbatim, minus the remediation tail which
+    // names channel/join routes that reach the same refusal.
+    if (!v.owns_globals and types.isPointer(val)) {
+        const root_vm = v.root_vm orelse v;
+        if (types.toObject(val).owner != root_vm.gc.id) {
+            _ = platform.write(2, "set!: cannot store an object created on this thread into a heap object shared with another thread (it would dangle once this thread's heap is freed)\n", 149);
+            std.process.exit(1);
+        }
+    }
+    // A native closure runs on whichever VM invoked it (callNativeClosure
+    // passes the caller), and one deep-copied into an SRFI-18 child thread
+    // arrives with that child's VM — so this store reaches the shared
+    // globals map from a child. Both the getPtr and the store through it
+    // must sit inside the shared lock, exactly as the interpreter's
+    // set_global opcode does (#2487): a structural mutation on another
+    // thread (define/import under the exclusive lock) may rehash and free
+    // the bucket array between them, leaving `ptr` dangling. The store
+    // itself is in-place (no rehash), so the shared lock is sufficient; it
+    // is a no-op on the owner VM, which reads lock-free. The version bump
+    // stays inside the locked region so the store and its bump are ordered
+    // together (VM.bumpGlobalVersion).
+    v.lockGlobalsShared();
+    const ptr = v.globals.getPtr(name);
+    if (ptr) |p| {
+        p.* = val;
         // Invalidate every function's per-function global cache, as the
         // interpreter's set_global does: an interpreted body (an eval
         // fallback, say) that cached this global — including the pristine
         // primitive a guard_builtin compares against (kaappi#2469) — must
         // not keep serving the old value.
         _ = v.bumpGlobalVersion();
-    } else {
+    }
+    v.unlockGlobalsShared();
+    if (ptr == null) {
         _ = platform.write(2, "set!: unbound variable '", 24);
         _ = platform.write(2, name_ptr, len);
         _ = platform.write(2, "'\n", 2);
@@ -299,12 +337,20 @@ fn callPrimitive(name: []const u8, a: u64, b: u64) u64 {
         _ = platform.write(2, "runtime: no VM instance\n", 24);
         std.process.exit(1);
     };
-    const proc = vm.globals.get(name) orelse {
+    // Same shared-lock read as kaappi_global_lookup (#2487): on an SRFI-18
+    // child thread the fixnum fallbacks reach the shared globals map, and an
+    // unlocked get can race another thread's rehash. Unlocked before the
+    // call below — callWithArgs re-enters everything and must not run
+    // inside a held globals lock.
+    vm.lockGlobalsShared();
+    const proc = vm.globals.get(name);
+    vm.unlockGlobalsShared();
+    const callee = proc orelse {
         _ = platform.write(2, "runtime: undefined primitive\n", 29);
         std.process.exit(1);
     };
     const args = [_]u64{ a, b };
-    return vm.callWithArgs(proc, &args) catch |err|
+    return vm.callWithArgs(callee, &args) catch |err|
         fatalVMError(vm, "runtime error in primitive", err);
 }
 
