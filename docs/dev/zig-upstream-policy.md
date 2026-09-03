@@ -10,8 +10,10 @@ Canonical source:
 
 ## What the policy forbids
 
-In Zig's own spaces — its issue tracker (hosted on Codeberg), the GitHub
-mirror, Ziggit, and the forums — the policy forbids:
+The Code of Conduct names the spaces it governs: the `ziglang` organization on
+Codeberg (which now hosts the issue tracker), the `#zig` IRC channel on
+Libera.chat, and the Zig project development Zulip. GitHub is explicitly *not*
+among them. In those governed spaces the policy forbids:
 
 - LLM-generated content, whether code or prose;
 - paraphrasing LLM-generated content;
@@ -25,12 +27,17 @@ mirror, Ziggit, and the forums — the policy forbids:
 ## What this means for Kaappi contributors
 
 - **Nothing an LLM produced or touched goes upstream.** Issues, pull requests,
-  comments, and forum posts to Zig must be entirely your own — including edits
-  and translations.
+  and messages in the governed spaces must be entirely your own — including
+  edits and translations.
 - **LLM-found Zig bugs are not filed by the LLM.** If AI-assisted work on
   Kaappi turns up a likely Zig compiler or `std` bug, any upstream report must
   be your own independent investigation and your own words.
-- **Don't discuss LLM/chatbot use in Zig spaces.**
+- **Don't discuss LLM/chatbot use in the governed spaces.**
+
+Two of Zig's contribution venues sit *outside* the CoC's named spaces: the
+GitHub mirror and the community-run Ziggit forum. Zig's policy does not
+formally reach them — but as our own rule of good citizenship, we hold to the
+same practice there.
 
 ## The boundary
 
