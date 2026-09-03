@@ -144,9 +144,11 @@ test "denormal arithmetic survives after normalizeFpEnvBestEffort" {
     try std.testing.expect(q == std.math.floatTrueMin(f64));
 }
 
-// kaappi#2446: the backoff's phase schedule. Iterations inside the spin and
-// yield phases must return without sleeping, and the first iteration past
-// them must actually sleep -- that sleep is the whole point (it is what takes
+// kaappi#2446: the backoff's phase schedule. Iterations inside the spin
+// phase must return without sleeping (the yield phase is run but, per
+// kaappi#2496, cannot be bounded from above), and the first iteration past
+// the phases must actually sleep -- that sleep is the whole point (it is
+// what takes
 // a waiter off the run queue), and the phase constants are what
 // memory.spinLock, VM.stopForCollection, markLiveChildRoots and reapOsThread
 // all rely on. The cap iteration (five doublings past the phases) sleeps a
@@ -165,13 +167,21 @@ test "kaappi#2446: spinBackoff spins, then yields, then sleeps" {
     const hints = platform.spin_backoff_hint_iters;
     const phases = hints + platform.spin_backoff_yield_iters;
     // Pure-spin phase: 32 spinLoopHint iterations, none of which enter the
-    // kernel -- genuinely microseconds, so the whole phase collapsing into
-    // the sleep path (32 x 32 us > 1 ms) still crosses the bound.
-    const t0 = platform.monotonicNs();
-    var i: u32 = 0;
-    while (i < hints) : (i += 1) platform.spinBackoff(i);
-    const spin_ns = platform.monotonicNs() - t0;
+    // kernel. The bound is wall-clock on a preemptible thread, where a single
+    // descheduling inside the window costs a full quantum and crosses any
+    // bound -- so take the best of three attempts: a real spin phase
+    // (single-digit us) passes with room to spare, and three consecutive
+    // preemptions inside a sub-microsecond window do not happen.
+    var spin_ns: u64 = std.math.maxInt(u64);
+    var attempt: u8 = 0;
+    while (attempt < 3) : (attempt += 1) {
+        const t0 = platform.monotonicNs();
+        var i: u32 = 0;
+        while (i < hints) : (i += 1) platform.spinBackoff(i);
+        spin_ns = @min(spin_ns, platform.monotonicNs() - t0);
+    }
     // Yield phase: the 64 sched_yield iterations only have to complete.
+    var i: u32 = hints;
     while (i < phases) : (i += 1) platform.spinBackoff(i);
     // The first sleeping iteration is 32 us; the capped one (>= 5 doublings
     // past the phases) is 1 ms. nanosleep never returns early, so the lower
@@ -185,7 +195,16 @@ test "kaappi#2446: spinBackoff spins, then yields, then sleeps" {
     const capped_sleep_ns = platform.monotonicNs() - t2;
     try std.testing.expect(first_sleep_ns >= 32_000);
     try std.testing.expect(capped_sleep_ns >= 1_000_000);
-    if (spin_ns >= 1_000_000) {
+    // 100 us separates the outcomes by an order of magnitude both ways: an
+    // unpreempted phase is single-digit us, while a phase that slept is at
+    // least 32 x 32 us = 1.024 ms (nanosleep never returns early and in
+    // practice oversleeps on top). Nothing in today's spinBackoff can route
+    // i < hints to the sleep branch -- dropping the hint guard sends those
+    // iterations to yield, dropping both guards makes `spins - 96` overflow
+    // a u32 and panic in ReleaseSafe before sleepNs is reached -- so this
+    // bound guards a future rewrite of the phase schedule, not a reachable
+    // state of the current one.
+    if (spin_ns >= 100_000) {
         std.debug.print("spin phase took {d} us\n", .{spin_ns / 1000});
         return error.SpinPhaseSlept;
     }
