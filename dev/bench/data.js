@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788432201666,
+  "lastUpdate": 1788441588434,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6a196dd9dbb5c0d9aef4ef1f57f44684baa1486c",
-          "message": "thottam: strict SemVer tag parsing, npm-style ^/~ ranges, and constraint diagnostics (#2287)\n\n* thottam: strict SemVer tag parsing, npm-style ^/~ ranges, and constraint diagnostics\n\nFix three thottam version-resolution defects from the Phase 6E audit.\n\nSemver.parse now rejects tags that are not SemVer 2.0.0 §2 versions:\na fourth dot-separated component (v2.0.0.nightly-UNRELEASED), leading\nzeroes (v01.02.03), and Zig integer-literal spellings such as the '+'\nsign and '_' digit separators (v1_0.0.0 parsing as 10.0.0). Components\nare parsed by a hand-rolled digit loop instead of std.fmt.parseInt\n(#2130).\n\nSemver.parse additionally records how many components were written, and\nthe caret/tilde matchers use it: ~1 is >=1.0.0 <2.0.0 (not ~1.0.0's\n>=1.0.0 <1.1.0), and ^0.0 is the whole 0.0.x line rather than exactly\n0.0.0 (#2131).\n\nresolveVersion now distinguishes a malformed constraint from an\nunsatisfiable one, naming the offending comma-separated part (and\ndiagnosing the undocumented four-part ceiling) instead of reporting\neverything as 'no version matching'. Operator/version whitespace\n(>= 1.0.0) is accepted per node-semver. InvalidPackageName is handled\nin main rather than leaking a raw Zig error name, a trailing pkg@ is an\nabsent version, and an empty build: line is an absence, not a command\n(#2132).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* thottam: distinguish git ls-remote failures and tighten docs/tests per review\n\nAddress review feedback on the #2130/#2131/#2132 PR:\n\n- resolveVersion gains a git_failed outcome so a failed 'git ls-remote'\n  (missing/private repo, no network) is reported as 'failed to list tags'\n  rather than folded into 'no version matching' — an IO failure should not\n  read as an unsatisfiable range. doInstall prints the distinct message.\n- Docs no longer claim a candidate tag must be exactly X.Y.Z: one- and\n  two-component tags (v1, v1.2) are accepted leniently, only extra\n  components and leading zeroes are rejected.\n- Drop the unreachable i == 0 guard in parseConstraintsDiag (splitScalar\n  always yields a token, so the empty-spec path returns via\n  parseSingleConstraint) and explain why.\n- Quote $THOTTAM in the malformed-constraint lifecycle loop, and add a\n  lifecycle check that an unavailable repository is a fetch error, not\n  'no version matching'.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-23T09:25:49Z",
-          "tree_id": "d8b504c5b8570a06a98c27038a4fd1a4c168472a",
-          "url": "https://github.com/kaappi/kaappi/commit/6a196dd9dbb5c0d9aef4ef1f57f44684baa1486c"
-        },
-        "date": 1787479140373,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.479917,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.931756,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.470757,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.447604,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004857,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.041888,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.255478,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.045999,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.490282,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.014418,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.407103,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.259239,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.509185,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.972557,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.0384,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045268,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "328dfb52c17dab6b4369324c17b48d732da33b6f",
+          "message": "CI: fail openbsd-test fast when pkg_add cannot install bash (#2492) (#2497)\n\n* CI: fail openbsd-test fast when pkg_add cannot install bash (#2492)\n\nWhen the OpenBSD package mirror blipped on 2026-09-03 (PR #2485, run\n33707916882 attempt 1), pkg_add printed \"Can't find bash\" but exited 0,\nso the vm action's prepare step looked successful and the job sailed on.\nAll 1938 unit tests ran green, and only then did the job die with\n`sh: bash: not found` (ssh exit 127) — a confusing red that misattributed\na package-install problem to the test run and spent VM minutes on suites\nthat could never finish. The netbsd job already retries its pkg_add for\nexactly this class of transience.\n\nTwo changes to the openbsd-test job:\n\n- prepare retries pkg_add up to 3 times, judging success by probing for\n  the installed binaries rather than pkg_add's exit status: the observed\n  failure mode exits 0 while installing nothing, so the netbsd-style\n  `pkg_add && break` would break on the first attempt having installed\n  nothing and retry never happens. A trailing check fails the prepare\n  step outright once the retry budget is spent.\n- the run script checks `command -v bash` immediately before\n  `bash tests/scheme/run-all.sh` and exits 127 with a message naming the\n  pkg_add failure, so even if a broken prepare ever slips through, the\n  job dies at the first bash invocation instead of after the suites.\n  The guard lives here rather than inside run-all.sh because that script\n  is itself executed by bash and unreachable without it.\n\nNot the 7.9 package-set rotation: the same job passed on main at 00:49Z\nand again on rerun, so no release bump. python3 and git absences were\nnever the confusing case — the errors/ and test-runner/ suites self-guard\nwith clear messages — so only bash gets a guard.\n\nCI-config change, so there is no Zig regression test: verified by YAML\nparse plus a standalone harness running the exact prepare/run scripts\nfrom the workflow against a fake pkg_add that reproduces the exit-0\n\"Can't find\" behavior (healthy, transient, persistent scenarios) and\nagainst PATHs with and without bash.\n\nCo-Authored-By: ZCode <noreply@zcode.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* openbsd-test prepare: skip the last retry delay and gate on all three tools\n\nReview follow-up on the #2492 fix. The retry loop slept 20 s even after\nthe third and final pkg_add attempt, so the persistent-failure path paid\na pointless delay before failing; the sleep now runs only while another\nattempt remains. And the post-loop gate probed only bash, so an install\nthat landed bash but not python3 or git still passed prepare and pushed\nthe failure into the suites — the exact misattribution this job's guard\nexists to prevent. The gate now requires all three tools the loop's own\nbreak condition probes for.\n\nVerified with the same standalone harness as the original commit, with\nthe prepare script extracted from the workflow YAML: healthy installs\nbreak on attempt 1 (no sleep), a mirror blip that clears on the third\nattempt retries twice and succeeds, a persistent failure runs exactly\nthree attempts with two sleeps and exits 1, and a partial install\n(bash only) exits 1 with the failure message.\n\nCo-Authored-By: ZCode <noreply@zcode.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: ZCode <noreply@zcode.ai>",
+          "timestamp": "2026-09-03T12:34:39Z",
+          "tree_id": "a26a237eadb4e273992a8fafaf9169ed980bf3b3",
+          "url": "https://github.com/kaappi/kaappi/commit/328dfb52c17dab6b4369324c17b48d732da33b6f"
+        },
+        "date": 1788441586162,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.70566,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.002978,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.46166,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.449818,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003738,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.036048,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.23111,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.041971,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.376702,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.94065,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.264208,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.24534,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.325143,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.481936,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.036951,
             "unit": "seconds"
           }
         ]
