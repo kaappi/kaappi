@@ -570,24 +570,38 @@ fn sqrtFn(args: []const Value) PrimitiveError!Value {
         const i = i_sign * @sqrt((mag - re) / 2.0);
         return makeComplexOrReal(r, i);
     }
-    if (types.isBignum(args[0]) and !bignum_mod.isNegative(args[0])) {
+    if (types.isFixnum(args[0]) or types.isBignum(args[0]) or types.isRationalObj(args[0])) {
         const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-        const r = try isqrtNonNegative(gc, args[0]);
-        if (bignum_mod.isZero(r.rem)) return r.root;
-    }
-    if (types.isRationalObj(args[0])) {
-        const rat = types.toRational(args[0]);
-        if (!bignum_mod.isNegative(rat.numerator)) {
-            const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-            const num_r = try isqrtNonNegative(gc, rat.numerator);
-            if (bignum_mod.isZero(num_r.rem)) {
-                var slot_root = gc.rootedSlot(num_r.root) catch return PrimitiveError.OutOfMemory;
-                defer slot_root.release();
-                const den_r = try isqrtNonNegative(gc, rat.denominator);
-                if (bignum_mod.isZero(den_r.rem)) {
-                    return arith.makeRationalReduced(gc, num_r.root, den_r.root);
-                }
+        // Exact argument: an exact perfect square (integer or rational,
+        // either sign) yields an exact root. R7RS 6.2.6 gives
+        // (sqrt -1) => +i, an EXACT complex under the section's own
+        // convention that exact notation denotes an exact number
+        // (kaappi#2503) -- so a negative perfect square becomes the exact
+        // complex 0+root*i rather than falling through to the f64 path.
+        // The rational arm is load-bearing, not cosmetic: bignum_mod.isNegative
+        // answers false for any Value that is not a fixnum or bignum, so a
+        // flattened isNegative(args[0]) would classify every negative rational
+        // as non-negative and hand exactSqrt a negative numerator -- where
+        // isqrtNonNegative evaluates @intFromFloat(@sqrt(-9.0)), a NaN, and
+        // panics in ReleaseSafe on plain (sqrt -9/4).
+        const negative = if (types.isRationalObj(args[0]))
+            bignum_mod.isNegative(types.toRational(args[0]).numerator)
+        else
+            bignum_mod.isNegative(args[0]);
+        if (negative) {
+            const pos = try negateExact(gc, args[0]);
+            var slot_pos = gc.rootedSlot(pos) catch return PrimitiveError.OutOfMemory;
+            defer slot_pos.release();
+            if (try exactSqrt(gc, slot_pos.get())) |root| {
+                // `root` is unrooted, and that is safe only because it goes
+                // STRAIGHT into allocComplex, which roots both arguments
+                // (rootArgs2) before maybeCollect. Anything allocating
+                // inserted between the exactSqrt call and this line must
+                // root it first.
+                return gc.allocComplex(types.makeFixnum(0), root) catch return PrimitiveError.OutOfMemory;
             }
+        } else if (try exactSqrt(gc, args[0])) |root| {
+            return root;
         }
     }
     const f = try toF64(args[0]);
@@ -595,12 +609,41 @@ fn sqrtFn(args: []const Value) PrimitiveError!Value {
         const imag = @sqrt(-f);
         return makeComplexOrReal(0.0, imag);
     }
-    const result = @sqrt(f);
-    if (types.isFixnum(args[0])) {
-        const ri: i64 = @intFromFloat(result);
-        if (ri * ri == types.toFixnum(args[0])) return types.makeFixnum(ri);
+    return makeFlonumVal(@sqrt(f));
+}
+
+/// Negate an exact number (fixnum, bignum, or rational). The result is
+/// unrooted; callers must root it before allocating.
+fn negateExact(gc: *memory.GC, v: Value) PrimitiveError!Value {
+    if (types.isRationalObj(v)) {
+        const rat = types.toRational(v);
+        const neg_num = bignum_mod.negate(gc, rat.numerator) catch return PrimitiveError.OutOfMemory;
+        var slot = gc.rootedSlot(neg_num) catch return PrimitiveError.OutOfMemory;
+        defer slot.release();
+        return arith.makeRationalReduced(gc, slot.get(), rat.denominator);
     }
-    return makeFlonumVal(result);
+    return bignum_mod.negate(gc, v) catch return PrimitiveError.OutOfMemory;
+}
+
+/// Exact square root of a NON-NEGATIVE exact number, or null when the
+/// argument is not a perfect square (so the caller falls back to the inexact
+/// path). Integers use the shared exact-integer-sqrt helper; a rational is a
+/// perfect square iff numerator and denominator both are. The result is
+/// unrooted.
+fn exactSqrt(gc: *memory.GC, v: Value) PrimitiveError!?Value {
+    if (types.isRationalObj(v)) {
+        const rat = types.toRational(v);
+        const num_r = try isqrtNonNegative(gc, rat.numerator);
+        if (!bignum_mod.isZero(num_r.rem)) return null;
+        var slot_root = gc.rootedSlot(num_r.root) catch return PrimitiveError.OutOfMemory;
+        defer slot_root.release();
+        const den_r = try isqrtNonNegative(gc, rat.denominator);
+        if (!bignum_mod.isZero(den_r.rem)) return null;
+        return try arith.makeRationalReduced(gc, slot_root.get(), den_r.root);
+    }
+    const r = try isqrtNonNegative(gc, v);
+    if (!bignum_mod.isZero(r.rem)) return null;
+    return r.root;
 }
 
 const IsqrtResult = struct { root: Value, rem: Value };
