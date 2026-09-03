@@ -399,6 +399,10 @@ pub const VM = struct {
     ///     every map read;
     ///   - the owner thread reads lock-free: it is the only thread expected
     ///     to structurally mutate the map, so its own reads cannot race.
+    /// The map's generation counter (`GlobalsRwLock.version`, read via
+    /// `globalVersion`) rides on the same shared lock object, so every
+    /// thread's per-function global caches are invalidated by every
+    /// thread's rebindings (kaappi#2483).
     /// Known gap: a child that defines globals via `eval` takes the exclusive
     /// lock (protecting other children), but the owner's lock-free reads can
     /// still race such writes — same limitation PR #968 documented for child
@@ -553,7 +557,6 @@ pub const VM = struct {
     watches: [16]WatchEntry = undefined,
     watch_count: usize = 0,
     inspect_frame: usize = 0,
-    global_version: u32 = 0,
     profile_mode: bool = false,
     coverage_mode: bool = false,
     coverage_xml_path: ?[]const u8 = null,
@@ -1333,7 +1336,7 @@ pub const VM = struct {
 
     /// Insert/overwrite a globals binding under the exclusive lock, so a
     /// concurrent child-thread reader never observes a rehash in progress.
-    /// Does not bump global_version — use defineGlobal for definition
+    /// Does not bump the global version — use defineGlobal for definition
     /// semantics.
     pub fn globalsPut(self: *VM, name: []const u8, value: Value) !void {
         self.globals_lock.lock();
@@ -1342,8 +1345,32 @@ pub const VM = struct {
     }
 
     pub fn defineGlobal(self: *VM, name: []const u8, value: Value) !void {
-        try self.globalsPut(name, value);
-        self.global_version +%= 1;
+        self.globals_lock.lock();
+        defer self.globals_lock.unlock();
+        try self.globals.put(name, value);
+        _ = self.bumpGlobalVersion();
+    }
+
+    /// The generation of the shared globals map (`GlobalsRwLock.version`,
+    /// kaappi#2483) — one counter for the root and every child VM chained to
+    /// its map. A per-function global cache is valid only while its
+    /// `cache_version` equals this. Callers that go on to read the map and
+    /// fill a cache must snapshot this ONCE, before the read, and stamp the
+    /// snapshot: stamping a fresh load taken after the read would re-bless
+    /// a value another thread has rebound in between.
+    pub inline fn globalVersion(self: *const VM) u32 {
+        return self.globals_lock.version.load(.acquire);
+    }
+
+    /// Advance the shared generation after a rebinding, returning the new
+    /// value. A writer that then re-validates its own cache slot must stamp
+    /// exactly this value (not a fresh `globalVersion`): a concurrent
+    /// rebinding by another thread may already have moved the counter past
+    /// it, and stamping the later value would bless the writer's slot
+    /// against a map it no longer matches. Call it inside the same locked
+    /// region as the store, so the store and its bump are ordered together.
+    pub inline fn bumpGlobalVersion(self: *VM) u32 {
+        return self.globals_lock.version.fetchAdd(1, .acq_rel) +% 1;
     }
 
     // -- Exception handling --

@@ -1127,3 +1127,63 @@ test "kaappi#2473: thread-start! unwinds extra_roots when the spawn setup fails"
     // leaves one extra entry, which stays for the life of the GC.
     try std.testing.expectEqual(before, gc.extra_roots.items.len);
 }
+
+// kaappi#2483: the globals generation counter was a per-VM field, and
+// VM.initForThread neither copied nor shared it, so a child thread's
+// per-function global caches were invalidated only by the child's OWN
+// rebindings. After the root redefined a global, a child that had already
+// cached it kept calling the old binding -- and, since kaappi#2469, a child's
+// guard_builtin kept its fast path after the root redefined the builtin,
+// because its cached value still compared equal to the pristine primitive.
+// The counter now lives on the GlobalsRwLock the child shares by pointer.
+//
+// The handoff is fully ordered through a mutex and two condition variables
+// shared as globals (the supported route for sync primitives), so the child
+// provably fills its caches BEFORE the root rebinds and re-reads AFTER. Every
+// wait carries a timeout, so a lost wakeup fails the test instead of hanging
+// it. Without the fix the child returns (first 3 first 3).
+test "child thread sees the root's rebinding of a cached global and a guarded builtin (#2483)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // OS threads are unregistered on wasm (thread-start! is native-only)
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define m (make-mutex))");
+    _ = try vm.eval("(define cv-cached (make-condition-variable))");
+    _ = try vm.eval("(define cv-rebound (make-condition-variable))");
+    _ = try vm.eval("(define (f) 'first)");
+    _ = try vm.eval(
+        \\(define (child)
+        \\  ;; call_global caches f; guard_builtin caches the pristine apply.
+        \\  (let ((f-before (f))
+        \\        (apply-before (apply + (list 1 2))))
+        \\    (mutex-lock! m)
+        \\    (condition-variable-signal! cv-cached)
+        \\    ;; Atomically release m and wait for the root's rebinding.
+        \\    (mutex-unlock! m cv-rebound 60)
+        \\    (list f-before apply-before (f) (apply + (list 1 2)))))
+    );
+    _ = try vm.eval("(define t (make-thread child))");
+    _ = try vm.eval("(mutex-lock! m)");
+    _ = try vm.eval("(thread-start! t)");
+    // Blocks until the child has filled its caches; the child cannot signal
+    // before it holds m, which this wait is what releases.
+    _ = try vm.eval("(mutex-unlock! m cv-cached 60)");
+    // Reacquire m: the child releases it only by entering its own wait, so
+    // once this returns the child is parked on cv-rebound.
+    _ = try vm.eval("(mutex-lock! m)");
+    _ = try vm.eval("(define (f) 'second)");
+    _ = try vm.eval("(define (apply proc args) 'user-apply)");
+    _ = try vm.eval("(condition-variable-signal! cv-rebound)");
+    _ = try vm.eval("(mutex-unlock! m)");
+    const result = try vm.eval(
+        \\(let ((r (thread-join! t 60 'join-timeout)))
+        \\  (if (equal? r '(first 3 second user-apply))
+        \\      'ok
+        \\      (string->symbol
+        \\        (let ((p (open-output-string))) (write r p) (get-output-string p)))))
+    );
+    try std.testing.expect(types.isSymbol(result));
+    try std.testing.expectEqualStrings("ok", types.symbolName(result));
+}

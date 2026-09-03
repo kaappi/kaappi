@@ -364,19 +364,24 @@ inline fn resolveBaseBindingLocked(self: *VM, env: *std.StringHashMap(Value), ba
 /// performs, shared with `guard_builtin` (kaappi#2469). A cache entry is
 /// only ever a closure or native procedure resolved through the ordinary
 /// (non-def-env, #1812) route, and the whole cache is dropped whenever
-/// `global_version` moves, so a stale procedure can never be served after a
-/// rebinding (#812). Raises the undefined-variable error for an unbound name.
+/// the shared global version moves, so a stale procedure can never be
+/// served after a rebinding (#812) — by this thread or any other
+/// (kaappi#2483). Raises the undefined-variable error for an unbound name.
 pub fn lookupGlobalCached(self: *VM, func: *types.Function, sym_idx: u16) VMError!Value {
+    // One snapshot, taken before the map read, stamps every cache fill
+    // below: see VM.globalVersion for why a fresh load after the read would
+    // re-bless a value another thread has since rebound.
+    const gv = self.globalVersion();
     if (func.env == null) {
         if (func.global_cache) |cache| {
-            if (func.cache_version == self.global_version and
+            if (func.cache_version == gv and
                 sym_idx < cache.len and cache[sym_idx] != types.VOID)
             {
                 return cache[sym_idx];
             }
-            if (func.cache_version != self.global_version) {
+            if (func.cache_version != gv) {
                 @memset(cache, types.VOID);
-                func.cache_version = self.global_version;
+                func.cache_version = gv;
             }
         }
     }
@@ -384,7 +389,7 @@ pub fn lookupGlobalCached(self: *VM, func: *types.Function, sym_idx: u16) VMErro
     if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
     const name = types.symbolName(sym);
     // #1812: skip caching a def_env_binding_prefix reference — its
-    // resolution isn't invalidated by self.global_version (a library's own
+    // resolution isn't invalidated by the global version (a library's own
     // internal set! on its def_env doesn't bump it, since that mutation's
     // func.env isn't null), so caching it under that version could go stale.
     const def_env_parts = vm_mod.globals_mod.parseDefEnvBindingSymbolName(name);
@@ -400,7 +405,7 @@ pub fn lookupGlobalCached(self: *VM, func: *types.Function, sym_idx: u16) VMErro
             @memset(cache, types.VOID);
             cache[sym_idx] = val;
             func.global_cache = cache;
-            func.cache_version = self.global_version;
+            func.cache_version = gv;
         }
         // #1961 (review): the cached value is root-marked right now (it is
         // also in the globals map), but a later rebinding by another

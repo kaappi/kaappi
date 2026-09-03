@@ -49,6 +49,11 @@ fn importBinding(vm: *VM, target: *std.StringHashMap(Value), name: []const u8, v
         vm.globals_lock.lock();
         defer vm.globals_lock.unlock();
         target.put(name, val) catch return error.OutOfMemory;
+        // Bumped inside the same locked region as the put (the rule on
+        // VM.bumpGlobalVersion, kaappi#2483). A transformer put never
+        // strands a cached value — a cache entry is only ever a closure or
+        // native procedure — so it deliberately does not bump.
+        if (!types.isTransformer(val)) _ = vm.bumpGlobalVersion();
     } else {
         target.put(name, val) catch return error.OutOfMemory;
     }
@@ -62,10 +67,6 @@ fn importBinding(vm: *VM, target: *std.StringHashMap(Value), name: []const u8, v
             defer visited.deinit();
             try copyTransformerFreeRefs(vm, target, tx, &visited, 0);
         }
-        return;
-    }
-    if (target == vm.globals) {
-        vm.global_version +%= 1;
     }
 }
 
@@ -160,9 +161,9 @@ fn copyOneDefEnvBinding(
                     vm.globals_lock.unlock();
                     return error.OutOfMemory;
                 };
+                _ = vm.bumpGlobalVersion();
             }
             vm.globals_lock.unlock();
-            if (missing) vm.global_version +%= 1;
         }
     } else if (!target.contains(fname)) {
         target.put(fname, fval) catch return error.OutOfMemory;
