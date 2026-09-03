@@ -151,15 +151,28 @@ test "denormal arithmetic survives after normalizeFpEnvBestEffort" {
 // memory.spinLock, VM.stopForCollection, markLiveChildRoots and reapOsThread
 // all rely on. The cap iteration (five doublings past the phases) sleeps a
 // full millisecond.
+//
+// kaappi#2496: only the pure-spin half of the non-sleeping iterations can
+// carry an upper time bound. Each yield iteration is a sched_yield, which
+// hands the CPU to any other runnable thread and can therefore cost a full
+// scheduler quantum on a loaded or shared runner -- CI observed the 64-yield
+// phase at 12.3 ms and 53.3 ms. No bound survives that: a yield phase that
+// collapsed into the sleep path would sleep tens of milliseconds too, which
+// is indistinguishable from load. The yield half is therefore unbounded from
+// above, like the sleep phases below.
 test "kaappi#2446: spinBackoff spins, then yields, then sleeps" {
     if (comptime is_wasm or builtin.single_threaded) return error.SkipZigTest;
-    const phases = platform.spin_backoff_hint_iters + platform.spin_backoff_yield_iters;
-    // Every iteration inside the two non-sleeping phases together must stay
-    // far below one sleep quantum: 96 hints and yields are microseconds.
+    const hints = platform.spin_backoff_hint_iters;
+    const phases = hints + platform.spin_backoff_yield_iters;
+    // Pure-spin phase: 32 spinLoopHint iterations, none of which enter the
+    // kernel -- genuinely microseconds, so the whole phase collapsing into
+    // the sleep path (32 x 32 us > 1 ms) still crosses the bound.
     const t0 = platform.monotonicNs();
     var i: u32 = 0;
+    while (i < hints) : (i += 1) platform.spinBackoff(i);
+    const spin_ns = platform.monotonicNs() - t0;
+    // Yield phase: the 64 sched_yield iterations only have to complete.
     while (i < phases) : (i += 1) platform.spinBackoff(i);
-    const non_sleeping_ns = platform.monotonicNs() - t0;
     // The first sleeping iteration is 32 us; the capped one (>= 5 doublings
     // past the phases) is 1 ms. nanosleep never returns early, so the lower
     // bounds are exact; there is deliberately no upper bound (a loaded box
@@ -172,8 +185,8 @@ test "kaappi#2446: spinBackoff spins, then yields, then sleeps" {
     const capped_sleep_ns = platform.monotonicNs() - t2;
     try std.testing.expect(first_sleep_ns >= 32_000);
     try std.testing.expect(capped_sleep_ns >= 1_000_000);
-    if (non_sleeping_ns >= 1_000_000) {
-        std.debug.print("spin+yield phases took {d} us\n", .{non_sleeping_ns / 1000});
-        return error.NonSleepingPhasesSlept;
+    if (spin_ns >= 1_000_000) {
+        std.debug.print("spin phase took {d} us\n", .{spin_ns / 1000});
+        return error.SpinPhaseSlept;
     }
 }
