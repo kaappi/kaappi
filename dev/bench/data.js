@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788441588434,
+  "lastUpdate": 1788442622783,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "7e8bc4e92c8c71c3de2d7f8bf7a2fe0085d8c921",
-          "message": "thottam: verify the installation, enforce --locked provenance, tolerate CRLF (#2288)\n\n* thottam: verify the installation, enforce --locked provenance, tolerate CRLF (#2133, #2135, #2137)\n\nThree audit findings in the package manager's state handling, fixed together\nbecause they share the same files and the same root cause class — thottam\ntreating a lockfile it did not write (CRLF-normalised, truncated, or\nhand-edited) as trustworthy, and reading the wrong half of the install state.\n\nverify (#2135): doVerify walked the lockfile and never consulted\ninstalled.txt, so a package that is installed but absent from the lockfile\nwas silently dropped from verification and the run still printed \"All\npackages verified\". An empty or binary-garbage lockfile did the same. It now\nwalks installed.txt instead: every installed package must have a lockfile\nentry at the SHA it is actually checked out at, a malformed lockfile line\nfails the run rather than being skipped, and a mismatching pair prints the\nfull SHAs so the message cannot render two different values identically.\n\n--locked (#2137): locked installs compared only the SHA and took the clone\nURL from the invocation, then overwrote the lockfile's recorded provenance\nwith it — so a fork sharing history passed the check and the lockfile came\nto attest to the fork. The lockfile entry is now read once: the recorded\nsource is the clone URL, an explicit ::url that disagrees is refused before\nany clone, and a --locked install never rewrites the recorded source.\n\nCRLF (#2133): a checkout normalised to CRLF left a trailing \\r in the\nrecorded SHA, so verify reported \"MISMATCH (locked: X, actual: X)\" and\n--locked handed \"<sha>\\r\" to git checkout. Every reader of thottam.lock and\ninstalled.txt now strips the trailing \\r.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* thottam: tighten malformed-lockfile validation, drop dead code, add coverage\n\nReview follow-up for the #2133/#2135/#2137 PR:\n\n- Delete getLockedSha, now unused — its only caller was the removed import\n  in thottam.zig, and the #2137 fix deliberately moved away from the\n  SHA-only accessor.\n- Reject empty name/SHA/source fields in doVerify's lockfile structure pass\n  (a line like \"pkg  source\" or \"pkg sha \" is now MALFORMED, not an\n  ordinary mismatch).\n- Add a CRLF regression test for isInstalled.\n- Strengthen the lifecycle suite: assert the UNLOCKED package name, a\n  MALFORMED line, the --locked source-URL-mismatch diagnostic and that the\n  fork is refused before any clone, a byte-for-byte lockfile restore check\n  via cmp, and a control that a matching ::url is accepted.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-23T11:35:21Z",
-          "tree_id": "d36b8d2adce2c32acdd7901d2873b3796ebeeec7",
-          "url": "https://github.com/kaappi/kaappi/commit/7e8bc4e92c8c71c3de2d7f8bf7a2fe0085d8c921"
-        },
-        "date": 1787486998509,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.051277,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.144695,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.430066,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.200171,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.003785,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.036166,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.220165,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.042308,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.819705,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.872136,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.247357,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.241208,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.294362,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.416345,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.036645,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.036951,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "92764075b5b4672765187729a6892ba3bdde5fba",
+          "message": "Drop the load-sensitive yield bound from the spinBackoff test (#2498)\n\n* Drop the load-sensitive yield bound from the spinBackoff test (#2496)\n\nThe kaappi#2446 phase-schedule test timed the spin and yield phases\ntogether (32 spinLoopHint + 64 sched_yield iterations of\nplatform.spinBackoff) and asserted the whole stretch stays under 1 ms, on\nthe reasoning that \"96 hints and yields are microseconds\". The 32 hints\nare; the 64 yields are not bounded by anything the test controls -- each\nsched_yield hands the CPU to any other runnable thread, so on a loaded or\nshared runner each can cost a full scheduler quantum.\n\nCI observed the phase at 12.3 ms and 53.3 ms (macos-latest, run\n33735999621, both attempts of the job), and the false red reproduces\nlocally under ambient load (2899 us and 19647 us earlier today; 2330 us\nand -- with 8 busy loops on a box already at load average ~300 on 12\nCPUs -- 262323 us during this change's verification, while the fixed\ntest passed 3/3 under the same load).\n\nTime only the pure-spin phase now: its 32 spinLoopHint iterations never\nenter the kernel, so they are genuinely microseconds, and the whole phase\ncollapsing into the sleep path (32 x 32 us > 1 ms) still crosses the\nbound. The yield phase only has to complete -- no upper bound, for the\nsame reason the sleep phases already carry none: a yield phase that\ncollapsed into the sleep path would sleep tens of milliseconds too,\nindistinguishable from load, so no finite bound both survives a loaded\nrunner and detects misrouting. A bound tied to the first sleep iteration\nwould not help either; it is equally load-inflated, so their ratio has no\nstable ceiling.\n\nThe exact lower bounds the test exists for (first_sleep_ns >= 32_000,\ncapped_sleep_ns >= 1_000_000) are untouched.\n\nTest-only change: the modified test is itself the regression proof.\n\nCo-Authored-By: ZCode <noreply@zcode.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* spinBackoff test: min-of-3 the spin phase and tighten its bound to 100 us\n\nReview follow-up. The spin-phase bound was still a single wall-clock\nmeasurement on a preemptible thread: one descheduling anywhere in the\nsub-microsecond window costs a full quantum (~10 ms on macOS) and crosses\nany bound -- the same flake as the 64-yield phase, just at ~1e-4..1e-5\nper run instead of near-certainty under load. The phase is stateless\n(spinBackoff(i) for i < hints is just spinLoopHint), so the test now\ntimes three attempts and takes the minimum; three consecutive\npreemptions inside that window do not happen.\n\nThe bound also tightens from 1 ms to 100 us. The old margin against a\nphase that slept was 32 x 32 us = 1.024 ms versus 1 ms -- 2.4 percent --\nclear only because nanosleep oversleeps; 100 us separates the real\noutcomes (single-digit us versus >= 1.024 ms) by an order of magnitude\nboth ways. And the comment now says what the bound guards: nothing in\ntoday's spinBackoff can route i < hints to the sleep branch (dropping\nthe hint guard routes those iterations to yield; dropping both guards\nunderflows 'spins - 96' in u32 and panics in ReleaseSafe before\nsleepNs), so it guards a future rewrite of the phase schedule. The\ntest's opening paragraph likewise no longer claims the yield half is\nverified.\n\nVerified: filtered suite green at ambient load, and 5/5 runs green\nunder 24 synthetic busy loops where the pre-fix test false-reded\n2 of 3.\n\nCo-Authored-By: ZCode <noreply@zcode.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: ZCode <noreply@zcode.ai>",
+          "timestamp": "2026-09-03T12:48:12Z",
+          "tree_id": "156eaebb8854e0e5b224a551ab8741a2eccdfb14",
+          "url": "https://github.com/kaappi/kaappi/commit/92764075b5b4672765187729a6892ba3bdde5fba"
+        },
+        "date": 1788442621393,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.035076,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.841928,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.554797,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.858878,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004744,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046527,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.293741,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054693,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.5394,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.160928,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.614082,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.296835,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.632989,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.817244,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046164,
             "unit": "seconds"
           }
         ]
