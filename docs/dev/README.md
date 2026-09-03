@@ -91,6 +91,7 @@ investigations.
 | Document | Contents |
 |----------|----------|
 | [ecosystem-library-bar.md](ecosystem-library-bar.md) | Quality bar for `kaappi-*` packages (applies ecosystem-wide, not just this repo) |
+| [zig-upstream-policy.md](zig-upstream-policy.md) | Zig's Strict No LLM / No AI policy and how we respect it when acting in Zig community spaces — the boundary vs. AI-assisted work on this repo |
 | [github-issues.md](github-issues.md) | Issue tracker: the four label axes, the priority rubric (what separates critical from high), severity-vs-priority, the one-priority-per-open-issue invariant |
 | [srfi-exclusions.md](srfi-exclusions.md) | The 30 SRFIs deliberately not implemented, one section each, with the reason |
 | [srfi-status-check.md](srfi-status-check.md) | The CI guard that fails if a shipped SRFI is `draft` or `withdrawn` in the canonical registry — and how the counts are re-derived from the binary |
