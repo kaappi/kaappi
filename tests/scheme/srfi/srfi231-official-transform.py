@@ -293,7 +293,7 @@ old_include = '''(begin
   (include "generic-arrays.scm"))'''
 new_include = '''(import (srfi 231) (srfi 27) (srfi 143) (srfi 4)
         (srfi 160 u64) (srfi 160 s64)
-        (scheme base) (scheme write) (scheme char) (scheme cxr)
+        (scheme base) (scheme inexact) (scheme write) (scheme char) (scheme cxr)
         (scheme file) (scheme read) (scheme lazy))'''
 assert old_include in src
 src = src.replace(old_include, new_include)

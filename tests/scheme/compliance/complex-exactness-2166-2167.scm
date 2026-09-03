@@ -17,7 +17,7 @@
 ;; These tests pin the full behavior, including the exact arithmetic the
 ;; interim slice deliberately left inexact.
 
-(import (scheme base) (scheme complex) (scheme write) (scheme process-context) (srfi 64) (srfi 69))
+(import (scheme base) (scheme complex) (scheme inexact) (scheme write) (scheme process-context) (srfi 64) (srfi 69))
 
 (define (write-to-string v)
   (let ((port (open-output-string)))

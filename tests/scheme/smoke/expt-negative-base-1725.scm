@@ -1,7 +1,7 @@
 ;; Regression test for #1725: expt doesn't promote to complex for a negative
 ;; real base combined with a non-integer real exponent.
 
-(import (scheme base) (scheme write) (scheme process-context) (srfi 64))
+(import (scheme base) (scheme inexact) (scheme write) (scheme process-context) (srfi 64))
 
 (test-begin "expt-negative-base-1725")
 
