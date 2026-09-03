@@ -600,14 +600,16 @@ jobs:
       # on top, so a hung test is killed and NAMED by `zig build` while the
       # step is still alive (a step cap that fires first would lose the
       # name again). Measured healthy times on the eight-way split under
-      # QEMU (run 33684320694): process 1.8m, concurrency 3.3m, io 2.1m,
-      # fuzz 6.0m, gc 2.9m, native 1.7m, tooling 2.1m, rest 6.9m.
+      # QEMU, two runs (33684320694 and PR #2491's), slowest of each:
+      # process 1.8m, concurrency 7.0m (3.3m on the other run -- the
+      # timing-sensitive chunk varies most with runner load), io 2.1m,
+      # fuzz 6.0m, gc 6.1m (2.9m), native 1.7m, tooling 2.1m, rest 6.9m.
       - name: Unit tests, process chunk (riscv64 via QEMU)
         timeout-minutes: 14
         run: bash tools/run-unit-test-chunk.sh process -Dtarget=riscv64-linux
 
       - name: Unit tests, concurrency chunk (riscv64 via QEMU)
-        timeout-minutes: 16
+        timeout-minutes: 20
         run: bash tools/run-unit-test-chunk.sh concurrency -Dtarget=riscv64-linux
 
       - name: Unit tests, io chunk (riscv64 via QEMU)
@@ -619,7 +621,7 @@ jobs:
         run: bash tools/run-unit-test-chunk.sh fuzz -Dtarget=riscv64-linux
 
       - name: Unit tests, gc chunk (riscv64 via QEMU)
-        timeout-minutes: 15
+        timeout-minutes: 18
         run: bash tools/run-unit-test-chunk.sh gc -Dtarget=riscv64-linux
 
       - name: Unit tests, native chunk (riscv64 via QEMU)
