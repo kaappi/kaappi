@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788463737751,
+  "lastUpdate": 1788465383291,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "0154fe845c490109b217d3ec8ea1c8ec9aecc4cd",
-          "message": "Rewrite SRFI 166 to fix the v2 audit findings (#2292)\n\n* Rewrite SRFI 166 to fix the v2 audit findings\n\nComplete reimplementation of the monadic formatting library against the\nSRFI 166 specification, replacing the fixed 13-slot state vector with\nfirst-class, extensible state variables and adding the missing\n(srfi 166 base) library.\n\nCore (lib/srfi/166/base.sld):\n- fn and with are now macros (fn binds state variables into a lexical\n  environment; with dynamically binds them and restores only the bound\n  variables, so col/row output position survives the form) (#2054, #2056)\n- add an output state variable slot; displayed returns a formatter\n  argument as-is instead of rendering it as #<procedure> (#2054, #2063)\n- numeric honours radix with precision, sign-rule, comma-rule,\n  comma-sep and decimal-sep, and consults their state-variable defaults;\n  numeric/comma inserts separators; numeric/si honours base/separator\n  and sub-unit prefixes (#2061)\n- escaped no longer adds delimiters, honours esc-ch (#f doubles the\n  quote) and renamer; maybe-escaped quotes on an embedded quote/escape\n  (#2059)\n- tab-to does nothing on a tab stop and does not divide by zero on a\n  zero tab width (#2058)\n- padded/trimmed/fitted measure with string-width and honour the\n  ellipsis state variable (#2062)\n- written-shared/pretty-shared label non-cyclic sharing via a shared\n  structure walker (#2064)\n\nSub-libraries:\n- (srfi 166 pretty): pretty breaks lines at width, pretty-shared labels\n  sharing (#2064)\n- (srfi 166 columnar): columnar/tabular align and pad, wrapped honours\n  width and word-separator?, wrapped/char splits at width, justified\n  full-justifies, line-numbers streams, zero columns produce a blank\n  line (#2065)\n- (srfi 166 unicode): real terminal-width model (wide=2, combining=0,\n  ANSI=0) with substring-terminal-width returning substrings and\n  terminal-aware overriding string-width/substring/width (#2066)\n\nMissing names now exported (joined/dot, numeric/fitted, trimmed/lazy,\nmake-state-variable, writer, substring/width, substring/preserve,\ndecimal-align, word-separator?, ambiguous-is-wide?, pretty-with-color,\nstring-terminal-width/wide, substring-terminal-width/wide,\nsubstring-terminal-preserve) (#2067)\n\nSigned-off-by: Baiju Muthukadan <baiju@muthukadan.net>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address SRFI 166 review findings\n\nFix the correctness and termination issues raised in review:\n\n- wrapped/char now consumes at least one character per line, so a width\n  smaller than a single character cannot loop (#2292 review)\n- columnar/tabular thread the string-width state variable into padding\n  and minimum-width measurement instead of measuring with string-length\n- columnar resolves real widths in (0,1) as a fraction of the available\n  width instead of treating them as unspecified\n- justified subtracts the mandatory single space per gap from the\n  padding budget, so lines land exactly on the requested width\n- line-numbers formats in the current radix and leaves width/alignment\n  to columnar instead of baking in a five-column pad\n- from-file closes its input port on every exit path via\n  call-with-input-file\n- pretty threads radix/precision through the flat and broken paths, and\n  leaves shared/cyclic data flat (with labels) rather than looping or\n  dropping labels\n- upcased/downcased run their formatters under the active state so\n  string-width and friends reach nested formatters\n- substring-terminal-preserve keeps Unicode bidi formatting characters\n- written keeps the readable radix when precision is also bound (the\n  spec applies precision only at radix 10)\n- import (scheme cxr) explicitly for the caddr accessor\n\nRow rendering now indexes into vectors instead of walking line lists on\nevery row.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address follow-up SRFI 166 review findings\n\n- columnar/tabular render each column formatter under its resolved\n  width (binding the width state variable), so a wrapped column wraps\n  at the column width rather than the default\n- upcased/downcased case-convert segment-by-segment, leaving ANSI\n  control sequences (whose letters are case-sensitive) untouched\n- pretty breaks an acyclic shared datum (which carries no datum labels\n  under plain pretty) instead of flattening it as one overflowing line\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju@muthukadan.net>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-24T06:57:37Z",
-          "tree_id": "d887e546bfe56ed3efc55597d305ff97aaf2110b",
-          "url": "https://github.com/kaappi/kaappi/commit/0154fe845c490109b217d3ec8ea1c8ec9aecc4cd"
-        },
-        "date": 1787556948656,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 2.495699,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.228775,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.337206,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 1.807843,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.003684,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.030271,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.182768,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.033869,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.739274,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.720747,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.085546,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.197133,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.074789,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.710147,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.030517,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042144,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e006e86793bee0096a47c9a2d4eb2d0763f55824",
+          "message": "github-release: drop the hand-edited docs-site count step (#2502)\n\nStep 5 told the releaser to grep ../kaappi.github.io and commit a new\nbuiltin count there. That has been wrong since the docs site's update-wasm\nworkflow started extracting builtin_count, srfi_count, srfi_builtin and\nsrfi_portable from CONFORMANCE.md at the release tag: a hand edit is\nredundant, and it leaves a local diff that conflicts with the PR the\nworkflow opens. v0.26.0 followed the step as written and had to revert the\nedit mid-release.\n\nReplace the step with the four patterns the workflow matches, so the one\nreal obligation -- keep CONFORMANCE.md's wording matching them -- is stated\nwhere the count is refreshed. Step 11 now says the workflow bumps those\ncounts, lands them via an auto-merging PR tagged docs-vX.Y.Z, and why the\njob-less failed run on the deleted bot branch and the missing CI run on\nmain for a GITHUB_TOKEN merge are not problems; it also records that the\nper-SRFI rows in srfi-support.md stay manual, which is how 273 and 274\nshipped with the table stopping at 271.\n\nThe harness doc's summary of the skill was stale independently: ten steps,\na version bump that touched main.zig and \"the docs site download page\", and\nno count-refresh step. Brought in line with the skill's eleven steps, per\nCLAUDE.md's rule that harness changes update both.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-04T01:19:35+05:30",
+          "tree_id": "1e5bcbcf959312fafcf57aef4c6ae8fe179a301e",
+          "url": "https://github.com/kaappi/kaappi/commit/e006e86793bee0096a47c9a2d4eb2d0763f55824"
+        },
+        "date": 1788465381323,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.56276,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.787518,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.569728,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.100475,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004526,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048098,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.311383,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056439,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.834639,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.254696,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.679439,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.277597,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.748939,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.622091,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044254,
             "unit": "seconds"
           }
         ]
