@@ -877,15 +877,18 @@ jobs:
           # status: on a mirror blip pkg_add prints "Can't find bash" and
           # still exits 0 (kaappi#2492), so the netbsd-style `pkg_add &&
           # break` would break on the first attempt having installed
-          # nothing. The trailing check turns a fully failed install into a
-          # prepare-step failure before any suite runs.
+          # nothing. The trailing check turns a failed or partial install
+          # into a prepare-step failure before any suite runs.
           prepare: |
             for i in 1 2 3; do
               pkg_add -I bash python%3 git || true
               command -v bash >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1 && command -v git >/dev/null 2>&1 && break
-              sleep 20
+              if [ "$i" -lt 3 ]; then sleep 20; fi
             done
-            command -v bash >/dev/null 2>&1 || { echo "openbsd-test: pkg_add could not install bash after 3 attempts"; exit 1; }
+            if ! command -v bash >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1 || ! command -v git >/dev/null 2>&1; then
+              echo "openbsd-test: pkg_add could not install all required tools after 3 attempts"
+              exit 1
+            fi
           run: |
             set -e
             # OpenBSD's default login class caps the main-thread stack at 4 MiB
