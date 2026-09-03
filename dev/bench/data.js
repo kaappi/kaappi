@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788448025179,
+  "lastUpdate": 1788462894089,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "566b53549929f20bbfa796b336a5d9a8bd528ec5",
-          "message": "thottam: resolve git through PATH instead of hardcoding /usr/bin/git (Fixes #2152) (#2290)\n\n* thottam: resolve git through PATH instead of hardcoding /usr/bin/git (Fixes #2152)\n\nrunGit/runGitCapture hardcoded /usr/bin/git on every non-Windows platform.\nThat path exists on macOS and CI's Linux images but on none of the three\nsupported BSDs -- FreeBSD and OpenBSD install git in /usr/local/bin, NetBSD\nin /usr/pkg/bin -- so every git-backed operation (install, update, ls-remote\nversion resolution) failed there, leaving thottam non-functional on platforms\nKaappi ships binaries for.\n\nResolve the binary through PATH the same way `kaappi compile` discovers a C\ncompiler (native_compiler.zig) and test_selection locates its git: search\nPATH for the first readable `git` and hand the absolute path to execve, so\nthe child never depends on PATH resolution. A missing git is now a distinct\nerror.GitNotFound that install/update report with a cause, instead of the old\nsilent 127 that surfaced as \"Failed to clone repository\".\n\nStop swallowing the spawn failure too: runPassthrough's child now prints\n\"cannot execute <argv[0]>: <errno>\" before exiting 127, so a FileNotFound on\nthe git binary and a genuine clone failure are no longer indistinguishable in\nthe logs -- the second defect that hid the first across three CI runs.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* thottam: require executable git and route GitNotFound through every call site\n\nReview follow-up to #2152 (the PATH-resolution fix), closing the gaps the\nreviewers found in the diagnostic half:\n\n- findInPath now requires an executable regular file, not merely a readable\n  one. A non-executable file or a directory named git no longer shadows a\n  later real git and then fails at execve instead of falling through to the\n  next PATH entry. X_OK (not R_OK) keeps an execute-only git working; Windows,\n  which has no execute bit, accepts any regular (already .exe-suffixed) file.\n\n- The missing-git diagnostic is now wired through every call site that can\n  surface it, not just clone/pull. resolveVersion gains a git_not_found\n  outcome, checkoutVersion re-raises GitNotFound, and the update flow's\n  symbolic-ref probe distinguishes it from a detached HEAD. A shared\n  missingGit() helper prints the one message, so a git-less\n  `install pkg@\">=1.0.0\"`, `install pkg@tag` on an installed package, and\n  `update pkg` each say \"git not found in PATH\" instead of the old \"failed\n  to list tags\" / \"Failed to checkout version\" / bogus \"pinned\" misdiagnoses.\n\n- runCapture mirrors runPassthrough's execve diagnostic: it saves the real\n  stderr before /dev/null'ing it, so a git that resolves but will not exec\n  is no longer a silent 127 through ls-remote version resolution.\n\n- The findInPath test builds its PATH with platform.path_list_sep (fixing the\n  Windows unit-test failure) and asserts the executability requirement — a\n  non-executable fixture is skipped, the executable one resolves, and the\n  resolved path runs.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-23T15:13:30Z",
-          "tree_id": "95229bc36eea6b66e4995492a8922c3336dacf5c",
-          "url": "https://github.com/kaappi/kaappi/commit/566b53549929f20bbfa796b336a5d9a8bd528ec5"
-        },
-        "date": 1787500147404,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.068033,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.221544,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.552796,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.877137,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004872,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04647,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.28262,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.053131,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.377341,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.151319,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.59671,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.30389,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.685234,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.909946,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046274,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044932,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6033faee035ca0476e418962ade34136c2cc1240",
+          "message": "Lock the native tier's globals-map accesses against a concurrent rehash (#2487) (#2500)\n\n* Lock the native tier's globals-map accesses against a concurrent rehash (#2487)\n\nkaappi_set_global — the entry point the LLVM backend emits for every set!\non a top-level global — did its globals.getPtr and the store through that\npointer with no lock. A native closure deep-copied into an SRFI-18 child\nthread runs with that child's VM (callNativeClosure passes the calling\nVM), so the store reaches the shared globals map as a child-thread\naccess: a structural mutation on another thread (define/import under the\nexclusive lock) that rehashes between the getPtr and the store frees the\nbucket array out from under the pointer — a dangling store, the same\nwindow the interpreter's set_global opcode already closes with\nlockGlobalsShared.\n\nTake the same shared-lock pair around getPtr + store + bump (the bump\ninside the locked region, per VM.bumpGlobalVersion), and apply the\nidentical protocol to the two sibling unlocked reads in the same file:\nkaappi_global_lookup (the emitter's global-reference call, mirroring\nlookupGlobalLocked) and the fixnum fallbacks' callPrimitive lookup. Each\nis a no-op on the owner VM, which reads lock-free, so single-threaded\nnative programs pay only two branch checks.\n\nTests: a deterministic Zig unit test holds the exclusive globals lock and\nasserts a child-VM kaappi_set_global cannot complete until it is released\n(it fails on the unlocked pre-fix store); a compile-suite script runs the\nreal interleaving end-to-end — 200k native set!s from a child thread\nagainst 10k root-side eval'd defines — with the interpreter as the\noracle.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: #1924 cross-heap guard, native-reaching test shape (#2500)\n\nkaappi_set_global now carries the interpreter's #1924 owner check before\nit takes the lock: a child thread storing its own heap's object into the\nshared map is refused. The reachability this PR establishes (native\nclosure deep-copied to a child runs with the child's VM) turned the\npre-existing gap into a reachable use-after-free — a 7-line program\nprinted a pair read out of the freed child heap, (0.0 . 0.0), where the\ninterpreter raises. The native tier cannot raise a catchable error from a\nvoid export, so the store is refused with a fatal diagnostic carrying the\nraiseCrossHeapStoreVM text (minus the remediation tail). kaappi_define_global\nneeds no guard: internal defines are rejected in native lambda bodies\n(#819), so it only ever runs at top level on the owner thread.\n\nThe compile script's program never executed kaappi_set_global: a named\nlet and a value-global set! target both force the eval fallback, so the\nchild's stores ran in the already-locked interpreter opcode — why it\npassed a pre-fix run. Rewritten to a shape that emits the native store\ninside the child's function (procedure-named target, do loop, defined\nthunk), with an IR gate asserting the call sits in a lowered function —\nafter the first define tailcc, before @main — so a future emitter change\nthat re-routes the body to eval fails the test instead of hollowing it.\nA second case pins the cross-heap refusal end-to-end on both tiers.\n\nThe unit test now releases the lock and joins the worker on every exit\npath (a failing expect previously fell through to vm.deinit with the lock\nheld and the worker spinning in lockShared), and its comment no longer\nclaims full determinism: it is deterministic against the fix, a\nhigh-probability detector against a regression.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-09-03T18:32:07Z",
+          "tree_id": "54f0a1efc1860db157752d93d98e0a8d8d997465",
+          "url": "https://github.com/kaappi/kaappi/commit/6033faee035ca0476e418962ade34136c2cc1240"
+        },
+        "date": 1788462891632,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.545209,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.964279,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.575559,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.08315,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004553,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048017,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.311489,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056505,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.893177,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.270933,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.685055,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.275052,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.750595,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.63416,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044819,
             "unit": "seconds"
           }
         ]
