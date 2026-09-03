@@ -30,6 +30,13 @@
              (eq? (eval 'sqrt (environment '(scheme inexact)))
                   (eval 'sqrt (environment '(scheme r5rs)))))
 
+;; The other half of the change: a (scheme base) environment no longer
+;; resolves sqrt at all. Nothing else in the suite would notice the tag
+;; silently coming back — library and program bodies fall through to the
+;; globals map, so only a restricted environment can tell.
+(test-error "(scheme base) no longer resolves sqrt"
+            (eval 'sqrt (environment '(scheme base))))
+
 ;; (scheme base) keeps exact-integer-sqrt — that one really is a base export.
 (test-equal "(scheme base) exports exact-integer-sqrt"
             '(4 1) (eval '(call-with-values (lambda () (exact-integer-sqrt 17)) list)
