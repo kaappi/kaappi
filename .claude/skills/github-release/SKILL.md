@@ -1,5 +1,5 @@
 ---
-description: Cut a GitHub release for Kaappi — bumps version strings, writes the CHANGELOG.md section from the commit log, updates the downloads page, commits, tags, pushes, and verifies the release workflow. Use when the user asks to make a release, cut a release, publish a version, tag a release, ship a version, or prepare a release.
+description: Cut a GitHub release for Kaappi — bumps version strings, writes the CHANGELOG.md section from the commit log, refreshes the built-in procedure count, commits, tags, pushes, verifies the release and post-release workflows, and triggers the docs-site update. Use when the user asks to make a release, cut a release, publish a version, tag a release, ship a version, or prepare a release.
 ---
 
 # GitHub Release
@@ -152,18 +152,24 @@ Update the count in each match (README.md and CONFORMANCE.md are user-facing;
 entries untouched — they record what was true at the time. Include any changed
 files in the release commit (Step 7).
 
-**The docs site cites the count too, and it is a separate repo** — so it needs
-its own grep and its own commit, in `../kaappi.github.io`:
+**Do not touch the docs site's counts.** `mkdocs.yml`'s `builtin_count`,
+`srfi_count`, `srfi_builtin` and `srfi_portable` are bumped by Step 11's
+`update-wasm` workflow, which extracts them from `CONFORMANCE.md` *at the
+release tag* with these patterns:
 
-```bash
-grep -rn "built-in procedures\|standard libraries" ../kaappi.github.io/docs/ ../kaappi.github.io/overrides/
-```
+| Variable | Pattern matched in `CONFORMANCE.md` |
+|----------|-------------------------------------|
+| `builtin_count` | `[0-9]+ built-in procedures` |
+| `srfi_count` | `[0-9]+ SRFIs supported` |
+| `srfi_builtin` | `[0-9]+ built-in \(native Zig\)` |
+| `srfi_portable` | `[0-9]+ portable \(\.sld files\)` |
 
-Omitting this is not hypothetical: the site sat at **601** while the core repo
-was at 689, because Step 5 only ever grepped this repo. Pages that say "600+"
-rather than an exact figure are deliberate and need no edit — prefer that
-phrasing for prose pages, and reserve the exact count for
-`docs/conformance.md`, which mirrors `CONFORMANCE.md`.
+A hand edit in `../kaappi.github.io` is redundant and leaves a local diff
+that conflicts with the workflow's PR (v0.26.0 did exactly that and had to
+revert it). What *is* on this step: keep `CONFORMANCE.md`'s wording matching
+those four patterns — a no-match fails the workflow with
+`no match for <label>` — and prose pages on the site that say "600+" are
+deliberate and never need an exact figure.
 
 ## Step 6: Build verification
 
@@ -343,10 +349,25 @@ gh workflow run update-wasm.yml -R kaappi/kaappi.github.io -f tag=vX.Y.Z
 gh run watch -R kaappi/kaappi.github.io <run-id>
 ```
 
-This updates `/playground/`, `/tour/` (shared WASM binary), and the version
+This updates `/playground/`, `/tour/` (shared WASM binary), the version
 shown on `/download/`, `/guide/first-program/`, and `/guide/repl/` (all read
-from `kaappi_version` in `mkdocs.yml`). Verify at `kaappi-lang.org/playground/`
-and `kaappi-lang.org/download/` after it deploys.
+from `kaappi_version` in `mkdocs.yml`), and the four count variables Step 5
+describes, extracted from `CONFORMANCE.md` at the tag. The bump lands on
+`main` through a PR the workflow opens and auto-merges once DCO passes, tagged
+`docs-vX.Y.Z`; the workflow runs `mkdocs build --strict` and deploys itself,
+so expect no "CI & Deploy" run on `main` for that merge (a `GITHUB_TOKEN`
+merge triggers nothing) and a job-less failed run on the bot branch (it was
+deleted before the PR-triggered run could start). Neither is a problem.
+
+Verify after it deploys: `kaappi-lang.org/download/` shows the new version,
+`kaappi-lang.org/conformance/` shows the new procedure and SRFI counts, and
+the served `/wasm/kaappi.wasm` hashes to the release's `SHA256SUMS` entry.
+
+**One thing the workflow does not do:** the per-SRFI rows in
+`docs/guide/srfi-support.md` are hand-maintained. A release that adds a SRFI
+needs a row added by an ordinary PR to `kaappi/kaappi.github.io`, or the
+table undercounts the total the same page cites (v0.26.0 shipped 273 and 274
+with the table stopping at 271).
 
 ## Error recovery
 

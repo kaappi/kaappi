@@ -264,20 +264,32 @@ when working on the compiler or VM.
 
 ### `/github-release`
 
-Full release workflow with 10 steps and multiple confirmation gates:
+Full release workflow with 11 steps and multiple confirmation gates:
 
 1. Analyze changes since last tag, recommend semver bump.
 2. Generate release notes from `git log` since the previous tag — this is
    where `CHANGELOG.md` gets written; PRs never touch it.
 3. Update CHANGELOG.md (insert the new version section).
-4. Bump version in `main.zig`, `thottam.zig`, `build.zig.zon`, and the docs
-   site download page.
-5. Build verification (`zig build`).
-6. Commit and create annotated tag.
-7. Push (requires explicit confirmation — triggers CI release workflow).
-8. Verify release workflow (platform binaries, macOS signing, GitHub Release).
-9. Verify post-release acceptance tests.
-10. Update docs site (WASM binary, download page).
+4. Bump version in `build.zig.zon` (the single source; `main.zig` and
+   `thottam.zig` read it from `build_options`) and the workspace
+   `../CLAUDE.md` "Current release" line.
+5. Refresh the built-in procedure count in this repo's docs (README,
+   CONFORMANCE, CLAUDE.md, `docs/dev/`), diffing name sets against the last
+   tag so a literal-only grep cannot mask a constant-named spec. **Nothing in
+   the docs site is edited by hand** — its `builtin_count`/`srfi_*` values are
+   extracted from `CONFORMANCE.md` at the tag by Step 11's workflow, so the
+   only obligation here is keeping `CONFORMANCE.md`'s wording matching that
+   workflow's patterns.
+6. Build verification (`zig build`).
+7. Commit and create annotated tag.
+8. Push (requires explicit confirmation — triggers CI release workflow).
+9. Verify release workflow (platform binaries, macOS signing, GitHub Release).
+10. Run and verify post-release acceptance tests, plus manual smoke tests on
+    the aarch64 Windows/FreeBSD/OpenBSD/NetBSD reference VMs, which have no
+    CI acceptance leg.
+11. Trigger the docs site's `update-wasm` workflow, which fetches the released
+    WASM, bumps `kaappi_version` and the count variables, and deploys. The
+    per-SRFI rows in the site's `srfi-support.md` stay manual.
 
 Includes error recovery procedures for both pre-push and post-push failures.
 
