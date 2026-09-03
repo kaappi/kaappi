@@ -122,6 +122,22 @@ pub export fn kaappi_set_global(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_len
     const v = vm orelse return;
     const len: usize = @intCast(name_len);
     const name = name_ptr[0..len];
+    // #1924: same rule as the interpreter's set_global opcode — a child
+    // thread (owns_globals == false) storing its OWN heap's object into the
+    // shared map leaves a pointer the root collector cannot trace, dangling
+    // once the child's heap is freed at join. Checked before any lock is
+    // taken so the rejection never unwinds out of the locked region. The
+    // native tier cannot raise a catchable error from here, so the store is
+    // refused with a fatal diagnostic instead — the interpreter's text
+    // (raiseCrossHeapStoreVM) verbatim, minus the remediation tail which
+    // names channel/join routes that reach the same refusal.
+    if (!v.owns_globals and types.isPointer(val)) {
+        const root_vm = v.root_vm orelse v;
+        if (types.toObject(val).owner != root_vm.gc.id) {
+            _ = platform.write(2, "set!: cannot store an object created on this thread into a heap object shared with another thread (it would dangle once this thread's heap is freed)\n", 149);
+            std.process.exit(1);
+        }
+    }
     // A native closure runs on whichever VM invoked it (callNativeClosure
     // passes the caller), and one deep-copied into an SRFI-18 child thread
     // arrives with that child's VM — so this store reaches the shared

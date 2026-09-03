@@ -1199,11 +1199,14 @@ test "child thread sees the root's rebinding of a cached global and a guarded bu
 // getPtr and the store leaves the pointer dangling.
 //
 // The race itself is timing-dependent, so this test checks the locking
-// protocol deterministically instead: with the exclusive lock held by this
-// thread, kaappi_set_global on a child VM must not complete (it blocks in
-// lockShared until the lock is released, then the store lands). Pre-fix, the
-// call completed while the writer held the lock — the exact unlocked store
-// the issue describes.
+// protocol instead: with the exclusive lock held by this thread,
+// kaappi_set_global on a child VM must not complete (it blocks in
+// lockShared until the lock is released, then the store lands). This is
+// deterministic against the fix (the call provably blocks); against a
+// regression it is a high-probability detector, not a proof — a worker
+// descheduled for the whole 100 ms grace window would pass unfixed (the
+// unlocked store finishes in microseconds, so that needs a >100 ms
+// preemption between two adjacent statements).
 test "kaappi_set_global on a child VM holds the shared globals lock (#2487)" {
     if (comptime platform.is_wasm) return error.SkipZigTest; // OS threads are unregistered on wasm (thread-start! is native-only)
     var gc = memory.GC.init(std.testing.allocator);
@@ -1244,6 +1247,16 @@ test "kaappi_set_global on a child VM holds the shared globals lock (#2487)" {
         vm.globals_lock.unlock();
         return err;
     };
+    // Every exit path from here releases the lock and joins the worker
+    // (unlock first — the worker may be spinning in lockShared): a failing
+    // expect below must not fall through to the deferred vm.deinit() with
+    // the lock held and the worker still blocked, which would destroy
+    // globals_lock under a live waiter.
+    var torn_down = false;
+    defer if (!torn_down) {
+        vm.globals_lock.unlock();
+        worker.join();
+    };
     // Wait for the worker to reach the call (bounded: a lost thread fails
     // the expect below rather than hanging), then a wide grace window — the
     // unlocked store pre-fix finishes in microseconds, so `done` still set
@@ -1256,8 +1269,10 @@ test "kaappi_set_global on a child VM holds the shared globals lock (#2487)" {
     platform.sleepNs(100 * std.time.ns_per_ms);
     try std.testing.expect(done.load(.acquire) == false);
 
+    // Happy-path teardown through the same pair, then the post-conditions.
     vm.globals_lock.unlock();
     worker.join();
+    torn_down = true;
 
     // After the release the store went through: the value landed in the
     // shared map and the shared generation advanced (the bump rides inside

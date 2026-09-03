@@ -270,7 +270,14 @@ copies the object around the static `fn_ptr`) runs via `callNativeClosure`,
 which passes the **calling** VM — so its global reads and stores reach the
 shared map as child-thread accesses, where an unlocked `getPtr`/`get` can
 race another thread's rehashing `put` and touch a freed bucket array
-(kaappi#2487).
+(kaappi#2487). `kaappi_set_global` also carries the #1924 owner check
+before it takes the lock: a child storing its own heap's object into the
+shared map is refused, exactly as the `set_global` opcode's
+`raiseCrossHeapStoreVM` refuses it — but fatally (exit with the same
+diagnostic text), since a `void` runtime export cannot raise a catchable
+Scheme error. `kaappi_define_global` needs neither: it only ever runs at
+top level on the owner thread (internal defines are rejected in native
+lambda bodies, kaappi#819).
 
 ## The actual matrix
 
