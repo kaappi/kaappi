@@ -873,7 +873,22 @@ jobs:
           copyback: false
           # bash: run-all.sh; python3 + git: the errors/ and test-runner/
           # suites validate JSON output and build throwaway git repos.
-          prepare: pkg_add -I bash python%3 git
+          # Retried with a post-install probe rather than pkg_add's exit
+          # status: on a mirror blip pkg_add prints "Can't find bash" and
+          # still exits 0 (kaappi#2492), so the netbsd-style `pkg_add &&
+          # break` would break on the first attempt having installed
+          # nothing. The trailing check turns a failed or partial install
+          # into a prepare-step failure before any suite runs.
+          prepare: |
+            for i in 1 2 3; do
+              pkg_add -I bash python%3 git || true
+              command -v bash >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1 && command -v git >/dev/null 2>&1 && break
+              if [ "$i" -lt 3 ]; then sleep 20; fi
+            done
+            if ! command -v bash >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1 || ! command -v git >/dev/null 2>&1; then
+              echo "openbsd-test: pkg_add could not install all required tools after 3 attempts"
+              exit 1
+            fi
           run: |
             set -e
             # OpenBSD's default login class caps the main-thread stack at 4 MiB
@@ -886,6 +901,11 @@ jobs:
             ./unit-tests-openbsd
             ./thottam-tests-openbsd
             cc -shared -fPIC tests/scheme/ffi/fixtures/u64test.c -o tests/scheme/ffi/fixtures/libu64test.so
+            # Backstop for the prepare probe above: if bash is still missing,
+            # fail here with the cause named, not minutes later as
+            # `sh: bash: not found` after every suite has passed (kaappi#2492).
+            # 127 is the code the missing-bash invocation would produce anyway.
+            command -v bash >/dev/null 2>&1 || { echo "openbsd-test: bash missing — pkg_add prepare failed"; exit 127; }
             bash tests/scheme/run-all.sh
 
   netbsd-test:
