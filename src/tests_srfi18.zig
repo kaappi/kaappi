@@ -1187,3 +1187,81 @@ test "child thread sees the root's rebinding of a cached global and a guarded bu
     try std.testing.expect(types.isSymbol(result));
     try std.testing.expectEqualStrings("ok", types.symbolName(result));
 }
+
+// Regression for #2487: the native tier's set! on a top-level global
+// (kaappi_set_global in runtime_exports.zig, emitted by the LLVM backend for
+// every global assignment) used to do its globals.getPtr and the store
+// through that pointer with no lock. A native closure deep-copied into an
+// SRFI-18 child thread runs with that child's VM (callNativeClosure passes
+// the calling VM), so the store reaches the shared globals map from a child
+// — where a structural mutation on another thread (define/import under the
+// exclusive lock, which may rehash and free the bucket array) between the
+// getPtr and the store leaves the pointer dangling.
+//
+// The race itself is timing-dependent, so this test checks the locking
+// protocol deterministically instead: with the exclusive lock held by this
+// thread, kaappi_set_global on a child VM must not complete (it blocks in
+// lockShared until the lock is released, then the store lands). Pre-fix, the
+// call completed while the writer held the lock — the exact unlocked store
+// the issue describes.
+test "kaappi_set_global on a child VM holds the shared globals lock (#2487)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // OS threads are unregistered on wasm (thread-start! is native-only)
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    var child_gc = memory.GC.initForThread(std.testing.allocator, &gc);
+    defer child_gc.deinit();
+    var child_vm = try vm_mod.VM.initForThread(&child_gc, vm);
+    defer child_vm.deinit();
+
+    try vm.defineGlobal("victim", types.makeFixnum(0));
+    const version_before = vm.globalVersion();
+
+    const Worker = struct {
+        fn run(target: *vm_mod.VM, entered: *std.atomic.Value(bool), done: *std.atomic.Value(bool)) void {
+            entered.store(true, .release);
+            // Called exactly as emitted native code calls it: the child VM
+            // is the one a native closure running on the child thread holds.
+            @import("runtime_exports.zig").kaappi_set_global(
+                target,
+                "victim".ptr,
+                "victim".len,
+                types.makeFixnum(42),
+            );
+            done.store(true, .release);
+        }
+    };
+
+    // Hold the exclusive lock across the child's call. A compliant
+    // kaappi_set_global blocks in lockShared; if the call completes while
+    // the lock is held, the store ran unlocked — the bug.
+    vm.globals_lock.lock();
+    var entered = std.atomic.Value(bool).init(false);
+    var done = std.atomic.Value(bool).init(false);
+    const worker = std.Thread.spawn(.{}, Worker.run, .{ &child_vm, &entered, &done }) catch |err| {
+        vm.globals_lock.unlock();
+        return err;
+    };
+    // Wait for the worker to reach the call (bounded: a lost thread fails
+    // the expect below rather than hanging), then a wide grace window — the
+    // unlocked store pre-fix finishes in microseconds, so `done` still set
+    // after this sleep can only mean the lock was not taken.
+    var waited_ms: usize = 0;
+    while (!entered.load(.acquire) and waited_ms < 5_000) : (waited_ms += 1) {
+        platform.sleepNs(std.time.ns_per_ms);
+    }
+    try std.testing.expect(entered.load(.acquire));
+    platform.sleepNs(100 * std.time.ns_per_ms);
+    try std.testing.expect(done.load(.acquire) == false);
+
+    vm.globals_lock.unlock();
+    worker.join();
+
+    // After the release the store went through: the value landed in the
+    // shared map and the shared generation advanced (the bump rides inside
+    // the locked region, per VM.bumpGlobalVersion).
+    try std.testing.expectEqual(types.makeFixnum(42), vm.globals.get("victim").?);
+    try std.testing.expect(vm.globalVersion() != version_before);
+}
