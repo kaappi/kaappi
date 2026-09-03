@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788442622783,
+  "lastUpdate": 1788448025179,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "59a6552093a3005392b6a1ef5266c2dbf26bed52",
-          "message": "thottam: fix version re-pins, ownership-aware removal, and state-file name validation (#2289)\n\n* thottam: fix version re-pins, ownership-aware removal, and state-file name validation (#2134 #2136 #2138 #2144)\n\nFour audit findings in the package manager, each a place where thottam\nreported one thing and did another.\n\n#2134 — version pinning was a dead end. 'install pkg@ver' on an\nalready-installed package short-circuited on isInstalled before the\nrequested version was looked at, exiting 0 while leaving the old version\nin place — a provisioning script that pins and checks the exit status is\ntold it succeeded. And 'update' ran 'git pull' unconditionally, so a pin's\ndetached HEAD surfaced git's own unactionable advice and one pinned\npackage failed the whole-tree update. Install now resolves the requested\nversion before the already-installed check and re-checkouts (rebuild,\nre-copy, re-record) when the checkout differs; update detects the\ndetached HEAD and says plainly what the package is pinned to, skipping it\ninstead of failing the tree. 'install pkg@<version>' is the way to move a\npin, and it now works.\n\n#2136 — removal deleted library files by name with no ownership record.\nTwo packages shipping lib/kaappi/shared.sld: removing one unlinked the\nfile the other still relied on, leaving it reported as installed but\nbroken, and installs silently overwrote each other's copies. A new state\nfile, ~/.kaappi/thottam.files, records every installed file per package;\nremove unlinks only files no other installed package claims, and installs\nwarn when they overwrite a file another package owns. Empty directory\nskeletons left by removal are pruned.\n\n#2138 — kaappi.pkg's name: and source: fields were parsed, copied and\nnever read; version: was parsed by nothing. Since the manifest is only\nread after cloning, source: could never be the clone URL. The fields are\ndeleted from the parser and the documented grammar; only depends: and\nbuild: are read, and every other key (name:, version:, source: included)\nis ignored by construction. Third-party packages are sourced via ::url or\nKAAPPI_ORG.\n\n#2144 — list/verify/update built filesystem paths from unvalidated\npackage names read back from installed.txt and thottam.lock, while\ninstall and remove validated. A hand-edited or corrupted state file could\nsend git -C outside . Every consumer now inherits the guard:\nlist and update-all skip invalid names, update validates its argument at\nentry, and verify names invalid entries MALFORMED and fails.\n\nThe lifecycle suite's disabled FAIL: #NNNN checks are re-enabled and\nextended (pin re-install, pin move, pinned-update no-op, shared-file\nremoval, overwrite warning, empty-dir pruning, corrupted-state handling,\ninert-manifest installs): 133 assertions, all offline against local bare\nrepositories.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* thottam: keep the installed-file manifest authoritative across update (review)\n\nReview feedback on #2289 found one real gap: doUpdate copied the pulled\nlib tree but never refreshed thottam.files, so the #2136 ownership\nguarantee lapsed after any pull. If an upstream release of package A\nadded lib/kaappi/shared.sld (already owned by B), 'thottam update A'\ncopied the file and recorded nothing; a later 'thottam remove B' then\nsaw no other claimant and unlinked the file out from under A — exactly\nthe bug the manifest set out to close, reachable via the update path.\n\nThe copy+record block that install used is factored into a shared\nsyncInstalledFiles used by both install and update: collect the new file\nset, warn about files another package claims, copy, unlink files this\npackage previously owned that the new version dropped (unless another\npackage still claims them — the re-pin orphan case, where an upstream\ndeletion left a stale copy the rewritten manifest could no longer find),\nthen record the set. Install and update now keep on-disk state and the\nownership record in lockstep.\n\nAlso: document that the newest copy of a shared file stays authoritative\n(removal does not restore the previous contents), wire the previously\nunused sha_v100 into the v1.0.0 pin control assertion, and add two\nlifecycle regressions — an update that adds a shared file must record\nthe ownership so removing the other claimant keeps it, and an update\nthat drops a shared file must keep the other package's copy and drop the\nrecord so removing the updated package cannot delete it.\n\n145 lifecycle assertions (was 133), 1723 unit tests, all offline.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-23T13:25:38Z",
-          "tree_id": "18c56a33879f57abfb445c5828da76ca0ae5d0da",
-          "url": "https://github.com/kaappi/kaappi/commit/59a6552093a3005392b6a1ef5266c2dbf26bed52"
-        },
-        "date": 1787493823728,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.312801,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.698395,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.573317,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.018031,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004705,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04853,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.322289,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056045,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.816637,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.219325,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.665945,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.28032,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.788545,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.553425,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043395,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046164,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c12e9e7bc46e7a3d0bba88705034d2f46997bb59",
+          "message": "Document Zig's No LLM/No AI policy for upstream contributions (#2499)\n\n* Document Zig's No LLM/No AI policy for upstream contributions\n\nKaappi is written in Zig, so contributors routinely act in Zig's community\nspaces — filing compiler/std bugs, reading the tracker, following threads.\nZig enforces a Strict No LLM/No AI policy there, and nothing recorded our\nobligation to respect it, so the boundary (off-limits upstream vs. fine on\nour own repo) was easy to blur in AI-assisted work.\n\nAdd docs/dev/zig-upstream-policy.md stating the policy, its canonical CoC\nlink, what it forbids in Zig spaces, and the destination-based boundary;\nregister it in the docs/dev Policy index and add a compact pointer in\nCLAUDE.md so the rule is visible from the orientation map.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Name Zig's CoC-governed spaces correctly\n\nThe first draft listed the wrong community spaces (GitHub mirror, Ziggit,\n\"the forums\") and omitted the two the Code of Conduct actually names. The\nCoC governs exactly three: the ziglang org on Codeberg, the #zig IRC\nchannel on Libera.chat, and the Zig development Zulip — and it explicitly\nexcludes GitHub.\n\nCorrect both the doc and the CLAUDE.md pointer to the canonical trio, note\nGitHub's exclusion, and split out the GitHub mirror and the community-run\nZiggit forum as venues the CoC does not reach but where we hold to the same\npractice as our own rule.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-09-03T20:29:18+05:30",
+          "tree_id": "8c39f85fb134f1140601d6c748c46a0e75f44cb8",
+          "url": "https://github.com/kaappi/kaappi/commit/c12e9e7bc46e7a3d0bba88705034d2f46997bb59"
+        },
+        "date": 1788448023317,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.419255,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.122765,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.570593,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.043305,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00466,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048163,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.305024,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05776,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.819074,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.250136,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.644528,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.28059,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.722791,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.632952,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044932,
             "unit": "seconds"
           }
         ]
