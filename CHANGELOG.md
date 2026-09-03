@@ -11,8 +11,53 @@ this file — put the *why* in the commit body instead.
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-09-04
+
 ### Added
 
+- **`(kaappi process)` — subprocess support (KEP-0022, #2414, #2415, #2416,
+  #2417)** — a spawn-based (never fork-based) subprocess library, present on
+  every hosted platform and absent on WASM and under `--sandbox`; portable
+  code gates with `(cond-expand ((library (kaappi process)) …))`.
+  `(spawn-process argv opt…)` returns a `Process` whose `process-stdin`,
+  `process-stdout` and `process-stderr` are ordinary reactor-integrated pipe
+  ports; `process-wait` (with an optional `'timeout:`), `process-kill` (with
+  `'group:` and `'signal:`), `process-status`, `process-pid`,
+  `process-group`, `process-environment` and `process?` complete the surface.
+  Redirections are `'pipe`, `'inherit`, `'null`, or an existing port;
+  `directory:`, `env:` and `new-group:` are options. Children inherit exactly
+  the three stdio slots — every other descriptor Kaappi holds, including ones
+  it inherited from its launcher, is closed by default (`FD_CLOEXEC` on Linux
+  and the BSDs, `POSIX_SPAWN_CLOEXEC_DEFAULT` on macOS, an explicit handle
+  list on Windows). Children do not inherit the runtime's `SIGPIPE=SIG_IGN`;
+  writing to a child that has exited raises a catchable file error instead
+  of silently dropping the buffer. No `SIGCHLD` handler is installed, so
+  children spawned by C FFI libraries stay unobserved.
+- **`process-wait` parks the fiber instead of blocking the thread (KEP-0022
+  Phase 2, #2415)** — the reactor watches children directly (kqueue
+  `EVFILT_PROC`, Linux `pidfd_open`, a Windows process handle) and reaps
+  exactly once on exit, so a slow child never starves sibling fibers and
+  `'timeout:` rides the reactor timer heap with Python's contract: `#f` on
+  expiry, child still alive. Where the kernel cannot watch a process
+  (`pidfd_open` is `ENOSYS` before Linux 5.3 and under Rosetta), the wait
+  degrades to a polled park rather than a blocking `waitpid`. A child reaped
+  behind Kaappi's back (a C library's `wait(-1)`) raises a file error
+  promptly instead of reporting a spurious timeout or hanging.
+- **`(kaappi process)` on Windows (KEP-0022 Phase 3, #2416)** — the same
+  Scheme surface as POSIX, with none of the machinery a translation: spawn is
+  `CreateProcessW` with argv joined by the documented `CommandLineToArgvW`
+  quoting rules and inheritance confined to a
+  `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` naming exactly the three stdio handles
+  — a *stronger* close-by-default guarantee than the POSIX fd scan, with no
+  enumerate/spawn race; `new-group:` creates a Job Object and assigns the
+  child before its primary thread resumes, so `process-kill 'group: #t`
+  (`TerminateJobObject`) reaches grandchildren, which `TerminateProcess` and
+  `CREATE_NEW_PROCESS_GROUP` cannot; and the child's process HANDLE is the
+  reactor's wait object, the reap source and the kill target. Windows has no
+  signal delivery, so `signal:` folds into the exit code `TerminateProcess`
+  stamps — `128 + n`, the shell convention, so `'signal: 9` reports 137 — and
+  a status is always that plain integer rather than `(signaled . n)`.
+  `directory:` is honored natively. See `docs/dev/windows.md`.
 - **`run-process` and the `process-timeout` condition (KEP-0022 Phase 4,
   #2417)** — the one-shot layer over `spawn-process`:
   `(run-process argv opt…)` spawns, feeds an optional `input:`, drains
@@ -31,149 +76,194 @@ this file — put the *why* in the commit body instead.
   the partial output has nowhere else to go, since the values return never
   happens. It implies `new-group: #t`, because only a group kill reaches a
   grandchild holding the same pipes; an explicit `new-group: #f` alongside
-  `timeout:` is refused rather than accepted as an unbounded wait. Spawn failures stay in the file-error
-  family with errno detail, so program-not-found and permission-denied
-  remain distinguishable. See `docs/dev/subprocess.md`, new with this
-  release and covering all four phases of the subsystem.
-- **`(kaappi process)` on Windows (KEP-0022 Phase 3, #2416)** — subprocess
-  support now covers every hosted platform, with the same Scheme surface as
-  POSIX. None of the machinery under it is a translation: spawn is
-  `CreateProcessW` with argv joined by the documented `CommandLineToArgvW`
-  quoting rules and inheritance confined to a
-  `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` naming exactly the three stdio handles
-  — a *stronger* close-by-default guarantee than the POSIX fd scan, with no
-  enumerate/spawn race; `new-group:` creates a Job Object and assigns the
-  child before its primary thread resumes, so `process-kill 'group: #t`
-  (`TerminateJobObject`) reaches grandchildren, which `TerminateProcess` and
-  `CREATE_NEW_PROCESS_GROUP` cannot; and the child's process HANDLE is the
-  reactor's wait object, the reap source and the kill target. `process-wait`
-  parks on that handle in `WaitForMultipleObjects`'s wait set, so siblings
-  keep running. Windows has no signal delivery, so `signal:` folds into the
-  exit code `TerminateProcess` stamps — `128 + n`, the shell convention, so
-  `'signal: 9` reports 137 — and a status is always that plain integer rather
-  than `(signaled . n)`. `directory:` is honored natively. See
-  `docs/dev/windows.md`.
-- **SRFI 274, extended list conversion procedures (#2409)** — `list-copy`, `list->string`, `list->vector`, `list->stream`, `list->ideque`, `list->generator`, and all twelve `list-><type>vector` conversions extended with optional `start`/`end` range arguments that operate on dotted and circular lists whenever `end` is supplied (the cdr of the endth pair is never inspected). Portable port of the reference implementation; ships as a bare `(srfi 274)` alias plus the `(srfi 274 base)`, `(srfi 274 41)`, `(srfi 274 134)`, `(srfi 274 158)`, and `(srfi 274 160 <type>)` sub-libraries, mirroring the SRFI's own layout so the extended names never displace the built-ins a program already imports.
+  `timeout:` is refused rather than accepted as an unbounded wait. Spawn
+  failures stay in the file-error family with errno detail, so
+  program-not-found and permission-denied remain distinguishable. See
+  `docs/dev/subprocess.md`, new with this release and covering all four
+  phases of the subsystem.
+- **SRFI 273, extensions to data (type-)checking (#2408)** — portable
+  `(srfi 273)` layered on `(srfi 253)`: `define-check`, the advisory
+  `declare-checked`, `define-values-checked` (with real per-value checks,
+  receiving the form's values exactly once), and the `check-impl?` auxiliary
+  syntax, which strips to its datum so an unknown implementation-specific
+  name is an unbound variable. The library re-exports the whole `(srfi 253)`
+  vocabulary, so importing it alone suffices.
+- **SRFI 274, extended list conversion procedures (#2409)** — `list-copy`,
+  `list->string`, `list->vector`, `list->stream`, `list->ideque`,
+  `list->generator`, and all twelve `list-><type>vector` conversions extended
+  with optional `start`/`end` range arguments that operate on dotted and
+  circular lists whenever `end` is supplied (the cdr of the endth pair is
+  never inspected). Portable port of the reference implementation; ships as a
+  bare `(srfi 274)` alias plus the `(srfi 274 base)`, `(srfi 274 41)`,
+  `(srfi 274 134)`, `(srfi 274 158)`, and `(srfi 274 160 <type>)`
+  sub-libraries, mirroring the SRFI's own layout so the extended names never
+  displace the built-ins a program already imports.
 - **SRFI 231 `f16-storage-class`** (#2379) — software IEEE 754 binary16
   half-floats over `u16vector`, a faithful transliteration of the reference
   implementation's own arithmetic codec (round-to-nearest-even, subnormals,
   signed zeros, ±inf, and the 65520.0 tie rounding up to `+inf.0`), keeping
   `(srfi 231)` pure R7RS-small. Verified by an exhaustive 65536-pattern
-  round-trip sweep; official-suite divergence ids 98/148/149 pruned (id 150
-  re-scoped to the pre-existing c64/c128 representation divergence it was
-  also hiding, #2382). The suite's known-divergence table now records the
-  exact expected divergence count per id, and the verdict epilogue fails on
-  any mismatch in either direction — an undocumented failure under a shared
-  test id (16 storage-class rows re-use one id) can no longer hide behind a
-  documented divergence.
+  round-trip sweep. Every SRFI 231 storage class except `f8` is now real.
+- **Channel identity comparators in `(kaappi fibers)`** (#2394) —
+  `channel=?` (`#t` iff both operands back the same channel, across the
+  stubs a cross-thread promotion creates), `channel-hash` (promotion-stable,
+  so a hash table keyed on a channel before its first cross-thread send
+  stays reachable afterwards), and `channel-comparator`, a cached SRFI 128
+  comparator built from the two. SRFI 113 sets and bags now honor a custom
+  comparator, so `(set (channel-comparator) a b)` dedups stubs. `eq?`,
+  `eqv?` and `equal?` remain stub identity, as KEP-0002's as-implemented
+  amendment records.
+- **`kaappi-shared-channels` cond-expand feature identifier (KEP-0004 Phase
+  2)** — present wherever `kaappi-threads` is: cross-thread channel promotion
+  requires OS threads, and on wasm32-wasi the notifier is a no-op.
+- **`kaappi.pkg` `name:` and `source:` are live (#2138)** — thottam now
+  consistency-checks `name:` against the package being installed and refuses
+  a manifest naming a different package before recording anything, and
+  records `source:` as the lockfile's provenance on a bare-name install (so
+  `thottam list` shows `(from: …)` and a later `--locked` install fetches
+  from it). `source:` cannot redirect the first clone — the manifest is read
+  only after cloning — and a command-line `::url` that disagrees with it
+  warns, with the URL actually fetched winning. `version:` is dropped from
+  the documented grammar: thottam locks by git SHA, so a manifest version
+  means nothing.
+- **`-Dtest-strip` build option (#2489)** — strips the unit-test modules so
+  `std.testing.allocator`'s per-allocation stack capture cannot run away:
+  on Apple Silicon, Zig 0.16's Mach-O DWARF unwinder allocates from a
+  process-lifetime arena on every capture, and the unit binary reached a
+  44 GB compressed footprint on the macOS CI runner before the kernel killed
+  it. With the flag the suite runs in 21 s at 91 MB; the cost is unsymbolized
+  frames in a test panic, which is why it is opt-in.
+
+### Changed
+
+- **Minor collections are now generational in the mark, not only the sweep
+  (#1961)** — a minor collection used to perform a full transitive mark and
+  differ from a full one only in what it swept. The minor mark now treats
+  the old generation as opaque, so it costs O(live young + remembered
+  containers) instead of O(live heap). The write barrier is therefore
+  load-bearing: the audit that made this safe found and fixed missing
+  barriers on guardian registration, function constant pools, `define`/`set!`
+  into a mutable environment, per-function global caches, fiber snapshots,
+  and transformer environments, and weak structures (ephemerons, guardians)
+  defer their "dead?" verdict for old objects to the next full collection.
+- **Peak memory on allocation-churning loops is proportional again
+  (#2464)** — every full collection's mark pushed *every* element of a wide
+  live container onto the worklist, immediates included, then freed the
+  ~10 MB buffer and regrew it next time; macOS's allocator does not
+  decommit freed large blocks in that pattern, so a 1000×1000 `array-copy`
+  peaked at 701 MB for a 10.6 MB live heap. The mark now skips non-pointers
+  at every push site and retains an 8 MB worklist floor across collections.
+  The same repro peaks at 19.3 MB and runs ~15% faster; the sweep from
+  250k to 4M elements is now 9.8 MB → 49.4 MB instead of a cliff.
+- **Which binding `apply`, `call-with-values`, `eval`, `call/cc` and
+  `call-with-current-continuation` reach is a run-time decision (#2457,
+  #2469, R7RS 5.3.1)** — the superinstruction fast paths for these five
+  names used to bake in the compile-time answer, so a top-level redefinition
+  was ignored by any procedure body compiled before it ran: the body silently
+  called the builtin and discarded the user's procedure, and no scan could
+  see a redefinition arriving through `load`, `eval`, the REPL, the
+  playground, or a `set!` a macro materializes. Every such site now sits
+  behind a new `guard_builtin` opcode that takes the fast path only while
+  the global still holds the pristine primitive recorded at registration and
+  otherwise calls whatever it holds; the native backend makes the same check
+  through `kaappi_builtin_is_pristine`. One observable side effect:
+  `call-with-values` now evaluates its producer before its consumer (the old
+  order was a register-layout artefact). `(eval e env extra)` in tail
+  position also now passes every operand to a user-defined 3-ary `eval`.
+- **Cross-thread SRFI-18 waits are woken by the reactor notifier instead of a
+  1 ms poll** (#2395, KEP-0002 unresolved question 3) — `thread-join!` on a
+  running OS thread, `mutex-lock!` and condition-variable waits contended
+  across threads, and a `thread-sleep!` that must still observe
+  `thread-terminate!`, all used to re-check their own state every
+  millisecond. They now enrol in a per-thread registry and are rung awake by
+  whichever thread performs the state change (unlock, signal/broadcast,
+  terminate, or thread exit) — the same mechanism that promoted channels
+  already use. A `(thread-sleep! 60)` on a child thread costs one wakeup
+  rather than 60,000, and a cross-thread hand-off is delivered in a syscall
+  rather than within a millisecond. Two behaviour changes fall out of the
+  timed `thread-join!` no longer being a whole-thread `nanosleep`: this
+  thread's own fibers now run while it is parked (so a fiber can start a
+  `make-thread` handle another fiber is joining, and joining a never-started
+  handle with no timeout reports a deadlock instead of hanging forever), and
+  a timed `thread-join!` from inside a SRFI 181 custom-port callback is now
+  rejected with the same catchable error every other blocking primitive
+  raises there (#2000).
+- **Cross-thread wakeups ring outside the wait registry lock** (#2470) —
+  `wakeCrossThreadWaiters` used to notify every parked thread while holding
+  the registry lock, one syscall per enrolled thread inside the critical
+  section, so a ringer preempted mid-ring stalled every thread then arriving
+  at `mutex-lock!`, `thread-join!` or a condition-variable wait. The ring
+  now snapshots the first 128 enrolled notifiers under the lock, drops it,
+  and notifies outside it, so within those 128 the critical section is
+  constant-size; entries past 128 keep the old under-lock tail. Windows
+  socket initialisation's last bare spin loop now backs off through the
+  same spin-then-yield-then-sleep ladder every other cross-thread wait uses
+  (#2472).
+- **SRFI-18 OS threads are detached at spawn, and every cross-thread spin
+  wait backs off (#2446)** — `thread-join!` waits on a per-spawn exit flag
+  the child raises after its outermost defer rather than on `pthread_join`,
+  and `memory.spinLock`, the GC stop-the-world handshake and the globals
+  lock now spin 32 times, yield 64 times, then sleep with doubling backoff
+  instead of spinning forever. On NetBSD 10.x the join transferred the
+  reaped thread's uncapped CPU estimate to the joiner (a 4BSD scheduler bug
+  fixed upstream only for netbsd-11), sinking the interpreter thread and
+  every thread it then spawned to the lowest priority, where a crowd of
+  spinners starved the preempted lock holder outright — an intermittent
+  hang under CPU load that is now 0 for 50 runs on the reference VM.
+  Postmortem in `docs/dev/postmortems/`.
+- **`er-macro-transformer`'s `compare` is now binding-aware
+  `free-identifier=?` (#2388, KEP-0006)** — the two identifiers must denote
+  the same binding, or both be unbound; the shipped compare was
+  hygiene-stripped name equality. A use-site local that shadows `else` or
+  `=>` now refuses a macro's clause exactly as it would under
+  `syntax-rules`, pinned by a four-quadrant ER/`syntax-rules` parity suite.
+  One residual, documented in the `(srfi 211)` header: a spelling that both
+  occurs in the macro-use input and was bare-renamed by the same invocation,
+  compared under a use-site local shadow, answers `#f` even for two rename
+  products.
+- **SRFI 241 (`match`) and SRFI 202 (`and-let*`) are re-ported on
+  `er-macro-transformer` (#2391, KEP-0006 step 5)** — each is now a single
+  procedural transformer rather than a tower of `syntax-rules` helpers with
+  a custom ellipsis identifier, which lifts all four of the 241 port's
+  documented limitations: arbitrary sub-patterns under an ellipsis,
+  mandatory patterns after the ellipsis in lists and vectors, the SRFI's
+  ellipsis-aware quasiquote inside clause bodies, and the spec's cata
+  evaluation order. The 202 re-port also gains SRFI 2's bare bound-variable
+  claw and vector patterns in quasiquoted claws.
+- **New `values_list` opcode, replacing `%call-with-values->list`** — the
+  producer-spread half of the `call-with-values` lowering: `values_list`
+  (dst:u16, src:u16) spreads the produced value — single, or a
+  `MultipleValues` object from `values` — into the fresh argument list the
+  consumer's apply reads. `%call-with-values-check` replaces
+  `%call-with-values->list` for the operand type checks, still reported as
+  `call-with-values` before anything runs. The `apply` (non-tail) and
+  `guard_builtin` opcodes are new too; all three are appended last per the
+  `.sbc` numbering rule, and there is no `.sbc` format bump since the cache
+  is keyed by compiler hash.
+- **SRFI 231 c64/c128 array bodies use the reference implementation's
+  interleaved-float representation** (#2382) — an `f32vector`/`f64vector`
+  of twice the logical length holding real/imaginary pairs, instead of
+  native `c64vector`/`c128vector` (the byte layout is identical either
+  way: 2 consecutive f32s/f64s per element). Even-length float vectors
+  are now accepted zero-copy by `make-specialized-array-from-data`, so
+  reference-coupled portable code and the official suite's fixtures work
+  unchanged — the spec's `data?` contract (shares, never copies) makes
+  this the only spec-legal way to accept that data shape. Consequences:
+  `(array-body A)` for a c64/c128 array now reports the float vector,
+  and `c64vector`/`c128vector` data is no longer accepted directly.
+  The official suite's known-divergence table is down to the two
+  unavoidable entries (string mutability, unsafe-view checking).
+- **`kaappi check` and `--sandbox` compile-time macro execution policy is
+  ratified (#2389)** — `docs/dev/check.md` claimed a same-file macro use
+  expands "without running anything", false since `er-macro-transformer`
+  shipped. The new decision note records that macro-defining code is
+  compile-time code, not sandboxed program code, and that the sandbox is
+  environmental rather than temporal: a transformer body running at
+  expansion time is confined by exactly the program's capability set, and
+  `--timeout` bounds it.
 
 ### Fixed
 
-- **A continuation captured inside `call-with-values`' producer can be
-  resumed after the form returned** (#2453) — the producer kept running
-  under the native `%call-with-values->list` frame even after #2451 moved
-  the consumer into the dispatch loop, so its frame was not part of the
-  state a continuation copies and a resume delivered its value into a
-  stale register of the enclosing bytecode frame, which the following
-  apply misread as `apply: last argument must be a list` — blaming an
-  operand the user never wrote. The lowering now calls the producer with
-  an ordinary `call` opcode, so its frame is copied and restored like any
-  other and a resume re-enters the producer's body; a new `values_list`
-  opcode (see Changed) spreads the produced values into the argument list
-  the consumer's apply reads. The remaining native route — a declined
-  fast path reaching the built-in `call-with-values` — now reports the
-  honest, catchable KP3000 (`continuation cannot resume across a returned
-  native call`) instead of the misleading apply error. README's Known
-  limitations no longer lists the producer corner.
-- **A top-level redefinition of `apply`, `call-with-values`, `eval`,
-  `call/cc` or `call-with-current-continuation` now takes effect in
-  procedure bodies compiled before the redefinition ran** (#2457,
-  R7RS 5.3.1) — the builtin-bypass gate answered which binding a call
-  resolves by reading the global environment at compile time, which is
-  wrong whenever compile order and definition order differ: a body
-  compiled before the redefinition silently ran the builtin and discarded
-  the user's procedure. Whole-unit drivers (file runs, cold and `.sbc`
-  cache-HIT; stdin; `kaappi compile`; `kaappi check`, including its
-  shared `analyzeSource` path; and the native backend's `emitApplyForm`)
-  now pre-scan the unit's top-level `define`/`define-values`/`set!`
-  targets and decline the superinstruction for those names everywhere in
-  the unit, so the cost falls only on the programs whose semantics were
-  wrong. The REPL, `eval`, and macro-materialized redefinitions keep the
-  previous compile-time answer — tracked as #2469.
-- **SRFI 231 `array-copy` is continuation-safe** (#2454) — the fill wrote
-  directly into a destination allocated before the loop started, so a getter
-  that captured a continuation and re-invoked it after `array-copy` returned
-  kept writing into the array the first copy had already handed back: the
-  caller's array silently mutated under it (the official suite's own case —
-  the first copy reading `((4 1) (1 1))` instead of `((1 1) (1 1))`). The
-  spec's whole documented difference between `array-copy` and `array-copy!`
-  is that the non-`!` one must be safe under exactly this. `array-copy` (and
-  `array-append`, `array-stack`, `array-block`, `array-decurry`, which
-  delegate to it) now collect every source value — before the destination
-  exists — into a pre-sized scratch vector indexed by a position threaded
-  functionally through the walk (a cons-list accumulator instead holds N
-  pairs live and allocates 2N more across the reverse: 18.0M total pair
-  allocations for that shape against this one's 16.0M at 1M elements; the
-  churn that remains is the library apply shape every fill loop shares,
-  tracked in kaappi#2464), so a re-entry re-runs the collection from its
-  capture point and materializes its own destination. `array-copy!`
-  keeps the direct fill, which the spec explicitly permits. One residual
-  exposure remains, shared with the reference implementation: a destination
-  storage class from `make-storage-class` contributes user-written setter
-  code to the copy-out, where a capture re-enters with the destination
-  already allocated and hands back the same object (with identical
-  contents).
-- **A bare program name that resolves to nothing is a file error on
-  OpenBSD** (#2456) — `(spawn-process '("some-missing-command"))` there
-  "succeeded" and the child exited 127: OpenBSD's vfork-based userland
-  `posix_spawn` has no channel to report the child's exec failure, and
-  POSIX permits exactly that. 127 is also a plausible exit code of a
-  program that really ran, so a mistyped command looked like a completed
-  run. That platform now spawns through `fork` + `execvp` with a CLOEXEC
-  error pipe (CPython `subprocess`'s mechanism): the child writes its
-  exec errno and only then exits, so a miss raises the same
-  errno-carrying file error every other platform's libc reports — and
-  the parent resuming only at the exec restores the signalability
-  property the NetBSD exec barrier exists for. The bare-name assertions
-  in `process-run.scm` and `tests_process_run.zig` are strict again.
-- **`fd->port` leaves the wrapped descriptor inheritable** (#2424) — an
-  FFI descriptor (a kaappi-net socket, a foreign library's pipe) wrapped
-  as a port kept whatever close-on-exec state it arrived with, so on
-  Linux and the BSDs every `spawn-process` child inherited it — a live
-  listening socket could reach the child. The wrap is now the ownership
-  boundary: `makeFdPort` sets `FD_CLOEXEC`, which cannot break a
-  legitimate pass-through (Kaappi execs only through `spawn-process`,
-  whose stdio install clears the flag on exactly the child's slots); a
-  foreign side that wants a child to inherit its descriptor must prepare
-  the fd itself.
-- **Test/dev fd pairs are close-on-exec** (#2422) — the pair constructors
-  in `testing_helpers.zig` and `bench_reactor.zig` called `pipe(2)` and
-  `socketpair(2)` directly, bypassing `platform.pipe`'s CLOEXEC
-  discipline (the hand-rolled fork/exec plumbing in `test_runner.zig`
-  and `test_selection.zig` did the same). These descriptors never
-  intentionally cross an exec, but the fd-hygiene suites had to diff
-  against the parent's own fd set to tolerate them.
-- **Writing more than the pipe buffer to a child's stdin no longer hangs
-  forever on Windows** (#2459) — past 4096 bytes (the pipe size), a feed
-  through `input:` wedged with no error and no CPU whenever a fiber
-  scheduler was running. `pipeWrite` treated
-  `NtQueryInformationFile`'s `WriteQuotaAvailable` as "can I write
-  without blocking" and synthesized `EAGAIN` at zero — but that field
-  tracks whether the peer happens to be parked in a read on the far end,
-  not whether the buffer has room (it reads 0 on a freshly connected,
-  completely empty pipe), so the parked writer waited on a number that
-  never moves. A zero quota now falls through to the plain CRT write,
-  which blocks the OS thread until the reader drains — the graceful
-  degradation the query-failure path already took, and the pre-#1608
-  behavior; a non-zero quota still usefully clamps the request. The
-  collector's abandoned-port flush keeps a never-block flavor
-  (`pipeWriteNoBlock`), since nothing will ever drain an abandoned pipe.
-  Known residual cost, same as before #1608 stage 2: a child that echoes
-  its stdin back while the feed is still blocked can fill its own output
-  pipe and wedge both sides — a parked write with a truthful readiness
-  signal needs overlapped pipe handles, deliberately out of scope. The
-  Windows stdin cap in the concurrent-drain test is gone, and a
-  larger-than-pipe-buffer `input:` feed is asserted on every platform.
 - **Continuations captured under a non-tail `apply` or `call-with-values`
   (#2451)** — resuming one raised `KP3000: continuation cannot resume across a
   returned native call`. Both reached their callee through a native
@@ -188,31 +278,57 @@ this file — put the *why* in the commit body instead.
   so the consumer's frame lives in the continuation snapshot like any other.
   An `apply` flattening more than 255 arguments still takes the native route
   (#649 requires it to work at all, and the call opcode's argument count is one
-  byte), as does `call-with-values`' producer. Diagnostics are unchanged in
-  both wording and order, including the parity with the LLVM backend that
-  `tests/scheme/compile/native-apply-lowering-1803.sh` pins.
-- **SRFI 231 `array-ref`/`array-set!` are always checked** (#2448) — an
-  array built with `safe?: #f` handed the user the raw, unchecked accessor,
-  so an out-of-domain multi-index still computed a body offset. When that
-  offset landed inside the body it silently read or clobbered a *different,
-  valid* element: on a 2x3 array, `(array-ref a 0 5)` returned element
-  `(1 2)` and `(array-set! a 99 0 5)` overwrote it, with no error. This was
-  the default, since `specialized-array-default-safe?` is `#f`. Reported by
-  the SRFI's author, who has removed the safe/unsafe distinction from the
-  reference implementation for the same reason: the spec makes `safe?: #t`
-  *add* checks, it never licenses an unchecked `array-ref`/`array-set!`.
-  The user-visible getter and setter are now always wrapped, in all four
-  constructors (`make-specialized-array`,
-  `make-specialized-array-from-data`, `specialized-array-share`,
-  `specialized-array-reshape`); an internal unchecked pair is kept on the
-  array and used only by bulk operations, which generate their own
-  in-domain indices. Values are still checked on the way into a body except
-  where provably vacuous. `array-safe?` still reports what the caller asked
-  for, it just no longer gates checking. Net effect on the official suite:
-  known-divergence 351 is resolved and pruned, and bulk operations over
-  *safe* arrays get about 2x faster (a 200x200 `f64` `array-copy` goes from
-  0.348 s to 0.178 s) since they no longer re-validate indices they just
-  generated.
+  byte). Diagnostics are unchanged in both wording and order, including the
+  parity with the LLVM backend.
+- **A continuation captured inside `call-with-values`' producer can be
+  resumed after the form returned** (#2453) — the producer kept running
+  under a native frame even after #2451 moved the consumer into the
+  dispatch loop, so a resume delivered its value into a stale register of
+  the enclosing bytecode frame, which the following apply misread as
+  `apply: last argument must be a list` — blaming an operand the user never
+  wrote. The lowering now calls the producer with an ordinary `call` opcode,
+  so its frame is copied and restored like any other and a resume re-enters
+  the producer's body. The remaining native route — a declined fast path
+  reaching the built-in `call-with-values` — now reports the honest,
+  catchable KP3000 instead of the misleading apply error. README's Known
+  limitations no longer lists the producer corner.
+- **A datum-label cycle in code position is diagnosed instead of aborting
+  or hanging (#2403, #2404, #2405)** — `(display #1=(p #1# q))` overflowed
+  the native stack (an uncatchable SIGBUS), `#0=(let-syntax () . #0#)` spun
+  forever in the body walk, `#0=(display 1 . #0#)` surfaced KP9001
+  "internal error", a cyclic `syntax-rules` template SIGBUSed the
+  `define-syntax` itself, and an `er-macro-transformer`'s `rename` on a
+  circular input pushed GC roots until the root stack panicked. Every
+  compile-side spine walk and recursive lowering now carries a cycle guard
+  (tortoise-and-hare on one-cdr-per-step spines, an active-path set keyed on
+  object address for recursive descents, spanning the lower/emit re-entry
+  boundary so `#0=(let ((x #0#)) x)` is caught too), and a cycle reports
+  `syntax-error[KP2002] circular form in code position: the form contains
+  itself (datum-label cycle)` — or `KP2001` from the execution-time
+  top-level handlers (`begin` splicing, `cond-expand`, `define-values`).
+  Quoted circular data is untouched, and shared-but-acyclic `#1=`
+  structure still compiles. The `set!` pre-scan degrades to conservative
+  boxing on a truncated walk, and the native tier falls back to the
+  interpreter for the rest of the program after one, so constant folding
+  cannot diverge from run-time rebinding through that path.
+- **A child OS thread's per-function global cache is invalidated by the
+  root's rebindings (#2483)** — the globals generation counter was per-VM
+  while the map is shared by pointer, so a child thread that had cached a
+  global kept calling the old binding after the root redefined it, and its
+  `guard_builtin` stayed on the fast path after the root redefined `apply`.
+  The counter now lives on the shared globals lock, read and bumped with the
+  ordering rules that make it sound across threads (bump inside the locked
+  region of the store; snapshot before the map read).
+- **Native-tier global stores and lookups from a child thread take the
+  globals lock (#2487)** — `kaappi_set_global`, the entry point the LLVM
+  backend emits for every top-level `set!`, did its map lookup and store
+  with no lock, so a native closure deep-copied into an SRFI-18 child thread
+  racing a `define` or `import` on another thread (which rehashes the map)
+  could store through a freed bucket array. It now takes the same shared
+  lock pair the interpreter's `set_global` opcode uses, applies the #1924
+  cross-heap owner check before it, and the two sibling unlocked reads
+  (`kaappi_global_lookup` and the fixnum fallbacks' primitive lookup) follow
+  the same protocol. Single-threaded native programs pay two branch checks.
 - **A "never" reactor deadline no longer fails the poll** (#2395) — SRFI-18
   reads `+inf.0` as "never times out" and saturates it to a maxInt-nanosecond
   deadline ~585 years out; handed to `kevent` as a timespec that far ahead,
@@ -225,80 +341,107 @@ this file — put the *why* in the commit body instead.
   condition-variable wait and `thread-sleep!` decided whether another OS
   thread could resolve them once, on entry. A sibling fiber dispatched by the
   wait's own scheduler drive can start the process's *first* OS thread after
-  that, and a timed wait's deadline timer keeps the reactor busy, so the wait
-  never re-evaluated: the remote unlock or signal reached nobody and the wait
-  ran to its deadline. `(mutex-lock! m 2)` returned `#f` after 2.002s for an
-  unlock that happened at 0.1s. These waits now enrol **unconditionally**,
-  before the first park, rather than re-evaluating the condition afterwards —
-  re-evaluation would not help, because the first park is already unbounded
-  and nothing brings control back to the retry loop that could re-check.
-  Present on main too (the pre-existing 1 ms poll cap was decided the same
-  way, once).
-
-### Changed
-
-- **New `values_list` opcode, replacing `%call-with-values->list`** — the
-  producer-spread half of the `call-with-values` lowering: `values_list`
-  (dst:u16, src:u16) spreads the produced value — single, or a
-  `MultipleValues` object from `values` — into the fresh argument list the
-  consumer's apply reads. `%call-with-values-check` replaces
-  `%call-with-values->list` for the operand type checks, still reported as
-  `call-with-values` before anything runs. The opcode count is now 33
-  (`values_list` appended last per the `.sbc` numbering rule); no `.sbc`
-  format bump, since the cache is keyed by compiler hash. Internally, the
-  builtin gate (`globalBindingStillGenuine`) and the `set!` pre-scan moved
-  from `compiler.zig` to the new `compiler_gate.zig` (file-size policy).
-- **Cross-thread wakeups ring outside the wait registry lock** (#2470) —
-  `wakeCrossThreadWaiters` used to notify every parked thread while holding
-  the registry lock: one syscall (a kevent, an eventfd write, or a SetEvent)
-  per enrolled thread inside the critical section, so a ringer preempted
-  mid-ring stalled every thread then arriving at `mutex-lock!`,
-  `thread-join!` or a condition-variable wait — post-#2468 a latency hit
-  only, but with a dozen parked threads a scheduler-quantum-long one. The
-  ring now snapshots the first 128 enrolled notifiers under the lock (each
-  retained), drops the lock, and notifies and releases outside it — the
-  same snapshot-then-ring shape channel wakes already use — so within
-  those 128 the critical section is constant-size again, and the teardown
-  close (`releaseNotifier`'s zero transition) never runs under the lock on
-  any path. Entries past 128 (more simultaneously blocked OS threads than
-  that is already pathological) keep the old under-lock tail — their
-  `notify()` still runs while the lock is held, so past 128 the critical
-  section grows with waiters as before. Windows socket
-  initialisation's last bare spin loop now backs off through the same
-  spin-then-yield-then-sleep ladder every other cross-thread wait uses
-  (#2472), so an auditor grepping for spin-hint-only waits finds zero.
-- **Cross-thread SRFI-18 waits are woken by the reactor notifier instead of a
-  1 ms poll** (#2395, KEP-0002 unresolved question 3) — `thread-join!` on a
-  running OS thread, `mutex-lock!` and condition-variable waits contended
-  across threads, and a `thread-sleep!` that must still observe
-  `thread-terminate!`, all used to re-check their own state every
-  millisecond. They now enrol in a per-thread registry and are rung awake by
-  whichever thread performs the state change (unlock, signal/broadcast,
-  terminate, or thread exit) — the same mechanism that promoted channels
-  already use. A `(thread-sleep! 60)` on a child thread costs one wakeup rather than
-  60,000, and a cross-thread hand-off is delivered in a syscall rather than
-  within a millisecond. Two behaviour changes fall out of the timed
-  `thread-join!` no longer being a whole-thread `nanosleep`: this thread's
-  own fibers now run while it is parked (so a fiber can start a `make-thread`
-  handle another fiber is joining, and joining a never-started handle with no
-  timeout reports a deadlock instead of hanging forever), and a timed
-  `thread-join!` from inside a SRFI 181 custom-port callback is now rejected
-  with the same catchable error every other blocking primitive raises there
-  (#2000).
-- **SRFI 231 c64/c128 array bodies use the reference implementation's
-  interleaved-float representation** (#2382) — an `f32vector`/`f64vector`
-  of twice the logical length holding real/imaginary pairs, instead of
-  native `c64vector`/`c128vector` (the byte layout is identical either
-  way: 2 consecutive f32s/f64s per element). Even-length float vectors
-  are now accepted zero-copy by `make-specialized-array-from-data`, so
-  reference-coupled portable code and the official suite's fixtures work
-  unchanged — the spec's `data?` contract (shares, never copies) makes
-  this the only spec-legal way to accept that data shape. Consequences:
-  `(array-body A)` for a c64/c128 array now reports the float vector,
-  and `c64vector`/`c128vector` data is no longer accepted directly.
-  Official-suite divergence id 150 pruned; the known-divergence table is
-  down to the two unavoidable entries (string mutability, unsafe-view
-  checking).
+  that, so the remote unlock or signal reached nobody and the wait ran to
+  its deadline: `(mutex-lock! m 2)` returned `#f` after 2.002s for an unlock
+  that happened at 0.1s. These waits now enrol unconditionally, before the
+  first park.
+- **A fiber that catches an error raised mid-wait is no longer resumed
+  against another fiber's registers (#2429, #2430, #2433)** — five error
+  exits inside the scheduler's dispatch loop returned a catchable
+  `OutOfMemory` after a sibling fiber's registers, frames, handler stack and
+  wind stack had been loaded into the VM, and the SRFI-18 and local-channel
+  park sites (`thread-join!`, `mutex-lock!`, condition-variable waits,
+  `channel-send`/`channel-receive`) armed their parked state and then
+  reached a fallible call with nothing to undo it. A Scheme `guard` catching
+  either resumed on a fiber the scheduler still believed parked — the #1487
+  dispatch-from-stale-snapshot corruption by a different route. Every error
+  exit now restores the waiting fiber's window, detaches its deadline timer,
+  and withdraws its waiter-index entry.
+- **`thread-start!` no longer leaks the fiber when the OS thread cannot be
+  spawned (#2473)** — the two pre-spawn failure paths left the handle rooted
+  in `extra_roots` forever with status `.running`, so no later
+  `thread-join!` could ever remove it and the thunk plus everything it
+  closed over stayed reachable for the life of the GC. The failure now
+  unwinds the root and restores the handle to `.created`.
+- **`%make-record` checks its field count (#1915)** — too few values padded
+  the instance with `#<undefined>`, a truthy printable value that misbehaved
+  far from the cause, and too many were silently dropped. It now raises
+  KP3007 naming both counts; the portable record SRFIs always build a full
+  positional list, so they are untouched, but a no-protocol SRFI 237 subtype
+  constructor given the wrong count now raises catchably.
+- **`(srfi 192)` is importable on WASM (#2019)** — all four of its
+  procedures already worked there, so only import-by-name and the derived
+  `cond-expand` feature were broken, and a portable probe-then-fallback took
+  the wrong branch for a working feature.
+- **SRFI 253 `=>` return-value checks work for every formals shape** —
+  `lambda-checked` with empty or rest formals dropped the `=>` clause on the
+  floor, and multi-value `=>` checks never worked (an ellipsis-count mismatch
+  spliced N predicates against one value). Both now check their returns; a
+  count mismatch reports "number of values and predicates should match"
+  before any predicate runs.
+- **SRFI 231 `array-ref`/`array-set!` are always checked** (#2448) — an
+  array built with `safe?: #f` handed the user the raw, unchecked accessor,
+  so an out-of-domain multi-index still computed a body offset. When that
+  offset landed inside the body it silently read or clobbered a *different,
+  valid* element: on a 2x3 array, `(array-ref a 0 5)` returned element
+  `(1 2)` and `(array-set! a 99 0 5)` overwrote it, with no error. This was
+  the default, since `specialized-array-default-safe?` is `#f`. Reported by
+  the SRFI's author, who has removed the safe/unsafe distinction from the
+  reference implementation for the same reason. The user-visible getter and
+  setter are now always wrapped, in all four constructors; an internal
+  unchecked pair is kept for bulk operations, which generate their own
+  in-domain indices. `array-safe?` still reports what the caller asked for.
+  Bulk operations over *safe* arrays get about 2x faster since they no
+  longer re-validate indices they just generated.
+- **SRFI 231 `array-copy` is continuation-safe** (#2454) — the fill wrote
+  directly into a destination allocated before the loop started, so a getter
+  that captured a continuation and re-invoked it after `array-copy` returned
+  kept writing into the array the first copy had already handed back: the
+  caller's array silently mutated under it. `array-copy` (and
+  `array-append`, `array-stack`, `array-block`, `array-decurry`, which
+  delegate to it) now collect every source value — before the destination
+  exists — into a pre-sized scratch vector, so a re-entry re-runs the
+  collection from its capture point and materializes its own destination.
+  `array-copy!` keeps the direct fill, which the spec explicitly permits.
+  One residual exposure remains, shared with the reference implementation:
+  a destination storage class from `make-storage-class` contributes
+  user-written setter code to the copy-out.
+- **A bare program name that resolves to nothing is a file error on
+  OpenBSD** (#2456) — `(spawn-process '("some-missing-command"))` there
+  "succeeded" and the child exited 127: OpenBSD's vfork-based userland
+  `posix_spawn` has no channel to report the child's exec failure, and
+  POSIX permits exactly that. 127 is also a plausible exit code of a
+  program that really ran, so a mistyped command looked like a completed
+  run. That platform now spawns through `fork` + `execvp` with a CLOEXEC
+  error pipe (CPython `subprocess`'s mechanism), so a miss raises the same
+  errno-carrying file error every other platform's libc reports.
+- **`fd->port` leaves the wrapped descriptor inheritable** (#2424) — an
+  FFI descriptor (a kaappi-net socket, a foreign library's pipe) wrapped
+  as a port kept whatever close-on-exec state it arrived with, so on
+  Linux and the BSDs every `spawn-process` child inherited it — a live
+  listening socket could reach the child. The wrap is now the ownership
+  boundary: `makeFdPort` sets `FD_CLOEXEC`; a foreign side that wants a
+  child to inherit its descriptor must prepare the fd itself. The REPL's
+  isocline history and debug files are close-on-exec too (#2423, vendored
+  patch 6).
+- **Writing more than the pipe buffer to a child's stdin no longer hangs
+  forever on Windows** (#2459) — past 4096 bytes (the pipe size), a feed
+  through `input:` wedged with no error and no CPU whenever a fiber
+  scheduler was running: `pipeWrite` treated `WriteQuotaAvailable` as "can
+  I write without blocking", but that field tracks whether the peer happens
+  to be parked in a read, not whether the buffer has room, so the parked
+  writer waited on a number that never moves. A zero quota now falls
+  through to the plain CRT write, which blocks the OS thread until the
+  reader drains. Known residual: a child that echoes its stdin back while
+  the feed is still blocked can fill its own output pipe and wedge both
+  sides — a parked write with a truthful readiness signal needs overlapped
+  pipe handles, deliberately out of scope.
+- **The generic `zig build -Dtarget=wasm32-wasi` cross build no longer
+  aborts the compiler (#2421)** — LLVM could not select a float constant
+  pool under baseline wasm in ReleaseSafe inside `angle`'s flonum arm; it
+  now branches on the sign bit instead, bit-exact with `atan2(0.0, f)` for
+  every input. The two paths CI already built were unaffected; the wasm job
+  gains a compile-only canary for the shape that was not.
 
 ## [0.25.0] - 2026-08-27
 

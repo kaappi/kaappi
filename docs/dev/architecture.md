@@ -33,7 +33,7 @@ Source code
 | **Compiler** | `compiler.zig` + 10 sub-modules | Emits register-based bytecode from IR nodes via `compileFromNode()` (in `compiler_ir.zig`). Retains `compileExpr()` for forms delegated via `passthrough`. See the [Compiler & IR](#compiler--ir-12-files) table for the per-file split. |
 | **VM** | `vm.zig` + 10 sub-modules | Executes bytecode with a growable register file, call frame stack, exception handler stack, and dynamic-wind stack (all heap-allocated, double-on-overflow; exceeding a hard cap is an uncatchable KP3008). First-class continuations via stack copying, plus a stepping debugger. |
 | **GC** | `memory.zig` | Generational (young/old) mark-and-sweep collector over an intrusive linked list, with a write barrier and remembered set for old→young references. Root tracking via `pushRoot`/`popRoot`. Triggered after N allocations. |
-| **Primitives** | 32 `primitives_*.zig` files | 696 built-in procedures organized by domain. |
+| **Primitives** | 32 `primitives_*.zig` files | 717 built-in procedures organized by domain. |
 
 ---
 
