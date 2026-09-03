@@ -249,9 +249,22 @@ jobs:
           # (healthy runs sit at 18–24 min). timeout is an include-only key
           # that merges into this existing os+optimize combination without
           # renaming its required check.
+          #
+          # test_args: the unit binaries are stripped on this leg only
+          # (kaappi#2489). `std.testing.allocator` captures a stack trace per
+          # allocation, and on aarch64-macOS Zig 0.16 unwinds it through the
+          # Mach-O DWARF path whose scratch lives in a never-freed arena: the
+          # unit binary's footprint reached 44 GB by the end of the suite,
+          # the runner's 3 GB swap filled 11-13 min in, and the kernel's "no
+          # paging space" action SIGKILLed it ("'<test>' terminated with
+          # signal KILL", a different victim each time). Stripping the test
+          # module turns that capture off: same 1913 pass / 21 skip, ~20 s
+          # instead of ~10 min, 91 MB instead of 44 GB. The Linux legs keep
+          # symbolized traces; they run the suite in under a minute anyway.
           - os: macos-latest
             optimize: ReleaseSafe
             timeout: 50
+            test_args: -Dtest-strip=true
           - os: ubuntu-latest
             optimize: ReleaseFast
 
@@ -295,7 +308,7 @@ jobs:
       # the gc-stress job below is read against (its skip count differs).
       - name: Unit tests (leak detection via std.testing.allocator)
         if: env.DOCS_ONLY != 'true'
-        run: zig build test -Doptimize=${{ matrix.optimize }} --summary all
+        run: zig build test -Doptimize=${{ matrix.optimize }} ${{ matrix.test_args }} --summary all
 
       - name: Scheme suites
         if: env.DOCS_ONLY != 'true'
