@@ -679,9 +679,9 @@ matrix covers:
 | `test` | Ubuntu (x86, ARM), macOS | Unit tests, `run-all.sh`, robustness, sandbox, thottam integration, SRFI final-status guard |
 | `gc-stress` | Ubuntu | Unit suite under `-Dgc-stress=true` |
 | `gc-stress-scheme` | Ubuntu | Scheme suites under `-Dgc-stress=true` |
-| `riscv64-test` | Ubuntu (QEMU) | Cross-compiled unit tests + R7RS suite. The unit suite runs as eight chunks (`tools/run-unit-test-chunk.sh`: process, concurrency, io, fuzz, gc, native, tooling, and a derived rest), each its own step with its own cap, so a hang under emulation names its chunk (kaappi#2488) |
-| `s390x-test` | Ubuntu (QEMU) | Big-endian leg — the byte-order canary (kaappi#1654) |
-| `ppc64le-test` | Ubuntu (QEMU) | Cross-compiled unit tests + R7RS suite |
+| `riscv64-test` | Ubuntu (QEMU) | Cross-compiled unit tests + R7RS suite. The unit suite runs as eight chunks (`tools/run-unit-test-chunk.sh`: process, concurrency, io, fuzz, gc, native, tooling, and a derived rest), each its own step with its own cap, and the script passes `zig build test --test-timeout 8m`, so a hang under emulation is killed and named per test while the rest of the chunk still reports (kaappi#2488) |
+| `s390x-test` | Ubuntu (QEMU) | Big-endian leg — the byte-order canary (kaappi#1654); same `--test-timeout 8m` |
+| `ppc64le-test` | Ubuntu (QEMU) | Cross-compiled unit tests + R7RS suite; same `--test-timeout 8m` |
 | `freebsd-test`, `openbsd-test`, `netbsd-test` | Ubuntu (VM action) | Per-BSD build + tests; see the matching `docs/dev/<os>.md` |
 | `windows-cross` | Ubuntu | Cross-compile check for both Windows targets |
 | `windows-arm-test` | Windows 11 ARM | Native build + tests |
