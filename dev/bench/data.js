@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788388365460,
+  "lastUpdate": 1788428073190,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "49699333+dependabot[bot]@users.noreply.github.com",
-            "name": "dependabot[bot]",
-            "username": "dependabot[bot]"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ba59191dc304886dd69e52e5d689aea085687029",
-          "message": "Bump vmactions/openbsd-vm in the github-actions group (#2282)\n\nBumps the github-actions group with 1 update: [vmactions/openbsd-vm](https://github.com/vmactions/openbsd-vm).\n\n\nUpdates `vmactions/openbsd-vm` from 1.4.5 to 1.4.6\n- [Release notes](https://github.com/vmactions/openbsd-vm/releases)\n- [Commits](https://github.com/vmactions/openbsd-vm/compare/c941015845c0f0c429676840963dc63b226d4f69...e6c68b637a12e83519688d115d57d5b0b53923cd)\n\n---\nupdated-dependencies:\n- dependency-name: vmactions/openbsd-vm\n  dependency-version: 1.4.6\n  dependency-type: direct:production\n  update-type: version-update:semver-patch\n  dependency-group: github-actions\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
-          "timestamp": "2026-08-23T11:39:48+05:30",
-          "tree_id": "095b671d249dd38b86facf916ef97b7f84397eea",
-          "url": "https://github.com/kaappi/kaappi/commit/ba59191dc304886dd69e52e5d689aea085687029"
-        },
-        "date": 1787467400809,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.312566,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.785646,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.569287,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.023455,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004781,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.048028,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.308568,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056162,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.854656,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.207565,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.654809,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.286801,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.807513,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.639254,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045267,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.036962,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a2ca85047c62f246e84db2ca8465c1dd4937c3cb",
+          "message": "Add -Dtest-strip and use it on the macOS CI leg, where per-allocation stack capture grew the unit binary to 44 GB (#2489) (#2494)\n\nThe macos-latest ReleaseSafe unit step was being SIGKILLed mid-suite about\none run in three, a different victim test each time, always 11-13 minutes\ninto a step a healthy run finishes in 10. The runner's kernel log names\nthe mechanism: \"memorystatus: triggering no paging space action\" followed\nby \"killing largest compressed process unit-tests [7227] 43913 MB\". The\nrunner has 7 GB of RAM and a swap file capped at 3 GB; when it fills, the\nkernel kills the process with the largest compressed footprint.\n\nThe 44 GB is not kaappi's heap. Every region still mapped at process exit,\nafter every test has freed everything, was allocated by\nstd.debug.captureCurrentStackTrace on behalf of std.testing.allocator,\nwhich records a 10-frame trace per allocation. On aarch64-macOS Zig 0.16\nwalks that trace with the Mach-O DWARF unwinder (fp_usability is .safe\nthere, so frame-pointer walking is not preferred), and the unwinder's rule\ncomputation allocates from std.debug.getDebugInfoAllocator, a\nprocess-lifetime arena that is never freed. The footprint therefore grows\nlinearly with allocation count, about 100 MB/s, to 44 GB by the last test;\nRSS never shows it because the kernel compresses the pages, and locally it\nlands in swap. Linux uses the ELF path and runs the same suite in 47 s at\n97 MB.\n\nstd.Options.allow_stack_tracing gates the capture and defaults to\n!strip_debug_info, but the test binary's root is Zig's own test runner,\nwhich owns std_options, so it cannot be set from main.zig (tried: no\neffect). Stripping the test module is the lever this build has, so this\nadds -Dtest-strip (default off): the unit and thottam test modules get\nstrip=true, nothing else changes, and the kcov coverage modules keep their\nDWARF. Measured on the whole suite: the same 1913 pass / 21 skip in 21 s\nat MaxRSS 91 MB, against 7 minutes locally (10 on CI) and a 44 GB\nfootprint. The cost is that a panic or a leak report in the test binary\nprints raw addresses rather than symbolized frames, which is why it is\nopt-in: the macOS CI leg passes it through a new test_args matrix key,\nthe Linux legs keep their traces, and a local run turns it on when a\ntrace is not what it is after.\n\nThe arena leak itself belongs upstream (SelfInfo.MachO.unwindFrame should\ncompute rules from scratch memory freed after the unwind); until then any\nZig 0.16 test binary on Apple Silicon that allocates heavily under\nstd.testing.allocator grows without bound.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-03T14:25:01+05:30",
+          "tree_id": "c13b99d0743c8419e9799eb468d6dad7511b58f8",
+          "url": "https://github.com/kaappi/kaappi/commit/a2ca85047c62f246e84db2ca8465c1dd4937c3cb"
+        },
+        "date": 1788428071719,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.278418,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 5.459347,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.262002,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 1.440557,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.002806,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.024762,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.142885,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.027556,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.410778,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.583607,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 0.846967,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.188878,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 0.866703,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.203158,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.025592,
             "unit": "seconds"
           }
         ]
