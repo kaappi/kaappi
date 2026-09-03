@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788428073190,
+  "lastUpdate": 1788432201666,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a18a3b54508f2b2ac8a7ea222bb87ceb79e8ffa6",
-          "message": "Enforce lambda-style arity in top-level define-values (Fixes #550) (#2286)\n\nTop-level `(define-values <formals> <expr>)` is intercepted by\n`handleDefineValues` in vm_eval.zig rather than compiled through the normal\n`call-with-values`/consumer-lambda desugaring. Its handwritten binding logic\nmatched formals to values only up to whichever ran out first: it bound a\nprefix, ignored extras, left missing names uncreated, and continued. So every\nfixed-arity mismatch that produced a *single* value ran silently with exit 0 —\n`(define-values (a b) (values 1))`, `(define-values () 42)`,\n`(define-values (a b) 1)` — while the identical definition one scope in already\nraised, because the compiler desugaring enforces the arity through a lambda.\n\nRewrite the handler to match values to formals with lambda-style arity, exactly\nas R7RS 5.3.3 / SRFI 244 specify: a fixed list requires an exact count, a dotted\nlist a minimum, a bare identifier collects all values with no constraint. The\ncheck runs before any global is defined, so a mismatch leaves no partial\nbindings and raises the same KP3003 (`ArityMismatch`) the internal path does —\nreplacing the KP2001 the multi-value arm used to return for the same condition.\n\nThe genuine top-level path fires only for a bare top-level form (not one in a\nlet/lambda body, nor one handed to `eval` with an immutable `(environment ...)`,\nwhich raises KP3007 first), and a top-level raise flips the whole file's exit\ncode — so it cannot be asserted from a SRFI-64 file. Cover it out-of-process in\ntests/scheme/errors/define-values-toplevel-arity-550.sh (exit code + KP3003 for\nevery mismatch shape, exit 0 + output for every well-matched shape), add Zig\nunit tests exercising handleDefineValues directly, and retire srfi244.scm's\nnow-obsolete \"silently accepted\" probes.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-23T13:21:04+05:30",
-          "tree_id": "2c8ee64b784b1baa37aaa4b2f42f5f3636d53ccb",
-          "url": "https://github.com/kaappi/kaappi/commit/a18a3b54508f2b2ac8a7ea222bb87ceb79e8ffa6"
-        },
-        "date": 1787473625870,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.313996,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.282685,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.623772,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.018883,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005008,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.048766,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.322366,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057088,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.934788,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.216192,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.704133,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.293289,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.805439,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.698439,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045888,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.025592,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e8680997fed878c3021d8ddc187b5ab661c966e5",
+          "message": "Stop the mark worklist from leaving freed-but-dirty pages behind every full collection (#2464) (#2485)\n\n* Stop the mark worklist from leaving freed-but-dirty pages behind every full collection (#2464)\n\nPeak RSS on allocation-churning loops ran ~65x the live heap and never\nreturned the difference (kaappi#2464: ~670 MB at a ~10.6 MB live heap on\nthe SRFI 231 array-copy repro). The root cause was not the churn itself\nbut the mark phase's bookkeeping: every full collection, marking the\nwide live structures the copy kept alive (the 1M-element scratch vector\nof fixnums) pushed ALL of their elements onto the mark worklist —\nimmediates included, though the drain discards them at its isPointer\ncheck — growing it to ~10.4 MB through libc realloc, after which the\npost-drain release (64K-entry cap) freed the whole buffer. The next\nfull collection regrew the identical realloc chain, and macOS libmalloc\ndoes not decommit freed large blocks in this pattern (verified with a\nstandalone C reproduction: 60 rounds of realloc-grow-free-touch peak at\n691 MB), so each chain left ~10 MB of resident-dirty pages behind —\n155 full collections accumulated ~640 MB of them.\n\nTwo changes, both in the mark path:\n\n- wlPush: every worklist push site (all 56 container arms in\n  markValueInner plus the port visitor) now skips non-pointers. A wide\n  container of immediates needs no worklist at all; the array-copy\n  repro's worklist peak drops from ~1.3M entries to the live pointer\n  frontier.\n- The post-drain retention floor rises from 64K to 1M entries (512 KB\n  to 8 MB), so a genuinely pointer-wide frontier no longer frees and\n  regrows its buffer every full collection. Only the excess past the\n  floor is released.\n\nMeasured on the issue's repro (1000x1000 u8 array-copy): 701 MB ->\n19.3 MB peak RSS, and the wall time drops ~15% (total mark time\n1648 ms -> 432 ms — the skipped immediate pushes/pops were real work).\nScaling across the issue's sweep is now proportional instead of a\ncliff past 500k elements: 250k -> 9.8 MB, 500k -> 11.8 MB, 1M -> 19.3\nMB, 2M -> 29.3 MB, 4M -> 49.4 MB. A pointer-heavy workload (300k live\npairs + 3M-pair churn) is unchanged-to-better: 48.3 -> 46.4 MB.\n\nRegression tests in tests_gc_worklist.zig, both failing on the pre-fix\ncode: a 40k-element immediate vector must leave the worklist untouched\n(40k appends grew capacity to ~52k, under the old floor so the growth\nwas retained and visible), and a 70k-pair vector — above the old floor,\nbelow the new one — must retain its buffer across collections.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Review fixes: retain the 8 MB worklist floor explicitly, drop subsumed guards, tighten test bounds\n\nReview of #2485 asked for the retention code to match its comment: \"only\nthe excess past the floor is released\" described a shrink-to-floor, but\nclearAndFree dropped the whole buffer, so a frontier wider than 1M\nentries regrew from zero every full collection — the #2464 cliff moved,\n16x further out, not removed. clearAndFree now re-reserves the floor\n(ensureTotalCapacityPrecise, catch {} — a failed reserve just means the\nnext collection grows from zero as before), so the next regrowth starts\nat 8 MB, and the comment says what actually happens to the above-floor\nportion (rebuilt each wide collection; still dirty on mallocs that don't\ndecommit freed large blocks — the decommitting-backing-allocator\nfollow-up #2464 suggests remains open).\n\nAlso from review: the hash_table arm's != 0 guards are subsumed by\nwlPush's isPointer check (raw 0 is the flonum +0.0) and are gone; the\ntests' wide_len gc-stress branch was dead (its only user skips under\nstress) and the stress comment now says two of the three tests run; the\nretention bound is n-1 (the vector arm tail-iterates the last element,\nso the mark path pushes n-1 entries), and the immediate-case comment\nmatches.\n\nMeasured on the >1M-entry frontier shape the review asked about\n(2M-element live vector of pairs + 5M-pair churn): pre-fix 212 MB,\npost-fix 172.7 MB without the floor re-reserve, 172.8 MB with it —\nidentical in practice, because --gc-stats shows the run reaches only 6\ncollections (the threshold scales to 4x the 4.7M live objects), so the\nwide-mark regrowth barely runs; sustained many-full-collections churn\nagainst a >1M-wide live structure costs ~32x live in allocations per\nfull collection, a cadence the original 65x blowup only reached because\nthe immediates bug let a 15k-object heap wear a 1M-wide worklist.\n\nzig build test: 2001/2022 (21 pre-existing skips).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Pin the over-floor worklist branch: an over-floor frontier re-reserves exactly the floor\n\nReview follow-up on #2485: the over-floor branch added by a219b8ac\n(clearAndFree + ensureTotalCapacityPrecise floor) was the one behaviour\nchange in that commit with no test reaching it — the widest existing\ncase stops at 70k entries, a factor of 15 under the floor. The new test\npeaks the worklist above the floor with a single heap object behind it\n(one pair referenced floor+64 times from one allocVectorFill; the vector\narm pushes every slot before the drain pops any), asserts capacity\nlands on exactly the floor after each of two collections, and hardcodes\nthe floor number deliberately so that dropping the re-reserve — or\nmoving max_retained — fails the suite instead of passing unchanged.\n\nVerified to fail with the ensureTotalCapacityPrecise line deleted, and\nto pass in both the default and -Dgc-stress=true builds (one allocation,\nso no quadratic stress cost).\n\nzig build test: 2002/2023 (21 pre-existing skips).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-09-03T09:58:12Z",
+          "tree_id": "03a16ab017f73ee097457ca01860e7549e1d1412",
+          "url": "https://github.com/kaappi/kaappi/commit/e8680997fed878c3021d8ddc187b5ab661c966e5"
+        },
+        "date": 1788432198912,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.403884,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.570371,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.58081,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.136752,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004728,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047886,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.305671,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057403,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.822935,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.252428,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.680648,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.287441,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.736569,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.680659,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045268,
             "unit": "seconds"
           }
         ]
