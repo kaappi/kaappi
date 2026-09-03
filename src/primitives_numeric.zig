@@ -578,6 +578,12 @@ fn sqrtFn(args: []const Value) PrimitiveError!Value {
         // convention that exact notation denotes an exact number
         // (kaappi#2503) -- so a negative perfect square becomes the exact
         // complex 0+root*i rather than falling through to the f64 path.
+        // The rational arm is load-bearing, not cosmetic: bignum_mod.isNegative
+        // answers false for any Value that is not a fixnum or bignum, so a
+        // flattened isNegative(args[0]) would classify every negative rational
+        // as non-negative and hand exactSqrt a negative numerator -- where
+        // isqrtNonNegative evaluates @intFromFloat(@sqrt(-9.0)), a NaN, and
+        // panics in ReleaseSafe on plain (sqrt -9/4).
         const negative = if (types.isRationalObj(args[0]))
             bignum_mod.isNegative(types.toRational(args[0]).numerator)
         else
@@ -587,6 +593,11 @@ fn sqrtFn(args: []const Value) PrimitiveError!Value {
             var slot_pos = gc.rootedSlot(pos) catch return PrimitiveError.OutOfMemory;
             defer slot_pos.release();
             if (try exactSqrt(gc, slot_pos.get())) |root| {
+                // `root` is unrooted, and that is safe only because it goes
+                // STRAIGHT into allocComplex, which roots both arguments
+                // (rootArgs2) before maybeCollect. Anything allocating
+                // inserted between the exactSqrt call and this line must
+                // root it first.
                 return gc.allocComplex(types.makeFixnum(0), root) catch return PrimitiveError.OutOfMemory;
             }
         } else if (try exactSqrt(gc, args[0])) |root| {
