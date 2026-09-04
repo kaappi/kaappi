@@ -91,8 +91,16 @@ pub fn allocSymbol(self: *GC, name: []const u8) !Value {
 
     if (sym_table.get(name)) |existing| return existing;
 
-    const owned_name = try self.allocator.dupe(u8, name);
+    // Allocate the object before the name copy and unwind both on failure:
+    // the reverse order (name first) leaked the name when the `create` ran
+    // out of memory — found by the compileFile OOM sweep in
+    // toplevel_driver.zig, whose wrapped allocator fails each raw
+    // acquisition in turn, including the reader's interning of a datum's
+    // symbols. Same discipline as allocUninternedSymbol below.
     const sym = try self.allocator.create(Symbol);
+    errdefer self.allocator.destroy(sym);
+    const owned_name = try self.allocator.dupe(u8, name);
+    errdefer self.allocator.free(owned_name);
     sym.* = .{
         .header = .{ .tag = .symbol },
         .name = owned_name,

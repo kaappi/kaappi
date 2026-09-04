@@ -1049,6 +1049,16 @@ pub fn disassembleFile(vm: *vm_mod.VM, path: []const u8) !void {
     }
 }
 
+/// Best-effort unlink of an artifact target (#2513): silent on any failure —
+/// the error that caused the cleanup was already reported at its site, so a
+/// removal failure (permissions, a path over PATH_MAX) has nothing to add.
+fn unlinkQuiet(path: []const u8) void {
+    var pbuf: [platform.PATH_MAX]u8 = undefined;
+    if (std.fmt.bufPrintZ(&pbuf, "{s}", .{path})) |pz| {
+        _ = platform.unlink(pz);
+    } else |_| {}
+}
+
 pub fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void {
     const allocator = vm.gc.allocator;
 
@@ -1061,24 +1071,32 @@ pub fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !
         allocator.dupe(u8, op) catch {
             writeStderr("Error creating output path\n");
             script_had_error = true;
+            // This exit predates the cleanup defer below, but the -o target
+            // is known even here: leave it clean (#2513), or a stale
+            // artifact from a previous good build outlives this failed run
+            // looking current.
+            unlinkQuiet(op);
             return;
         }
     else
         getSbcPath(allocator, path) catch {
             writeStderr("Error creating output path\n");
             script_had_error = true;
+            // The derived-.sbc target could not be computed, so there is
+            // nothing to clean; the -o arm above is the one with a name.
             return;
         };
     defer allocator.free(sbc_path);
     // Runs before the free above (LIFO): best-effort, and deliberately only
     // the exact target — the error itself was already reported at its site,
     // so a removal failure (permissions) has nothing further to add.
-    defer if (script_had_error) {
-        var pbuf: [platform.PATH_MAX]u8 = undefined;
-        if (std.fmt.bufPrintZ(&pbuf, "{s}", .{sbc_path})) |pz| {
-            _ = platform.unlink(pz);
-        } else |_| {}
-    };
+    // Keyed on whether THIS call wrote the artifact, not on
+    // script_had_error: the `try`/OOM exits below (the preamble's
+    // valueToString and append, the compiled-funcs append) return without
+    // setting the flag, and they must not leave a previous good build's
+    // artifact at the target looking current either (kaappi#2513 review).
+    var wrote_artifact = false;
+    defer if (!wrote_artifact) unlinkQuiet(sbc_path);
 
     const source = readFileContents(allocator, path) catch {
         script_had_error = true;
@@ -1235,6 +1253,11 @@ pub fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !
             };
         }
 
+        // Both write arms return internally on failure, so reaching here
+        // means the artifact landed — this is what keys the cleanup defer
+        // above, and it is only true on the path that prints `Compiled`.
+        wrote_artifact = true;
+
         writeStdout("Compiled ");
         writeStdout(path);
         writeStdout(" -> ");
@@ -1248,6 +1271,14 @@ pub fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !
 // Drive the real `--compile` driver loop over real files. The shell-level
 // twin, which also asserts the exit status and the missing `Compiled ...`
 // line, is tests/scheme/errors/compile-failure-signals-2513.sh.
+//
+// Both compileFile tests route their expected output away from the real
+// stdio: the success case's `Compiled ... -> ...` line must not reach fd 1
+// (th.QuietStdout — under `zig build test` that fd is the build runner's
+// server-protocol channel, and a raw write into it wedges the runner; see
+// the helper's doc comment), and the failure case's KP diagnostics must not
+// reach fd 2 (th.QuietStderr — expected-error output renders a green run
+// like a crash, kaappi#2447).
 
 test "compileFile: failed compile leaves no artifact and sets the flag (#2513)" {
     if (comptime is_wasm) return error.SkipZigTest; // writes real files
@@ -1278,6 +1309,12 @@ test "compileFile: failed compile leaves no artifact and sets the flag (#2513)" 
 
     script_had_error = false;
     defer script_had_error = false;
+
+    // The two KP2001 diagnostics per run are this test's premise, not news:
+    // keep them off the runner's captured stderr (kaappi#2447).
+    var quiet_err: th.QuietStderr = .{};
+    quiet_err.init();
+    defer quiet_err.deinit();
 
     try compileFile(tc.vm, bad_path, out_path);
     try testing.expect(script_had_error);
@@ -1319,7 +1356,117 @@ test "compileFile: successful compile still writes the artifact (#2513 control)"
     script_had_error = false;
     defer script_had_error = false;
 
+    // The success path prints `Compiled ... -> ...` on stdout — protocol
+    // poison under the build runner (see th.QuietStdout's doc comment). The
+    // `Compiled` line itself is pinned end-to-end by the shell twin,
+    // tests/scheme/errors/compile-failure-signals-2513.sh; this test's own
+    // assertions are the artifact and the flag.
+    var quiet_out: th.QuietStdout = .{};
+    quiet_out.init();
+    defer quiet_out.deinit();
+
     try compileFile(tc.vm, good_path, out_path);
     try testing.expect(!script_had_error);
     _ = try tmp.dir.statFile(testing.io, "out.sbc", .{});
+}
+
+// #2513 review: the cleanup defer keys on `wrote_artifact`, not
+// `script_had_error`, because the `try`/OOM exits in between (the preamble's
+// valueToString and append, the compiled-funcs append) return without ever
+// setting the flag — and they must not leave a previous good build's
+// artifact at the target looking current. `GC.oom_countdown` cannot reach
+// those sites (they are raw-allocator allocations; see its doc comment: "a
+// compile with no macro use in it never fails here"), so the sweep wraps
+// `vm.gc.allocator` — a plain field — in `OomAllocator` (#2435), whose own
+// countdown fails raw acquisitions. Each `n` lets a different allocation be
+// the last to succeed; the invariant under test is that the target holds a
+// file exactly when the run completed cleanly.
+test "compileFile: an error-return exit still leaves no artifact (#2513 OOM sweep)" {
+    if (comptime is_wasm) return error.SkipZigTest;
+    const th = @import("testing_helpers.zig");
+    const memory_mod = @import("memory.zig");
+    const build_options = @import("build_options");
+    const testing = std.testing;
+
+    var tc: th.TestContext = undefined;
+    try tc.init();
+    defer tc.deinit();
+    const allocator = tc.vm.gc.allocator;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const dir_path = try th.tmpDirRealPathAlloc(&tmp, allocator);
+    defer allocator.free(dir_path);
+
+    try tmp.dir.writeFile(testing.io, .{
+        .sub_path = "good.scm",
+        .data = "(import (scheme base))\n(display \"fine\")\n",
+    });
+    const good_path = try std.fs.path.join(allocator, &.{ dir_path, "good.scm" });
+    defer allocator.free(good_path);
+    const out_path = try std.fs.path.join(allocator, &.{ dir_path, "out.sbc" });
+    defer allocator.free(out_path);
+
+    var quiet_out: th.QuietStdout = .{};
+    quiet_out.init();
+    defer quiet_out.deinit();
+    // Each failing iteration reports a read/compile diagnostic on stderr —
+    // expected, and ~a hundred lines of it over the sweep — so keep it off
+    // the runner's captured stderr (kaappi#2447) or a green run of this
+    // test renders exactly like a crash in every CI log.
+    var quiet_err: th.QuietStderr = .{};
+    quiet_err.init();
+    defer quiet_err.deinit();
+
+    const saved_allocator = tc.vm.gc.allocator;
+    defer tc.vm.gc.allocator = saved_allocator;
+
+    var oom_returns: usize = 0;
+    var clean_successes: usize = 0;
+    const sweep_max: usize = if (build_options.gc_stress) 24 else 64;
+    var n: usize = 0;
+    while (n <= sweep_max) : (n += 1) {
+        // Plant a stale artifact before every run: the #2513 hazard is a
+        // previous good build's file sitting at the target while this run
+        // fails, and an ascending sweep without this never has a file to
+        // leave — every failure lands before the first success, so a
+        // cleanup that never fires would still pass vacuously.
+        try tmp.dir.writeFile(testing.io, .{ .sub_path = "out.sbc", .data = "stale artifact" });
+
+        var oom = memory_mod.OomAllocator.init(saved_allocator);
+        oom.countdown = n;
+        tc.vm.gc.allocator = oom.allocator();
+        script_had_error = false;
+        const result = compileFile(tc.vm, good_path, out_path);
+        tc.vm.gc.allocator = saved_allocator;
+
+        var succeeded = true;
+        if (result) |_| {
+            clean_successes += 1;
+        } else |_| {
+            succeeded = false;
+            oom_returns += 1;
+        }
+
+        // The invariant (#2513): the target holds a file exactly when this
+        // run completed with nothing reported. Every other exit — a
+        // reported error, or an error-return like OOM — must leave NO file,
+        // or a previous good build's artifact sits there looking current.
+        const stat = tmp.dir.statFile(testing.io, "out.sbc", .{});
+        if (succeeded and !script_had_error) {
+            _ = stat catch |err| {
+                std.debug.print("clean compile (n={d}) wrote no artifact: {t}\n", .{ n, err });
+                return err;
+            };
+        } else {
+            try testing.expectError(error.FileNotFound, stat);
+        }
+    }
+
+    // Both halves matter, as in the other OOM sweeps: `oom_returns` proves
+    // the injector reached the exits this test exists for (a countdown that
+    // never fired makes the sweep vacuous), `clean_successes` proves it ran
+    // past the whole allocation profile of a good compile.
+    try testing.expect(oom_returns > 0);
+    try testing.expect(clean_successes > 0);
 }
