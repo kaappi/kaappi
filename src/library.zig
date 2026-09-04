@@ -134,6 +134,38 @@ pub const LibraryRegistry = struct {
         gop.value_ptr.* = lib;
     }
 
+    /// Remove a library the loader registered during a load that then failed
+    /// (kaappi#2510). Dispatching a well-formed `define-library` registers the
+    /// library before the reader reaches a later read error in the same .sld;
+    /// without removal, the next import's registry short-circuit would serve
+    /// that half-loaded library as a success. The `Library` is deinit'd the
+    /// same way a replaced one is, with one #820 accommodation: `lib_env` is
+    /// retired rather than destroyed, because closures compiled in the failed
+    /// load's begin blocks can escape into live structures and keep raw
+    /// `Function.env` pointers into it. The exports table dies with the entry
+    /// — on a failed load nothing was imported from it yet (importing happens
+    /// only after the load reports success). A name that is no longer
+    /// registered is a no-op, so rolling back a file that re-registered an
+    /// existing library still leaves a consistent (re-loadable) state.
+    pub fn unregister(self: *LibraryRegistry, name: []const u8) void {
+        const entry = self.libraries.getEntry(name) orelse return;
+        var lib = entry.value_ptr.*;
+        // Retire before removing: the append can collect, and until the map
+        // entry is gone it keeps the env (and exports) marked; after the
+        // append, retired_envs does. An append failure (OOM) leaks the env
+        // deliberately — freeing it would dangle the Function.env pointers
+        // above.
+        if (lib.lib_env) |env| {
+            lib.lib_env = null;
+            self.retired_envs.append(self.allocator, env) catch {};
+        }
+        // Remove before deinit: the map key aliases lib.owned_name, so once
+        // deinit frees it nothing (not even remove's key comparison) may read
+        // the entry again.
+        _ = self.libraries.remove(name);
+        lib.deinit();
+    }
+
     /// Look up a library by canonical name.
     pub fn get(self: *LibraryRegistry, name: []const u8) ?*Library {
         return self.libraries.getPtr(name);

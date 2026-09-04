@@ -1284,3 +1284,62 @@ test "restricted environment does not leak globals into a closure (#1860)" {
         \\(car (eval '((lambda () (list 3))) (environment '(only (scheme base) list))))
     )));
 }
+
+// Regression test for #2510: a .sld whose define-library form is well-formed
+// but is followed by a read error (stray trailing paren) fails its FIRST
+// import — and used to succeed on the SECOND, because the loader dispatched
+// (and registered) the library before the reader hit the stray datum, so the
+// retry's registry short-circuit served the half-load as a good cache hit.
+// The load must now roll its registration back, so both imports fail
+// identically; a clean library next to it keeps importing fine, twice.
+test "failed .sld load rolls back its registration so both imports fail (#2510)" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(std.testing.io, "rollback2510");
+    // Well-formed library + one stray trailing paren: the form dispatches and
+    // registers, then the reader fails on the extra ")".
+    try tmp.dir.writeFile(std.testing.io, .{
+        .sub_path = "rollback2510/broken.sld",
+        .data =
+        \\(define-library (rollback2510 broken)
+        \\  (import (scheme base))
+        \\  (export answer)
+        \\  (begin (define (answer) 42)))
+        \\)
+        ,
+    });
+    try tmp.dir.writeFile(std.testing.io, .{
+        .sub_path = "rollback2510/good.sld",
+        .data =
+        \\(define-library (rollback2510 good)
+        \\  (import (scheme base))
+        \\  (export answer)
+        \\  (begin (define (answer) 42)))
+        ,
+    });
+    const dir_path = try th.tmpDirRealPathAlloc(&tmp, std.testing.allocator);
+    defer std.testing.allocator.free(dir_path);
+
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    vm_mod.setVMInstance(vm);
+    vm.lib_paths = &[_][]const u8{dir_path};
+
+    // First import fails...
+    try std.testing.expectError(error.CompileError, vm.eval("(import (rollback2510 broken))"));
+    // ...the library is no longer registered (the rollback took it out)...
+    try std.testing.expect(vm.libraries.get("rollback2510.broken") == null);
+    // ...so the second import fails the SAME way instead of succeeding
+    // against the half-registered entry.
+    try std.testing.expectError(error.CompileError, vm.eval("(import (rollback2510 broken))"));
+    try std.testing.expect(vm.libraries.get("rollback2510.broken") == null);
+
+    // The contrast case: a clean library imports fine, twice — the rollback
+    // must fire only on failed loads, never on successful ones.
+    _ = try vm.eval("(import (rollback2510 good))");
+    _ = try vm.eval("(import (rollback2510 good))");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(try vm.eval("(answer)")));
+    try std.testing.expect(vm.libraries.get("rollback2510.good") != null);
+}

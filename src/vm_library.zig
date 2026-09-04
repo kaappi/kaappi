@@ -228,11 +228,49 @@ pub fn srfiFeatureAvailable(vm: *VM, name: []const u8) bool {
     return libraryIsAvailable(vm, canonical, list);
 }
 
+/// #2510: open a rollback frame for a library source load about to start.
+/// Returns the mark (index into `vm.lib_rollback_names`) that the load
+/// truncates back to when it finishes. Frames nest one per `loadLibrarySource`
+/// invocation — the innermost load resolves its own fate (rolling back or
+/// committing its own registrations) before returning to the enclosing one.
+fn beginLibSourceLoad(vm: *VM) !usize {
+    const mark = vm.lib_rollback_names.items.len;
+    try vm.lib_rollback_frames.append(vm.gc.allocator, mark);
+    return mark;
+}
+
+/// #2510: close the rollback frame opened by beginLibSourceLoad. On failure,
+/// unregister every library registered since the frame's mark: the load's
+/// datum dispatches register a `define-library` long before a later read or
+/// eval error, and leaving the entry would let the next import's registry
+/// short-circuit serve the half-loaded library as a success — the exact
+/// first-import-fails-second-succeeds inconsistency of #2510. On success the
+/// names are merely forgotten (freed): the libraries stay registered, and any
+/// nested load already committed its own segment by closing its deeper frame.
+fn endLibSourceLoad(vm: *VM, mark: usize, ok: bool) void {
+    if (vm.lib_rollback_frames.items.len > 0) {
+        _ = vm.lib_rollback_frames.pop();
+    }
+    const allocator = vm.gc.allocator;
+    while (vm.lib_rollback_names.items.len > mark) {
+        const name = vm.lib_rollback_names.pop() orelse break;
+        if (!ok) vm.libraries.unregister(name);
+        allocator.free(name);
+    }
+}
+
 /// Load and evaluate a library source file from a resolved path.
 fn loadLibrarySource(vm: *VM, source: []const u8) !void {
     const reader_mod = @import("reader.zig");
     var rdr = reader_mod.Reader.init(vm.gc, source);
     defer rdr.deinit();
+
+    // #2510: frame this load so a failure takes back out everything it
+    // registered. Successful loads (and their kaappi#1888 caching, warm or
+    // cold) are untouched — the rollback fires only on the error paths.
+    const rollback_mark = beginLibSourceLoad(vm) catch return error.OutOfMemory;
+    var load_ok = false;
+    defer endLibSourceLoad(vm, rollback_mark, load_ok);
 
     // Reader failures get their own error name so an unbalanced or
     // malformed .sld surfaces as a parse problem, not a vague
@@ -278,6 +316,7 @@ fn loadLibrarySource(vm: *VM, source: []const u8) !void {
             _ = try vm.runTopLevelFunction(func);
         }
     }
+    load_ok = true;
 }
 
 /// Resolve the full path for a library .sld file.
@@ -968,6 +1007,20 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
         lib.deinit();
         return VMError.OutOfMemory;
     };
+
+    // #2510: while a library source load is in flight, remember the name just
+    // registered so a later failure of that load can take it back out (see
+    // beginLibSourceLoad). Best-effort: on OOM the registration simply isn't
+    // rollback-able. With no load in flight (a top-level define-library in a
+    // program file or eval) nothing is recorded — a program file is never
+    // re-imported, so there is no second attempt whose answer must agree.
+    if (vm.lib_rollback_frames.items.len > 0) {
+        if (vm.gc.allocator.dupe(u8, lib_name)) |owned| {
+            vm.lib_rollback_names.append(vm.gc.allocator, owned) catch {
+                vm.gc.allocator.free(owned);
+            };
+        } else |_| {}
+    }
 
     return types.VOID;
 }
