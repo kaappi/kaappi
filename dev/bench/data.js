@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788557507087,
+  "lastUpdate": 1788557529648,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "cb00facfce05b3080b4936dd0c6b83fcf53d6a6e",
-          "message": "Rewrite SRFI 28 format to walk the format string linearly (#2300)\n\nformat walked the format string with a string-ref index loop. Kaappi\nstores strings as UTF-8 and indexes by codepoint, so string-ref s i is\nO(i), making format O(n^2) in the format-string length -- a 200 KB\nformat string took ~36 seconds.\n\nRead characters from an open-input-string port instead, which advances\nthrough the bytes once (O(n)). Every directive (~a, ~s, ~%, ~~, unknown\n~x pass-through, and a trailing lone ~) is preserved byte-for-byte;\nverified identical output against the previous implementation.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-25T06:02:33+05:30",
-          "tree_id": "f4bcc8cc3a8f94df798fbeff2fa1a1991c5ba79a",
-          "url": "https://github.com/kaappi/kaappi/commit/cb00facfce05b3080b4936dd0c6b83fcf53d6a6e"
-        },
-        "date": 1787620846763,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.076635,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.305994,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.548375,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.846182,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004877,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046552,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.279993,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.053877,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.45428,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.150014,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.606064,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.304087,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.703635,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.792206,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045498,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046287,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6b43f0072ac1db561af2c3d2210da1abcc4a0936",
+          "message": "Bump the github-actions group with 4 updates (#2520)\n\nBumps the github-actions group with 4 updates: [docker/setup-qemu-action](https://github.com/docker/setup-qemu-action), [vmactions/openbsd-vm](https://github.com/vmactions/openbsd-vm), [vmactions/netbsd-vm](https://github.com/vmactions/netbsd-vm) and [softprops/action-gh-release](https://github.com/softprops/action-gh-release).\n\n\nUpdates `docker/setup-qemu-action` from 4.2.0 to 4.3.0\n- [Release notes](https://github.com/docker/setup-qemu-action/releases)\n- [Commits](https://github.com/docker/setup-qemu-action/compare/96fe6ef7f33517b61c61be40b68a1882f3264fb8...1f40c72289eff860ee54a304f1438e3cff362e0a)\n\nUpdates `vmactions/openbsd-vm` from 1.4.6 to 1.4.7\n- [Release notes](https://github.com/vmactions/openbsd-vm/releases)\n- [Commits](https://github.com/vmactions/openbsd-vm/compare/e6c68b637a12e83519688d115d57d5b0b53923cd...86cdc08415d9d0865267e686561e276c52d62530)\n\nUpdates `vmactions/netbsd-vm` from 1.4.7 to 1.4.9\n- [Release notes](https://github.com/vmactions/netbsd-vm/releases)\n- [Commits](https://github.com/vmactions/netbsd-vm/compare/6334c835de4c04a59fe59f0f8f071e02a2f0bab3...7f23a491dcc69c34195721ab67934917707f84c7)\n\nUpdates `softprops/action-gh-release` from 3.0.2 to 3.0.3\n- [Release notes](https://github.com/softprops/action-gh-release/releases)\n- [Changelog](https://github.com/softprops/action-gh-release/blob/master/CHANGELOG.md)\n- [Commits](https://github.com/softprops/action-gh-release/compare/3d0d9888cb7fd7b750713d6e236d1fcb99157228...efb35369e0ad2afab669f228072c1b0d510eae64)\n\n---\nupdated-dependencies:\n- dependency-name: docker/setup-qemu-action\n  dependency-version: 4.3.0\n  dependency-type: direct:production\n  update-type: version-update:semver-minor\n  dependency-group: github-actions\n- dependency-name: vmactions/openbsd-vm\n  dependency-version: 1.4.7\n  dependency-type: direct:production\n  update-type: version-update:semver-patch\n  dependency-group: github-actions\n- dependency-name: vmactions/netbsd-vm\n  dependency-version: 1.4.9\n  dependency-type: direct:production\n  update-type: version-update:semver-patch\n  dependency-group: github-actions\n- dependency-name: softprops/action-gh-release\n  dependency-version: 3.0.3\n  dependency-type: direct:production\n  update-type: version-update:semver-patch\n  dependency-group: github-actions\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-09-05T02:19:59+05:30",
+          "tree_id": "e815e42e9613e7df3f16eb246bdde8aec413e370",
+          "url": "https://github.com/kaappi/kaappi/commit/6b43f0072ac1db561af2c3d2210da1abcc4a0936"
+        },
+        "date": 1788557527453,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.027067,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.619782,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.558559,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.836918,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004729,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046396,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.298444,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05957,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.414615,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.152005,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.603262,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.29874,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.645837,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.710723,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045134,
             "unit": "seconds"
           }
         ]
