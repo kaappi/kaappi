@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788476850129,
+  "lastUpdate": 1788483127459,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "4634030c01f3903305f79eedfeecd1f0bbd59cbe",
-          "message": "Fix WASM file-backed .sld loading and command-line/lib-path setup (Fixes #2108, #2109) (#2298)\n\n* Fix WASM file-backed .sld loading and command-line/lib-path setup (Fixes #2108, #2109)\n\nTwo independent wasm32 tier divergences from the audit v2 Phase 4D sweep, fixed together:\n\n#2108: platform.openRead had no WASI branch, so resolveLibraryPath's\nexistence probe failed for every candidate path and no file-backed .sld\nwas importable on wasm32 even when the host mounted the directory. Give\nopenRead the same preopened-dir (fd 3) path_open branch that\nfile_utils.readWholeFile already uses.\n\n#2109: main.zig's WASM entry returned before vm.command_line_args and\nvm.lib_paths were populated, so (command-line) returned '() and a .sld\nbeside the program was invisible. Repopulate both from the WASI argv the\nbranch already iterates.\n\nAdd tests/wasm/library-load.scm and tests/wasm/command-line.scm (wired\ninto CI) as regression tests, and remove the two run-wasm-differential.sh\nKNOWN_DIFFS entries now that the tiers agree again.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Propagate WASI arg-append failure; fix stale KNOWN_DIFFS description\n\nCodeRabbit review: cmd_args.append used \"catch return\", which exits 0 when\nargument setup runs out of memory and the script never runs. Use \"try\" so\nthe error reaches mainInner's exit-1 path.\n\ntests/scheme/CLAUDE.md still described large-index-bounds-1912.scm as a\nKNOWN_DIFFS probe after its entry was deleted when #1912 was fixed; split\nthe description so only deep-nesting-print.scm is a known divergence.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-24T23:21:09+05:30",
-          "tree_id": "faa167818a75a1c7e25662ba842f34850a4053da",
-          "url": "https://github.com/kaappi/kaappi/commit/4634030c01f3903305f79eedfeecd1f0bbd59cbe"
-        },
-        "date": 1787596084107,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 2.665165,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 5.007186,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.355614,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 1.854209,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.003659,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.030125,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.192585,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.034281,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.73562,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.771651,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.012254,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.192073,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.09946,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.755532,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.029723,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045665,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "61be406f87a573380a4e40feaf4c67a5ef403c5f",
+          "message": "Refresh the source line count in CLAUDE.md (#2508)\n\nThe \"~100k lines\" figure was set by ec875b3f (2026-08-04), where\nsrc/*.zig excluding tests measured 99,064 lines. That same measure is\nnow 118,294, so the orientation line understates the tree by ~20%.\n\nKept the metric the original chose — non-test src/*.zig — rather than\nswitching to the all-inclusive 156k, so the figure stays comparable to\nwhat it replaces.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-09-04T06:14:34+05:30",
+          "tree_id": "e2787a9afee8810113052c6e9c2f22c69d8dd4f9",
+          "url": "https://github.com/kaappi/kaappi/commit/61be406f87a573380a4e40feaf4c67a5ef403c5f"
+        },
+        "date": 1788483125140,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.046378,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.741665,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.590814,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.845367,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00469,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046637,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.29285,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053783,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.450486,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.148937,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.618768,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.299596,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.676302,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.836503,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046329,
             "unit": "seconds"
           }
         ]
