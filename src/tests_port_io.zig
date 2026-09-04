@@ -1026,3 +1026,40 @@ test "#1608: GC finalization of an abandoned pipe port with a full pipe drops th
     // forever.
     gc.collect();
 }
+
+// kaappi#2511: char-ready?/u8-ready? must report a real readiness answer,
+// not the unconditional #t both predicates used to return. The fd oracle
+// is a zero-timeout poll, so the whole truth table of a pipe is checkable
+// with no sleeps: empty with the writer alive -> #f (the next read would
+// block — the exact case the filing repro hit), data -> #t, writer closed
+// -> #t (EOF answers immediately, R7RS 6.13.1/6.13.3's #1179 rule, now
+// held on the fd path too). The pair is a loopback socket pair on Windows
+// (the sockPollReady arm), a pipe on POSIX (poll(2)).
+test "char-ready? and u8-ready? report true pipe readiness (#2511)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const pipe = makePipe();
+    _ = try definePortGlobal(vm, "rp", pipe[0], true, false);
+    _ = try definePortGlobal(vm, "wp", pipe[1], false, true);
+
+    // Empty pipe, writer still holding the far end open. The old hardcoded
+    // #t failed exactly here, which is what let a poll-then-read drive
+    // loop fall into the blocking read it was polling to avoid.
+    try std.testing.expectEqual(types.FALSE, try vm.eval("(char-ready? rp)"));
+    try std.testing.expectEqual(types.FALSE, try vm.eval("(u8-ready? rp)"));
+
+    // Data arrives: ready, and the read delivers it without blocking.
+    _ = try vm.eval("(begin (write-char #\\x wp) (flush-output-port wp))");
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(char-ready? rp)"));
+    try std.testing.expectEqual(types.makeChar('x'), try vm.eval("(read-char rp)"));
+
+    // Writer closed: at EOF the answer stays #t, and the read returns the
+    // eof-object at once.
+    _ = try vm.eval("(close-output-port wp)");
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(char-ready? rp)"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(eof-object? (read-line rp))"));
+}

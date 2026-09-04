@@ -1896,11 +1896,101 @@ fn readLineFn(args: []const Value) PrimitiveError!Value {
     return gc.allocString(line_buf.items) catch return PrimitiveError.OutOfMemory;
 }
 
+/// R7RS 6.13.1 readiness oracle behind char-ready? (and u8-ready?, via
+/// primitives_bytevector) — kaappi#2511: true iff the next read on `port`
+/// completes immediately, from a software buffer, an inexhaustible or
+/// at-EOF source, or an underlying fd that has data (or EOF/error)
+/// available right now. False means a read would block, which is exactly
+/// the guarantee R7RS hangs on "if char-ready? returns #t then the next
+/// read-char is guaranteed not to hang" — the pre-fix code returned #t
+/// unconditionally, so a drive loop polling a subprocess pipe fell into
+/// the blocking read it was polling to avoid.
+///
+/// Mirrors readOneByte's port-kind dispatch in the same order so the two
+/// can never disagree about which source serves the next byte:
+///
+///   peek_byte / peek_extra / read_buf   buffered bytes -> true
+///   random_gen                          inexhaustible -> true
+///   string port                         data or EOF, never blocks -> true
+///   custom port (SRFI 181)              read! has no non-blocking probe;
+///                                       conservative true (previous
+///                                       behavior returned #t always)
+///   transcoded port (SRFI 181)          recursion on the wrapped port —
+///                                       the port's own peek/read buffers
+///                                       checked above already hold any
+///                                       re-encoded character leftovers
+///   fd                                  fdReadReadyNow: a zero-timeout
+///                                       poll of the fd itself, never a
+///                                       park — this is a synchronous
+///                                       predicate, not a scheduler
+///                                       operation (no waitPortFd)
+///
+/// Readiness is byte-granular: if only the lead bytes of a multi-byte
+/// character have arrived, this reports true while read-char may still
+/// park waiting for the rest. What read-char can promise is undecidable
+/// without consuming bytes; read-u8's guarantee is the strongest claim a
+/// non-destructive check can hold, and both predicates hold it.
+pub fn portReadyNow(port: *types.Port) bool {
+    if (port.peek_byte != null or port.peek_extra_len > 0) return true;
+    if (port.read_buf_len > 0) return true;
+    if (port.random_gen != null) return true;
+    if (port.is_string_port) return true;
+    if (port.custom_backend != null) return true;
+    if (port.transcode) |ts| {
+        const wrapped = types.toObject(ts.wrapped_port).as(types.Port);
+        return portReadyNow(wrapped);
+    }
+    return fdReadReadyNow(port.fd);
+}
+
+/// Zero-timeout readability snapshot of a port's fd: true iff a read right
+/// now would return data, EOF, or an error rather than blocking. POLLHUP,
+/// POLLERR, and POLLNVAL count as ready — a pipe whose writer closed reads
+/// EOF immediately (R7RS's "at end of file, ready" case, kaappi#1179), an
+/// errored fd surfaces the error, not a hang, and poll only reports
+/// POLLNVAL for an fd a read would reject at once. Any query failure also
+/// reports ready: the wrong #f here stalls a polling drive loop on data
+/// that arrived between the buffer check and the fd, while a spurious #t
+/// costs exactly one blocking read — the pre-fix behavior everywhere.
+fn fdReadReadyNow(fd: platform.fd_t) bool {
+    if (comptime platform.is_windows) {
+        // The reactor's own oracles (reactor_backends.arm() uses the same
+        // pair): PeekNamedPipe for pipe ends, a 0-timeout select() for
+        // sockets. Regular files and consoles have no cheap oracle, and a
+        // read on either way never blocks on data arrival — true.
+        switch (platform.fdKind(fd)) {
+            .socket => {
+                platform.ensureWinsock();
+                const sock = platform.sockFromFd(fd) orelse return true;
+                return platform.sockPollReady(sock, true, false).readable;
+            },
+            .pipe => return platform.pipePollReady(fd, true, false).readable,
+            .other => return true,
+        }
+    }
+    if (comptime is_wasm) {
+        // WASI has no poll(2) — std.posix.poll does not compile there
+        // (std.Io.Threaded's own have_poll excludes it), and KEP-0001
+        // Phase 4 keeps fd readiness best-effort on wasm hosts: the
+        // playground shim cannot report it at all. Preserve the
+        // historical #t rather than an always-#f no host could disprove.
+        return true;
+    }
+    var fds = [1]std.posix.pollfd{.{
+        .fd = fd,
+        .events = std.posix.POLL.IN,
+        .revents = 0,
+    }};
+    const n = std.posix.poll(&fds, 0) catch return true;
+    if (n == 0) return false;
+    const ready = std.posix.POLL.IN | std.posix.POLL.HUP |
+        std.posix.POLL.ERR | std.posix.POLL.NVAL;
+    return fds[0].revents & ready != 0;
+}
+
 fn charReadyP(args: []const Value) PrimitiveError!Value {
     const port = try getInputPort(args, 0, "char-ready?");
-    if (port.peek_byte != null or port.peek_extra_len > 0) return types.TRUE;
-    // For simplicity, always return #t (non-blocking check not worth the complexity)
-    return types.TRUE;
+    return if (portReadyNow(port)) types.TRUE else types.FALSE;
 }
 
 fn writeCharFn(args: []const Value) PrimitiveError!Value {
