@@ -228,11 +228,12 @@ pub fn srfiFeatureAvailable(vm: *VM, name: []const u8) bool {
     return libraryIsAvailable(vm, canonical, list);
 }
 
-/// #2510: open a rollback frame for a library source load about to start.
-/// Returns the mark (index into `vm.lib_rollback_names`) that the load
-/// truncates back to when it finishes. Frames nest one per `loadLibrarySource`
-/// invocation — the innermost load resolves its own fate (rolling back or
-/// committing its own registrations) before returning to the enclosing one.
+/// #2510: open a rollback frame for a file-backed library load about to
+/// start. Returns the mark (index into `vm.lib_rollback_names`) that the load
+/// truncates back to when it finishes. Frames nest one per
+/// `tryLoadLibraryFromFile` invocation — the innermost load resolves its own
+/// fate (rolling back or committing its own registrations) before returning
+/// to the enclosing one.
 fn beginLibSourceLoad(vm: *VM) !usize {
     const mark = vm.lib_rollback_names.items.len;
     try vm.lib_rollback_frames.append(vm.gc.allocator, mark);
@@ -248,9 +249,13 @@ fn beginLibSourceLoad(vm: *VM) !usize {
 /// names are merely forgotten (freed): the libraries stay registered, and any
 /// nested load already committed its own segment by closing its deeper frame.
 fn endLibSourceLoad(vm: *VM, mark: usize, ok: bool) void {
-    if (vm.lib_rollback_frames.items.len > 0) {
-        _ = vm.lib_rollback_frames.pop();
-    }
+    // The frame stack is strictly balanced by construction — every caller
+    // installs its `defer endLibSourceLoad` immediately after a successful
+    // frame append in beginLibSourceLoad — so an empty stack here is a real
+    // bug, not a state to absorb. Assert rather than silently skipping the
+    // pop and letting frame/name imbalance drift (#2518 review).
+    std.debug.assert(vm.lib_rollback_frames.items.len > 0);
+    _ = vm.lib_rollback_frames.pop();
     const allocator = vm.gc.allocator;
     while (vm.lib_rollback_names.items.len > mark) {
         const name = vm.lib_rollback_names.pop() orelse break;
@@ -260,17 +265,15 @@ fn endLibSourceLoad(vm: *VM, mark: usize, ok: bool) void {
 }
 
 /// Load and evaluate a library source file from a resolved path.
+/// The #2510 rollback frame lives in the CALLER, tryLoadLibraryFromFile, not
+/// here: the frame must also cover failures AFTER a successful load — the
+/// warm replay's `endWarmLoad` can still fail on an event-log desync — and a
+/// frame closed at this function's return would already have committed the
+/// load's registrations by then (#2518 review).
 fn loadLibrarySource(vm: *VM, source: []const u8) !void {
     const reader_mod = @import("reader.zig");
     var rdr = reader_mod.Reader.init(vm.gc, source);
     defer rdr.deinit();
-
-    // #2510: frame this load so a failure takes back out everything it
-    // registered. Successful loads (and their kaappi#1888 caching, warm or
-    // cold) are untouched — the rollback fires only on the error paths.
-    const rollback_mark = beginLibSourceLoad(vm) catch return error.OutOfMemory;
-    var load_ok = false;
-    defer endLibSourceLoad(vm, rollback_mark, load_ok);
 
     // Reader failures get their own error name so an unbalanced or
     // malformed .sld surfaces as a parse problem, not a vague
@@ -316,7 +319,6 @@ fn loadLibrarySource(vm: *VM, source: []const u8) !void {
             _ = try vm.runTopLevelFunction(func);
         }
     }
-    load_ok = true;
 }
 
 /// Resolve the full path for a library .sld file.
@@ -534,11 +536,32 @@ fn loadEmbeddedLibrary(vm: *VM, rel_path: []const u8, source: []const u8) !void 
 }
 
 pub fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
+    // #2510 (#2518 review): the rollback frame wraps the WHOLE load — not
+    // just loadLibrarySource — because this function can still fail after a
+    // successful load: `try lcc.endWarmLoad(...)` below returns CompileError
+    // on a warm-replay event-log desync, and under a loadLibrarySource-scoped
+    // frame the load's registrations had already committed at that point
+    // (endWarmLoad is not wrapped by the abortWarmLoad catch either), so a
+    // retrying import short-circuited off the registry and succeeded — first
+    // attempt fails, second succeeds, the exact inconsistency this rollback
+    // exists to kill. Framing here makes every error return from this
+    // function, post-load ones included, commit as a failed frame. Nested
+    // loads keep today's semantics: each invocation pushes its own frame, and
+    // a nested load resolves its own fate before returning, so its committed
+    // registrations are never above a still-live outer mark.
+    const rollback_mark = beginLibSourceLoad(vm) catch return error.OutOfMemory;
+    var load_ok = false;
+    defer endLibSourceLoad(vm, rollback_mark, load_ok);
+
     var path_buf: [512]u8 = undefined;
     const rel_path = buildLibRelPath(name_list, &path_buf) catch return error.InvalidSyntax;
 
     if (vm.sandbox_mode) {
-        if (findEmbeddedLibrary(rel_path)) |source| return loadEmbeddedLibrary(vm, rel_path, source);
+        if (findEmbeddedLibrary(rel_path)) |source| {
+            try loadEmbeddedLibrary(vm, rel_path, source);
+            load_ok = true;
+            return;
+        }
         vm.setErrorDetail("sandbox: cannot load library from file", .{});
         return error.UndefinedVariable;
     }
@@ -548,7 +571,11 @@ pub fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
     // otherwise fall through to the normal disk/bundled search below exactly
     // as a native build would.
     if (is_wasm) {
-        if (findEmbeddedLibrary(rel_path)) |source| return loadEmbeddedLibrary(vm, rel_path, source);
+        if (findEmbeddedLibrary(rel_path)) |source| {
+            try loadEmbeddedLibrary(vm, rel_path, source);
+            load_ok = true;
+            return;
+        }
     }
 
     const allocator = vm.gc.allocator;
@@ -568,6 +595,7 @@ pub fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
                 }
                 return error.UndefinedVariable;
             };
+            load_ok = true;
             return;
         }
     }
@@ -580,7 +608,11 @@ pub fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
         // (bundled_files records only files the bundling run touched).
         // Disk keeps first precedence; the embedded copy is the last
         // resort, not a shadow (kaappi#2394 review).
-        if (findEmbeddedLibrary(rel_path)) |source| return loadEmbeddedLibrary(vm, rel_path, source);
+        if (findEmbeddedLibrary(rel_path)) |source| {
+            try loadEmbeddedLibrary(vm, rel_path, source);
+            load_ok = true;
+            return;
+        }
         return error.UndefinedVariable;
     };
     defer allocator.free(sld_path);
@@ -641,6 +673,15 @@ pub fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
         lcc.endColdLoad(vm, cold_ok, source_hash, sld_path, rel_path, dep_name);
         if (!cold_ok) return error.UndefinedVariable;
     }
+
+    // Commit the frame only here, past the last fallible step. The
+    // `try lcc.endWarmLoad` above — the warm replay's event-log desync
+    // check — is the one failure that can strike AFTER loadLibrarySource
+    // succeeded, and it must take the load's registrations back out
+    // (#2518 review; see the frame comment at the top of this function).
+    // The desync'd cache entry stays on disk, so a retrying import replays
+    // it and fails identically — both attempts still agree.
+    load_ok = true;
 
     // Record this .sld as a dependency of every enclosing load (not of this
     // one — our own file is the key): an enclosing library's compiled body
@@ -1008,12 +1049,14 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
         return VMError.OutOfMemory;
     };
 
-    // #2510: while a library source load is in flight, remember the name just
-    // registered so a later failure of that load can take it back out (see
-    // beginLibSourceLoad). Best-effort: on OOM the registration simply isn't
-    // rollback-able. With no load in flight (a top-level define-library in a
-    // program file or eval) nothing is recorded — a program file is never
-    // re-imported, so there is no second attempt whose answer must agree.
+    // #2510: while a file-backed library load (tryLoadLibraryFromFile) is in
+    // flight, remember the name just registered so a later failure of that
+    // load — including one after this form returned — can take it back out
+    // (see beginLibSourceLoad). Best-effort: on OOM the registration simply
+    // isn't rollback-able. With no load in flight (a top-level
+    // define-library in a program file or eval) nothing is recorded — a
+    // program file is never re-imported, so there is no second attempt whose
+    // answer must agree.
     if (vm.lib_rollback_frames.items.len > 0) {
         if (vm.gc.allocator.dupe(u8, lib_name)) |owned| {
             vm.lib_rollback_names.append(vm.gc.allocator, owned) catch {

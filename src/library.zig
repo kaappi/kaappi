@@ -147,6 +147,18 @@ pub const LibraryRegistry = struct {
     /// only after the load reports success). A name that is no longer
     /// registered is a no-op, so rolling back a file that re-registered an
     /// existing library still leaves a consistent (re-loadable) state.
+    ///
+    /// Cross-thread hazard (#2518 review): `VM.initForThread` struct-copies
+    /// the registry into SRFI-18 child VMs, so `libraries` and `retired_envs`
+    /// are shared across threads. A failed load in one thread invoking this
+    /// races another thread holding a `*Library` from `get` or
+    /// `processImportSet`'s registry short-circuit: the map removal, the
+    /// `retired_envs` append (which can realloc), and the `deinit` all mutate
+    /// storage that thread may be reading or pointing into.
+    /// `register`-replacement already carried this hazard class; `unregister`
+    /// is the first shared mutator that deinit's a Library another thread can
+    /// hold. See docs/dev/thread-value-sharing.md, "Library registry mutation
+    /// across threads".
     pub fn unregister(self: *LibraryRegistry, name: []const u8) void {
         const entry = self.libraries.getEntry(name) orelse return;
         var lib = entry.value_ptr.*;

@@ -492,22 +492,24 @@ pub const VM = struct {
     /// instead of compiling. See vm_library_cache.zig.
     lib_cache_stack: [8]vm_library_cache.LibCollector = @splat(.{}),
     lib_cache_depth: u8 = 0,
-    /// #2510: rollback bookkeeping for failed library source loads.
+    /// #2510: rollback bookkeeping for failed library loads.
     /// `loadLibrarySource` dispatches each top-level datum as it is read, so
     /// a well-formed `define-library` is REGISTERED before the reader reaches
     /// a later read error (trailing garbage, malformed datum) in the same
     /// .sld — and the second import's registry short-circuit then served
     /// that half-loaded library as a success. `lib_rollback_frames` holds
-    /// one mark per in-flight `loadLibrarySource` invocation (the length of
-    /// `lib_rollback_names` when it started); `handleDefineLibrary` appends
-    /// each name it registers while any frame exists. A failed load
-    /// unregisters everything above its mark; a successful one merely
-    /// forgets the names — nested loads pushed their own, deeper marks and
-    /// resolved their own fate before returning, so their committed
-    /// registrations are never above a still-live outer mark. The name
-    /// strings are owned (duped) so the list never borrows from a Library it
-    /// is about to remove. Per-VM, like the collector stack (the shared
-    /// `libraries` map is what gets rolled back).
+    /// one mark per in-flight `tryLoadLibraryFromFile` invocation (the
+    /// length of `lib_rollback_names` when it started) — the whole load, not
+    /// just `loadLibrarySource`, so a failure AFTER a successful load (the
+    /// warm replay's `endWarmLoad` desync) also rolls back (#2518 review);
+    /// `handleDefineLibrary` appends each name it registers while any frame
+    /// exists. A failed load unregisters everything above its mark; a
+    /// successful one merely forgets the names — nested loads pushed their
+    /// own, deeper marks and resolved their own fate before returning, so
+    /// their committed registrations are never above a still-live outer
+    /// mark. The name strings are owned (duped) so the list never borrows
+    /// from a Library it is about to remove. Per-VM, like the collector
+    /// stack (the shared `libraries` map is what gets rolled back).
     lib_rollback_names: std.ArrayList([]const u8) = .empty,
     lib_rollback_frames: std.ArrayList(usize) = .empty,
     /// Per-run include/dependency records for the MAIN file's cache entry

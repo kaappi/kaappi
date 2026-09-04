@@ -1335,11 +1335,22 @@ test "failed .sld load rolls back its registration so both imports fail (#2510)"
     // against the half-registered entry.
     try std.testing.expectError(error.CompileError, vm.eval("(import (rollback2510 broken))"));
     try std.testing.expect(vm.libraries.get("rollback2510.broken") == null);
+    // The failed loads left no rollback frame or name behind (#2518 review):
+    // a leaked frame would make every later top-level define-library
+    // rollback-able by an unrelated future failure, and a leaked name would
+    // unregister a live library on that failure.
+    try std.testing.expectEqual(@as(usize, 0), vm.lib_rollback_frames.items.len);
+    try std.testing.expectEqual(@as(usize, 0), vm.lib_rollback_names.items.len);
 
     // The contrast case: a clean library imports fine, twice — the rollback
-    // must fire only on failed loads, never on successful ones.
+    // must fire only on failed loads, never on successful ones. The frame
+    // now wraps the whole tryLoadLibraryFromFile (#2518 review), so a
+    // success path that forgot to commit (load_ok left false) would roll
+    // the library back out and the final registry get would turn up null.
     _ = try vm.eval("(import (rollback2510 good))");
     _ = try vm.eval("(import (rollback2510 good))");
     try std.testing.expectEqual(@as(i64, 42), types.toFixnum(try vm.eval("(answer)")));
     try std.testing.expect(vm.libraries.get("rollback2510.good") != null);
+    try std.testing.expectEqual(@as(usize, 0), vm.lib_rollback_frames.items.len);
+    try std.testing.expectEqual(@as(usize, 0), vm.lib_rollback_names.items.len);
 }

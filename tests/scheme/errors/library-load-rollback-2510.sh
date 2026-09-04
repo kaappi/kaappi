@@ -150,22 +150,30 @@ assert_succeeds_printing "clean .sld, double import still works" \
 # The nested (rollback2510 good) load succeeded inside the failed outer load;
 # it must remain importable afterwards (rollback is scoped to what the failed
 # load itself registered). The program still exits non-zero because the first
-# import's error is real and uncaught.
+# import's error is real and uncaught. ONE run serves both assertions —
+# stderr carries the single KP2001 report, stdout the dependency's answer
+# (#2518 review: previously a second run checked stdout alone).
 cat > "$TMPDIR_TESTS/broken-with-dep.scm" << 'EOF'
 (import (rollback2510 broken-with-dep))
 (import (rollback2510 good))
 (display "dep answer = ") (display (good-answer)) (newline)
 EOF
-assert_fails_with "nested good dependency survives the failed outer load" \
-    "$TMPDIR_TESTS/broken-with-dep.scm" 1 "never-prints-this"
-
-# The same program's stdout (checked separately above for the error count)
-# must have produced the good dependency's answer despite the failure.
-out=$("$KAAPPI" --lib-path "$FIXTURES" "$TMPDIR_TESTS/broken-with-dep.scm" 2>/dev/null) || true
-if grep -q "dep answer = 42" <<< "$out"; then
+dep_status=0
+dep_out=$("$KAAPPI" --lib-path "$FIXTURES" "$TMPDIR_TESTS/broken-with-dep.scm" \
+    2>"$TMPDIR_TESTS/broken-with-dep.err") || dep_status=$?
+dep_err=$(<"$TMPDIR_TESTS/broken-with-dep.err")
+dep_kp_count=0
+dep_kp_count=$(grep -c "LibrarySourceReadError" <<< "$dep_err" || true)
+if [[ "$dep_status" -ne 0 && "$dep_kp_count" -eq 1 ]] \
+    && ! grep -q "library not found" <<< "$dep_err"; then
+    pass "nested good dependency survives the failed outer load"
+else
+    fail "nested good dependency survives the failed outer load — exit $dep_status, $dep_kp_count KP2001 report(s); stderr: $dep_err"
+fi
+if grep -q "dep answer = 42" <<< "$dep_out"; then
     pass "good dependency usable after sibling rollback"
 else
-    fail "good dependency usable after sibling rollback — got: $out"
+    fail "good dependency usable after sibling rollback — stdout: $dep_out"
 fi
 
 echo ""
