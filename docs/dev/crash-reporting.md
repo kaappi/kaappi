@@ -49,7 +49,7 @@ crash.noteStage(.compiling); // per top-level form, at each boundary
 
 It is deliberately trivial — a plain enum store and a slice store, no
 allocation, no locking — matching the other process-wide flags in this codebase
-(`ir.optimize_enabled`, `main.script_had_error`,
+(`ir.optimize_enabled`, `toplevel_driver.script_had_error`,
 `toplevel_driver.diagnostic_format`). The design constraints that make plain
 globals safe here:
 

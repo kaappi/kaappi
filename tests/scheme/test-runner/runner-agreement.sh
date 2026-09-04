@@ -12,10 +12,15 @@
 #
 # The shape that first exposed it was `tests/scheme/srfi/srfi150.scm`: a
 # deliberate top-level error, four `test-expect-fail` annotations, and an
-# `(exit 0)` epilogue. run-all.sh reported it green; `kaappi test` reported
+# `(exit 0)` epilogue. run-all.sh reported it green; `kaappi test` reported it
 # exit 1 with `1 errored`. This file reconstructs that shape directly — plus
 # every neighbouring case — so the guarantee outlives SRFI 150's own defects
 # (kaappi#2051), which will one day stop producing the top-level error at all.
+#
+# Since kaappi#2512 the reconstructed shape itself flips verdict in BOTH
+# runners: an explicit `(exit 0)` no longer waives a reported top-level error
+# (a plain run exits 1), so `kaappi test` must call the file errored too —
+# which is exactly the agreement this script exists to hold together.
 #
 # Each fixture is run BOTH ways and the two verdicts are required to match.
 
@@ -125,7 +130,8 @@ assert_kt_mentions() {
 
 # The srfi150.scm shape, reduced to its essentials: a top-level raise that no
 # `guard` can reach, an expected-fail assertion that depends on it, and an
-# epilogue that exits 0 because the SRFI-64 counters are clean.
+# epilogue that exits 0 because the SRFI-64 counters are clean. Since #2512
+# the error flag wins over that epilogue, so both runners must fail the file.
 cat > ack.scm <<'EOF'
 (import (scheme base) (scheme process-context) (srfi 64))
 (test-begin "ack")
@@ -149,8 +155,8 @@ cat > unack.scm <<'EOF'
 EOF
 
 # A top-level error acknowledged by (exit 0) *and* a genuinely failing
-# assertion. The waiver covers the file's own error; it must not cover the
-# assertion, or a suite could declare itself green by fiat.
+# assertion. Neither half may be waived: the error is the file's own, and the
+# assertion must not be buried, or a suite could declare itself green by fiat.
 cat > ack-but-failing.scm <<'EOF'
 (import (scheme base) (scheme process-context) (srfi 64))
 (test-begin "ack-but-failing")
@@ -204,14 +210,14 @@ EOF
 
 # --- the matrix -------------------------------------------------------------
 
-assert_agree "top-level error acknowledged by (exit 0)" ack.scm PASS
-assert_kt_mentions "the acknowledged error is still on the transcript" \
-    "acknowledged by an explicit (exit 0)"
-assert_kt_mentions "the acknowledged error keeps its own diagnostic" \
+assert_agree "top-level error then (exit 0): the flag wins (#2512)" ack.scm FAIL
+assert_kt_mentions "the (exit 0) that failed to waive it is still on the transcript" \
+    "an explicit (exit 0) cannot waive it (kaappi#2512)"
+assert_kt_mentions "the error keeps its own diagnostic" \
     "deliberate uncaught top-level error"
 
 assert_agree "top-level error with no epilogue to acknowledge it" unack.scm FAIL
-assert_agree "(exit 0) does not bury a failing assertion" ack-but-failing.scm FAIL
+assert_agree "(exit 0) buries neither the error nor a failing assertion" ack-but-failing.scm FAIL
 assert_agree "ordinary failing suite with an (exit 1) epilogue" failing-epilogue.scm FAIL
 assert_kt_mentions "a redundant (exit 1) keeps the assertion detail" \
     "a genuinely failing assertion"

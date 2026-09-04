@@ -182,17 +182,11 @@ pub fn main(init: std.process.Init.Minimal) !void {
     return mainInner(init);
 }
 
-/// Set when a script (file or stdin) hit an uncaught read/compile/runtime
-/// error that was reported but recovered from. Scripts must exit non-zero in
-/// that case so callers (e.g. tests/scheme/run-all.sh) can detect the failure;
-/// REPL sessions never set this.
-var script_had_error: bool = false;
-
 fn mainInner(init: std.process.Init.Minimal) void {
     mainImpl(init) catch {
         std.process.exit(1);
     };
-    if (script_had_error) std.process.exit(1);
+    if (toplevel_driver.script_had_error) std.process.exit(1);
 }
 
 fn mainImpl(init: std.process.Init.Minimal) !void {
@@ -261,7 +255,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
     // all of that and goes straight to the `exit_group` syscall, so no
     // teardown logic ever runs concurrently with the live child at all.
     defer if (primitives_srfi18.hasLiveChildThreads()) {
-        std.c._exit(if (script_had_error) 1 else 0);
+        std.c._exit(if (toplevel_driver.script_had_error) 1 else 0);
     } else {
         vm.deinit();
         allocator.destroy(vm);
@@ -392,7 +386,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
 
         const loaded = bytecode_file.readFromBuffer(&gc, bytecode_data) catch {
             writeStderr("fatal: corrupted embedded bytecode\n");
-            script_had_error = true;
+            toplevel_driver.script_had_error = true;
             return;
         } orelse {
             // The loader collapses every header mismatch into null (kaappi#1930).
@@ -413,7 +407,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
                 },
                 .invalid => writeStderr("fatal: invalid embedded bytecode (wrong version or format)\n"),
             }
-            script_had_error = true;
+            toplevel_driver.script_had_error = true;
             return;
         };
         defer allocator.free(loaded.funcs);
@@ -452,7 +446,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
                     defer gc.popRoot();
                     if (vm.handleTopLevelForm(expr)) |top_result| {
                         _ = top_result catch |err| {
-                            script_had_error = true;
+                            toplevel_driver.script_had_error = true;
                             const detail = vm.getErrorDetail();
                             const code = toplevel_driver.runtimeCode(vm, err);
                             const msg = if (detail.len > 0) detail else code.message();
@@ -474,7 +468,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
             vm.gc.pushRoot(&func_val);
             const result = vm.execute(func) catch |err| {
                 vm.gc.popRoot();
-                script_had_error = true;
+                toplevel_driver.script_had_error = true;
                 const detail = vm.getErrorDetail();
                 const code = toplevel_driver.runtimeCode(vm, err);
                 const msg = if (detail.len > 0) detail else code.message();
@@ -731,7 +725,7 @@ fn runCachedTopLevelFunc(vm: *vm_mod.VM, func: *types.Function, source: []const 
     timings.end();
     const result = exec_result catch |err| {
         vm.gc.popRoot();
-        script_had_error = true;
+        toplevel_driver.script_had_error = true;
         // kaappi#1922: fall back to the form's own line — serialized as
         // Function.source_line — exactly as the fresh-compile path passes
         // datum_lc.line, so an error with no line-table entry (raise,
@@ -774,7 +768,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     crash.noteFile(path);
 
     const source = readFileContents(allocator, path) catch {
-        script_had_error = true;
+        toplevel_driver.script_had_error = true;
         return;
     };
     defer allocator.free(source);
@@ -913,7 +907,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
                                     if (vm.topLevelHead(dexpr)) |head| {
                                         const result = vm.runTopLevelHead(head, dexpr) catch |err| {
                                             timings.end();
-                                            script_had_error = true;
+                                            toplevel_driver.script_had_error = true;
                                             toplevel_driver.reportRuntimeError(vm, err, .{ .source = path, .line = decl.line });
                                             continue;
                                         };
@@ -923,7 +917,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
                                     }
                                     const func = compiler.compileExpressionWithMacrosAt(vm.gc, dexpr, &vm.macros, vm.globals, decl.line, path, false) catch |err| {
                                         timings.end();
-                                        script_had_error = true;
+                                        toplevel_driver.script_had_error = true;
                                         toplevel_driver.reportCompileError(path, decl.line, 1, err);
                                         continue;
                                     };
@@ -964,7 +958,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     while (r.hasMore() catch |err| {
         const lc = r.getLineCol();
         toplevel_driver.reportReadError(path, lc.line, lc.col, err);
-        script_had_error = true;
+        toplevel_driver.script_had_error = true;
         return;
     }) {
         crash.noteStage(.reading);
@@ -979,7 +973,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         var expr = read_result catch |err| {
             const lc = r.getLineCol();
             toplevel_driver.reportReadError(path, lc.line, lc.col, err);
-            script_had_error = true;
+            toplevel_driver.script_had_error = true;
             return;
         };
 
@@ -1013,7 +1007,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
             const top_result = vm.runTopLevelHead(head, expr);
             timings.end();
             const result = top_result catch |err| {
-                script_had_error = true;
+                toplevel_driver.script_had_error = true;
                 toplevel_driver.reportRuntimeError(vm, err, .{ .source = path, .line = datum_lc.line });
                 continue;
             };
@@ -1036,7 +1030,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
             defines_syntax = true;
         const func = compile_result catch |err| {
             toplevel_driver.reportCompileError(path, datum_lc.line, datum_lc.col, err);
-            script_had_error = true;
+            toplevel_driver.script_had_error = true;
             had_compile_error = true;
             continue;
         };
@@ -1056,7 +1050,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         timings.end();
         const result = exec_result catch |err| {
             vm.gc.popRoot();
-            script_had_error = true;
+            toplevel_driver.script_had_error = true;
             const loc = toplevel_driver.vmErrorLocation(vm, path, datum_lc.line);
             toplevel_driver.reportRuntimeError(vm, err, loc);
             toplevel_driver.printSourceSnippet(source, loc.line);
@@ -1126,33 +1120,34 @@ fn runWorkerFile(vm: *vm_mod.VM, fp: []const u8, emit_path: []const u8) !void {
     vm.suppress_exit = true;
     test_runner.installCollector(vm) catch {
         test_runner.emitResult(vm, emit_path, fp, true, "test collector setup failed", 0);
-        script_had_error = false;
+        toplevel_driver.script_had_error = false;
         return;
     };
 
     const start_ns = @import("vm_calls.zig").clockNs();
-    script_had_error = false;
+    toplevel_driver.script_had_error = false;
     runFile(vm, fp) catch {
-        script_had_error = true;
+        toplevel_driver.script_had_error = true;
     };
     const duration_ms = @as(f64, @floatFromInt(@import("vm_calls.zig").clockNs() -| start_ns)) / 1_000_000.0;
 
-    // `script_had_error` means an *uncaught* read/compile/runtime error at top
-    // level — SRFI-64 catches test failures internally, so those never set it.
-    // Whether that makes the file errored is `test_runner.resolveVerdict`'s
-    // call, not ours: `suppress_exit` above swallowed any `(exit)` the file
-    // made, and that call's semantics still have to be applied (kaappi#1903).
-    test_runner.emitResult(vm, emit_path, fp, script_had_error, null, duration_ms);
+    // `toplevel_driver.script_had_error` means an *uncaught*
+    // read/compile/runtime error at top level — SRFI-64 catches test
+    // failures internally, so those never set it. Whether that makes the
+    // file errored is `test_runner.resolveVerdict`'s call, not ours:
+    // `suppress_exit` above swallowed any `(exit)` the file made, and that
+    // call's semantics still have to be applied (kaappi#1903).
+    test_runner.emitResult(vm, emit_path, fp, toplevel_driver.script_had_error, null, duration_ms);
     // The result is emitted; don't let the file's error propagate to a nonzero
     // worker exit — the orchestrator uses the JSON.
-    script_had_error = false;
+    toplevel_driver.script_had_error = false;
 }
 
 fn runStdin(vm: *vm_mod.VM) !void {
     const allocator = vm.gc.allocator;
     const source = readAllStdin(allocator) catch {
         writeStderr("error: failed to read stdin\n");
-        script_had_error = true;
+        toplevel_driver.script_had_error = true;
         return;
     };
     defer allocator.free(source);
@@ -1165,7 +1160,7 @@ fn runStdin(vm: *vm_mod.VM) !void {
     while (r.hasMore() catch |err| {
         const lc = r.getLineCol();
         toplevel_driver.reportReadError("<stdin>", lc.line, lc.col, err);
-        script_had_error = true;
+        toplevel_driver.script_had_error = true;
         return;
     }) {
         crash.noteStage(.reading);
@@ -1176,7 +1171,7 @@ fn runStdin(vm: *vm_mod.VM) !void {
         var expr = r.readDatum() catch |err| {
             const lc = r.getLineCol();
             toplevel_driver.reportReadError("<stdin>", lc.line, lc.col, err);
-            script_had_error = true;
+            toplevel_driver.script_had_error = true;
             return;
         };
 
@@ -1186,7 +1181,7 @@ fn runStdin(vm: *vm_mod.VM) !void {
         crash.noteStage(.executing);
         if (vm.handleTopLevelForm(expr)) |top_result| {
             const result = top_result catch |err| {
-                script_had_error = true;
+                toplevel_driver.script_had_error = true;
                 toplevel_driver.reportRuntimeError(vm, err, null);
                 continue;
             };
@@ -1197,7 +1192,7 @@ fn runStdin(vm: *vm_mod.VM) !void {
         crash.noteStage(.compiling);
         const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, datum_lc.line, "<stdin>", false) catch |err| {
             toplevel_driver.reportCompileError("<stdin>", datum_lc.line, datum_lc.col, err);
-            script_had_error = true;
+            toplevel_driver.script_had_error = true;
             return;
         };
 
@@ -1207,7 +1202,7 @@ fn runStdin(vm: *vm_mod.VM) !void {
         crash.noteStage(.executing);
         const result = vm.execute(func) catch |err| {
             vm.gc.popRoot();
-            script_had_error = true;
+            toplevel_driver.script_had_error = true;
             toplevel_driver.reportRuntimeError(vm, err, null);
             continue;
         };
@@ -1220,7 +1215,7 @@ fn runStdin(vm: *vm_mod.VM) !void {
 fn disassembleFile(vm: *vm_mod.VM, path: []const u8) !void {
     const allocator = vm.gc.allocator;
     const source = readFileContents(allocator, path) catch {
-        script_had_error = true;
+        toplevel_driver.script_had_error = true;
         return;
     };
     defer allocator.free(source);
@@ -1235,14 +1230,14 @@ fn disassembleFile(vm: *vm_mod.VM, path: []const u8) !void {
     while (r.hasMore() catch |err| {
         const lc = r.getLineCol();
         toplevel_driver.reportReadError(path, lc.line, lc.col, err);
-        script_had_error = true;
+        toplevel_driver.script_had_error = true;
         return;
     }) {
         const datum_lc = r.getLineCol();
         var expr = r.readDatum() catch |err| {
             const lc = r.getLineCol();
             toplevel_driver.reportReadError(path, lc.line, lc.col, err);
-            script_had_error = true;
+            toplevel_driver.script_had_error = true;
             return;
         };
 
@@ -1256,7 +1251,7 @@ fn disassembleFile(vm: *vm_mod.VM, path: []const u8) !void {
         defer forms.deinit();
         while (forms.next()) |form_result| {
             const form = form_result catch |err| {
-                script_had_error = true;
+                toplevel_driver.script_had_error = true;
                 toplevel_driver.reportRuntimeError(vm, err, .{ .source = path, .line = datum_lc.line });
                 continue;
             };
@@ -1264,7 +1259,7 @@ fn disassembleFile(vm: *vm_mod.VM, path: []const u8) !void {
             if (vm.topLevelHead(form)) |head| {
                 if (!head.isEnvSetup()) continue;
                 _ = vm.runTopLevelHead(head, form) catch |err| {
-                    script_had_error = true;
+                    toplevel_driver.script_had_error = true;
                     toplevel_driver.reportRuntimeError(vm, err, .{ .source = path, .line = datum_lc.line });
                 };
                 continue;
@@ -1272,7 +1267,7 @@ fn disassembleFile(vm: *vm_mod.VM, path: []const u8) !void {
 
             const func = compiler.compileExpressionWithMacrosAt(vm.gc, form, &vm.macros, vm.globals, datum_lc.line, path, false) catch |err| {
                 toplevel_driver.reportCompileError(path, datum_lc.line, datum_lc.col, err);
-                script_had_error = true;
+                toplevel_driver.script_had_error = true;
                 continue;
             };
 
@@ -1284,8 +1279,37 @@ fn disassembleFile(vm: *vm_mod.VM, path: []const u8) !void {
 
 fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void {
     const allocator = vm.gc.allocator;
+
+    // The artifact target is decided up front so a failure anywhere below can
+    // still leave the target clean (#2513): a failed compile must leave NO
+    // file at the exact -o / derived-.sbc path — not the truncated one a
+    // failed write leaves behind, and not a stale one from a previous good
+    // build that the build step would then embed as if it were current.
+    const sbc_path = if (output_path) |op|
+        allocator.dupe(u8, op) catch {
+            writeStderr("Error creating output path\n");
+            toplevel_driver.script_had_error = true;
+            return;
+        }
+    else
+        getSbcPath(allocator, path) catch {
+            writeStderr("Error creating output path\n");
+            toplevel_driver.script_had_error = true;
+            return;
+        };
+    defer allocator.free(sbc_path);
+    // Runs before the free above (LIFO): best-effort, and deliberately only
+    // the exact target — the error itself was already reported at its site,
+    // so a removal failure (permissions) has nothing further to add.
+    defer if (toplevel_driver.script_had_error) {
+        var pbuf: [platform.PATH_MAX]u8 = undefined;
+        if (std.fmt.bufPrintZ(&pbuf, "{s}", .{sbc_path})) |pz| {
+            _ = platform.unlink(pz);
+        } else |_| {}
+    };
+
     const source = readFileContents(allocator, path) catch {
-        script_had_error = true;
+        toplevel_driver.script_had_error = true;
         return;
     };
     defer allocator.free(source);
@@ -1326,7 +1350,7 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
     while (r.hasMore() catch |err| {
         const lc = r.getLineCol();
         toplevel_driver.reportReadError(path, lc.line, lc.col, err);
-        script_had_error = true;
+        toplevel_driver.script_had_error = true;
         return;
     }) {
         const datum_lc = r.getLineCol();
@@ -1336,7 +1360,7 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
         var expr = read_result catch |err| {
             const lc = r.getLineCol();
             toplevel_driver.reportReadError(path, lc.line, lc.col, err);
-            script_had_error = true;
+            toplevel_driver.script_had_error = true;
             return;
         };
 
@@ -1350,7 +1374,7 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
         defer forms.deinit();
         while (forms.next()) |form_result| {
             const form = form_result catch |err| {
-                script_had_error = true;
+                toplevel_driver.script_had_error = true;
                 toplevel_driver.reportRuntimeError(vm, err, .{ .source = path, .line = datum_lc.line });
                 continue;
             };
@@ -1383,7 +1407,7 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
                         return error.OutOfMemory;
                     };
                     _ = vm.runTopLevelHead(head, form) catch |err| {
-                        script_had_error = true;
+                        toplevel_driver.script_had_error = true;
                         toplevel_driver.reportRuntimeError(vm, err, .{ .source = path, .line = datum_lc.line });
                     };
                     continue;
@@ -1392,7 +1416,7 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
 
             const func = compiler.compileExpressionWithMacrosAt(vm.gc, form, &vm.macros, vm.globals, datum_lc.line, path, false) catch |err| {
                 toplevel_driver.reportCompileError(path, datum_lc.line, datum_lc.col, err);
-                script_had_error = true;
+                toplevel_driver.script_had_error = true;
                 continue;
             };
 
@@ -1402,20 +1426,18 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
         }
     }
 
+    // A run that reported any uncaught error must not write an artifact or
+    // claim success (#2513): the driver recovers from each error and keeps
+    // compiling, so `compiled_funcs` here can be a plausible-looking partial
+    // bundle — an import that failed at evaluation time, everything after it
+    // missing or uncompilable. The exit-status rule already fails the run;
+    // writing the artifact anyway would replace a previous good build at the
+    // target with the broken one (or leave a stale one, via the defer above)
+    // and the `Compiled ... -> ...` line would tell a stdout-reading build
+    // step that it worked.
+    if (toplevel_driver.script_had_error) return;
+
     if (compiled_funcs.items.len > 0 or preamble.items.len > 0) {
-        const sbc_path = if (output_path) |op|
-            allocator.dupe(u8, op) catch {
-                writeStderr("Error creating output path\n");
-                script_had_error = true;
-                return;
-            }
-        else
-            getSbcPath(allocator, path) catch {
-                writeStderr("Error creating output path\n");
-                script_had_error = true;
-                return;
-            };
-        defer allocator.free(sbc_path);
         timings.setOutput(sbc_path); // kaappi#1515: the named .sbc artifact
 
         const has_bundle = collect_files.count() > 0 or preamble.items.len > 0;
@@ -1430,13 +1452,13 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
                 sbc_path,
             ) catch |err| {
                 reportBytecodeWriteError(err);
-                script_had_error = true;
+                toplevel_driver.script_had_error = true;
                 return;
             };
         } else {
             bytecode_file.writeFileWithTopLevel(allocator, compiled_funcs.items, source_hash, path, sbc_path) catch |err| {
                 reportBytecodeWriteError(err);
-                script_had_error = true;
+                toplevel_driver.script_had_error = true;
                 return;
             };
         }
@@ -1449,6 +1471,86 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
     }
 }
 
+// ── #2513 regression tests ──────────────────────────────────────────────────
+//
+// Drive the real `--compile` driver loop over real files. The shell-level
+// twin, which also asserts the exit status and the missing `Compiled ...`
+// line, is tests/scheme/errors/compile-failure-signals-2513.sh.
+
+test "compileFile: failed compile leaves no artifact and sets the flag (#2513)" {
+    if (comptime is_wasm) return error.SkipZigTest; // writes real files
+    const th = @import("testing_helpers.zig");
+    const testing = std.testing;
+
+    var tc: th.TestContext = undefined;
+    try tc.init();
+    defer tc.deinit();
+    const allocator = tc.vm.gc.allocator;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const dir_path = try th.tmpDirRealPathAlloc(&tmp, allocator);
+    defer allocator.free(dir_path);
+
+    // The import fails at evaluation time while the display form still
+    // compiles — exactly the shape that used to fall out the loop with a
+    // partial function list, write the artifact anyway, and print `Compiled`.
+    try tmp.dir.writeFile(testing.io, .{
+        .sub_path = "bad.scm",
+        .data = "(import (nonexistent-library-2513))\n(display \"this form still compiles\")\n",
+    });
+    const bad_path = try std.fs.path.join(allocator, &.{ dir_path, "bad.scm" });
+    defer allocator.free(bad_path);
+    const out_path = try std.fs.path.join(allocator, &.{ dir_path, "out.sbc" });
+    defer allocator.free(out_path);
+
+    toplevel_driver.script_had_error = false;
+    defer toplevel_driver.script_had_error = false;
+
+    try compileFile(tc.vm, bad_path, out_path);
+    try testing.expect(toplevel_driver.script_had_error);
+    try testing.expectError(error.FileNotFound, tmp.dir.statFile(testing.io, "out.sbc", .{}));
+
+    // A stale artifact at the target from a previous good build must be
+    // removed by the failed run, not silently kept looking current.
+    try tmp.dir.writeFile(testing.io, .{ .sub_path = "out.sbc", .data = "stale artifact" });
+    toplevel_driver.script_had_error = false;
+    try compileFile(tc.vm, bad_path, out_path);
+    try testing.expect(toplevel_driver.script_had_error);
+    try testing.expectError(error.FileNotFound, tmp.dir.statFile(testing.io, "out.sbc", .{}));
+}
+
+test "compileFile: successful compile still writes the artifact (#2513 control)" {
+    if (comptime is_wasm) return error.SkipZigTest; // writes real files
+    const th = @import("testing_helpers.zig");
+    const testing = std.testing;
+
+    var tc: th.TestContext = undefined;
+    try tc.init();
+    defer tc.deinit();
+    const allocator = tc.vm.gc.allocator;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const dir_path = try th.tmpDirRealPathAlloc(&tmp, allocator);
+    defer allocator.free(dir_path);
+
+    try tmp.dir.writeFile(testing.io, .{
+        .sub_path = "good.scm",
+        .data = "(import (scheme base))\n(display \"fine\")\n",
+    });
+    const good_path = try std.fs.path.join(allocator, &.{ dir_path, "good.scm" });
+    defer allocator.free(good_path);
+    const out_path = try std.fs.path.join(allocator, &.{ dir_path, "out.sbc" });
+    defer allocator.free(out_path);
+
+    toplevel_driver.script_had_error = false;
+    defer toplevel_driver.script_had_error = false;
+
+    try compileFile(tc.vm, good_path, out_path);
+    try testing.expect(!toplevel_driver.script_had_error);
+    _ = try tmp.dir.statFile(testing.io, "out.sbc", .{});
+}
 test {
     _ = platform;
     _ = types;

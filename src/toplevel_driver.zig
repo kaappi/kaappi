@@ -38,6 +38,29 @@ pub fn diagnosticFormat() DiagnosticFormat {
     return diagnostic_format;
 }
 
+/// Set when a script run (file or stdin, never the REPL) hit an uncaught
+/// read/compile/runtime error that was reported but recovered from — the
+/// driver prints the diagnostic and continues with the next top-level form,
+/// so the run can reach its normal end looking successful. Two consumers
+/// must not be fooled by that recovery:
+///
+///  * the exit status: `mainInner` turns the flag into exit(1) on a normal
+///    return, and the `exit` primitive upgrades an explicit `(exit 0)` to 1
+///    so a script cannot launder a failed run through its own epilogue
+///    (kaappi#2512). A non-zero explicit status stays as given; the flag
+///    only upgrades 0.
+///  * `--compile`: a flagged run writes no artifact, prints no `Compiled`
+///    line, and removes any stale file at the output target (kaappi#2513).
+///
+/// The `kaappi test` worker consumes the flag per file (`emitResult`, which
+/// weighs it in the verdict) and clears it, so the worker itself always
+/// exits 0 with the verdict travelling in the emitted JSON. REPL sessions
+/// never set it: carrying on after an error is what a REPL is for.
+///
+/// A process-wide flag like `diagnostic_format` above — written on the
+/// single main pipeline thread, read at the exit points.
+pub var script_had_error: bool = false;
+
 /// Serialize one diagnostic and write it as a single line to stderr. On the
 /// rare overflow of the fixed buffer (a pathologically long detail message),
 /// emit a minimal valid object instead of a truncated one so the JSON Lines
