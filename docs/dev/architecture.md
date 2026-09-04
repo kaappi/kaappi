@@ -168,7 +168,8 @@ its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
 | `bytecode_file_read.zig` | Deserializer: `Reader`, `readConstant`, bytecode validation, `deserializeFromBuffer`, `readHeaderInfo`, `DeserializeResult`/`HeaderInfo` |
 | `disassembler.zig` | Bytecode disassembler for `(disassemble proc)` |
 | `isocline.zig` | Zig FFI wrapper for the vendored isocline line editor |
-| `main.zig` | Entry point, file execution, CLI flags, `pub const version`, `pub const panic` (the REPL loop lives in `repl.zig`) |
+| `main.zig` | Entry point, CLI dispatch, VM/GC setup, `pub const version`, `pub const panic` (the REPL loop lives in `repl.zig`, the top-level source drivers in `toplevel_driver.zig`) |
+| `toplevel_driver.zig` | Top-level diagnostics funnel (text/JSON rendering, KP codes, source snippets, stack traces) and the source drivers it serves: `runFile`/`runStdin` (with bytecode-cache replay), `compileFile` (`--compile`), `disassembleFile`, the `kaappi test` worker wrapper. Owns `script_had_error` (#2512/#2513) |
 | `cli_spec.zig` | **The** CLI flag/subcommand tables. Every parse loop (`cli.zig`, `explain`, `features`, `doctor`, `test_runner`, `cache`, `thottam`) dispatches on an exhaustive `switch` over one of its `Id` enums, `cli.printUsage` generates its `Options:` block from it, and `completions.zig` generates all six shell scripts from it — so a flag cannot reach a parser without the docs and completions following. See `docs/dev/cli-surface.md` |
 | `completions.zig` | bash/zsh/fish completion scripts for `kaappi` and `thottam`, generated at comptime from `cli_spec.zig`. Nothing here is hand-maintained |
 | `crash.zig` | Custom panic handler (`PanicHandler(name)`) + pipeline breadcrumb (`noteStage`/`noteFile`); prints version/target/build-mode + stage + report URL before the trace. See `docs/dev/crash-reporting.md` |

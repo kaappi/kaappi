@@ -68,8 +68,8 @@ globals safe here:
 
 | Path | File | Stages set |
 |------|------|-----------|
-| file runner (fresh + cached) | `main.zig` `runFile` | reading → executing (imports) → compiling → executing |
-| stdin runner | `main.zig` `runStdin` | reading → executing → compiling → executing |
+| file runner (fresh + cached) | `toplevel_driver.zig` `runFile` | reading → executing (imports) → compiling → executing |
+| stdin runner | `toplevel_driver.zig` `runStdin` | reading → executing → compiling → executing |
 | standalone (embedded bytecode) | `main.zig` | executing |
 | REPL | `repl_eval.zig` `evalInputInner` | reading → executing → compiling → executing, `reset()` on return to prompt |
 | `kaappi ast` / `expand` / `ir` | `pipeline.zig` | reading, expanding, compiling |
