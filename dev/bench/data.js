@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788483127459,
+  "lastUpdate": 1788557507087,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "998e4af3846cac15dd788f909866ddec4eff69b5",
-          "message": "Ignore .zig-global-cache directory (#2299)\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-24T23:29:58+05:30",
-          "tree_id": "38fe816c2b1d720b6625b043dacdcc2578326910",
-          "url": "https://github.com/kaappi/kaappi/commit/998e4af3846cac15dd788f909866ddec4eff69b5"
-        },
-        "date": 1787598696857,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.094888,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.35969,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.55422,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.851913,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004854,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04654,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.27992,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.05402,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.43181,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.151616,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.600708,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.304828,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.699317,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.80735,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046402,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046329,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a73a20d91887043e68992413e1fb9d74a787880e",
+          "message": "Make char-ready? and u8-ready? report real fd readiness (#2516)\n\n* Make char-ready? and u8-ready? report real fd readiness\n\nBoth predicates returned #t unconditionally after their peeked-byte\nfast path, so on a subprocess pipe with no data char-ready? claimed a\nread was safe and the very next read-line blocked for as long as the\nwriter stayed silent — the exact hang R7RS 6.13.1's \"guaranteed not to\nhang\" exists to forbid, and the only non-blocking probe a Scheme drive\nloop over a subprocess could use (kaappi#2511, the mesthiri agent\ndriver being the concrete case).\n\nchar-ready? now answers through portReadyNow, a readiness oracle that\nmirrors readOneByte's port-kind dispatch in the same order: buffered\nbytes (peek/peek_extra/read_buf) are ready; random and string ports are\nalways ready (data or EOF, never a block); custom ports answer the\nconservative #t (a read! callback has no non-blocking probe — the old\nbehavior); transcoded ports recurse on the wrapped port; and a real fd\ngets a zero-timeout poll — a synchronous snapshot, never a fiber park,\nbecause this is a predicate, not a scheduler operation. POLLHUP, POLLERR\nand POLLNVAL count as ready so EOF keeps its #1179 answer (#t: a read\nreturns eof-object at once), and any query failure degrades to #t so a\nracing drive loop can never be stalled by a lying #f. Per-OS arms:\npoll(2) on POSIX, the reactor's own PeekNamedPipe/select oracles for\nWindows pipes and sockets, and the historical #t on WASI, where\nKEP-0001 Phase 4 keeps fd readiness best-effort and no poll exists.\n\nu8-ready? (primitives_bytevector) had the identical hardcoded-#t body\nminus even the peek check, one spec paragraph over in 6.13.3 — it now\nuses the same oracle, which also finally gives it the EOF-is-#t answer\n#1179 asked for on fd ports.\n\nThe compliance assertion '(test-assert (u8-ready?))' on inherited stdin\nonly passed because the answer was hardcoded: on a tty the truthful\nanswer is #f. It now asserts the environment-independent contract\n(boolean?), with the port matrix covered by the new tests.\n\nReadiness is byte-granular: if only the lead bytes of a multi-byte\ncharacter have arrived the answer is #t while read-char may still park\nfor the rest — read-u8's guarantee is the strongest a non-destructive\ncheck can hold, and both predicates hold it.\n\nCo-Authored-By: ZCode <noreply@zcode.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Make char-ready? character-granular and extract the readiness oracles\n\nAddress the #2516 review round on the char-ready?/u8-ready? fix (#2511).\n\nByte-granular readiness was not enough to hold R7RS 6.13.1's \"if\nchar-ready? returns #t, the next read-char is guaranteed not to hang\": a\npipe holding only a UTF-8 lead byte (0xC3) made the fd readable, the\npredicate answered #t, and read-char then consumed the lead byte and\nblocked for the continuation — the exact hang the #t promise forbids.\nchar-ready? now answers #t only when a complete character (or an invalid\nlead byte, or EOF, or an immediately reportable error) is available,\ndraining what the fd holds right now into the port's own software\nbuffers (peek_byte/peek_extra/read_buf) and checking buffered\ncompleteness. The drain never parks and consumes nothing\nScheme-visible: every read is gated on a fresh zero-timeout poll, and\nthe stashed bytes are the stream every later read drains in order.\nu8-ready? keeps byte semantics — a buffered-or-readable byte IS\nu8-ready.\n\nCustom ports (SRFI 181) have no readiness contract: read! is arbitrary\nScheme with no non-blocking probe, so the old unconditional #t let a\nread-char block inside the callback. Both predicates now answer #f\nunless a complete character/byte is already buffered, or read! is\nabsent (reads are EOF forever) — probing would mean invoking user code\nfrom a predicate. Transcoded ports likewise recurse on the wrapped\nport's character readiness under both predicates, since the transcoded\nlayer emits whole re-encoded characters.\n\nThe readiness layer (byte oracle, char oracle, fd probe, drain) moves to\nsrc/port_readiness.zig so the new port-layer logic has one cohesive\nhome; the remainder of primitives_io.zig stays as a flat primitives\nfile, which the repo's file-size policy explicitly exempts from the\n1500-line cap.\n\nTests: split-UTF-8 and custom-port regressions in src/tests_port_io.zig\n(both verified to fail against the pre-review oracle), the same shapes\nend-to-end plus positive u8-ready?-at-data/EOF assertions in\ntests/scheme/process/char-ready-pipe-2511.scm, and the #2511 fixture\nconverted to th.TestContext.\n\nCo-Authored-By: ZCode <noreply@zcode.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: ZCode <noreply@zcode.ai>",
+          "timestamp": "2026-09-05T02:19:18+05:30",
+          "tree_id": "022994d23c1a5ed5e88678908773c555639682f5",
+          "url": "https://github.com/kaappi/kaappi/commit/a73a20d91887043e68992413e1fb9d74a787880e"
+        },
+        "date": 1788557505089,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.46422,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.31837,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.586003,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.041377,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004479,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047998,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.305693,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056235,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.0564,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.250974,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.690319,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.282194,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.741229,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.738736,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046287,
             "unit": "seconds"
           }
         ]
