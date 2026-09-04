@@ -166,6 +166,7 @@ its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
 | `bytecode_file.zig` | `.sbc` codec hub: shared format contract (magic, version, tags, limits), `BytecodeError`, `compilerHash`/`sourceHash`/`getSbcPath`, re-exports of the read/write halves |
 | `bytecode_file_write.zig` | Serializer: `Writer`, `writeConstant`, function collection, `writeFileWithTopLevel`/`writeFileWithBundle` |
 | `bytecode_file_read.zig` | Deserializer: `Reader`, `readConstant`, bytecode validation, `deserializeFromBuffer`, `readHeaderInfo`, `DeserializeResult`/`HeaderInfo` |
+| `port_readiness.zig` | Readiness oracles behind `char-ready?`/`u8-ready?` (kaappi#2511): byte-granular `portReadyNow` (u8-ready?), character-granular `charReadyNow` (char-ready? — a lone UTF-8 lead byte is not a ready character; the fd arm poll-gates a non-parking drain into the port's own buffers), the zero-timeout fd probe, and the custom/transcoded-port readiness contracts |
 | `disassembler.zig` | Bytecode disassembler for `(disassemble proc)` |
 | `isocline.zig` | Zig FFI wrapper for the vendored isocline line editor |
 | `main.zig` | Entry point, file execution, CLI flags, `pub const version`, `pub const panic` (the REPL loop lives in `repl.zig`) |

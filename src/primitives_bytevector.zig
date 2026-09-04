@@ -254,7 +254,7 @@ fn getOutputPort(args: []const Value, arg_idx: usize, proc_name: []const u8) Pri
 // same write buffer and reactor suspension points (KEP-0001 Phase 3).
 const portReadOneByte = primitives_io.readOneByte;
 const portWriteBytes = primitives_io.portWriteBytes;
-const portReadyNow = primitives_io.portReadyNow;
+const portReadyNow = @import("port_readiness.zig").portReadyNow;
 
 fn readU8Fn(args: []const Value) PrimitiveError!Value {
     const port = try getInputPort(args, 0, "read-u8");

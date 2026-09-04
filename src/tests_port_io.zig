@@ -1033,14 +1033,16 @@ test "#1608: GC finalization of an abandoned pipe port with a full pipe drops th
 // with no sleeps: empty with the writer alive -> #f (the next read would
 // block — the exact case the filing repro hit), data -> #t, writer closed
 // -> #t (EOF answers immediately, R7RS 6.13.1/6.13.3's #1179 rule, now
-// held on the fd path too). The pair is a loopback socket pair on Windows
-// (the sockPollReady arm), a pipe on POSIX (poll(2)).
+// held on the fd path too). Both predicates get positive assertions at
+// data and at EOF, so an always-#f implementation fails too (#2516
+// review). The pair is a loopback socket pair on Windows (the
+// sockPollReady arm), a pipe on POSIX (poll(2)).
 test "char-ready? and u8-ready? report true pipe readiness (#2511)" {
     if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
 
     const pipe = makePipe();
     _ = try definePortGlobal(vm, "rp", pipe[0], true, false);
@@ -1052,14 +1054,123 @@ test "char-ready? and u8-ready? report true pipe readiness (#2511)" {
     try std.testing.expectEqual(types.FALSE, try vm.eval("(char-ready? rp)"));
     try std.testing.expectEqual(types.FALSE, try vm.eval("(u8-ready? rp)"));
 
-    // Data arrives: ready, and the read delivers it without blocking.
+    // Data arrives: both predicates ready, and the read delivers it without
+    // blocking.
     _ = try vm.eval("(begin (write-char #\\x wp) (flush-output-port wp))");
     try std.testing.expectEqual(types.TRUE, try vm.eval("(char-ready? rp)"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(u8-ready? rp)"));
     try std.testing.expectEqual(types.makeChar('x'), try vm.eval("(read-char rp)"));
 
-    // Writer closed: at EOF the answer stays #t, and the read returns the
-    // eof-object at once.
+    // Writer closed: at EOF the answer stays #t for both — the eof read
+    // returns at once.
     _ = try vm.eval("(close-output-port wp)");
     try std.testing.expectEqual(types.TRUE, try vm.eval("(char-ready? rp)"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(u8-ready? rp)"));
     try std.testing.expectEqual(types.TRUE, try vm.eval("(eof-object? (read-line rp))"));
+}
+
+// kaappi#2516 review: byte-granular readiness is not character readiness.
+// A pipe holding only byte 0xC3 (the UTF-8 lead byte of #\é) makes the fd
+// readable, so the pre-review char-ready? answered #t — and read-char then
+// consumed the lead byte and blocked for the continuation, the exact hang
+// R7RS 6.13.1's #t guarantee forbids. char-ready? must stay #f until the
+// character completes; u8-ready? keeps byte semantics and stays #t for the
+// lone byte. No sleeps needed: each write-u8 completes synchronously before
+// its assertion, so the intermediate state is deterministic.
+test "char-ready? is #f until a split multi-byte character completes (#2516 review)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
+
+    const pipe = makePipe();
+    _ = try definePortGlobal(vm, "rp", pipe[0], true, false);
+    _ = try definePortGlobal(vm, "wp", pipe[1], false, true);
+
+    // The lead byte alone: u8-ready? #t (a byte IS ready), char-ready? #f
+    // (half a character is not). The pre-review code returned #t here —
+    // this is the assertion that fails without the completeness fix.
+    _ = try vm.eval("(begin (write-u8 195 wp) (flush-output-port wp))");
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(u8-ready? rp)"));
+    try std.testing.expectEqual(types.FALSE, try vm.eval("(char-ready? rp)"));
+
+    // The continuation byte completes #\é (0xC3 0xA9) without anything
+    // having been consumed: the predicate's drain stashed the lead byte in
+    // the port's own buffers, so read-char now returns the whole character.
+    _ = try vm.eval("(begin (write-u8 169 wp) (flush-output-port wp))");
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(char-ready? rp)"));
+    try std.testing.expectEqual(types.makeChar(0xE9), try vm.eval("(read-char rp)"));
+}
+
+// kaappi#2516 review: a truncated tail at EOF is still "ready" — read-char
+// answers at once (readUtf8Char returns the lead byte alone rather than
+// blocking), so the completeness logic must treat a quiet-but-closed fd as
+// #t, and the read must deliver the Latin-1 fallback character.
+test "char-ready? at EOF behind a truncated UTF-8 sequence (#2516 review)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
+
+    const pipe = makePipe();
+    _ = try definePortGlobal(vm, "rp", pipe[0], true, false);
+    _ = try definePortGlobal(vm, "wp", pipe[1], false, true);
+
+    _ = try vm.eval("(begin (write-u8 195 wp) (flush-output-port wp) (close-output-port wp))");
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(char-ready? rp)"));
+    // The truncated 0xC3 tail decodes as Latin-1 (#\xC3), then EOF.
+    try std.testing.expectEqual(types.makeChar(0xC3), try vm.eval("(read-char rp)"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(char-ready? rp)"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(eof-object? (read-char rp))"));
+}
+
+// kaappi#2516 review: a custom port's read! is arbitrary Scheme with no
+// readiness contract — one that delegates to an empty blocking pipe used to
+// get an unconditional #t, and the read-char after it blocked inside the
+// callback. The chosen semantics (documented in port_readiness.zig): ready
+// only when a complete character is already buffered, or when read! is
+// absent (reads are EOF forever); #f is the truthful answer otherwise,
+// because probing would mean invoking user code from a predicate.
+test "char-ready? on a custom port is #f until a character is buffered (#2516 review)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // no constructible fd pairs on WASI p1 (kaappi#2153)
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const vm = ctx.vm;
+
+    const pipe = makePipe();
+    _ = try definePortGlobal(vm, "rp", pipe[0], true, false);
+    _ = try definePortGlobal(vm, "wp", pipe[1], false, true);
+    _ = try vm.eval(
+        \\(define cp (make-custom-binary-input-port "cp"
+        \\  (lambda (bv start count)
+        \\    (read-bytevector! bv rp start (+ start 2)))
+        \\  #f #f #f))
+    );
+    // read! bounds its own range on purpose: kaappi's read-bytevector! fills
+    // the whole requested span or blocks, so a callback that forwarded the
+    // full 4096-byte count would drain the pipe and stall waiting for the
+    // rest — a real custom-port author must bound the burst the same way.
+
+    // Pipe empty: the custom port reports not-ready under both predicates
+    // (the pre-review unconditional #t failed here — this assertion fails
+    // without the fix).
+    try std.testing.expectEqual(types.FALSE, try vm.eval("(char-ready? cp)"));
+    try std.testing.expectEqual(types.FALSE, try vm.eval("(u8-ready? cp)"));
+
+    // Data arrives on the underlying pipe: still #f — read!'s readiness is
+    // unknowable without invoking it, and stays well-defined either way.
+    _ = try vm.eval("(begin (write-string \"ab\" wp) (flush-output-port wp))");
+    try std.testing.expectEqual(types.FALSE, try vm.eval("(char-ready? cp)"));
+
+    // One read through the custom port pulls the burst into read_buf; the
+    // leftover 'b' is now buffered, so the predicates hold — and drain back
+    // to #f once the buffer empties.
+    try std.testing.expectEqual(types.makeChar('a'), try vm.eval("(read-char cp)"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(char-ready? cp)"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(u8-ready? cp)"));
+    try std.testing.expectEqual(types.makeChar('b'), try vm.eval("(read-char cp)"));
+    try std.testing.expectEqual(types.FALSE, try vm.eval("(char-ready? cp)"));
 }
