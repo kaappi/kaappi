@@ -81,6 +81,19 @@ assert_exit_code "(exit 0) after mid-file error exits 1 (#2512)" 1 "$KAAPPI" "$T
 printf '(car 1)\n(exit 5)\n' > "$TMPDIR_TESTS/exit5.scm"
 assert_exit_code "(exit 5) after uncaught error exits 5 (#2512)" 5 "$KAAPPI" "$TMPDIR_TESTS/exit5.scm"
 
+# emergency-exit (R7RS 6.14) is governed by the same rule: skipping the
+# cleanup — the dynamic winds and port flush that (exit) performs — is the
+# emergency part, not skipping the run's verdict. Without this it was a side
+# door around the #2512 upgrade (PR #2519 review).
+printf '(car 1)\n(emergency-exit 0)\n' > "$TMPDIR_TESTS/eexit0.scm"
+assert_exit_code "(emergency-exit 0) after uncaught error exits 1 (#2512)" 1 "$KAAPPI" "$TMPDIR_TESTS/eexit0.scm"
+
+# A clean script's emergency exit keeps exactly the code it asked for.
+printf '(display "ok")\n(emergency-exit 0)\n' > "$TMPDIR_TESTS/eexit0-clean.scm"
+assert_exit_code "clean script (emergency-exit 0) exits 0" 0 "$KAAPPI" "$TMPDIR_TESTS/eexit0-clean.scm"
+printf '(display "ok")\n(emergency-exit 7)\n' > "$TMPDIR_TESTS/eexit7-clean.scm"
+assert_exit_code "clean script (emergency-exit 7) exits 7" 7 "$KAAPPI" "$TMPDIR_TESTS/eexit7-clean.scm"
+
 # A clean script's own (exit 0) is untouched
 printf '(display "ok")\n(exit 0)\n' > "$TMPDIR_TESTS/exit0-clean.scm"
 assert_exit_code "clean script (exit 0) exits 0" 0 "$KAAPPI" "$TMPDIR_TESTS/exit0-clean.scm"

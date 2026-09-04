@@ -170,7 +170,14 @@ fn exitFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn emergencyExitFn(args: []const Value) PrimitiveError!Value {
-    std.process.exit(exitCode(args));
+    // Same #2512 rule as `exit`: an emergency exit from a run that already
+    // reported an uncaught top-level error may not mask it with an explicit
+    // 0. Skipping the cleanup — `exit`'s dynamic winds and port flush — is
+    // the emergency part; skipping the run's verdict is not. Deliberately
+    // still no `suppress_exit` consultation: emergency-exit terminating a
+    // `kaappi test` worker before it can emit its result is a pre-existing
+    // gap, filed separately (kaappi#2521), not something to half-fix here.
+    std.process.exit(effectiveExitCode(exitCode(args), toplevel_driver.script_had_error));
 }
 
 fn getEnvVar(args: []const Value) PrimitiveError!Value {
