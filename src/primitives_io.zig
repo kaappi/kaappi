@@ -10,6 +10,7 @@ const reader_mod = @import("reader.zig");
 const primitives_control = @import("primitives_control.zig");
 const fiber_mod = @import("fiber.zig");
 const reactor_mod = @import("reactor.zig");
+const port_readiness = @import("port_readiness.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
@@ -248,7 +249,10 @@ pub fn maybeSetNonblocking(port: *types.Port) void {
 /// PeekNamedPipe gate that synthesizes EAGAIN (platform_win_pipe.zig; a
 /// sequential program's pipe port keeps plain blocking _read and its exact
 /// syscall profile). Same return/errno contract as platform.read.
-fn portFdRead(port: *types.Port, buf: [*]u8, len: usize) isize {
+///
+/// Pub for port_readiness.zig's character-completing drain, which reads only
+/// under a fresh zero-timeout poll of the fd — never blind, never parking.
+pub fn portFdRead(port: *types.Port, buf: [*]u8, len: usize) isize {
     if (comptime platform.is_windows) {
         if (port.fd_state.is_socket) return platform.sockRecv(port.fd, buf, len);
         if (port.fd_state.is_pipe and port.nonblocking) return platform.pipeRead(port.fd, buf, len);
@@ -1896,11 +1900,17 @@ fn readLineFn(args: []const Value) PrimitiveError!Value {
     return gc.allocString(line_buf.items) catch return PrimitiveError.OutOfMemory;
 }
 
+/// R7RS 6.13.1 readiness oracle behind char-ready? — kaappi#2511: char-ready?
+/// must return #t only when a *complete* character is available (or the port
+/// is at EOF / about to raise), so a lone UTF-8 lead byte on a live fd
+/// reports #f rather than letting read-char consume it and block for the
+/// continuation. The oracle, the zero-timeout fd probe, and the
+/// character-completing drain live in port_readiness.zig, alongside
+/// portReadyNow (the byte-granular twin u8-ready? uses via
+/// primitives_bytevector).
 fn charReadyP(args: []const Value) PrimitiveError!Value {
     const port = try getInputPort(args, 0, "char-ready?");
-    if (port.peek_byte != null or port.peek_extra_len > 0) return types.TRUE;
-    // For simplicity, always return #t (non-blocking check not worth the complexity)
-    return types.TRUE;
+    return if (port_readiness.charReadyNow(port)) types.TRUE else types.FALSE;
 }
 
 fn writeCharFn(args: []const Value) PrimitiveError!Value {
