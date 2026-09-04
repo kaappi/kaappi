@@ -153,10 +153,10 @@ A **note** is the channel for something a verdict wants on the record. It
 travels in its own `note` field, prints under the file's `PASS`/`FAIL`/`ERROR`
 line in text mode along with whatever the worker wrote to stdout/stderr, and
 is tallied as `noted` in the summary — errored files included, since both
-note-bearing verdicts (the `(exit 0)` that failed to waive a top-level error,
-#2512; an unexplained nonzero exit request) are errors. The diagnostic keeps
-`error_message` to itself, so a note lands on the transcript without
-displacing anything.
+note-bearing verdicts (the `(exit 0)` that failed to waive a top-level
+error, kaappi#2512; an unexplained nonzero exit request) are errors. The
+diagnostic keeps `error_message` to itself, so a note lands on the
+transcript without displacing anything.
 
 ## JSON schema
 
