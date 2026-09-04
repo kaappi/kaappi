@@ -150,17 +150,19 @@ green under `run-all.sh` and `1 errored`, exit 1, under `kaappi test`.
 *both* verdict rules and requires them to match.
 
 A **note** is the channel for something a verdict wants on the record. It
-travels in `error_message`, prints under the file's `PASS`/`FAIL`/`ERROR` line
-in text mode along with whatever the worker wrote to stdout/stderr, and is
-tallied as `noted` in the summary. So the `(exit 0)` that failed to waive a
-top-level error (#2512), or an unexplained nonzero exit request, is visible
-on the transcript rather than either vanishing or replacing the diagnostic.
+travels in its own `note` field, prints under the file's `PASS`/`FAIL`/`ERROR`
+line in text mode along with whatever the worker wrote to stdout/stderr, and
+is tallied as `noted` in the summary — errored files included, since both
+note-bearing verdicts (the `(exit 0)` that failed to waive a top-level error,
+#2512; an unexplained nonzero exit request) are errors. The diagnostic keeps
+`error_message` to itself, so a note lands on the transcript without
+displacing anything.
 
 ## JSON schema
 
-One object per line (JSON Lines). Prose fields (`error_message`, failure
-`expected`/`actual`) are human-oriented and may be reworded; the structural
-fields (counts, `kind`, `error`) are the stable contract.
+One object per line (JSON Lines). Prose fields (`error_message`, `note`,
+failure `expected`/`actual`) are human-oriented and may be reworded; the
+structural fields (counts, `kind`, `error`) are the stable contract.
 
 Per-file object:
 
@@ -173,6 +175,7 @@ Per-file object:
   "pass": 77, "fail": 0, "xpass": 0, "xfail": 0, "skip": 0,
   "error": false,
   "error_message": null,
+  "note": null,
   "duration_ms": 203.4,
   "failures": [
     {
@@ -188,9 +191,13 @@ Per-file object:
 ```
 
 - `suite` — the outermost `test-begin` name, or `null`.
-- `error_message` — the diagnostic for an errored file, **or** the note for a
-  file whose verdict tolerated something (`"error": false` with a non-null
-  message). Never assume `error_message != null` implies `error`.
+- `error_message` — the diagnostic for an errored file: the worker's own
+  message when it has one, or the captured output tail the parent attaches
+  when it does not. Never assume `error_message != null` implies `error`.
+- `note` — the verdict's note (see above), `null` when the verdict has
+  nothing to add. Independent of `error`: the note-bearing verdicts are
+  errors, so expecting `note != null` only on `"error": false` rows will
+  miss every note there is.
 - `tests` — `pass + fail + xpass + xfail + skip`.
 - `kind` — `"fail"` (an expected pass that failed) or `"xpass"` (an
   expected-fail that unexpectedly passed). `xfail` (expected fail) and `skip`

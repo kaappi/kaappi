@@ -261,11 +261,16 @@ fn buildFileJson(w: *std.Io.Writer, vm: *VM, file_path: []const u8, toplevel_err
     );
     try w.writeAll(",\"error\":");
     try w.writeAll(if (verdict.errored) "true" else "false");
-    // A caller-supplied message (only the collector-setup failure has one) wins;
-    // otherwise the verdict's note travels here — e.g. the explicit (exit 0)
-    // that can no longer waive a top-level error (kaappi#2512).
+    // The diagnostic (a caller-supplied message — only the collector-setup
+    // failure has one) and the verdict's note are separate fields. The note
+    // used to ride in `error_message`, which both froze `Totals.noted` at
+    // zero — every note-bearing verdict is errored, and the tally counted
+    // only non-errored messages — and displaced the diagnostic a JSON
+    // consumer should see for an errored file (#2519 review).
     try w.writeAll(",\"error_message\":");
-    if (err_msg orelse verdict.note) |m| try lsp_diagnostic.writeJsonString(w, m) else try w.writeAll("null");
+    if (err_msg) |m| try lsp_diagnostic.writeJsonString(w, m) else try w.writeAll("null");
+    try w.writeAll(",\"note\":");
+    if (verdict.note) |n| try lsp_diagnostic.writeJsonString(w, n) else try w.writeAll("null");
     try w.print(",\"duration_ms\":{d:.3},\"failures\":[", .{duration_ms});
 
     var first = true;
@@ -890,9 +895,33 @@ const FileResultJson = struct {
     skip: u64 = 0,
     @"error": bool = false,
     error_message: ?[]const u8 = null,
+    /// The verdict's note — a fact the verdict wants on the record (the
+    /// explicit `(exit 0)` that cannot waive a top-level error, an
+    /// unexplained nonzero exit). Independent of `error_message`: the
+    /// diagnostic keeps its own field, whatever the verdict.
+    note: ?[]const u8 = null,
     duration_ms: f64 = 0,
     failures: []FailureJson = &.{},
 };
+
+/// Fold one file's parsed result into the running totals. `signaled` says
+/// the worker died by signal, in which case its own `error` flag understates
+/// the file. A note is tallied whatever the verdict: the note-bearing
+/// verdicts are almost always errors, which is exactly why tallying only
+/// non-errored messages left `noted` frozen at zero (#2519 review).
+fn tallyFileResult(r: FileResultJson, signaled: bool, totals: *Totals) void {
+    totals.files += 1;
+    totals.pass += r.pass;
+    totals.fail += r.fail;
+    totals.xpass += r.xpass;
+    totals.xfail += r.xfail;
+    totals.skip += r.skip;
+    const errored = r.@"error" or signaled;
+    if (errored) totals.errors += 1;
+    if (r.note != null) totals.noted += 1;
+    const failed = errored or r.fail > 0 or r.xpass > 0;
+    if (failed) totals.files_failed += 1;
+}
 
 fn accumulateAndReport(allocator: std.mem.Allocator, file: []const u8, result_json: ?[]u8, spawn: SpawnResult, totals: *Totals, json: bool) void {
     const bytes = result_json orelse {
@@ -911,17 +940,8 @@ fn accumulateAndReport(allocator: std.mem.Allocator, file: []const u8, result_js
     defer parsed.deinit();
     const r = parsed.value;
 
-    totals.files += 1;
-    totals.pass += r.pass;
-    totals.fail += r.fail;
-    totals.xpass += r.xpass;
-    totals.xfail += r.xfail;
-    totals.skip += r.skip;
+    tallyFileResult(r, spawn.signaled, totals);
     const errored = r.@"error" or spawn.signaled;
-    if (errored) totals.errors += 1;
-    if (!errored and r.error_message != null) totals.noted += 1;
-    const failed = errored or r.fail > 0 or r.xpass > 0;
-    if (failed) totals.files_failed += 1;
 
     if (json) {
         // Re-serialize from the parsed object so the parent is the single
@@ -946,11 +966,18 @@ fn reportFileText(file: []const u8, r: FileResultJson, errored: bool, spawn: Spa
     if (errored) {
         const line = std.fmt.bufPrint(&buf, "  ERROR {s}\n", .{file}) catch "  ERROR (file)\n";
         writeStdout(line);
-        // A verdict note (the explicit (exit 0) that cannot waive the error,
-        // kaappi#2512) names a fact the captured output cannot.
+        // The worker's own diagnostic when it has one (the rare
+        // caller-supplied message), then the verdict note — the explicit
+        // (exit 0) that cannot waive the error (kaappi#2512) — as separate
+        // facts, now that the note no longer rides in `error_message`.
         if (r.error_message) |m| {
-            writeStdout("        note: ");
+            writeStdout("        ");
             writeStdout(m);
+            writeStdout("\n");
+        }
+        if (r.note) |n| {
+            writeStdout("        note: ");
+            writeStdout(n);
             writeStdout("\n");
         }
         printCapturedOutput(spawn.output);
@@ -967,9 +994,9 @@ fn reportFileText(file: []const u8, r: FileResultJson, errored: bool, spawn: Spa
     // A note rides along with a verdict (the explicit (exit 0) that can no
     // longer waive a top-level error, say). Print it plus whatever the worker
     // wrote, so the fact behind the verdict is still on the transcript.
-    if (r.error_message) |m| {
+    if (r.note) |n| {
         writeStdout("        note: ");
-        writeStdout(m);
+        writeStdout(n);
         writeStdout("\n");
         printCapturedOutput(spawn.output);
     }
@@ -1052,6 +1079,10 @@ fn writeFileObject(w: *std.Io.Writer, r: FileResultJson, error_message_override:
     try w.writeAll(",\"error_message\":");
     const msg = r.error_message orelse error_message_override;
     if (msg) |m| try lsp_diagnostic.writeJsonString(w, m) else try w.writeAll("null");
+    // The verdict's note is its own field here too — same shape contract as
+    // the worker's buildFileJson (both are pinned by round-trip tests).
+    try w.writeAll(",\"note\":");
+    if (r.note) |n| try lsp_diagnostic.writeJsonString(w, n) else try w.writeAll("null");
     try w.print(",\"duration_ms\":{d:.3},\"failures\":[", .{r.duration_ms});
     for (r.failures, 0..) |f, i| {
         if (i > 0) try w.writeByte(',');
@@ -1420,6 +1451,69 @@ test "writeFileObject uses the error-message override only when none is present"
     defer parsed.deinit();
     try testing.expect(parsed.value.@"error");
     try testing.expectEqualStrings("captured diagnostic", parsed.value.error_message.?);
+}
+
+// #2519 review: the verdict's note must be a field of its own. Riding in
+// `error_message` made `Totals.noted` unreachable — the tally counted only
+// non-errored messages, and every note-bearing verdict is errored — and a
+// JSON consumer reading an errored file got the note sentence where the
+// diagnostic belongs, with the diagnostic itself nowhere.
+test "writeFileObject keeps the note out of error_message" {
+    var aw: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+    try writeFileObject(&aw.writer, .{
+        .file = "t.scm",
+        .@"error" = true,
+        .error_message = "the diagnostic",
+        .note = "uncaught top-level error; an explicit (exit 0) cannot waive it (kaappi#2512)",
+    }, null);
+    const parsed = try std.json.parseFromSlice(FileResultJson, testing.allocator, aw.written(), .{ .ignore_unknown_fields = true });
+    defer parsed.deinit();
+    try testing.expect(parsed.value.@"error");
+    try testing.expectEqualStrings("the diagnostic", parsed.value.error_message.?);
+    try testing.expect(parsed.value.note != null);
+    try testing.expect(std.mem.indexOf(u8, parsed.value.note.?, "(exit 0)") != null);
+}
+
+test "tallyFileResult counts a noted file whether or not it errored" {
+    var t: Totals = .{};
+    tallyFileResult(.{ .file = "a", .@"error" = true, .note = "n" }, false, &t);
+    try testing.expectEqual(@as(u64, 1), t.errors);
+    try testing.expectEqual(@as(u64, 1), t.noted);
+    tallyFileResult(.{ .file = "b", .note = "n" }, false, &t);
+    try testing.expectEqual(@as(u64, 1), t.errors);
+    try testing.expectEqual(@as(u64, 2), t.noted);
+    tallyFileResult(.{ .file = "c" }, false, &t);
+    try testing.expectEqual(@as(u64, 2), t.noted);
+    // A worker killed by signal is an error like any other, and without a
+    // note it is not a noted one.
+    tallyFileResult(.{ .file = "d" }, true, &t);
+    try testing.expectEqual(@as(u64, 2), t.errors);
+    try testing.expectEqual(@as(u64, 2), t.noted);
+    try testing.expectEqual(@as(u64, 4), t.files);
+}
+
+test "buildFileJson separates the verdict note from the diagnostic" {
+    // The worker side of the contract, through the real serializer: an
+    // errored file with an (exit 0) on record carries both its caller
+    // message and the note, each in its own field.
+    const th = @import("testing_helpers.zig");
+    var tc: th.TestContext = undefined;
+    try tc.init();
+    defer tc.deinit();
+    tc.vm.exit_requested = true;
+    tc.vm.exit_code = 0;
+
+    var aw: std.Io.Writer.Allocating = .init(tc.vm.gc.allocator);
+    defer aw.deinit();
+    try buildFileJson(&aw.writer, tc.vm, "t.scm", true, "test collector setup failed", 1.0);
+
+    const parsed = try std.json.parseFromSlice(FileResultJson, tc.vm.gc.allocator, aw.written(), .{ .ignore_unknown_fields = true });
+    defer parsed.deinit();
+    try testing.expect(parsed.value.@"error");
+    try testing.expectEqualStrings("test collector setup failed", parsed.value.error_message.?);
+    try testing.expect(parsed.value.note != null);
+    try testing.expect(std.mem.indexOf(u8, parsed.value.note.?, "(exit 0)") != null);
 }
 
 // A test file's SRFI-64 failure epilogue often calls `(exit 1)`. The worker
