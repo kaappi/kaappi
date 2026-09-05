@@ -31,7 +31,7 @@
 //! driver at each pipeline stage boundary. It is deliberately trivial — a plain
 //! enum store and a slice store, no allocation, no locking — matching the other
 //! process-wide flags in this codebase (`ir.optimize_enabled`,
-//! `main.script_had_error`, `toplevel_driver.diagnostic_format`). It is only ever
+//! `toplevel_driver.script_had_error`, `toplevel_driver.diagnostic_format`). It is only ever
 //! *read* from the panic handler, and only written on the single main pipeline
 //! thread before any SRFI-18 worker exists for a given file, so a stale value at
 //! worst mislabels a crash; it can never misdirect live execution. The stored

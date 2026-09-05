@@ -2,7 +2,9 @@
 # Exit code tests
 # Uncaught read/compile/runtime errors in a script (file or stdin) must make
 # the process exit non-zero so test runners can't report PASS on errored
-# files. Explicit (exit N) always wins. Interactive REPL is unaffected.
+# files. The driver's error flag wins even over an explicit (exit 0)
+# (kaappi#2512); an explicit non-zero (exit N) stays exactly N. Interactive
+# REPL is unaffected.
 
 set -euo pipefail
 
@@ -65,13 +67,40 @@ assert_exit_code "read error exits 1" 1 "$KAAPPI" "$TMPDIR_TESTS/read-err.scm"
 # Missing file exits non-zero
 assert_exit_code "missing file exits 1" 1 "$KAAPPI" "$TMPDIR_TESTS/does-not-exist.scm"
 
-# Explicit (exit 0) wins over earlier uncaught error (R7RS: exit sets the code)
+# The driver's error flag wins over a later explicit (exit 0) (#2512): the
+# script continues after an uncaught error, so its epilogue must not be able
+# to report the run as successful.
 printf '(car 1)\n(exit 0)\n' > "$TMPDIR_TESTS/exit0.scm"
-assert_exit_code "explicit (exit 0) after error exits 0" 0 "$KAAPPI" "$TMPDIR_TESTS/exit0.scm"
+assert_exit_code "(exit 0) after uncaught error exits 1 (#2512)" 1 "$KAAPPI" "$TMPDIR_TESTS/exit0.scm"
 
-# Guarded error is caught, exits 0
-echo '(import (scheme base)) (guard (e (#t (display "caught"))) (car 1))' > "$TMPDIR_TESTS/guarded.scm"
-assert_exit_code "guarded error exits 0" 0 "$KAAPPI" "$TMPDIR_TESTS/guarded.scm"
+# The #2512 repro shape exactly: error mid-file, run continues, (exit 0).
+printf '(define bad (vector-ref (vector 1 2) 99))\n(exit 0)\n' > "$TMPDIR_TESTS/exit0b.scm"
+assert_exit_code "(exit 0) after mid-file error exits 1 (#2512)" 1 "$KAAPPI" "$TMPDIR_TESTS/exit0b.scm"
+
+# A non-zero explicit status stays as given — the flag only upgrades 0 (#2512)
+printf '(car 1)\n(exit 5)\n' > "$TMPDIR_TESTS/exit5.scm"
+assert_exit_code "(exit 5) after uncaught error exits 5 (#2512)" 5 "$KAAPPI" "$TMPDIR_TESTS/exit5.scm"
+
+# emergency-exit (R7RS 6.14) is governed by the same rule: skipping the
+# cleanup — the dynamic winds and port flush that (exit) performs — is the
+# emergency part, not skipping the run's verdict. Without this it was a side
+# door around the #2512 upgrade (PR #2519 review).
+printf '(car 1)\n(emergency-exit 0)\n' > "$TMPDIR_TESTS/eexit0.scm"
+assert_exit_code "(emergency-exit 0) after uncaught error exits 1 (#2512)" 1 "$KAAPPI" "$TMPDIR_TESTS/eexit0.scm"
+
+# A clean script's emergency exit keeps exactly the code it asked for.
+printf '(display "ok")\n(emergency-exit 0)\n' > "$TMPDIR_TESTS/eexit0-clean.scm"
+assert_exit_code "clean script (emergency-exit 0) exits 0" 0 "$KAAPPI" "$TMPDIR_TESTS/eexit0-clean.scm"
+printf '(display "ok")\n(emergency-exit 7)\n' > "$TMPDIR_TESTS/eexit7-clean.scm"
+assert_exit_code "clean script (emergency-exit 7) exits 7" 7 "$KAAPPI" "$TMPDIR_TESTS/eexit7-clean.scm"
+
+# A clean script's own (exit 0) is untouched
+printf '(display "ok")\n(exit 0)\n' > "$TMPDIR_TESTS/exit0-clean.scm"
+assert_exit_code "clean script (exit 0) exits 0" 0 "$KAAPPI" "$TMPDIR_TESTS/exit0-clean.scm"
+
+# A guarded error is caught, never sets the flag, so (exit 0) stays 0
+printf '(import (scheme base)) (guard (e (#t (display "caught"))) (car 1)) (exit 0)\n' > "$TMPDIR_TESTS/exit0-guard.scm"
+assert_exit_code "guarded error then (exit 0) exits 0" 0 "$KAAPPI" "$TMPDIR_TESTS/exit0-guard.scm"
 
 # A top-level cond-expand must splice its matched clause's body as top-level
 # forms, so a nested import runs as a declaration rather than compiling as an
@@ -82,6 +111,7 @@ assert_exit_code "top-level cond-expand nested import exits 0 (#1661)" 0 "$KAAPP
 # Stdin scripts behave the same
 assert_stdin_exit_code "clean stdin exits 0" 0 '(display "ok")'
 assert_stdin_exit_code "stdin runtime error exits 1" 1 '(car 1)'
+assert_stdin_exit_code "stdin error then (exit 0) exits 1 (#2512)" 1 '(car 1) (exit 0)'
 
 # CLI usage errors exit 2 (getopt convention), distinct from script errors.
 # A missing argument to a value-taking flag must not silently exit 0.

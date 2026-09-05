@@ -123,7 +123,7 @@ once:
 - `expander.expandMacro` — `expand` (the sole expansion entry point).
 - `compiler.compile` / `compileMultiple` — the outermost `emit` scope.
 - `native_compiler` — `read`, `llvm-emit`, `link`.
-- `main.zig` run/compile drivers — `read`, `execute`, and cache HIT/MISS.
+- `toplevel_driver.zig` run/compile drivers — `read`, `execute`, and cache HIT/MISS.
 
 ## What `--timings` cannot tell you: who the caller is
 

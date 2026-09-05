@@ -12,7 +12,7 @@ example that should run indefinitely in bounded memory:
 ((call/cc call/cc) (call/cc call/cc))
 ```
 
-The batch WASI `_start` path (`main.runFile`) is unchanged; stepping is purely
+The batch WASI `_start` path (`toplevel_driver.runFile`) is unchanged; stepping is purely
 additive.
 
 ## Why the hard part was already done

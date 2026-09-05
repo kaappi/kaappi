@@ -9,6 +9,7 @@ const memory = @import("memory.zig");
 const reader_mod = @import("reader.zig");
 const compiler_mod = @import("compiler.zig");
 const printer = @import("printer.zig");
+const toplevel_driver = @import("toplevel_driver.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
@@ -117,8 +118,20 @@ fn exitCode(args: []const Value) u8 {
     return 0;
 }
 
+/// The status `(exit ...)` terminates the process with: the explicit code,
+/// except that a script run which already reported an uncaught top-level
+/// error may not mask it with an explicit 0 — the driver's flag upgrades 0
+/// to 1, while any non-zero request stays exactly as given (kaappi#2512).
+/// Without this, the R7RS test-suite idiom of a file of top-level forms
+/// ending in `(exit 0)` reported success on a run whose errors scrolled
+/// past on stderr, because the top-level driver recovers and continues
+/// after each uncaught error.
+pub fn effectiveExitCode(explicit: u8, script_had_error: bool) u8 {
+    return if (explicit == 0 and script_had_error) 1 else explicit;
+}
+
 fn exitFn(args: []const Value) PrimitiveError!Value {
-    const code = exitCode(args);
+    var code = exitCode(args);
     if (vm_mod.vm_instance) |vm| {
         // `kaappi test` worker: record the request but don't terminate, so the
         // worker still reaches its result-emission step. A test file's SRFI-64
@@ -129,6 +142,12 @@ fn exitFn(args: []const Value) PrimitiveError!Value {
             vm.exit_code = code;
             return types.VOID;
         }
+        // The flag wins over an explicit `(exit 0)` (kaappi#2512). Consulted
+        // here — process state the driver set, same as `suppress_exit` above —
+        // and after the suppress check, so the worker's recorded request keeps
+        // the code the file actually asked for and `resolveVerdict` applies
+        // its own semantics. REPL sessions never set the flag.
+        code = effectiveExitCode(code, toplevel_driver.script_had_error);
         var i = vm.wind_count;
         while (i > 0) {
             i -= 1;
@@ -151,7 +170,14 @@ fn exitFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn emergencyExitFn(args: []const Value) PrimitiveError!Value {
-    std.process.exit(exitCode(args));
+    // Same #2512 rule as `exit`: an emergency exit from a run that already
+    // reported an uncaught top-level error may not mask it with an explicit
+    // 0. Skipping the cleanup — `exit`'s dynamic winds and port flush — is
+    // the emergency part; skipping the run's verdict is not. Deliberately
+    // still no `suppress_exit` consultation: emergency-exit terminating a
+    // `kaappi test` worker before it can emit its result is a pre-existing
+    // gap, filed separately (kaappi#2521), not something to half-fix here.
+    std.process.exit(effectiveExitCode(exitCode(args), toplevel_driver.script_had_error));
 }
 
 fn getEnvVar(args: []const Value) PrimitiveError!Value {
@@ -553,4 +579,16 @@ fn parseTimeType(name: []const u8) ?types.TimeType {
     if (std.mem.eql(u8, name, "time-monotonic")) return .monotonic;
     if (std.mem.eql(u8, name, "time-duration")) return .duration;
     return null;
+}
+
+test "effectiveExitCode: a reported script error upgrades (exit 0) only (#2512)" {
+    // A clean run keeps exactly what (exit ...) asked for; a run that already
+    // reported an uncaught top-level error may not mask it with an explicit 0,
+    // while any non-zero request stays as given.
+    try std.testing.expectEqual(@as(u8, 0), effectiveExitCode(0, false));
+    try std.testing.expectEqual(@as(u8, 1), effectiveExitCode(0, true));
+    try std.testing.expectEqual(@as(u8, 1), effectiveExitCode(1, false));
+    try std.testing.expectEqual(@as(u8, 1), effectiveExitCode(1, true));
+    try std.testing.expectEqual(@as(u8, 5), effectiveExitCode(5, true));
+    try std.testing.expectEqual(@as(u8, 255), effectiveExitCode(255, true));
 }

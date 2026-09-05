@@ -345,6 +345,105 @@ pub const QuietStderr = struct {
     }
 };
 
+/// Redirect the process's real stdout (fd 1) away for the receiver's
+/// lifetime, restoring it on `deinit` — for tests that drive code printing
+/// to stdout (`compileFile`'s `Compiled <src> -> <dst>` line, REPL result
+/// printing, …).
+///
+/// This is not the cosmetic concern `QuietStderr` addresses; under
+/// `zig build test` fd 1 is load-bearing. The test binary runs under the
+/// build runner's server protocol (`--listen=-`, `std.zig.Server` over
+/// fd 1), so a raw write from inside a test splices plain text into the
+/// message channel: the runner parses it as a header — "Comp" as the tag,
+/// "iled" as a ~1.7 GB body length — and blocks reading a body that never
+/// arrives. With no per-test timeout configured that block is forever, at
+/// zero CPU: the whole-suite wedge PR #2519 shipped, green on the
+/// direct-binary CI legs (Windows/BSD VMs, where fd 1 is an ordinary
+/// terminal) and hung on every `zig build test` leg. Run the test binary
+/// directly and the same write is harmless — which is exactly why the bug
+/// survived a local pass.
+///
+/// WASI has neither dup nor a null device (kaappi#2153), so the comptime
+/// bails leave the receiver inert there.
+pub const QuietStdout = struct {
+    /// The saved original stdout, valid while `active`.
+    saved: platform.fd_t = -1,
+    /// Whether fd 1 was actually redirected; inert until it is.
+    active: bool = false,
+
+    /// Redirect fd 1 onto the null sink. Inert (not an error) when the swap
+    /// cannot be made: the caller's output then simply stays on the real
+    /// stdout — fine for a direct binary run, but the test must not rely on
+    /// that under `zig build test`.
+    pub fn init(self: *QuietStdout) void {
+        if (comptime platform.is_wasm) return;
+        const devnull = platform.openNullSink() catch return;
+        defer _ = platform.close(devnull);
+        _ = self.initOnto(devnull);
+    }
+
+    /// Redirect fd 1 onto `sink`, which the caller keeps open for the
+    /// receiver's lifetime. Returns false — leaving the receiver inert —
+    /// when the swap cannot be made.
+    pub fn initOnto(self: *QuietStdout, sink: platform.fd_t) bool {
+        if (comptime platform.is_wasm) return false;
+        const saved = platform.dup(1);
+        if (saved < 0) return false;
+        if (platform.dup2(sink, 1) < 0) {
+            _ = platform.close(saved);
+            return false;
+        }
+        self.saved = saved;
+        self.active = true;
+        return true;
+    }
+
+    /// Point fd 1 back at the original stdout. A no-op on an inert receiver.
+    /// See `QuietStderr.deinit` for why the WASI comptime guard must be the
+    /// first statement: naming `dup`/`dup2` at all generates the import
+    /// wasmtime refuses (kaappi#2447).
+    pub fn deinit(self: *QuietStdout) void {
+        if (comptime platform.is_wasm) return;
+        if (!self.active) return;
+        _ = platform.dup2(self.saved, 1);
+        _ = platform.close(self.saved);
+        self.saved = -1;
+        self.active = false;
+    }
+};
+
+test "QuietStdout routes fd 1 onto the sink and restores it" {
+    if (comptime platform.is_wasm) return error.SkipZigTest;
+    const pair = makePipeFdPair();
+    defer closeFd(pair[0]);
+    defer closeFd(pair[1]);
+
+    // Asserted, not skipped: a false here means the dup/dup2 juggling is
+    // broken, and every protocol-safety test relying on the helper would be
+    // writing into the runner's message channel again.
+    var quiet: QuietStdout = .{};
+    try testing.expect(quiet.initOnto(pair[1]));
+    // While active, a raw fd-1 write lands in the pipe — exactly the route
+    // writeStdout takes — and stays there until read.
+    const msg = "into the pipe";
+    _ = platform.write(1, msg.ptr, msg.len);
+    quiet.deinit();
+    try testing.expect(!quiet.active);
+
+    var buf: [64]u8 = undefined;
+    const n = platform.read(pair[0], &buf, buf.len);
+    try testing.expectEqual(@as(isize, @intCast(msg.len)), n);
+    try testing.expectEqualStrings(msg, buf[0..@intCast(n)]);
+
+    // No EOF read here: pair[1] stays open until the defers above, and a
+    // pipe only reports EOF once every write end is closed — an EOF probe
+    // would block the test forever. fd 1 being a valid, distinct descriptor
+    // again after the restore is checked the sibling's way instead.
+    const restored = platform.dup(1);
+    try testing.expect(restored >= 0);
+    if (restored >= 0) platform.close(restored);
+}
+
 test "QuietStderr routes fd 2 onto the sink and restores it" {
     if (comptime platform.is_wasm) return error.SkipZigTest;
     const pair = makePipeFdPair();
