@@ -18,7 +18,7 @@ here obeys.
 |------|------|
 | `src/types_process.zig` | The `Process` heap type, the status domain (`decodeStatus`), and the one non-blocking reap every layer shares |
 | `src/primitives_process.zig` | Everything platform-independent: option parsing, redirection validation, the zombie sweeps, the fiber park, the `run-process` Scheme source |
-| `src/process_posix.zig` | `posix_spawnp`, file actions, process groups, `waitpid`/pidfd |
+| `src/process_posix.zig` | `posix_spawnp` (fast path) and the fork + exec route, file actions, process groups, `waitpid`/pidfd |
 | `src/process_win.zig` | `CreateProcessW`, the explicit inherit list, Job Objects, `GetExitCodeProcess` |
 | `src/reactor.zig` | `registerProcess`/`cancelProcessWatch`: kqueue `EVFILT_PROC`, Linux `pidfd_open` + epoll, a Windows process HANDLE in the polled set |
 | `src/vm_bootstrap.zig` | Installs `run-process`'s Scheme body over its stub |
@@ -60,12 +60,27 @@ process creation); and under `--sandbox`, because every spec is
 
 ## Spawn
 
-`posix_spawnp` on POSIX, `CreateProcessW` on Windows. No `fork` anywhere:
-Kaappi has SRFI-18 OS threads, a reactor holding live kernel objects, and a
-Windows tier, and each of the three rules `fork` out on its own. There is no
-pre-exec hook either — Python kept `preexec_fn` for compatibility and has
-spent a decade regretting it — so every knob between spawn and exec is a
-named option.
+`posix_spawnp` on POSIX, `CreateProcessW` on Windows — except the two cases
+the route table (`process_posix.routeFor`) sends down a fork + exec path:
+OpenBSD, whose userland `posix_spawn` cannot report a child's exec failure
+(kaappi#2456), and since kaappi#2517 a `directory:` spawn on a build whose
+comptime gate for `posix_spawn_file_actions_addchdir_np` is false — the
+gnu.2.28-floored release binaries and NetBSD — where the forked child
+chdirs before the exec, exactly what glibc's `addchdir_np` performs on the
+vforked child inside `posix_spawn`. The floor is the *build target's*, not
+the host's, and before the fallback those binaries rejected `directory:`
+(KP3007) on every Linux host however new its glibc.
+
+The fast path never forks: Kaappi has SRFI-18 OS threads, a reactor holding
+live kernel objects, and a Windows tier, and each of the three argues
+against a fork-per-spawn. The fork route is the narrow exception for what
+libc cannot express: its child performs only async-signal-safe calls between
+fork and exec, and reports its exec (or chdir) errno through a CLOEXEC
+error pipe — CPython's mechanism — so the parent resumes exactly at the
+exec, the same property the vfork-based spawns have natively. There is no
+pre-exec hook on any path — Python kept `preexec_fn` for compatibility and
+has spent a decade regretting it — so every knob between spawn and exec is
+a named option.
 
 Descriptors are closed by default, with no allowlist: a child inherits
 exactly slots 0, 1 and 2. That is what keeps the reactor's kqueue/epoll fd,

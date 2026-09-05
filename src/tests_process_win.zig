@@ -205,8 +205,10 @@ test "process/win: directory: runs the child elsewhere" {
     defer ctx.deinit();
     const vm = ctx.vm;
     _ = try vm.eval("(import (kaappi process) (scheme write))");
-    // Unlike NetBSD/OpenBSD, whose libc has no addchdir_np, Windows honors
-    // `directory:` natively (CreateProcessW's lpCurrentDirectory).
+    // Windows honors `directory:` natively (CreateProcessW's
+    // lpCurrentDirectory); since kaappi#2517 every POSIX build honors it
+    // too — addchdir_np where its comptime link gate allows, the fork+exec
+    // fallback's child-side chdir where it does not.
     try expectTrue(vm,
         \\(let ((p (spawn-process '("cmd.exe" "/c" "cd") 'directory: "C:\\Windows" 'stdout: 'pipe)))
         \\  (let ((line (read-line (process-stdout p))))

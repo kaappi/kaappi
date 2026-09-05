@@ -142,6 +142,19 @@
       (process-wait p)
       (equal? lines '("extended")))))
 
+;; kaappi#2517: `directory:` must work on every POSIX build — addchdir_np
+;; where the comptime link gate allows, the fork+exec fallback's child-side
+;; chdir where it does not (a glibc-2.28-floored release binary on any Linux
+;; host, NetBSD, OpenBSD). The BSD CI legs run the fallback route here for
+;; real; before the fallback this raised KP3007 on them.
+(test-equal "directory: runs the child in the given directory"
+  '("/")
+  (let* ((p (spawn-process '("/bin/sh" "-c" "pwd")
+                           'stdout: 'pipe 'directory: "/")))
+    (let ((lines (drain (process-stdout p))))
+      (process-wait p)
+      lines)))
+
 (test-assert "new-group: makes the child its own group leader"
   (let ((p (spawn-process '("true") 'new-group: #t)))
     (and (= (process-group p) (process-pid p))

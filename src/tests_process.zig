@@ -506,6 +506,130 @@ test "process: embedded NUL bytes are rejected on every C-string surface" {
     ));
 }
 
+test "process: spawn routing honors directory: on every build (kaappi#2517)" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    if (comptime is_posix) {
+        const posix_backend = @import("process_posix.zig");
+        const Route = posix_backend.SpawnRoute;
+
+        // OpenBSD always takes the fork+exec route, whatever else is true.
+        try std.testing.expectEqual(Route.fork_exec, posix_backend.routeFor(true, true, false));
+        try std.testing.expectEqual(Route.fork_exec, posix_backend.routeFor(true, false, false));
+        // A comptime-true addchdir build never forks, `directory:` included —
+        // the fast path such builds have always taken, unchanged.
+        try std.testing.expectEqual(Route.posix_spawn, posix_backend.routeFor(false, true, false));
+        try std.testing.expectEqual(Route.posix_spawn, posix_backend.routeFor(false, true, true));
+        // A comptime-false build (the gnu.2.28-floored release binaries,
+        // NetBSD): `directory:` is the one request that diverts to the fork
+        // route; everything else keeps the fast path. Before kaappi#2517 these
+        // builds rejected `directory:` outright — KP3007 on every Linux host,
+        // however new its glibc, because the floor is the build target's.
+        try std.testing.expectEqual(Route.fork_exec, posix_backend.routeFor(false, false, true));
+        try std.testing.expectEqual(Route.posix_spawn, posix_backend.routeFor(false, false, false));
+    }
+}
+
+test "process: the fork+exec route chdirs the child before exec (kaappi#2517)" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    if (comptime is_posix) {
+        const posix_backend = @import("process_posix.zig");
+        const platform = @import("platform.zig");
+        const memory = @import("memory.zig");
+        const types_process = @import("types_process.zig");
+        const primitives = @import("primitives.zig");
+        var ctx: th.TestContext = undefined;
+        try ctx.init();
+        defer ctx.deinit();
+        const vm = ctx.vm;
+        const gc = memory.gc_instance.?;
+
+        // The exact function a no-addchdir build runs for a `directory:`
+        // spawn, called directly. On a host whose own comptime gate is true
+        // (macOS, FreeBSD, CI Linux) the dispatch never routes here, so the
+        // mechanism would otherwise have no coverage on the dev platform —
+        // and a gnu.2.28 build cannot run on a macOS host at all. /bin/sh
+        // prints its working directory into a pipe; the assertion is the
+        // directory the child chdir'd to, the behavior `directory:` promises.
+        var argv_buf = [3:null]?[*:0]const u8{ "/bin/sh", "-c", "pwd" };
+        const argv: [*:null]const ?[*:0]const u8 = &argv_buf;
+
+        // argv[0]'s Value is only the irritant of a failure condition, but the
+        // failure call below reaches that raise — so it must be a real string,
+        // rooted across the calls (the spawn can raise, and its pipe-exhaustion
+        // recovery can collect). The stack array holding the copy is stable,
+        // and the collector does not move objects.
+        var argv0 = try gc.allocString("/bin/sh");
+        gc.pushRoot(&argv0);
+        var argv_vals = [_]types.Value{argv0};
+        const cfg = types_process.SpawnConfig{ .argv = &argv_vals };
+
+        var out_pipe: [2]platform.fd_t = undefined;
+        try std.testing.expectEqual(@as(c_int, 0), platform.pipe(&out_pipe));
+        // Lift the write end out of the stdio slots in case the harness's own
+        // stdio was closed (spawnChild does the same via
+        // normalizePipeAboveStdio; this test calls the route directly).
+        if (out_pipe[1] <= 2) {
+            const lifted = platform.dupCloexecAtLeast(out_pipe[1], 3);
+            try std.testing.expect(lifted >= 3);
+            _ = platform.close(out_pipe[1]);
+            out_pipe[1] = lifted;
+        }
+        const redirs = [3]types_process.Redir{ .inherit, .{ .fd = out_pipe[1] }, .inherit };
+
+        const pid = try posix_backend.spawnChildForkExec(
+            gc,
+            argv,
+            null,
+            redirs,
+            .{ -1, -1, -1 },
+            cfg,
+            "/",
+        );
+
+        // The parent's copy of the write end is ours to drop; closing it is
+        // what makes the read see EOF at the child's exit rather than never.
+        _ = platform.close(out_pipe[1]);
+        var buf: [64]u8 = undefined;
+        var out_len: usize = 0;
+        while (out_len < buf.len) {
+            const n = platform.read(out_pipe[0], buf[out_len..].ptr, buf.len - out_len);
+            if (n < 0 and platform.errno(n) == .INTR) continue;
+            try std.testing.expect(n >= 0);
+            if (n == 0) break;
+            out_len += @intCast(n);
+        }
+        _ = platform.close(out_pipe[0]);
+        try std.testing.expectEqualStrings("/\n", buf[0..out_len]);
+
+        var st: c_int = 0;
+        try std.testing.expectEqual(pid, platform.waitPid(pid, &st, 0));
+        try std.testing.expect(types_process.ifExited(@bitCast(st)));
+        try std.testing.expectEqual(@as(u32, 0), types_process.exitStatus(@bitCast(st)));
+
+        // A bad directory reports through the same one-byte error pipe as a
+        // failed exec — the errno a comptime-true build's addchdir_np surfaces
+        // as the posix_spawnp return — so this must be the identical
+        // condition: a file error carrying ENOENT, never a KP3007-style
+        // platform rejection and never a silently ignored directory.
+        try std.testing.expectError(
+            primitives.PrimitiveError.ExceptionRaised,
+            posix_backend.spawnChildForkExec(
+                gc,
+                argv,
+                null,
+                .{ .inherit, .inherit, .inherit },
+                .{ -1, -1, -1 },
+                cfg,
+                "/no/such/directory/kaappi-2517",
+            ),
+        );
+        const err_obj = types.toObject(vm.current_exception.?).as(types.ErrorObject);
+        try std.testing.expect(err_obj.error_type == .file);
+        try std.testing.expectEqual(@as(c_int, @intFromEnum(std.c.E.NOENT)), err_obj.posix_errno);
+        gc.popRoot();
+    }
+}
+
 test "process: writing to a dead child's stdin raises a catchable EPIPE error" {
     if (comptime !is_posix) return error.SkipZigTest;
     var ctx: th.TestContext = undefined;
