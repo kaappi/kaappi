@@ -364,6 +364,17 @@ Three things make that safe and worthwhile (kaappi#1926):
   that ordinary runner variance decided it, failing a *required* check about
   one run in fourteen. Keep the count of full builds per script at one.
 
+  The same one-key discipline applies to the CPU: since kaappi#2515 every
+  `-Dbundle=` build resolves the portable **baseline** CPU model by default
+  (a bundled binary is shipped, and a host-tuned one SIGILLs on other
+  machines of the same arch), while `fixture_interpreter`'s plain `zig build`
+  stays host-tuned. That asymmetry is deliberate and free — the embedded
+  bytecode already puts the bundler on its own cache key, and the CPU model
+  is not part of the `.sbc` compiler hash (see [cache.md](cache.md)) — but it
+  means no script may pass `-Dcpu=native` (or any host-naming
+  `-Dcpu=<model>`) to a `-Dbundle=` build: it would fork the shared cache key
+  *and* reintroduce the portability bug the default exists to prevent.
+
 Dispatch inside a suite is longest-first — scripts that shell out to a full
 `zig build -D…`, or to either shared builder, go first, found by grep rather
 than a hand-kept list of names. Reporting still walks the glob-sorted order, so

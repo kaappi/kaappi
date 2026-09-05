@@ -209,7 +209,7 @@ symbols, and **multi-line input** with automatic paren balancing.
 
 - **180 SRFIs** — 12 built-in, 164 as portable `.sld` libraries, plus SRFI 261 portable library references (`(srfi srfi-1)`, `(srfi lists-1)`) resolved in the importer and SRFI 226/160/211 as sub-libraries only (full list in [CONFORMANCE.md](CONFORMANCE.md))
 - **Native binaries** — `kaappi compile program.scm -o program` compiles Scheme to a native executable via LLVM, with self-tail-calls compiled as loops ([details](docs/dev/llvm-backend.md))
-- **Standalone bundles** — `zig build -Dbundle-src=program.scm` embeds bytecode + libraries in a single executable
+- **Standalone bundles** — `zig build -Dbundle-src=program.scm` embeds bytecode + libraries in a single executable, tuned to the portable baseline CPU so it runs on other machines of the same architecture (`-Dcpu=native` restores host tuning)
 - **C FFI** — call shared libraries from Scheme via `(kaappi ffi)`; 18 marshalled types, callbacks for passing Scheme procedures to C
 - **Concurrency** — green threads with channels via `(kaappi fibers)`, plus real OS threads via SRFI-18
 - **Stepping debugger** — breakpoints (with conditions), watch expressions, step/next/step-out, frame navigation, locals — all from the REPL
