@@ -3,10 +3,11 @@
 //! Spawn-based subprocess support with redirections expressed as named
 //! options, pipe parent-ends wrapped as ordinary fd ports on the
 //! reactor-integrated path (via `primitives_io.makeFdPort`, the constructor
-//! `fd->port` shares), a `process-wait` that parks instead of blocking, and
-//! a `process-kill` that never re-signals a reaped child. There is no fork
-//! anywhere and no pre-exec hook; every knob between spawn and exec is a
-//! named option.
+//! `fd->port` shares), a `process-wait` that parks instead of blocking, and a
+//! `process-kill` that never re-signals a reaped child. There is no pre-exec
+//! hook; every knob between spawn and exec is a named option. (The POSIX
+//! backend spawns through `posix_spawnp` except on its two fork-route
+//! cases — see `process_posix.routeFor`; Windows never forks.)
 //!
 //! This file owns everything platform-independent: option parsing,
 //! redirection validation, the `Process` object and its ports, the zombie
@@ -256,8 +257,6 @@ fn spawnImpl(cfg: SpawnConfig) PrimitiveError!Value {
         return primitives.argError("spawn-process", "'stdout is a stderr-only redirection spec", .{});
     if (cfg.directory) |dir_val| {
         if (!types.isString(dir_val)) return primitives.typeError("spawn-process", "string", dir_val);
-        if (!backend.supports_directory)
-            return primitives.argError("spawn-process", "directory: is not supported on this platform", .{});
     }
 
     var spawned = try backend.spawnChild(gc, cfg, redirs);

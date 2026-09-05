@@ -1,8 +1,14 @@
 //! The POSIX backend for `(kaappi process)` — KEP-0022 Phase 1/2.
 //!
 //! Spawn is `posix_spawnp` with redirections expressed as
-//! `posix_spawn_file_actions_t` entries; there is no fork anywhere and no
-//! pre-exec hook, so every knob between spawn and exec is a named option.
+//! `posix_spawn_file_actions_t` entries — the fast path every spawn takes
+//! except where libc cannot express what is needed: OpenBSD's spawn cannot
+//! report a child's exec failure (kaappi#2456), and a build on a host with
+//! no `posix_spawn_file_actions_addchdir_np` — neither through the comptime
+//! link gate nor the weak extern's runtime binding — cannot express
+//! `directory:` (kaappi#2517). Those take a fork + exec route instead
+//! (`spawnChildForkExec`), and no path has a pre-exec hook, so every knob
+//! between spawn and exec is a named option.
 //! Reaping is `waitpid`, signaling is `kill`, and a process group is a real
 //! POSIX process group.
 //!
@@ -53,19 +59,27 @@ const spawn_c = struct {
         argv: [*:null]const ?[*:0]const u8,
         envp: [*:null]const ?[*:0]const u8,
     ) c_int;
-    /// OpenBSD only (see spawnChild's fork+exec branch): its userland,
-    /// vfork-based posix_spawn has no channel to report the child's exec
-    /// failure — POSIX permits the child to exit 127 instead of the parent
-    /// seeing an error — so a missing program "succeeds" and dies 127,
-    /// indistinguishable from a program that ran and failed. There, spawn
-    /// goes through fork + execvp with a CLOEXEC error pipe (CPython
-    /// subprocess's mechanism), which reports the exec errno synchronously
-    /// like every other libc. file actions cannot express the pipe's
-    /// child-side write, so the redirection setup the actions carry on
-    /// other platforms runs in the forked child directly.
+    /// OpenBSD only (see routeFor): its userland, vfork-based posix_spawn
+    /// has no channel to report the child's exec failure — POSIX permits
+    /// the child to exit 127 instead of the parent seeing an error — so a
+    /// missing program "succeeds" and dies 127, indistinguishable from a
+    /// program that ran and failed. There, spawn goes through fork + execvp
+    /// with a CLOEXEC error pipe (CPython subprocess's mechanism), which
+    /// reports the exec errno synchronously like every other libc. file
+    /// actions cannot express the pipe's child-side write, so the
+    /// redirection setup the actions carry on other platforms runs in the
+    /// forked child directly. The same route is the kaappi#2517 runtime
+    /// fallback for `directory:` on a build whose host provides no
+    /// addchdir_np at all — neither through the comptime gate nor the weak
+    /// extern's runtime binding (a genuinely pre-2.29 glibc, NetBSD); there
+    /// the diversion is per-spawn at run time (routeFor), not comptime.
     pub const spawn_via_fork_exec = builtin.os.tag == .openbsd;
     pub extern "c" fn fork() c_int;
-    pub extern "c" fn execvp(file: [*:0]const u8, argv: [*:null]const ?[*:0]const u8) c_int;
+    /// execve, not execvp: execvp reads the CHILD's environment for its PATH
+    /// search, which under `env:` diverged from posix_spawnp's parent-side
+    /// resolution (kaappi#2517 review); the child walks the parent-captured
+    /// PATH itself (childPathExec) and execve never consults environ.
+    pub extern "c" fn execve(path: [*:0]const u8, argv: [*:null]const ?[*:0]const u8, envp: [*:null]const ?[*:0]const u8) c_int;
     pub extern "c" fn open(path: [*:0]const u8, oflag: c_int, mode: c_uint) c_int;
     pub extern "c" fn setpgid(pid: c_int, pgid: c_int) c_int;
 
@@ -113,16 +127,25 @@ const spawn_c = struct {
 
     /// posix_spawn_file_actions_addchdir_np exists on macOS, Linux
     /// (glibc >= 2.29, musl >= 1.1.24) and FreeBSD >= 13, but not in
-    /// NetBSD's or OpenBSD's libc (verified at link time per target), so
-    /// `directory:` on those two is rejected at run time with a clear
-    /// message rather than an unresolved symbol at build time.
+    /// NetBSD's or OpenBSD's libc (verified at link time per target).
     ///
     /// The glibc floor matters concretely: the release workflow targets
     /// x86_64-linux-gnu.2.28, where the symbol is absent — referencing it
     /// unconditionally on Linux fails that link even when `directory:` is
     /// never used (kaappi#2414 review). Zig only links referenced externs,
-    /// so the version gate must be comptime, mirrored by the `comptime`
-    /// guard at the call site.
+    /// so the version gate on this STRONG extern must be comptime,
+    /// mirrored by the `comptime` guard at the call site.
+    ///
+    /// The floor is the *build target's*, not the host's, and a binary
+    /// floored at glibc 2.28 was rejecting `directory:` on every Linux host
+    /// however new its glibc (kaappi#2517). The strong extern's gate is a
+    /// link constraint, not a capability verdict, so availability is
+    /// settled in two layers: where the gate is false, `addchdir_weak`
+    /// below asks at RUN time — and only where the weak reference is also
+    /// unbound (a genuinely pre-2.29 glibc host, NetBSD, OpenBSD) does
+    /// `routeFor` send `directory:` down the fork + exec route, whose child
+    /// chdirs before the exec — what glibc's addchdir_np itself performs on
+    /// the vforked child inside posix_spawn.
     pub const has_addchdir = switch (builtin.os.tag) {
         .macos, .ios, .freebsd => true,
         .linux => blk: {
@@ -133,6 +156,34 @@ const spawn_c = struct {
         else => false,
     };
     pub extern "c" fn posix_spawn_file_actions_addchdir_np(actions: *FileActionsPtr, path: [*:0]const u8) c_int;
+
+    /// The weak twin of the extern above, for builds whose comptime gate is
+    /// false (the gnu.2.28 floor, NetBSD, OpenBSD). A weak undefined
+    /// reference links anywhere — a strong one would fail the gnu.2.28
+    /// release link — and the dynamic linker binds it at load time where
+    /// the symbol exists: on a gnu.2.28-floored binary running against
+    /// glibc >= 2.29, the unversioned weak reference resolves to the
+    /// default `@@GLIBC_2.29` definition and this is non-null at run time
+    /// (kaappi#2517 review). Where the symbol is genuinely absent — a
+    /// glibc 2.28 host, NetBSD, OpenBSD — the slot stays null and
+    /// `routeFor` diverts `directory:` spawns to the fork route.
+    ///
+    /// `var`, not `const`, and that is load-bearing: a `const` initializer
+    /// makes the optional comptime-known non-null, so the `!= null` test
+    /// and the `if (...) |addchdir|` unwrap fold at compile time and an
+    /// unbound host CALLS THROUGH NULL — measured as a segfault on
+    /// debian:10 (glibc 2.28) with the `const` form. A `var` places the
+    /// pointer in .data behind a load-time relocation, so every test is a
+    /// runtime load of the loader-resolved slot (verified: null branch on
+    /// debian:10, bound-and-called on ubuntu-24.04). Never mutated; a
+    /// concurrent read of a loader-initialized slot is safe.
+    /// Referenced only under `!has_addchdir`, so comptime-true builds
+    /// neither analyze nor emit it.
+    pub var addchdir_weak: ?*const fn (*FileActionsPtr, [*:0]const u8) callconv(.c) c_int =
+        @extern(?*const fn (*FileActionsPtr, [*:0]const u8) callconv(.c) c_int, .{
+            .name = "posix_spawn_file_actions_addchdir_np",
+            .linkage = .weak,
+        });
 
     /// Darwin only: under POSIX_SPAWN_CLOEXEC_DEFAULT even the stdio slots
     /// are closed unless a file action names them; addinherit_np is the
@@ -187,10 +238,6 @@ const spawn_c = struct {
 // Backend interface (mirrored by process_win.zig)
 // ---------------------------------------------------------------------------
 
-/// Whether `directory:` can be honored. False on NetBSD/OpenBSD, whose libc
-/// has no `posix_spawn_file_actions_addchdir_np`.
-pub const supports_directory = spawn_c.has_addchdir;
-
 /// The errno the last failing call left behind, for the errno-carrying
 /// `.file` condition. (Windows folds GetLastError into an errno here.)
 pub fn lastError() c_int {
@@ -203,6 +250,47 @@ pub const signal_zero_is_probe = true;
 // ---------------------------------------------------------------------------
 // spawn
 // ---------------------------------------------------------------------------
+
+/// Which of the two spawn routes a child takes: the `posix_spawnp` fast
+/// path with file actions, or the fork + exec route with its CLOEXEC error
+/// pipe (`spawnChildForkExec`).
+pub const SpawnRoute = enum { posix_spawn, fork_exec };
+
+/// The route decision (kaappi#2517), keyed on one comptime fact and up to
+/// two runtime ones:
+///
+/// - `spawn_via_fork_exec` is COMPTIME (OpenBSD: its userland posix_spawn
+///   cannot report a child's exec failure, so every spawn forks). As a
+///   `comptime` parameter of an `inline fn`, the decision folds on such a
+///   build and the posix route is not analyzed at all — the same link
+///   protection the old `if (comptime ...)` dispatch had.
+/// - `addchdir_available` is a RUNTIME fact on builds whose comptime gate
+///   for `posix_spawn_file_actions_addchdir_np` is false (the gnu.2.28
+///   floor, NetBSD): there the call site passes the binding of the weak
+///   extern `spawn_c.addchdir_weak`, so a release binary keeps the
+///   `posix_spawnp` fast path for `directory:` on every host whose libc
+///   has the symbol (glibc >= 2.29 — essentially all of them) and forks
+///   only on genuinely old hosts. On a comptime-true build the call site
+///   passes a comptime-known `true`, which folds the decision to
+///   `posix_spawn` for every spawn — both routes are analyzed and emitted
+///   only where the branch is genuinely runtime.
+/// - With neither addchdir nor a `directory:` request, `posix_spawnp` —
+///   the fast path every spawn takes unless the fork route is forced.
+///
+/// `inline` is load-bearing, not stylistic: a plain `fn` called with a
+/// runtime argument makes the call itself runtime, Zig then analyzes both
+/// dispatch branches on every target, and the comptime folding above — and
+/// the OpenBSD link protection it restores — is gone (kaappi#2517 review).
+///
+/// A pure function of its flags (rather than reading `spawn_c` directly)
+/// so the routing table is unit-testable on hosts where some combinations
+/// never occur natively (`tests_process_fork.zig`).
+pub inline fn routeFor(comptime spawn_via_fork_exec: bool, addchdir_available: bool, directory_requested: bool) SpawnRoute {
+    if (spawn_via_fork_exec) return .fork_exec;
+    if (addchdir_available) return .posix_spawn;
+    if (!directory_requested) return .posix_spawn;
+    return .fork_exec;
+}
 
 /// Create the child. Everything GC-managed is copied into an arena before the
 /// first syscall; nothing GC-managed crosses the spawn section, and on
@@ -296,178 +384,23 @@ pub fn spawnChild(gc: *GC, cfg: SpawnConfig, redirs_in: [3]Redir) PrimitiveError
     // the same dup2s directly.
     const child_pipe_ends = [3]platform.fd_t{ stdin_pipe[0], stdout_pipe[1], stderr_pipe[1] };
 
-    // -- spawn. OpenBSD (spawn_via_fork_exec) forks and execs directly:
-    // reporting the child's exec errno needs a CLOEXEC error pipe written
-    // between fork and exec — child-side code that posix_spawn file
-    // actions cannot express — so the redirection setup the else branch
-    // expresses as actions happens in the forked child instead.
+    // -- spawn. Route it (see routeFor): the posix_spawnp fast path takes
+    // every spawn wherever addchdir_np is available — on a comptime-true
+    // build that is everywhere, and on a gnu.2.28-floored release binary it
+    // is every host with glibc >= 2.29, read from the runtime weak-extern
+    // binding — plus every directory-less spawn anywhere. The fork + exec
+    // route takes OpenBSD (always) and a `directory:` spawn of a build on a
+    // host where neither the comptime gate nor the weak binding provides
+    // the symbol (a genuinely pre-2.29 glibc, NetBSD, OpenBSD); its child
+    // chdirs between fork and exec because file actions cannot express the
+    // change of directory there.
+    const addchdir_available = if (comptime spawn_c.has_addchdir) true else (spawn_c.addchdir_weak != null);
     var pid: c_int = -1;
-    if (comptime spawn_c.spawn_via_fork_exec) {
-        pid = try spawnChildForkExec(gc, argv, env_block, redirs, child_pipe_ends, cfg);
+    if (routeFor(spawn_c.spawn_via_fork_exec, addchdir_available, directory_z != null) == .fork_exec) {
+        pid = try spawnChildForkExec(gc, argv, env_block, redirs, child_pipe_ends, cfg, directory_z);
     } else {
-        // -- file actions + attrs. Both initializers can fail (ENOMEM on the
-        // pointer-backed libcs), and their destroy must run only on a
-        // successfully initialized object (kaappi#2442 review).
-        var actions_storage = spawn_c.zeroStorage();
-        const actions: *spawn_c.FileActionsPtr = @ptrCast(&actions_storage);
-        {
-            // FreeBSD's initializers return -1 with the error in errno (unlike
-            // the errno-returning convention everywhere else in this API), so a
-            // negative result is normalized before it can masquerade as a bogus
-            // error number (kaappi#2442 review).
-            var rc = spawn_c.posix_spawn_file_actions_init(actions);
-            if (rc < 0) rc = lastError();
-            if (rc != 0) return spawnSetupError(gc, rc);
-        }
-        defer _ = spawn_c.posix_spawn_file_actions_destroy(actions);
-
-        const O_RDONLY: c_int = 0;
-        const O_WRONLY: c_int = 1;
-        const null_z: [*:0]const u8 = "/dev/null";
-        const slot_oflag = [3]c_int{ O_RDONLY, O_WRONLY, O_WRONLY };
-
-        // Slot actions, stdin/stdout/stderr in order — stderr last, so the
-        // 'stdout merge duplicates the child's final slot-1 descriptor,
-        // whatever installed it. `redirs` (not cfg) carries the staged sources.
-        for (redirs, 0..) |redir, slot_usize| {
-            const slot: c_int = @intCast(slot_usize);
-            switch (redir) {
-                .inherit => {
-                    // Darwin's CLOEXEC_DEFAULT closes even the stdio slots
-                    // unless a file action names them — a plain 'inherit spawn
-                    // lost all three streams (kaappi#2442 review; the man page
-                    // prescribes addinherit_np for exactly this). A slot the
-                    // parent itself has closed is skipped: the child correctly
-                    // sees it closed, and an addinherit on a bad fd would fail
-                    // the whole spawn.
-                    if (comptime spawn_c.apple_cloexec_default) {
-                        if (platform.getFdFlags(slot) >= 0) {
-                            const rc = spawn_c.posix_spawn_file_actions_addinherit_np(actions, slot);
-                            if (rc != 0) return spawnSetupError(gc, rc);
-                        }
-                    }
-                },
-                .pipe => {
-                    const child_end = child_pipe_ends[slot_usize];
-                    var rc = spawn_c.posix_spawn_file_actions_adddup2(actions, child_end, slot);
-                    if (rc == 0) rc = spawn_c.posix_spawn_file_actions_addclose(actions, child_end);
-                    if (rc != 0) return spawnSetupError(gc, rc);
-                },
-                .null_sink => {
-                    const rc = spawn_c.posix_spawn_file_actions_addopen(actions, slot, null_z, slot_oflag[slot_usize], 0o666);
-                    if (rc != 0) return spawnSetupError(gc, rc);
-                },
-                .fd => |fd| {
-                    const rc = spawn_c.posix_spawn_file_actions_adddup2(actions, fd, slot);
-                    if (rc != 0) return spawnSetupError(gc, rc);
-                },
-                .merge_stdout => {
-                    // Rejected for slots 0 and 1 by the shared caller.
-                    const rc = spawn_c.posix_spawn_file_actions_adddup2(actions, 1, 2);
-                    if (rc != 0) return spawnSetupError(gc, rc);
-                },
-            }
-        }
-        // Comptime gate, not just the run-time one in the shared caller: the
-        // extern is absent from NetBSD/OpenBSD libc, so the call itself must not
-        // be analyzed there (Zig only links referenced externs).
-        if (comptime spawn_c.has_addchdir) {
-            if (directory_z) |dir| {
-                const rc = spawn_c.posix_spawn_file_actions_addchdir_np(actions, dir);
-                if (rc != 0) return spawnSetupError(gc, rc);
-            }
-        }
-
-        // Close-by-default (KEP-0022): the child must inherit only the three
-        // stdio slots. CLOEXEC on every Kaappi-opened fd covers Kaappi's own
-        // descriptors, but a descriptor Kaappi itself INHERITED from its
-        // launcher (`kaappi 9</dev/null prog.scm`) or acquired through FFI has
-        // no such guarantee and would otherwise pass into every child —
-        // leaking sockets and lock files, and holding unrelated pipes open
-        // past EOF (kaappi#2414 review). On macOS POSIX_SPAWN_CLOEXEC_DEFAULT
-        // (below) closes everything wholesale; everywhere else, enumerate the
-        // open non-CLOEXEC fds and add an explicit close action for each.
-        // These actions run AFTER the dup2/open actions above, so a caller
-        // redirect port's own fd is closed only after its slot copy exists.
-        if (comptime !spawn_c.apple_cloexec_default) {
-            try addInheritedFdCloses(gc, actions);
-        }
-
-        var attr_storage = spawn_c.zeroStorage();
-        const attr: *spawn_c.AttrPtr = @ptrCast(&attr_storage);
-        {
-            // Same FreeBSD -1/errno normalization as the file-actions init.
-            var rc = spawn_c.posix_spawnattr_init(attr);
-            if (rc < 0) rc = lastError();
-            if (rc != 0) return spawnSetupError(gc, rc);
-        }
-        defer _ = spawn_c.posix_spawnattr_destroy(attr);
-
-        var flags: u16 = 0;
-        if (cfg.new_group) {
-            // pgroup 0 = the child becomes its own group leader
-            // (setpgid(child, 0) semantics), so pgid == pid after spawn.
-            const rc = spawn_c.posix_spawnattr_setpgroup(attr, 0);
-            if (rc != 0) return spawnSetupError(gc, rc);
-            flags |= spawn_c.SPAWN_SETPGROUP;
-        }
-        {
-            // Reset SIGPIPE to its default in the child: the parent runs with
-            // SIG_IGN (VM.init, KEP-0022) and ignored dispositions survive exec,
-            // which would silently change the behavior of children that rely on
-            // dying on EPIPE (e.g. `yes | head` inside a shell pipeline). The
-            // same restore Python's subprocess performs by default. The set is
-            // built with Zig's own sigset helpers, not libc's sigemptyset/
-            // sigaddset externs — NetBSD's sigset accessors are macros over a
-            // renamed ABI, so the plain symbols are not portably linkable.
-            var sigset = std.posix.sigemptyset();
-            std.posix.sigaddset(&sigset, std.posix.SIG.PIPE);
-            const rc = spawn_c.posix_spawnattr_setsigdefault(attr, &sigset);
-            if (rc != 0) return spawnSetupError(gc, rc);
-            flags |= spawn_c.SPAWN_SETSIGDEF;
-        }
-        if (spawn_c.apple_cloexec_default) flags |= spawn_c.SPAWN_CLOEXEC_DEFAULT;
-        if (flags != 0) {
-            const rc = spawn_c.posix_spawnattr_setflags(attr, @bitCast(flags));
-            if (rc != 0) return spawnSetupError(gc, rc);
-        }
-
-        // -- posix_spawnp
-        const envp: [*:null]const ?[*:0]const u8 = env_block orelse @ptrCast(std.c.environ);
-        var spawn_rc: c_int = 0;
-        {
-            // A child-thread VM blocking in the vfork-style spawn (which waits
-            // through the exec and its filesystem lookups) — or in the NetBSD
-            // exec barrier — never reaches the dispatch-loop safepoint, so a
-            // concurrent parent collection would spin in markLiveChildRoots
-            // (the same #1933 shape process-wait already handles; kaappi#2442
-            // review). Publish the VM as markable-in-native for the syscall
-            // stretch, restoring .running before anything below allocates.
-            const spawn_vm: ?*vm_mod.VM = if (vm_mod.vm_instance) |vm|
-                (if (!vm.owns_globals) vm else null)
-            else
-                null;
-            if (spawn_vm) |vm| vm.setCollectionInNative();
-            defer if (spawn_vm) |vm| vm.setCollectionRunning();
-            spawn_rc = spawn_c.posix_spawnp(&pid, argv[0].?, actions, attr, argv, envp);
-            // Exec barrier (NetBSD; see needs_exec_barrier): block until the
-            // kernel reports the child's exec completed (or the child died), so
-            // the child is signalable from the moment spawn-process returns.
-            // Without this, a process-kill issued promptly after spawn is
-            // silently dropped.
-            if (comptime spawn_c.needs_exec_barrier) {
-                if (spawn_rc == 0) execBarrierWait(pid);
-            }
-        }
-        if (spawn_rc != 0) {
-            // posix_spawn returns the errno itself, not -1. ENOENT is the common
-            // case (program not on PATH); the errno rides the condition so
-            // posix-error-name reports it precisely. The function-wide defer
-            // closes the pipes and staged fds; the destroy defers release
-            // actions/attr.
-            return raiseSpawnError(gc, "cannot spawn process", cfg.argv[0], spawn_rc);
-        }
-    } // !spawn_via_fork_exec
+        pid = try spawnChildPosixSpawn(gc, argv, env_block, directory_z, redirs, child_pipe_ends, cfg);
+    }
 
     // The child owns the child ends now; the parent's copies must go
     // (recorded as -1 so the cleanup defer never double-closes them).
@@ -488,31 +421,281 @@ pub fn spawnChild(gc: *GC, cfg: SpawnConfig, redirs_in: [3]Redir) PrimitiveError
     return out;
 }
 
-/// OpenBSD spawn path (spawn_via_fork_exec): fork + execvp with a CLOEXEC
-/// error pipe, the mechanism CPython's subprocess uses (kaappi#2456). The
-/// child writes its exec's errno into the pipe and only then _exits 127; a
-/// successful exec closes the write end via FD_CLOEXEC, so the parent's
-/// read returns EOF exactly at the exec. That read point also restores the
-/// vfork parity every other platform already has — the parent does not
-/// resume until the exec is done, which is the same signalability-from-
-/// return property the NetBSD exec barrier exists to provide.
+/// The posix_spawnp fast path: redirections as file actions, close-by-default
+/// as actions or Darwin's CLOEXEC_DEFAULT, `directory:` as addchdir_np — the
+/// plain extern where the comptime link gate allows, the runtime-bound weak
+/// extern on a gnu.2.28-floored build. Every spawn wherever addchdir_np is
+/// available, and every directory-less spawn anywhere, routes here
+/// (routeFor). Extracted from `spawnChild` when kaappi#2517 gave it a sibling
+/// route; the body is the pre-fallback code plus the weak-extern arm.
+/// Returns the child's pid.
+fn spawnChildPosixSpawn(
+    gc: *GC,
+    argv: [*:null]const ?[*:0]const u8,
+    env_block: ?[*:null]const ?[*:0]const u8,
+    directory_z: ?[*:0]const u8,
+    redirs: [3]Redir,
+    child_pipe_ends: [3]platform.fd_t,
+    cfg: SpawnConfig,
+) PrimitiveError!c_int {
+    // -- file actions + attrs. Both initializers can fail (ENOMEM on the
+    // pointer-backed libcs), and their destroy must run only on a
+    // successfully initialized object (kaappi#2442 review).
+    var actions_storage = spawn_c.zeroStorage();
+    const actions: *spawn_c.FileActionsPtr = @ptrCast(&actions_storage);
+    {
+        // FreeBSD's initializers return -1 with the error in errno (unlike
+        // the errno-returning convention everywhere else in this API), so a
+        // negative result is normalized before it can masquerade as a bogus
+        // error number (kaappi#2442 review).
+        var rc = spawn_c.posix_spawn_file_actions_init(actions);
+        if (rc < 0) rc = lastError();
+        if (rc != 0) return spawnSetupError(gc, rc);
+    }
+    defer _ = spawn_c.posix_spawn_file_actions_destroy(actions);
+
+    const O_RDONLY: c_int = 0;
+    const O_WRONLY: c_int = 1;
+    const null_z: [*:0]const u8 = "/dev/null";
+    const slot_oflag = [3]c_int{ O_RDONLY, O_WRONLY, O_WRONLY };
+
+    // Slot actions, stdin/stdout/stderr in order — stderr last, so the
+    // 'stdout merge duplicates the child's final slot-1 descriptor,
+    // whatever installed it. `redirs` (not cfg) carries the staged sources.
+    for (redirs, 0..) |redir, slot_usize| {
+        const slot: c_int = @intCast(slot_usize);
+        switch (redir) {
+            .inherit => {
+                // Darwin's CLOEXEC_DEFAULT closes even the stdio slots
+                // unless a file action names them — a plain 'inherit spawn
+                // lost all three streams (kaappi#2442 review; the man page
+                // prescribes addinherit_np for exactly this). A slot the
+                // parent itself has closed is skipped: the child correctly
+                // sees it closed, and an addinherit on a bad fd would fail
+                // the whole spawn.
+                if (comptime spawn_c.apple_cloexec_default) {
+                    if (platform.getFdFlags(slot) >= 0) {
+                        const rc = spawn_c.posix_spawn_file_actions_addinherit_np(actions, slot);
+                        if (rc != 0) return spawnSetupError(gc, rc);
+                    }
+                }
+            },
+            .pipe => {
+                const child_end = child_pipe_ends[slot_usize];
+                var rc = spawn_c.posix_spawn_file_actions_adddup2(actions, child_end, slot);
+                if (rc == 0) rc = spawn_c.posix_spawn_file_actions_addclose(actions, child_end);
+                if (rc != 0) return spawnSetupError(gc, rc);
+            },
+            .null_sink => {
+                const rc = spawn_c.posix_spawn_file_actions_addopen(actions, slot, null_z, slot_oflag[slot_usize], 0o666);
+                if (rc != 0) return spawnSetupError(gc, rc);
+            },
+            .fd => |fd| {
+                const rc = spawn_c.posix_spawn_file_actions_adddup2(actions, fd, slot);
+                if (rc != 0) return spawnSetupError(gc, rc);
+            },
+            .merge_stdout => {
+                // Rejected for slots 0 and 1 by the shared caller.
+                const rc = spawn_c.posix_spawn_file_actions_adddup2(actions, 1, 2);
+                if (rc != 0) return spawnSetupError(gc, rc);
+            },
+        }
+    }
+    // `directory:` as an addchdir action — two ways to reach the symbol.
+    // Where the comptime link gate allows (macOS, FreeBSD, musl,
+    // gnu-ABI >= 2.29), the plain extern. On a comptime-false build, the
+    // weak extern instead: it links where a strong reference would fail
+    // the gnu.2.28 release link, and the dynamic linker binds it at load
+    // time on every host with glibc >= 2.29 — so a release binary honors
+    // `directory:` through this fast path there rather than forking
+    // (kaappi#2517 review). Where the binding is null — a genuinely
+    // pre-2.29 host, NetBSD, OpenBSD — routeFor has already diverted the
+    // `directory:` spawn to the fork route; the NOSYS raise below is the
+    // belt that keeps that invariant loud if the routing ever regresses.
+    if (comptime spawn_c.has_addchdir) {
+        if (directory_z) |dir| {
+            const rc = spawn_c.posix_spawn_file_actions_addchdir_np(actions, dir);
+            if (rc != 0) return spawnSetupError(gc, rc);
+        }
+    } else if (directory_z) |dir| {
+        if (spawn_c.addchdir_weak) |addchdir| {
+            const rc = addchdir(actions, dir);
+            if (rc != 0) return spawnSetupError(gc, rc);
+        } else {
+            // Unreachable through routeFor: a null binding routes a
+            // `directory:` spawn to the fork path. Loud rather than silent
+            // anyway — a future routing regression here would otherwise
+            // spawn in the wrong working directory with no error (kaappi#2517
+            // review).
+            return spawnSetupError(gc, @intFromEnum(std.c.E.NOSYS));
+        }
+    }
+
+    // Close-by-default (KEP-0022): the child must inherit only the three
+    // stdio slots. CLOEXEC on every Kaappi-opened fd covers Kaappi's own
+    // descriptors, but a descriptor Kaappi itself INHERITED from its
+    // launcher (`kaappi 9</dev/null prog.scm`) or acquired through FFI has
+    // no such guarantee and would otherwise pass into every child —
+    // leaking sockets and lock files, and holding unrelated pipes open
+    // past EOF (kaappi#2414 review). On macOS POSIX_SPAWN_CLOEXEC_DEFAULT
+    // (below) closes everything wholesale; everywhere else, enumerate the
+    // open non-CLOEXEC fds and add an explicit close action for each.
+    // These actions run AFTER the dup2/open actions above, so a caller
+    // redirect port's own fd is closed only after its slot copy exists.
+    if (comptime !spawn_c.apple_cloexec_default) {
+        try addInheritedFdCloses(gc, actions);
+    }
+
+    var attr_storage = spawn_c.zeroStorage();
+    const attr: *spawn_c.AttrPtr = @ptrCast(&attr_storage);
+    {
+        // Same FreeBSD -1/errno normalization as the file-actions init.
+        var rc = spawn_c.posix_spawnattr_init(attr);
+        if (rc < 0) rc = lastError();
+        if (rc != 0) return spawnSetupError(gc, rc);
+    }
+    defer _ = spawn_c.posix_spawnattr_destroy(attr);
+
+    var flags: u16 = 0;
+    if (cfg.new_group) {
+        // pgroup 0 = the child becomes its own group leader
+        // (setpgid(child, 0) semantics), so pgid == pid after spawn.
+        const rc = spawn_c.posix_spawnattr_setpgroup(attr, 0);
+        if (rc != 0) return spawnSetupError(gc, rc);
+        flags |= spawn_c.SPAWN_SETPGROUP;
+    }
+    {
+        // Reset SIGPIPE to its default in the child: the parent runs with
+        // SIG_IGN (VM.init, KEP-0022) and ignored dispositions survive exec,
+        // which would silently change the behavior of children that rely on
+        // dying on EPIPE (e.g. `yes | head` inside a shell pipeline). The
+        // same restore Python's subprocess performs by default. The set is
+        // built with Zig's own sigset helpers, not libc's sigemptyset/
+        // sigaddset externs — NetBSD's sigset accessors are macros over a
+        // renamed ABI, so the plain symbols are not portably linkable.
+        var sigset = std.posix.sigemptyset();
+        std.posix.sigaddset(&sigset, std.posix.SIG.PIPE);
+        const rc = spawn_c.posix_spawnattr_setsigdefault(attr, &sigset);
+        if (rc != 0) return spawnSetupError(gc, rc);
+        flags |= spawn_c.SPAWN_SETSIGDEF;
+    }
+    if (spawn_c.apple_cloexec_default) flags |= spawn_c.SPAWN_CLOEXEC_DEFAULT;
+    if (flags != 0) {
+        const rc = spawn_c.posix_spawnattr_setflags(attr, @bitCast(flags));
+        if (rc != 0) return spawnSetupError(gc, rc);
+    }
+
+    // -- posix_spawnp
+    const envp: [*:null]const ?[*:0]const u8 = env_block orelse @ptrCast(std.c.environ);
+    var spawn_rc: c_int = 0;
+    var pid: c_int = -1;
+    {
+        // A child-thread VM blocking in the vfork-style spawn (which waits
+        // through the exec and its filesystem lookups) — or in the NetBSD
+        // exec barrier — never reaches the dispatch-loop safepoint, so a
+        // concurrent parent collection would spin in markLiveChildRoots
+        // (the same #1933 shape process-wait already handles; kaappi#2442
+        // review). Publish the VM as markable-in-native for the syscall
+        // stretch, restoring .running before anything below allocates.
+        const spawn_vm: ?*vm_mod.VM = if (vm_mod.vm_instance) |vm|
+            (if (!vm.owns_globals) vm else null)
+        else
+            null;
+        if (spawn_vm) |vm| vm.setCollectionInNative();
+        defer if (spawn_vm) |vm| vm.setCollectionRunning();
+        spawn_rc = spawn_c.posix_spawnp(&pid, argv[0].?, actions, attr, argv, envp);
+        // Exec barrier (NetBSD; see needs_exec_barrier): block until the
+        // kernel reports the child's exec completed (or the child died), so
+        // the child is signalable from the moment spawn-process returns.
+        // Without this, a process-kill issued promptly after spawn is
+        // silently dropped.
+        if (comptime spawn_c.needs_exec_barrier) {
+            if (spawn_rc == 0) execBarrierWait(pid);
+        }
+    }
+    if (spawn_rc != 0) {
+        // posix_spawn returns the errno itself, not -1. ENOENT is the common
+        // case (program not on PATH); the errno rides the condition so
+        // posix-error-name reports it precisely. The caller's cleanup defer
+        // closes the pipes and staged fds; the destroy defers above release
+        // actions/attr.
+        return raiseSpawnErrorInt(gc, "cannot spawn process", cfg.argv[0], spawn_rc);
+    }
+    return pid;
+}
+
+/// The fork + exec spawn path: fork + execve with a CLOEXEC error pipe, the
+/// mechanism CPython's subprocess uses (kaappi#2456). OpenBSD's only route,
+/// and since kaappi#2517 the runtime fallback for `directory:` on a build
+/// whose host provides no `posix_spawn_file_actions_addchdir_np` at all —
+/// neither through the comptime gate (macOS, FreeBSD, musl,
+/// gnu-ABI >= 2.29) nor through the weak extern's runtime binding (a
+/// gnu.2.28-floored release binary on a glibc >= 2.29 host): what remains
+/// is a genuinely pre-2.29 glibc host, NetBSD, and OpenBSD.
+///
+/// The child installs the redirections, optionally chdirs to `directory`,
+/// drops every inherited descriptor beyond the stdio slots, and execs. A
+/// failure anywhere in that stretch writes its errno into the pipe and only
+/// then _exits 127; a successful exec closes the write end via FD_CLOEXEC,
+/// so the parent's read returns EOF exactly at the exec. That read point
+/// also restores the vfork parity every other platform already has — the
+/// parent does not resume until the exec is done, which is the same
+/// signalability-from-return property the NetBSD exec barrier exists to
+/// provide (and why the fallback needs no barrier of its own).
+///
+/// The child-side chdir is what glibc's addchdir_np performs on the
+/// vforked child inside posix_spawn; doing it between fork and exec keeps
+/// every child-side operation on POSIX's async-signal-safe list. A bad
+/// `directory:` reports through the same one-byte error pipe as a failed
+/// exec, synchronously — the condition macOS's and FreeBSD's posix_spawn
+/// also raise for a failed chdir action. glibc's posix_spawn instead lets
+/// a failed file action kill the child with exit 127 (measured on 2.39),
+/// so on a glibc host the routes differ in failure REPORTING only — that
+/// is glibc's own behavior for any addchdir build, not something the
+/// fallback introduces — and the fork route's synchronous raise is the
+/// more diagnosable of the two. PATH resolution matches the fast path
+/// everywhere: the parent's PATH is captured before the fork and walked in
+/// the child (see below), because execvp would search the child's — under
+/// `env:` the two routes disagreed for the same request.
 ///
 /// Only the fork, the read, and a failure reap run here; everything before
-/// (argv, env block, pipes, redirect staging) is shared with the
-/// posix_spawnp path, and everything the file actions do there happens in
-/// the forked child directly (childExecSide).
-fn spawnChildForkExec(
+/// (argv, env block, pipes, redirect staging, the NUL-checked directory
+/// copy) is shared with the posix_spawnp path, and everything the file
+/// actions do there happens in the forked child directly (childExecSide).
+/// `pub` so the unit tests can drive the fallback mechanism directly on
+/// hosts whose own gate is true (tests_process_fork.zig); nothing else
+/// imports the backend.
+pub fn spawnChildForkExec(
     gc: *GC,
     argv: [*:null]const ?[*:0]const u8,
     env_block: ?[*:null]const ?[*:0]const u8,
     redirs: [3]Redir,
     child_pipe_ends: [3]platform.fd_t,
     cfg: SpawnConfig,
+    directory: ?[*:0]const u8,
 ) PrimitiveError!c_int {
     var err_pipe: [2]platform.fd_t = .{ -1, -1 };
     if (pipeWithFdRetry(gc, &err_pipe) != 0)
         return raiseSpawnErrorInt(gc, "cannot create exec error pipe", types.FALSE, lastError());
     defer closePipePair(&err_pipe);
+    // The error pipe must not live in a stdio slot: with inherited standard
+    // descriptors closed, pipe(2) hands back 0, 1 or 2, and a non-inherit
+    // redirection for that slot then REPLACES the child's copy of the write
+    // end before a chdir/exec failure could report through it — the parent
+    // would read EOF, treat the exec as successful, and hand back a child
+    // that dies 127 (kaappi#2517 review). The same lift the user-facing
+    // pipes already get, applied to the pipe whose whole job is reporting.
+    try normalizePipeAboveStdio(gc, &err_pipe);
+
+    // PATH parity with posix_spawnp (kaappi#2517 review): glibc resolves a
+    // bare program name against the PARENT's PATH, but execvp in the child
+    // reads the CHILD's environment — with `env:` replacing it, the same
+    // request succeeded on one route and raised ENOENT on the other
+    // (measured on the gnu.2.28 build). Capture the parent's PATH here,
+    // where getenv is unrestricted, and walk it in the child with execve —
+    // CPython's subprocess mechanism. Unset PATH falls back to the
+    // historical "/bin:/usr/bin" (glibc's _PATH_STDPATH) in the child.
+    const parent_path: ?[*:0]const u8 = std.c.getenv("PATH");
 
     var forked_pid: c_int = -1;
     var fork_errno: c_int = 0;
@@ -533,7 +716,7 @@ fn spawnChildForkExec(
         if (forked_pid < 0) {
             fork_errno = lastError();
         } else if (forked_pid == 0) {
-            childExecSide(argv, env_block, redirs, child_pipe_ends, cfg.new_group, err_pipe[1]);
+            childExecSide(argv, env_block, redirs, child_pipe_ends, cfg.new_group, directory, parent_path, err_pipe[1]);
         } else {
             // The child owns its copy of the write end; dropping ours is
             // what makes the read return at the child's exec rather than
@@ -574,22 +757,26 @@ fn spawnChildForkExec(
     return forked_pid;
 }
 
-/// The child side of the OpenBSD fork (spawnChildForkExec): install the
-/// stdio slots, drop every inherited non-CLOEXEC descriptor, become the
-/// optional group leader, restore SIGPIPE's default, and execvp. Between
-/// fork and exec in a forked child of a threaded process only
+/// The child side of the fork (spawnChildForkExec): install the stdio
+/// slots, chdir to the optional `directory` (the kaappi#2517 fallback —
+/// the one knob the posix_spawn file actions cannot express without
+/// addchdir_np), drop every inherited descriptor beyond the stdio slots,
+/// become the optional group leader, restore SIGPIPE's default, and exec
+/// through the PARENT-captured PATH (`path_env`, see spawnChildForkExec).
+/// Between fork and exec in a forked child of a threaded process only
 /// async-signal-safe calls are allowed — every branch below is raw
-/// syscalls on arena-copied arguments. OpenBSD's execvp builds its PATH
-/// candidates in a stack buffer rather than allocating, which is what
-/// makes it usable here (the same path /bin/sh takes for every external
-/// command). Never returns: a successful execvp replaces the process, and
-/// every failure writes its errno to `err_fd` and _exits 127.
+/// syscalls and stack-buffer memory moves on arena-copied arguments
+/// (chdir(2) included: it is on POSIX's async-signal-safe list). Never
+/// returns: a successful exec replaces the process, and every failure
+/// writes its errno to `err_fd` and _exits 127.
 fn childExecSide(
     argv: [*:null]const ?[*:0]const u8,
     env_block: ?[*:null]const ?[*:0]const u8,
     redirs: [3]Redir,
     child_pipe_ends: [3]platform.fd_t,
     new_group: bool,
+    directory: ?[*:0]const u8,
+    path_env: ?[*:0]const u8,
     err_fd: platform.fd_t,
 ) noreturn {
     const O_RDONLY: c_int = 0;
@@ -641,23 +828,71 @@ fn childExecSide(
         if (!ok) childExecFail(err_fd, lastError());
     }
 
-    // The fork twin of addInheritedFdCloses: every open non-CLOEXEC fd
-    // >= 3 is closed; the CLOEXEC ones (staged redirect sources, this
-    // path's own error pipe) are left for exec to close. Same inline
-    // fcntl probe as the file-actions fallback — no /proc on OpenBSD, no
-    // allocation, and the same no-arbitrary-cap rationale.
-    const fallback: u64 = 65536;
-    const raw_limit: u64 = blk: {
-        const rl = std.posix.getrlimit(.NOFILE) catch break :blk fallback;
-        break :blk std.math.cast(u64, rl.cur) orelse fallback;
+    // `directory:`, performed parent-side by addchdir_np wherever the
+    // symbol is available. chdir(2) between fork and exec is
+    // async-signal-safe, and a failure reports through the error pipe
+    // exactly like a failed exec — synchronously, the way macOS's and
+    // FreeBSD's posix_spawn report a failed chdir action (glibc's instead
+    // exits the child 127; see spawnChildForkExec's doc).
+    if (directory) |dir| {
+        if (std.c.chdir(dir) != 0) childExecFail(err_fd, lastError());
+    }
+
+    // The fork twin of addInheritedFdCloses: after the exec, the child must
+    // hold nothing beyond the stdio slots. On Linux (kernel >= 5.11), one
+    // raw close_range(2) with CLOSE_RANGE_CLOEXEC marks the whole range
+    // close-on-exec at once — the raw syscall, not a libc wrapper (glibc
+    // grew close_range only in 2.34; the syscall bypasses libc, so the
+    // gnu.2.28 floor is irrelevant, and a raw syscall is async-signal-safe).
+    // Marking CLOEXEC rather than closing is the correct shape here, not a
+    // compromise: at this point every fd >= 3 the child still holds is
+    // either already close-on-exec BY DESIGN (the staged redirect sources;
+    // this path's own error pipe, whose EOF-at-exec is the parent's very
+    // success signal) or an inherited descriptor close-by-default must
+    // remove — the exec closes them all, which is exactly the end state the
+    // probe loop below produces, without ~RLIMIT_NOFILE fcntl probes
+    // (measured ~80 ms per spawn at soft nofile 524288; kaappi#2517 review).
+    // A plain close_range would instead CLOSE the range outright, killing
+    // the error pipe before a chdir/exec failure could report through it.
+    //
+    // The flag is the RAW kernel bit (1 << 2 = CLOSE_RANGE_CLOEXEC), not
+    // `.{ .CLOEXEC = true }`: Zig 0.16.0's std CLOSE_RANGE packed struct
+    // lacks the leading one-bit pad, so its fields sit one bit low —
+    // `.CLOEXEC` lands on bit 1, the kernel's CLOSE_RANGE_UNSHARE, and the
+    // call CLOSES the range instead of marking it (verified on a 6.12
+    // kernel: the packed form closes a test fd, the raw 4 leaves it open
+    // with FD_CLOEXEC). Upstream fixed the encoding in 5ceec001
+    // ("std.os.linux: pad CLOSE_RANGE by one bit", 2026-08-08); once this
+    // repo builds on a Zig that includes it, revert to `.{ .CLOEXEC = true }`.
+    // ENOSYS (kernel < 5.9, and Rosetta's untranslated 436) and EINVAL
+    // (5.9-5.10, flag unsupported) — and, defensively, any other failure —
+    // fall back to the probe.
+    const range_marked = blk: {
+        if (comptime builtin.os.tag != .linux) break :blk false;
+        // `last` = every fd: fd_t is signed, so -1 is the all-bits-set the
+        // kernel reads as ~0U.
+        const rc = std.os.linux.close_range(3, -1, @bitCast(@as(u32, 1 << 2)));
+        break :blk rc == 0;
     };
-    const limit: platform.fd_t = @intCast(@min(raw_limit, std.math.maxInt(platform.fd_t)));
-    const FD_CLOEXEC: c_int = 1;
-    var fd: platform.fd_t = 3;
-    while (fd < limit) : (fd += 1) {
-        const flags = platform.getFdFlags(fd);
-        if (flags < 0) continue; // not open
-        if ((flags & FD_CLOEXEC) == 0) _ = platform.close(fd);
+    if (!range_marked) {
+        // OpenBSD/NetBSD (and a pre-5.11 Linux): the inline fcntl probe —
+        // every open fd >= 3 that is not already close-on-exec is closed.
+        // No /proc on OpenBSD, no allocation, and the same
+        // no-arbitrary-cap rationale as the file-actions fallback: a valid
+        // high descriptor silently exempted would break close-by-default.
+        const fallback: u64 = 65536;
+        const raw_limit: u64 = blk: {
+            const rl = std.posix.getrlimit(.NOFILE) catch break :blk fallback;
+            break :blk std.math.cast(u64, rl.cur) orelse fallback;
+        };
+        const limit: platform.fd_t = @intCast(@min(raw_limit, std.math.maxInt(platform.fd_t)));
+        const FD_CLOEXEC: c_int = 1;
+        var fd: platform.fd_t = 3;
+        while (fd < limit) : (fd += 1) {
+            const flags = platform.getFdFlags(fd);
+            if (flags < 0) continue; // not open
+            if ((flags & FD_CLOEXEC) == 0) _ = platform.close(fd);
+        }
     }
 
     if (new_group) _ = spawn_c.setpgid(0, 0);
@@ -672,14 +907,120 @@ fn childExecSide(
     };
     std.posix.sigaction(std.posix.SIG.PIPE, &act, null);
 
-    // execvp searches PATH through the global environ; a caller-supplied
-    // env: block is installed by pointer. The child never runs past the
-    // exec, so the mutation is invisible everywhere else — and the const
-    // cast is sound because nothing here writes through environ's
-    // entries; execvp only reads them.
-    if (env_block) |envp| std.c.environ = @ptrCast(@constCast(envp));
-    _ = spawn_c.execvp(argv[0].?, argv);
-    childExecFail(err_fd, lastError());
+    // Exec through the PARENT's PATH (captured before the fork; see
+    // spawnChildForkExec). A caller-supplied env: block is passed to
+    // execve directly — the child never touches the global environ.
+    const envp: [*:null]const ?[*:0]const u8 = env_block orelse @ptrCast(std.c.environ);
+    childPathExec(argv, envp, path_env, err_fd);
+}
+
+/// The child's PATH walk (childExecSide's tail): resolve `argv[0]` against
+/// `path_env` — the PARENT's PATH, not the child's environment — and
+/// execve each candidate, exactly execvp's rules:
+///
+/// - a program name containing '/' is execve'd as-is, never searched;
+/// - an empty PATH entry means the current directory (which `directory:`
+///   may have just changed — the same order glibc's addchdir + spawnp
+///   performs, so the two routes agree here too);
+/// - a failed candidate continues the search only for the "not usable
+///   here, keep looking" set glibc's execvpe/posix_spawnp use — ENOENT,
+///   ESTALE, ENOTDIR, ENODEV, ETIMEDOUT — plus EACCES, which is remembered
+///   as the fallback error while the search continues (a fully failed
+///   search reports EACCES if any candidate hit it, ENOENT otherwise);
+/// - every other error — ELOOP, EIO, ENOMEM, E2BIG, ENOEXEC, ... — is the
+///   verdict of the whole spawn, reported as-is. ENOEXEC deliberately
+///   included: the default glibc posix_spawnp binding passes only
+///   SPAWN_XFLAGS_USE_PATH, and the /bin/sh fallback belongs to the compat
+///   TRY_SHELL path, so the fork route passes ENOEXEC through with no
+///   shell fallback and no continued search (kaappi#2517 review);
+/// - an unset PATH uses the historical "/bin:/usr/bin" (glibc's
+///   _PATH_STDPATH), not the inherited environment.
+///
+/// Stack buffers only — no allocation, so the async-signal-safe contract
+/// between fork and exec holds (execvpe would hand the walk to libc, but
+/// OpenBSD has none; execvp reads the child's environ, which under `env:`
+/// diverged from posix_spawnp's parent-side resolution — kaappi#2517
+/// review). Never returns: a successful execve replaces the process, and
+/// every failure reports through `err_fd` and _exits 127.
+fn childPathExec(
+    argv: [*:null]const ?[*:0]const u8,
+    envp: [*:null]const ?[*:0]const u8,
+    path_env: ?[*:0]const u8,
+    err_fd: platform.fd_t,
+) noreturn {
+    const prog: [*:0]const u8 = argv[0].?;
+
+    // A name with a slash is never searched — execvp's rule.
+    var has_slash = false;
+    {
+        var i: usize = 0;
+        while (prog[i] != 0) : (i += 1) {
+            if (prog[i] == '/') {
+                has_slash = true;
+                break;
+            }
+        }
+    }
+    if (has_slash) {
+        _ = spawn_c.execve(prog, argv, envp);
+        childExecFail(err_fd, lastError());
+    }
+
+    const path: [*:0]const u8 = path_env orelse "/bin:/usr/bin";
+    var saw_acces = false;
+    var start: usize = 0;
+    var i: usize = 0;
+    while (true) {
+        const c = path[i];
+        if (c != 0 and c != ':') {
+            i += 1;
+            continue;
+        }
+        // Entry [start, i); empty means "." — execvp's rule.
+        const entry: []const u8 = if (i == start) "." else path[start..i];
+        const prog_len = std.mem.len(prog);
+        var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+        if (entry.len + 1 + prog_len + 1 > buf.len) {
+            // An unbuildable candidate (entry near PATH_MAX) cannot be
+            // exec'd; skip it rather than truncate into a different path.
+            if (c == 0) break;
+            i += 1;
+            start = i;
+            continue;
+        }
+        @memcpy(buf[0..entry.len], entry);
+        buf[entry.len] = '/';
+        @memcpy(buf[entry.len + 1 .. entry.len + 1 + prog_len], prog[0..prog_len]);
+        buf[entry.len + 1 + prog_len] = 0;
+        const candidate: [*:0]const u8 = buf[0 .. entry.len + 1 + prog_len :0].ptr;
+        _ = spawn_c.execve(candidate, argv, envp);
+        // execve returned: this candidate failed. Match glibc's
+        // execvpe/posix_spawnp contract exactly — the search continues
+        // only for the "candidate not usable, keep looking" set (plus
+        // EACCES, remembered as the fallback error); any other error is
+        // the spawn's verdict, reported as-is rather than masked by a
+        // fabricated ENOENT. ENOEXEC is on purpose in that bucket: the
+        // default posix_spawnp binding has no /bin/sh fallback, so neither
+        // does the fork route.
+        const e = lastError();
+        switch (e) {
+            @intFromEnum(std.c.E.NOENT),
+            @intFromEnum(std.c.E.STALE),
+            @intFromEnum(std.c.E.NOTDIR),
+            @intFromEnum(std.c.E.NODEV),
+            @intFromEnum(std.c.E.TIMEDOUT),
+            => {},
+            @intFromEnum(std.c.E.ACCES) => saw_acces = true,
+            else => childExecFail(err_fd, e),
+        }
+        if (c == 0) break;
+        i += 1;
+        start = i;
+    }
+    childExecFail(err_fd, if (saw_acces)
+        @intFromEnum(std.c.E.ACCES)
+    else
+        @intFromEnum(std.c.E.NOENT));
 }
 
 /// Report a child-side exec failure and die: one errno byte for the parent
@@ -840,8 +1181,10 @@ fn raiseSpawnErrorInt(gc: *GC, msg_text: []const u8, irritant: Value, errno_val:
 /// Raise the errno-carrying redirection-setup error. All posix_spawn
 /// file-action and attr functions RETURN the error number rather than
 /// setting errno (kaappi#2442 review) — callers pass that return code here.
-fn spawnSetupError(gc: *GC, rc: c_int) PrimitiveError!Spawned {
-    return raiseSpawnError(gc, "cannot set up process redirection", types.FALSE, rc);
+/// Payload type matches the posix route (spawnChildPosixSpawn) and
+/// addInheritedFdCloses, both of which return a bare pid or void.
+fn spawnSetupError(gc: *GC, rc: c_int) PrimitiveError!c_int {
+    return raiseSpawnErrorInt(gc, "cannot set up process redirection", types.FALSE, rc);
 }
 
 /// Lift both ends of a created pipe above the stdio range (fd >= 3) via
@@ -910,8 +1253,10 @@ fn addInheritedFdCloses(gc: *GC, actions: *spawn_c.FileActionsPtr) PrimitiveErro
     // descriptor silently exempted is a broken close-by-default guarantee
     // (kaappi#2442 review), so the scan runs to the full soft limit. The
     // targets that commonly raise RLIMIT_NOFILE into six figures (FreeBSD,
-    // Linux) never reach this loop — they use addclosefrom_np and /proc
-    // respectively.
+    // Linux) never reach a per-fd probe loop at all: FreeBSD uses
+    // addclosefrom_np above, Linux uses /proc here, and the fork route's
+    // child-side twin (childExecSide) uses close_range there — so no spawn
+    // path on either pays the probe cost.
     const fallback: u64 = 65536;
     const raw_limit: u64 = blk: {
         const rl = std.posix.getrlimit(.NOFILE) catch break :blk fallback;

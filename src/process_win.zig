@@ -58,9 +58,11 @@ const Spawned = types_process.Spawned;
 // Backend interface (mirrored by process_posix.zig)
 // ---------------------------------------------------------------------------
 
-/// `directory:` is `CreateProcessW`'s own `lpCurrentDirectory` — no libc
-/// version gate, unlike the POSIX `addchdir_np` story.
-pub const supports_directory = true;
+// `directory:` needs no capability flag on this backend: it is
+// `CreateProcessW`'s own `lpCurrentDirectory` parameter, with no libc
+// version gate. (The POSIX backend honors it everywhere too since
+// kaappi#2517 — addchdir_np where its comptime link gate allows, a
+// child-side chdir on the fork route otherwise.)
 
 /// The exit code a `'signal: n` kill stamps on the victim. `128 + n` is the
 /// shell convention for "died from signal n", which is what a portable

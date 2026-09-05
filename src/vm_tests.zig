@@ -67,8 +67,12 @@ test {
     // (kaappi process), KEP-0022. One suite per OS backend, each skipping
     // wholesale on the other: the POSIX one spawns through /bin/sh, the
     // Windows one (Phase 3, kaappi#2416) through cmd.exe. Both are gated out
-    // of the WASM build, where the specs are not registered at all.
+    // of the WASM build, where the specs are not registered at all. The
+    // fork-route suite (kaappi#2517) drives the POSIX backend's second
+    // spawn path directly, so its routing and mechanism stay covered on
+    // hosts whose dispatch never takes it.
     _ = @import("tests_process.zig");
+    _ = @import("tests_process_fork.zig");
     _ = @import("tests_process_run.zig");
     _ = @import("tests_process_win.zig");
     // Byte-order pins. The unit suite is one of only three things that runs

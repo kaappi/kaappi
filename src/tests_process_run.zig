@@ -193,18 +193,20 @@ test "run-process: directory: and env: pass through to the spawn" {
     defer ctx.deinit();
     const vm = ctx.vm;
 
-    // `directory:` has no portable POSIX backing: NetBSD's and OpenBSD's
-    // libc have no `posix_spawn_file_actions_addchdir_np`, and
-    // `process_posix.supports_directory` is false there, so spawn-process
-    // rejects the option with an argument error (KP3007) rather than
-    // silently ignoring it. Both outcomes are asserted precisely — a bare
-    // `(guard (e (#t #t)) ...)` would pass on every platform for the wrong
-    // reason.
+    // `directory:` is honored on every POSIX build since kaappi#2517:
+    // through addchdir_np wherever the symbol is available — a comptime
+    // extern on macOS/FreeBSD/musl/gnu >= 2.29, and the runtime-bound weak
+    // extern that lets a gnu.2.28-floored release binary use the fast path
+    // on every glibc >= 2.29 host — and through the fork+exec fallback's
+    // child-side chdir where it is not (a genuinely pre-2.29 host, NetBSD,
+    // OpenBSD). No KP3007 anywhere: the child's pwd must be the requested
+    // directory, full stop. The NetBSD/OpenBSD CI legs exercise the fork
+    // route here for real; the routing table and the fork route's own
+    // mechanism are pinned by the direct unit tests in tests_process_fork.zig.
     try expectTrue(vm,
-        \\(guard (e ((error-object? e) (eq? 'KP3007 (error-object-code e))))
-        \\  (call-with-values
-        \\    (lambda () (run-process '("/bin/sh" "-c" "pwd") 'directory: "/"))
-        \\    (lambda (st out err) (string=? out "/\n"))))
+        \\(call-with-values
+        \\  (lambda () (run-process '("/bin/sh" "-c" "pwd") 'directory: "/"))
+        \\  (lambda (st out err) (and (= st 0) (string=? out "/\n"))))
     );
     try expectTrue(vm,
         \\(call-with-values
