@@ -130,6 +130,20 @@ pub fn effectiveExitCode(explicit: u8, script_had_error: bool) u8 {
     return if (explicit == 0 and script_had_error) 1 else explicit;
 }
 
+/// Record a suppressed `(exit)`/`(emergency-exit)` request where the
+/// `kaappi test` worker's `emitResult` will read it: on the ROOT VM. A
+/// SRFI-18 child thread runs on its own VM (`vm_instance` is threadlocal),
+/// and a request recorded there was never read — before kaappi#2525 the
+/// child did not even inherit `suppress_exit`, so its `(exit 0)` killed the
+/// worker outright. Atomic stores, code first: the root may be building its
+/// result while an unjoined child is still running, and a reader that sees
+/// `exit_requested` must not see a stale code.
+fn recordSuppressedExit(vm: *vm_mod.VM, code: u8) void {
+    const root = vm.root_vm orelse vm;
+    @atomicStore(u8, &root.exit_code, code, .monotonic);
+    @atomicStore(bool, &root.exit_requested, true, .release);
+}
+
 fn exitFn(args: []const Value) PrimitiveError!Value {
     var code = exitCode(args);
     if (vm_mod.vm_instance) |vm| {
@@ -138,8 +152,7 @@ fn exitFn(args: []const Value) PrimitiveError!Value {
         // epilogue calls `(exit 1)` only on failure; suppressing it lets the
         // worker report that failure structurally instead of losing the run.
         if (vm.suppress_exit) {
-            vm.exit_requested = true;
-            vm.exit_code = code;
+            recordSuppressedExit(vm, code);
             return types.VOID;
         }
         // The flag wins over an explicit `(exit 0)` (kaappi#2512). Consulted
@@ -189,8 +202,7 @@ fn emergencyExitFn(args: []const Value) PrimitiveError!Value {
         // not a bug to fix here. The plain-run contract is unchanged below
         // and guarded by tests/scheme/errors/exit-wind.sh.
         if (vm.suppress_exit) {
-            vm.exit_requested = true;
-            vm.exit_code = code;
+            recordSuppressedExit(vm, code);
             return types.VOID;
         }
     }
@@ -637,6 +649,41 @@ test "suppress_exit turns (emergency-exit) into a recorded no-op, VM stays usabl
     try std.testing.expectEqual(types.VOID, r);
     try std.testing.expect(ctx.vm.exit_requested);
     try std.testing.expectEqual(@as(u8, 7), ctx.vm.exit_code);
+
+    const after = try ctx.vm.eval("(+ 1 2)");
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(after));
+}
+
+// kaappi#2525: the worker's suppression must reach a SRFI-18 child thread —
+// `vm_instance` is threadlocal, so the child consults ITS VM's flag — and the
+// request must land on the root VM, the only one `emitResult` reads. Without
+// the fix this test does not fail, it dies: the child's `(exit 5)` is a real
+// std.process.exit of the test binary.
+test "suppress_exit reaches a SRFI-18 child thread and records on the root VM (#2525)" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // OS threads are unregistered on wasm (thread-start! is native-only)
+    const th = @import("testing_helpers.zig");
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    ctx.vm.suppress_exit = true;
+    const r = try ctx.vm.eval(
+        \\(import (scheme process-context) (srfi 18))
+        \\(thread-join! (thread-start! (make-thread (lambda () (exit 5) 'after-exit))))
+    );
+    // The child's thunk ran on past the suppressed call, exactly as the main
+    // thread's would, and the join returned its value.
+    try std.testing.expect(types.isSymbol(r));
+    try std.testing.expectEqualStrings("after-exit", types.symbolName(r));
+    try std.testing.expect(ctx.vm.exit_requested);
+    try std.testing.expectEqual(@as(u8, 5), ctx.vm.exit_code);
+
+    // emergency-exit takes the same route.
+    ctx.vm.exit_requested = false;
+    ctx.vm.exit_code = 0;
+    _ = try ctx.vm.eval("(thread-join! (thread-start! (make-thread (lambda () (emergency-exit 6)))))");
+    try std.testing.expect(ctx.vm.exit_requested);
+    try std.testing.expectEqual(@as(u8, 6), ctx.vm.exit_code);
 
     const after = try ctx.vm.eval("(+ 1 2)");
     try std.testing.expectEqual(@as(i64, 3), types.toFixnum(after));

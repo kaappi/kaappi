@@ -244,10 +244,13 @@ fn buildFileJson(w: *std.Io.Writer, vm: *VM, file_path: []const u8, toplevel_err
     }
     const tests = pass + fail + xpass + xfail + skip;
 
+    // Acquire pairs with the release store in `recordSuppressedExit`: a
+    // SRFI-18 child the file never joined may still be running (kaappi#2525).
+    const exit_requested = @atomicLoad(bool, &vm.exit_requested, .acquire);
     const verdict = resolveVerdict(
         toplevel_error,
-        vm.exit_requested,
-        vm.exit_code,
+        exit_requested,
+        @atomicLoad(u8, &vm.exit_code, .monotonic),
         fail > 0 or xpass > 0,
     );
 
