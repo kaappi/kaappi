@@ -101,21 +101,26 @@ its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
 | `compiler_gate.zig` | Redefinition-awareness: the builtin-bypass heuristic `globalBindingStillGenuine` (whether a superinstruction is worth emitting; correctness is `guard_builtin`'s since kaappi#2469) and the `set!` pre-scan that feeds it (`collectSetTargets`, `scanSetTargetsWithoutMacros`) |
 | `compiler_forms.zig` | Re-export hub (thin file, don't edit directly) |
 
-### VM (split into 11 files)
+### VM (split into 16 files)
 
 | File | Responsibility |
 |------|---------------|
-| `vm.zig` | VM struct, init/deinit, error handling, delegation wrappers |
+| `vm.zig` | VM struct, fields, init/deinit, shared-globals locking, collection-state protocol, delegation wrappers; re-exports the rest of the family |
+| `vm_shims.zig` | Compiler/expander callback shims: `setVMInstance`'s globals wiring plus the macro-expansion-time eval/transformer-call, syntax-property, library-existence and binding-lookup implementations behind `globals.zig`'s function pointers |
+| `vm_roots.zig` | GC root marking (`markVMRoots`/`markVmRoots`), the `CollectionState` stop-the-world protocol type (#1933), `isGcRootedEnvMap` (#1962) |
+| `vm_errors.zig` | Error reporting inside the VM: the last-error-detail buffer, location capture, `findSimilarName` suggestions, `noteUncaughtException` formatting, stack traces |
 | `vm_bootstrap.zig` | Scheme-level implementations of the higher-order procedures that must drive their callbacks through the dispatch loop rather than the Zig call stack |
 | `vm_dispatch.zig` | runUntil bytecode dispatch loop, opcode handlers; re-exports vm_dispatch_helpers.zig |
 | `vm_dispatch_helpers.zig` | Dispatch support: bytecode/operand readers, register-window validation, the shared global-resolution helper (lookupGlobalLocked, #1831/#1860), noinline error raisers, buildRestList |
 | `vm_calls.zig` | execute, run, callValue, callClosure, callNative, profile helpers |
+| `vm_step.zig` | Bounded-step execution driver (kaappi#2283): the Stepper that chunks runUntil by instruction budget |
 | `vm_eval.zig` | eval, handleTopLevelForm dispatcher |
-| `vm_library.zig` | handleDefineLibrary, .sld file loading, SRFI 261 normalization, cond-expand features, include; re-exports vm_imports.zig |
+| `vm_library.zig` | handleDefineLibrary, .sld file loading, SRFI 261 normalization, cond-expand features, include; the #2510 rollback journal (`LibRollbackEntry`); re-exports vm_imports.zig |
+| `vm_library_cache.zig` | .sld library cache (kaappi#1888): cold-load recording, warm replay, run-file dependency records |
 | `vm_imports.zig` | Import-set algebra: handleImport, processImportSet (only/except/rename/prefix), transformer free-ref copying |
 | `vm_records.zig` | handleDefineRecordType desugaring |
 | `vm_continuations.zig` | captureContinuation, restoreContinuation, performWindTransition, callWithCC |
-| `vm_debug.zig` | Stepping debugger: breakpoints (with conditions), watch expressions, step/next/step-out/continue, up/down frame navigation, locals, backtrace |
+| `vm_debug.zig` | Stepping debugger: breakpoints (with conditions), watch expressions, step/next/step-out/continue, up/down frame navigation, locals, backtrace; the debugger support types (`StepMode`, `Breakpoint`, `WatchEntry`, `ProfileTimeEntry`) |
 
 ### Primitives (split into 32 files)
 
