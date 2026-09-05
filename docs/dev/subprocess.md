@@ -63,24 +63,32 @@ process creation); and under `--sandbox`, because every spec is
 `posix_spawnp` on POSIX, `CreateProcessW` on Windows — except the two cases
 the route table (`process_posix.routeFor`) sends down a fork + exec path:
 OpenBSD, whose userland `posix_spawn` cannot report a child's exec failure
-(kaappi#2456), and since kaappi#2517 a `directory:` spawn on a build whose
-comptime gate for `posix_spawn_file_actions_addchdir_np` is false — the
-gnu.2.28-floored release binaries and NetBSD — where the forked child
-chdirs before the exec, exactly what glibc's `addchdir_np` performs on the
-vforked child inside `posix_spawn`. The floor is the *build target's*, not
-the host's, and before the fallback those binaries rejected `directory:`
-(KP3007) on every Linux host however new its glibc.
+(kaappi#2456), and — since kaappi#2517 — a `directory:` spawn of a build on
+a host with no `posix_spawn_file_actions_addchdir_np` at all. Availability
+is settled in two layers: a comptime extern where the link gate allows
+(macOS, FreeBSD, musl, gnu-ABI >= 2.29), and a weak extern bound at *run
+time* on a gnu.2.28-floored build — the dynamic linker resolves it on every
+glibc >= 2.29 host, so release binaries keep the fast path for
+`directory:` essentially everywhere; only a genuinely pre-2.29 host and
+NetBSD fall through to the fork route, whose child chdirs before the exec,
+exactly what glibc's `addchdir_np` performs on the vforked child inside
+`posix_spawn`. Before kaappi#2517, `directory:` on such builds was rejected
+outright (KP3007) — and a gnu.2.28 binary rejected it on *every* Linux host,
+because the comptime floor was being read as the host's capability.
 
 The fast path never forks: Kaappi has SRFI-18 OS threads, a reactor holding
 live kernel objects, and a Windows tier, and each of the three argues
 against a fork-per-spawn. The fork route is the narrow exception for what
 libc cannot express: its child performs only async-signal-safe calls between
-fork and exec, and reports its exec (or chdir) errno through a CLOEXEC
-error pipe — CPython's mechanism — so the parent resumes exactly at the
-exec, the same property the vfork-based spawns have natively. There is no
-pre-exec hook on any path — Python kept `preexec_fn` for compatibility and
-has spent a decade regretting it — so every knob between spawn and exec is
-a named option.
+fork and exec (its fd sweep is a raw `close_range(CLOSE_RANGE_CLOEXEC)` on
+Linux, the fcntl probe elsewhere), resolves bare program names against the
+*parent's* PATH — captured before the fork, so `env:` cannot make the two
+routes disagree — and reports its exec (or chdir) errno through a CLOEXEC
+error pipe, CPython's mechanism, so the parent resumes exactly at the exec,
+the same property the vfork-based spawns have natively. There is no pre-exec
+hook on any path — Python kept `preexec_fn` for compatibility and has spent
+a decade regretting it — so every knob between spawn and exec is a named
+option.
 
 Descriptors are closed by default, with no allowlist: a child inherits
 exactly slots 0, 1 and 2. That is what keeps the reactor's kqueue/epoll fd,
