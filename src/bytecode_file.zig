@@ -42,13 +42,40 @@ pub const MAGIC = [4]u8{ 'K', 'P', 'B', 'C' };
 // runtime errors can report `file:line:col`. A version mismatch makes
 // `readFileWithTopLevel` return null, so older `.sbc` caches are ignored and
 // silently recompiled — no stale-cache hazard.
-/// Format version. v13 (kaappi#1888): the header carries an entry-kind byte
-/// after the source path (program / bundle / library), program entries carry a
-/// positional slot section (compiled function vs. declaration source text, in
-/// top-level order), and library entries carry transformer, event, include and
-/// dependency sections. v12 (kaappi#2166): TAG_COMPLEX payload changed from two
-/// f64s + two exactness bytes to two nested component constants.
-pub const VERSION: u16 = 13;
+/// Format version. v14 (kaappi#2514): the header carries the producing
+/// binary's compile target (`compile_target_id`) and release version string
+/// after the source path, so a rejected embedded bundle can name *which*
+/// component of the compiler key differed — for release binaries built from
+/// one clean checkout the build id is identical across targets and the target
+/// is the only differing input, which the old diagnostic never reported.
+/// v13 (kaappi#1888): the header carries an entry-kind byte after the source
+/// path (program / bundle / library), program entries carry a positional slot
+/// section (compiled function vs. declaration source text, in top-level
+/// order), and library entries carry transformer, event, include and
+/// dependency sections. v12 (kaappi#2166): TAG_COMPLEX payload changed from
+/// two f64s + two exactness bytes to two nested component constants.
+///
+/// Bumping rule: a bump that changes the entry *tail* (anything after the
+/// header strings) must raise `MIN_READ_VERSION` to the new value — nothing
+/// else stops the reader from parsing an older tail under the new layout. A
+/// bump that only appends header fields may leave `MIN_READ_VERSION` alone,
+/// provided the readers gate the new fields on `ver >=` a named threshold
+/// like `TARGET_FIELDS_SINCE`.
+pub const VERSION: u16 = 14;
+/// Oldest header version this binary reads. v13 files lack the target and
+/// version strings but share v14's tail layout (entry kind, slots, sections),
+/// so they still load and classify — the new fields read back as null and
+/// diagnostics must not claim equality of an unrecorded component. Anything
+/// older is rejected as before: a version mismatch reads as a plain miss.
+pub const MIN_READ_VERSION: u16 = 13;
+/// First format version whose header carries the compile target and version
+/// strings after the source path (kaappi#2514). Both readers gate those two
+/// reads on it; a header below it reads them back as null.
+pub const TARGET_FIELDS_SINCE: u16 = 14;
+comptime {
+    std.debug.assert(MIN_READ_VERSION <= VERSION);
+    std.debug.assert(MIN_READ_VERSION <= TARGET_FIELDS_SINCE and TARGET_FIELDS_SINCE <= VERSION);
+}
 pub const MAX_FUNCTIONS: u32 = 16_384;
 pub const MAX_TOP_LEVEL_FUNCTIONS: u32 = 4_096;
 pub const MAX_CODE_BYTES: u32 = 4_194_304;
@@ -170,6 +197,8 @@ pub const writeFileWithLibrary = write.writeFileWithLibrary;
 pub const DeserializeResult = read.DeserializeResult;
 pub const freeDeserializeResult = read.freeDeserializeResult;
 pub const HeaderInfo = read.HeaderInfo;
+pub const BuildIdentity = read.BuildIdentity;
+pub const renderForeignBuildDiagnostic = read.renderForeignBuildDiagnostic;
 pub const deserializeFromBuffer = read.deserializeFromBuffer;
 pub const readFromBuffer = read.readFromBuffer;
 pub const readFileWithTopLevel = read.readFileWithTopLevel;
@@ -916,6 +945,8 @@ test "classifyEmbeddedRejection: foreign build id is distinguished from corrupt"
     try foreign.writeU64(allocator, foreign_key);
     try foreign.writeStr(allocator, "0000000-other-build");
     try foreign.writeStr(allocator, "prog.scm");
+    try foreign.writeStr(allocator, compile_target_id); // v14 target
+    try foreign.writeStr(allocator, main.version); // v14 version
     try foreign.writeU32(allocator, 1);
     try foreign.writeU32(allocator, 1);
 
@@ -949,7 +980,192 @@ test "classifyEmbeddedRejection: foreign build id is distinguished from corrupt"
     try std.testing.expect(classifyEmbeddedRejection(data) == .invalid);
 }
 
-test "readHeaderInfo round-trips build id and source path" {
+test "classifyEmbeddedRejection: cross-target bundle names the target (kaappi#2514)" {
+    // The release-matrix case: all release binaries come from one clean
+    // checkout, so version and build id are IDENTICAL across targets and the
+    // target is the only differing compiler-key input. The old message printed
+    // the matching build id on both sides and advised a pointless rebuild.
+    const allocator = std.testing.allocator;
+    var gc = GC.init(allocator);
+    defer gc.deinit();
+
+    // A target guaranteed different from this binary's on every host.
+    const other_target = "fakearch-fakeos-none;r7rs;fake";
+    try std.testing.expect(!std.mem.eql(u8, other_target, compile_target_id));
+
+    // A v14 header produced by a binary for `other_target` at this very
+    // version and build id. The literal 14 pins the format this fixture is
+    // written in; when MIN_READ_VERSION passes 14, rewrite the fixture in the
+    // new format rather than the assertion.
+    var w = Writer{ .buf = .empty };
+    defer w.buf.deinit(allocator);
+    const foreign_key = compilerHashFor(main.version, build_options.git_build_id, other_target);
+    try std.testing.expect(foreign_key != compilerHash()); // precondition
+    try w.writeBytes(allocator, &MAGIC);
+    try w.writeU16(allocator, 14);
+    try w.writeU64(allocator, 0x5EED);
+    try w.writeU64(allocator, foreign_key);
+    try w.writeStr(allocator, build_options.git_build_id);
+    try w.writeStr(allocator, "prog.scm");
+    try w.writeStr(allocator, other_target);
+    try w.writeStr(allocator, main.version);
+
+    // Still a foreign-build rejection, and the loader really refuses it.
+    try std.testing.expect(classifyEmbeddedRejection(w.buf.items) == .foreign_build);
+    try std.testing.expect(try deserializeFromBuffer(&gc, w.buf.items, 0x5EED) == null);
+
+    // The header exposes the target, and the diagnostic names it with the
+    // fix that applies: recompile for THIS target, not "rebuild from source".
+    const info = readHeaderInfo(w.buf.items) orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqualStrings(other_target, info.target.?);
+    try std.testing.expectEqualStrings(main.version, info.version.?);
+    const msg = try renderForeignBuildDiagnostic(allocator, info, .{
+        .version = main.version,
+        .build_id = build_options.git_build_id,
+        .target = compile_target_id,
+    });
+    defer allocator.free(msg);
+    try std.testing.expect(std.mem.indexOf(u8, msg, other_target) != null);
+    try std.testing.expect(std.mem.indexOf(u8, msg, compile_target_id) != null);
+    try std.testing.expect(std.mem.indexOf(u8, msg, "The target differs") != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        msg,
+        "recompile the .sbc with a kaappi built for this target",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(u8, msg, "The build id differs") == null);
+    try std.testing.expect(std.mem.indexOf(u8, msg, "The version differs") == null);
+}
+
+test "renderForeignBuildDiagnostic: advice matches the differing component (kaappi#2514)" {
+    const allocator = std.testing.allocator;
+    const this_build = BuildIdentity{
+        .version = main.version,
+        .build_id = build_options.git_build_id,
+        .target = compile_target_id,
+    };
+
+    // Stale bundle (kaappi#1930's case): build id differs → rebuild advice.
+    const stale = try renderForeignBuildDiagnostic(allocator, .{
+        .source_hash = 1,
+        .compiler_hash = 2,
+        .build_id = "0000000-old",
+        .source_path = "prog.scm",
+        .target = compile_target_id,
+        .version = main.version,
+        .current_build = false,
+    }, this_build);
+    defer allocator.free(stale);
+    try std.testing.expect(std.mem.indexOf(u8, stale, "The build id differs") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stale, "rebuild the bundle from current source") != null);
+    try std.testing.expect(std.mem.indexOf(u8, stale, "The target differs") == null);
+
+    // Version differs → rebuild advice, and the versions are both printed.
+    const old_version = try renderForeignBuildDiagnostic(allocator, .{
+        .source_hash = 1,
+        .compiler_hash = 2,
+        .build_id = build_options.git_build_id,
+        .source_path = "prog.scm",
+        .target = compile_target_id,
+        .version = "0.0.1-ancient",
+        .current_build = false,
+    }, this_build);
+    defer allocator.free(old_version);
+    try std.testing.expect(std.mem.indexOf(u8, old_version, "The version differs") != null);
+    try std.testing.expect(std.mem.indexOf(u8, old_version, "0.0.1-ancient") != null);
+    try std.testing.expect(std.mem.indexOf(u8, old_version, "The target differs") == null);
+
+    // Pre-v14 header: target/version unrecorded (null) and everything recorded
+    // matches. The diagnostic must NOT claim a component differs — it never
+    // read one — and says the differing component is not recorded instead.
+    const legacy = try renderForeignBuildDiagnostic(allocator, .{
+        .source_hash = 1,
+        .compiler_hash = 2,
+        .build_id = build_options.git_build_id,
+        .source_path = "prog.scm",
+        .target = null,
+        .version = null,
+        .current_build = false,
+    }, this_build);
+    defer allocator.free(legacy);
+    try std.testing.expect(std.mem.indexOf(u8, legacy, "not recorded") != null);
+    try std.testing.expect(std.mem.indexOf(u8, legacy, "The target differs") == null);
+    try std.testing.expect(std.mem.indexOf(u8, legacy, "The build id differs") == null);
+    try std.testing.expect(std.mem.indexOf(u8, legacy, "The version differs") == null);
+}
+
+test "pre-v14 .sbc still classifies and loads (kaappi#2514)" {
+    // Backward compatibility: headers written before the target/version fields
+    // exist must keep parsing (for classification and `cache status`) and keep
+    // loading (a v13 cache entry with a current compiler hash is a hit), since
+    // v13 shares v14's tail layout.
+    const allocator = std.testing.allocator;
+    var gc = GC.init(allocator);
+    defer gc.deinit();
+
+    // A v13 header from a different build of the same target: classifies as a
+    // foreign build with the new fields reading back as null.
+    var w = Writer{ .buf = .empty };
+    defer w.buf.deinit(allocator);
+    const other_build_key = compilerHashFor(main.version, "0000000-other-build", compile_target_id);
+    try w.writeBytes(allocator, &MAGIC);
+    try w.writeU16(allocator, 13);
+    try w.writeU64(allocator, 0x5EED);
+    try w.writeU64(allocator, other_build_key);
+    try w.writeStr(allocator, "0000000-other-build");
+    try w.writeStr(allocator, "prog.scm");
+    // v13: no target or version strings follow the source path.
+
+    try std.testing.expect(classifyEmbeddedRejection(w.buf.items) == .foreign_build);
+    const info = readHeaderInfo(w.buf.items) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(info.target == null);
+    try std.testing.expect(info.version == null);
+
+    // A complete v13 program entry written by THIS build (current compiler
+    // hash) loads: one return-only function, one replay slot, empty sections.
+    var old = Writer{ .buf = .empty };
+    defer old.buf.deinit(allocator);
+    try old.writeBytes(allocator, &MAGIC);
+    try old.writeU16(allocator, 13);
+    try old.writeU64(allocator, 0x1D0C);
+    try old.writeU64(allocator, compilerHash());
+    try old.writeStr(allocator, build_options.git_build_id);
+    try old.writeStr(allocator, "old.scm");
+    try old.writeU8(allocator, ENTRY_PROGRAM);
+    try old.writeU32(allocator, 1); // func_count
+    try old.writeU32(allocator, 1); // top_level_count
+    // Function 0: return-only body, like the classify fixture above.
+    try old.writeU8(allocator, 0); // arity
+    try old.writeU16(allocator, 1); // locals_count
+    try old.writeU16(allocator, 0); // upvalue_count
+    try old.writeU8(allocator, 0); // is_variadic
+    try old.writeU16(allocator, 0); // name_len
+    try old.writeU32(allocator, 3); // code_len
+    try old.writeU8(allocator, @intFromEnum(types.OpCode.@"return"));
+    try old.writeU8(allocator, 0);
+    try old.writeU8(allocator, 0);
+    try old.writeU32(allocator, 0); // const_count
+    try old.writeU32(allocator, 0); // source_line
+    try old.writeU32(allocator, 0); // line_table count
+    // Program slots: one function slot.
+    try old.writeU32(allocator, 1);
+    try old.writeU8(allocator, SLOT_FUNCTION);
+    try old.writeU32(allocator, 0);
+    // Empty include/dependency/bundled/preamble sections.
+    try old.writeU32(allocator, 0);
+    try old.writeU32(allocator, 0);
+    try old.writeU32(allocator, 0);
+    try old.writeU32(allocator, 0);
+
+    var loaded = (try deserializeFromBuffer(&gc, old.buf.items, 0x1D0C)) orelse
+        return error.TestUnexpectedResult;
+    defer freeDeserializeResult(allocator, &loaded);
+    try std.testing.expectEqual(@as(u32, 1), loaded.top_level_count);
+    try std.testing.expectEqual(@as(usize, 1), loaded.funcs.len);
+    try std.testing.expect(loaded.slots != null);
+}
+
+test "readHeaderInfo round-trips build id, source path, target and version" {
     if (comptime platform.is_wasm) return error.SkipZigTest; // bytecode-file writes are gated off on wasm (bytecode_file_write.zig)
     const allocator = std.testing.allocator;
     var gc = GC.init(allocator);
@@ -974,6 +1190,9 @@ test "readHeaderInfo round-trips build id and source path" {
     try std.testing.expectEqual(@as(u64, 0xABCD), info.source_hash);
     try std.testing.expectEqualStrings(build_options.git_build_id, info.build_id);
     try std.testing.expectEqualStrings("/home/u/prog.scm", info.source_path);
+    // v14 (kaappi#2514): the other two compiler-key components round-trip too.
+    try std.testing.expectEqualStrings(compile_target_id, info.target.?);
+    try std.testing.expectEqualStrings(main.version, info.version.?);
     // Written by this very binary, so it reads back as the current build.
     try std.testing.expect(info.current_build);
 }
@@ -993,6 +1212,9 @@ test "bytecode validation rejects oversized function count header" {
     try w.writeU64(allocator, compilerHash());
     try w.writeStr(allocator, "unknown"); // build id
     try w.writeStr(allocator, "test.scm"); // source path
+    try w.writeStr(allocator, compile_target_id); // v14 target
+    try w.writeStr(allocator, main.version); // v14 version
+    try w.writeU8(allocator, ENTRY_PROGRAM);
     try w.writeU32(allocator, @as(u32, @intCast(MAX_FUNCTIONS + 1)));
     try w.writeU32(allocator, 1);
 
@@ -1179,6 +1401,9 @@ test "bytecode validation rejects invalid opcode" {
     try w.writeU64(allocator, compilerHash());
     try w.writeStr(allocator, "unknown"); // build id
     try w.writeStr(allocator, "test.scm"); // source path
+    try w.writeStr(allocator, compile_target_id); // v14 target
+    try w.writeStr(allocator, main.version); // v14 version
+    try w.writeU8(allocator, ENTRY_PROGRAM);
     try w.writeU32(allocator, 1); // function count
     try w.writeU32(allocator, 1); // top-level count
 

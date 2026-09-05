@@ -563,7 +563,7 @@ fn deserializeFromBufferImpl(gc: *GC, data: []const u8, expected_hash: ?u64) Byt
     if (!std.mem.eql(u8, magic, &bf.MAGIC)) return null;
 
     const ver = r.readU16() catch return null;
-    if (ver != bf.VERSION) return null;
+    if (ver < bf.MIN_READ_VERSION or ver > bf.VERSION) return null;
 
     const file_hash = r.readU64() catch return null;
     if (expected_hash) |eh| {
@@ -578,6 +578,13 @@ fn deserializeFromBufferImpl(gc: *GC, data: []const u8, expected_hash: ?u64) Byt
     // status`). A truncated header here is a corrupt cache — treat as a miss.
     _ = r.readStr() catch return null;
     _ = r.readStr() catch return null;
+    // v14 (kaappi#2514): the producing binary's compile target and version
+    // string follow. Read to advance the cursor; a v13 entry stops after the
+    // source path and shares this tail layout, so it loads unchanged.
+    if (ver >= bf.TARGET_FIELDS_SINCE) {
+        _ = r.readStr() catch return null;
+        _ = r.readStr() catch return null;
+    }
 
     // Entry kind (v13): selects the tail layout.
     const entry_kind = r.readU8() catch return null;
@@ -1028,6 +1035,12 @@ pub const HeaderInfo = struct {
     compiler_hash: u64,
     build_id: []const u8,
     source_path: []const u8,
+    /// The producing binary's compile target (`bf.compile_target_id`), or null
+    /// for a pre-v14 header that did not record it (kaappi#2514).
+    target: ?[]const u8 = null,
+    /// The producing binary's release version string (e.g. "0.26.1" — not the
+    /// on-disk format VERSION), or null for a pre-v14 header.
+    version: ?[]const u8 = null,
     /// True when this entry was produced by the running binary — i.e. a plain
     /// run of its source would hit (given the source is unchanged).
     current_build: bool,
@@ -1035,26 +1048,135 @@ pub const HeaderInfo = struct {
 
 /// Parse just the header of a `.sbc` buffer for reporting, without
 /// deserializing any functions. Returns null when the buffer is not a
-/// current-format Kaappi cache file (bad magic, or a version this binary can't
-/// parse) — `cache status` shows such files by size only. Unlike the load path
-/// this does *not* reject on a compiler-hash mismatch: reporting stale entries
-/// from other builds is the whole point.
+/// readable-format Kaappi cache file (bad magic, or a version outside
+/// `MIN_READ_VERSION..VERSION`) — `cache status` shows such files by size
+/// only. Unlike the load path this does *not* reject on a compiler-hash
+/// mismatch: reporting stale entries from other builds is the whole point.
 pub fn readHeaderInfo(data: []const u8) ?HeaderInfo {
     if (data.len < 22) return null;
     var r = Reader{ .data = data, .pos = 0 };
     const magic = r.readBytes(4) catch return null;
     if (!std.mem.eql(u8, magic, &bf.MAGIC)) return null;
     const ver = r.readU16() catch return null;
-    if (ver != bf.VERSION) return null;
+    if (ver < bf.MIN_READ_VERSION or ver > bf.VERSION) return null;
     const source_hash_val = r.readU64() catch return null;
     const compiler_hash_val = r.readU64() catch return null;
     const build_id = r.readStr() catch return null;
     const source_path = r.readStr() catch return null;
+    var target: ?[]const u8 = null;
+    var version_str: ?[]const u8 = null;
+    if (ver >= bf.TARGET_FIELDS_SINCE) {
+        target = r.readStr() catch return null;
+        version_str = r.readStr() catch return null;
+    }
     return .{
         .source_hash = source_hash_val,
         .compiler_hash = compiler_hash_val,
         .build_id = build_id,
         .source_path = source_path,
+        .target = target,
+        .version = version_str,
         .current_build = compiler_hash_val == bf.compilerHash(),
     };
+}
+
+// ---------------------------------------------------------------------------
+// Foreign-build diagnostic rendering (kaappi#2514)
+// ---------------------------------------------------------------------------
+
+/// One side of a `.foreign_build` comparison: the three inputs of
+/// `bf.compilerHashFor`. The binary's identity is passed in explicitly (rather
+/// than read from `main.version`/`build_options` inside) so tests can render
+/// against a hypothetical other-target binary.
+pub const BuildIdentity = struct {
+    version: []const u8,
+    build_id: []const u8,
+    target: []const u8,
+};
+
+/// The placeholder printed for a component a pre-v14 header does not record.
+/// Rendering it as absent (rather than guessing) keeps the diagnostic from
+/// claiming equality of a component it never read.
+const unrecorded = "?";
+
+/// Render the fatal diagnostic for a `.foreign_build` rejection of an embedded
+/// `.sbc` (kaappi#2514). Both sides show all three components of the compiler
+/// identity — version, build id, target — because the case that motivated this
+/// has two of the three *equal*: release binaries are built from one clean
+/// checkout, so a cross-target bundle reports a matching build id twice while
+/// refusing, which reads as a kaappi bug. Each differing component gets an
+/// advice line naming the fix that actually applies:
+///
+///   * target   → recompile the .sbc with a kaappi built for this target;
+///   * version or build id → the bundle is stale; rebuild it from current
+///     source (kaappi#1930's original case, unchanged advice).
+///
+/// A component the header does not record (pre-v14) prints as `?` and is never
+/// claimed equal or different; if nothing recorded differs, the fallback
+/// advice says so instead of naming a component it cannot see. Pure in its
+/// inputs so the wording is unit-testable without a VM.
+pub fn renderForeignBuildDiagnostic(
+    allocator: std.mem.Allocator,
+    bundle: HeaderInfo,
+    binary: BuildIdentity,
+) ![]u8 {
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    errdefer aw.deinit();
+    const w = &aw.writer;
+
+    try w.print("fatal: embedded bytecode was produced by a different build\n", .{});
+    try w.print("  bundle:  {s}  {s}  {s}\n", .{
+        bundle.version orelse unrecorded,
+        bundle.build_id,
+        bundle.target orelse unrecorded,
+    });
+    try w.print("  binary:  {s}  {s}  {s}\n", .{ binary.version, binary.build_id, binary.target });
+
+    const version_differs = bundle.version != null and
+        !std.mem.eql(u8, bundle.version.?, binary.version);
+    const build_id_differs = !std.mem.eql(u8, bundle.build_id, binary.build_id);
+    const target_differs = bundle.target != null and
+        !std.mem.eql(u8, bundle.target.?, binary.target);
+
+    if (version_differs) try w.print(
+        "The version differs: rebuild the bundle from current source.\n",
+        .{},
+    );
+    if (build_id_differs) try w.print(
+        "The build id differs: rebuild the bundle from current source.\n",
+        .{},
+    );
+    if (target_differs) try w.print(
+        "The target differs: recompile the .sbc with a kaappi built for this target.\n",
+        .{},
+    );
+    if (!version_differs and !build_id_differs and !target_differs) {
+        if (bundle.version == null or bundle.target == null) {
+            // Pre-v14 header: the build id matched, so the differing input is
+            // one this header never wrote down — target or version. (Two
+            // dirty builds at one commit do NOT land here: they share all
+            // three hash inputs and load each other's entries silently,
+            // kaappi#1516.) Name the likely cause without claiming equality
+            // of a component that was never read.
+            try w.print(
+                "The differing component is not recorded in this .sbc (older header " ++
+                    "format). If it was compiled for a different target, recompile " ++
+                    "the .sbc with a kaappi built for this target; otherwise rebuild " ++
+                    "the bundle from current source.\n",
+                .{},
+            );
+        } else {
+            // Every component is recorded and matches, yet the compiler hash
+            // differs — not reachable through the writer (the hash is a pure
+            // function of these three), so at most a collision. Keep the
+            // advice generic rather than naming a component.
+            try w.print(
+                "The compiler build differs though every recorded component matches; " ++
+                    "rebuild the bundle from current source.\n",
+                .{},
+            );
+        }
+    }
+
+    return aw.toOwnedSlice();
 }

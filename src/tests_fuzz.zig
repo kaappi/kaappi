@@ -105,8 +105,12 @@ const eval_corpus = [_][]const u8{
 // ---------------------------------------------------------------------------
 // Bytecode loader fixture
 //
-// A small valid .sbc checked in at src/testdata/fuzz-seed.sbc. Regenerate it
-// after a bytecode format VERSION bump (the sanity test below will fail):
+// A small valid .sbc checked in at src/testdata/fuzz-seed.sbc. Its header is
+// format v13; the reader accepts MIN_READ_VERSION..VERSION, so a VERSION bump
+// that leaves the tail layout alone does not invalidate it — it keeps loading
+// (and keeps exercising the pre-v14 read path, where the header's target and
+// version strings are absent). Regenerate it only when that window or the
+// entry layout changes (the sanity test below will fail):
 //
 //   zig build && zig-out/bin/kaappi --compile src/testdata/fuzz-seed.scm \
 //     -o src/testdata/fuzz-seed.sbc
