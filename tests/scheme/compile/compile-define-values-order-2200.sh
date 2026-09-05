@@ -102,12 +102,14 @@ EXPECTED="(1 2)
 
 echo "=== interpreter (the tier oracle) ==="
 interp_status=0
-interp_out="$(interp_stdout "$KAAPPI_ABS" "$WORK" "$WORK/prog.scm")" || interp_status=$?
+interp_err="$WORK/prog.interp.err"
+interp_out="$(interp_stdout "$KAAPPI_ABS" "$WORK" "$WORK/prog.scm" "$interp_err")" || interp_status=$?
 if [ "$interp_out" == "$EXPECTED" ] && [ "$interp_status" -eq 0 ]; then
     ok "interpreted run prints (1 2) then 30 and exits 0"
 else
     bad "interpreted run prints (1 2) then 30 and exits 0" \
         "stdout: $interp_out" "exit: $interp_status"
+    show_interp_stderr "$interp_err"
 fi
 
 echo "=== standalone binary matches the interpreter ==="

@@ -245,6 +245,17 @@ compared: the VM echoes a bare top-level expression's value and a native binary
 does not, the VM continues past a top-level error while a native binary exits
 at the first, and a procedure prints as `#<procedure name>` vs `#<procedure>`.
 
+**Pass the errfile, and show it only on the unexpected-failure branch.**
+`interp_stdout` takes an optional fourth argument — a file to capture the
+interpreter's stderr into — and `show_interp_stderr` prints it. Every oracle
+caller passes one (under its own mktemp workdir, never inside the repo tree)
+and calls `show_interp_stderr` in its FAIL branches. When an oracle run
+aborts, its piped stdout is lost to block buffering, so that captured stderr
+— a Zig panic trace, an allocator leak report — is the one datum that says
+why it died; dropping it left a one-off CI abort unlocalizable (kaappi#2532).
+This breaks no parity rule: the tier-difference ban is on *comparing*
+diagnostic text across tiers, and the capture is shown, never asserted on.
+
 Keep the golden string too, as a second assertion against the *interpreter* —
 it documents intent and still catches a bug both tiers share. What it must not
 be is the only thing between a miscompilation and a green run: kaappi#2092 was
