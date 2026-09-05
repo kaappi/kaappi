@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788583599504,
+  "lastUpdate": 1788583603211,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "bb1082a7d9c5ec33728c7eefc4fd04a63f415969",
-          "message": "Make char-numeric? cover all Unicode Nd digits (#2306)\n\nisUnicodeNumeric used a hand-written list of 36 BMP \"digit zero\" bases,\nmissing all 310 supplementary-plane Nd (decimal digit) code points across\n27 ranges — so char-numeric? answered #f for e.g. U+1D7CE MATHEMATICAL\nBOLD DIGIT ZERO and U+104A0 OSMANYA DIGIT ZERO, disagreeing with the\ntable-driven neighbours and with SRFI 14's char-set:digit.\n\nAdd a numeric_ranges table (General_Category=Nd, all planes) to the\ngenerated unicode_tables.zig via gen_unicode_tables.py, and have both\nchar-numeric? and digit-value consult it. digit-value is kept in lockstep\nbecause R7RS requires it to return a value for every char char-numeric?\nreports as #t; each Nd range is a contiguous 0..9 run, so the value is the\noffset from the range base.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-25T06:05:03+05:30",
-          "tree_id": "7af4493280e72b83c9bd896a9538c19d6a01534d",
-          "url": "https://github.com/kaappi/kaappi/commit/bb1082a7d9c5ec33728c7eefc4fd04a63f415969"
-        },
-        "date": 1787628239668,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.05734,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.69631,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.548432,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.86433,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004939,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046576,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.28301,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.053427,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.370435,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.15188,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.592445,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.3025,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.687081,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.77297,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04561,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.047089,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d6ca2229a80227282a614ad98674bd5184895f15",
+          "message": "Honor suppress_exit from a SRFI-18 child thread and record it on the root (#2527)\n\nA `kaappi test` worker sets vm.suppress_exit so a file's `(exit …)` —\nand, since #2523, `(emergency-exit …)` — becomes a recorded no-op and the\nworker still emits its one JSON result. That only ever covered the main\nthread: `vm_instance` is threadlocal, so a SRFI-18 child consults ITS\nVM's flag, and VM.initForThread never copied suppress_exit. A thread's\n`(exit 0)` was therefore a real std.process.exit, the worker died before\nwriting KAAPPI_TEST_EMIT, and the orchestrator reported\n`ERROR <file> (worker produced no result)` — the same crash-flavoured\noutcome #2521 removed for the main thread, losing every SRFI-64 count\nthe file had collected. A plain `kaappi <file>` exited 0, so the two\nrunners disagreed on the file (kaappi#1903).\n\nTwo halves. initForThread now inherits suppress_exit, so the child's\ncall returns instead of terminating. And the request is recorded on the\nROOT VM, not the calling thread's: a child VM's own exit_requested /\nexit_code are on a struct the worker's emitResult never reads, so a\nchild-side record would have turned a thread's unexplained `(exit 1)`\ninto a green file. `recordSuppressedExit` writes through `root_vm` with\natomic stores (code first, then the flag with release), and\nbuildFileJson reads with acquire, because the root may be building its\nresult while a child the file never joined is still running.\n\nOutside a worker nothing changes: a thread's exit still terminates the\nprocess, as before.\n\nRegression tests: a unit test beside the primitive that starts a thread\ncalling `(exit 5)` under suppression and checks the root VM's record\n(without the fix it does not fail, it kills the test binary), and\ntests/scheme/test-runner/thread-exit.sh, which runs a green suite whose\nthread exits 0 (via exit and via emergency-exit) and a thread's bare\n`(exit 1)` through both a plain run and `kaappi test`, requiring\nagreement, the expected verdict, surviving counts, and no \"worker\nproduced no result\". Without the fix: 1 pass, 6 fail.\n\nCloses #2525\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-05T09:35:45+05:30",
+          "tree_id": "3ae49bb4d51ff4ab2a97889b28687df0cd15d05d",
+          "url": "https://github.com/kaappi/kaappi/commit/d6ca2229a80227282a614ad98674bd5184895f15"
+        },
+        "date": 1788583601931,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.447007,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.845698,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.562587,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.09782,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004556,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047923,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.331582,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056325,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.861896,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.258781,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.653626,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.27519,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.73925,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.627088,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.0458,
             "unit": "seconds"
           }
         ]
