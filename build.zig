@@ -2,7 +2,46 @@ const std = @import("std");
 const zon = @import("build.zig.zon");
 
 pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
+    // Standard -Dtarget/-Dcpu/-Dofmt/-Ddynamic-linker, parsed to a query but
+    // NOT yet resolved: the bundle path below may retune the CPU model first
+    // (kaappi#2515). Same option registration `standardTargetOptions` performs,
+    // so the non-bundle path below resolves to exactly what it always did.
+    const target_query = b.standardTargetOptionsQueryOnly(.{});
+
+    // Standalone binary: embed compiled bytecode via -Dbundle=path/to/program.sbc.
+    // Bundled builds default to the portable baseline CPU (kaappi#2515): a
+    // standalone binary is a thing you *ship*, and `zig build` with no -Dtarget
+    // otherwise tunes for the build host's exact CPU model, so the binary can
+    // SIGILL on another machine of the same architecture — which presents as a
+    // VM bug, not a build-flags bug. -Dbundle-cpu-native opts back into host
+    // tuning for a binary that really will only ever run here.
+    const bundle = b.option([]const u8, "bundle", "Path to .sbc bytecode file to embed for standalone binary (defaults to the portable baseline CPU so it runs on other machines of the same arch; -Dbundle-cpu-native restores host tuning)");
+    // Single-step: compile and embed in one build
+    const bundle_src = b.option([]const u8, "bundle-src", "Path to .scm source file to compile and embed for standalone binary (defaults to the portable baseline CPU so it runs on other machines of the same arch; -Dbundle-cpu-native restores host tuning)");
+    const bundle_cpu_native = b.option(bool, "bundle-cpu-native", "Tune a -Dbundle/-Dbundle-src binary for this machine's exact CPU model instead of the portable baseline default (kaappi#2515); such a binary can SIGILL on other machines of the same architecture") orelse false;
+
+    // kaappi#2515: when bundling, retune the query to the baseline CPU model
+    // unless the user named a CPU themselves. `.determined_by_arch_os` is the
+    // "user didn't say" state — Zig resolves it to the *host* model when no
+    // -Dtarget was given (that is the bug) and to baseline for an explicit
+    // -Dtarget, so pinning it to `.baseline` makes both spellings land on
+    // baseline while `-Dcpu=<model>`/`-Dcpu=native` (`.explicit`/`.native`) and
+    // `-Dcpu=baseline` are left exactly as passed. This tunes every artifact of
+    // a bundling configure (the embedded binary, its build-time
+    // kaappi-compiler, and the always-installed thottam/kaappi-lsp) — one
+    // configure, one target. Plain `zig build` without bundle options is
+    // untouched and stays host-tuned: that binary stays on the machine that
+    // built it. The CPU model is not part of the bytecode compiler key
+    // (`bytecode_file.compile_target_id` hashes arch/os/abi + cond-expand
+    // features only), so a baseline bundler still accepts an .sbc produced by
+    // a host-tuned kaappi from the same tree.
+    const bundling = bundle != null or bundle_src != null;
+    var effective_query = target_query;
+    if (bundling and !bundle_cpu_native and target_query.cpu_model == .determined_by_arch_os) {
+        effective_query.cpu_model = .baseline;
+    }
+    const target = b.resolveTargetQuery(effective_query);
+
     // Default to ReleaseSafe rather than Debug: the interpreter exists to *run*
     // Scheme programs, and Debug is ~500x slower for allocation/continuation-
     // heavy workloads. ReleaseSafe matches ReleaseFast in throughput here while
@@ -14,11 +53,6 @@ pub fn build(b: *std.Build) void {
         "Prioritize performance, safety, or binary size (default: ReleaseSafe)",
     );
     const optimize = optimize_opt orelse .ReleaseSafe;
-
-    // Standalone binary: embed compiled bytecode via -Dbundle=path/to/program.sbc
-    const bundle = b.option([]const u8, "bundle", "Path to .sbc bytecode file to embed for standalone binary");
-    // Single-step: compile and embed in one build
-    const bundle_src = b.option([]const u8, "bundle-src", "Path to .scm source file to compile and embed for standalone binary");
 
     const do_strip = b.option(bool, "strip", "Strip debug info from binaries (for release builds)") orelse false;
     const strip: ?bool = if (do_strip) true else null;

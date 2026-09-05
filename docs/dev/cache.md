@@ -87,6 +87,14 @@ through explicit conversions, pinned against committed golden bytes in
 `src/tests_endian.zig` (audit v2 Phase 7D) so a swap on either side — or on
 both — fails on every host.
 
+The **CPU model** is not part of it either: `compile_target_id` hashes the
+arch/os/abi triple plus `platform_features`, and none of those move when the
+same target is tuned for baseline instead of the host's exact CPU. That is
+what lets a `-Dbundle=` bundler — baseline by default since kaappi#2515, so
+the standalone binary runs on other machines of the same architecture —
+embed an `.sbc` produced by a plain host-tuned `kaappi --compile` from the
+same tree, which is the documented two-command bundle flow.
+
 A *filename* collision is self-correcting, never a wrong result: even if two
 different source paths hashed to the same cache filename, the stored source
 hash would not match, so the load misses and recompiles. The dirty-build-id
