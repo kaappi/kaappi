@@ -884,10 +884,10 @@ pub fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
 
 /// `kaappi test` worker path: install the collecting SRFI-64 runner, run the
 /// file, then emit its one JSON result object. `suppress_exit` lets a file's
-/// `(exit 1)` epilogue be recorded instead of terminating the worker before it
-/// reports. The worker always exits 0 — the orchestrator reads pass/fail from
-/// the emitted JSON, not from this process's status (a missing/empty result is
-/// what signals a crash).
+/// `(exit 1)` — or `(emergency-exit …)`, kaappi#2521 — epilogue be recorded
+/// instead of terminating the worker before it reports. The worker always
+/// exits 0 — the orchestrator reads pass/fail from the emitted JSON, not from
+/// this process's status (a missing/empty result is what signals a crash).
 pub fn runWorkerFile(vm: *vm_mod.VM, fp: []const u8, emit_path: []const u8) !void {
     vm.suppress_exit = true;
     test_runner.installCollector(vm) catch {

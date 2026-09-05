@@ -22,8 +22,8 @@
 //! Subprocess isolation is deliberate, not incidental: a file that loops,
 //! segfaults, leaks a thread, or calls `(exit 1)` in its failure epilogue can
 //! neither corrupt the run nor bleed into another file's results. The worker
-//! sets `vm.suppress_exit` so that a file's `(exit)` cannot rob it of the
-//! chance to emit its result.
+//! sets `vm.suppress_exit` so that a file's `(exit)` or `(emergency-exit …)`
+//! cannot rob it of the chance to emit its result (kaappi#2521).
 
 const std = @import("std");
 const platform = @import("platform.zig");
