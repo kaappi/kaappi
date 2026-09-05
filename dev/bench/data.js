@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788582036428,
+  "lastUpdate": 1788583599504,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "59aa54f881f4ce3fad0c6b8c3b046069e6727a88",
-          "message": "Deduplicate GC remembered set to keep minor collections linear (#2305)\n\nGC.writeBarrier appended a mutated old-gen container to remembered_set on\nevery write with no membership check, so a container mutated n times queued\nup to n identical entries. The minor mark phase then marked each entry, and\nmarking a large container is O(capacity) -- making a fill quadratic in\nwrites. hash-table-set! fires the barrier twice per insert, so filling one\n150k-entry table queued ~300k entries and stalled for seconds in the mark\nphase.\n\nAdd an in_remembered_set flag bit (from Object.Flags spare padding) set when\na self-owned container is appended and cleared when it leaves the set\n(pruneRememberedSet drops it, or a full collect drains it). The barrier stays\nO(1) and the minor mark phase becomes O(distinct containers) instead of\nO(writes). Foreign containers (cross-thread shared mutation, #1924) keep the\npre-existing unconditional append so their owning GC's flag is never touched.\n\nFilling a 150k-entry hash table now scales linearly (~180ms, no multi-second\nspikes) instead of exhibiting per-size cliffs.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-25T06:04:37+05:30",
-          "tree_id": "20efcac84cab39416dd96b2ce00103f72d011f64",
-          "url": "https://github.com/kaappi/kaappi/commit/59aa54f881f4ce3fad0c6b8c3b046069e6727a88"
-        },
-        "date": 1787627710225,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.337201,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.273616,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.562667,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.018906,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004708,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047771,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.309231,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054788,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.879777,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.201783,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.649694,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.27979,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.788581,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.619453,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045457,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.027542,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "67a144052c053726a901208516a2c648d990cde5",
+          "message": "Roll back library registration when a .sld load fails (#2510) (#2518)\n\n* Roll back library registration when a .sld load fails (#2510)\n\nA .sld whose define-library form is well-formed but is followed by a read\nerror (e.g. a stray \")\") failed the FIRST import with KP2001 and\nsucceeded on the SECOND import in the same process.\n\nMechanism: loadLibrarySource dispatches each top-level datum as it is\nread, so the define-library form was dispatched — and the library\nregistered in vm.libraries — before the reader hit the trailing garbage\nand the load returned LibrarySourceReadError. The .sbc disk cache already\nhandled failure correctly (endColdLoad writes nothing for a failed load,\nabortWarmLoad drops the replay state), but the in-memory registry kept\nthe partial entry, and the second import's registry short-circuit in\nprocessImportSet served it as a good hit — exports included, since the\nbegin body had already run. A test file that imported the library twice\ncould therefore report green while every single-import consumer failed,\nwhich is how the breakage originally went unnoticed.\n\nFix: frame every loadLibrarySource invocation with a rollback mark.\nhandleDefineLibrary records each name it registers while any frame is in\nflight; a load that fails unregisters everything above its mark, so the\nnext import re-attempts the load from disk and fails identically — no\nhalf-registered exports leak. Frames nest one per invocation, so a nested\nload that SUCCEEDED commits its own registrations before returning; an\nouter failure never rolls back a good dependency it happened to pull in.\nSuccessful loads and their kaappi#1888 warm-replay caching are untouched;\nthe rollback fires only on error paths.\n\nLibraryRegistry.unregister deinit's the Library exactly as a replaced one\nis, retiring the lib_env into retired_envs first (#820): closures compiled\nin the failed load's begin blocks can escape into live structures and\nkeep raw Function.env pointers into it. Nothing was imported from the\nlibrary on a failed load, so dropping its exports table strands no live\nbinding.\n\nThe broken .sld test fixtures are generated at runtime into a temp dir\n(hermetic KAAPPI_HOME + --lib-path) rather than committed: the fmt corpus\ntest walks every .scm/.sld under tests/scheme, and an intentionally\nunparseable file would fail it — same convention fmt.sh and the\nreader-error suites use for malformed sources.\n\nNote: src/vm.zig was already over the 1500-line advisory limit before\nthis change (1581 -> 1605); vm_library.zig stays under (1239 -> 1292), so\nno split was needed.\n\nCo-Authored-By: ZCode <noreply@zcode.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Lift the #2510 rollback frame to cover post-load failures (#2518 review)\n\nThe rollback frame sat in loadLibrarySource, so it closed — and\ncommitted the load's registrations — the moment the source walk\nfinished. But tryLoadLibraryFromFile can still fail AFTER that: `try\nlcc.endWarmLoad` returns CompileError on a warm-replay event-log\ndesync, and that call is not wrapped by the abortWarmLoad catch. A\nlibrary that had loaded cleanly stayed registered while the import\nreported failure, so a retrying import short-circuited off the\nregistry and succeeded — first attempt fails, second succeeds, the\nexact #2510 inconsistency the rollback was built to kill.\n\nThe frame now opens at the top of tryLoadLibraryFromFile and commits\n(load_ok = true) only past the last fallible step. Every error return,\npost-load ones included, commits as a failed frame; the desync'd cache\nentry stays on disk, so a retry replays it and fails identically —\nboth attempts still agree. Nested loads keep today's semantics: each\ninvocation pushes its own frame and resolves its own fate before\nreturning, so its committed registrations are never above a still-live\nouter mark. The embedded/bundled early-exit paths set load_ok before\ntheir success returns so a clean load is never rolled back.\n\nThe desync is documented as near-impossible (every input to the\nstructure walk is hash-validated, so a mismatch means a loader/\nserializer bug), which is also why it cannot be driven from a test: a\nformat-legal mismatched event log would have to be hand-crafted past\nthe functions section of a .sbc, and no writer API produces one. The\nfix is verified by inspection of the frame ordering (the defer fires\non every return; load_ok is set only after endWarmLoad succeeds),\nplus new unit assertions that the frame/name stacks stay balanced\nafter both failed and successful imports and that a successful load\nstill commits its registration (a forgotten load_ok on any exit path\nfails the registry-get check).\n\nAlso from the review:\n\n- endLibSourceLoad asserts the frame stack is non-empty instead of\n  silently skipping the pop. begin/defer-end are installed\n  adjacently, so an empty stack is a real bug, and the old guard\n  turned it into quiet drift. The unconditional pop is memory-safe\n  (ArrayList.pop returns null on empty); the assert keeps Debug and\n  ReleaseSafe loud.\n\n- Documented unregister's cross-thread hazard in both places the\n  review named: VM.initForThread struct-copies the registry, so a\n  failed load in one thread removes entries, appends to retired_envs\n  (which can realloc), and deinit's a Library while another thread may\n  hold a *Library from get/processImportSet's short-circuit.\n  register-replacement already had this hazard class; unregister is\n  the first shared mutator that deinit's a Library another thread can\n  hold. Note added to LibraryRegistry.unregister's doc comment and a\n  new paragraph in docs/dev/thread-value-sharing.md.\n\n- library-load-rollback-2510.sh's nested-dependency scenario ran the\n  binary twice (once merged inside assert_fails_with, once for\n  stdout); it now runs once with stdout/stderr split and asserts both\n  streams from that single run.\n\nEvidence: zig build; library-load-rollback-2510.sh 5/5; zig build test\n2007 pass / 21 skip / 0 fail; -Dgc-stress=true 2011 pass / 17 skip /\n0 fail; tests/scheme/run-all.sh 2145 pass / 0 fail; R7RS suite 1395\npass / 0 fail.\n\nCo-Authored-By: ZCode <noreply@zcode.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Restore displaced registrations on rollback; journal atomically (#2518 review)\n\nSecond review round, four findings.\n\nRestore-on-rollback (Data Integrity): the rollback's unregister removed\nthe CURRENT entry at a name, destroying the previously-good registration\nwhen the failed load had REPLACED one. Reachable without contortions:\nloadLibrarySource dispatches every datum in the requested .sld, and a\nfile may define a library under ANY name — including (scheme base),\nwhich has no .sld to reload from (built-in only, lib/ has no scheme/\ntree). One failed import of an unrelated file left the name\nunregistered; every later (scheme base) import then died with \"library\nnot found\". The journal now records the displaced prior alongside each\nname: LibraryRegistry.take detaches it before the replacement registers\n(so register's replacement branch never destroys it), and a failed load\nRESTORES it — same slot, exports and lib_env live again — while a\ncommitted replacement RELEASES the prior exactly as register-replacement\nwould (#820: env retired, never freed, since closures from either side\ncan escape). Records unwind LIFO, so each restore returns the registry\nto the state just before that registration, even across a replacement\nchain within one file. A detached prior sits outside the map until its\nframe resolves, so markVmRoots and isGcRootedEnvMap now trace the\njournal — without that, a mid-load collection would sweep exactly what a\nrollback must put back.\n\nAtomic journaling (finding 2): registerAndJournal reserves the journal's\nname copy and list capacity BEFORE touching the registry, so the only\nfallible step left is the insert; on error the displaced prior is back\nin place, the caller's lib is unregistered, and OutOfMemory fails the\nload. The old code suppressed the journal allocation failure — under\nOOM a registration silently went unjournaled and a later rollback\nmissed it, the exact first-fails-second-succeeds class this PR kills.\nDriven by a memory.OomAllocator sweep over the import's raw allocation\nsequence (gc.oom_countdown cannot see raw allocations, #2435); the\nsweep's backing allocator is page_allocator because the load's OOM\npaths deliberately absorb some failures (retired_envs appends), which\nthe leak checker would misreport — ownership is covered leak-checked by\nthe new registry-level take/restore/releaseDetached unit test.\n\nAlso: the #2510 test moved to th.TestContext per the testing\nconvention; library-load-rollback-2510.sh gained the redefine scenario\n(driven through (environment ...) inside guard — import is not an\nexpression — so the program continues past the failure and proves the\nbuilt-in importable); thread-value-sharing.md's registry-mutation\nhazard note now covers take/restore. vm.zig is NOT split here: the\noverage is pre-existing (1581 on main), the policy is advisory per\nAGENTS.md's enforcement map, and a VM-core split is its own project —\ntracked as #2522.\n\nEvidence: zig build; library-load-rollback-2510.sh 7/7; zig build test\n2010 pass / 21 skip / 0 fail; -Dgc-stress=true 2014 pass / 17 skip /\n0 fail; tools/run-r7rs-suite.sh 1395 pass / 0 fail;\ntests/scheme/run-all.sh 2145 pass / 0 fail.\n\nCo-Authored-By: ZCode <noreply@zcode.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Free environmentFn's env_map on error paths\n\nenvironmentFn allocated a StringHashMap and handed it to the GC'd\nSchemeEnvironment only on success. Both error returns — importSetChecked\nfailing on an invalid import set, and allocEnvironment OOM — abandoned\nthe map, leaking it. The leak is pre-existing (this branch does not\ntouch the function) but was exposed by the new Debug-mode scenario in\ntests/scheme/errors/library-load-rollback-2510.sh: it drives a failing\nload through (environment '(rollback2510 broken-redefine)) inside guard\nand asserts stderr stays empty, and in Debug builds Zig's DebugAllocator\nprints a leak report at exit, tripping the assertion. Release legs use\nc_allocator (no leak detection), which is why only the Debug leg was red.\n\nFix with errdefer in the sweep's exact order (deinit, then destroy);\nownership still transfers to the Environment on the success return, so\nthe success path is untouched. The redefine scenario is the regression\ntest and now passes in Debug.\n\nCo-Authored-By: ZCode <noreply@zcode.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: ZCode <noreply@zcode.ai>",
+          "timestamp": "2026-09-05T09:34:16+05:30",
+          "tree_id": "9cbc7c0fffa5f3bd7b1c0d0151d21d784a36f6d3",
+          "url": "https://github.com/kaappi/kaappi/commit/67a144052c053726a901208516a2c648d990cde5"
+        },
+        "date": 1788583598237,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.071127,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.67632,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.56574,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.871303,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004841,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048133,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.291764,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055021,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.54444,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.14942,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.625227,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.298403,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.643556,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.78843,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.047089,
             "unit": "seconds"
           }
         ]
