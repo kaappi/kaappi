@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788622489044,
+  "lastUpdate": 1788639339782,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "dbc3bfdc868af73a16d028b4a49d73bbc305eab6",
-          "message": "Fix array-packed?: consecutive increasing indices from any body base (#2322)\n\nThe spec defines array-packed? as #t when the elements, in lexicographic\norder, are stored in the body with increasing and consecutive indices --\nthe first visited index may have ANY base. The port demanded a zero base,\nso every non-zero-offset view (array-extract being the common case)\nwrongly reported #f; the reference checks only stride-1 between\nlexicographic neighbors and treats length-1 axes as trivially packed.\n\nConsequence beyond the predicate: specialized-array-reshape's fast path\nalready computed its base from the first indexer value, so offset views\nnow reshape in place, sharing the body like the reference, instead of\nerroring or copying.\n\nTests: packed-on/offset extract/translate/reverse/sample/empty cases\n(views suite, which owns the view constructors), plus an in-place\nreshape write-through proof. Docs: the reshape simplification note in\nsrfi-implementation-notes.md now records the corrected packed semantics.\n\nVerified: all seven tests/scheme/srfi/srfi231-*.scm suites pass, the\nspec document's own worked examples still pass (66 automated checks),\nand the reference test suite's 330 error-expectation tests stay 330/330.\n\nCloses #2314\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-25T05:50:04Z",
-          "tree_id": "804f1d6cf7dd584858f897e8233babbd866f7437",
-          "url": "https://github.com/kaappi/kaappi/commit/dbc3bfdc868af73a16d028b4a49d73bbc305eab6"
-        },
-        "date": 1787640782189,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.346118,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.595758,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.580975,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.002882,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005295,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.048486,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.30936,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056306,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.721023,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.216163,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.682364,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.28603,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.806964,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.671263,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045155,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045082,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3052c8b7c1fb68a93cfefb9366f17cb558c49c24",
+          "message": "Honor spawn-process directory: at run time on no-addchdir builds (#2528)\n\n* Honor spawn-process directory: at run time on no-addchdir builds\n\nspawn-process rejected directory: with KP3007 on every spawn by a\nbuild whose comptime gate for posix_spawn_file_actions_addchdir_np is\nfalse — which is every Linux release binary, because the release workflow\ntargets gnu.2.28 and the floor is the build target's, not the host's\n(kaappi#2517: reproduced on ubuntu-24.04 with glibc 2.39). Downstream,\nmesthiri's agent spawner hit this on every Linux CI job and now routes\nspawns through a '/bin/sh -c cd ... && exec ...' wrapper to work around\nit.\n\nThe comptime gate has to stay — it is a link constraint (referencing the\nsymbol unconditionally fails the gnu.2.28 release link, kaappi#2414\nreview) — but a link constraint is not a capability verdict, so honor\nthe option instead of rejecting it. A directory: spawn on a comptime-\nfalse build now routes (process_posix.routeFor) to the existing\nfork + exec path (kaappi#2456's OpenBSD route), whose child chdirs\nbetween fork and exec — exactly what glibc's addchdir_np performs on the\nvforked child inside posix_spawn — with only async-signal-safe calls in\nthe child and every fd/pipe/stdio setup already done parent-side. A bad\ndirectory reports through the route's CLOEXEC error pipe exactly like a\nfailed exec, the same errno a comptime-true build surfaces as the\nposix_spawnp return, so both routes raise the identical condition. The\nparent's error-pipe read still blocks until the exec completes, so the\nroute keeps vfork parity and needs no NetBSD exec barrier of its own.\nThis also lifts NetBSD's and OpenBSD's directory: rejection: the same\nroute already runs every OpenBSD spawn.\n\nThe posix_spawnp fast path is untouched: routeFor takes the comptime\nfacts as comptime parameters, so the decision folds per build and\ncomptime-true builds emit and behave exactly as before; even on a\ncomptime-false build only a spawn that actually requested directory:\ndiverts. supports_directory and its KP3007 raise are removed from both\nbackends — every build honors the option now, and Windows was already\nnative (CreateProcessW's lpCurrentDirectory).\n\nVerified natively (repro prints 0; unit suite 2029 passed, 0 failed,\nalso green under -Dgc-stress for the process suites; all five process\nScheme suites and the native-tier compile script pass) and by\ncross-building x86_64-linux-gnu.2.28 and running the repro under podman\non ubuntu:24.04 — before: error[KP3007]: spawn-process: directory: is\nnot supported on this platform; after: 0, the child's pwd captured\nthrough a pipe as /tmp, and a bad directory raising a file error with\nENOENT.\n\nCo-authored-by: ZCode <noreply@zcode.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address PR review: runtime addchdir routing, error-pipe lift, parent PATH, close_range\n\nAll five review comments on #2528, each verified against the code\nbefore fixing.\n\ncoderabbit (Major): the fork route's error pipe could land on fd 0/1/2\nwhen the launcher closed the standard descriptors, and a non-inherit\nredirection for that slot would then REPLACE the child's copy of the\nwrite end before a chdir/exec failure could report through it — the\nparent read EOF as a successful exec and handed back a child that dies\n127. The pipe now gets the same normalizePipeAboveStdio lift the user\npipes already get. Regression test closes 0/1/2 (saved and restored),\nspawns with a conflicting 'null stdout redirection and an invalid\ndirectory:, and requires the ENOENT raise; verified to fail with the\nlift removed.\n\nbaijum (PATH divergence): execvp searched the CHILD's PATH, so under\nenv: the routes disagreed for the same request (his measurement: env\nPATH=/nonexistent spawned true via posix_spawnp and raised ENOENT via\nthe fork route). The child now walks the PARENT-captured PATH with\nexecve — CPython's mechanism, libc-agnostic because OpenBSD has no\nexecvpe — preserving execvp's rules (a slash short-circuits the search,\nan empty entry means cwd, EACCES is remembered while the search\ncontinues). Pinned by a direct fork-route test (verified to fail when\nthe PATH source is wrong) and a Scheme-level env:+directory: parity\ntest.\n\nbaijum (fd sweep cost): the child's fcntl probe ran per spawn on Linux\n(~80 ms at soft nofile 524288, his measurement). Replaced by the raw\nclose_range(2) syscall with CLOSE_RANGE_CLOEXEC (kernel >= 5.11) — a\nraw syscall, so no glibc-floor concern and async-signal-safe.\nCLOEXEC-marking is the correct shape, not a compromise: at sweep time\nevery fd >= 3 the child holds is either close-on-exec by design (the\nstaged redirect sources; the error pipe, whose EOF-at-exec IS the\nparent's success signal) or an inherited descriptor close-by-default\nmust remove — the exec closes them all, exactly the probe loop's end\nstate, without the probes. A plain close_range would have killed the\nerror pipe outright. ENOSYS (pre-5.9) and EINVAL (5.9-5.10) fall back\nto the probe, which remains for OpenBSD/NetBSD; the stale rationale\ncomments near both probes are updated.\n\nbaijum (weak extern, adopted): availability of\nposix_spawn_file_actions_addchdir_np is now a RUNTIME fact on builds\nwhose comptime gate is false. A weak extern links on the gnu.2.28 floor\nand the dynamic linker binds it on every glibc >= 2.29 host, so release\nbinaries keep the posix_spawnp fast path for directory: essentially\neverywhere; the fork route narrows to genuinely pre-2.29 hosts, NetBSD\nand OpenBSD. Verified on the cross build: readelf shows WEAK UND\nposix_spawn_file_actions_addchdir_np; on ubuntu-24.04 (glibc 2.39) the\nrepro, the pwd capture and the PATH parity all pass, and 50 directory:\nspawns time the same as 50 plain spawns — the fork route's cost is out\nof the common path. One measured nuance documented precisely: glibc's\nposix route reports a bad directory: as a spawned child exiting 127\n(its own file-action-failure behavior, identical to main on any glibc\n>= 2.29 build), while the fork route raises the ENOENT file error\nsynchronously like macOS.\n\nbaijum (routeFor does not fold): routeFor is now pub inline fn. The\nOpenBSD fork key stays a comptime parameter and folds — the posix route\nis not analyzed on OpenBSD, restoring the pre-fallback link protection\nthe old if (comptime ...) dispatch had — while the weak-binding key is\nruntime by design on gnu.2.28/NetBSD builds; the doc comment states\nexactly which half folds. The routing-table unit test pins the runtime\nrows.\n\ntests_process.zig hit the 1500-line policy ceiling with the new suites,\nso the fork-route cluster moved to tests_process_fork.zig (the same\nseam move tests_process_run.zig once made), registered in vm_tests.zig.\n\nzig build test: 2033 passed, 21 skipped, 0 failed; the process suites\nare green under -Dgc-stress=true; the x86_64-linux-gnu.2.28,\nx86_64-openbsd and x86_64-netbsd cross-builds and the wasm build all\nlink.\n\nCo-authored-by: ZCode <noreply@zcode.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Fix weak-extern availability check: var storage, not const\n\nTwo defects the first review-response push left on Linux, found via the\nred CI legs and a minimal reproduction.\n\n(1) close_range's flags literal was missing the non-defaulted UNSHARE\nfield — a compile error, but only where the test binary analyzes the\nfork route: on a CI-native Linux build the comptime-true addchdir gate\nfolds routeFor to the posix route for every spawn, so spawnChildForkExec\nis analyzed only through the unit tests' direct references. The gnu.2.28\ncross-build (comptime-false, runtime branch) and every macOS build\ncompile different route subsets — which is exactly why the error only\nsurfaced in CI. Literal fixed; the Linux test binary now compiles.\n\n(2) The suggested @extern(..., .{ .linkage = .weak }) availability check\ndoes not actually test at run time as written: with a const binding, the\noptional is comptime-known non-null, so the null test and the\n'if (...) |addchdir|' unwrap fold at compile time and the call goes\nthrough the symbol unconditionally. On a host where the weak reference\nstays unbound that is a jump to null — measured as a segfault on\ndebian:10 (glibc 2.28, the exact floor the release targets), while on\nglibc >= 2.29 it is indistinguishable from a working runtime check (the\nreview's own verification could not tell the difference). Binding the\nextern in a var instead places the pointer in .data behind a load-time\nrelocation, so every null test is a runtime load of the loader-resolved\nslot: verified on debian:10 that the null branch runs (repro through the\nfork route prints 0, pwd captures /tmp, a bad directory raises the ENOENT\nfile error) and on ubuntu-24.04 that the symbol binds (posix route,\nidentical results, 50 directory: spawns timing the same as 50 plain\nspawns). The doc comment records why var is load-bearing.\n\nLocal: full suite 2033 passed / 21 skipped / 0 failed; process suites\ngreen under -Dgc-stress=true; x86_64-linux-gnu.2.28, the x86_64-linux\ntest binary, x86_64-openbsd and x86_64-netbsd cross-builds and wasm all\ncompile and link.\n\nCo-authored-by: ZCode <noreply@zcode.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Skip the fork-route fd-hygiene probe where /dev/fd lies\n\nThe new close-by-default test probes fd openness with [ -e /dev/fd/N ],\nwhich requires a live fd inventory: macOS's fdesc and Linux's\n/proc/self/fd symlink report the truth, but the other BSDs expose static\ndevice nodes that exist whether or not the fd is open — so on the\nNetBSD and OpenBSD CI legs the verdict probe saw the parked descriptor's\nstatic node and reported it open (\"expected 0, found 1\"). The posix-route\ntwin in tests_process.zig already gates its probe per OS for exactly this\nreason; do the same. The four other new fork-route tests passed on both\nBSD legs — the route itself is healthy where it actually ships.\n\nCo-authored-by: ZCode <noreply@zcode.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Harden the fork route: correct close_range flag, errno contract, NOSYS belt\n\nThe three follow-up review comments (09:10Z round), each verified against\nthe code and toolchain before fixing.\n\nclose_range flags (Major): Zig 0.16.0's std CLOSE_RANGE packed struct\nlacks the leading one-bit pad, so '.CLOEXEC' sits on bit 1 — the kernel's\nCLOSE_RANGE_UNSHARE — and the fork route's sweep CLOSED fds >= 3 instead\nof marking them close-on-exec, killing the error pipe: a post-sweep exec\nfailure was then unreportable and the spawn \"succeeded\" with a child that\ndies 127 (the kaappi#2456 regression, reintroduced on the fallback). The\ncall now passes the raw kernel bit (1 << 2) via bitCast, with a comment\npinning the toolchain encoding bug and the upstream fix (5ceec001, \"pad\nCLOSE_RANGE by one bit\", 2026-08-08) so a Zig bump can revert to the\nnamed flag. Verified three ways: a local packed-struct printout\n('.CLOEXEC=true' packs to 2), a probe on a real 6.12 kernel (the packed\nform closes a test fd, the raw 4 leaves it open with FD_CLOEXEC), and\nstrace of the child on native arm64 debian:10 — flags 0x2 before, 0x4\nafter — plus the end-to-end symptom: a missing program through\ndirectory: \"succeeded\" before and raises (file-error ENOENT) after.\nEarlier debian:10 checks missed this because Rosetta does not translate\nsyscall 436 (close_range returns ENOSYS, the probe fallback ran), and CI\nnever combines the fork route with an exec failure on Linux.\n\nchildPathExec errno contract (Major): the walk used to continue on every\nerror and fabricate ENOENT at the end. It now matches glibc's\nexecvpe/posix_spawnp contract exactly: continue only for ENOENT, ESTALE,\nENOTDIR, ENODEV, ETIMEDOUT; remember EACCES while continuing and report\nit for a fully failed search; pass every other error — ELOOP, EIO,\nENOMEM, E2BIG, ENOEXEC — straight through as the spawn's verdict. ENOEXEC\nis deliberate pass-through: the default posix_spawnp binding passes only\nSPAWN_XFLAGS_USE_PATH and the /bin/sh fallback is the compat TRY_SHELL\npath, so the fork route has neither shell fallback nor continued search.\nTwo new tests pin it through the real walk (PATH steered via setenv):\nan executable-with-no-magic file raises ENOEXEC (verified to fail with a\nfabricated ENOENT before the fix), and an all-EACCES PATH reports EACCES.\n\nNOSYS belt (Trivial): the posix route's weak-addchdir arm now raises\nNOSYS instead of silently dropping a requested directory: routeFor\ncannot reach that state today, and a future routing regression would\notherwise turn into a wrong working directory rather than an error.\n\nzig build test: 2035 passed / 21 skipped / 0 failed; process suites green\nunder -Dgc-stress; wasm and the aarch64/x86_64 gnu.2.28 cross-builds\nlink; the glibc-2.39 posix route is unchanged (matrix and spawn timings\nidentical).\n\nCo-authored-by: ZCode <noreply@zcode.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: ZCode <noreply@zcode.ai>",
+          "timestamp": "2026-09-06T01:04:27+05:30",
+          "tree_id": "fe056c9dd130e90a9239dcb1dd44fc70cfdf9108",
+          "url": "https://github.com/kaappi/kaappi/commit/3052c8b7c1fb68a93cfefb9366f17cb558c49c24"
+        },
+        "date": 1788639338508,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.498299,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.144352,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.599684,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.118639,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004797,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048842,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.312321,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056815,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.807131,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.251678,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.674593,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.28338,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.773644,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.653882,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045991,
             "unit": "seconds"
           }
         ]
