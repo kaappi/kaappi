@@ -216,9 +216,13 @@ registry short-circuit. `register`-replacement (any re-import of a
 registered name) already carried this hazard class, so this is not a
 regression of #2510, but `unregister` is the first shared mutator that
 *deinit's a `Library`* another thread can be holding a pointer into.
-The practical rule is the one the paragraph above gives by another
-route: don't lazy-load libraries from child threads — pre-load on the
-root before spawning.
+The #2518 review's restore-on-rollback adds `take` and `restore` to the
+same class, with one more twist: between them a displaced `Library`
+lives in the loading thread's per-VM rollback journal, outside the map
+— invisible to the owning GC's root walk, exactly like a `retired_envs`
+append made from a child. The practical rule is the one the paragraph
+above gives by another route: don't lazy-load libraries from child
+threads — pre-load on the root before spawning.
 
 ## The globals route
 

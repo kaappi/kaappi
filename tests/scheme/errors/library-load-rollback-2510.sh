@@ -10,7 +10,10 @@
 # The fix rolls the registration back on a failed load, so both attempts now
 # report the same KP2001. A clean library must keep importing fine (twice),
 # and a GOOD dependency nested inside the broken file stays committed — the
-# rollback removes only what the failed load itself registered.
+# rollback removes only what the failed load itself registered. A load whose
+# file also REPLACES an existing registration (a redefine of (scheme base))
+# restores the displaced prior rather than unregistering the name (#2518
+# review).
 #
 # The .sld fixtures are generated into a temp dir rather than committed next
 # to this script: the broken ones are intentionally unparseable, and the fmt
@@ -60,6 +63,23 @@ cat > "$FIXTURES/rollback2510/broken-with-dep.sld" << 'EOF'
   (import (scheme base) (rollback2510 good))
   (export answer)
   (begin (define (answer) (good-answer))))
+)
+EOF
+
+# Broken file that also REPLACES an existing registration mid-load (#2518
+# review): its second datum redefines the built-in (scheme base) — which has
+# no .sld to reload from — and the trailing ")" then fails the read. The
+# rollback must RESTORE the built-in entry, not unregister the name with the
+# replacement; before that, one failed import of this unrelated file left
+# every later (scheme base) import reporting "library not found".
+cat > "$FIXTURES/rollback2510/broken-redefine.sld" << 'EOF'
+(define-library (rollback2510 broken-redefine)
+  (import (scheme base))
+  (export answer)
+  (begin (define (answer) 42)))
+(define-library (scheme base)
+  (export evil-replacement)
+  (begin (define evil-replacement 'redefined)))
 )
 EOF
 
@@ -174,6 +194,39 @@ if grep -q "dep answer = 42" <<< "$dep_out"; then
     pass "good dependency usable after sibling rollback"
 else
     fail "good dependency usable after sibling rollback — stdout: $dep_out"
+fi
+
+# --- a failed load that redefines (scheme base) restores the prior ---
+# The redefine dispatches and replaces the built-in before the read error;
+# the rollback must put the BUILT-IN back. `import` is not an expression, so
+# the failing load is driven from expression position through
+# `(environment ...)` and caught — letting the program continue is the point:
+# before the restore, the subsequent (scheme base) import died with "library
+# not found" and the replacement's export had silently won the name. One run
+# serves all assertions (stdout below, stderr must stay empty — the error is
+# caught, not uncaught).
+cat > "$TMPDIR_TESTS/broken-redefine.scm" << 'EOF'
+(guard (e (#t (begin (display "caught: ") (display (error-object-message e)) (newline))))
+  (environment '(rollback2510 broken-redefine)))
+(import (scheme base))
+(display "rebuilt base: ") (display (car '(42 43))) (newline)
+EOF
+rd_status=0
+rd_out=$("$KAAPPI" --lib-path "$FIXTURES" "$TMPDIR_TESTS/broken-redefine.scm" \
+    2>"$TMPDIR_TESTS/broken-redefine.err") || rd_status=$?
+rd_err=$(<"$TMPDIR_TESTS/broken-redefine.err")
+if [[ "$rd_status" -eq 0 && ! -s "$TMPDIR_TESTS/broken-redefine.err" ]] \
+    && grep -q "caught: LibrarySourceReadError" <<< "$rd_out" \
+    && ! grep -q "library not found" <<< "$rd_out" \
+    && ! grep -q "evil-replacement" <<< "$rd_out"; then
+    pass "failed redefine of (scheme base) caught as a read error, registry intact"
+else
+    fail "failed redefine of (scheme base) caught as a read error, registry intact — exit $rd_status; stdout: $rd_out; stderr: $rd_err"
+fi
+if grep -q "rebuilt base: 42" <<< "$rd_out"; then
+    pass "built-in (scheme base) restored and importable after the rollback"
+else
+    fail "built-in (scheme base) restored and importable after the rollback — stdout: $rd_out"
 fi
 
 echo ""

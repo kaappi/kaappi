@@ -229,25 +229,35 @@ pub fn srfiFeatureAvailable(vm: *VM, name: []const u8) bool {
 }
 
 /// #2510: open a rollback frame for a file-backed library load about to
-/// start. Returns the mark (index into `vm.lib_rollback_names`) that the load
+/// start. Returns the mark (index into `vm.lib_rollback_regs`) that the load
 /// truncates back to when it finishes. Frames nest one per
 /// `tryLoadLibraryFromFile` invocation — the innermost load resolves its own
 /// fate (rolling back or committing its own registrations) before returning
-/// to the enclosing one.
+/// to the enclosing one. Fallible: the frame append must succeed BEFORE the
+/// caller installs its paired `defer endLibSourceLoad`, so a failed begin
+/// never leaves an unmatched end.
 fn beginLibSourceLoad(vm: *VM) !usize {
-    const mark = vm.lib_rollback_names.items.len;
+    const mark = vm.lib_rollback_regs.items.len;
     try vm.lib_rollback_frames.append(vm.gc.allocator, mark);
     return mark;
 }
 
 /// #2510: close the rollback frame opened by beginLibSourceLoad. On failure,
-/// unregister every library registered since the frame's mark: the load's
+/// unwind every registration recorded since the frame's mark: the load's
 /// datum dispatches register a `define-library` long before a later read or
 /// eval error, and leaving the entry would let the next import's registry
 /// short-circuit serve the half-loaded library as a success — the exact
-/// first-import-fails-second-succeeds inconsistency of #2510. On success the
-/// names are merely forgotten (freed): the libraries stay registered, and any
-/// nested load already committed its own segment by closing its deeper frame.
+/// first-import-fails-second-succeeds inconsistency of #2510. A record that
+/// DISPLACED an existing registration restores the prior instead of removing
+/// the name outright (#2518 review): a .sld can define a library under any
+/// already-registered name — `(scheme base)` has no .sld to reload from —
+/// and plain removal would destroy the previously-good entry along with the
+/// replacement. Records unwind LIFO, so each restore returns the registry to
+/// the state just before that registration, even across a chain of
+/// replacements within one file. On success the registrations commit: new
+/// entries stay, each displaced prior is released (#820-retired env), and
+/// the records are merely forgotten — any nested load already resolved its
+/// own fate by closing its deeper frame.
 fn endLibSourceLoad(vm: *VM, mark: usize, ok: bool) void {
     // The frame stack is strictly balanced by construction — every caller
     // installs its `defer endLibSourceLoad` immediately after a successful
@@ -257,11 +267,50 @@ fn endLibSourceLoad(vm: *VM, mark: usize, ok: bool) void {
     std.debug.assert(vm.lib_rollback_frames.items.len > 0);
     _ = vm.lib_rollback_frames.pop();
     const allocator = vm.gc.allocator;
-    while (vm.lib_rollback_names.items.len > mark) {
-        const name = vm.lib_rollback_names.pop() orelse break;
-        if (!ok) vm.libraries.unregister(name);
-        allocator.free(name);
+    while (vm.lib_rollback_regs.items.len > mark) {
+        const rec = vm.lib_rollback_regs.pop() orelse break;
+        if (rec.prior) |prior| {
+            if (ok) {
+                // The replacement committed; give the displaced prior the
+                // same end register's replacement branch gives it — #820:
+                // its env is retired, not freed.
+                vm.libraries.releaseDetached(prior);
+            } else {
+                vm.libraries.restore(prior);
+            }
+        } else if (!ok) {
+            vm.libraries.unregister(rec.name);
+        }
+        allocator.free(rec.name);
     }
+}
+
+/// #2510 + #2518 review: register `lib` while a rollback frame is in
+/// flight, recording the registration — and the entry it displaces, if any —
+/// in the journal atomically, so `endLibSourceLoad` can unwind it exactly.
+///
+/// Atomicity: the journal's owned name copy and list capacity are reserved
+/// BEFORE the registry is touched, and the displaced entry (`take`) vacates
+/// the key so the insert cannot hit `register`'s replacement branch — the
+/// only remaining fallible step is the insert itself. On error the registry
+/// is exactly as it was (a displaced prior back in place, `lib` still owned
+/// by the caller and unregistered) and OutOfMemory propagates, failing the
+/// load: a registration the journal cannot see is the silent-inconsistency
+/// class #2510 is about, so suppressing the failure (as this path once did)
+/// is not an option.
+fn registerAndJournal(vm: *VM, lib: library_mod.Library) VMError!void {
+    const allocator = vm.gc.allocator;
+    const owned = allocator.dupe(u8, lib.name) catch return VMError.OutOfMemory;
+    errdefer allocator.free(owned);
+    vm.lib_rollback_regs.ensureUnusedCapacity(allocator, 1) catch return VMError.OutOfMemory;
+    // Nothing below can fail: the journal slot is reserved, `take` only
+    // removes, and the insert lands on the key `take` vacated.
+    const prior = vm.libraries.take(lib.name);
+    vm.libraries.register(lib) catch {
+        if (prior) |p| vm.libraries.restore(p);
+        return VMError.OutOfMemory;
+    };
+    vm.lib_rollback_regs.appendAssumeCapacity(.{ .name = owned, .prior = prior });
 }
 
 /// Load and evaluate a library source file from a resolved path.
@@ -1044,25 +1093,29 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
         }
     }
 
-    vm.libraries.register(lib) catch {
-        lib.deinit();
-        return VMError.OutOfMemory;
-    };
-
-    // #2510: while a file-backed library load (tryLoadLibraryFromFile) is in
-    // flight, remember the name just registered so a later failure of that
-    // load — including one after this form returned — can take it back out
-    // (see beginLibSourceLoad). Best-effort: on OOM the registration simply
-    // isn't rollback-able. With no load in flight (a top-level
-    // define-library in a program file or eval) nothing is recorded — a
-    // program file is never re-imported, so there is no second attempt whose
-    // answer must agree.
+    // #2510 (+ #2518 review): register. While a file-backed load
+    // (tryLoadLibraryFromFile) is in flight the registration is journalled
+    // together with any entry it displaces — a .sld can define a library
+    // under a name that is already registered (a user file redefining
+    // (scheme base), or redefining a library an earlier import loaded), and
+    // a later failure of that load must put the PRIOR back rather than
+    // destroy it with the replacement. Journaling failure is not
+    // suppressed either: registerAndJournal undoes its own registration and
+    // fails the load, instead of leaving a registration no rollback can
+    // see — the silent first-fails-second-succeeds state of #2510. With no
+    // load in flight (a top-level define-library in a program file or
+    // eval) nothing is recorded — a program file is never re-imported, so
+    // there is no second attempt whose answer must agree.
     if (vm.lib_rollback_frames.items.len > 0) {
-        if (vm.gc.allocator.dupe(u8, lib_name)) |owned| {
-            vm.lib_rollback_names.append(vm.gc.allocator, owned) catch {
-                vm.gc.allocator.free(owned);
-            };
-        } else |_| {}
+        registerAndJournal(vm, lib) catch {
+            lib.deinit();
+            return VMError.OutOfMemory;
+        };
+    } else {
+        vm.libraries.register(lib) catch {
+            lib.deinit();
+            return VMError.OutOfMemory;
+        };
     }
 
     return types.VOID;
