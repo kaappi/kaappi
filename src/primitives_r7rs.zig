@@ -179,6 +179,15 @@ fn emergencyExitFn(args: []const Value) PrimitiveError!Value {
         // request and return instead: the raw code, before the #2512 upgrade
         // below, so the worker's `resolveVerdict` weighs what the file actually
         // asked for, exactly as it does a suppressed `(exit N)`.
+        //
+        // Returning is a deliberate departure from R7RS 6.14: control leaves
+        // any enclosing `dynamic-wind` extent normally, so the after-thunks a
+        // real emergency-exit skips DO run under suppression, and the file's
+        // remaining forms run too. A worker that must reach `emitResult`
+        // cannot honor "skip everything"; this is an accepted worker-vs-plain
+        // divergence (the same class `exit` has for forms after the call),
+        // not a bug to fix here. The plain-run contract is unchanged below
+        // and guarded by tests/scheme/errors/exit-wind.sh.
         if (vm.suppress_exit) {
             vm.exit_requested = true;
             vm.exit_code = code;
