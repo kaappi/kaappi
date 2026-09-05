@@ -163,14 +163,23 @@ const spawn_c = struct {
     /// release link — and the dynamic linker binds it at load time where
     /// the symbol exists: on a gnu.2.28-floored binary running against
     /// glibc >= 2.29, the unversioned weak reference resolves to the
-    /// default `@@GLIBC_2.29` definition and `addchdir_weak != null`
-    /// (kaappi#2517 review; verified linking for x86_64-linux-gnu.2.28 and
-    /// binding under ubuntu-24.04/glibc 2.39). Where the symbol is
-    /// genuinely absent — a pre-2.29 host, NetBSD, OpenBSD — it stays null
-    /// and `routeFor` diverts `directory:` spawns to the fork route.
+    /// default `@@GLIBC_2.29` definition and this is non-null at run time
+    /// (kaappi#2517 review). Where the symbol is genuinely absent — a
+    /// glibc 2.28 host, NetBSD, OpenBSD — the slot stays null and
+    /// `routeFor` diverts `directory:` spawns to the fork route.
+    ///
+    /// `var`, not `const`, and that is load-bearing: a `const` initializer
+    /// makes the optional comptime-known non-null, so the `!= null` test
+    /// and the `if (...) |addchdir|` unwrap fold at compile time and an
+    /// unbound host CALLS THROUGH NULL — measured as a segfault on
+    /// debian:10 (glibc 2.28) with the `const` form. A `var` places the
+    /// pointer in .data behind a load-time relocation, so every test is a
+    /// runtime load of the loader-resolved slot (verified: null branch on
+    /// debian:10, bound-and-called on ubuntu-24.04). Never mutated; a
+    /// concurrent read of a loader-initialized slot is safe.
     /// Referenced only under `!has_addchdir`, so comptime-true builds
     /// neither analyze nor emit it.
-    pub const addchdir_weak: ?*const fn (*FileActionsPtr, [*:0]const u8) callconv(.c) c_int =
+    pub var addchdir_weak: ?*const fn (*FileActionsPtr, [*:0]const u8) callconv(.c) c_int =
         @extern(?*const fn (*FileActionsPtr, [*:0]const u8) callconv(.c) c_int, .{
             .name = "posix_spawn_file_actions_addchdir_np",
             .linkage = .weak,
@@ -845,7 +854,7 @@ fn childExecSide(
         if (comptime builtin.os.tag != .linux) break :blk false;
         // `last` = every fd: fd_t is signed, so -1 is the all-bits-set the
         // kernel reads as ~0U.
-        const rc = std.os.linux.close_range(3, -1, .{ .CLOEXEC = true });
+        const rc = std.os.linux.close_range(3, -1, .{ .UNSHARE = false, .CLOEXEC = true });
         break :blk rc == 0;
     };
     if (!range_marked) {
