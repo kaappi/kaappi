@@ -97,9 +97,16 @@ Inside the worker (`src/toplevel_driver.zig` `runWorkerFile` →
    / `vm.exit_code`) instead of terminating the worker before it can emit its
    result. `(emergency-exit …)` records through the same channel — a plain
    `emergencyExitFn` used to kill the worker mid-file, and the orchestrator
-   reported the file as a missing result (kaappi#2521). Because the call never
-   happens, its *semantics* are reapplied when the verdict is resolved — see
-   [Verdicts](#verdicts-and-what-errored-means) below.
+   reported the file as a missing result (kaappi#2521). Because the process
+   does not actually terminate, the request's *semantics* — the exit code —
+   are reapplied when the verdict is resolved; see
+   [Verdicts](#verdicts-and-what-errored-means) below. What suppression does
+   not reproduce is the non-return: the call returns, so the file's remaining
+   forms still run, and for `(emergency-exit …)` the `dynamic-wind`
+   after-thunks a plain run would skip do run. Both are accepted
+   worker-vs-plain divergences — a worker that must reach `emitResult` cannot
+   honor "skip everything" — and `runner-agreement.sh` covers the shapes that
+   matter.
 3. **Run the file** via the normal `runFile` path (so the `.sbc` cache, imports,
    and error diagnostics all behave exactly as a plain run).
 4. **Emit one JSON object** for the file to `KAAPPI_TEST_EMIT`, built by walking
