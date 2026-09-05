@@ -4,6 +4,27 @@ const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const VM = vm_mod.VM;
 const CallFrame = vm_mod.CallFrame;
+const Value = types.Value;
+
+// -- Debugger/stepping support types (VM struct field types; re-exported
+//    from vm.zig, which is where the fields and every other consumer live) --
+
+pub const StepMode = enum { none, step, next, step_out, continue_to_break };
+
+pub const Breakpoint = struct {
+    name: []const u8,
+    condition: ?[]const u8 = null,
+};
+
+pub const WatchEntry = struct {
+    name: []const u8,
+    last_value: Value = types.VOID,
+};
+
+pub const ProfileTimeEntry = struct {
+    func: ?*types.Function,
+    entry_ns: u64,
+};
 
 fn writeStderr(bytes: []const u8) void {
     vm_mod.writeStderr(bytes);

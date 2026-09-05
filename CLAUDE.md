@@ -151,9 +151,9 @@ Source → Reader → Expander → IR → Analysis → Optimization → Bytecode
 | GC | `memory.zig` | Generational (young/old), minor and full collections, write barrier for old→young. Roots via `gc.pushRoot`/`gc.popRoot`. |
 
 **`docs/dev/architecture.md` holds the full file-organization tables** — core
-runtime, the 11 `types_*.zig` heap-type domain files, compiler & IR (11
-files), VM (10), primitives (31), and everything else. Consult it before
-adding a file or hunting for where something lives.
+runtime, the `types_*.zig` heap-type domain files, compiler & IR, VM,
+primitives, and everything else. Consult it before adding a file or hunting
+for where something lives.
 
 ### Value representation
 

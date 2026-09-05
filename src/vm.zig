@@ -4,7 +4,6 @@ const memory = @import("memory.zig");
 const platform = @import("platform.zig");
 
 const diagnostics = @import("diagnostics.zig");
-const compiler_mod = @import("compiler.zig");
 const library_mod = @import("library.zig");
 const reactor_mod = @import("reactor.zig");
 pub const globals_mod = @import("globals.zig");
@@ -17,6 +16,10 @@ pub const vm_continuations = @import("vm_continuations.zig");
 pub const vm_bootstrap = @import("vm_bootstrap.zig");
 pub const vm_library_cache = @import("vm_library_cache.zig");
 const bytecode_file = @import("bytecode_file.zig");
+const vm_shims = @import("vm_shims.zig");
+const vm_roots = @import("vm_roots.zig");
+const vm_errors = @import("vm_errors.zig");
+const vm_debug = @import("vm_debug.zig");
 
 pub const VMError = @import("errors.zig").KaappiError;
 
@@ -31,183 +34,9 @@ pub const MAX_WIND_LIMIT = types.MAX_WIND_LIMIT;
 
 pub threadlocal var vm_instance: ?*VM = null;
 
-pub fn setVMInstance(vm: *VM) void {
-    vm_instance = vm;
-    globals_mod.setGlobalsContext(.{
-        .globals = vm.globals,
-        .globals_lock = vm.globals_lock,
-        .owns_globals = vm.owns_globals,
-    });
-    globals_mod.library_exists_checker = &checkLibraryExists;
-    globals_mod.srfi_feature_checker = &checkSrfiFeature;
-    globals_mod.base_binding_lookup = &lookupBaseBinding;
-    globals_mod.current_lib_name_lookup = &getCurrentLibName;
-    globals_mod.def_env_binding_lookup = &lookupDefEnvBinding;
-    globals_mod.def_env_binding_set = &setDefEnvBinding;
-    globals_mod.eval_datum_for_macro = &evalDatumForMacro;
-    globals_mod.call_proc_for_macro = &callProcForMacro;
-    globals_mod.error_detail_for_macro = &errorDetailForMacro;
-    globals_mod.set_error_detail_for_macro = &setErrorDetailForMacro;
-    globals_mod.syntax_property_set = &syntaxPropertySet;
-    globals_mod.syntax_property_get = &syntaxPropertyGet;
-    globals_mod.env_map_rooted_lookup = &envMapIsGcRooted;
-}
-
-/// #1962: whether `map` is one of the environment maps `markVmRoots` traces
-/// unconditionally, exposed to the compiler through
-/// `globals.env_map_rooted_lookup` so it can enforce the untraced-env-map
-/// invariant (see `VM.isGcRootedEnvMap`). Returns false when no VM is live,
-/// which is safe: without a VM no collection can observe the field.
-fn envMapIsGcRooted(map: *std.StringHashMap(Value)) bool {
-    const vm = vm_instance orelse return false;
-    return vm.isGcRootedEnvMap(map);
-}
-
-/// SRFI 211: evaluate a datum at macro-expansion time in the global
-/// environment (the transformer-spec RHS of er-macro-transformer/
-/// lisp-transformer, or a define-property value expression). Same
-/// compile-and-run discipline as primitives_r7rs.evalFn's plain path.
-fn evalDatumForMacro(expr: Value) anyerror!Value {
-    const vm = vm_instance orelse return VMError.InvalidBytecode;
-    const gc = vm.gc;
-    var expr_root = expr;
-    gc.pushRoot(&expr_root);
-    defer gc.popRoot();
-    const func = try compiler_mod.compileExpressionWithMacros(gc, expr_root, &vm.macros, vm.globals);
-    var closure_val = try gc.allocClosure(func);
-    compiler_mod.Compiler.unrootFunction(gc, func);
-    gc.pushRoot(&closure_val);
-    defer gc.popRoot();
-    return vm.callWithArgs(closure_val, &[_]Value{});
-}
-
-/// SRFI 211: invoke a procedural macro transformer (or a SRFI 213
-/// capture-lookup re-entry procedure) from inside the expander. On failure,
-/// formats an escaping Scheme-level exception into last_error_detail exactly
-/// as a top-level form's own uncaught exception would (#1846): callReentrant
-/// (used here for a Closure transformer.proc) only preserves last_error_detail
-/// across its own cleanup, it doesn't populate it from current_exception the
-/// way execute()'s top-level boundary does via noteUncaughtException. Without
-/// this, `(error "msg" irritant)` raised inside a transformer leaves
-/// current_exception set but last_error_detail empty, and errorDetailForMacro
-/// below would have nothing to report. A primitive's own direct type error
-/// (e.g. `(car 7)`) already sets last_error_detail itself and is unaffected
-/// (noteUncaughtException no-ops for anything other than ExceptionRaised).
-fn callProcForMacro(proc: Value, args: []const Value) anyerror!Value {
-    const vm = vm_instance orelse return VMError.InvalidBytecode;
-    return vm.callWithArgs(proc, args) catch |err| {
-        vm.noteUncaughtException(err);
-        return err;
-    };
-}
-
-/// #1846: expose the VM's last recorded error detail to the expander/compiler
-/// (which cannot import vm.zig) so a procedural macro transformer's real
-/// failure -- the message above, or a primitive's own type-error text --
-/// reaches compiler_macro.zig's error.TransformerFailed arms instead of being
-/// discarded.
-fn errorDetailForMacro() []const u8 {
-    const vm = vm_instance orelse return "";
-    return vm.getErrorDetail();
-}
-
-/// #2403: let the expander's native procedures record a precise rejection
-/// message in the VM's error detail (see globals.set_error_detail_for_macro).
-/// No-ops without a VM: mapNativeError then supplies its generic fallback.
-fn setErrorDetailForMacro(msg: []const u8) void {
-    const vm = vm_instance orelse return;
-    vm.setErrorDetail("{s}", .{msg});
-}
-
-/// SRFI 213: store a property value under the composite key
-/// "<id>\x1f<key>". Overwriting an existing property replaces its value
-/// (the SRFI's post-finalization note on repeated definition).
-fn syntaxPropertySet(id: []const u8, key: []const u8, val: Value) anyerror!void {
-    const vm = vm_instance orelse return VMError.InvalidBytecode;
-    const gpa = vm.gc.allocator;
-    const composite = try std.fmt.allocPrint(gpa, "{s}\x1f{s}", .{ id, key });
-    const gop = try vm.syntax_properties.getOrPut(composite);
-    if (gop.found_existing) gpa.free(composite);
-    gop.value_ptr.* = val;
-}
-
-fn syntaxPropertyGet(id: []const u8, key: []const u8) ?Value {
-    const vm = vm_instance orelse return null;
-    const gpa = vm.gc.allocator;
-    const composite = std.fmt.allocPrint(gpa, "{s}\x1f{s}", .{ id, key }) catch return null;
-    defer gpa.free(composite);
-    return vm.syntax_properties.get(composite);
-}
-
-fn checkLibraryExists(lib_name: []const u8, lib_name_list: Value) bool {
-    const vm = vm_instance orelse return false;
-    return vm_library.libraryIsAvailableSrfi261(vm, lib_name, lib_name_list);
-}
-
-fn checkSrfiFeature(name: []const u8) bool {
-    const vm = vm_instance orelse return false;
-    return vm_library.srfiFeatureAvailable(vm, name);
-}
-
-/// Look up `name` in `(scheme base)`'s own export table — populated once at
-/// startup from vm.globals and never touched again afterward — rather than
-/// vm.globals itself, which a later top-level `define` (or a library like
-/// SRFI 101 redefining `list`) freely overwrites (#1715).
-///
-/// Falls back to the `.internal` primitives' snapshot, which has the same
-/// write-once-at-startup property but hangs off no `(scheme …)` library
-/// (#1856). Compiler-synthesized code reaches
-/// `%make-record`/`%record-ref`/`%parameter-set!`/… through here, so a user
-/// program is free to bind those names itself without breaking
-/// `define-record-type`, `parameterize`, or `delay` in the same scope. The two
-/// tables have disjoint key sets — a `%`-prefixed name is never a `scheme.*`
-/// export (comptime-enforced in primitives.zig) — so the order is immaterial.
-fn lookupBaseBinding(name: []const u8) ?Value {
-    const vm = vm_instance orelse return null;
-    if (vm.libraries.get("scheme.base")) |lib| {
-        if (lib.exports.get(name)) |val| return val;
-    }
-    return vm.libraries.internal_bindings.get(name);
-}
-
-/// The canonical name of the library currently being compiled, live for the
-/// whole duration handleDefineLibrary spends processing its declarations
-/// (including any define-syntax within them) -- null outside library
-/// compilation, e.g. a top-level/REPL define-syntax (#1812).
-fn getCurrentLibName() ?[]const u8 {
-    const vm = vm_instance orelse return null;
-    return vm.loading_library_name;
-}
-
-/// Look up `origname` in the library named `libname`'s own lib_env -- the
-/// full internal environment (exported or not), unlike lookupBaseBinding's
-/// `exports`, since a macro's free reference is as likely to hit a private
-/// helper as an exported name. Unlocked, matching lookupBaseBinding's own
-/// unlocked `lib.exports.get` above: both rely on a library's environment
-/// being effectively read-only once the library has finished loading and
-/// been registered (#1812).
-fn lookupDefEnvBinding(libname: []const u8, origname: []const u8) ?Value {
-    const vm = vm_instance orelse return null;
-    const lib = vm.libraries.get(libname) orelse return null;
-    const env = lib.lib_env orelse return null;
-    return env.get(origname);
-}
-
-/// Store `val` into the library named `libname`'s own lib_env binding
-/// `origname` -- a macro's expansion assigning to a library-internal
-/// variable it references. Locked like set_global's own env.getPtr/store
-/// (vm_dispatch.zig): a library's lib_env is shared across SRFI-18 threads
-/// exactly like vm.globals is (#1812).
-fn setDefEnvBinding(libname: []const u8, origname: []const u8, val: Value) bool {
-    const vm = vm_instance orelse return false;
-    const lib = vm.libraries.get(libname) orelse return false;
-    const env = lib.lib_env orelse return false;
-    vm.lockGlobalsShared();
-    defer vm.unlockGlobalsShared();
-    const ptr = env.getPtr(origname) orelse return false;
-    ptr.* = val;
-    return true;
-}
+/// The compiler/expander bridge lives in vm_shims.zig; re-exported so the
+/// ~20 `vm_mod.setVMInstance(vm)` call sites keep working.
+pub const setVMInstance = vm_shims.setVMInstance;
 
 pub const GlobalsRwLock = globals_mod.GlobalsRwLock;
 pub const acquireGlobalsWrite = globals_mod.acquireGlobalsWrite;
@@ -215,135 +44,10 @@ pub const releaseGlobalsWrite = globals_mod.releaseGlobalsWrite;
 pub const acquireGlobalsRead = globals_mod.acquireGlobalsRead;
 pub const releaseGlobalsRead = globals_mod.releaseGlobalsRead;
 
-/// Mark the VM's live roots during a GC cycle: the register window of every
-/// active call frame, the frame closures, the exception-handler stack,
-/// dynamic-wind thunks, the in-flight exception, and the global/macro tables.
-///
-/// Without this, a collection triggered mid-execution (e.g. while capturing a
-/// continuation in a tight loop) would free objects reachable only through the
-/// VM — including the closures and bytecode currently executing — leading to
-/// use-after-free. Registered as the GC's `root_marker`.
-fn markVMRoots(gc: *memory.GC) void {
-    const vm = vm_instance orelse return;
-    if (vm.gc != gc) return; // only mark the VM that owns this GC
-    markVmRoots(gc, vm);
-}
-
-/// Mark every Value `vm` keeps live: the register window of every active call
-/// frame, the frame closures, the exception-handler stack, dynamic-wind
-/// thunks, the in-flight exception, the parameter overrides, the thread
-/// handle, and — when this VM owns the shared tables — the global/macro/
-/// library values. Called with the VM's OWN gc by its own markVMRoots, and
-/// with the ROOT gc by markLiveChildRoots for each live child VM: in the
-/// latter case the child is quiescent (stopped at a safepoint or parked, see
-/// CollectionState), so reading its frames/registers races nothing, and
-/// markValue's foreign-owner skip keeps the parent's collector off the
-/// child's own heap objects (kaappi#1933).
-pub fn markVmRoots(gc: *memory.GC, vm: *VM) void {
-    for (vm.frames[0..vm.frame_count]) |f| {
-        if (f.closure) |cls| gc.markValue(types.makePointer(&cls.header));
-        if (f.native) |nf| gc.markValue(types.makePointer(&nf.header));
-        const window = f.frameWindow();
-        const end: usize = @min(@as(usize, f.base) + window, vm.registers.len);
-        var r: usize = f.base;
-        while (r < end) : (r += 1) gc.markValue(vm.registers[r]);
-    }
-
-    for (vm.handler_stack[0..vm.handler_count]) |h| gc.markValue(h.handler);
-
-    for (vm.wind_stack[0..vm.wind_count]) |wr| {
-        gc.markValue(wr.before);
-        gc.markValue(wr.after);
-    }
-
-    if (vm.current_exception) |exc| gc.markValue(exc);
-    if (vm.callback_error_value) |exc| gc.markValue(exc);
-    gc.markValue(vm.continuation_value);
-    gc.markValue(vm.default_random_source);
-    gc.markValue(vm.default_channel_comparator);
-    // Foreign (parent-heap) for a child thread, so markValue skips it; the
-    // parent roots the handle. Marked here for the same reason every other
-    // Value field is: a same-heap value would be kept alive by it (#2125).
-    if (vm.thread_handle) |h| gc.markValue(h);
-
-    // Only mark globals/macros when this VM owns them. Child threads
-    // share the parent's maps — the parent GC keeps those values alive.
-    // Marking them here would write mark bits on parent-heap objects
-    // without synchronization (data race).
-    if (vm.owns_globals) {
-        var git = vm.globals.valueIterator();
-        while (git.next()) |v| gc.markValue(v.*);
-        var mit = vm.macros.valueIterator();
-        while (mit.next()) |v| gc.markValue(v.*);
-        var uit = vm.record_uid_registry.valueIterator();
-        while (uit.next()) |v| gc.markValue(v.*);
-        var spit = vm.syntax_properties.valueIterator();
-        while (spit.next()) |v| gc.markValue(v.*);
-    }
-
-    var pit = vm.param_overrides.valueIterator();
-    while (pit.next()) |v| gc.markValue(v.*);
-
-    if (vm.owns_globals) {
-        var lit = vm.libraries.libraries.valueIterator();
-        while (lit.next()) |lib| {
-            var eit = lib.exports.valueIterator();
-            while (eit.next()) |v| gc.markValue(v.*);
-            if (lib.lib_env) |env| {
-                var eit2 = env.valueIterator();
-                while (eit2.next()) |v| gc.markValue(v.*);
-            }
-        }
-        // Envs of replaced libraries stay reachable through closures that
-        // were compiled against them (#820).
-        for (vm.libraries.retired_envs.items) |env| {
-            var eit = env.valueIterator();
-            while (eit.next()) |v| gc.markValue(v.*);
-        }
-        // Priors detached into the rollback journal (#2518 review of #2510):
-        // from `take` until its frame commits or rolls back, a displaced
-        // library lives here rather than in `libraries` — without this walk
-        // a mid-load collection would sweep exactly the exports and env a
-        // rollback must put back.
-        for (vm.lib_rollback_regs.items) |*rec| {
-            if (rec.prior) |*prior| {
-                var eit = prior.exports.valueIterator();
-                while (eit.next()) |v| gc.markValue(v.*);
-                if (prior.lib_env) |env| {
-                    var eit2 = env.valueIterator();
-                    while (eit2.next()) |v| gc.markValue(v.*);
-                }
-            }
-        }
-        // The pristine `.internal` primitives (#1856): only compiler-
-        // synthesized references reach them, so a user `define` of the same
-        // name is all it takes for globals to stop holding them.
-        var iit = vm.libraries.internal_bindings.valueIterator();
-        while (iit.next()) |v| gc.markValue(v.*);
-        // The run-time builtin gate's reference values (kaappi#2469): a user
-        // redefinition of `apply` drops the pristine primitive from globals,
-        // and every `guard_builtin` compiled before it still compares
-        // against it.
-        for (vm.libraries.fast_path_pristine) |v| gc.markValue(v);
-    }
-
-    // Mark library environments being built by handleDefineLibrary
-    for (vm.pending_lib_envs[0..vm.pending_lib_env_count]) |maybe_env| {
-        if (maybe_env) |env| {
-            var eit = env.valueIterator();
-            while (eit.next()) |v| gc.markValue(v.*);
-        }
-    }
-
-    // Mark fiber scheduler state (suspended fibers' execution state)
-    if (vm.scheduler) |sched| {
-        sched.markRoots(gc);
-    }
-    // Belt-and-braces: see Reactor.markRoots's doc comment.
-    if (vm.reactor) |r| {
-        r.markRoots(gc);
-    }
-}
+/// GC root marking lives in vm_roots.zig (markVMRoots is wired there
+/// directly as the GC's root_marker); markVmRoots is re-exported for
+/// primitives_srfi18's markLiveChildRoots.
+pub const markVmRoots = vm_roots.markVmRoots;
 
 pub const ExceptionHandler = types.ExceptionHandler;
 
@@ -351,62 +55,18 @@ pub const writeStderr = @import("reporting.zig").writeStderr;
 
 pub const CallFrame = types.CallFrame;
 
-pub const StepMode = enum { none, step, next, step_out, continue_to_break };
+pub const StepMode = vm_debug.StepMode;
+pub const Breakpoint = vm_debug.Breakpoint;
+pub const WatchEntry = vm_debug.WatchEntry;
+pub const ProfileTimeEntry = vm_debug.ProfileTimeEntry;
 
-pub const Breakpoint = struct {
-    name: []const u8,
-    condition: ?[]const u8 = null,
-};
+/// #2510 rollback journal entry; lives next to the library machinery that
+/// appends/resolves the records (vm_library.zig).
+pub const LibRollbackEntry = vm_library.LibRollbackEntry;
 
-pub const WatchEntry = struct {
-    name: []const u8,
-    last_value: Value = types.VOID,
-};
-
-pub const ProfileTimeEntry = struct {
-    func: ?*types.Function,
-    entry_ns: u64,
-};
-
-/// One #2510 rollback record: the (owned) name a load registered, and the
-/// registration that load displaced — null unless its `define-library`
-/// replaced an already-registered library, in which case a rollback of this
-/// record restores the prior and a commit releases it (#2518 review).
-pub const LibRollbackEntry = struct {
-    name: []const u8,
-    prior: ?library_mod.Library = null,
-};
-
-/// #1933 (stop-the-world): a child VM's reported execution state, read by
-/// the collecting parent (markLiveChildRoots) to decide whether the VM's
-/// registers/frames are quiescent enough to mark:
-///
-///   .running   — bytecode is (or may resume) executing; registers/frames
-///                can change at any moment. The parent must wait for a
-///                safepoint or a park. This is also the state inside a
-///                bounded native call (a primitive, a nested dispatch), which
-///                returns to the dispatch loop promptly and hits the safepoint
-///                within 1024 instructions.
-///   .stopped   — at the dispatch-loop safepoint, between instructions, with
-///                `collection_stop` set. Quiescent; the parent marks and then
-///                clears `collection_stop` to let the child resume.
-///   .parked    — blocked in a wait (reactor poll, the capped cross-thread
-///                polling loops). Quiescent while reported; the resume path
-///                (setCollectionRunning) re-checks `collection_stop` before
-///                letting bytecode run, so a parent that observed this state
-///                can always mark it frozen.
-///   .in_native — inside an FFI call (callFfi) or a raw thread join
-///                (reapOsThread): may block indefinitely and never reaches
-///                the safepoint. Quiescent while reported; the FFI callbacks
-///                that re-enter Scheme switch back to `.running` for their
-///                extent (see callWithArgs), and the resume path re-checks
-///                `collection_stop` the same way.
-///
-/// Transitions are plain atomics on the child side and are never observed
-/// by the parent except while the child's own GC is guaranteed not to be
-/// touching these objects — see the safepoint/park protocol in
-/// markLiveChildRoots.
-pub const CollectionState = enum(u8) { running, parked, stopped, in_native };
+/// #1933 (stop-the-world): a child VM's reported execution state; see
+/// vm_roots.zig, where the marking side that consumes it lives.
+pub const CollectionState = vm_roots.CollectionState;
 
 pub const VM = struct {
     gc: *memory.GC,
@@ -818,7 +478,7 @@ pub const VM = struct {
             .param_overrides = std.AutoHashMap(usize, Value).init(gc.allocator),
         };
         @memset(vm.registers, types.UNDEFINED);
-        gc.root_marker = &markVMRoots;
+        gc.root_marker = &vm_roots.markVMRoots;
         // Pre-allocate standard ports — root each immediately so GC
         // triggered by the next allocPort cannot collect it (#1013).
         vm.stdin_port = gc.allocPort(0, true, false, "stdin", false) catch types.VOID;
@@ -906,7 +566,7 @@ pub const VM = struct {
             .script_path = parent.script_path,
         };
         @memset(vm.registers, types.UNDEFINED);
-        gc.root_marker = &markVMRoots;
+        gc.root_marker = &vm_roots.markVMRoots;
         // Root each port before allocating the next, exactly like init()
         // (#1013): the child thread's `vm_instance` is not registered yet, so
         // the root marker sees nothing — a collection triggered by the next
@@ -1150,257 +810,40 @@ pub const VM = struct {
         self.collection_state.store(.in_native, .release);
     }
 
+    // -- Error reporting and stack traces (implementations in vm_errors.zig) --
+
     pub fn setErrorDetail(self: *VM, comptime fmt: []const u8, args: anytype) void {
-        const s = std.fmt.bufPrint(&self.last_error_detail, fmt, args) catch |err| switch (err) {
-            error.NoSpaceLeft => {
-                self.last_error_detail_len = self.last_error_detail.len;
-                return;
-            },
-        };
-        self.last_error_detail_len = s.len;
-        self.captureErrorLocation();
+        vm_errors.setErrorDetail(self, fmt, args);
     }
 
     pub fn findSimilarName(self: *VM, name: []const u8) ?[]const u8 {
-        var best: ?[]const u8 = null;
-        var best_dist: usize = 4;
-        // Locks internally — callers (dispatch error paths) must not hold
-        // the globals lock when calling this.
-        self.lockGlobalsShared();
-        defer self.unlockGlobalsShared();
-        var iter = self.globals.keyIterator();
-        while (iter.next()) |key| {
-            const candidate = key.*;
-            if (candidate.len == 0 or candidate[0] == '%') continue;
-            const dist = editDistance(name, candidate);
-            if (dist > 0 and dist < best_dist) {
-                best_dist = dist;
-                best = candidate;
-            }
-        }
-        return best;
-    }
-
-    fn editDistance(a: []const u8, b: []const u8) usize {
-        if (a.len > 32 or b.len > 32) return 99;
-        var prev: [33]usize = undefined;
-        var curr: [33]usize = undefined;
-        for (0..b.len + 1) |j| prev[j] = j;
-        for (a, 0..) |ca, i| {
-            curr[0] = i + 1;
-            for (b, 0..) |cb, j| {
-                const cost: usize = if (ca == cb) 0 else 1;
-                curr[j + 1] = @min(@min(curr[j] + 1, prev[j + 1] + 1), prev[j] + cost);
-            }
-            @memcpy(prev[0 .. b.len + 1], curr[0 .. b.len + 1]);
-        }
-        return prev[b.len];
-    }
-
-    fn captureErrorLocation(self: *VM) void {
-        self.last_error_line = 0;
-        self.last_error_col = 0;
-        self.last_error_source = null;
-        if (self.frame_count == 0) return;
-        var i = self.frame_count;
-        while (i > 0) {
-            i -= 1;
-            if (self.frames[i].closure) |cls| {
-                const func = cls.func;
-                if (func.line_table.items.len > 0) {
-                    const ip = if (self.frames[i].ip > 0) self.frames[i].ip - 1 else 0;
-                    const loc = func.locForOffset(ip);
-                    if (loc.line > 0) {
-                        self.last_error_line = loc.line;
-                        self.last_error_col = loc.col;
-                        self.last_error_source = func.source_name;
-                        return;
-                    }
-                }
-                if (func.source_line > 0) {
-                    self.last_error_line = func.source_line;
-                    self.last_error_col = 0;
-                    self.last_error_source = func.source_name;
-                    return;
-                }
-            }
-        }
+        return vm_errors.findSimilarName(self, name);
     }
 
     pub fn getErrorDetail(self: *VM) []const u8 {
-        return self.last_error_detail[0..self.last_error_detail_len];
+        return vm_errors.getErrorDetail(self);
     }
 
-    /// #1962: whether `map` is one of the environment maps `markVmRoots`
-    /// traces unconditionally each collection -- every registered library's
-    /// `lib_env`, a `retired_env` of a replaced library, an in-flight
-    /// `pending_lib_env`, or the library env currently being compiled
-    /// (`current_lib_env`, which becomes one of the former once its
-    /// `define-library` finishes registering). A `Function.env` /
-    /// `Transformer.def_env` pointing at such a map stays reachable with a NIL
-    /// paired `env_val` / `def_env_val`; any other map must carry a non-NIL,
-    /// GC-traced paired value or its bindings are lost at the next collection.
-    /// Pointer-identity match; runs only from the debug/test assertion guard,
-    /// so the O(libraries) scan never costs a release build anything.
+    /// #1962 untraced-env-map invariant check; implementation in
+    /// vm_roots.zig next to the marking side it reasons about.
     pub fn isGcRootedEnvMap(self: *VM, map: *std.StringHashMap(Value)) bool {
-        if (self.current_lib_env) |e| {
-            if (e == map) return true;
-        }
-        var lit = self.libraries.libraries.valueIterator();
-        while (lit.next()) |lib| {
-            if (lib.lib_env) |e| {
-                if (e == map) return true;
-            }
-        }
-        for (self.libraries.retired_envs.items) |e| {
-            if (e == map) return true;
-        }
-        // A prior detached into the rollback journal is just as rooted
-        // (#2518 review) — it returns to `libraries` when the frame resolves.
-        for (self.lib_rollback_regs.items) |*rec| {
-            if (rec.prior) |*prior| {
-                if (prior.lib_env) |e| {
-                    if (e == map) return true;
-                }
-            }
-        }
-        for (self.pending_lib_envs[0..self.pending_lib_env_count]) |maybe| {
-            if (maybe) |e| {
-                if (e == map) return true;
-            }
-        }
-        return false;
-    }
-
-    /// Writes `eo`'s own `message` + `irritants` (display mode for the
-    /// message, write mode for each irritant, matching R7RS `error`'s
-    /// display convention) to `w`. Shared by `noteUncaughtException`'s
-    /// top-level object and its `uncaught_reason` unwrap loop below.
-    fn writeErrorObjectMessage(w: *std.Io.Writer, allocator: std.mem.Allocator, eo: *types.ErrorObject) void {
-        const printer = @import("printer.zig");
-        if (printer.valueToString(allocator, eo.message, .display)) |msg| {
-            defer allocator.free(msg);
-            w.writeAll(msg) catch {};
-        } else |_| {}
-        var it = eo.irritants;
-        while (types.isPair(it)) {
-            const pair = types.toObject(it).as(types.Pair);
-            if (printer.valueToString(allocator, pair.car, .write)) |s| {
-                defer allocator.free(s);
-                w.writeAll(" ") catch {};
-                w.writeAll(s) catch {};
-            } else |_| {}
-            it = pair.cdr;
-        }
+        return vm_roots.isGcRootedEnvMap(self, map);
     }
 
     /// Called from execute()'s error path, before resetExecutionState()
-    /// discards the pending exception. If the escaping error is an uncaught
-    /// Scheme exception and no native error detail was recorded, format the
-    /// exception payload (message + irritants for error objects) into the
-    /// detail buffer so top-level error printers show the message instead of
-    /// the raw Zig error name. Consumes the pending exception.
+    /// discards the pending exception (see vm_errors.noteUncaughtException).
     pub fn noteUncaughtException(self: *VM, err: anyerror) void {
-        if (err != error.ExceptionRaised) return;
-        const exc = self.current_exception orelse return;
-        self.current_exception = null;
-        // Carry the raised object's stable diagnostic code to the reporting
-        // layer (KEP-0005), whether or not a native detail was already recorded.
-        // `.uncategorized` here means "uncoded raise" and the reporter falls
-        // back to the generic KP3000 uncaught-exception code.
-        if (types.isErrorObject(exc)) {
-            self.last_error_code = types.toObject(exc).as(types.ErrorObject).code;
-        }
-        if (self.last_error_detail_len != 0) return;
-
-        const printer = @import("printer.zig");
-        const allocator = self.gc.allocator;
-        var w: std.Io.Writer = .fixed(&self.last_error_detail);
-        if (types.isErrorObject(exc)) {
-            var eo = types.toObject(exc).as(types.ErrorObject);
-            writeErrorObjectMessage(&w, allocator, eo);
-            // kaappi#1742: thread-join! wraps a child thread's failure in a
-            // generic "uncaught exception in thread" ErrorObject and
-            // stashes the real cause in uncaught_reason (see
-            // primitives_srfi18.zig's threadJoinResult) -- a field the
-            // message+irritants walk above never reaches, so the default
-            // report used to stop at that uninformative wrapper text and
-            // hide the one sentence that actually explains the failure,
-            // otherwise reachable only via `(error-object-message
-            // (uncaught-exception-reason e))` inside a guard. Unwrap it
-            // here instead. Bounded: a chain of nested thread-join!s can
-            // wrap this arbitrarily deep. Gated on this exact error_type --
-            // the only production site that ever sets it is
-            // threadJoinResult, so this never fires for the io_decoding/
-            // io_encoding error types that reuse the same uncaught_reason
-            // field slot for unrelated data (see types.ErrorObject's doc
-            // comment).
-            var depth: u8 = 0;
-            while (eo.error_type == .uncaught_exception and eo.uncaught_reason != types.VOID and depth < 8) : (depth += 1) {
-                w.writeAll(": ") catch {};
-                if (types.isErrorObject(eo.uncaught_reason)) {
-                    eo = types.toObject(eo.uncaught_reason).as(types.ErrorObject);
-                    writeErrorObjectMessage(&w, allocator, eo);
-                } else {
-                    if (printer.valueToString(allocator, eo.uncaught_reason, .write)) |s| {
-                        defer allocator.free(s);
-                        w.writeAll(s) catch {};
-                    } else |_| {}
-                    break;
-                }
-            }
-        } else {
-            w.writeAll("uncaught exception: ") catch {};
-            if (printer.valueToString(allocator, exc, .write)) |s| {
-                defer allocator.free(s);
-                w.writeAll(s) catch {};
-            } else |_| {}
-        }
-        self.last_error_detail_len = w.buffered().len;
+        vm_errors.noteUncaughtException(self, err);
     }
 
-    pub const StackFrame = struct {
-        name: ?[]const u8,
-        source: ?[]const u8,
-        line: u32,
-    };
+    pub const StackFrame = vm_errors.StackFrame;
 
     pub fn getStackTrace(self: *VM, buf: []StackFrame) usize {
-        var count: usize = 0;
-        if (self.frame_count == 0) return 0;
-        var i = self.frame_count;
-        while (i > 0 and count < buf.len) {
-            i -= 1;
-            if (self.frames[i].closure) |cls| {
-                const func = cls.func;
-                // Use instruction-level line number when available
-                var line = func.source_line;
-                if (func.line_table.items.len > 0) {
-                    const ip = if (self.frames[i].ip > 0) self.frames[i].ip - 1 else 0;
-                    const precise = func.lineForOffset(ip);
-                    if (precise > 0) line = precise;
-                }
-                if (line > 0 or func.name != null) {
-                    if (count > 0) {
-                        const prev = buf[count - 1];
-                        if (prev.line == line and
-                            std.mem.eql(u8, prev.source orelse "", func.source_name orelse ""))
-                            continue;
-                    }
-                    buf[count] = .{
-                        .name = func.name,
-                        .source = func.source_name,
-                        .line = line,
-                    };
-                    count += 1;
-                }
-            }
-        }
-        return count;
+        return vm_errors.getStackTrace(self, buf);
     }
 
     pub fn getLastStackTrace(self: *VM) []const StackFrame {
-        return self.last_stack_trace[0..self.last_stack_trace_len];
+        return vm_errors.getLastStackTrace(self);
     }
 
     // -- Shared-globals locking (see the `globals` field doc) --
@@ -1489,7 +932,6 @@ pub const VM = struct {
     }
 
     const vm_calls = @import("vm_calls.zig");
-    const vm_debug = @import("vm_debug.zig");
 
     pub fn callHandler(self: *VM, handler_val: Value, arg: Value, return_dst: u8) VMError!Value {
         return vm_calls.callHandler(self, handler_val, arg, return_dst);

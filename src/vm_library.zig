@@ -228,6 +228,17 @@ pub fn srfiFeatureAvailable(vm: *VM, name: []const u8) bool {
     return libraryIsAvailable(vm, canonical, list);
 }
 
+/// One #2510 rollback record: the (owned) name a load registered, and the
+/// registration that load displaced — null unless its `define-library`
+/// replaced an already-registered library, in which case a rollback of this
+/// record restores the prior and a commit releases it (#2518 review).
+/// Re-exported from vm.zig, whose `VM.lib_rollback_regs` field holds the
+/// journal.
+pub const LibRollbackEntry = struct {
+    name: []const u8,
+    prior: ?library_mod.Library = null,
+};
+
 /// #2510: open a rollback frame for a file-backed library load about to
 /// start. Returns the mark (index into `vm.lib_rollback_regs`) that the load
 /// truncates back to when it finishes. Frames nest one per
