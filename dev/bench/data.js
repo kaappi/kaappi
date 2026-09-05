@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788570900256,
+  "lastUpdate": 1788579510867,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "4f2d84c8cabf9598e209f5781923875a76c62209",
-          "message": "Subtract custom-port read-ahead from port-position (#2302)\n\nportPositionFromCustomPort returned get-position verbatim, but a custom\nport holds its own unconsumed lookahead: the tail of the last read!\nburst (read_buf), a pushed-back peek_byte, and peek_extra. get-position\nreports the SOURCE position; port-position must report the PORT\nposition. So after a burst read! that fetched several bytes, or after\nany peek, port-position over-reported.\n\nApply the same ahead/behind adjustment the fd-backed branch already uses\nin portPosition: subtract unconsumed read-ahead, add pending write\nbuffer. This also satisfies SRFI 181's requirement that port-position\ncalled before a peeked element is read return the cached pre-peek\nposition.\n\nCloses #1996\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-25T06:03:30+05:30",
-          "tree_id": "5418e5704892097b6b8eb4045af57eb3ae2b7d05",
-          "url": "https://github.com/kaappi/kaappi/commit/4f2d84c8cabf9598e209f5781923875a76c62209"
-        },
-        "date": 1787626671640,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.301015,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.485871,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.576034,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.007444,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004674,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.048677,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.309503,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056189,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.809486,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.218662,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.672261,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.283357,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.786327,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.673879,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045037,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046477,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b1223a476dfee73d3ef4fae1b3bf5ecf7e4af2c1",
+          "message": "Honor suppress_exit in emergency-exit so a test worker still emits (#2523)\n\n`exit` consults vm.suppress_exit, so a `kaappi test` worker turns a\nfile's `(exit 1)` failure epilogue into a recorded no-op and still\nreaches emitResult — the documented worker contract that it always\nemits exactly one JSON object (docs/dev/test-runner.md). emergency-exit\ndid not: emergencyExitFn called std.process.exit directly, killing the\nworker subprocess before it wrote its KAAPPI_TEST_EMIT result, and the\norchestrator reported `ERROR <file> (worker produced no result)` —\nlosing every SRFI-64 count the file had already collected. A passing\nsuite ending in `(emergency-exit 0)` was red under `kaappi test` and\ngreen under tests/scheme/run-all.sh, exactly the two-runner\ndisagreement runner-agreement.sh exists to forbid (kaappi#1903).\n\nemergencyExitFn now consults vm.suppress_exit the same way exitFn does:\nunder suppression it records the request (vm.exit_requested /\nvm.exit_code — the raw code, before the kaappi#2512 upgrade, so the\nworker's resolveVerdict weighs what the file actually asked for) and\nreturns, keeping the VM usable so the worker reaches emitResult. A\nrequested emergency exit code therefore influences the file's verdict\nexactly like a requested `(exit N)` does today. Outside suppression\nnothing changes: a real std.process.exit through effectiveExitCode,\nstill skipping dynamic-wind cleanup and the port flush — that skip is\nemergency-exit's own contract (R7RS 6.14).\n\nRegression tests: a unit test beside the primitive (the twin of the\nexitFn guard in test_runner.zig, placed in primitives_r7rs.zig because\ntest_runner.zig is already over the 1500-line file cap), and\ntests/scheme/test-runner/emergency-exit.sh, which runs three fixtures —\na green suite exiting 0, a failing suite exiting 1, a bare unexplained\nexit 1 — through both a plain `kaappi <file>` and `kaappi test`, and\nrequires agreement, the expected verdict, surviving counts, and no\n\"worker produced no result\". Both fail without the fix.\n\ndocs/dev/test-runner.md updated where it documents the suppression\nstep, the verdict inputs, and the test inventory.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: ZCode <noreply@zcode.ai>",
+          "timestamp": "2026-09-05T08:25:51+05:30",
+          "tree_id": "00c25fb6dc926d48d1819cc758bf0d1070eeb765",
+          "url": "https://github.com/kaappi/kaappi/commit/b1223a476dfee73d3ef4fae1b3bf5ecf7e4af2c1"
+        },
+        "date": 1788579508696,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.163553,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.62817,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.431974,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.206331,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003687,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.035983,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.228925,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.0419,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.904267,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.915891,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.258678,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.235043,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.317922,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.398629,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.036354,
             "unit": "seconds"
           }
         ]
