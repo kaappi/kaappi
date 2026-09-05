@@ -315,6 +315,14 @@ fn environmentFn(args: []const Value) PrimitiveError!Value {
 
     const env_map = gc.allocator.create(std.StringHashMap(Value)) catch return PrimitiveError.OutOfMemory;
     env_map.* = std.StringHashMap(Value).init(gc.allocator);
+    // The map is solely ours until allocEnvironment hands it to the GC'd
+    // SchemeEnvironment on the success return (sweep then deinits+destroys
+    // it there, gc_sweep.zig). Every error return below — an invalid import
+    // set, or allocEnvironment OOM — must free it the same way or it leaks,
+    // and DebugAllocator's leak report at exit pollutes stderr. LIFO: the
+    // destroy is declared first so deinit runs before it.
+    errdefer gc.allocator.destroy(env_map);
+    errdefer env_map.deinit();
 
     // Shares the (import ...)-form collision check (#1726): two arguments
     // exporting the same identifier with different bindings must not

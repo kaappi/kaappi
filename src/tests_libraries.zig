@@ -1284,3 +1284,229 @@ test "restricted environment does not leak globals into a closure (#1860)" {
         \\(car (eval '((lambda () (list 3))) (environment '(only (scheme base) list))))
     )));
 }
+
+// Regression test for #2510: a .sld whose define-library form is well-formed
+// but is followed by a read error (stray trailing paren) fails its FIRST
+// import — and used to succeed on the SECOND, because the loader dispatched
+// (and registered) the library before the reader hit the stray datum, so the
+// retry's registry short-circuit served the half-load as a good cache hit.
+// The load must now roll its registration back, so both imports fail
+// identically; a clean library next to it keeps importing fine, twice.
+test "failed .sld load rolls back its registration so both imports fail (#2510)" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(std.testing.io, "rollback2510");
+    // Well-formed library + one stray trailing paren: the form dispatches and
+    // registers, then the reader fails on the extra ")".
+    try tmp.dir.writeFile(std.testing.io, .{
+        .sub_path = "rollback2510/broken.sld",
+        .data =
+        \\(define-library (rollback2510 broken)
+        \\  (import (scheme base))
+        \\  (export answer)
+        \\  (begin (define (answer) 42)))
+        \\)
+        ,
+    });
+    try tmp.dir.writeFile(std.testing.io, .{
+        .sub_path = "rollback2510/good.sld",
+        .data =
+        \\(define-library (rollback2510 good)
+        \\  (import (scheme base))
+        \\  (export answer)
+        \\  (begin (define (answer) 42)))
+        ,
+    });
+    const dir_path = try th.tmpDirRealPathAlloc(&tmp, std.testing.allocator);
+    defer std.testing.allocator.free(dir_path);
+
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    ctx.vm.lib_paths = &[_][]const u8{dir_path};
+
+    // First import fails...
+    try std.testing.expectError(error.CompileError, ctx.vm.eval("(import (rollback2510 broken))"));
+    // ...the library is no longer registered (the rollback took it out)...
+    try std.testing.expect(ctx.vm.libraries.get("rollback2510.broken") == null);
+    // ...so the second import fails the SAME way instead of succeeding
+    // against the half-registered entry.
+    try std.testing.expectError(error.CompileError, ctx.vm.eval("(import (rollback2510 broken))"));
+    try std.testing.expect(ctx.vm.libraries.get("rollback2510.broken") == null);
+    // The failed loads left no rollback frame or record behind (#2518 review):
+    // a leaked frame would make every later top-level define-library
+    // rollback-able by an unrelated future failure, and a leaked record would
+    // unregister a live library on that failure.
+    try std.testing.expectEqual(@as(usize, 0), ctx.vm.lib_rollback_frames.items.len);
+    try std.testing.expectEqual(@as(usize, 0), ctx.vm.lib_rollback_regs.items.len);
+
+    // The contrast case: a clean library imports fine, twice — the rollback
+    // must fire only on failed loads, never on successful ones. The frame
+    // now wraps the whole tryLoadLibraryFromFile (#2518 review), so a
+    // success path that forgot to commit (load_ok left false) would roll
+    // the library back out and the final registry get would turn up null.
+    _ = try ctx.vm.eval("(import (rollback2510 good))");
+    _ = try ctx.vm.eval("(import (rollback2510 good))");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(try ctx.vm.eval("(answer)")));
+    try std.testing.expect(ctx.vm.libraries.get("rollback2510.good") != null);
+    try std.testing.expectEqual(@as(usize, 0), ctx.vm.lib_rollback_frames.items.len);
+    try std.testing.expectEqual(@as(usize, 0), ctx.vm.lib_rollback_regs.items.len);
+}
+
+// #2518 review of #2510: a failed load that REPLACED an existing
+// registration must restore the prior, not unregister the name outright.
+// loadLibrarySource dispatches every datum in the requested .sld, and a file
+// may define a library under ANY name — including one already registered.
+// The sharpest shape redefines (scheme base): it has no .sld to reload from
+// (built-in only), so before the restore, one failed import of an unrelated
+// file left the name unregistered and every later (scheme base) import died
+// with "library not found". The commit side is exercised too: a load that
+// redefines a user library and SUCCEEDS keeps the replacement and releases
+// the prior (#820: env retired, exports gone).
+test "failed load that redefines a registered library restores the prior (#2510 review)" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(std.testing.io, "rollback2518");
+    try tmp.dir.writeFile(std.testing.io, .{
+        .sub_path = "rollback2518/v.sld",
+        .data =
+        \\(define-library (rollback2518 v)
+        \\  (export old-x)
+        \\  (begin (define old-x 1)))
+        ,
+    });
+    // Redefines (rollback2518 v) — registered by the import above — then
+    // defines itself; the load succeeds, so the replacement commits.
+    try tmp.dir.writeFile(std.testing.io, .{
+        .sub_path = "rollback2518/wrapper.sld",
+        .data =
+        \\(define-library (rollback2518 v)
+        \\  (export new-y)
+        \\  (begin (define new-y 2)))
+        \\(define-library (rollback2518 wrapper)
+        \\  (import (scheme base) (rollback2518 v))
+        \\  (export w)
+        \\  (begin (define (w) (+ new-y 10))))
+        ,
+    });
+    // Redefines the built-in (scheme base), then fails to read. The rollback
+    // must put the built-in entry back, replacement exports and all.
+    try tmp.dir.writeFile(std.testing.io, .{
+        .sub_path = "rollback2518/evil.sld",
+        .data =
+        \\(define-library (rollback2518 evil)
+        \\  (import (scheme base))
+        \\  (export evil-answer)
+        \\  (begin (define (evil-answer) 'evil)))
+        \\(define-library (scheme base)
+        \\  (export evil-replacement)
+        \\  (begin (define evil-replacement 'redefined)))
+        \\)
+        ,
+    });
+    const dir_path = try th.tmpDirRealPathAlloc(&tmp, std.testing.allocator);
+    defer std.testing.allocator.free(dir_path);
+
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    ctx.vm.lib_paths = &[_][]const u8{dir_path};
+
+    // The victim of the committed redefine: load v, then a successful load
+    // that replaces it. The wrapper body saw the replacement live (same
+    // file walk), and afterwards the replacement is what stays.
+    _ = try ctx.vm.eval("(import (rollback2518 v))");
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(try ctx.vm.eval("old-x")));
+    _ = try ctx.vm.eval("(import (rollback2518 wrapper))");
+    try std.testing.expectEqual(@as(i64, 12), types.toFixnum(try ctx.vm.eval("(w)")));
+    const committed = ctx.vm.libraries.get("rollback2518.v").?;
+    try std.testing.expect(committed.exports.get("new-y") != null);
+    try std.testing.expect(committed.exports.get("old-x") == null);
+
+    // The regression: the broken file replaces (scheme base) mid-load, then
+    // the reader fails. Both imports must fail identically AND the built-in
+    // registration must survive with its own exports — not be unregistered
+    // with the replacement.
+    try std.testing.expectError(error.CompileError, ctx.vm.eval("(import (rollback2518 evil))"));
+    try std.testing.expectError(error.CompileError, ctx.vm.eval("(import (rollback2518 evil))"));
+    try std.testing.expect(ctx.vm.libraries.get("rollback2518.evil") == null);
+    const base = ctx.vm.libraries.get("scheme.base").?;
+    try std.testing.expect(base.exports.get("car") != null);
+    try std.testing.expect(base.exports.get("evil-replacement") == null);
+    // Restored means importable, not just present in the map.
+    _ = try ctx.vm.eval("(import (scheme base))");
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(try ctx.vm.eval("(car '(7 8))")));
+    // Nothing leaked: both stacks balanced after the failed loads.
+    try std.testing.expectEqual(@as(usize, 0), ctx.vm.lib_rollback_frames.items.len);
+    try std.testing.expectEqual(@as(usize, 0), ctx.vm.lib_rollback_regs.items.len);
+}
+
+// #2518 review of #2510: the rollback journaling in registerAndJournal must
+// be atomic with the registration — under allocation failure the load fails
+// (and rolls back) instead of leaving a registration no rollback can see,
+// which would resurrect the first-import-fails-second-succeeds bug. The
+// journal allocates from the raw allocator (name dupe + list growth), which
+// gc.oom_countdown cannot reach (#2435), so this sweeps memory.OomAllocator
+// across the import's raw allocation sequence: every countdown position
+// either fails the import — and must leave the registry exactly as it was,
+// the displaced (scheme base) entry restored — or exhausts the sweep.
+//
+// The backing allocator is page_allocator, not std.testing.allocator: the
+// load's OOM error paths deliberately absorb some failures (e.g.
+// retired_envs appends, per #820), so a sweep would trip the leak checker on
+// pre-existing behavior this test does not claim to fix. Ownership of the
+// registry moves is covered leak-checked by the library.zig registry test.
+test "rollback journaling is atomic under allocation failure (#2510 review)" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(std.testing.io, "rollback2518");
+    // Minimal shape that still journals a displaced prior: the only
+    // define-library replaces (scheme base), then the read fails.
+    try tmp.dir.writeFile(std.testing.io, .{
+        .sub_path = "rollback2518/oom-evil.sld",
+        .data =
+        \\(define-library (scheme base)
+        \\  (export evil-replacement)
+        \\  (begin (define evil-replacement 'redefined)))
+        \\)
+        ,
+    });
+    const dir_path = try th.tmpDirRealPathAlloc(&tmp, std.testing.allocator);
+    defer std.testing.allocator.free(dir_path);
+
+    var oom = memory.OomAllocator.init(std.heap.page_allocator);
+    var gc = memory.GC.init(oom.allocator());
+    const vm = try th.makeTestVM(&gc);
+    defer {
+        vm.deinit();
+        gc.deinit();
+    }
+    vm.lib_paths = &[_][]const u8{dir_path};
+
+    // Sweep scaled down under gc-stress (each failed load pays a collection
+    // per GC allocation); the journaling allocations sit well inside the
+    // first slice of the sequence either way.
+    const gc_stress = @import("build_options").gc_stress;
+    const cap: usize = if (gc_stress) 40 else 400;
+    var n: usize = 0;
+    while (n < cap) : (n += 1) {
+        oom.countdown = n;
+        _ = vm.eval("(import (rollback2518 oom-evil))") catch {};
+        oom.countdown = null;
+        // Whatever allocation failed, the invariant holds: the displaced
+        // built-in is registered with its own exports, the broken library
+        // is not, and no rollback frame or record survived the failure.
+        const base = vm.libraries.get("scheme.base") orelse return error.TestUnexpectedResult;
+        try std.testing.expect(base.exports.get("car") != null);
+        try std.testing.expect(base.exports.get("evil-replacement") == null);
+        try std.testing.expect(vm.libraries.get("rollback2518.oom-evil") == null);
+        try std.testing.expectEqual(@as(usize, 0), vm.lib_rollback_frames.items.len);
+        try std.testing.expectEqual(@as(usize, 0), vm.lib_rollback_regs.items.len);
+    }
+
+    // Clean run after the sweep: still the same failure, still consistent —
+    // the sweep itself must not have desynchronized the loader.
+    try std.testing.expectError(error.CompileError, vm.eval("(import (rollback2518 oom-evil))"));
+    try std.testing.expect(vm.libraries.get("scheme.base") != null);
+    try std.testing.expect(vm.libraries.get("rollback2518.oom-evil") == null);
+}

@@ -300,6 +300,21 @@ pub fn markVmRoots(gc: *memory.GC, vm: *VM) void {
             var eit = env.valueIterator();
             while (eit.next()) |v| gc.markValue(v.*);
         }
+        // Priors detached into the rollback journal (#2518 review of #2510):
+        // from `take` until its frame commits or rolls back, a displaced
+        // library lives here rather than in `libraries` — without this walk
+        // a mid-load collection would sweep exactly the exports and env a
+        // rollback must put back.
+        for (vm.lib_rollback_regs.items) |*rec| {
+            if (rec.prior) |*prior| {
+                var eit = prior.exports.valueIterator();
+                while (eit.next()) |v| gc.markValue(v.*);
+                if (prior.lib_env) |env| {
+                    var eit2 = env.valueIterator();
+                    while (eit2.next()) |v| gc.markValue(v.*);
+                }
+            }
+        }
         // The pristine `.internal` primitives (#1856): only compiler-
         // synthesized references reach them, so a user `define` of the same
         // name is all it takes for globals to stop holding them.
@@ -351,6 +366,15 @@ pub const WatchEntry = struct {
 pub const ProfileTimeEntry = struct {
     func: ?*types.Function,
     entry_ns: u64,
+};
+
+/// One #2510 rollback record: the (owned) name a load registered, and the
+/// registration that load displaced — null unless its `define-library`
+/// replaced an already-registered library, in which case a rollback of this
+/// record restores the prior and a commit releases it (#2518 review).
+pub const LibRollbackEntry = struct {
+    name: []const u8,
+    prior: ?library_mod.Library = null,
 };
 
 /// #1933 (stop-the-world): a child VM's reported execution state, read by
@@ -492,6 +516,31 @@ pub const VM = struct {
     /// instead of compiling. See vm_library_cache.zig.
     lib_cache_stack: [8]vm_library_cache.LibCollector = @splat(.{}),
     lib_cache_depth: u8 = 0,
+    /// #2510: rollback bookkeeping for failed library loads.
+    /// `loadLibrarySource` dispatches each top-level datum as it is read, so
+    /// a well-formed `define-library` is REGISTERED before the reader reaches
+    /// a later read error (trailing garbage, malformed datum) in the same
+    /// .sld — and the second import's registry short-circuit then served
+    /// that half-loaded library as a success. `lib_rollback_frames` holds
+    /// one mark per in-flight `tryLoadLibraryFromFile` invocation (the
+    /// length of `lib_rollback_regs` when it started) — the whole load, not
+    /// just `loadLibrarySource`, so a failure AFTER a successful load (the
+    /// warm replay's `endWarmLoad` desync) also rolls back (#2518 review);
+    /// `handleDefineLibrary` appends one record per library it registers
+    /// while any frame exists. A failed load unwinds every record above its
+    /// mark — restoring a displaced prior where the registration replaced
+    /// one, unregistering where it created the entry (#2518 review); a
+    /// successful one commits the registrations and merely forgets the
+    /// records — nested loads pushed their own, deeper marks and resolved
+    /// their own fate before returning, so their committed registrations are
+    /// never above a still-live outer mark. The name strings are owned
+    /// (duped) so the list never borrows from a Library it is about to
+    /// remove; a `prior` is a Library detached from the registry map, kept
+    /// GC-reachable by markVMRoots until its frame resolves. Per-VM, like
+    /// the collector stack (the shared `libraries` map is what gets rolled
+    /// back).
+    lib_rollback_regs: std.ArrayList(LibRollbackEntry) = .empty,
+    lib_rollback_frames: std.ArrayList(usize) = .empty,
     /// Per-run include/dependency records for the MAIN file's cache entry
     /// (kaappi#1888 review): a program's compiled slots embed imported-macro
     /// expansions, so its entry stales on the same edits a library's does.
@@ -904,6 +953,18 @@ pub const VM = struct {
         }
         self.output.deinit(self.gc.allocator);
         self.loading_libs.deinit();
+        // Any rollback records still present mean a load errored out
+        // mid-flight (endLibSourceLoad frees them on its own paths); free
+        // any stragglers so a failed load doesn't leak (#2510). The
+        // registry — and its retired_envs — is already torn down by now, so
+        // a detached prior is freed directly: the whole heap is being
+        // dismantled, nothing can still hold its env.
+        for (self.lib_rollback_regs.items) |*rec| {
+            self.gc.allocator.free(rec.name);
+            if (rec.prior) |*prior| prior.deinit();
+        }
+        self.lib_rollback_regs.deinit(self.gc.allocator);
+        self.lib_rollback_frames.deinit(self.gc.allocator);
         self.param_overrides.deinit();
         // Any collectors still on the stack mean a load errored out mid-flight
         // (endColdLoad/endWarmLoad always pop on their own paths); free their
@@ -1182,6 +1243,15 @@ pub const VM = struct {
         }
         for (self.libraries.retired_envs.items) |e| {
             if (e == map) return true;
+        }
+        // A prior detached into the rollback journal is just as rooted
+        // (#2518 review) — it returns to `libraries` when the frame resolves.
+        for (self.lib_rollback_regs.items) |*rec| {
+            if (rec.prior) |*prior| {
+                if (prior.lib_env) |e| {
+                    if (e == map) return true;
+                }
+            }
         }
         for (self.pending_lib_envs[0..self.pending_lib_env_count]) |maybe| {
             if (maybe) |e| {

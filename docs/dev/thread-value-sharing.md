@@ -204,6 +204,26 @@ an `embedded_libraries` entry keeps the library loadable under
 `--sandbox`, on WASM, and — as the last resort after a disk miss — on a
 binary with no lib tree to read at all.
 
+**Library registry mutation across threads (kaappi#2510).** The same
+struct-copied registry has a second hazard, written down when the #2510
+rollback made failing loads mutate it. A failed `.sld` load now calls
+`LibraryRegistry.unregister` (`src/library.zig`): it removes map
+entries, appends the retired `lib_env` to `retired_envs` (which can
+realloc), and deinit's the `Library` — all shared storage, since
+`VM.initForThread` copies `vm.libraries` by value — while another
+thread may still hold a `*Library` from `get` or `processImportSet`'s
+registry short-circuit. `register`-replacement (any re-import of a
+registered name) already carried this hazard class, so this is not a
+regression of #2510, but `unregister` is the first shared mutator that
+*deinit's a `Library`* another thread can be holding a pointer into.
+The #2518 review's restore-on-rollback adds `take` and `restore` to the
+same class, with one more twist: between them a displaced `Library`
+lives in the loading thread's per-VM rollback journal, outside the map
+— invisible to the owning GC's root walk, exactly like a `retired_envs`
+append made from a child. The practical rule is the one the paragraph
+above gives by another route: don't lazy-load libraries from child
+threads — pre-load on the root before spawning.
+
 ## The globals route
 
 `VM.initForThread` shares the **root** VM's `globals` map **by pointer**,
