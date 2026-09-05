@@ -13,12 +13,11 @@ pub fn build(b: *std.Build) void {
     // standalone binary is a thing you *ship*, and `zig build` with no -Dtarget
     // otherwise tunes for the build host's exact CPU model, so the binary can
     // SIGILL on another machine of the same architecture — which presents as a
-    // VM bug, not a build-flags bug. -Dbundle-cpu-native opts back into host
-    // tuning for a binary that really will only ever run here.
-    const bundle = b.option([]const u8, "bundle", "Path to .sbc bytecode file to embed for standalone binary (defaults to the portable baseline CPU so it runs on other machines of the same arch; -Dbundle-cpu-native restores host tuning)");
+    // VM bug, not a build-flags bug. -Dcpu=native opts back into host tuning
+    // for a binary that really will only ever run here.
+    const bundle = b.option([]const u8, "bundle", "Path to .sbc bytecode file to embed for standalone binary (defaults to the portable baseline CPU so it runs on other machines of the same arch; -Dcpu=native restores host tuning)");
     // Single-step: compile and embed in one build
-    const bundle_src = b.option([]const u8, "bundle-src", "Path to .scm source file to compile and embed for standalone binary (defaults to the portable baseline CPU so it runs on other machines of the same arch; -Dbundle-cpu-native restores host tuning)");
-    const bundle_cpu_native = b.option(bool, "bundle-cpu-native", "Tune a -Dbundle/-Dbundle-src binary for this machine's exact CPU model instead of the portable baseline default (kaappi#2515); such a binary can SIGILL on other machines of the same architecture") orelse false;
+    const bundle_src = b.option([]const u8, "bundle-src", "Path to .scm source file to compile and embed for standalone binary (defaults to the portable baseline CPU so it runs on other machines of the same arch; -Dcpu=native restores host tuning)");
 
     // kaappi#2515: when bundling, retune the query to the baseline CPU model
     // unless the user named a CPU themselves. `.determined_by_arch_os` is the
@@ -26,10 +25,15 @@ pub fn build(b: *std.Build) void {
     // -Dtarget was given (that is the bug) and to baseline for an explicit
     // -Dtarget, so pinning it to `.baseline` makes both spellings land on
     // baseline while `-Dcpu=<model>`/`-Dcpu=native` (`.explicit`/`.native`) and
-    // `-Dcpu=baseline` are left exactly as passed. This tunes every artifact of
-    // a bundling configure (the embedded binary, its build-time
-    // kaappi-compiler, and the always-installed thottam/kaappi-lsp) — one
-    // configure, one target. Plain `zig build` without bundle options is
+    // `-Dcpu=baseline` are left exactly as passed. The opt-out is Zig's own
+    // `-Dcpu=native` rather than a bundle-only flag: it is the pre-fix tuning
+    // bit for bit (`detectNativeCpuAndFeatures`, the same call the unpinned
+    // query makes) and, unlike a flag that merely skipped this pin, it also
+    // delivers host tuning under an explicit `-Dtarget`, where an unpinned
+    // `.determined_by_arch_os` query would resolve to baseline. This tunes
+    // every artifact of a bundling configure (the embedded binary, its
+    // build-time kaappi-compiler, and the always-installed thottam/kaappi-lsp)
+    // — one configure, one target. Plain `zig build` without bundle options is
     // untouched and stays host-tuned: that binary stays on the machine that
     // built it. The CPU model is not part of the bytecode compiler key
     // (`bytecode_file.compile_target_id` hashes arch/os/abi + cond-expand
@@ -37,7 +41,7 @@ pub fn build(b: *std.Build) void {
     // a host-tuned kaappi from the same tree.
     const bundling = bundle != null or bundle_src != null;
     var effective_query = target_query;
-    if (bundling and !bundle_cpu_native and target_query.cpu_model == .determined_by_arch_os) {
+    if (bundling and target_query.cpu_model == .determined_by_arch_os) {
         effective_query.cpu_model = .baseline;
     }
     const target = b.resolveTargetQuery(effective_query);

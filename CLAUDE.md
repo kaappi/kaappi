@@ -35,11 +35,12 @@ Bundle builds (`-Dbundle`/`-Dbundle-src`) additionally default to the portable
 **baseline CPU model** rather than the build host's exact CPU (kaappi#2515):
 a standalone binary is a thing you ship, and a host-tuned one can SIGILL on
 another machine of the same architecture — which reads as a VM bug, not a
-build-flags bug. Plain `zig build` stays host-tuned. An explicit `-Dcpu=<model>`
-(including `-Dcpu=native`) is always respected, and `-Dbundle-cpu-native` opts
-a bundle build back into host tuning. The CPU model is not part of the bytecode
-compiler key, so an `.sbc` produced by a host-tuned kaappi still embeds in a
-baseline bundler built from the same tree.
+build-flags bug. Plain `zig build` stays host-tuned. An explicit
+`-Dcpu=<model>` is always respected — `-Dcpu=native` is the opt-out that
+restores host tuning for a binary that really will only run on the machine
+that built it. The CPU model is not part of the bytecode compiler key, so an
+`.sbc` produced by a host-tuned kaappi still embeds in a baseline bundler
+built from the same tree.
 
 ### Build-time limits
 

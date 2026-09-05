@@ -371,7 +371,7 @@ Three things make that safe and worthwhile (kaappi#1926):
   stays host-tuned. That asymmetry is deliberate and free — the embedded
   bytecode already puts the bundler on its own cache key, and the CPU model
   is not part of the `.sbc` compiler hash (see [cache.md](cache.md)) — but it
-  means no script may pass `-Dbundle-cpu-native` (or a host-naming
+  means no script may pass `-Dcpu=native` (or any host-naming
   `-Dcpu=<model>`) to a `-Dbundle=` build: it would fork the shared cache key
   *and* reintroduce the portability bug the default exists to prevent.
 

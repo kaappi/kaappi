@@ -3,8 +3,10 @@
 # host's exact CPU model, so a standalone binary built that way — the
 # documented way to ship a Kaappi program — could SIGILL on another machine
 # of the same architecture. The fix: -Dbundle/-Dbundle-src builds resolve the
-# portable baseline CPU model by default; -Dbundle-cpu-native opts back into
-# host tuning for a binary that really will only run here; an explicit
+# portable baseline CPU model by default; -Dcpu=native (Zig's own spelling —
+# bit for bit the pre-fix tuning, and unlike a skip-the-pin flag it also
+# delivers host tuning under an explicit -Dtarget) opts back into host tuning
+# for a binary that really will only run here; any other explicit
 # -Dcpu=<model> is always respected.
 #
 # Build-system defaults have no Scheme-visible surface and the binary carries
@@ -14,8 +16,8 @@
 # assertion fails without the fix on every host whose CPU model differs from
 # the baseline (CI's x86_64 legs, Apple Silicon above M1) and passes trivially
 # where host == baseline, because the bug cannot manifest there. The opt-out
-# is checked the same way: when host != baseline, the -Dbundle-cpu-native
-# build must differ from the default. A tiny zig probe — the technique from
+# is checked the same way: when host != baseline, the -Dcpu=native build must
+# differ from the default. A tiny zig probe — the technique from
 # the issue itself — names the two models so the script knows which world it
 # is in instead of guessing.
 #
@@ -24,7 +26,7 @@
 # model is not part of the compiler hash, which is exactly why a baseline
 # bundler may embed a host-tuned compiler's .sbc), and the default bundle
 # build is the shared one, so only the -Dcpu=baseline twin (a cache hit under
-# the fix) and the -Dbundle-cpu-native variant (one cold build) are new.
+# the fix) and the -Dcpu=native variant (one cold build) are new.
 #
 # Usage: bash tests/scheme/compile/bundle-cpu-baseline-2515.sh [path-to-kaappi]
 # (the kaappi path is accepted for suite uniformity and unused: every binary
@@ -106,7 +108,7 @@ build_variant() { # <name> <extra zig build flags...>
     return "$rc"
 }
 build_variant baseline -Dcpu=baseline
-build_variant native -Dbundle-cpu-native
+build_variant native -Dcpu=native
 
 # --- assertion 1: the default IS the baseline build ------------------------
 # Without the fix (host-tuned default) these differ wherever host != baseline.
@@ -121,7 +123,7 @@ fi
 # comparison is vacuous and the bug this guards cannot manifest.
 if [ "$HOST_MODEL" != "$BASE_MODEL" ]; then
     if cmp -s "$DEFAULT_BIN" "$DIR/native-kaappi"; then
-        echo "FAIL: -Dbundle-cpu-native did not restore host CPU tuning" >&2
+        echo "FAIL: -Dcpu=native did not restore host CPU tuning" >&2
         echo "      (host=$HOST_MODEL baseline=$BASE_MODEL, builds identical)" >&2
         exit 1
     fi
@@ -140,4 +142,4 @@ if ! grep -q '^703: Hello, world! #t$' <<< "$OUTPUT"; then
     exit 1
 fi
 
-echo "PASS: -Dbundle defaults to the baseline CPU ($BASE_MODEL; host is $HOST_MODEL); -Dbundle-cpu-native restores host tuning"
+echo "PASS: -Dbundle defaults to the baseline CPU ($BASE_MODEL; host is $HOST_MODEL); -Dcpu=native restores host tuning"
