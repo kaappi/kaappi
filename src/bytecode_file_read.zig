@@ -581,7 +581,7 @@ fn deserializeFromBufferImpl(gc: *GC, data: []const u8, expected_hash: ?u64) Byt
     // v14 (kaappi#2514): the producing binary's compile target and version
     // string follow. Read to advance the cursor; a v13 entry stops after the
     // source path and shares this tail layout, so it loads unchanged.
-    if (ver >= 14) {
+    if (ver >= bf.TARGET_FIELDS_SINCE) {
         _ = r.readStr() catch return null;
         _ = r.readStr() catch return null;
     }
@@ -1065,7 +1065,7 @@ pub fn readHeaderInfo(data: []const u8) ?HeaderInfo {
     const source_path = r.readStr() catch return null;
     var target: ?[]const u8 = null;
     var version_str: ?[]const u8 = null;
-    if (ver >= 14) {
+    if (ver >= bf.TARGET_FIELDS_SINCE) {
         target = r.readStr() catch return null;
         version_str = r.readStr() catch return null;
     }
@@ -1152,10 +1152,12 @@ pub fn renderForeignBuildDiagnostic(
     );
     if (!version_differs and !build_id_differs and !target_differs) {
         if (bundle.version == null or bundle.target == null) {
-            // Pre-v14 header: the differing input is one this header never
-            // wrote down (target/version), or two dirty builds sharing one
-            // build id. Name the likely cause without claiming equality of a
-            // component that was never read.
+            // Pre-v14 header: the build id matched, so the differing input is
+            // one this header never wrote down — target or version. (Two
+            // dirty builds at one commit do NOT land here: they share all
+            // three hash inputs and load each other's entries silently,
+            // kaappi#1516.) Name the likely cause without claiming equality
+            // of a component that was never read.
             try w.print(
                 "The differing component is not recorded in this .sbc (older header " ++
                     "format). If it was compiled for a different target, recompile " ++

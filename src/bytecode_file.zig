@@ -54,6 +54,13 @@ pub const MAGIC = [4]u8{ 'K', 'P', 'B', 'C' };
 /// order), and library entries carry transformer, event, include and
 /// dependency sections. v12 (kaappi#2166): TAG_COMPLEX payload changed from
 /// two f64s + two exactness bytes to two nested component constants.
+///
+/// Bumping rule: a bump that changes the entry *tail* (anything after the
+/// header strings) must raise `MIN_READ_VERSION` to the new value — nothing
+/// else stops the reader from parsing an older tail under the new layout. A
+/// bump that only appends header fields may leave `MIN_READ_VERSION` alone,
+/// provided the readers gate the new fields on `ver >=` a named threshold
+/// like `TARGET_FIELDS_SINCE`.
 pub const VERSION: u16 = 14;
 /// Oldest header version this binary reads. v13 files lack the target and
 /// version strings but share v14's tail layout (entry kind, slots, sections),
@@ -61,6 +68,14 @@ pub const VERSION: u16 = 14;
 /// diagnostics must not claim equality of an unrecorded component. Anything
 /// older is rejected as before: a version mismatch reads as a plain miss.
 pub const MIN_READ_VERSION: u16 = 13;
+/// First format version whose header carries the compile target and version
+/// strings after the source path (kaappi#2514). Both readers gate those two
+/// reads on it; a header below it reads them back as null.
+pub const TARGET_FIELDS_SINCE: u16 = 14;
+comptime {
+    std.debug.assert(MIN_READ_VERSION <= VERSION);
+    std.debug.assert(MIN_READ_VERSION <= TARGET_FIELDS_SINCE and TARGET_FIELDS_SINCE <= VERSION);
+}
 pub const MAX_FUNCTIONS: u32 = 16_384;
 pub const MAX_TOP_LEVEL_FUNCTIONS: u32 = 4_096;
 pub const MAX_CODE_BYTES: u32 = 4_194_304;
@@ -979,8 +994,9 @@ test "classifyEmbeddedRejection: cross-target bundle names the target (kaappi#25
     try std.testing.expect(!std.mem.eql(u8, other_target, compile_target_id));
 
     // A v14 header produced by a binary for `other_target` at this very
-    // version and build id. The literal 14 pins the format this test targets;
-    // the reader must keep accepting it across future bumps.
+    // version and build id. The literal 14 pins the format this fixture is
+    // written in; when MIN_READ_VERSION passes 14, rewrite the fixture in the
+    // new format rather than the assertion.
     var w = Writer{ .buf = .empty };
     defer w.buf.deinit(allocator);
     const foreign_key = compilerHashFor(main.version, build_options.git_build_id, other_target);

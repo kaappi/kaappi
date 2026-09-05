@@ -221,16 +221,18 @@ test "endian: readHeaderInfo rejects a big-endian-spelled version field" {
     // honouring it -- and on a big-endian host that is precisely the bug
     // this file exists to catch.
     comptime {
-        // The control is only discriminating while VERSION's two bytes
-        // differ. At VERSION 10 (0x000A) they do. A future bump to a value
-        // like 0x0101 would make the swap invisible and this test vacuous,
-        // so fail the build then rather than keep a green no-op.
-        const lo: u8 = @truncate(bf.VERSION);
-        const hi: u8 = @truncate(bf.VERSION >> 8);
-        if (lo == hi) @compileError(
-            "bytecode_file.VERSION's two bytes are equal, so byte-swapping it " ++
-                "is undetectable and this endianness control asserts nothing. " ++
-                "Pick a different discriminating field, or a VERSION whose bytes differ.",
+        // The control is only discriminating while the byte-swapped VERSION
+        // falls OUTSIDE the reader's accepted window MIN_READ_VERSION..VERSION
+        // (kaappi#2514). Two bytes that are equal (0x0101) swap to themselves;
+        // a wider window could also admit a swapped value that differs — either
+        // way the swap would be accepted and this test a green no-op, so fail
+        // the build then. At VERSION 14 (0x000E) the swap is 0x0E00 = 3584.
+        const swapped: u16 = @byteSwap(bf.VERSION);
+        if (swapped >= bf.MIN_READ_VERSION and swapped <= bf.VERSION) @compileError(
+            "byte-swapping bytecode_file.VERSION yields a value inside the " ++
+                "MIN_READ_VERSION..VERSION read window, so this endianness control " ++
+                "asserts nothing. Pick a different discriminating field, or a " ++
+                "VERSION whose byte-swap falls outside the window.",
         );
     }
     const allocator = std.testing.allocator;

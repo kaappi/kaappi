@@ -101,11 +101,20 @@ embedded bundle can say *which* of the three compiler-key components differed
 (`renderForeignBuildDiagnostic` in `src/bytecode_file_read.zig`, re-exported by
 `src/bytecode_file.zig`; for a cross-target bundle the build id matches on both
 sides, so it cannot carry the diagnosis alone). Older headers lack the last two
-fields and read them back as absent:
-the reader accepts `MIN_READ_VERSION..VERSION` (v13 files load and classify
-unchanged — a bump that only *adds* header fields never invalidates a cache),
-and anything older reads back as a miss. A format bump that changes the entry
-*layout* still invalidates every older entry.
+fields and read them back as absent: the reader accepts
+`MIN_READ_VERSION..VERSION`, and anything older reads back as a miss.
+
+That read window is narrower than it looks. Loading still requires the
+compiler hash to match, and the hash folds in the version string and the build
+id — so the only v13 entry that can *hit* under the v14 reader is one written
+at the same commit and tree state, in practice a dirty build on the author's
+own machine; for every released or per-commit binary a v13 entry is a miss
+either way. What the window actually buys: a v13 embedded bundle still
+classifies as a foreign build (and gets the "not recorded" advice rather than
+"invalid"), `cache status` still parses v13 entries, and the checked-in
+fuzz-seed fixture did not need regenerating. A format bump that changes the
+entry *layout* must raise `MIN_READ_VERSION` (see the `VERSION` doc-comment)
+and so invalidates every older entry.
 
 ## Location
 
