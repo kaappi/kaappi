@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788583603211,
+  "lastUpdate": 1788622489044,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "3c11014dfcee10ec9a9aca47082587ddf5d3a64d",
-          "message": "Validate SRFI 231 entry-point arguments to match the reference (#2319)\n\nSix reference-parity guard clauses, one per filed issue, each with a\nguarded regression test in its per-module suite:\n\n- interval-contains-multi-index?: a multi-index whose length differs\n  from the interval's dimension is now an error, not a silent #f (#2312)\n- storage-class-data->body: built-in classes reject wrong-typed data\n  instead of returning it as a would-be body via identity (#2313)\n- make-array: setter must be a procedure or #f, checked at construction\n  so mutable-array?/array-setter cannot misreport the object (#2315)\n- make-specialized-array, make-specialized-array-from-data, and the two\n  specialized-array-default-* parameters reject non-boolean\n  safe?/mutable? values (#2316)\n- specialized-array-share: mapper must be a procedure, checked even for\n  empty new-domains where it would never be invoked (#2317)\n- array-tile: a scalar slice-width is legal only on a positive-width\n  axis; empty axes take the explicit-vector form (#2318)\n\nVerified by running the reference test suite's 330 error-expectation\ntests against kaappi: 322 passed before, 330 after. All seven\ntests/scheme/srfi/srfi231-*.scm suites pass. #2314 (array-packed?\nzero-offset) is deliberately excluded -- it is a semantic change that\nbelongs to its own PR.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-25T04:32:21Z",
-          "tree_id": "e70fd8acd704dbb6d551d8b9305bb6f56f9a3617",
-          "url": "https://github.com/kaappi/kaappi/commit/3c11014dfcee10ec9a9aca47082587ddf5d3a64d"
-        },
-        "date": 1787634718686,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.640692,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.272237,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.566639,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.10622,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004635,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.048042,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.307178,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.055846,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.681526,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.218396,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.683842,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.281962,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.802022,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.632075,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044234,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.0458,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "616b824066c0a478d5ce3b9add5a8af21c82d274",
+          "message": "Split vm.zig along its natural seams to comply with the 1500-line policy (#2530)\n\n* Split vm.zig along its natural seams to comply with the file-size policy\n\nvm.zig had grown to 1663 lines, past the 1500-line policy ceiling\n(AGENTS.md), and every VM-touching PR kept adding to it. The overage is\nstructure debt from several recent features landing in the one file\n(#2510's rollback journal, #2283's bounded-step fields, the #1933\nstop-the-world protocol docs), so the split is done on its own branch\ninstead of riding a bugfix PR (#2522).\n\nPure moves plus import/re-export fixups; no behavior change:\n\n- vm_shims.zig: the compiler/expander bridge — setVMInstance's globals\n  wiring and the callback implementations behind globals.zig's function\n  pointers (macro-eval/transformer calls, syntax properties, library\n  existence, binding lookups).\n- vm_roots.zig: GC root marking (markVMRoots/markVmRoots), the\n  CollectionState protocol type, and isGcRootedEnvMap.\n- vm_errors.zig: error detail buffer, location capture,\n  findSimilarName, noteUncaughtException, stack traces.\n- vm_debug.zig: gains the debugger support types (StepMode, Breakpoint,\n  WatchEntry, ProfileTimeEntry).\n- vm_library.zig: gains LibRollbackEntry, next to the journal machinery\n  that appends and resolves the records (#2510).\n\nEvery existing import path is stable: vm.zig re-exports setVMInstance,\nmarkVmRoots, the moved types, and keeps thin delegate methods over the\nvm_errors/vm_roots implementations (the pattern the file already uses\nfor vm_calls/vm_dispatch/vm_eval), so no consumer changed.\n\nvm.zig 1663 -> 1105; every vm*.zig is under 1500 (largest:\nvm_dispatch.zig 1490). architecture.md's VM table updated, including\nthe two pre-existing missing rows (vm_library_cache, vm_step).\n\nAll suites green: zig build test (1939 pass/21 skip),\n-Dgc-stress=true (1943/17), tests/scheme/run-all.sh (754 + R7RS 1395,\n0 fail).\n\nCloses #2522\n\nCo-authored-by: ZCode <noreply@zcode.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Drop per-family file counts from the architecture-doc pointer in CLAUDE.md\n\nReview of #2530: the orientation sentence named the compiler & IR / VM\n/ primitives table sizes (\"(11 files), VM (10), primitives (31)\"), and\neach split renumbers the tables out from under it — this PR's VM table\nwent to 16 and primitives was already at 32. The counts carry no\ninformation the tables themselves don't state authoritatively one line\naway, so per the review's preference the sentence now points at\ndocs/dev/architecture.md's tables without naming counts (the\ntypes_*.zig count dropped for the same reason). AGENTS.md is a symlink\nto this file, so both are covered.\n\nCo-authored-by: ZCode <noreply@zcode.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: ZCode <noreply@zcode.ai>",
+          "timestamp": "2026-09-05T20:21:56+05:30",
+          "tree_id": "28a17a6f591e03816684b7d763ffbe3ebcf97e64",
+          "url": "https://github.com/kaappi/kaappi/commit/616b824066c0a478d5ce3b9add5a8af21c82d274"
+        },
+        "date": 1788622486238,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.393099,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.060417,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.566485,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.169361,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004957,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048606,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.309135,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055544,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.783124,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.237802,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.666375,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.278195,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.736089,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.67353,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045082,
             "unit": "seconds"
           }
         ]
