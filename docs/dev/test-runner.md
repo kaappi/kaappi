@@ -122,8 +122,10 @@ to a failure of a test. SRFI-64 catches ordinary test failures internally via
 Three inputs decide it (`resolveVerdict` in `src/test_runner.zig`): whether an
 uncaught read/compile/runtime error was reported at top level, what the file's
 suppressed `(exit)` — or `(emergency-exit …)`, the same channel since
-kaappi#2521 — asked for, and whether the SRFI-64 counters already show a
-failure.
+kaappi#2521, and from a SRFI-18 child thread as much as from the main one
+since kaappi#2525: the flag is inherited by every child VM and the request
+is recorded on the root VM, the only one the worker reads — asked for, and
+whether the SRFI-64 counters already show a failure.
 
 | The file… | `error` | Why |
 |---|---|---|
@@ -401,6 +403,11 @@ a transcript diff between two runs stays meaningful at any job count.
   through a plain `kaappi <file>` and `kaappi test`, which must agree and land
   on the expected verdict, with the counts on the transcript and no
   "worker produced no result".
+- `tests/scheme/test-runner/thread-exit.sh` — `(exit …)` and
+  `(emergency-exit …)` made from a SRFI-18 child thread honor the worker's
+  `suppress_exit` and land on the root VM (kaappi#2525): a green suite whose
+  thread exits 0 stays green in both runners with its counts intact, and a
+  thread's unexplained exit 1 is the file's verdict in both.
 - `tests/scheme/test-runner/changed.sh` — `--changed`/`--list-affected` over a
   throwaway git repo with a known dependency shape: diamond import, `include`,
   a `(load …)` escape hatch, native-artifact and unknown-revision full-run

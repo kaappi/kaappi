@@ -568,8 +568,14 @@ pub const VM = struct {
     /// `(emergency-exit code)` record the request and return instead of
     /// terminating the process, so the worker always reaches its
     /// result-emission step even when a test file's SRFI-64 epilogue calls
-    /// `(exit 1)` on failure. `exit_requested`/
-    /// `exit_code` capture the last such request. No effect on normal runs.
+    /// `(exit 1)` on failure. Inherited by every SRFI-18 child VM
+    /// (`initForThread`), because a child's `(exit)` is the same
+    /// `std.process.exit` and killed the worker just the same (kaappi#2525).
+    /// `exit_requested`/`exit_code` capture the last such request — always
+    /// on the ROOT VM, whichever thread made it, since the root is the only
+    /// VM the worker's `emitResult` reads; a child records through
+    /// `root_vm`, with atomic stores because the root may be emitting while
+    /// an unjoined child is still running. No effect on normal runs.
     suppress_exit: bool = false,
     exit_requested: bool = false,
     exit_code: u8 = 0,
@@ -839,6 +845,11 @@ pub const VM = struct {
             // tables and for the shared maps, and a grandchild's parent join
             // frees the middle VM/GC underneath it (#2129).
             .root_vm = parent.root_vm orelse parent,
+            // A `kaappi test` worker's suppression must reach every thread:
+            // a child's `(exit …)` is the same std.process.exit and used to
+            // kill the worker before it emitted (kaappi#2525). The request
+            // itself is recorded on the root (see `suppress_exit`).
+            .suppress_exit = parent.suppress_exit,
             // Shared reference, not a copy: SRFI 59/193 want a thread's
             // `program-vicinity`/`script-file` to still answer for the
             // top-level script, not #f. Never freed by the child -- see the
