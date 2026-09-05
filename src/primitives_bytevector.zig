@@ -254,6 +254,7 @@ fn getOutputPort(args: []const Value, arg_idx: usize, proc_name: []const u8) Pri
 // same write buffer and reactor suspension points (KEP-0001 Phase 3).
 const portReadOneByte = primitives_io.readOneByte;
 const portWriteBytes = primitives_io.portWriteBytes;
+const portReadyNow = @import("port_readiness.zig").portReadyNow;
 
 fn readU8Fn(args: []const Value) PrimitiveError!Value {
     const port = try getInputPort(args, 0, "read-u8");
@@ -282,9 +283,12 @@ fn writeU8Fn(args: []const Value) PrimitiveError!Value {
 }
 
 fn u8ReadyP(args: []const Value) PrimitiveError!Value {
-    // For simplicity, always return #t (non-blocking check not worth the complexity)
-    _ = try getInputPort(args, 0, "u8-ready?");
-    return types.TRUE;
+    const port = try getInputPort(args, 0, "u8-ready?");
+    // Same oracle as char-ready? (kaappi#2511 — u8-ready? had the same
+    // unconditional-#t disease, one R7RS paragraph over in 6.13.3):
+    // buffered bytes / string sources / EOF are ready, an empty fd gets a
+    // zero-timeout poll. At EOF the answer is #t, per kaappi#1179.
+    return if (portReadyNow(port)) types.TRUE else types.FALSE;
 }
 
 fn readBytevectorFn(args: []const Value) PrimitiveError!Value {

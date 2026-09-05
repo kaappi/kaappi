@@ -49,7 +49,7 @@ crash.noteStage(.compiling); // per top-level form, at each boundary
 
 It is deliberately trivial — a plain enum store and a slice store, no
 allocation, no locking — matching the other process-wide flags in this codebase
-(`ir.optimize_enabled`, `main.script_had_error`,
+(`ir.optimize_enabled`, `toplevel_driver.script_had_error`,
 `toplevel_driver.diagnostic_format`). The design constraints that make plain
 globals safe here:
 
@@ -68,8 +68,8 @@ globals safe here:
 
 | Path | File | Stages set |
 |------|------|-----------|
-| file runner (fresh + cached) | `main.zig` `runFile` | reading → executing (imports) → compiling → executing |
-| stdin runner | `main.zig` `runStdin` | reading → executing → compiling → executing |
+| file runner (fresh + cached) | `toplevel_driver.zig` `runFile` | reading → executing (imports) → compiling → executing |
+| stdin runner | `toplevel_driver.zig` `runStdin` | reading → executing → compiling → executing |
 | standalone (embedded bytecode) | `main.zig` | executing |
 | REPL | `repl_eval.zig` `evalInputInner` | reading → executing → compiling → executing, `reset()` on return to prompt |
 | `kaappi ast` / `expand` / `ir` | `pipeline.zig` | reading, expanding, compiling |

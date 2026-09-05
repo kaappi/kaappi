@@ -54,7 +54,14 @@
   (test-equal "string->utf8" #u8(104 101 108 108 111) (string->utf8 "hello")))
 
 (test-group "binary I/O"
-  (test-assert "u8-ready? on stdin" (u8-ready?)))
+  ;; No-argument form: covers current-input-port resolution only. The
+  ;; readiness *value* is inherited from the invoking shell's stdin — EOF
+  ;; under `< /dev/null`, pending bytes on a pipe, nothing on a tty — so
+  ;; the only environment-independent claim is that it is a boolean
+  ;; (kaappi#2511 made both predicates truthful; the old hardcoded #t
+  ;; made this assertable, wrongly).
+  (test-assert "u8-ready? with no argument returns a boolean"
+    (boolean? (u8-ready?))))
 
 (define %test-fail-count (test-runner-fail-count (test-runner-current)))
 (test-end "bytevectors")

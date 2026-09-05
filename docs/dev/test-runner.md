@@ -80,7 +80,8 @@ Two details are load-bearing:
 
 Reporting stays single-threaded, so `Totals` and stdout need no locking.
 
-Inside the worker (`src/main.zig` `runWorkerFile` → `src/test_runner.zig`):
+Inside the worker (`src/toplevel_driver.zig` `runWorkerFile` →
+`src/test_runner.zig`):
 
 1. **Install a collecting runner.** Before the file runs, the worker evaluates a
    prelude that sets `test-runner-factory` to a factory built on
@@ -125,19 +126,22 @@ failure.
 |---|---|---|
 | ran clean | `false` | — |
 | hit an uncaught top-level error, never called `(exit)` | **`true`** | a plain run would exit 1 |
-| hit an uncaught top-level error, then `(exit 0)` | `false` + a **note** | the file waived it; a plain run exits 0 |
+| hit an uncaught top-level error, then `(exit 0)` | **`true`** + a **note** | the flag wins (#2512); a plain run exits 1 |
 | called `(exit N≠0)` with a failing count | `false` | redundant — the counts carry it, and `files_failed` already counts the file |
 | called `(exit N≠0)` with nothing failing | **`true`** + a **note** | otherwise the file's own verdict is lost |
 
-An `(exit 0)` waives only the file's *own* top-level error. It can never bury a
-failing assertion: the counters stay authoritative, so a file that both errors
-and fails is still reported as a failure.
+An uncaught top-level error cannot be waived at all since
+[kaappi#2512](https://github.com/kaappi/kaappi/issues/2512) — before it, an
+`(exit 0)` acknowledged the error and the file stayed green. An `(exit 0)`
+still cannot bury a failing assertion either: the counters stay authoritative,
+so a file that both errors and fails is reported as a failure.
 
 **Why the exit status matters at all**, given the whole point of this runner is
 to stop scraping: `tests/scheme/run-all.sh` runs the same file as a plain
 `kaappi <file>` and reads exactly that status, and
-`tests/scheme/errors/exit-code.sh` pins the rule it follows — *an explicit
-`(exit N)` always wins over an already-reported top-level error*. A runner that
+`tests/scheme/errors/exit-code.sh` pins the rule it follows — *the driver's
+error flag wins over an explicit `(exit 0)` (#2512), while an explicit non-zero
+`(exit N)` lands as exactly N*. A runner that
 suppressed the call and then ignored what it asked for would reach a different
 verdict than the legacy runner on the same file, which is what
 [kaappi#1903](https://github.com/kaappi/kaappi/issues/1903) was: `srfi150.scm`
@@ -145,18 +149,20 @@ green under `run-all.sh` and `1 errored`, exit 1, under `kaappi test`.
 `tests/scheme/test-runner/runner-agreement.sh` runs a fixture matrix through
 *both* verdict rules and requires them to match.
 
-A **note** is the channel for something a verdict deliberately tolerates. It
-travels in `error_message` (with `"error": false`), prints under the file's
-`PASS`/`FAIL` line in text mode along with whatever the worker wrote to
-stdout/stderr, and is tallied as `noted` in the summary. So a waived top-level
-error is visible without being fatal, rather than either failing the run or
-disappearing from it.
+A **note** is the channel for something a verdict wants on the record. It
+travels in its own `note` field, prints under the file's `PASS`/`FAIL`/`ERROR`
+line in text mode along with whatever the worker wrote to stdout/stderr, and
+is tallied as `noted` in the summary — errored files included, since both
+note-bearing verdicts (the `(exit 0)` that failed to waive a top-level
+error, kaappi#2512; an unexplained nonzero exit request) are errors. The
+diagnostic keeps `error_message` to itself, so a note lands on the
+transcript without displacing anything.
 
 ## JSON schema
 
-One object per line (JSON Lines). Prose fields (`error_message`, failure
-`expected`/`actual`) are human-oriented and may be reworded; the structural
-fields (counts, `kind`, `error`) are the stable contract.
+One object per line (JSON Lines). Prose fields (`error_message`, `note`,
+failure `expected`/`actual`) are human-oriented and may be reworded; the
+structural fields (counts, `kind`, `error`) are the stable contract.
 
 Per-file object:
 
@@ -169,6 +175,7 @@ Per-file object:
   "pass": 77, "fail": 0, "xpass": 0, "xfail": 0, "skip": 0,
   "error": false,
   "error_message": null,
+  "note": null,
   "duration_ms": 203.4,
   "failures": [
     {
@@ -184,9 +191,13 @@ Per-file object:
 ```
 
 - `suite` — the outermost `test-begin` name, or `null`.
-- `error_message` — the diagnostic for an errored file, **or** the note for a
-  file whose verdict tolerated something (`"error": false` with a non-null
-  message). Never assume `error_message != null` implies `error`.
+- `error_message` — the diagnostic for an errored file: the worker's own
+  message when it has one, or the captured output tail the parent attaches
+  when it does not. Never assume `error_message != null` implies `error`.
+- `note` — the verdict's note (see above), `null` when the verdict has
+  nothing to add. Independent of `error`: the note-bearing verdicts are
+  errors, so expecting `note != null` only on `"error": false` rows will
+  miss every note there is.
 - `tests` — `pass + fail + xpass + xfail + skip`.
 - `kind` — `"fail"` (an expected pass that failed) or `"xpass"` (an
   expected-fail that unexpectedly passed). `xfail` (expected fail) and `skip`
@@ -362,10 +373,12 @@ a transcript diff between two runs stays meaningful at any job count.
   observed through the JSON.
 - `tests/scheme/test-runner/runner-agreement.sh` — the guarantee that this
   runner and `tests/scheme/run-all.sh` cannot reach different verdicts
-  (kaappi#1903). Seven fixtures — top-level errors acknowledged and not,
-  `(exit 0)` over a failing assertion, redundant and unexplained nonzero exits,
-  a plain `test-expect-fail`, and a clean control — are each run through *both*
-  verdict rules, which must agree *and* land on the expected verdict.
+  (kaappi#1903). Seven fixtures — top-level errors with and without an
+  `(exit 0)` epilogue (which cannot waive them since kaappi#2512),
+  `(exit 0)` over a failing assertion, redundant and unexplained nonzero
+  exits, a plain `test-expect-fail`, and a clean control — are each run
+  through *both* verdict rules, which must agree *and* land on the expected
+  verdict.
 
   It carries a **copy** of `run-all.sh`'s stdout net regex, which is how the two
   rules would drift while this script kept certifying agreement — so it also
