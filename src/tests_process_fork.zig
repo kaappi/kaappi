@@ -69,6 +69,39 @@ fn forkRouteShExit(gc: anytype, cfg: anytype, cmd: [*:0]const u8) !u32 {
     return types_process.exitStatus(@bitCast(st));
 }
 
+/// PATH surgery for the walk tests: `spawnChildForkExec` captures the
+/// parent's `getenv("PATH")`, so the tests steer the walk through the
+/// process environment. Not in Zig 0.16's std.c, hence the extern (POSIX
+/// only; referenced solely from comptime-gated test bodies).
+extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
+
+/// Scoped PATH override: restores the original (copied — setenv may
+/// reallocate environ and invalidate the old pointer) on scope exit. A PATH
+/// longer than the buffer skips the test rather than truncate — a cut PATH
+/// would poison every later test in the run.
+const ScopedPath = struct {
+    saved: [8192]u8 = undefined,
+    saved_len: usize = 0,
+
+    fn install(dir_z: [*:0]const u8) !ScopedPath {
+        var self = ScopedPath{};
+        if (std.c.getenv("PATH")) |p| {
+            const len = std.mem.len(p);
+            if (len >= self.saved.len) return error.SkipZigTest;
+            self.saved_len = len;
+            @memcpy(self.saved[0..len], p[0..len]);
+        }
+        if (setenv("PATH", dir_z, 1) != 0) return error.SkipZigTest;
+        return self;
+    }
+
+    fn restore(self: *ScopedPath) void {
+        if (self.saved_len == 0) return;
+        self.saved[self.saved_len] = 0;
+        _ = setenv("PATH", self.saved[0..self.saved_len :0].ptr, 1);
+    }
+};
+
 test "process: spawn routing honors directory: on every build (kaappi#2517)" {
     if (comptime !is_posix) return error.SkipZigTest;
     if (comptime is_posix) {
@@ -327,6 +360,135 @@ test "process: the fork route resolves bare names on the PARENT's PATH (kaappi#2
         try std.testing.expectEqual(pid, platform.waitPid(pid, &st, 0));
         try std.testing.expect(types_process.ifExited(@bitCast(st)));
         try std.testing.expectEqual(@as(u32, 0), types_process.exitStatus(@bitCast(st)));
+        gc.popRoot();
+    }
+}
+
+test "process: the fork route passes ENOEXEC through, no shell fallback (kaappi#2517 review)" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    if (comptime is_posix) {
+        const posix_backend = @import("process_posix.zig");
+        const platform = @import("platform.zig");
+        const memory = @import("memory.zig");
+        const types_process = @import("types_process.zig");
+        const primitives = @import("primitives.zig");
+        var ctx: th.TestContext = undefined;
+        try ctx.init();
+        defer ctx.deinit();
+        const vm = ctx.vm;
+        const gc = memory.gc_instance.?;
+
+        // An executable file with no recognized format, reached by a bare
+        // name through the parent-captured PATH. glibc's default
+        // posix_spawnp binding passes only SPAWN_XFLAGS_USE_PATH — the
+        // /bin/sh fallback belongs to the compat TRY_SHELL path — so the
+        // fork route must report ENOEXEC as the spawn's verdict: no shell
+        // fallback, no continued search, and no masking it behind a
+        // fabricated ENOENT (which is what the walk did before the errno
+        // contract was aligned).
+        var tmp = std.testing.tmpDir(.{});
+        defer tmp.cleanup();
+        const dir_path = try th.tmpDirRealPathAlloc(&tmp, std.testing.allocator);
+        defer std.testing.allocator.free(dir_path);
+        var dir_buf: [platform.PATH_MAX]u8 = undefined;
+        const dir_z = try std.fmt.bufPrintZ(&dir_buf, "{s}", .{dir_path});
+
+        var file_buf: [platform.PATH_MAX]u8 = undefined;
+        const file_z = try std.fmt.bufPrintZ(&file_buf, "{s}/kaappi-2517-noexec", .{dir_path});
+        const fd = std.c.open(file_z, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, @as(c_uint, 0o755));
+        try std.testing.expect(fd >= 3);
+        const body = "not an executable format\n";
+        _ = std.c.write(fd, body.ptr, body.len);
+        _ = platform.close(fd);
+
+        var path_scope = try ScopedPath.install(dir_z.ptr);
+        defer path_scope.restore();
+
+        var argv_buf = [1:null]?[*:0]const u8{"kaappi-2517-noexec"};
+        const argv: [*:null]const ?[*:0]const u8 = &argv_buf;
+        var argv0 = try gc.allocString("kaappi-2517-noexec");
+        gc.pushRoot(&argv0);
+        var argv_vals = [_]types.Value{argv0};
+        const cfg = types_process.SpawnConfig{ .argv = &argv_vals };
+
+        try std.testing.expectError(
+            primitives.PrimitiveError.ExceptionRaised,
+            posix_backend.spawnChildForkExec(
+                gc,
+                argv,
+                null,
+                .{ .inherit, .inherit, .inherit },
+                .{ -1, -1, -1 },
+                cfg,
+                null,
+            ),
+        );
+        const err_obj = types.toObject(vm.current_exception.?).as(types.ErrorObject);
+        try std.testing.expect(err_obj.error_type == .file);
+        try std.testing.expectEqual(@as(c_int, @intFromEnum(std.c.E.NOEXEC)), err_obj.posix_errno);
+        gc.popRoot();
+    }
+}
+
+test "process: an all-EACCES PATH search reports EACCES, not ENOENT (kaappi#2517 review)" {
+    if (comptime !is_posix) return error.SkipZigTest;
+    if (comptime is_posix) {
+        const posix_backend = @import("process_posix.zig");
+        const platform = @import("platform.zig");
+        const memory = @import("memory.zig");
+        const types_process = @import("types_process.zig");
+        const primitives = @import("primitives.zig");
+        var ctx: th.TestContext = undefined;
+        try ctx.init();
+        defer ctx.deinit();
+        const vm = ctx.vm;
+        const gc = memory.gc_instance.?;
+
+        // A PATH whose only entry holds the program as a NON-executable
+        // file: every candidate fails EACCES, the search runs to the end,
+        // and the reported condition is the remembered EACCES — glibc's
+        // execvpe contract (an all-EACCES miss must not masquerade as
+        // ENOENT).
+        var tmp = std.testing.tmpDir(.{});
+        defer tmp.cleanup();
+        const dir_path = try th.tmpDirRealPathAlloc(&tmp, std.testing.allocator);
+        defer std.testing.allocator.free(dir_path);
+        var dir_buf: [platform.PATH_MAX]u8 = undefined;
+        const dir_z = try std.fmt.bufPrintZ(&dir_buf, "{s}", .{dir_path});
+
+        var file_buf: [platform.PATH_MAX]u8 = undefined;
+        const file_z = try std.fmt.bufPrintZ(&file_buf, "{s}/kaappi-2517-denied", .{dir_path});
+        const fd = std.c.open(file_z, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, @as(c_uint, 0o644));
+        try std.testing.expect(fd >= 3);
+        const body = "no permission to execute\n";
+        _ = std.c.write(fd, body.ptr, body.len);
+        _ = platform.close(fd);
+
+        var path_scope = try ScopedPath.install(dir_z.ptr);
+        defer path_scope.restore();
+
+        var argv_buf = [1:null]?[*:0]const u8{"kaappi-2517-denied"};
+        const argv: [*:null]const ?[*:0]const u8 = &argv_buf;
+        var argv0 = try gc.allocString("kaappi-2517-denied");
+        gc.pushRoot(&argv0);
+        var argv_vals = [_]types.Value{argv0};
+        const cfg = types_process.SpawnConfig{ .argv = &argv_vals };
+
+        try std.testing.expectError(
+            primitives.PrimitiveError.ExceptionRaised,
+            posix_backend.spawnChildForkExec(
+                gc,
+                argv,
+                null,
+                .{ .inherit, .inherit, .inherit },
+                .{ -1, -1, -1 },
+                cfg,
+                null,
+            ),
+        );
+        const err_obj = types.toObject(vm.current_exception.?).as(types.ErrorObject);
+        try std.testing.expect(err_obj.error_type == .file);
+        try std.testing.expectEqual(@as(c_int, @intFromEnum(std.c.E.ACCES)), err_obj.posix_errno);
         gc.popRoot();
     }
 }

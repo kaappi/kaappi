@@ -510,9 +510,8 @@ fn spawnChildPosixSpawn(
     // `directory:` through this fast path there rather than forking
     // (kaappi#2517 review). Where the binding is null — a genuinely
     // pre-2.29 host, NetBSD, OpenBSD — routeFor has already diverted the
-    // `directory:` spawn to the fork route, so this branch sees
-    // directory_z == null by construction and a null binding cannot
-    // silently drop a requested directory.
+    // `directory:` spawn to the fork route; the NOSYS raise below is the
+    // belt that keeps that invariant loud if the routing ever regresses.
     if (comptime spawn_c.has_addchdir) {
         if (directory_z) |dir| {
             const rc = spawn_c.posix_spawn_file_actions_addchdir_np(actions, dir);
@@ -522,6 +521,13 @@ fn spawnChildPosixSpawn(
         if (spawn_c.addchdir_weak) |addchdir| {
             const rc = addchdir(actions, dir);
             if (rc != 0) return spawnSetupError(gc, rc);
+        } else {
+            // Unreachable through routeFor: a null binding routes a
+            // `directory:` spawn to the fork path. Loud rather than silent
+            // anyway — a future routing regression here would otherwise
+            // spawn in the wrong working directory with no error (kaappi#2517
+            // review).
+            return spawnSetupError(gc, @intFromEnum(std.c.E.NOSYS));
         }
     }
 
@@ -848,13 +854,24 @@ fn childExecSide(
     // (measured ~80 ms per spawn at soft nofile 524288; kaappi#2517 review).
     // A plain close_range would instead CLOSE the range outright, killing
     // the error pipe before a chdir/exec failure could report through it.
-    // ENOSYS (kernel < 5.9) and EINVAL (5.9-5.10, flag unsupported) — and,
-    // defensively, any other failure — fall back to the probe.
+    //
+    // The flag is the RAW kernel bit (1 << 2 = CLOSE_RANGE_CLOEXEC), not
+    // `.{ .CLOEXEC = true }`: Zig 0.16.0's std CLOSE_RANGE packed struct
+    // lacks the leading one-bit pad, so its fields sit one bit low —
+    // `.CLOEXEC` lands on bit 1, the kernel's CLOSE_RANGE_UNSHARE, and the
+    // call CLOSES the range instead of marking it (verified on a 6.12
+    // kernel: the packed form closes a test fd, the raw 4 leaves it open
+    // with FD_CLOEXEC). Upstream fixed the encoding in 5ceec001
+    // ("std.os.linux: pad CLOSE_RANGE by one bit", 2026-08-08); once this
+    // repo builds on a Zig that includes it, revert to `.{ .CLOEXEC = true }`.
+    // ENOSYS (kernel < 5.9, and Rosetta's untranslated 436) and EINVAL
+    // (5.9-5.10, flag unsupported) — and, defensively, any other failure —
+    // fall back to the probe.
     const range_marked = blk: {
         if (comptime builtin.os.tag != .linux) break :blk false;
         // `last` = every fd: fd_t is signed, so -1 is the all-bits-set the
         // kernel reads as ~0U.
-        const rc = std.os.linux.close_range(3, -1, .{ .UNSHARE = false, .CLOEXEC = true });
+        const rc = std.os.linux.close_range(3, -1, @bitCast(@as(u32, 1 << 2)));
         break :blk rc == 0;
     };
     if (!range_marked) {
@@ -905,9 +922,17 @@ fn childExecSide(
 /// - an empty PATH entry means the current directory (which `directory:`
 ///   may have just changed — the same order glibc's addchdir + spawnp
 ///   performs, so the two routes agree here too);
-/// - an EACCES candidate is remembered while the search continues, and a
-///   fully failed search reports EACCES if any candidate hit it, ENOENT
-///   otherwise;
+/// - a failed candidate continues the search only for the "not usable
+///   here, keep looking" set glibc's execvpe/posix_spawnp use — ENOENT,
+///   ESTALE, ENOTDIR, ENODEV, ETIMEDOUT — plus EACCES, which is remembered
+///   as the fallback error while the search continues (a fully failed
+///   search reports EACCES if any candidate hit it, ENOENT otherwise);
+/// - every other error — ELOOP, EIO, ENOMEM, E2BIG, ENOEXEC, ... — is the
+///   verdict of the whole spawn, reported as-is. ENOEXEC deliberately
+///   included: the default glibc posix_spawnp binding passes only
+///   SPAWN_XFLAGS_USE_PATH, and the /bin/sh fallback belongs to the compat
+///   TRY_SHELL path, so the fork route passes ENOEXEC through with no
+///   shell fallback and no continued search (kaappi#2517 review);
 /// - an unset PATH uses the historical "/bin:/usr/bin" (glibc's
 ///   _PATH_STDPATH), not the inherited environment.
 ///
@@ -969,11 +994,25 @@ fn childPathExec(
         buf[entry.len + 1 + prog_len] = 0;
         const candidate: [*:0]const u8 = buf[0 .. entry.len + 1 + prog_len :0].ptr;
         _ = spawn_c.execve(candidate, argv, envp);
-        // execve returned: this candidate failed. EACCES is remembered and
-        // the search continues (execvp's behavior); every other error —
-        // ENOENT, ENOTDIR, ENAMETOOLONG, ... — also continues, because a
-        // later entry may still hold the program.
-        if (lastError() == @intFromEnum(std.c.E.ACCES)) saw_acces = true;
+        // execve returned: this candidate failed. Match glibc's
+        // execvpe/posix_spawnp contract exactly — the search continues
+        // only for the "candidate not usable, keep looking" set (plus
+        // EACCES, remembered as the fallback error); any other error is
+        // the spawn's verdict, reported as-is rather than masked by a
+        // fabricated ENOENT. ENOEXEC is on purpose in that bucket: the
+        // default posix_spawnp binding has no /bin/sh fallback, so neither
+        // does the fork route.
+        const e = lastError();
+        switch (e) {
+            @intFromEnum(std.c.E.NOENT),
+            @intFromEnum(std.c.E.STALE),
+            @intFromEnum(std.c.E.NOTDIR),
+            @intFromEnum(std.c.E.NODEV),
+            @intFromEnum(std.c.E.TIMEDOUT),
+            => {},
+            @intFromEnum(std.c.E.ACCES) => saw_acces = true,
+            else => childExecFail(err_fd, e),
+        }
         if (c == 0) break;
         i += 1;
         start = i;
