@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788581877774,
+  "lastUpdate": 1788582036428,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6c31408d522321a1ba737e0a4bad27171289142d",
-          "message": "Route top-level import through load's evaluator and attribute errors to the loaded file (#2303)\n\nload compiled each form of the loaded file as an ordinary expression, so a\ntop-level (import ...) was evaluated as an application: (scheme base) was\napplied and base looked up as a variable, failing with KP3001. The error\nwas also attributed to the loader's file and line, because the loaded thunk\ncarried no source name of its own.\n\nRoute each form (default global-env case) through vm.handleTopLevelForm\nfirst — the same dispatch a script or the REPL uses — so import,\ndefine-library, begin, cond-expand and the rest are handled by the\nimport/library machinery, and fall through to compilation only for plain\nexpressions. Compile those with compileExpressionWithMacrosAt, naming the\nreader and thunk with the loaded file's path so captureErrorLocation\nattributes any raised diagnostic to the loaded file:line, and run via\nrunTopLevelFunction so a load nested under a suspended caller frame stays\nre-entrant.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-25T06:03:55+05:30",
-          "tree_id": "515b23b929b4f678702e7f272e47ffbc182f00a4",
-          "url": "https://github.com/kaappi/kaappi/commit/6c31408d522321a1ba737e0a4bad27171289142d"
-        },
-        "date": 1787626707623,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.091945,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.477698,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.578019,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.911838,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00524,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046923,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.283117,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.053559,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.40551,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.157797,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.627662,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.3067,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.716921,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.87317,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046505,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041987,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "330206b1797507a527e659f021fb0ce12dccd7ce",
+          "message": "Name the differing compiler-key component in bundle rejection (#2524)\n\n* Name the differing compiler-key component in bundle rejection\n\nWhen a bundled standalone refuses its embedded .sbc because the compiler\nhash differs, the fatal message reported only the build id and advised\n\"Rebuild the bundle from current source\". For the case that actually\ncost release-pipeline time — a .sbc compiled for a DIFFERENT target —\nthat message reads as impossible: all release binaries are built from\none clean checkout, so the version and build id are identical across\ntargets, the two printed ids match exactly, and the one differing input\nof compilerHashFor (the target) is the one component the message does\nnot name. The advice was wrong too: the bundle *is* from current source;\nthe fix is to recompile the .sbc with a kaappi built for the embedding\nbinary's target.\n\nRecord the missing inputs in the .sbc header. Format v14 adds two\ninformational strings after the source path: the producing binary's\ncompile target (compile_target_id, the exact string compilerHashFor\nhashes) and its release version string. HeaderInfo carries them as\noptionals, and renderForeignBuildDiagnostic (pure, unit-tested) prints\nall three components for both sides and one advice line per differing\ncomponent — target differs → recompile for this target; version or\nbuild id differs → the kaappi#1930 stale-bundle advice, unchanged.\n\nBackward compatibility: the reader now accepts MIN_READ_VERSION..VERSION\n(13..14) instead of exactly VERSION, because v13 files merely lack the\ntwo new strings and share v14's tail layout. A v13 entry still loads\n(its compiler hash already folds version, build id and target, so\nnothing about cache safety changes), still classifies as .foreign_build\nwhen foreign, and reads the new fields back as null — the diagnostic\nprints \"?\" for an unrecorded component and never claims it equal or\ndifferent, falling back to advice that names the older header format.\nv12 and older are rejected exactly as before. This also keeps the\nchecked-in v13 fuzz-seed fixture loading through its comptime compiler\n-hash patch, so it was not regenerated; the golden-byte endian fixtures\nand the hand-assembled header tests were extended for the v14 layout.\n\nVerified end to end by embedding a .sbc whose target string was forged\nto a different triple with a correctly recomputed compiler hash: the\nbundled binary prints both identities and \"The target differs:\nrecompile the .sbc with a kaappi built for this target.\", while the\nunforged same-target bundle still loads and runs.\n\nFixes kaappi/kaappi#2514\n\nCo-Authored-By: ZCode <noreply@zcode.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Tighten the v14 read-window contract after review\n\nReview of #2524 found nothing wrong with the behaviour but four places\nwhere the words outran the design, plus one guard that now checks an\nincomplete invariant.\n\nThe bare `14` both readers gated the new header strings on is now\n`TARGET_FIELDS_SINCE`, with a comptime assert that the three format\nconstants stay ordered, and the `VERSION` doc-comment states the rule this\nPR established: a bump that changes the entry tail must raise\n`MIN_READ_VERSION`, because nothing else stops the reader from parsing an\nolder tail under a new layout.\n\nThe legacy-advice comment claimed two dirty builds at one commit could land\nin the \"not recorded\" branch. They cannot: they share all three compiler-hash\ninputs and load each other's entries silently (kaappi#1516). The\ncross-target test's comment claimed the reader must accept v14 forever, which\nis exactly what `MIN_READ_VERSION` exists to let a layout bump stop doing.\ncache.md said a header-only bump \"never invalidates a cache\"; loading still\nneeds the compiler hash to match, and that folds in version and build id, so\nthe only v13 entry that can hit under the v14 reader is a same-commit dirty\nbuild's. The doc now says what the window actually buys.\n\nThe endianness control in tests_endian.zig asserted only that VERSION's two\nbytes differ, so a byte swap is visible. With a read window, visible is not\nenough: the swapped value must fall outside MIN_READ_VERSION..VERSION, or\nthe control is a green no-op. The guard now checks that directly.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: ZCode <noreply@zcode.ai>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-05T09:08:24+05:30",
+          "tree_id": "83c042566ce86976c19d5dbb9bffabea22f18ed5",
+          "url": "https://github.com/kaappi/kaappi/commit/330206b1797507a527e659f021fb0ce12dccd7ce"
+        },
+        "date": 1788582034799,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.572004,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.953527,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.338658,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 1.776894,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003662,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.030082,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.183372,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.033827,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.829355,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.722645,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 0.976549,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.190134,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.07049,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.610077,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.027542,
             "unit": "seconds"
           }
         ]
