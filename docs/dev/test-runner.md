@@ -95,9 +95,11 @@ Inside the worker (`src/toplevel_driver.zig` `runWorkerFile` →
 2. **Suppress `(exit)`.** The worker sets `vm.suppress_exit`, so a file's
    `(exit 1)` failure epilogue becomes a *recorded* no-op (`vm.exit_requested`
    / `vm.exit_code`) instead of terminating the worker before it can emit its
-   result. Because the call never happens, its *semantics* are reapplied when
-   the verdict is resolved — see [Verdicts](#verdicts-and-what-errored-means)
-   below.
+   result. `(emergency-exit …)` records through the same channel — a plain
+   `emergencyExitFn` used to kill the worker mid-file, and the orchestrator
+   reported the file as a missing result (kaappi#2521). Because the call never
+   happens, its *semantics* are reapplied when the verdict is resolved — see
+   [Verdicts](#verdicts-and-what-errored-means) below.
 3. **Run the file** via the normal `runFile` path (so the `.sbc` cache, imports,
    and error diagnostics all behave exactly as a plain run).
 4. **Emit one JSON object** for the file to `KAAPPI_TEST_EMIT`, built by walking
@@ -119,7 +121,8 @@ to a failure of a test. SRFI-64 catches ordinary test failures internally via
 
 Three inputs decide it (`resolveVerdict` in `src/test_runner.zig`): whether an
 uncaught read/compile/runtime error was reported at top level, what the file's
-suppressed `(exit)` asked for, and whether the SRFI-64 counters already show a
+suppressed `(exit)` — or `(emergency-exit …)`, the same channel since
+kaappi#2521 — asked for, and whether the SRFI-64 counters already show a
 failure.
 
 | The file… | `error` | Why |
@@ -361,7 +364,8 @@ a transcript diff between two runs stays meaningful at any job count.
 
 - `src/test_runner.zig` unit tests — JSON serialization round-trips, the
   SRFI-64 discovery gate, and the `suppress_exit` behaviour (the guard on the
-  `exitFn` change in `src/primitives_r7rs.zig`).
+  `exitFn` change in `src/primitives_r7rs.zig`; the `emergencyExitFn` twin of
+  that guard lives beside the primitive it protects).
 - `src/test_selection.zig` unit tests — import-spec unwrapping, the
   native-artifact classifier, lexical path canonicalisation, and the closure
   BFS over synthetic graphs (diamond deps, incomplete edges, cycles).
@@ -391,6 +395,12 @@ a transcript diff between two runs stays meaningful at any job count.
   bug class #2116 exists to forbid, and every file in the corpus that can print
   `FAIL` also exits nonzero when it does — which is why all ten fixtures still
   agree. If `kaappi test` ever grows the same net, the asymmetry closes.
+- `tests/scheme/test-runner/emergency-exit.sh` — `(emergency-exit …)` under a
+  worker honors `suppress_exit` (kaappi#2521): each of three fixtures (a green
+  suite exiting 0, a failing suite exiting 1, a bare unexplained exit 1) runs
+  through a plain `kaappi <file>` and `kaappi test`, which must agree and land
+  on the expected verdict, with the counts on the transcript and no
+  "worker produced no result".
 - `tests/scheme/test-runner/changed.sh` — `--changed`/`--list-affected` over a
   throwaway git repo with a known dependency shape: diamond import, `include`,
   a `(load …)` escape hatch, native-artifact and unknown-revision full-run

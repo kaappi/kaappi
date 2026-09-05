@@ -170,14 +170,26 @@ fn exitFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn emergencyExitFn(args: []const Value) PrimitiveError!Value {
+    const code = exitCode(args);
+    if (vm_mod.vm_instance) |vm| {
+        // `kaappi test` worker: same suppression contract as `exit` (kaappi#2521).
+        // Terminating here would kill the worker before it emits its one JSON
+        // result, so the orchestrator reports the file as "worker produced no
+        // result" — losing the counts the file already collected. Record the
+        // request and return instead: the raw code, before the #2512 upgrade
+        // below, so the worker's `resolveVerdict` weighs what the file actually
+        // asked for, exactly as it does a suppressed `(exit N)`.
+        if (vm.suppress_exit) {
+            vm.exit_requested = true;
+            vm.exit_code = code;
+            return types.VOID;
+        }
+    }
     // Same #2512 rule as `exit`: an emergency exit from a run that already
     // reported an uncaught top-level error may not mask it with an explicit
     // 0. Skipping the cleanup — `exit`'s dynamic winds and port flush — is
-    // the emergency part; skipping the run's verdict is not. Deliberately
-    // still no `suppress_exit` consultation: emergency-exit terminating a
-    // `kaappi test` worker before it can emit its result is a pre-existing
-    // gap, filed separately (kaappi#2521), not something to half-fix here.
-    std.process.exit(effectiveExitCode(exitCode(args), toplevel_driver.script_had_error));
+    // the emergency part; skipping the run's verdict is not.
+    std.process.exit(effectiveExitCode(code, toplevel_driver.script_had_error));
 }
 
 fn getEnvVar(args: []const Value) PrimitiveError!Value {
@@ -591,4 +603,24 @@ test "effectiveExitCode: a reported script error upgrades (exit 0) only (#2512)"
     try std.testing.expectEqual(@as(u8, 1), effectiveExitCode(1, true));
     try std.testing.expectEqual(@as(u8, 5), effectiveExitCode(5, true));
     try std.testing.expectEqual(@as(u8, 255), effectiveExitCode(255, true));
+}
+
+// The emergency-exit twin of the suppress_exit test in test_runner.zig
+// (kaappi#2521): under suppression the call records its code instead of
+// terminating the process, so a `kaappi test` worker still reaches its
+// result-emission step. Guards the emergencyExitFn change above.
+test "suppress_exit turns (emergency-exit) into a recorded no-op, VM stays usable" {
+    const th = @import("testing_helpers.zig");
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    ctx.vm.suppress_exit = true;
+    const r = try ctx.vm.eval("(import (scheme process-context)) (emergency-exit 7)");
+    try std.testing.expectEqual(types.VOID, r);
+    try std.testing.expect(ctx.vm.exit_requested);
+    try std.testing.expectEqual(@as(u8, 7), ctx.vm.exit_code);
+
+    const after = try ctx.vm.eval("(+ 1 2)");
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(after));
 }

@@ -564,10 +564,11 @@ pub const VM = struct {
     profile_time_stack: [256]ProfileTimeEntry = undefined,
     profile_time_depth: usize = 0,
     sandbox_mode: bool = false,
-    /// Set by the `kaappi test` worker path: when true, `(exit code)` records
-    /// the request and returns instead of terminating the process, so the
-    /// worker always reaches its result-emission step even when a test file's
-    /// SRFI-64 epilogue calls `(exit 1)` on failure. `exit_requested`/
+    /// Set by the `kaappi test` worker path: when true, `(exit code)` and
+    /// `(emergency-exit code)` record the request and return instead of
+    /// terminating the process, so the worker always reaches its
+    /// result-emission step even when a test file's SRFI-64 epilogue calls
+    /// `(exit 1)` on failure. `exit_requested`/
     /// `exit_code` capture the last such request. No effect on normal runs.
     suppress_exit: bool = false,
     exit_requested: bool = false,
