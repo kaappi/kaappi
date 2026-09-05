@@ -197,12 +197,21 @@ test "endian: readHeaderInfo decodes a hand-assembled little-endian header" {
     try buf.appendSlice(allocator, "id");
     try appendLeU16(&buf, allocator, 6);
     try buf.appendSlice(allocator, "a.scm\x00"[0..6]);
+    // v14 (kaappi#2514): compile target and version strings after the source
+    // path. Literals, like every other field here — the reader accepts any
+    // string. Strings carry no byte order; only their u16 lengths do.
+    try appendLeU16(&buf, allocator, 3);
+    try buf.appendSlice(allocator, "tgt");
+    try appendLeU16(&buf, allocator, 3);
+    try buf.appendSlice(allocator, "9.9");
 
     const info = bf.readHeaderInfo(buf.items) orelse
         return error.HeaderRejected;
     try std.testing.expectEqual(@as(u64, 0x0102030405060708), info.source_hash);
     try std.testing.expectEqual(@as(u64, 0x1122334455667788), info.compiler_hash);
     try std.testing.expectEqualStrings("id", info.build_id);
+    try std.testing.expectEqualStrings("tgt", info.target.?);
+    try std.testing.expectEqualStrings("9.9", info.version.?);
 }
 
 test "endian: readHeaderInfo rejects a big-endian-spelled version field" {
@@ -475,6 +484,13 @@ fn goldenHeader(
     try list.appendSlice(allocator, build_id);
     try appendLe(list, allocator, 2, GOLDEN_SOURCE_PATH.len);
     try list.appendSlice(allocator, GOLDEN_SOURCE_PATH);
+    // v14 (kaappi#2514): the compile target and version strings after the
+    // source path. The writer stamps the real ones, so the fixture does too —
+    // strings carry no byte order, only their u16 lengths do.
+    try appendLe(list, allocator, 2, bf.compile_target_id.len);
+    try list.appendSlice(allocator, bf.compile_target_id);
+    try appendLe(list, allocator, 2, build_options.version.len);
+    try list.appendSlice(allocator, build_options.version);
     // v13 (kaappi#1888): the entry-kind byte after the source path — a
     // program entry (0), whose replay slot section GOLDEN_BODY carries.
     try list.append(allocator, bf.ENTRY_PROGRAM);

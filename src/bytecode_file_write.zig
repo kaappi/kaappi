@@ -404,6 +404,14 @@ fn writeFuncsSection(
     // rejected on load regardless of what these strings say.
     try w.writeStr(allocator, build_options.git_build_id);
     try w.writeStr(allocator, source_path);
+    // v14 (kaappi#2514): the other two inputs of `compilerHash`, recorded so a
+    // rejected embedded bundle can say *which* component differed. Release
+    // binaries are built from one clean checkout, so for a cross-target bundle
+    // the build id is identical on both sides and the target is the only
+    // differing input — without these strings the diagnostic could not name
+    // it. Same deal as the build id: informational, never load-gating.
+    try w.writeStr(allocator, bf.compile_target_id);
+    try w.writeStr(allocator, build_options.version);
     // v13 (kaappi#1888): the entry kind selects the tail layout — program
     // slots, bundle sections, or the library sections.
     try w.writeU8(allocator, entry_kind);

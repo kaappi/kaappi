@@ -94,9 +94,18 @@ case above is different in kind — the key genuinely matches — which is why i
 needs the manual step.
 
 The header also records, purely for `cache status` to display, the **producing
-build id** and the **source path** (see `src/bytecode_file.zig`, format
-`VERSION`). Bumping the on-disk format `VERSION` invalidates every older entry —
-a version mismatch reads back as a miss.
+build id** and the **source path**, and since format v14
+([#2514](https://github.com/kaappi/kaappi/issues/2514)) the producing binary's
+**compile target** and **version string** too — the last two so a rejected
+embedded bundle can say *which* of the three compiler-key components differed
+(`renderForeignBuildDiagnostic` in `src/bytecode_file_read.zig`, re-exported by
+`src/bytecode_file.zig`; for a cross-target bundle the build id matches on both
+sides, so it cannot carry the diagnosis alone). Older headers lack the last two
+fields and read them back as absent:
+the reader accepts `MIN_READ_VERSION..VERSION` (v13 files load and classify
+unchanged — a bump that only *adds* header fields never invalidates a cache),
+and anything older reads back as a miss. A format bump that changes the entry
+*layout* still invalidates every older entry.
 
 ## Location
 

@@ -645,9 +645,10 @@ pub fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
                 // re-dispatched through handleTopLevelForm — in the exact
                 // top-level order, so an `import` between two defines stays
                 // between them (no preamble hoisting, the #2200 reorder class).
-                // Older-format entries are unreachable: the VERSION check
-                // rejects them, and the kind/slots check above is what admits a
-                // replayable entry.
+                // Pre-v13 entries are unreachable: the MIN_READ_VERSION check
+                // rejects them. v13 and v14 share this tail layout (the v14
+                // bump only added two header strings, kaappi#2514), and the
+                // kind/slots check above is what admits a replayable entry.
                 {
                     for (loaded.slots.?) |slot| {
                         switch (slot) {

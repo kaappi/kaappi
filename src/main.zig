@@ -337,12 +337,25 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
             // "wrong version or format".
             switch (bytecode_file.classifyEmbeddedRejection(bytecode_data)) {
                 .foreign_build => {
-                    const info = bytecode_file.readHeaderInfo(bytecode_data).?;
-                    writeStderr("fatal: embedded bytecode was produced by a different build (build id ");
-                    writeStderr(info.build_id);
-                    writeStderr("); this binary is ");
-                    writeStderr(build_options.git_build_id);
-                    writeStderr(". Rebuild the bundle from current source.\n");
+                    // kaappi#2514: print all three components of the compiler
+                    // identity on both sides and advice for the one that
+                    // differs — for a cross-target bundle the build id matches
+                    // (release binaries come from one clean checkout) and the
+                    // old build-id-only message read as a kaappi bug.
+                    if (bytecode_file.readHeaderInfo(bytecode_data)) |info| {
+                        if (bytecode_file.renderForeignBuildDiagnostic(allocator, info, .{
+                            .version = version,
+                            .build_id = build_options.git_build_id,
+                            .target = bytecode_file.compile_target_id,
+                        })) |msg| {
+                            writeStderr(msg);
+                            allocator.free(msg);
+                        } else |_| {
+                            writeStderr("fatal: embedded bytecode was produced by a different build\n");
+                        }
+                    } else {
+                        writeStderr("fatal: embedded bytecode was produced by a different build\n");
+                    }
                 },
                 .invalid => writeStderr("fatal: invalid embedded bytecode (wrong version or format)\n"),
             }
