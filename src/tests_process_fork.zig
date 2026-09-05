@@ -360,6 +360,14 @@ test "process: env: and directory: resolve bare names identically on both routes
 test "process: the fork route's close-by-default removes inherited descriptors" {
     if (comptime !is_posix) return error.SkipZigTest;
     if (comptime is_posix) {
+        // The openness probe needs a live fd inventory: /dev/fd is live on
+        // macOS (fdesc) and a /proc/self/fd symlink on Linux, but the other
+        // BSDs expose static device nodes that exist whether or not the fd
+        // is open — the same reason the posix-route test in
+        // tests_process.zig gates its probe per OS. Skip there rather than
+        // assert against a probe that cannot report "closed".
+        if (comptime (builtin.os.tag != .macos and builtin.os.tag != .ios and
+            builtin.os.tag != .linux)) return error.SkipZigTest;
         const platform = @import("platform.zig");
         const memory = @import("memory.zig");
         const types_process = @import("types_process.zig");
