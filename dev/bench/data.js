@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788557529648,
+  "lastUpdate": 1788570900256,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "8e378e1c4c4790a5bdaef7d5948e861d99ac3091",
-          "message": "Bound default-hash recursion depth in SRFI 128 (#2301)\n\ndefault-hash recursed over pairs/vectors with no depth limit. Since #2044\nthreaded the comparator through (srfi 146 hash), a make-default-comparator\nhashmap keys its table via default-hash, so a cyclic key ran the recursion\ninto the KP3008 stack cap — an uncatchable process abort (regressed from the\nnative equal? hash, whose MAX_HASH_DEPTH=8 cap silently absorbed the cycle).\n\nThread a depth argument through the pair/vector recursion and, past a cutoff\nmirroring the native precedent (MAX_HASH_DEPTH=8, a fixed DEEP_CUTOFF_HASH),\nfold in a constant sentinel instead of recursing. The cutoff is a fixed\nconstant, never derived from the object, so two equal? keys still hash alike;\nacyclic values nesting less than the cutoff deep hash exactly as before.\n\nCyclic keys remain \"an error\" under the spec, but the failure mode is now a\nbounded, terminating hash instead of a process abort.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-25T06:03:08+05:30",
-          "tree_id": "a98489401bf36daf262b262d1651cd11811b6afb",
-          "url": "https://github.com/kaappi/kaappi/commit/8e378e1c4c4790a5bdaef7d5948e861d99ac3091"
-        },
-        "date": 1787626540466,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 2.647623,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.896179,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.360355,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 1.852499,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.003595,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.030829,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.192983,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.034853,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.710985,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.786682,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.032593,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.209593,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.138852,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.769389,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.031605,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045134,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a684eeb37540862400ff7b0982db3424592e45e2",
+          "message": "Fail a script run that already reported an error, whatever it prints after (#2519)\n\n* Fail a script run that already reported an error, whatever it prints after\n\nThe top-level driver recovers from uncaught read/compile/runtime errors\nand keeps going with the next top-level form, recording the failure in\nscript_had_error — but two success signals ignored that flag, so a run\ncould fail loudly and still look successful to whatever consumed it.\n\nexit: an explicit (exit 0) terminated through the exit primitive before\nanything consulted the flag, so the R7RS test-suite idiom of a file of\ntop-level check forms ending in (exit 0) reported success while its\nerrors scrolled past on stderr (#2512). The flag now upgrades an\nexplicit 0 to 1; any non-zero explicit status stays exactly as given.\nREPL sessions never set the flag and are unaffected. The kaappi test\nworker keeps its own contract: suppress_exit returns before the upgrade\nso the worker records the code the file actually asked for, the worker\nconsumes and clears the flag around emitResult, and resolveVerdict\ndecides the verdict — worker exit stays 0 with pass/fail in the emitted\nJSON. resolveVerdict flips with the new rule (an (exit 0) can no longer\nwaive a reported top-level error) so the runner keeps agreeing with the\nplain-run exit status it was built to match (kaappi#1903).\n\n--compile: printed 'Compiled X -> Y' and wrote the .sbc even when the\nrun had reported errors — the driver recovers and keeps compiling, so\nthe artifact was a plausible-looking partial bundle that replaced a\nprevious good build at the target (#2513). A flagged compile now writes\nno artifact, prints no success line, and unlinks any stale file at the\nexact -o / derived-.sbc target: a failed build leaves nothing behind\nfor a bundling step to embed.\n\nThe flag itself moves from main.zig to toplevel_driver.zig so the exit\nprimitive and the test runner can read it without importing the root\nmodule's namespace.\n\nCo-Authored-By: ZCode <noreply@zcode.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Move the top-level source drivers out of main.zig\n\nmain.zig sat at 1508 lines, already over the 1500-line file-size\npolicy, and the #2512/#2513 fix pushed it to 1610. The natural seam\nalready existed: toplevel_driver.zig owns the diagnostics those loops\nreport through and the script_had_error flag they set, so the loops\nbelong beside both.\n\nMove runFile (with its bytecode-cache replay), runStdin, compileFile,\ndisassembleFile, runWorkerFile, their private helpers, and the\ncompileFile regression tests into toplevel_driver.zig. main.zig keeps\nprocess entry, CLI parsing, VM/GC setup, and mode dispatch, dropping to\n676 lines; toplevel_driver.zig lands at 1325. Pure code motion plus the\nnamespace edits it forces (intra-module references lose the\ntoplevel_driver. prefix, call sites in mainImpl gain it); dev-doc\nreferences to the moved functions follow.\n\nCo-Authored-By: ZCode <noreply@zcode.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Keep compileFile's test output off the build runner's stdout protocol\n\nEvery CI leg that runs `zig build test` (test x5, gc-stress,\ns390x/ppc64le/riscv64) hung at the new #2513 control test, while the\ndirect-binary legs (windows, freebsd/openbsd/netbsd) passed -- and so\ndid a local run of the test binary, which is what the PR body's\n\"macOS environment/std anomaly\" caveat misread.\n\nRoot cause: under `zig build test` the unit binary speaks the build\nrunner's server protocol (std.zig.Server, --listen=-) over fd 1. The\ncontrol test drives a successful compileFile, whose `Compiled <src> ->\n<dst>` line is a raw write to that fd; the runner parses the bytes as\na message header (\"Comp\" as the tag, \"iled\" as a ~1.7 GB body length)\nand blocks reading a body that never arrives. The plain legs set no\nper-test timeout, so the block is forever at zero CPU; the QEMU legs\nfailed at their --test-timeout 8m. Run the binary directly, without\n--listen=-, and fd 1 is an ordinary terminal -- the same bytes are\nharmless, which is exactly why the wedge survived a local pass.\n\nFix: add QuietStdout to testing_helpers (the fd-1 twin of QuietStderr,\nkaappi#2447) and park fd 1 on the null sink for the compile. The\n`Compiled` line stays pinned end-to-end by the shell twin,\ntests/scheme/errors/compile-failure-signals-2513.sh; the unit test\nasserts the artifact and the flag. The failure-path test takes\nQuietStderr too, so its expected KP2001 diagnostics stop rendering the\ngreen run like a crash (red `w` + `failed command:` block) in every\nCI log.\n\nFrom the #2513 review, in the same driver:\n\n- The artifact-cleanup defer keys on `wrote_artifact` instead of\n  script_had_error: the try/OOM exits in between (the preamble's\n  valueToString and append, the compiled-funcs append) return without\n  setting the flag and must not leave a previous good build's artifact\n  at the target either. The -o arm's own dupe failure returns before\n  the defer is armed, so it unlinks the known target directly.\n- A new OOM sweep test wraps vm.gc.allocator in OomAllocator (#2435)\n  -- GC.oom_countdown cannot reach those raw-allocator sites -- and\n  plants a stale artifact before every iteration, asserting the target\n  holds a file exactly when the run completed cleanly. Verified to\n  fail against the old flag-keyed defer.\n- The sweep exposed a leak in GC.allocSymbol: the interned name dupe\n  leaked when the Symbol allocation OOM'd right after it. Allocate the\n  object first and unwind both on failure, matching\n  allocUninternedSymbol.\n\nCo-Authored-By: ZCode <noreply@zcode.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Make emergency-exit honor a reported script error like exit\n\nemergency-exit called std.process.exit(exitCode(args)) directly, so a\nrun that had already reported an uncaught top-level error could still\nsignal success through it: `(car 1)` followed by `(emergency-exit 0)`\nexited 0. Route it through effectiveExitCode(exitCode(args),\ntoplevel_driver.script_had_error) exactly like exit (#2512) --\nskipping the cleanup (dynamic winds, port flush) is the emergency\npart, not skipping the run's verdict.\n\nexit-code.sh gains the after-error case plus two clean-run controls.\n\nemergency-exit still deliberately ignores vm.suppress_exit and so\nterminates a `kaappi test` worker before it can emit; that pre-existing\ngap is filed as kaappi#2521 rather than half-fixed here.\n\nCo-Authored-By: ZCode <noreply@zcode.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Carry the test-runner verdict note in its own field\n\nSince #2512 attached the verdict note only to errored verdicts, two\nconsequences: Totals.noted could never be non-zero (the tally counted\nerror_message only on non-errored files, and both note-producing\nbranches now return errored) while the summary line, the noted JSON\nfield and the doc kept advertising it; and in JSON the note displaced\nthe diagnostic -- buildFileJson wrote err_msg orelse verdict.note into\nerror_message, so a consumer saw the KP diagnostic for one file and a\nsentence about (exit 0) for another, with the second file's actual\ndiagnostic nowhere.\n\nGive the file record a separate `note` field: error_message keeps the\ndiagnostic (the parent now attaches the captured output tail for an\nerrored file whose worker wrote no message), note carries the verdict\nsentence, tallyFileResult counts note != null whatever the verdict,\nand the text reporter prints both where it printed one before. JSON\nschema doc updated to match.\n\nRegression tests: the serializer keeps the two fields apart on both\nthe worker and parent sides, and the tally counts a noted file whether\nor not it errored (fails against the old rule, which reports 0).\n\nCo-Authored-By: ZCode <noreply@zcode.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Fix the MD018 markdownlint failure in test-runner.md\n\nA wrapped line of the verdict-note paragraph began with '#2512', which\nmarkdownlint parses as an atx heading with no space (MD018) — the format\ngate fails CI on it. Spell the reference 'kaappi#2512' instead, matching\nhow the dev docs cite issues elsewhere, so no wrapped line can begin\nwith a bare '#'.\n\nCo-Authored-By: ZCode <noreply@zcode.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: ZCode <noreply@zcode.ai>",
+          "timestamp": "2026-09-05T06:01:44+05:30",
+          "tree_id": "33d35af43150921471713bb38f0676ab977e6dd2",
+          "url": "https://github.com/kaappi/kaappi/commit/a684eeb37540862400ff7b0982db3424592e45e2"
+        },
+        "date": 1788570898916,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.125814,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.308185,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.571531,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.85883,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004736,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04661,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.300809,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054548,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.457586,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.163647,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.630237,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.302761,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.728696,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.838616,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046477,
             "unit": "seconds"
           }
         ]
