@@ -44,11 +44,16 @@ FAIL=0
 # golden on purpose: bundled (command-line) intentionally differs from direct
 # source execution (no script path, kaappi#2010).
 interp_status=0
-interp_out="$(interp_stdout "$KAAPPI_ABS" "$FIXTURE" "$FIXTURE/main.scm")" || interp_status=$?
+# The errfile goes under $DIR, never the fixture tree: interp_stdout would
+# happily write it in the workdir, and a stray file inside the repo changes
+# the build id baked into every .sbc.
+interp_err="$DIR/interp-oracle.err"
+interp_out="$(interp_stdout "$KAAPPI_ABS" "$FIXTURE" "$FIXTURE/main.scm" "$interp_err")" || interp_status=$?
 bundle_status=0
 bundle_out="$("$BUNDLE_BIN" 2>&1)" || bundle_status=$?
 if ! assert_tiers_agree "bundled vs interpreter (no args)" \
     "$interp_out" "$interp_status" "$bundle_out" "$bundle_status"; then
+    show_interp_stderr "$interp_err"
     exit 1
 fi
 
