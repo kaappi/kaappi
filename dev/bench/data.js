@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788579510867,
+  "lastUpdate": 1788581877774,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "dc08a626c96adebd8088bfb551701bd19e0a5bb9",
-          "message": "Dedup reactor ceil-to-ms rule: Windows backend calls msFromNs (#2304)\n\nThe nanoseconds-to-milliseconds ceil was written twice by hand in\nreactor.zig. Only the epoll copy (msFromNs) was named, reachable from a\ntest, and compiled on every target; the Windows backend restated the same\narithmetic inline, with a comment citing msFromNs as the authority.\n\nHave WindowsEventBackend.wait call msFromNs and translate its i32/-1\nconvention to the Windows u32/INFINITE one at the call site (-1 becomes\nINFINITE; a positive result is clamped to INFINITE-1). msFromNs was\nalready at platform-neutral file scope, so no move was needed. Behavior\nis unchanged on every reachable input.\n\nAdd an exact-mapping unit test pinning the rows from the issue table\n(null, 0, 1 ns, 1 ms, 1.5 ms ceil, u64 max clamp) so the shared rule is\nasserted directly. Cross-compiled for x86_64-windows to exercise the\ngated branch.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-25T06:04:21+05:30",
-          "tree_id": "e1439580e5d450603600818fd35306c1c2a38440",
-          "url": "https://github.com/kaappi/kaappi/commit/dc08a626c96adebd8088bfb551701bd19e0a5bb9"
-        },
-        "date": 1787626685431,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.089154,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 5.257068,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.422093,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.276447,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004194,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.037946,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.22922,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.040169,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.09353,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.943138,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.257552,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.221125,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.331013,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.698166,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.035408,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.036354,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c7f0b17fc76fc0684736ce924cd45203e796f4c0",
+          "message": "State what suppress_exit does not reproduce for emergency-exit (#2526)\n\nSince #2523 a `kaappi test` worker turns `(emergency-exit …)` into a\nrecorded no-op the same way it does `(exit …)`. Both the code comment\nand docs/dev/test-runner.md described that as \"the call never happens\",\nwhich was already loose for `exit` and is misleading for `emergency-exit`:\nthe call happens, only the termination does not, and the parts of R7RS\n6.14 that depend on not returning are lost. The file's remaining forms\nrun, and — new with #2523 — control leaves any enclosing `dynamic-wind`\nextent normally, so the after-thunks a plain `(emergency-exit …)` skips\ndo run under the worker. A plain run of a suite whose after-thunk\ncontains a failing assertion exits 0; `kaappi test` reports the failure.\n\nThat divergence is accepted, not a bug: a worker that must reach\n`emitResult` cannot honor \"skip everything\", and it is the same class of\nworker-vs-plain difference `exit` has always had for forms after the\ncall. Say so at both sites, so nobody reads the R7RS 6.14 note below the\nsuppression block and \"fixes\" the winds back into being skipped. The\nplain-run contract is unchanged and still guarded by\ntests/scheme/errors/exit-wind.sh.\n\nDocs and comments only; raised in the review of #2523.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-05T09:09:29+05:30",
+          "tree_id": "d54235f07eeea35f44dae3db80a1af57c38a986a",
+          "url": "https://github.com/kaappi/kaappi/commit/c7f0b17fc76fc0684736ce924cd45203e796f4c0"
+        },
+        "date": 1788581875515,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.384505,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.399367,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.576908,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.972299,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004509,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048987,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.306614,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057906,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.76211,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.215416,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.618735,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.264228,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.654088,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.55383,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041987,
             "unit": "seconds"
           }
         ]
