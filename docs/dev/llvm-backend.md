@@ -96,6 +96,20 @@ zig build native -Dnative-src=program.scm            # all-in-one
 library references `__zig_probe_stack` and other Zig compiler-rt intrinsics
 that `clang` cannot resolve.
 
+**The archive defaults to the portable baseline CPU** (kaappi#2531):
+`libkaappi_rt.a` is linked into every binary `kaappi compile` emits, so it is
+a thing you ship, and without `-Dtarget` a host-tuned archive put a
+host-tuned VM/GC inside binaries that could SIGILL on another machine of the
+same architecture. `zig build lib` therefore resolves the baseline CPU model
+unless you name one — `-Dcpu=native` restores host tuning for archives that
+really will only be linked on the machine that built them. Released archives
+were never affected (the release workflow passes an explicit `-Dtarget`,
+which already meant baseline); only source builds. The dev binary from the
+same `zig build` configure stays host-tuned (kaappi#2529); only the archive
+is pinned. Note the emitted IR's own tuning comes from whichever C compiler
+links it — on the user's machine, with that compiler's default CPU — which
+is outside the build's control either way.
+
 ### Where `kaappi compile` looks for `libkaappi_rt.a`
 
 In order: the `KAAPPI_LIB_DIR` environment variable, `<exe_dir>/../lib/`,

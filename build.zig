@@ -46,6 +46,28 @@ pub fn build(b: *std.Build) void {
     }
     const target = b.resolveTargetQuery(effective_query);
 
+    // kaappi#2531: the runtime archive gets the same pin *unconditionally*,
+    // not just when bundling. libkaappi_rt.a ships inside every executable
+    // `kaappi compile` emits — the other documented way to ship a Kaappi
+    // program — and the `lib` step used to build it from the same host-tuned
+    // `target` as the dev binary, so a source-built kaappi (no -Dtarget)
+    // produced `kaappi compile` output carrying a host-tuned VM/GC that
+    // SIGILLs on another machine of the same arch. Same pin, same opt-out:
+    // `.determined_by_arch_os → .baseline`, `-Dcpu=native` (or any explicit
+    // -Dcpu) respected verbatim, explicit -Dtarget already baseline so the
+    // release workflow's archives are bit-identical to before. Under a
+    // bundling configure the effective query is already pinned, so this is
+    // the same resolved target — one cache key, no forking. Everything a
+    // developer runs locally (zig build's REPL binary, tests, benches) keeps
+    // the host-tuned `target`: those artifacts stay on the machine that
+    // built them, and the A/B benchmark protocol in docs/dev/performance.md
+    // keeps its host-tuned baseline.
+    var lib_query = effective_query;
+    if (lib_query.cpu_model == .determined_by_arch_os) {
+        lib_query.cpu_model = .baseline;
+    }
+    const lib_target = b.resolveTargetQuery(lib_query);
+
     // Default to ReleaseSafe rather than Debug: the interpreter exists to *run*
     // Scheme programs, and Debug is ~500x slower for allocation/continuation-
     // heavy workloads. ReleaseSafe matches ReleaseFast in throughput here while
@@ -261,11 +283,15 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the Kaappi Scheme REPL");
     run_step.dependOn(&run_cmd.step);
 
-    // Runtime static library (for LLVM native backend)
-    const lib_step = b.step("lib", "Build libkaappi_rt.a (runtime for native backend)");
+    // Runtime static library (for LLVM native backend). Built from
+    // `lib_target` — baseline-pinned by default (kaappi#2531, see the query
+    // comment above): this archive is linked into every `kaappi compile`
+    // output, i.e. it is a thing users ship, while the dev binary built from
+    // `target` in the same configure stays host-tuned.
+    const lib_step = b.step("lib", "Build libkaappi_rt.a (runtime for native backend; defaults to the portable baseline CPU so kaappi-compile binaries run on other machines of the same arch — -Dcpu=native restores host tuning)");
     const lib_mod = kaappiModule(b, options_mod, .{
         .root = "src/runtime_exports.zig",
-        .target = target,
+        .target = lib_target,
         .optimize = optimize,
         .isocline = use_isocline,
         .embed = null_embed,

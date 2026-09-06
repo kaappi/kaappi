@@ -373,7 +373,12 @@ Three things make that safe and worthwhile (kaappi#1926):
   is not part of the `.sbc` compiler hash (see [cache.md](cache.md)) — but it
   means no script may pass `-Dcpu=native` (or any host-naming
   `-Dcpu=<model>`) to a `-Dbundle=` build: it would fork the shared cache key
-  *and* reintroduce the portability bug the default exists to prevent.
+  *and* reintroduce the portability bug the default exists to prevent. Since
+  kaappi#2531 the same holds for `zig build lib`: the runtime archive — the
+  one `ensure_runtime_lib` builds up front and every compile script links
+  against — also defaults to baseline (it ships inside `kaappi compile`
+  output), so no script may pass `-Dcpu=native` to it either, for both the
+  same reasons.
 
 Dispatch inside a suite is longest-first — scripts that shell out to a full
 `zig build -D…`, or to either shared builder, go first, found by grep rather
