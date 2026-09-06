@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788704847306,
+  "lastUpdate": 1788730698923,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "aaa44b01a6afe8a815c9841ebb7947eac56261b8",
-          "message": "Reclaim descriptors on EMFILE before failing an open (#2324)\n\nopen-input-file, open-output-file and open-directory raised as soon as\nthe OS reported EMFILE/ENFILE, even though the fd-holding ports and\ndirectory streams were unreachable and reclaimable. A legal program that\nabandons fd-holders faster than the GC allocation-count threshold trips\nthen failed at a normal ulimit -n and succeeded at a larger one.\n\nAdd platform.OpenError.FdExhausted to single out EMFILE/ENFILE, and force\na full collection (GC.collectFull) and retry the open once before raising.\nOnly FdExhausted triggers the retry; every other errno still raises the\ncorrect file error immediately.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-25T16:00:35+05:30",
-          "tree_id": "74057000d9e340a85949c05d64f77fd21a6ca9db",
-          "url": "https://github.com/kaappi/kaappi/commit/aaa44b01a6afe8a815c9841ebb7947eac56261b8"
-        },
-        "date": 1787664076306,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.335448,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.259879,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.566094,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.018597,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004699,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.048424,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.309711,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.055996,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.746742,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.219847,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.707137,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.275053,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.809494,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.602399,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044431,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04606,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5e70be41b3d0ccc690794a8fd4669dc95b3e023f",
+          "message": "Make SRFI 231's accumulating non-! procedures call/cc safe (#2540)\n\n* Make SRFI 231's accumulating non-! procedures call/cc safe\n\narray-copy collected a non-specialized source's values into a shared,\nmutable scratch vector before allocating the destination (#2454), with\nonly the position threaded functionally. One re-entry of a getter's\ncontinuation looks right that way, which is all the official suite's\ncontinuation cases (entries 737-741) exercise. But the scratch is one\nobject shared by every continuation captured during the collection, so\na second re-entry -- or a second continuation captured on the first\nrun -- resumes over positions an earlier re-entry has already\noverwritten and materializes the wrong prefix. Brad Lucier, the SRFI's\nauthor, reported it on r/KaappiScheme with a two-continuation,\ntwo-re-entry case that Gambit answers ((0 1 2 20) (0 1 2 10) (0 20 2 3)\n(0 10 2 3) (0 1 2 3)) and Kaappi answered ((0 20 2 20) (0 20 2 10)\n(0 20 2 3) (0 10 2 3) (0 1 2 3)). array-stack/append/block/decurry all\ndelegate to array-copy, so one loop accounted for five procedures.\n\nHis point generalizes, and the spec is precise about it: a call/cc-safe\nprocedure is one \"written in a way that does not modify the state of\nany data captured by a continuation\", and every procedure without a\ntrailing ! is intended to be one. Any partially filled structure that a\n*-set! procedure modifies is exactly such state. The older set!-cell\naccumulators in interval-fold-left/right, array-fold-left/right,\narray-reduce, array-every and array->list are the same defect; the two\nfold-left variants only escaped notice because Kaappi's left-to-right\nargument evaluation reads the accumulator into a register before the\ngetter runs, so the continuation happened to carry a snapshot (under\nright-to-left evaluation the same code returns garbage).\n\nSo this is the reference implementation's shape: one lexicographic walk\n(%interval-fold in intervals.sld) threads the accumulator through its\nloop variables and return values, never a cell, and every accumulating\nprocedure is built on it. array-copy collects into a reversed list,\nallocates the destination only afterwards, and fills the body by linear\nposition through the storage class's own setter -- a fresh destination's\nbody IS the lexicographic order -- which also drops the per-element\nmulti-index regeneration the copy-out used to do. A specialized source\ntakes the direct fill, as in the reference, since no user code runs in\nits getter. The costs the scratch design was chosen to avoid (#2464)\nreturn for the non-specialized path: N live pairs during the collection.\n\nThe regression tests drive two continuations, each invoked twice; a\nsingle re-entry cannot distinguish a shared buffer from a functional\naccumulator, which is how the previous design passed its tests.\n\nCloses #2539\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review on the SRFI 231 call/cc-safety fix\n\ninterval-for-each threaded its callback's result as %interval-fold's next\naccumulator. Nothing read it, and Kaappi tolerates a multiple-values\nobject as a plain value, so it did not fail -- but for-each is for\neffect and f may return zero or several values, so the result is now\ndiscarded, with two assertions pinning that.\n\narray-every gets a repeated-re-entry assertion alongside the other\n%interval-fold consumers. It returns the LAST predicate result, so only\nthe cont2 re-entries (which replace element 3) can move it; the case\npins the functional shape rather than reproducing a failure.\n\nThe two-continuation driver was duplicated verbatim across four suite\nfiles. It is now one fixture, tests/scheme/srfi/fixtures/srfi231-reentry.scm,\nincluded by each -- the sanctioned place for shared fragments, and out\nof run-all.sh's non-recursive globs (the fixture opens no suite, so the\nreachability check ignores it).\n\nlist->array and vector->array keep their set! position counters, and\nnow say why that is safe: no user code runs inside their walks (the\nchecker runs before the loop, #2448), the same reasoning that lets a\nspecialized source take array-copy's direct fill.\n\nTwo measurements are recorded next to the cost claims in views.sld.\nThe list collector is faster than the #2454 scratch for non-specialized\nsources (73.5s vs 114.9s for 20 copies of 1M elements, measured in\nreview): the per-element indexer call in the old copy-out cost more\nthan the pairs it avoided, so the #2464 objection no longer holds for\nthat shape. But for a specialized source the list path's 1.8x speedup\n(18.7s vs 33.3s, 6 copies of a 1M u8 array) comes with 14x the peak RSS\n(176 MB vs 12.5 MB), which is why the direct fill stays there. That\nexemption -- a make-storage-class getter or a specialized-array-share\nmapping is user code that runs inside the direct fill -- is the\nreference implementation's own (%!array-copy) and is now documented as\na deliberate exception in the dev notes rather than described as\n\"no user code runs\".\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-06T20:52:33Z",
+          "tree_id": "a40c05e7e6c471706b2fd559f15c4e362e000283",
+          "url": "https://github.com/kaappi/kaappi/commit/5e70be41b3d0ccc690794a8fd4669dc95b3e023f"
+        },
+        "date": 1788730696276,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.393317,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.561349,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.590214,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.061419,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004783,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048114,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.306319,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056991,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.897789,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.254332,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.708555,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.286894,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.758273,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.687051,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046047,
             "unit": "seconds"
           }
         ]
