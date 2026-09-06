@@ -333,7 +333,18 @@ jobs:
           # of the 300s default and flaked (kaappi#2232). Give the shell suites
           # the same "catch hangs, don't race the slowest legitimate build"
           # budget the per-file timeout above gives the .scm suites.
-          KAAPPI_SHELL_TEST_TIMEOUT: '600'
+          #
+          # bundle-cpu-baseline-2515 outgrew even the 600: on top of the
+          # fixture it builds TWO full -Doptimize=ReleaseSafe bundle variants
+          # (default vs baseline CPU -- deliberately separate cache keys,
+          # comparing them is the test's point), so its all-cold total sits at
+          # ~600s on the Debug leg and runner-load variance alone decides it:
+          # killed at 600s twice on PR #2538 (2026-09-06) where the identical
+          # script had passed inside the same budget on the PR's first commit
+          # the day's run before. Debug gets 900 -- a hang still dies three
+          # times over inside the 40m job cap -- and ReleaseSafe legs stay at
+          # 600, where this has not flaked.
+          KAAPPI_SHELL_TEST_TIMEOUT: ${{ matrix.optimize == 'Debug' && '900' || '600' }}
 
       - name: Sandbox escape tests
         if: env.DOCS_ONLY != 'true'
