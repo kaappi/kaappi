@@ -357,34 +357,9 @@
   (test-assert "array-copy into u8 rejects an unstorable value"
                (guard (e (#t #t)) (array-copy generic u8-storage-class) #f)))
 
-;;; --- call/cc safety under REPEATED re-entry (kaappi#2539, reported by
-;;; the SRFI's author) ---
-;;; Drives `collect` (a procedure of one argument: a getter over 0..3 that
-;;; captures its continuation at x=1 and x=3 on the first run) through a
-;;; two-continuation, two-re-entry schedule and returns every result,
-;;; newest first. Any collector keeping a shared mutable accumulator --
-;;; a set! cell or a scratch vector -- leaks the second cont1 re-entry's
-;;; 20 into both cont2 results; one re-entry alone cannot see that.
-(define (re-entry-results collect)
-  (let* ((cont1 #f) (cont2 #f) (i 5) (first-run? #t)
-         (f (lambda (x)
-              (call-with-current-continuation
-               (lambda (c)
-                 (if first-run?
-                     (case x ((1) (set! cont1 c)) ((3) (set! cont2 c)) (else #f)))
-                 x))))
-         (results '()))
-    (let ((r (collect f)))
-      (set! first-run? #f)
-      (set! results (cons r results)))
-    (case i
-      ((5) (set! i (- i 1)) (cont1 10))
-      ((4) (set! i (- i 1)) (cont1 20))
-      ((3) (set! i (- i 1)) (cont2 10))
-      ((2) (set! i (- i 1)) (cont2 20))
-      (else #t))
-    results))
-(define re-entry-expected '((0 1 2 20) (0 1 2 10) (0 20 2 3) (0 10 2 3) (0 1 2 3)))
+;;; --- call/cc safety under REPEATED re-entry (kaappi#2539) -- the driver
+;;; and its rationale live in fixtures/srfi231-reentry.scm ---
+(include "fixtures/srfi231-reentry.scm")
 
 (test-equal "array-copy: each re-entry materializes its own array from its own prefix"
             re-entry-expected

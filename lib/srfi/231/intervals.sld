@@ -193,8 +193,10 @@
                       acc)))))
         (go 0 '() seed)))
 
+    ;; f's result is discarded, never threaded: interval-for-each is for
+    ;; effect, and f may return zero or several values.
     (define (interval-for-each f interval)
-      (%interval-fold (lambda (indices acc) (apply f indices)) #f interval)
+      (%interval-fold (lambda (indices acc) (apply f indices) acc) #f interval)
       (if #f #f))
 
     (define (interval-fold-left f operator identity interval)

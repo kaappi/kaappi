@@ -346,7 +346,15 @@
     ;; multi-index per element: a fresh destination's body IS the
     ;; lexicographic order (%make-lex-indexer), so it is filled by linear
     ;; position through the storage class's own setter, the shape the
-    ;; reference uses too.
+    ;; reference uses too. Measured, that trade is a net win in time: 20
+    ;; copies of a 1M-element non-specialized array took 73.5s here
+    ;; against 114.9s over the scratch design (PR #2540 review) -- the
+    ;; per-element indexer call the copy-out used to make cost more than
+    ;; the pairs it avoided. What the pairs DO cost is peak memory: a 1M
+    ;; u8 specialized source copied 6 times peaks at 176 MB RSS through
+    ;; the list against 12.5 MB through the direct fill (18.7s vs 33.3s),
+    ;; which is why the direct fill below stays for specialized sources
+    ;; rather than being retired for speed.
     ;;
     ;; A specialized SOURCE takes the direct fill, as in the reference
     ;; (%!array-copy): its getter is the storage class's, so no user

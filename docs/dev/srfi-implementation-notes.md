@@ -922,8 +922,12 @@ from a functional accumulator — the official suite's own continuation cases
 (entries 737-741) passed over the scratch design — so the regression tests
 drive two continuations, each invoked twice. `array-copy` of a non-specialized
 source is therefore the reference's exact shape (reversed list, then a body
-filled by linear position); a specialized source takes the direct fill, also
-as in the reference, since no user code runs in its getter.
+filled by linear position). A specialized source takes the direct fill, as in
+the reference's `%!array-copy` — a deliberate, documented exception: a
+`make-storage-class` getter or a `specialized-array-share` mapping is user code
+that runs inside that fill and could capture a continuation, and neither the
+reference nor Kaappi defends it (the list path would cost 14× the peak memory
+on the common typed-array copy; the measurements are in `views.sld`).
 `specialized-array-reshape` uses a deliberate packed-check-based
 affine-detection simplification instead of the reference's full multi-group
 algorithm, verified identical on the spec's own worked examples. (`array-packed?`

@@ -228,6 +228,13 @@
 
     (define (array->vector array) (list->vector (array->list array)))
 
+    ;; list->array and vector->array below still thread their position
+    ;; through a set! cell. That is safe ONLY because no user code runs
+    ;; inside the walk: the checker runs before the loop (#2448) and the
+    ;; setter is a fresh built-in-or-custom storage class's, called with
+    ;; already-checked values. Moving any user-callable call (the checker,
+    ;; an f applied per element) into the loop would reopen the
+    ;; shared-cell hazard %interval-fold exists to close (kaappi#2539).
     (define (list->array interval lst . opts)
       (unless (interval? interval) (error "list->array: not an interval" interval))
       (unless (list? lst) (error "list->array: not a list" lst))
