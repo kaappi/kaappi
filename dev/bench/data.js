@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788661561064,
+  "lastUpdate": 1788667864674,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "63b5002647ab1a9e289dece975ad2594d43ff92e",
-          "message": "Correct SRFI 260 rationale: generated symbols intern deliberately (#2308)\n\nThe SRFI 260 header and srfi-implementation-notes.md both claimed Kaappi\nhas no uninterned symbols, so write/read invariance falls out for free.\nThat is false: SRFI 258 shipped uninterned symbols 51 minutes later\n(GC.allocUninternedSymbol). generate-symbol's invariance is a deliberate\nchoice — it interns via GC.allocSymbol — not the absence of an\nalternative. State the real reason and warn against 'simplifying' onto\nthe uninterned allocator, which would break eq? round-trip.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-25T14:55:31+05:30",
-          "tree_id": "93029e0943ae0da60f4a432725ba8a1c5b776b06",
-          "url": "https://github.com/kaappi/kaappi/commit/63b5002647ab1a9e289dece975ad2594d43ff92e"
-        },
-        "date": 1787653809588,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.370604,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.349241,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.573555,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.018092,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004705,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04874,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.322164,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056469,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.686293,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.214878,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.690907,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.281532,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.811835,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.604161,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044768,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04661,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8293042680a21a01204f0e72b76769539a4c6cee",
+          "message": "Default zig build lib to the portable baseline CPU (#2535)\n\n* Default zig build lib to the portable baseline CPU\n\n`zig build` with no -Dtarget tunes for the build host's exact CPU model,\nand the `lib` step built libkaappi_rt.a from that same host-tuned target.\nThe archive is linked into every executable `kaappi compile` emits — the\nother documented way to ship a Kaappi program, after -Dbundle — so a\nsource-built kaappi put a host-tuned VM/GC inside binaries that SIGILL\non another machine of the same architecture, presenting as a VM bug\nexactly as in kaappi#2515. Released archives were never affected (the\nrelease workflow passes an explicit -Dtarget, which already resolved\nbaseline); only source builds, the same population #2515 targeted.\n#2529 pinned the bundle path and deliberately left this half to\nkaappi#2531.\n\nThe `lib` module now resolves its own target: the same\n`.determined_by_arch_os → .baseline` pin #2529 applies to bundles, but\nunconditional rather than gated on bundling. Everything else about the\npin carries over unchanged: any explicit -Dcpu=<model> (including\n-Dcpu=native, the opt-out that restores the pre-fix tuning bit for bit)\nis respected verbatim, and an explicit -Dtarget already meant baseline,\nso the release workflow's archives are bit-identical to before. Under a\nbundling configure the effective query is already pinned, so the lib\ntarget and the main target are the same resolved target — one cache\nkey, no forking.\n\nThe dev side of the same configure is untouched: plain `zig build`'s REPL\nbinary, the unit-test modules, and the benchmarks keep the host-tuned\ntarget, since those artifacts stay on the machine that built them and\nthe A/B benchmark protocol in docs/dev/performance.md is built around\nhost-tuned zig-out binaries. Only the artifact that ships inside\nkaappi-compile output is pinned.\n\nRegression test: tests/scheme/compile/lib-cpu-baseline-2531.sh, the\narchive twin of bundle-cpu-baseline-2515.sh. Zig builds are\nreproducible, so the default `zig build lib` archive must be\nbyte-identical to an explicit -Dcpu=baseline one — that fails without\nthe fix wherever the host CPU differs from baseline — and, using the\nissue's own CPU-model probe to detect which world it is in, must differ\nfrom a -Dcpu=native one wherever the two tunings differ. It also links\nand runs a program against the default archive via KAAPPI_LIB_DIR,\nstanding in for the issue's cross-machine scenario.\n\nDocs: AGENTS.md/CLAUDE.md, README.md, docs/dev/llvm-backend.md,\ndocs/dev/test-runner.md. The end-user native-compilation guide lives in\nkaappi/kaappi.github.io and needs a matching follow-up there, as\n#2529's did.\n\nCo-authored-by: ZCode <noreply@zcode.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Pin the native link routes to the baseline CPU too; review fixes\n\nReview of #2535 found the PR only half-closed #2531: the runtime archive\nis baseline-pinned, but on the preferred link route the program code\nstill was not. `zig` is first in native_compiler's cc_search_order, and\n`zig cc` with no -mcpu ends up on the build host's exact CPU — its\neffective -target-cpu is the detected model, byte-for-byte the\n-mcpu=native list — unlike clang/gcc, whose default for the target\ntriple is the generic model. So `kaappi compile` on an AVX-512 or\npost-M1 host would ship a baseline VM/GC linked against a host-tuned\nprogram object and could still SIGILL elsewhere. Measured here\n(`zig cc -###`): default and -mcpu=native both resolve to apple-m3,\n-mcpu=baseline to apple-m1.\n\ntryLink's is_zig branch now passes -mcpu=baseline (matching the\narchive's default model), and build.zig's native step passes the\nresolved lib-target model name, so `-Dcpu=native` there host-tunes the\nwhole output consistently and no new opt-out flag is added — the manual\nthree-step flow stays the escape hatch for hand-picked codegen. clang/gcc\nroutes need nothing: their triple default is already generic. The\nargv buffers grow 16 -> 20 slots because the new flag filled the worst\ncase (zig cc + OpenBSD's -z nobtcfi) to exactly capacity.\n\nThe regression script grows a fourth assertion that runs on every host,\nbaseline or not: a logging `zig` shim first on PATH captures the exact\nargv the link step hands the compiler, and the captured `zig cc` line\nmust contain -mcpu=baseline (fails against pre-fix native_compiler.zig,\nverified). Assertion 3 now fails on a nonzero program exit instead of\nmasking it — a teardown crash after the expected line printed is exactly\nwhat it exists to catch — and bundle-cpu-baseline-2515.sh gets the same\nfix. The doc rules are corrected per review: the dev binary is\nhost-tuned *by default* (explicit -Dcpu respected everywhere), the\ntest-runner -Dcpu prohibition carves out the sanctioned --prefixed\ndifferential probes, and llvm-backend.md no longer claims the emitted\nIR's tuning is outside the build's control — it pins the zig-cc route\nand documents the compiler-dependent defaults, with the manual flow\nexample updated to -mcpu=baseline.\n\nCo-authored-by: ZCode <noreply@zcode.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Give the 2531 script's exit-status check an explicit FAIL branch\n\nReview of 67b81f1d: the command substitution under `set -euo pipefail`\ndid propagate a nonzero program exit, but silently — bash exits with\nprog's status before the FAIL branch below can run, so a teardown crash\nshowed the runner a red script with no message and no compile.log. The\n2515 twin already had the explicit `if ! OUTPUT=…` form; this mirrors\nit. No behavior change on the pass path; the script still passes 4/4\non a host where every differential assertion discriminates\n(host=apple_m3, baseline=apple_m1).\n\nAlso adds `Fixes #2536` to the PR body: the link-route pin lands in\nthis PR, so the issue baijum filed for it closes here too.\n\nCo-authored-by: ZCode <noreply@zcode.ai>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: ZCode <noreply@zcode.ai>",
+          "timestamp": "2026-09-06T03:28:37Z",
+          "tree_id": "106bcd9e984e63ebeae3104a0a369c7b5ba33f5b",
+          "url": "https://github.com/kaappi/kaappi/commit/8293042680a21a01204f0e72b76769539a4c6cee"
+        },
+        "date": 1788667863549,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.168257,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.486939,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.443173,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.220459,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003658,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.036204,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.225771,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.042325,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.896366,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.886643,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.24242,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.238542,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.268258,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.456383,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.037416,
             "unit": "seconds"
           }
         ]
