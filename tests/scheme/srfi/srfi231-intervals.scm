@@ -192,6 +192,53 @@
 ;; valid scaling is unchanged (ceiling semantics)
 (test-equal '(2 1) (interval-upper-bounds->list (interval-scale (make-interval '#(3 1)) '#(2 3))))
 
+
+;;; --- call/cc safety under REPEATED re-entry (kaappi#2539, reported by
+;;; the SRFI's author) ---
+;;; Drives `collect` (a procedure of one argument: a getter over 0..3 that
+;;; captures its continuation at x=1 and x=3 on the first run) through a
+;;; two-continuation, two-re-entry schedule and returns every result,
+;;; newest first. Any collector keeping a shared mutable accumulator --
+;;; a set! cell or a scratch vector -- leaks the second cont1 re-entry's
+;;; 20 into both cont2 results; one re-entry alone cannot see that.
+(define (re-entry-results collect)
+  (let* ((cont1 #f) (cont2 #f) (i 5) (first-run? #t)
+         (f (lambda (x)
+              (call-with-current-continuation
+               (lambda (c)
+                 (if first-run?
+                     (case x ((1) (set! cont1 c)) ((3) (set! cont2 c)) (else #f)))
+                 x))))
+         (results '()))
+    (let ((r (collect f)))
+      (set! first-run? #f)
+      (set! results (cons r results)))
+    (case i
+      ((5) (set! i (- i 1)) (cont1 10))
+      ((4) (set! i (- i 1)) (cont1 20))
+      ((3) (set! i (- i 1)) (cont2 10))
+      ((2) (set! i (- i 1)) (cont2 20))
+      (else #t))
+    results))
+(define re-entry-expected '((0 1 2 20) (0 1 2 10) (0 20 2 3) (0 10 2 3) (0 1 2 3)))
+
+;; The two fold-left assertions pin the guarantee rather than reproduce a
+;; failure: the old set!-cell shape, (set! acc (operator acc (apply f ix))),
+;; read acc into a register BEFORE the getter ran, so a continuation
+;; captured in the getter carried that snapshot and the set! afterwards
+;; stored a value derived from it -- safe by Kaappi's left-to-right
+;; argument evaluation alone (under right-to-left evaluation, chibi's,
+;; the same code yields (0 1 2 3 10 2 3)). Every other shape below --
+;; and array-copy's scratch vector -- fails against the pre-#2539 code.
+(test-equal "interval-fold-left threads its accumulator functionally"
+            re-entry-expected
+            (re-entry-results
+             (lambda (f) (reverse (interval-fold-left f (lambda (acc x) (cons x acc)) '() (make-interval '#(4)))))))
+(test-equal "interval-fold-right threads its accumulator functionally"
+            re-entry-expected
+            (re-entry-results
+             (lambda (f) (interval-fold-right f cons '() (make-interval '#(4))))))
+
 (let ((runner (test-runner-current)))
   (test-end "srfi-231-intervals")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))

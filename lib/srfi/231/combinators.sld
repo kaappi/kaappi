@@ -110,14 +110,19 @@
         (interval-for-each (lambda multi-index (apply f (map (lambda (a) (apply (array-unsafe-getter a) multi-index)) all)))
                             (array-domain array))))
 
+    ;; Every accumulator below is threaded through %interval-fold rather
+    ;; than a set! cell: these are non-! procedures, which the spec
+    ;; intends to be call/cc safe, and a shared cell hands a re-entered
+    ;; getter/operator continuation the LAST run's accumulation instead
+    ;; of its own -- see %interval-fold's comment in intervals.sld
+    ;; (kaappi#2539).
     (define (array-fold-left operator identity array . arrays)
       (%check-procedure! operator "array-fold-left")
-      (let ((all (cons array arrays)) (acc identity))
+      (let ((all (cons array arrays)))
         (%check-same-domain! all "array-fold-left")
-        (interval-for-each (lambda multi-index
-                              (set! acc (apply operator acc (map (lambda (a) (apply (array-unsafe-getter a) multi-index)) all))))
-                            (array-domain array))
-        acc))
+        (%interval-fold (lambda (multi-index acc)
+                          (apply operator acc (map (lambda (a) (apply (array-unsafe-getter a) multi-index)) all)))
+                        identity (array-domain array))))
 
     ;; Per spec, ALL f-evaluations complete before ANY operator
     ;; application -- collect per-index element-lists via cons during one
@@ -126,12 +131,12 @@
     ;; interval-fold-right's own already-verified technique.
     (define (array-fold-right operator identity array . arrays)
       (%check-procedure! operator "array-fold-right")
-      (let ((all (cons array arrays)) (results '()))
+      (let ((all (cons array arrays)))
         (%check-same-domain! all "array-fold-right")
-        (interval-for-each (lambda multi-index
-                              (set! results (cons (map (lambda (a) (apply (array-unsafe-getter a) multi-index)) all) results)))
-                            (array-domain array))
-        (let loop ((xs results) (acc identity))
+        (let loop ((xs (%interval-fold (lambda (multi-index acc)
+                                         (cons (map (lambda (a) (apply (array-unsafe-getter a) multi-index)) all) acc))
+                                       '() (array-domain array)))
+                   (acc identity))
           (if (null? xs) acc (loop (cdr xs) (apply operator (append (car xs) (list acc))))))))
 
     ;; No identity/seed -- a private sentinel distinguishes "no elements
@@ -146,12 +151,11 @@
       (unless (array? array) (error "array-reduce: not an array" array))
       (unless (procedure? operator) (error "array-reduce: not a procedure" operator))
       (when (array-empty? array) (error "array-reduce: cannot reduce an empty array" array))
-      (let ((acc %array-reduce-sentinel) (getter (array-unsafe-getter array)))
-        (interval-for-each (lambda multi-index
-                              (let ((val (apply getter multi-index)))
-                                (set! acc (if (eq? acc %array-reduce-sentinel) val (operator acc val)))))
-                            (array-domain array))
-        acc))
+      (let ((getter (array-unsafe-getter array)))
+        (%interval-fold (lambda (multi-index acc)
+                          (let ((val (apply getter multi-index)))
+                            (if (eq? acc %array-reduce-sentinel) val (operator acc val))))
+                        %array-reduce-sentinel (array-domain array))))
 
     ;; Short-circuits via call/cc on the first non-#f result, returning
     ;; that ACTUAL result (not just #t) -- matching the spec's own
@@ -172,15 +176,14 @@
     ;; returns the LAST nonfalse result, not just #t.
     (define (array-every predicate array . arrays)
       (%check-procedure! predicate "array-every")
-      (let ((all (cons array arrays)) (last-result #t))
+      (let ((all (cons array arrays)))
         (%check-same-domain! all "array-every")
         (call/cc
          (lambda (return)
-           (interval-for-each (lambda multi-index
-                                 (let ((r (apply predicate (map (lambda (a) (apply (array-unsafe-getter a) multi-index)) all))))
-                                   (if r (set! last-result r) (return #f))))
-                               (array-domain array))
-           last-result))))
+           (%interval-fold (lambda (multi-index last-result)
+                             (let ((r (apply predicate (map (lambda (a) (apply (array-unsafe-getter a) multi-index)) all))))
+                               (if r r (return #f))))
+                           #t (array-domain array))))))
 
     ;; --- products ---
 
@@ -217,10 +220,11 @@
 
     (define (array->list array)
       (unless (array? array) (error "array->list: not an array" array))
-      (let ((acc '()))
-        (interval-for-each (lambda multi-index (set! acc (cons (apply (array-unsafe-getter array) multi-index) acc)))
-                            (array-domain array))
-        (reverse acc)))
+      ;; `reverse`, never reverse!: a re-entered getter continuation still
+      ;; holds the prefix of the reversed list its own run built.
+      (let ((getter (array-unsafe-getter array)))
+        (reverse (%interval-fold (lambda (multi-index acc) (cons (apply getter multi-index) acc))
+                                 '() (array-domain array)))))
 
     (define (array->vector array) (list->vector (array->list array)))
 
