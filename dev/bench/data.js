@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788671893841,
+  "lastUpdate": 1788704847306,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c1b2abdff2e7f065ad96f7625cf4d311b5c39747",
-          "message": "Track macro-expanded set! of a primitive at native top level (#2325)\n\nkaappi compile tracks top-level rebindings so folding does not inline a\nprimitive whose name will be reassigned (#822), but collectRedefinedNames\nmatched only a literal define/set!/begin head. A top-level macro use that\nexpands to (set! + -) matched none, so a later (+ ...) folded against the\nstale primitive and the native binary printed 7 where the interpreter\nprinted 3.\n\nAdd collectRedefinedNamesMacroAware: in the native read loop, expand a\nhead-position syntax-rules macro (bounded depth, no_collect-guarded,\nprocedural SRFI-211 transformers excluded) and scan its expansion for the\ndefine/set! targets it introduces, recording them stripped of any hygiene\nprefix. llvm_emit's inline-primitive dispatch now also consults the\nwhole-program set_targets map (isReboundGlobal), matching how IR.isRedefined\nalready gates constant folding.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-25T16:00:31+05:30",
-          "tree_id": "1abdfb552e9620dfedebd8d66b6f53132f558e3e",
-          "url": "https://github.com/kaappi/kaappi/commit/c1b2abdff2e7f065ad96f7625cf4d311b5c39747"
-        },
-        "date": 1787664059247,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.388944,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.680808,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.578412,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.046947,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004708,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047932,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.309888,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.055615,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.839688,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.21687,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.658667,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.280371,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.801807,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.660702,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045166,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046396,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "24ef130971b0a55ef70d06ed6f92f70be60c90de",
+          "message": "Free completed-unjoined thread resources at process exit (#2538)\n\n* Free completed-unjoined thread resources at process exit\n\nA thread that completes but is never joined keeps its child_registry\nentry: its result envelope must survive until a thread-join! copies it\nout, and automatic cleanup would race that copy. At process exit that\nfuture join can never happen, yet the entry still held its child GC/VM\n-- so on a Debug build the leak-tracking allocator reported every\nobject in those heaps at da.deinit(). srfi18-join-spawn-grandchild-\n2129.scm hit exactly this on the v0.26.2 Debug CI leg (#2537): 29,366\nleak entries over the busy grandchildren's heaps, each symbolized\nthrough DWARF, blowing the leg's whole 240s budget -- at a tree whose\nidentical leg had passed 25 minutes earlier, because whether the main\nthread reached the exit path before or after the grandchildren finished\nis a scheduling race (live children take the cheap _exit branch, which\nskips teardown and the report entirely).\n\nThe exit path now sweeps the registry in its no-live-children branch:\nevery entry still in the map belongs to a thread that has passed\nthreadEntryFn's markExited defer, so its resources are freed the same\nway a join would have freed them, unconsumed result and exception\nenvelopes included. Live children keep the _exit branch untouched, and\nan entry whose thread has not exited is skipped rather than freed --\nthat cannot happen today (the live-thread count is held from before\nthe spawn until after markExited), so breaking that invariant\ndegrades back to a leak report, never to freeing a running thread's\nGC/VM out from under it.\n\nThe regression test also gains a bounded drain: each busy grandchild\nmarks its own slot (a root-heap box mutated with set-car! and an\nimmediate, the gg-done pattern) when its allocation loop finishes, and\nthe main thread polls until all six are set before test-end. The\nunjoined shape stays; the process just no longer exits at a\nrace-dependent moment relative to the grandchildren, which makes the\ngrandchildren's full completion path and the new sweep deterministic\non every CI leg. Unit test in tests_srfi18.zig: a completed-unjoined\nthread's entry is freed by one sweep pass, and the testing allocator's\nleak check fails if any entry is skipped.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Make the drain assert completion; sweep unit test exact-count\n\nReview follow-ups on #2538. The bounded drain no longer lets a stuck\ngrandchild pass silently: an expiry now trips a test-assert, whose fail\ncount fires (exit 1) while a grandchild still live at that point leaves\nthrough the cheap _exit branch -- so a stuck grandchild turns from a\nsilent 60-second pass into a loud failure without giving up the\ncheap-exit property. The surrounding comments now say what the drain\nactually guarantees -- either exit branch is cheap; the flag lands\nbefore the grandchild's epilogue, so the _exit window still exists --\ninstead of overclaiming determinism.\n\nThe sweep unit test asserts exactly one entry freed instead of >= 1:\nevery other thread test in the file joins its thread, so the count is\nexactly one, and equality surfaces a future test that starts leaving\nentries behind instead of absorbing it. removeAnyExited's comment now\nrecords that its per-pop rescan makes a sweep quadratic in the\nunjoined-thread count -- deliberately kept, to hold\nfreeChildResourcesEntry's work outside the registry lock.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Give the Debug leg's shell suites a 900s budget\n\nbundle-cpu-baseline-2515 was killed at the 600s shell-test cap on the\nDebug CI leg twice in a row (PR #2538, 2026-09-06) while the identical\nscript passed inside the same budget on the PR's first commit the day's\nrun before -- runner-load variance around a legitimate build, not a\nregression: the diff between the two heads is comments and test\nassertions. The test builds three bundles (the fixture plus the default\nand baseline-CPU variants of #2515, deliberately separate cache keys --\ncomparing them is its point), so its all-cold total on Debug sits at\nabout the cap and any contention tips it.\n\nThis is the #2232 recurrence one budget higher: that bump moved the\nshell suites to 600s when the -Dbundle fixture build sat within seconds\nof the 300s default. Debug now gets 900 -- a hung shell test still dies\nthree times over inside the 40-minute job cap -- and the ReleaseSafe\nlegs stay at 600, where the test has not flaked.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-09-06T19:10:31+05:30",
+          "tree_id": "a5c4f463b66cd21c1731e5d1a4b9e8226e66063f",
+          "url": "https://github.com/kaappi/kaappi/commit/24ef130971b0a55ef70d06ed6f92f70be60c90de"
+        },
+        "date": 1788704845708,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.407903,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.058419,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.562935,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.057075,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004541,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047789,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.313829,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056383,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.899829,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.24602,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.65779,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.269751,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.724027,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.638117,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04606,
             "unit": "seconds"
           }
         ]
