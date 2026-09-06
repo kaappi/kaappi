@@ -11,6 +11,111 @@ this file — put the *why* in the commit body instead.
 
 ## [Unreleased]
 
+## [0.26.2] - 2026-09-06
+
+### Fixed
+
+- **Standalone binaries and `kaappi compile` output default to the portable
+  baseline CPU (#2515, #2531, #2536)** — `zig build` with no `-Dtarget` tunes
+  for the build host's exact CPU model, and that tuning leaked into the two
+  documented ways to ship a Kaappi program: `-Dbundle`/`-Dbundle-src`
+  standalone binaries, the `libkaappi_rt.a` archive `zig build lib` produces
+  (linked into every `kaappi compile` executable), and the program object
+  itself on the `zig cc` link route, which defaults to the host CPU unlike
+  clang/gcc. A binary built on an AVX-512 or post-M1 host could `SIGILL` on
+  another machine of the same architecture, presenting as a VM bug. All
+  three now pin the baseline model; an explicit `-Dcpu=<model>` is respected
+  everywhere, so `-Dcpu=native` is the opt-out for a binary that will only
+  run on the machine that built it. Plain `zig build`'s dev binary stays
+  host-tuned. Released binaries were never affected — the release workflow
+  always passes an explicit `-Dtarget`, which already resolved to baseline.
+- **`spawn-process` honors `directory:` on every build (#2517)** — every
+  Linux release binary rejected the option with `KP3007` ("not supported on
+  this platform"): the release workflow targets glibc 2.28 and the comptime
+  gate for `posix_spawn_file_actions_addchdir_np` (glibc 2.29) is the build
+  target's floor, not the host's, so downstream spawners on ubuntu-24.04
+  were wrapping every spawn in `/bin/sh -c 'cd … && exec …'`. The symbol is
+  now a weak extern resolved at load time, so glibc ≥ 2.29 hosts keep the
+  `posix_spawnp` fast path; genuinely pre-2.29 hosts, NetBSD, and OpenBSD
+  route a `directory:` spawn through the existing fork+exec path, which
+  `chdir`s in the child and reports a bad directory through the same error
+  pipe as a failed exec. That route now walks the *parent's* `PATH` under
+  `env:` (parity with `posix_spawnp`), follows glibc's `execvpe` errno
+  contract (`ENOEXEC`, `EACCES`, and the like pass through instead of
+  becoming a fabricated `ENOENT`), and on Linux ≥ 5.11 marks inherited fds
+  close-on-exec with one `close_range(2)` call instead of an fd-by-fd probe.
+- **A failed `.sld` load no longer leaves a half-registered library
+  (#2510)** — a `define-library` form followed by a read error (a stray
+  `)`, say) failed the first `import` with `KP2001` and *succeeded* the
+  second: the form had been dispatched and registered before the reader hit
+  the garbage, and the next import served the partial entry from the
+  in-memory registry, exports included. A test file that imported the
+  library twice reported green while every single-import consumer failed.
+  Every registration made during a failed load is now rolled back, and a
+  registration the failed file *replaced* — including a built-in such as
+  `(scheme base)` — is restored, so both attempts fail identically.
+- **A script run that reported an error can no longer signal success
+  (#2512, #2513)** — the top-level driver recovers from an uncaught error
+  and keeps running the next form, but an explicit `(exit 0)` or
+  `(emergency-exit 0)` afterwards exited 0 anyway, so the R7RS test-suite
+  idiom of check forms ending in `(exit 0)` reported success with its
+  errors scrolled past on stderr. An explicit 0 after a reported error is
+  now upgraded to 1 (any non-zero status stays as given; the REPL is
+  unaffected). `--compile` likewise printed `Compiled …` and wrote a
+  plausible-looking partial `.sbc` after a reported error, replacing a
+  previous good build at the target; a flagged compile now writes nothing,
+  prints no success line, and removes any stale artifact at the target.
+- **`kaappi test` workers survive `emergency-exit` and thread exits
+  (#2521, #2525)** — a worker suppresses a file's `(exit …)` so it can still
+  emit its result, but `(emergency-exit …)` and any `(exit …)` from a
+  SRFI-18 child thread bypassed the suppression and killed the worker
+  before it wrote anything: the orchestrator reported `ERROR <file>
+  (worker produced no result)` and every SRFI-64 count the file had
+  collected was lost, while a plain `kaappi <file>` run passed (the
+  two-runner disagreement kaappi#1903 forbids). Both now record the
+  requested code on the root VM and return, so the worker emits and the
+  code feeds the file's verdict like an `(exit N)` does. One accepted
+  divergence: under the worker `emergency-exit` leaves enclosing
+  `dynamic-wind` extents normally, so after-thunks a plain run skips do run
+  there.
+- **`char-ready?` and `u8-ready?` report real readiness (#2511)** — both
+  returned `#t` unconditionally past their peeked-byte fast path, so on a
+  subprocess pipe with nothing written `char-ready?` promised a safe read and
+  the next `read-line` blocked for as long as the writer stayed silent — the
+  hang R7RS 6.13.1's "guaranteed not to hang" forbids, and the only
+  non-blocking probe a drive loop over a subprocess had. An fd port now
+  answers with a zero-timeout poll (never a fiber park); `char-ready?` is
+  character-granular, answering `#t` only once a complete UTF-8 character is
+  buffered, so a lone lead byte no longer lures `read-char` into blocking;
+  string, bytevector, and random-access ports are always ready; EOF and
+  errors answer `#t` (a read returns at once); a SRFI 181 custom port
+  answers `#f` unless a complete character or byte is already buffered or it
+  has no `read!`, since probing would mean running user code from a
+  predicate. WASI keeps the historical `#t`.
+- **Bundle rejection names the component that differs (#2514)** — a
+  standalone binary refusing its embedded `.sbc` reported only the build id
+  and advised "Rebuild the bundle from current source", which for the case
+  that actually cost release time — a `.sbc` compiled for a *different
+  target* — printed two identical ids and wrong advice. The `.sbc` header
+  now records the producing binary's compile target and version, and the
+  diagnostic prints all three components for both sides with one advice line
+  per differing one.
+
+### Changed
+
+- **`.sbc` bytecode format v14** — the header gains the producing target and
+  version strings (see #2514). The reader accepts v13 and v14; a v13 entry
+  still loads, reports the new fields as unrecorded, and is otherwise
+  unchanged — the compiler hash it already carries is what decides cache
+  safety. v12 and older are rejected as before.
+- **`kaappi test --json` carries the verdict note in its own field
+  (#2519)** — the sentence explaining a verdict (an `(exit 0)` that could not
+  waive a reported error, say) was written into `error_message`, displacing
+  the file's actual diagnostic, and the `noted` tally could never be
+  non-zero. Each file record now has a separate `note` field, `error_message`
+  keeps the diagnostic, and `noted` counts every noted file whatever its
+  verdict. The text reporter prints both.
+
 ## [0.26.1] - 2026-09-04
 
 ### Changed
