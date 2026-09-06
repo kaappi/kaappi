@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788667864674,
+  "lastUpdate": 1788671893841,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6f9e508b70e1747f251e0d45939c41c27e590c35",
-          "message": "Preserve local-macro forms in expand so the dump round-trips (#2327)\n\nkaappi expand claimed a round-trip guarantee (feeding its output back\npreserves behavior) but broke it for let-syntax/letrec-syntax. It expanded\nthe body against the global macro set, resolving a use of a locally-bound\nkeyword against the OUTER binding, then re-emitted the inner binding it\nnever applied — so a shadowed (let-syntax ((c ...)) (c)) dumped as the outer\nc's expansion and round-tripped to a different answer.\n\nLeave let-syntax/letrec-syntax entirely unexpanded (the local transformers\nare never built in the expand path); the compiler builds them on a real run,\nand re-reading re-establishes the inner binding. Round-trip fidelity of the\nbinder's spelling also requires that a macro-generated define-syntax (a SRFI\n139 syntax parameter) be registered, so registerEnvForExpand now runs on the\nEXPANDED form rather than the original.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-25T16:00:20+05:30",
-          "tree_id": "7877b9490319c5d5e8f03ca28c740dd37be97291",
-          "url": "https://github.com/kaappi/kaappi/commit/6f9e508b70e1747f251e0d45939c41c27e590c35"
-        },
-        "date": 1787663843645,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.034574,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.746393,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.552942,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.770217,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00498,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046476,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.283332,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054145,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.906735,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.150966,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.517665,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.258228,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.786022,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.9096,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041367,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.037416,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "0b8e69476f22a2605fdf2ba386e875d482e06b03",
+          "message": "Release v0.26.2\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-09-06T09:22:59+05:30",
+          "tree_id": "3616cd401c5a611ff8409c4979ae6acf41edbe1f",
+          "url": "https://github.com/kaappi/kaappi/commit/0b8e69476f22a2605fdf2ba386e875d482e06b03"
+        },
+        "date": 1788671892505,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.429655,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.634441,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.62211,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.058351,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004561,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048509,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.336854,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055519,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.870972,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.251511,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.666221,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.282062,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.741127,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.725513,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046396,
             "unit": "seconds"
           }
         ]
