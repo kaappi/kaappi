@@ -70,12 +70,13 @@ check_suite() {
     local bin="$DIR/$name.bin"
     n=$((n + 1))
 
-    local interp_raw interp_out interp_status=0
-    interp_raw="$(interp_stdout "$KAAPPI_ABS" "$REPO_DIR" "$src")" || interp_status=$?
+    local interp_raw interp_out interp_status=0 interp_err="$DIR/$name.interp.err"
+    interp_raw="$(interp_stdout "$KAAPPI_ABS" "$REPO_DIR" "$src" "$interp_err")" || interp_status=$?
     interp_out="$(printf '%s\n' "$interp_raw" | strip_echo)"
     if [[ $interp_status -ne 0 ]]; then
         echo "FAIL: $name — interpreter exited $interp_status:" >&2
         printf '%s\n' "$interp_raw" >&2
+        show_interp_stderr "$interp_err"
         fail=1
         return
     fi
@@ -86,6 +87,7 @@ check_suite() {
     if [[ "$interp_out" != *"$sentinel"* ]]; then
         echo "FAIL: $name — interpreter output missing '$sentinel':" >&2
         printf '%s\n' "$interp_out" >&2
+        show_interp_stderr "$interp_err"
         fail=1
         return
     fi
@@ -115,15 +117,17 @@ check_both() {
     n=$((n + 1))
     printf '%s\n' "$src_text" > "$src"
 
-    local interp_out interp_status=0
-    interp_out="$(interp_stdout "$KAAPPI_ABS" "$REPO_DIR" "$src")" || interp_status=$?
+    local interp_out interp_status=0 interp_err="$DIR/$label.interp.err"
+    interp_out="$(interp_stdout "$KAAPPI_ABS" "$REPO_DIR" "$src" "$interp_err")" || interp_status=$?
     if [[ $interp_status -ne 0 ]]; then
         echo "FAIL: $label — interpreter exited $interp_status (output: '$interp_out')" >&2
+        show_interp_stderr "$interp_err"
         fail=1
         return
     fi
     if [[ "$interp_out" != "$expected" ]]; then
         echo "FAIL: $label — interpreter expected '$expected', got '$interp_out'" >&2
+        show_interp_stderr "$interp_err"
         fail=1
         return
     fi

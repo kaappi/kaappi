@@ -145,7 +145,8 @@ SCM
 # wrong artifact and a green run. This program has no bare top-level expression
 # and no top-level error, so none of the three by-design tier differences apply.
 interp_status=0
-interp_out="$(interp_stdout "$KAAPPI_ABS" "$WORK" "$WORK/prog.scm")" || interp_status=$?
+interp_err="$WORK/prog.interp.err"
+interp_out="$(interp_stdout "$KAAPPI_ABS" "$WORK" "$WORK/prog.scm" "$interp_err")" || interp_status=$?
 
 if [ "$interp_out" == "one
 two
@@ -154,6 +155,7 @@ three
     ok "interpreted run has the expected output"
 else
     bad "interpreted run has the expected output" "actual: $interp_out"
+    show_interp_stderr "$interp_err"
 fi
 # The interpreted run consumed the victim; restore it for the compiled run.
 echo hi > "$VICTIM"
@@ -185,6 +187,10 @@ if assert_tiers_agree "standalone binary vs interpreter" \
     ok "the standalone binary agrees with the interpreter on stdout and exit status"
 else
     FAIL=$((FAIL + 1))
+    # The disagreement can be the interpreter's fault alone — an exit-time
+    # abort after stdout was flushed leaves the oracle's stdout check green
+    # and surfaces only here, as a status mismatch.
+    show_interp_stderr "$interp_err"
 fi
 
 if [ ! -f "$VICTIM" ]; then

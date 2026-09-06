@@ -124,14 +124,44 @@ skip_on_debug_build() {
 #   3. A procedure value prints as `#<procedure name>` in the VM and
 #      `#<procedure>` natively.
 #
-# interp_stdout <kaappi> <workdir> <src>: run <src> through the interpreter
-# from <workdir>, print its stdout, and return its own exit status. stderr is
-# dropped deliberately: the two tiers' diagnostics differ in framing by design
-# (the VM prefixes file:line and a source excerpt, the native runtime does
-# not), so a script asserting on a diagnostic's text does that separately,
-# against whichever tier it means.
+# interp_stdout <kaappi> <workdir> <src> [<errfile>]: run <src> through the
+# interpreter from <workdir>, print its stdout, and return its own exit
+# status. stderr goes to <errfile> when given, /dev/null otherwise.
+#
+# An oracle caller should pass an errfile — under its own mktemp workdir,
+# never inside the repo tree (a dirty tree changes the build id baked into
+# every .sbc, see the lock comment below) — and hand it to show_interp_stderr
+# on its unexpected-failure branch. An aborting interpreter loses its piped
+# stdout entirely (block buffering), so the captured stderr — a Zig panic
+# trace, an allocator leak report — is the one datum that says WHY it died,
+# and dropping it left a one-off CI abort unlocalizable (kaappi#2532).
+#
+# The tier-parity rationale is untouched by this: the two tiers' diagnostics
+# differ in framing by design (the VM prefixes file:line and a source
+# excerpt, the native runtime does not), so a script asserting on a
+# diagnostic's text does that separately, against whichever tier it means.
+# Capturing stderr to SHOW it on failure asserts nothing.
+#
+# The redirect sits on the subshell rather than on the kaappi command: it is
+# set up in the caller's directory (a relative errfile resolves against the
+# script's cwd, not the workdir interp_stdout cds into), and a failed `cd`'s
+# message lands in the errfile too. For errfile callers that is an
+# improvement — the FAIL branch shows it — but the 3-arg form now buries it
+# in /dev/null where it used to reach the script's stderr. Only the
+# kaappi#2532 self-test uses the 3-arg form; don't move the redirect back
+# inside the subshell to "fix" that.
 interp_stdout() {
-    (cd "$2" && "$1" "$3" 2> /dev/null)
+    (cd "$2" && "$1" "$3") 2> "${4:-/dev/null}"
+}
+
+# show_interp_stderr <errfile>: print what interp_stdout captured, so a FAIL
+# branch carries the interpreter's own diagnostics into the CI log. No-op
+# when the file is empty or missing — the expected case on a green run, and
+# for a mismatch that is the native tier's fault alone.
+show_interp_stderr() {
+    [ -s "$1" ] || return 0
+    echo "--- interpreter stderr ---" >&2
+    cat "$1" >&2
 }
 
 # assert_tiers_agree <label> <interp-out> <interp-status> <native-out> <native-status>

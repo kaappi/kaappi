@@ -42,14 +42,16 @@ check_both() {
     local label="$1" expected="$2"
     local src="$DIR/${label}.scm" bin="$DIR/${label}.bin"
 
-    local interp_out interp_status=0
-    interp_out="$(interp_stdout "$KAAPPI_ABS" "$REPO_DIR" "$src")" || interp_status=$?
+    local interp_out interp_status=0 interp_err="$DIR/${label}.interp.err"
+    interp_out="$(interp_stdout "$KAAPPI_ABS" "$REPO_DIR" "$src" "$interp_err")" || interp_status=$?
     if [[ $interp_status -ne 0 ]]; then
         echo "FAIL: $label — interpreter exited $interp_status (output: '$interp_out')" >&2
+        show_interp_stderr "$interp_err"
         exit 1
     fi
     if [[ "$interp_out" != "$expected" ]]; then
         echo "FAIL: $label — interpreter expected '$expected', got '$interp_out'" >&2
+        show_interp_stderr "$interp_err"
         exit 1
     fi
 

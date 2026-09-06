@@ -100,11 +100,16 @@ else
 fi
 
 # The oracle: the same program through the interpreter — set_global bumps no
-# stale caches, the final value is the child's last store.
+# stale caches, the final value is the child's last store. stderr is captured
+# so that a recurrence of the one-off abort this script once hit on a Debug
+# CI leg (kaappi#2532) shows its panic text instead of dying exit-134-with-
+# no-evidence: an aborting process loses its piped stdout to block buffering.
 interp_status=0
-interp_out=$(interp_stdout "$KAAPPI_ABS" "$DIR" "$name.scm") || interp_status=$?
+interp_err="$DIR/$name.interp.err"
+interp_out=$(interp_stdout "$KAAPPI_ABS" "$DIR" "$name.scm" "$interp_err") || interp_status=$?
 if [[ "$interp_out" != "200000" || "$interp_status" -ne 0 ]]; then
     echo "FAIL: $name — interpreter stdout '$interp_out' exit $interp_status, expected '200000' exit 0" >&2
+    show_interp_stderr "$interp_err"
     exit 1
 fi
 
@@ -141,9 +146,11 @@ cat > "$DIR/$xname.scm" << 'EOF'
 EOF
 
 xi_status=0
-xi_out=$(interp_stdout "$KAAPPI_ABS" "$DIR" "$xname.scm") || xi_status=$?
+xi_err="$DIR/$xname.interp.err"
+xi_out=$(interp_stdout "$KAAPPI_ABS" "$DIR" "$xname.scm" "$xi_err") || xi_status=$?
 if [[ "$xi_out" != "#<procedure h>" || "$xi_status" -ne 1 ]]; then
     echo "FAIL: $xname — interpreter stdout '$xi_out' exit $xi_status, expected '#<procedure h>' exit 1 (refused store, binding unchanged)" >&2
+    show_interp_stderr "$xi_err"
     exit 1
 fi
 

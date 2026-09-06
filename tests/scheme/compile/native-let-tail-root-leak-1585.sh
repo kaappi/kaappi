@@ -56,15 +56,17 @@ check() {
 
     printf '%s' "$src" > "$DIR/$name.scm"
 
-    local interp_out interp_status=0
-    interp_out=$(interp_stdout "$KAAPPI_ABS" "$REPO_DIR" "$DIR/$name.scm") || interp_status=$?
+    local interp_out interp_status=0 interp_err="$DIR/$name.interp.err"
+    interp_out=$(interp_stdout "$KAAPPI_ABS" "$REPO_DIR" "$DIR/$name.scm" "$interp_err") || interp_status=$?
     if [[ $interp_status -ne 0 ]]; then
         echo "FAIL: $name — interpreter exited $interp_status (output: '$interp_out')" >&2
+        show_interp_stderr "$interp_err"
         fail=1
         return
     fi
     if [[ "$interp_out" != "$expect_out" ]]; then
         echo "FAIL: $name — interpreter expected '$expect_out', got '$interp_out'" >&2
+        show_interp_stderr "$interp_err"
         fail=1
         return
     fi
