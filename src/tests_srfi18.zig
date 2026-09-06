@@ -1135,9 +1135,8 @@ test "kaappi#2473: thread-start! unwinds extra_roots when the spawn setup fails"
 // srfi18-join-spawn-grandchild-2129.scm, each symbolized through DWARF,
 // which alone blew the Debug CI leg's whole 240s budget. The exit sweep must
 // free exactly those entries. The testing allocator is the second detector:
-// the child GC/VM are allocated from the root GC's allocator, so an entry the
-// sweep skips fails ctx.deinit's leak check even if a stale entry from
-// another test masked the count.
+// the child GC/VM are allocated from the root GC's allocator, so an entry
+// the sweep skips fails ctx.deinit's leak check.
 test "kaappi#2537: exit sweep frees a completed-unjoined thread's registry entry" {
     if (comptime platform.is_wasm) return error.SkipZigTest; // thread-start! is unregistered on wasm
     var ctx: th.TestContext = undefined;
@@ -1154,7 +1153,10 @@ test "kaappi#2537: exit sweep frees a completed-unjoined thread's registry entry
         if (spins >= 10_000) return error.ChildThreadNeverExited;
         platform.sleepNs(std.time.ns_per_ms);
     }
-    try std.testing.expect(srfi18.freeUnjoinedExitedChildResources() >= 1);
+    // Exactly one: every other thread test in this file joins its thread, so
+    // the only entry is this test's. Equality surfaces a future test that
+    // starts leaving entries behind instead of absorbing it.
+    try std.testing.expectEqual(@as(usize, 1), srfi18.freeUnjoinedExitedChildResources());
     // Everything exited is gone after one pass; nothing can be freed twice.
     try std.testing.expectEqual(@as(usize, 0), srfi18.freeUnjoinedExitedChildResources());
 }

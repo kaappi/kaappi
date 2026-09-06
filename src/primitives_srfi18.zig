@@ -217,6 +217,9 @@ const ChildRegistry = struct {
     // The exit sweep (freeUnjoinedExitedChildResources) pops one at a time so
     // freeChildResourcesEntry's real work -- two deinits plus frees -- runs
     // outside the registry lock, same shape as the descendant-drain path.
+    // Each pop rescans from the map's start, making a full sweep quadratic in
+    // the number of unjoined threads -- a non-issue at realistic counts, and
+    // the price of keeping the free outside the lock.
     fn removeAnyExited(self: *ChildRegistry) ?ChildThreadResources {
         memory.spinLock(&self.mutex);
         defer memory.spinUnlock(&self.mutex);

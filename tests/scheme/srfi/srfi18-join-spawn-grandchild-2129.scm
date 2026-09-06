@@ -73,10 +73,14 @@
 ;; main thread reached the exit path left their heaps in the child registry
 ;; (kept deliberately for a join that never comes) and the Debug build's
 ;; leak report over 29k retained objects blew the CI leg's whole time budget.
-;; Waiting here makes the full completion path (and the exit sweep of the
-;; unjoined entries) deterministic on every run instead. The slots are
-;; one-element boxes, mutated with set-car! like GG-DONE below: a value a
-;; grandchild stores must be an immediate into a root-heap pair.
+;; Waiting here makes the grandchildren's full completion path (and the exit
+;; sweep of the unjoined entries) the expected course on every run. The flag
+;; is set before the grandchild's epilogue, so a small window remains where
+;; the exit defer still counts a live child and takes the _exit branch -- the
+;; guarantee is that either exit branch is cheap now, not that the outcome
+;; is deterministic. The slots are one-element boxes, mutated with set-car!
+;; like GG-DONE below: a value a grandchild stores must be an immediate into
+;; a root-heap pair.
 (define busy-done (list (list #f) (list #f) (list #f) (list #f) (list #f) (list #f)))
 (define (busy-done-all?)
   (let loop ((rest busy-done))
@@ -151,14 +155,17 @@
 ;; Bounded drain of the busy grandchildren (see BUSY-DONE above): poll until
 ;; every grandchild's allocation loop has finished, so the process never
 ;; exits while one is mid-loop. The bound exists only so a genuinely stuck
-;; grandchild fails by proceeding (the exit path handles live children
-;; cheaply) instead of hanging the leg; 60s is far beyond what the loops
-;; need even on a Debug build, and in practice the last flag is already set
-;; by the time we get here.
+;; grandchild cannot hang the leg; the test-assert below turns an expiry
+;; into a loud failure, and a grandchild still live at the (exit 1) that
+;; follows still leaves through the cheap _exit branch. Sixty seconds is far
+;; beyond what the loops need even on a Debug build, and in practice the
+;; last flag is already set by the time we get here.
 (let drain ((polls 0))
   (when (and (not (busy-done-all?)) (< polls 1200))
     (thread-sleep! 0.05)
     (drain (+ polls 1))))
+(test-assert "all six busy grandchildren finished their allocation loops"
+  (busy-done-all?))
 
 (let ((runner (test-runner-current)))
   (test-end "srfi18-join-spawn-grandchild-2129")
