@@ -192,6 +192,38 @@
 ;; valid scaling is unchanged (ceiling semantics)
 (test-equal '(2 1) (interval-upper-bounds->list (interval-scale (make-interval '#(3 1)) '#(2 3))))
 
+
+;;; --- call/cc safety under REPEATED re-entry (kaappi#2539) -- the driver
+;;; and its rationale live in fixtures/srfi231-reentry.scm ---
+(include "fixtures/srfi231-reentry.scm")
+
+;; The two fold-left assertions pin the guarantee rather than reproduce a
+;; failure: the old set!-cell shape, (set! acc (operator acc (apply f ix))),
+;; read acc into a register BEFORE the getter ran, so a continuation
+;; captured in the getter carried that snapshot and the set! afterwards
+;; stored a value derived from it -- safe by Kaappi's left-to-right
+;; argument evaluation alone (under right-to-left evaluation, chibi's,
+;; the same code yields (0 1 2 3 10 2 3)). Every other shape below --
+;; and array-copy's scratch vector -- fails against the pre-#2539 code.
+(test-equal "interval-fold-left threads its accumulator functionally"
+            re-entry-expected
+            (re-entry-results
+             (lambda (f) (reverse (interval-fold-left f (lambda (acc x) (cons x acc)) '() (make-interval '#(4)))))))
+;; for-each is for effect: a callback returning zero or several values
+;; must not become the walk's next accumulator
+(test-equal "interval-for-each ignores a zero-values callback" 3
+            (let ((n 0))
+              (interval-for-each (lambda (i) (set! n (+ n 1)) (values)) (make-interval '#(3)))
+              n))
+(test-equal "interval-for-each ignores a two-values callback" 4
+            (let ((n 0))
+              (interval-for-each (lambda (i j) (set! n (+ n 1)) (values i j)) (make-interval '#(2 2)))
+              n))
+(test-equal "interval-fold-right threads its accumulator functionally"
+            re-entry-expected
+            (re-entry-results
+             (lambda (f) (interval-fold-right f cons '() (make-interval '#(4))))))
+
 (let ((runner (test-runner-current)))
   (test-end "srfi-231-intervals")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))

@@ -356,6 +356,26 @@
 (let ((generic (array-copy (make-array (make-interval (vector 2 2)) (lambda (i j) 300)))))
   (test-assert "array-copy into u8 rejects an unstorable value"
                (guard (e (#t #t)) (array-copy generic u8-storage-class) #f)))
+
+;;; --- call/cc safety under REPEATED re-entry (kaappi#2539) -- the driver
+;;; and its rationale live in fixtures/srfi231-reentry.scm ---
+(include "fixtures/srfi231-reentry.scm")
+
+(test-equal "array-copy: each re-entry materializes its own array from its own prefix"
+            re-entry-expected
+            (re-entry-results
+             (lambda (f) (array->list* (array-copy (make-array (make-interval '#(4)) f))))))
+(test-equal "array-copy into a typed storage class is call/cc safe too"
+            re-entry-expected
+            (re-entry-results
+             (lambda (f) (array->list (array-copy (make-array (make-interval '#(4)) f) u8-storage-class)))))
+;; the collected-list fill covers every volume: zero-dimensional (one
+;; element, no axes) and empty (no elements at all)
+(test-equal "array-copy of a zero-dimensional array" 42
+            (array-ref (array-copy (make-array (make-interval '#()) (lambda () 42)))))
+(test-equal "array-copy of an empty array" #t
+            (array-empty? (array-copy (make-array (make-interval '#(0 3)) (lambda (i j) (error "never called"))))))
+
 (let ((runner (test-runner-current)))
   (test-end "srfi-231-views")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))

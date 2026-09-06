@@ -195,6 +195,20 @@
   (test-assert "array-assign! into u1 rejects an unstorable value"
                (guard (e (#t #t)) (array-assign! dest generic) #f)))
 
+
+;;; --- call/cc safety under REPEATED re-entry (kaappi#2539) -- the driver
+;;; and its rationale live in fixtures/srfi231-reentry.scm ---
+(include "fixtures/srfi231-reentry.scm")
+
+(define (over-f f) (make-array (make-interval '#(4)) f))
+(test-equal "array-append inherits array-copy's call/cc safety"
+            (map (lambda (r) (append r '(99))) re-entry-expected)
+            (re-entry-results
+             (lambda (f) (array->list (array-append 0 (list (over-f f) (list->array (make-interval '#(1)) '(99))))))))
+(test-equal "array-stack inherits array-copy's call/cc safety"
+            (map list re-entry-expected)
+            (re-entry-results (lambda (f) (array->list* (array-stack 0 (list (over-f f)))))))
+
 (let ((runner (test-runner-current)))
   (test-end "srfi-231-assembly")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))

@@ -908,6 +908,26 @@ pure aliases (verified by reading the reference implementation: both entry
 points wrap one shared helper differing only in whether inputs are eagerly
 pre-materialized before the fill, a distinction observable only under
 multi-shot-continuation re-entry, which the spec itself declares undefined).
+Every *accumulating* non-`!` procedure — `interval-fold-left`/`-right`,
+`array-fold-left`/`-right`, `array-reduce`, `array-every`, `array->list`, and
+the collection half of `array-copy` — threads its accumulator functionally
+through one shared walk (`%interval-fold` in `intervals.sld`), never a `set!`
+cell or a pre-sized scratch vector. The spec defines *call/cc safe* as written
+"in a way that does not modify the state of any data captured by a
+continuation" and intends every procedure without a trailing `!` to be that;
+both mutable shapes shipped here until the SRFI's author showed (kaappi#2539)
+that a second re-entry of a getter's continuation resumes over an earlier
+re-entry's overwrites. A single re-entry cannot distinguish a shared buffer
+from a functional accumulator — the official suite's own continuation cases
+(entries 737-741) passed over the scratch design — so the regression tests
+drive two continuations, each invoked twice. `array-copy` of a non-specialized
+source is therefore the reference's exact shape (reversed list, then a body
+filled by linear position). A specialized source takes the direct fill, as in
+the reference's `%!array-copy` — a deliberate, documented exception: a
+`make-storage-class` getter or a `specialized-array-share` mapping is user code
+that runs inside that fill and could capture a continuation, and neither the
+reference nor Kaappi defends it (the list path would cost 14× the peak memory
+on the common typed-array copy; the measurements are in `views.sld`).
 `specialized-array-reshape` uses a deliberate packed-check-based
 affine-detection simplification instead of the reference's full multi-group
 algorithm, verified identical on the spec's own worked examples. (`array-packed?`

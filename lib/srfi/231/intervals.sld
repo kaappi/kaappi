@@ -39,7 +39,11 @@
           interval= interval-subset? interval-contains-multi-index?
           interval-for-each interval-fold-left interval-fold-right
           interval-dilate interval-translate interval-permute interval-scale
-          interval-intersect interval-cartesian-product interval-projections)
+          interval-intersect interval-cartesian-product interval-projections
+          ;; internal: the functional lexicographic walk sibling files build
+          ;; their own accumulating procedures on (see its comment); not
+          ;; re-exported by the (srfi 231) hub, same as arrays.sld's %-helpers
+          %interval-fold)
   (begin
 
     (define-record-type <interval>
@@ -142,36 +146,62 @@
                 (and (<= (vector-ref lo i) (car xs)) (< (car xs) (vector-ref up i))
                      (loop (+ i 1) (cdr xs))))))))
 
-    ;; General d-dimensional nested traversal in lexicographic order. proc
-    ;; receives each multi-index as a LIST; public callers apply it to their
-    ;; own procedure via `apply` so f/operator see separate positional
-    ;; index arguments, matching the spec's convention everywhere. A
-    ;; zero-dimensional interval (both vectors empty) calls proc exactly
-    ;; once with '() -- a thunk call once `apply`-ed. Any axis with
-    ;; lo=hi contributes zero iterations, so an empty interval calls
-    ;; proc zero times overall, both matching spec exactly with no
-    ;; special-casing.
-    (define (%interval-for-each-indices lower upper proc)
-      (let ((d (vector-length lower)))
-        (define (go axis acc)
+    ;; General d-dimensional nested traversal in lexicographic order
+    ;; (first axis outermost), and the ONE walk every accumulating
+    ;; procedure in this package is built on. proc receives each
+    ;; multi-index as a fresh LIST plus the accumulator so far, and its
+    ;; result is the accumulator for the next multi-index; public callers
+    ;; apply the index list to their own procedure via `apply` so
+    ;; f/operator see separate positional index arguments, matching the
+    ;; spec's convention everywhere. A zero-dimensional interval (both
+    ;; vectors empty) calls proc exactly once with '() -- a thunk call
+    ;; once `apply`-ed. Any axis with lo=hi contributes zero iterations,
+    ;; so an empty interval calls proc zero times and returns seed, both
+    ;; matching spec exactly with no special-casing.
+    ;;
+    ;; The accumulator is threaded FUNCTIONALLY -- through the axis loops'
+    ;; own variables and the recursion's return value, never a set! cell
+    ;; -- and that threading is the whole call/cc-safety story for the
+    ;; non-! half of SRFI 231. The spec defines "call/cc safe" as written
+    ;; "in a way that does not modify the state of any data captured by a
+    ;; continuation" and intends every procedure without a trailing ! to
+    ;; be that (only array-set!/array-assign! and the five `!` bulk
+    ;; variants are exempt). A set! accumulator is exactly such state: a
+    ;; continuation captured inside f (or an array's getter) shares the
+    ;; cell with every other invocation of that continuation, so a
+    ;; re-entry resumes from wherever the LAST run left the cell rather
+    ;; than from what its own run had accumulated at capture time. One
+    ;; re-entry cannot tell the two apart -- it is the second re-entry,
+    ;; or a second continuation, that sees the first re-entry's
+    ;; overwrites (kaappi#2539, reported by the SRFI's author). With the
+    ;; accumulator held in the continuation's own frames, a re-entry sees
+    ;; precisely the accumulation its capture point had: an immutable
+    ;; list prefix, a fixnum, a folded value -- and consumers must keep
+    ;; it that way (never reverse! or otherwise mutate a list this walk
+    ;; built; a re-entry's continuation still holds a pointer into it).
+    (define (%interval-fold proc seed interval)
+      (let* ((lower (interval-lower-vec interval))
+             (upper (interval-upper-vec interval))
+             (d (vector-length lower)))
+        (define (go axis rev-index acc)
           (if (= axis d)
-              (proc (reverse acc))
+              (proc (reverse rev-index) acc)
               (let ((lo (vector-ref lower axis)) (hi (vector-ref upper axis)))
-                (let loop ((i lo))
-                  (when (< i hi)
-                    (go (+ axis 1) (cons i acc))
-                    (loop (+ i 1)))))))
-        (go 0 '())))
+                (let loop ((i lo) (acc acc))
+                  (if (< i hi)
+                      (loop (+ i 1) (go (+ axis 1) (cons i rev-index) acc))
+                      acc)))))
+        (go 0 '() seed)))
 
+    ;; f's result is discarded, never threaded: interval-for-each is for
+    ;; effect, and f may return zero or several values.
     (define (interval-for-each f interval)
-      (%interval-for-each-indices (interval-lower-vec interval) (interval-upper-vec interval)
-                                   (lambda (indices) (apply f indices))))
+      (%interval-fold (lambda (indices acc) (apply f indices) acc) #f interval)
+      (if #f #f))
 
     (define (interval-fold-left f operator identity interval)
-      (let ((acc identity))
-        (%interval-for-each-indices (interval-lower-vec interval) (interval-upper-vec interval)
-                                     (lambda (indices) (set! acc (operator acc (apply f indices)))))
-        acc))
+      (%interval-fold (lambda (indices acc) (operator acc (apply f indices)))
+                      identity interval))
 
     ;; Per spec, interval-fold-right must complete ALL f evaluations before
     ;; applying operator to any of them -- not just visit indices in
@@ -183,11 +213,10 @@
     ;; results (verified by hand-expansion against the spec's own
     ;; 0-dimensional formula, which falls out with no special-casing).
     (define (interval-fold-right f operator identity interval)
-      (let ((results '()))
-        (%interval-for-each-indices (interval-lower-vec interval) (interval-upper-vec interval)
-                                     (lambda (indices) (set! results (cons (apply f indices) results))))
-        (let loop ((xs results) (acc identity))
-          (if (null? xs) acc (loop (cdr xs) (operator (car xs) acc))))))
+      (let loop ((xs (%interval-fold (lambda (indices acc) (cons (apply f indices) acc))
+                                     '() interval))
+                 (acc identity))
+        (if (null? xs) acc (loop (cdr xs) (operator (car xs) acc)))))
 
     ;; vector-map stops at the shortest input on a length mismatch (R7RS,
     ;; matching `map`) rather than erroring, so a diffs/translation/scales/

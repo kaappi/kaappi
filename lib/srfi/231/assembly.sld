@@ -33,15 +33,16 @@
 ;;; one of these four's `!` and non-`!` entry points are two one-line
 ;;; wrappers around one shared internal helper differing only in
 ;;; whether input arrays are eagerly materialized before the fill runs.
-;;; Since #2454 the shared path underneath (array-copy) collects the
-;;; source's values before the destination exists, so the aliases
-;;; inherit continuation-re-entry safety -- more than the spec asks of
-;;; the `!` variants (which may skip exactly that guarantee), never
-;;; less. The `!` twins do pay the same scratch cost as the non-! ones
-;;; (one pre-sized vector, N words -- the aliasing trades that memory
-;;; for one code path; splitting them apart to reclaim it would
-;;; re-diverge five fill loops for a cost the spec's `!` exemption
-;;; exists precisely to allow skipping).
+;;; The shared path underneath (array-copy) collects a non-specialized
+;;; source's values into a functionally accumulated list before the
+;;; destination exists (#2454, made genuinely call/cc safe in #2539),
+;;; so the aliases inherit continuation-re-entry safety -- more than
+;;; the spec asks of the `!` variants (which may skip exactly that
+;;; guarantee), never less. The `!` twins do pay the same collection
+;;; cost as the non-! ones (N live pairs during the copy -- the
+;;; aliasing trades that memory for one code path; splitting them apart
+;;; to reclaim it would re-diverge five fill loops for a cost the
+;;; spec's `!` exemption exists precisely to allow skipping).
 (define-library (srfi 231 assembly)
   (import (scheme base) (srfi 1)
           (srfi 231 misc) (srfi 231 intervals) (srfi 231 storage-classes)

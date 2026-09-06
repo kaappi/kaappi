@@ -214,6 +214,43 @@
 (test-equal #t (guard (e (#t #t)) (vector->array (make-interval '#(2)) '#(1 0 1) u1-storage-class) #f))
 (test-equal '(1 0) (array->list (list->array (make-interval '#(2)) '(1 0) u1-storage-class)))
 
+
+;;; --- call/cc safety under REPEATED re-entry (kaappi#2539) -- the driver
+;;; and its rationale live in fixtures/srfi231-reentry.scm ---
+(include "fixtures/srfi231-reentry.scm")
+
+(define (over-f f) (make-array (make-interval '#(4)) f))
+;; The two fold-left assertions pin the guarantee rather than reproduce a
+;; failure: the old set!-cell shape, (set! acc (operator acc (apply f ix))),
+;; read acc into a register BEFORE the getter ran, so a continuation
+;; captured in the getter carried that snapshot and the set! afterwards
+;; stored a value derived from it -- safe by Kaappi's left-to-right
+;; argument evaluation alone (under right-to-left evaluation, chibi's,
+;; the same code yields (0 1 2 3 10 2 3)). Every other shape below --
+;; and array-copy's scratch vector -- fails against the pre-#2539 code.
+(test-equal "array-fold-left threads its accumulator functionally"
+            re-entry-expected
+            (re-entry-results (lambda (f) (reverse (array-fold-left (lambda (acc x) (cons x acc)) '() (over-f f))))))
+(test-equal "array-fold-right threads its accumulator functionally"
+            re-entry-expected
+            (re-entry-results (lambda (f) (array-fold-right cons '() (over-f f)))))
+(test-equal "array-reduce threads its accumulator functionally"
+            '(23 13 25 15 6)
+            (re-entry-results (lambda (f) (array-reduce + (over-f f)))))
+(test-equal "array->list threads its accumulator functionally"
+            re-entry-expected
+            (re-entry-results (lambda (f) (array->list (over-f f)))))
+(test-equal "array->vector threads its accumulator functionally"
+            (map list->vector re-entry-expected)
+            (re-entry-results (lambda (f) (array->vector (over-f f)))))
+;; array-every returns the LAST predicate result, so only the cont2
+;; re-entries (which replace element 3) can change it; the cont1 ones
+;; replace element 1 and still end on 3. Pins the functional shape.
+(test-equal "array-every threads its accumulator functionally"
+            '((last 20) (last 10) 3 3 3)
+            (re-entry-results
+             (lambda (f) (array-every (lambda (x) (if (>= x 10) (list 'last x) x)) (over-f f)))))
+
 (let ((runner (test-runner-current)))
   (test-end "srfi-231-combinators")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))
