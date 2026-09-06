@@ -188,7 +188,12 @@ if ! grep -q -- '-mcpu=baseline' "$SHIM_LOG"; then
     exit 1
 fi
 
-OUTPUT="$(cd "$DIR" && ./prog 2>&1)"
+if ! OUTPUT="$(cd "$DIR" && ./prog 2>&1)"; then
+    echo "FAIL: program linked against the default (baseline) archive exited unsuccessfully" >&2
+    echo "full output: $OUTPUT" >&2
+    cat "$COMPILE_LOG" >&2
+    exit 1
+fi
 if [ "$OUTPUT" != "2531: baseline archive links and runs" ]; then
     echo "FAIL: program linked against the default (baseline) archive did not run" >&2
     echo "full output: $OUTPUT" >&2
