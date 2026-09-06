@@ -133,9 +133,15 @@ fi
 
 # --- assertion 3: the baseline binary still runs ---------------------------
 # Baseline is a subset of the host's features, so the shipped default must
-# execute right where it was built — and the .sbc inside it came from a
-# host-tuned compiler, which the compiler key permits (see cache.md).
-OUTPUT="$("$DEFAULT_BIN" 2>&1)" || true
+# execute right where it was built — and exit cleanly, since a teardown
+# crash after the expected line printed is exactly what this assertion
+# exists to catch. The .sbc inside it came from a host-tuned compiler,
+# which the compiler key permits (see cache.md).
+if ! OUTPUT="$("$DEFAULT_BIN" 2>&1)"; then
+    echo "FAIL: default (baseline) bundled binary exited unsuccessfully" >&2
+    echo "full output: $OUTPUT" >&2
+    exit 1
+fi
 if ! grep -q '^703: Hello, world! #t$' <<< "$OUTPUT"; then
     echo "FAIL: default (baseline) bundled binary does not run its program" >&2
     echo "full output: $OUTPUT" >&2

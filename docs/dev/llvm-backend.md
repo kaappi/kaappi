@@ -80,10 +80,14 @@ NaN-boxed representation crosses C ABI trivially).
 ```bash
 zig build lib                                        # build libkaappi_rt.a
 kaappi --emit-llvm -o program.ll program.scm         # emit LLVM IR
-zig cc -w -O2 program.ll -o program \
+zig cc -w -O2 -mcpu=baseline program.ll -o program \
     -Lzig-out/lib -lkaappi_rt -lc -lm -lpthread      # link native binary
 ./program                                            # run
 ```
+
+(`zig cc` with no `-mcpu` tunes for the build host — see the baseline-CPU
+note above. This manual flow is also the escape hatch for hand-picking
+codegen the pinned routes don't offer.)
 
 ### Single-step build
 
@@ -95,6 +99,29 @@ zig build native -Dnative-src=program.scm            # all-in-one
 **Always use `zig cc` (not `clang`) for linking.** The Zig-compiled static
 library references `__zig_probe_stack` and other Zig compiler-rt intrinsics
 that `clang` cannot resolve.
+
+**Everything `kaappi compile` ships defaults to the portable baseline CPU**
+(kaappi#2531). The runtime archive is one half: `libkaappi_rt.a` is linked
+into every binary the command emits, so it is a thing you ship, and without
+`-Dtarget` a host-tuned archive put a host-tuned VM/GC inside binaries that
+could SIGILL on another machine of the same architecture. `zig build lib`
+therefore resolves the baseline CPU model unless you name one —
+`-Dcpu=native` restores host tuning for artifacts that really will only run
+on the machine that built them. Released archives were never affected (the
+release workflow passes an explicit `-Dtarget`, which already meant
+baseline); only source builds.
+
+The program code is the other half, and the C compiler decides its default:
+`zig cc` with no `-mcpu` ends up on the *host* CPU (its effective
+`-target-cpu` is the detected model, byte-for-byte the `-mcpu=native` list),
+while clang and gcc default to the generic model for the target triple.
+Since `zig` is first in `kaappi compile`'s C-compiler search order, the
+`zig cc` route pins the emitted IR with `-mcpu=baseline`, matching the
+model of the archive it links against; `zig build native` does the same
+with its own resolved CPU model, so `-Dcpu=native` there host-tunes the
+whole output consistently. The dev binary built by the same `zig build`
+configure stays host-tuned by default (kaappi#2529) — an explicit
+`-Dcpu=<model>` is respected everywhere.
 
 ### Where `kaappi compile` looks for `libkaappi_rt.a`
 
