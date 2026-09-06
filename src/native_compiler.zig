@@ -686,7 +686,7 @@ test "checkLibDir looks for the platform-named runtime archive" {
 }
 
 fn tryLink(allocator: std.mem.Allocator, cc: []const u8, ll_path: []const u8, out_path: []const u8, lib_flag: []const u8, is_zig: bool) bool {
-    var argv_buf: [16]?[*:0]const u8 = .{null} ** 16;
+    var argv_buf: [20]?[*:0]const u8 = .{null} ** 20;
     var argc: usize = 0;
 
     const cc_z = allocator.dupeZ(u8, cc) catch return false;
@@ -712,6 +712,21 @@ fn tryLink(allocator: std.mem.Allocator, cc: []const u8, ll_path: []const u8, ou
     // (a hard verifier error still fails the compile regardless of -w). See #1492.
     argv_buf[argc] = "-O2";
     argc += 1;
+
+    if (is_zig) {
+        // `zig cc` with no -mcpu ends up on the *host* CPU (its effective
+        // -target-cpu is the detected model, byte-for-byte the -mcpu=native
+        // list), unlike clang/gcc, whose default for the triple is the
+        // generic model. zig is first in cc_search_order, so without this
+        // the program code kaappi compile ships would stay host-tuned even
+        // though the runtime archive it links is baseline-pinned
+        // (kaappi#2531) — the SIGILL hazard would survive on the preferred
+        // route. -mcpu=baseline matches the archive's default model; the
+        // manual three-step flow (docs/dev/llvm-backend.md) is the escape
+        // hatch for hand-picked codegen.
+        argv_buf[argc] = "-mcpu=baseline";
+        argc += 1;
+    }
 
     const ll_z = allocator.dupeZ(u8, ll_path) catch return false;
     defer allocator.free(ll_z);
@@ -765,7 +780,7 @@ fn tryLink(allocator: std.mem.Allocator, cc: []const u8, ll_path: []const u8, ou
 
     const link_ok = blk: {
         if (comptime platform.is_windows) {
-            var argv_slices: [16][]const u8 = undefined;
+            var argv_slices: [20][]const u8 = undefined;
             for (argv_buf[0..argc], 0..) |arg, i| argv_slices[i] = std.mem.sliceTo(arg.?, 0);
             const code = platform.winSpawnPassthrough(allocator, argv_slices[0..argc], null) catch break :blk false;
             break :blk code == 0;

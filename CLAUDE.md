@@ -45,9 +45,12 @@ built from the same tree.
 The runtime archive `zig build lib` defaults to baseline for the same reason
 (kaappi#2531): `libkaappi_rt.a` ships inside every `kaappi compile` output,
 so a host-tuned archive put a host-tuned VM/GC in binaries that travel. The
-same `-Dcpu=native` opt-out applies. The dev binary built by the same
-configure stays host-tuned — only the artifact that gets linked into shipped
-programs is pinned.
+same `-Dcpu=native` opt-out applies, and the native link routes pin the
+emitted program code to the same model (`-mcpu=baseline` for `zig cc`,
+which otherwise resolves the host CPU; clang/gcc already default to the
+generic model for the triple). The dev binary built by the same configure
+stays host-tuned *by default* — an explicit `-Dcpu=<model>` is respected
+everywhere.
 
 ### Build-time limits
 

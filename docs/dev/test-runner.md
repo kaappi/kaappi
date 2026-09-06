@@ -368,17 +368,19 @@ Three things make that safe and worthwhile (kaappi#1926):
   `-Dbundle=` build resolves the portable **baseline** CPU model by default
   (a bundled binary is shipped, and a host-tuned one SIGILLs on other
   machines of the same arch), while `fixture_interpreter`'s plain `zig build`
-  stays host-tuned. That asymmetry is deliberate and free — the embedded
-  bytecode already puts the bundler on its own cache key, and the CPU model
-  is not part of the `.sbc` compiler hash (see [cache.md](cache.md)) — but it
-  means no script may pass `-Dcpu=native` (or any host-naming
-  `-Dcpu=<model>`) to a `-Dbundle=` build: it would fork the shared cache key
-  *and* reintroduce the portability bug the default exists to prevent. Since
-  kaappi#2531 the same holds for `zig build lib`: the runtime archive — the
-  one `ensure_runtime_lib` builds up front and every compile script links
-  against — also defaults to baseline (it ships inside `kaappi compile`
-  output), so no script may pass `-Dcpu=native` to it either, for both the
-  same reasons.
+  stays host-tuned; since kaappi#2531 the same holds for `zig build lib` —
+  the runtime archive `ensure_runtime_lib` builds up front and every compile
+  script links against ships inside `kaappi compile` output. That asymmetry
+  is deliberate and free — the embedded bytecode already puts the bundler on
+  its own cache key, and the CPU model is not part of the `.sbc` compiler
+  hash (see [cache.md](cache.md)) — so no script may pass a host-naming
+  `-Dcpu` to the shared builders, or to any build that installs into
+  `zig-out/`: it would fork the shared cache key *and* reintroduce the
+  portability bug the defaults exist to prevent. The sanctioned exception is
+  a differential probe that builds into a `--prefix` of its own, as the two
+  CPU-baseline regression scripts do with `-Dcpu=native`
+  (`bundle-cpu-baseline-2515.sh`, `lib-cpu-baseline-2531.sh`) — deliberately,
+  as their one cold build each.
 
 Dispatch inside a suite is longest-first — scripts that shell out to a full
 `zig build -D…`, or to either shared builder, go first, found by grep rather

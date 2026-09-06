@@ -32,7 +32,13 @@
 # (host-tuned is fine — the interpreter only drives emission and linking)
 # against the default archive via KAAPPI_LIB_DIR, never zig-out's, so the
 # assertion is about THIS tree's default flags and not whatever archive
-# another script left installed.
+# another script left installed. The archive is only half of what
+# `kaappi compile` ships: on the preferred zig-cc link route the emitted IR
+# must be pinned with -mcpu=baseline too (`zig cc` with no -mcpu resolves
+# the host CPU, unlike clang/gcc's generic triple default), so a logging
+# `zig` shim placed first on PATH captures the exact argv the link step
+# handed the compiler — an externally observable assertion that runs on
+# every host, baseline or not.
 #
 # Usage: bash tests/scheme/compile/lib-cpu-baseline-2531.sh [path-to-kaappi]
 # (the kaappi path is accepted for suite uniformity and unused: the archive
@@ -133,9 +139,11 @@ fi
 
 # --- assertion 3: kaappi-compile output linked against the default runs ----
 # Baseline is a subset of the host's features, so a program linked against
-# the default (baseline) archive must run right where it was built. This is
-# the issue's own scenario minus the second machine: the byte-identity
-# assertions above stand in for "the tuning actually moved".
+# the default (baseline) archive must run right where it was built — and
+# exit cleanly, since a teardown crash after the expected line printed is
+# exactly what this assertion exists to catch. This is the issue's own
+# scenario minus the second machine: the byte-identity assertions above
+# stand in for "the tuning actually moved".
 fixture_interpreter "$REPO_DIR" || {
     echo "FAIL: could not build the fixture interpreter" >&2
     exit 1
@@ -144,14 +152,43 @@ INTERP="$(fixture_interpreter_path "$REPO_DIR")"
 cat > "$DIR/prog.scm" <<'EOF'
 (display "2531: baseline archive links and runs") (newline)
 EOF
+
+# --- assertion 4: the zig-cc link route pins -mcpu=baseline ----------------
+# A logging `zig` shim captures the exact argv `kaappi compile` hands the
+# compiler. The shim is transparent (it execs the real zig), so the binary
+# this one compile produces serves both this assertion and assertion 3.
+# Pre-fix the captured line has no -mcpu and zig cc tunes for the host;
+# unlike assertions 1/2 this check is meaningful on every host, because the
+# flag is passed unconditionally.
+REAL_ZIG="$(command -v zig)"
+export REAL_ZIG
+SHIM_LOG="$DIR/zig-argv.log"
+export SHIM_LOG
+mkdir -p "$DIR/shim-bin"
+cat > "$DIR/shim-bin/zig" <<'SHIM'
+#!/bin/bash
+printf '%s\n' "$*" >> "$SHIM_LOG"
+exec "${REAL_ZIG:?REAL_ZIG not set}" "$@"
+SHIM
+chmod +x "$DIR/shim-bin/zig"
+: > "$SHIM_LOG"
+
 COMPILE_LOG="$DIR/compile.log"
-if ! (cd "$DIR" && KAAPPI_LIB_DIR="$DIR/prefix-default/lib" \
+if ! (cd "$DIR" && PATH="$DIR/shim-bin:$PATH" KAAPPI_LIB_DIR="$DIR/prefix-default/lib" \
         "$INTERP" compile prog.scm -o prog) > "$COMPILE_LOG" 2>&1; then
     echo "FAIL: kaappi compile against the default (baseline) archive failed" >&2
     cat "$COMPILE_LOG" >&2
     exit 1
 fi
-OUTPUT="$("$DIR/prog" 2>&1)" || true
+if ! grep -q -- '-mcpu=baseline' "$SHIM_LOG"; then
+    echo "FAIL: the zig-cc link route did not pin -mcpu=baseline —" >&2
+    echo "      the program code kaappi compile ships stays host-tuned (kaappi#2531)" >&2
+    echo "argv captured by the shim:" >&2
+    cat "$SHIM_LOG" >&2
+    exit 1
+fi
+
+OUTPUT="$(cd "$DIR" && ./prog 2>&1)"
 if [ "$OUTPUT" != "2531: baseline archive links and runs" ]; then
     echo "FAIL: program linked against the default (baseline) archive did not run" >&2
     echo "full output: $OUTPUT" >&2
@@ -159,4 +196,4 @@ if [ "$OUTPUT" != "2531: baseline archive links and runs" ]; then
     exit 1
 fi
 
-echo "PASS: zig build lib defaults to the baseline CPU ($BASE_MODEL; host is $HOST_MODEL); -Dcpu=native restores host tuning"
+echo "PASS: zig build lib defaults to the baseline CPU ($BASE_MODEL; host is $HOST_MODEL); -Dcpu=native restores host tuning; the zig-cc link pins -mcpu=baseline"

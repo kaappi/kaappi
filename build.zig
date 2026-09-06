@@ -335,6 +335,11 @@ pub fn build(b: *std.Build) void {
         // Optimize the emitted IR — the emitter relies on LLVM to clean up its
         // deliberately naive output; -O0 leaves it all in place (#1492).
         cc_run.addArg("-O2");
+        // `zig cc` with no -mcpu tunes for the build host (kaappi#2531): pin
+        // the emitted IR to the same resolved CPU model the runtime archive
+        // was built with, so `zig build native` output is portable by
+        // default and `-Dcpu=native` host-tunes the whole thing consistently.
+        cc_run.addArg(b.fmt("-mcpu={s}", .{lib_target.result.cpu.model.name}));
         cc_run.addFileArg(ll_output);
         cc_run.addArg("-o");
         const native_output = cc_run.addOutputFileArg("program");
