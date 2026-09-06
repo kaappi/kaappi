@@ -44,9 +44,10 @@ FAIL=0
 # golden on purpose: bundled (command-line) intentionally differs from direct
 # source execution (no script path, kaappi#2010).
 interp_status=0
-# The errfile goes under $DIR, never the fixture tree: interp_stdout would
-# happily write it in the workdir, and a stray file inside the repo changes
-# the build id baked into every .sbc.
+# The errfile goes under $DIR, never the fixture tree: interp_stdout applies
+# the redirect before its cd, so a relative path would land in the script's
+# own cwd (the repo root under run-all.sh) — and a stray file inside the
+# repo changes the build id baked into every .sbc.
 interp_err="$DIR/interp-oracle.err"
 interp_out="$(interp_stdout "$KAAPPI_ABS" "$FIXTURE" "$FIXTURE/main.scm" "$interp_err")" || interp_status=$?
 bundle_status=0

@@ -15,7 +15,9 @@
 # abort. A stub "interpreter" writes a marker to stderr, nothing to stdout,
 # and exits 134; the test asserts the stdout capture and exit-status
 # propagation are unchanged, that the stderr text lands in the errfile and is
-# surfaced by show_interp_stderr, and that a clean run stays silent.
+# surfaced by show_interp_stderr, that the 3-arg form still buries stderr
+# (with the NOISY stub, so a redirect regression cannot pass silently), and
+# that a clean run stays silent.
 #
 # It tests the harness, not the interpreter: the oracle scripts in compile/
 # are the consumers, and their FAIL branches are what must carry the captured
@@ -51,21 +53,36 @@ if [ "$status" -ne 134 ]; then
     exit 1
 fi
 
-# The point of the fix: the stderr text survives in the errfile...
-if ! grep -q "stub panic" "$ERR"; then
+# The point of the fix: the stderr text survives in the errfile... (-s keeps
+# the red path, where the old shell-common.sh never creates the file, down to
+# the one FAIL line that matters.)
+if ! grep -qs "stub panic" "$ERR"; then
     echo "FAIL: interp_stdout dropped the interpreter's stderr (kaappi#2532)" >&2
     exit 1
 fi
-# ...and show_interp_stderr surfaces it on the failure branch.
+# ...and show_interp_stderr surfaces it on the failure branch, under the
+# header that tells a merged CI log what the text is.
 shown=$(show_interp_stderr "$ERR" 2>&1)
-if ! grep -q "stub panic" <<< "$shown"; then
+if ! grep -qs "stub panic" <<< "$shown" \
+    || ! grep -qsF -- "--- interpreter stderr ---" <<< "$shown"; then
     echo "FAIL: show_interp_stderr did not surface the captured stderr" >&2
     show_interp_stderr "$ERR"
     exit 1
 fi
 
-# A quiet run stays quiet, and the 3-arg form (no errfile) keeps working for
-# a caller that passes none.
+# The 3-arg form must keep sending stderr to /dev/null. Prove it with the
+# NOISY stub -- a quiet one could not tell a redirect regression from
+# silence -- by capturing what reaches the CALLER's stderr: nothing may.
+leak="$DIR/three-arg.stderr"
+status=0
+out=$(interp_stdout "$DIR/aborting-kaappi" "$DIR" "prog.scm" 2> "$leak") || status=$?
+if [ -n "$out" ] || [ "$status" -ne 134 ] || [ -s "$leak" ]; then
+    echo "FAIL: 3-arg form must hide stderr: stdout '$out' status $status, leaked:" >&2
+    cat "$leak" >&2
+    exit 1
+fi
+
+# A quiet run stays quiet on both forms.
 cat > "$DIR/quiet-kaappi" << 'EOF'
 #!/bin/sh
 echo "42"

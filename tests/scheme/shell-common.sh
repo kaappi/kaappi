@@ -141,6 +141,15 @@ skip_on_debug_build() {
 # excerpt, the native runtime does not), so a script asserting on a
 # diagnostic's text does that separately, against whichever tier it means.
 # Capturing stderr to SHOW it on failure asserts nothing.
+#
+# The redirect sits on the subshell rather than on the kaappi command: it is
+# set up in the caller's directory (a relative errfile resolves against the
+# script's cwd, not the workdir interp_stdout cds into), and a failed `cd`'s
+# message lands in the errfile too. For errfile callers that is an
+# improvement — the FAIL branch shows it — but the 3-arg form now buries it
+# in /dev/null where it used to reach the script's stderr. Only the
+# kaappi#2532 self-test uses the 3-arg form; don't move the redirect back
+# inside the subshell to "fix" that.
 interp_stdout() {
     (cd "$2" && "$1" "$3") 2> "${4:-/dev/null}"
 }

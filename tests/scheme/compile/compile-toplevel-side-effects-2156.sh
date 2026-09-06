@@ -187,6 +187,10 @@ if assert_tiers_agree "standalone binary vs interpreter" \
     ok "the standalone binary agrees with the interpreter on stdout and exit status"
 else
     FAIL=$((FAIL + 1))
+    # The disagreement can be the interpreter's fault alone — an exit-time
+    # abort after stdout was flushed leaves the oracle's stdout check green
+    # and surfaces only here, as a status mismatch.
+    show_interp_stderr "$interp_err"
 fi
 
 if [ ! -f "$VICTIM" ]; then
