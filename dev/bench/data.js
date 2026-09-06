@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788639339782,
+  "lastUpdate": 1788661561064,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1114b38004df526381db951b49ed7510e5342f45",
-          "message": "Validate array-copy options and combinator function arguments (#2326)\n\nTwo reference-parity guard sets completing the SRFI 231 validation\nwork, both reported by the SRFI's author:\n\n- array-copy/array-copy! validate their own mutable?/safe? options\n  (#2320): mutable? never flows through a validating constructor, so a\n  truthy wrong-typed value silently produced an unfrozen array, and\n  safe? errors were attributed to the inner constructor. %check-boolean!\n  moves to arrays.sld's internal helper exports for views.sld to reuse.\n- array-map, array-for-each, array-fold-left/right, array-any,\n  array-every, array-outer-product, and array-inner-product (f and g)\n  reject non-procedure function arguments at call time (#2321); the\n  lazy combinators previously deferred the failure to first element\n  access, and eager ones succeeded silently over empty domains where f\n  is never invoked. array-reduce already checked.\n\nVerified: all seven tests/scheme/srfi/srfi231-*.scm suites pass, the\nspec document's worked-example corpus still passes, and the reference\ntest suite's 330 error-expectation tests stay 330/330.\n\nCloses #2320\nCloses #2321\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-25T07:04:23Z",
-          "tree_id": "0a80b478bfcc54f58b83555f3a1bc3ca4a96d2f7",
-          "url": "https://github.com/kaappi/kaappi/commit/1114b38004df526381db951b49ed7510e5342f45"
-        },
-        "date": 1787643768212,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.095486,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.00332,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.558496,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.869033,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004882,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046354,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.285346,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.053764,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.363816,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.150976,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.637518,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.303581,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.694811,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.79004,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046079,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045991,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "05e6a544581322c77899f7f8bdc5f979613f5842",
+          "message": "Show the interpreter oracle's stderr on unexpected failure (#2534)\n\n* Show the interpreter oracle's stderr on unexpected failure (#2532)\n\nThe interpreter-oracle helper interp_stdout sent the interpreter's\nstderr to /dev/null by design — the two tiers' diagnostics differ in\nframing, so no script may assert on them. But when an oracle run\naborts (exit 134, SIGABRT) its piped stdout is lost to block\nbuffering, so that dropped stderr was the only datum that could say\nWHY it died. Exactly that happened once on test (ubuntu-latest,\nDebug) to native-set-global-child-thread-2487.sh: the failure could\nnot be localized between \"abort in a race path\" and \"exit-time\nallocator report\" purely for want of the panic text.\n\ninterp_stdout now takes an optional errfile, and show_interp_stderr\nprints it. Every oracle caller under tests/scheme/compile/ passes one\n(under its own mktemp workdir, never inside the repo tree — a dirty\ntree changes the build id baked into every .sbc) and shows it on its\nunexpected-failure branches. The parity rationale is untouched: the\ntext is shown, never asserted on, and a green run stays silent.\n\ntests/scheme/smoke/interp-oracle-stderr-2532.sh is a deterministic\nself-test of the harness change (no real kaappi, following the\nbuild-lock-orphan-2434 shape): a stub interpreter reproduces the CI\nfailure's shape — panic line on stderr, no stdout, exit 134 — and the\ntest asserts the capture and the showing, and that the 3-arg form and\nquiet runs behave as before. Verified red against the old\nshell-common.sh, green after; all 16 touched compile scripts pass\nagainst a fresh build.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Mark the kaappi#2532 self-test executable; review follow-ups\n\nrun-all.sh classifies a shell script without the exec bit as NOTEXEC\nand fails the leg — the new smoke test shipped mode 644 and turned\nevery full-suite CI leg red with \"(not executable)\". It never fired\nlocally because the verification invoked `bash <script>`, which never\nconsults the bit. Now 755 like every sibling .sh.\n\nReview follow-ups (baijum x3, CodeRabbit x2):\n\n- shell-common.sh documents the trade in sitting `2>` on the subshell:\n  a relative errfile resolves against the script's cwd (not the workdir\n  interp_stdout cds into), and a failed `cd`'s message now lands in the\n  errfile — shown for errfile callers, buried in /dev/null for the\n  3-arg form only the self-test uses. The bundle-args comment now\n  states the cwd fact correctly.\n- The self-test keeps its red diagnostic to one line (grep -s on a\n  maybe-missing errfile), asserts the `--- interpreter stderr ---`\n  header in the shown output, and proves the 3-arg form still hides\n  stderr using the NOISY stub — a quiet one could not tell a redirect\n  regression from silence.\n- compile-toplevel-side-effects-2156.sh shows the captured stderr on\n  its tier-disagreement branch as well: an exit-time abort after\n  stdout was flushed passes the oracle's stdout check and surfaces\n  only as the status mismatch assert_tiers_agree reports.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-09-06T07:09:51+05:30",
+          "tree_id": "b172283616fc4135c0aba84b58be94abcd293670",
+          "url": "https://github.com/kaappi/kaappi/commit/05e6a544581322c77899f7f8bdc5f979613f5842"
+        },
+        "date": 1788661558273,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.391171,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.579441,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.577998,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.052991,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004591,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04838,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.304848,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056422,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.888643,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.517304,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.676729,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.287578,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.762134,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.699437,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04661,
             "unit": "seconds"
           }
         ]
