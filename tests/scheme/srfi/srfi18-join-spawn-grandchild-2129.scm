@@ -64,18 +64,36 @@
 ;; whole run is a deref of the middle's retired -- not freed -- heap.
 ;; Allocating also interns symbols through the root's shared table (the
 ;; symbol-table half), so this exercises both halves at once.
+;;
+;; Each grandchild marks its own slot in BUSY-DONE when its allocation loop
+;; finishes, and the bounded wait before test-end below drains them. The
+;; unjoined shape stays -- that is the point of the test -- but the process
+;; no longer exits at a race-dependent moment relative to the grandchildren:
+;; before kaappi#2537, a run where the grandchildren finished just before the
+;; main thread reached the exit path left their heaps in the child registry
+;; (kept deliberately for a join that never comes) and the Debug build's
+;; leak report over 29k retained objects blew the CI leg's whole time budget.
+;; Waiting here makes the full completion path (and the exit sweep of the
+;; unjoined entries) deterministic on every run instead. The slots are
+;; one-element boxes, mutated with set-car! like GG-DONE below: a value a
+;; grandchild stores must be an immediate into a root-heap pair.
+(define busy-done (list (list #f) (list #f) (list #f) (list #f) (list #f) (list #f)))
+(define (busy-done-all?)
+  (let loop ((rest busy-done))
+    (or (null? rest) (and (car (car rest)) (loop (cdr rest))))))
 (define busy-failures 0)
 (let loop ((n 6))
   (when (> n 0)
-    (unless (eq? (run-shape
-                  (lambda ()
-                    (thread-sleep! 0.15)
-                    (let lp ((i 0) (acc '()))
-                      (if (< i 3000)
-                          (lp (+ i 1) (cons (string->symbol (string (integer->char (+ 97 (modulo i 26))))) acc))
-                          'g))))
-                 'plain)
-      (set! busy-failures (+ busy-failures 1)))
+    (let ((idx (- 6 n)))
+      (unless (eq? (run-shape
+                    (lambda ()
+                      (thread-sleep! 0.15)
+                      (let lp ((i 0) (acc '()))
+                        (if (< i 3000)
+                            (lp (+ i 1) (cons (string->symbol (string (integer->char (+ 97 (modulo i 26))))) acc))
+                            (begin (set-car! (list-ref busy-done idx) #t) 'g)))))
+                   'plain)
+        (set! busy-failures (+ busy-failures 1))))
     (loop (- n 1))))
 (test-equal "6 grandchildren keep allocating past the join (safepoints + symbol interning)"
   0 busy-failures)
@@ -129,6 +147,18 @@
   (let ((t (make-thread (lambda () 'plain))))
     (thread-start! t)
     (thread-join! t)))
+
+;; Bounded drain of the busy grandchildren (see BUSY-DONE above): poll until
+;; every grandchild's allocation loop has finished, so the process never
+;; exits while one is mid-loop. The bound exists only so a genuinely stuck
+;; grandchild fails by proceeding (the exit path handles live children
+;; cheaply) instead of hanging the leg; 60s is far beyond what the loops
+;; need even on a Debug build, and in practice the last flag is already set
+;; by the time we get here.
+(let drain ((polls 0))
+  (when (and (not (busy-done-all?)) (< polls 1200))
+    (thread-sleep! 0.05)
+    (drain (+ polls 1))))
 
 (let ((runner (test-runner-current)))
   (test-end "srfi18-join-spawn-grandchild-2129")

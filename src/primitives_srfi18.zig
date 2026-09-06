@@ -125,9 +125,11 @@ const ChildThreadResources = struct {
 // Entries are freed when a thread is joined (freeChildResources called from
 // reapOsThread) or, when the join retires the entry because the thread still
 // has live descendants, by the last descendant's threadEntryFn defer once the
-// subtree drains (#2129). Threads that complete but are never joined leak
-// their child VM and GC — the result must survive until the parent copies it
-// out of its envelope, and automatic cleanup would race with that copy.
+// subtree drains (#2129). Threads that complete but are never joined keep
+// their child VM and GC until process exit -- the result must survive until
+// the parent copies it out of its envelope, and automatic cleanup would race
+// with that copy -- where the exit sweep frees them (kaappi#2537, called
+// from main.zig once no child thread is live).
 const ChildRegistry = struct {
     map: std.AutoHashMap(usize, ChildThreadResources),
     mutex: std.atomic.Mutex,
@@ -208,6 +210,22 @@ const ChildRegistry = struct {
             if (!entry.retired) return null;
         }
         if (self.map.fetchRemove(key)) |kv| return kv.value;
+        return null;
+    }
+
+    // kaappi#2537: pops one exited thread's entry, or null when none remains.
+    // The exit sweep (freeUnjoinedExitedChildResources) pops one at a time so
+    // freeChildResourcesEntry's real work -- two deinits plus frees -- runs
+    // outside the registry lock, same shape as the descendant-drain path.
+    fn removeAnyExited(self: *ChildRegistry) ?ChildThreadResources {
+        memory.spinLock(&self.mutex);
+        defer memory.spinUnlock(&self.mutex);
+        var it = self.map.iterator();
+        while (it.next()) |kv| {
+            if (kv.value_ptr.thread_exited) {
+                return self.map.fetchRemove(kv.key_ptr.*).?.value;
+            }
+        }
         return null;
     }
 };
@@ -1730,6 +1748,50 @@ fn freeChildResourcesEntry(res: ChildThreadResources, heir: ?*memory.GC) void {
     }
     res.child_gc.deinit();
     allocator.destroy(res.child_gc);
+}
+
+/// kaappi#2537: process-exit sweep of threads that completed but were never
+/// joined. The registry deliberately keeps such an entry alive -- its result
+/// envelope must survive until a future thread-join! copies it out -- but at
+/// exit there is no future join, and on a Debug build the retained child
+/// GC/VM surfaced as 29,366 DebugAllocator leak entries at da.deinit() for
+/// srfi18-join-spawn-grandchild-2129.scm, each symbolized through DWARF,
+/// which alone blew the Debug CI leg's whole 240s budget. Freeing here is
+/// what the exit path should have done all along: the same teardown a join
+/// performs, once it is certain no join will ever come.
+///
+/// Must only be called when no child thread is live -- main.zig's exit defer
+/// calls it in its hasLiveChildThreads() == false branch. That branch is what
+/// makes every remaining entry safe to free: a thread between its
+/// child_registry.put and threadEntryFn's markExited defer holds the live
+/// count throughout, so at count zero every entry in the map has exited. The
+/// thread_exited check stays as a floor anyway -- if a future ordering change
+/// ever breaks that invariant, skipping the entry degrades back to a leak
+/// report, never to freeing a running thread's GC/VM out from under it.
+///
+/// Returns how many entries were freed (unit-test seam).
+pub fn freeUnjoinedExitedChildResources() usize {
+    var freed: usize = 0;
+    while (child_registry.removeAnyExited()) |res| {
+        // A completed-unjoined thread's result/exception envelopes were never
+        // consumed by a join. They point into the child heap being freed, so
+        // there is nothing to copy out -- release them exactly as reapOsThread
+        // would have, then drop the entry.
+        switch (res.result) {
+            .envelope => |env| env.deinit(),
+            .none, .failed => {},
+        }
+        switch (res.exception) {
+            .envelope => |env| env.deinit(),
+            .none, .failed => {},
+        }
+        // Null heir, like the descendant-drain free: the process is
+        // quiescent, so there is no concurrent collection to protect and no
+        // parent that could still dereference this heap.
+        freeChildResourcesEntry(res, null);
+        freed += 1;
+    }
+    return freed;
 }
 
 fn threadJoinResult(target: *fiber_mod.Fiber) PrimitiveError!Value {
