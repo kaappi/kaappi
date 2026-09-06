@@ -196,6 +196,14 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
     defer if (primitives_srfi18.hasLiveChildThreads()) {
         std.c._exit(if (toplevel_driver.script_had_error) 1 else 0);
     } else {
+        // kaappi#2537: with no live children, every entry left in the child
+        // registry belongs to a thread that completed but was never joined --
+        // its GC/VM were deliberately retained for a future thread-join! that
+        // can no longer happen. Free them here; otherwise a Debug build's
+        // leak-tracking allocator reports every object in those heaps at
+        // da.deinit() below, and symbolizing tens of thousands of stack
+        // traces blew the Debug CI leg's whole time budget.
+        _ = primitives_srfi18.freeUnjoinedExitedChildResources();
         vm.deinit();
         allocator.destroy(vm);
         gc.deinit();

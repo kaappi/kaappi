@@ -1128,6 +1128,39 @@ test "kaappi#2473: thread-start! unwinds extra_roots when the spawn setup fails"
     try std.testing.expectEqual(before, gc.extra_roots.items.len);
 }
 
+// kaappi#2537: a thread that completes but is never joined keeps its
+// child_registry entry -- its result envelope must survive a future join --
+// so at process exit a Debug build's leak-tracking allocator reported every
+// object in its GC/VM as a leak: 29,366 entries for
+// srfi18-join-spawn-grandchild-2129.scm, each symbolized through DWARF,
+// which alone blew the Debug CI leg's whole 240s budget. The exit sweep must
+// free exactly those entries. The testing allocator is the second detector:
+// the child GC/VM are allocated from the root GC's allocator, so an entry
+// the sweep skips fails ctx.deinit's leak check.
+test "kaappi#2537: exit sweep frees a completed-unjoined thread's registry entry" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // thread-start! is unregistered on wasm
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    _ = try ctx.vm.eval("(define sweep-t (make-thread (lambda () 'swept)))");
+    _ = try ctx.vm.eval("(thread-start! sweep-t)");
+    // The sweep may only run once no child is live (main.zig calls it in the
+    // hasLiveChildThreads() == false branch). The live count is held from
+    // before the spawn until after the child's markExited defer, so false
+    // here means the entry exists and its thread has fully exited.
+    var spins: u32 = 0;
+    while (srfi18.hasLiveChildThreads()) : (spins += 1) {
+        if (spins >= 10_000) return error.ChildThreadNeverExited;
+        platform.sleepNs(std.time.ns_per_ms);
+    }
+    // Exactly one: every other thread test in this file joins its thread, so
+    // the only entry is this test's. Equality surfaces a future test that
+    // starts leaving entries behind instead of absorbing it.
+    try std.testing.expectEqual(@as(usize, 1), srfi18.freeUnjoinedExitedChildResources());
+    // Everything exited is gone after one pass; nothing can be freed twice.
+    try std.testing.expectEqual(@as(usize, 0), srfi18.freeUnjoinedExitedChildResources());
+}
+
 // kaappi#2483: the globals generation counter was a per-VM field, and
 // VM.initForThread neither copied nor shared it, so a child thread's
 // per-function global caches were invalidated only by the child's OWN
