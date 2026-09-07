@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788730698923,
+  "lastUpdate": 1788753704399,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1f25ba20352041584c556310d60af966284a5dfb",
-          "message": "Let --lib-path shadow a bundled (srfi N) (#2323)\n\nresolveLibraryPath probed the cwd-relative \"\" and \"lib/\" prefixes before any\n--lib-path entry, so a bundled library under ./lib silently beat a --lib-path\ndir meant to override it. That made A/B comparisons of two implementations of\nthe same SRFI vacuous: the bundled copy was measured while the run looked like\nit used the shadow. Both `kaappi --help` and CLAUDE.md document --lib-path as\ntaking precedence (auto-added dirs come after it), so search every lib_paths\nentry before the cwd fallbacks. findBundledSource is reordered to match its\n\"same search order\" contract.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-25T16:00:39+05:30",
-          "tree_id": "56143b3475b956b8f931fca125ebb609cf8684d3",
-          "url": "https://github.com/kaappi/kaappi/commit/1f25ba20352041584c556310d60af966284a5dfb"
-        },
-        "date": 1787664299030,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.341604,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.597664,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.595669,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.049427,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005368,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.048733,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.309855,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056107,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.760444,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.208382,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.702729,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.287283,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.82852,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.715114,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045704,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046047,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "77bc7cec9c8e8475b33e33cdb4f60c9f98215ab6",
+          "message": "Add differential testing of SRFI 231 against the reference implementation (#2541)\n\n* Add differential testing of SRFI 231 against the reference implementation\n\nThe official conformance suite encodes the reference implementation's\nanswers on the inputs its author wrote down; it cannot see a property\nits cases never exercise. kaappi#2539 -- array-copy breaking the spec's\nown definition of call/cc-safe -- passed all 10,936 of its evaluations.\nFixed cases find bugs at the rate of ideas; generated inputs find them\nat the rate of inputs.\n\ntools/srfi231_diff.py generates random SRFI 231 programs from a seed,\nruns each under Kaappi and an oracle, and reports every program whose\nprinted output differs. The oracle is the reference itself -- this\nSRFI's documented rule is \"when prose and reference code disagree, trust\nthe code\" -- as Gambit bundles it, with chibi's independent port as a\ntie-breaker. The first mode, reshape, chains view operations (extract,\ntranslate, permute, reverse, sample, curry-pick, tile-pick, copy, and\nspecialized-array-reshape with and without copy-on-failure?) over one\nspecialized array, printing domain, array-packed?, mutability and\ncontents after every step, then writes through the final view and\nprints the base to compare body sharing. Every step is guarded, so\nwhether a step errors is compared too. It is biased toward the affine\nboundary -- merging axes whose strides no longer chain after a permute\nor sample -- because that is where the reshape implementation reasons\nabout index arithmetic instead of mirroring the reference's structure.\n\nFirst run: 1,500 cases against Gambit 4.9.8, zero mismatches. Against\nchibi 0.12 the only mismatches are chibi's own: its port raises on a\ncopy-on-failure? #t reshape that needs the copy, where the spec, Gambit\nand Kaappi return one. That is recorded as a known oracle divergence so\nnobody chases it.\n\nNot part of run-all.sh: it needs an oracle installed and a useful run\ntakes minutes. Documented in docs/dev/testing.md beside the official\nsuite, with a pointer from the SRFI 231 implementation notes.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Add the storage-class mode to the SRFI 231 differential tester\n\nOne storage class per case, through everything that consults its\nchecker, getter and setter: the checker's verdict on boundary and\nwrong-typed values, make-specialized-array with an initial value,\narray-set! directly and through a reversed extract, array-copy,\nlist->array and vector->array from a generic source, array-assign! into\na view, and storage-class-length of the body. Every value is\ncanonicalized before printing -- finite reals as exact rationals,\ncomplex as a pair of those, chars as code points -- so f16/f32 rounding\nis compared bit-exactly and Gambit's `.5` never differs textually from\nKaappi's `0.5`. `--classes u1,f16` narrows the draw.\n\nTwo oracle divergences had to be neutralized first. Gambit's bundled\ncopy of the reference flips specialized-array-default-safe? to #t,\nagainst the spec (\"initially returns #f\") and the SRFI repository's own\ncopy of the same file, so the storage prelude pins it to #f. And chibi\ndefines a real f8-storage-class where the spec lets it, so that probe\nis gone.\n\nFirst results against Gambit: 400 cases over all 16 classes, every\nmismatch on c64/c128 and every one the same finding, filed as\nkaappi#2542 -- the reference's checker rejects a real flonum because\nGambit's imag-part returns an exact 0, and Kaappi's identical checker\naccepts it because its imag-part returns 0.0 (R7RS allows either). A\nfurther 120 cases over the other 14 classes, u1 bit packing and f16\nhalf-floats included: zero mismatches.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Canonicalize infinities and exact complex values in the SRFI 231 differential tester\n\nchibi writes the symbols +inf and -inf as |+inf| and |-inf| because they\nlook numeric, and writes the exact complex +i as 0+i, so the storage\nmode's canonical form printed differently there for reasons that had\nnothing to do with arrays. Infinities and nan are now tagged lists and\nexact complex numbers are decomposed like inexact ones. The remaining\nchibi-only storage mismatches are its port's own checker bugs (u16\naccepts 65536, u64 accepts negatives), noted in the docstring; Gambit\ncontradicts each.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review on the SRFI 231 differential tester\n\nA timeout was classified like any other nonzero exit, so one side\nhanging with the same partial output as the other side's error counted\nas a match -- the one case a differential tool must never hide. A\ntimeout on either side is now always a mismatch, reported as such.\n\nThe work dir (generated cases plus the warm KAAPPI_HOME cache, 1-6 MB\nper run) was never removed, and the default save dir was created even\non a clean run and only named on a mismatch, so clean runs left an\nempty anonymous dir behind. Following tools/fmt_fuzz.py: the work dir\nis removed in a finally, --keep opts out, and the save dir is created\non the first mismatch. Both binaries are checked up front, so a Linux\nbox without /opt/homebrew/bin/gsi or an unbuilt worktree gets one line\ninstead of a traceback after generating the first case.\n\nchibi's u1 checker is memv-shaped and returns the tail rather than a\nboolean, which fired on every u1 storage case before anything about\narrays was compared. The storage mode now prints only the boolean\nverdict, so that spelling difference is invisible while every semantic\nverdict difference (u16 accepting 65536, u64 accepting negatives, c64\naccepting reals) still fires; the known-divergence list gains it, and\nchibi's unvalidated initial values, which the PR description mentioned\nand the docstring did not.\n\nAlso: the reshape prelude now says why it leaves\nspecialized-array-default-safe? unpinned where the storage prelude pins\nit (nothing in that mode observes the flag), and Chain.terminal is\nconstructor state instead of a getattr default.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-07T03:16:06Z",
+          "tree_id": "dd33652f4564d20b0a8d3f3c40cd86f127844448",
+          "url": "https://github.com/kaappi/kaappi/commit/77bc7cec9c8e8475b33e33cdb4f60c9f98215ab6"
+        },
+        "date": 1788753701998,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.102008,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.045275,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.562297,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.894649,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00466,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048448,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.294034,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054063,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.468905,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.154831,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.633721,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.30062,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.652067,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.778756,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046059,
             "unit": "seconds"
           }
         ]
