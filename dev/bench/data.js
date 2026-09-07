@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788766698015,
+  "lastUpdate": 1788781817643,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "7a82c59384a4391cd8d03def81843a4b20dfa213",
-          "message": "Correct fuzz.yml gc-stress timeout and stale wall-time comment (#2307)\n\n* Correct fuzz.yml gc-stress timeout and stale wall-time comment\n\nThe gc-stress legs budgeted timeout: 300 minutes on the strength of a\ncomment claiming the pre-fuzz unit phase takes ~35 min locally and to\nbudget more on a hosted runner. Measured whole-leg wall time (checkout,\nZig install, build, full unit suite, and the bounded fuzz runs) is\n10-13 min on the hosted runner (#2164) — the ~35 min figure predates\n#1802/#1804/#1809, when ReleaseSafe stopped 0xAA-filling '= undefined'\nbuffers. A 300-minute budget is a five-hour non-bound: a livelocked\ncollector would sit for hours before the runner killed it. Lower both\nlegs to 45 min (generous headroom over 10-13 min without being absurd)\nand rewrite the comment to cite the real measurement. Run counts\nunchanged.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Set gc-stress timeout to 60 min over the 11-40 min observed range\n\nIssue #2164 measured the whole gc-stress leg at 10-13 min (Aug 1, 2026),\nbut the Aug 11-25 runs measure 11-40 min per leg (median ~20, worst 40.2\non Aug 20) as the suite and corpus grow. 45 min left only ~12% headroom\nover the worst observed leg; 60 restores ~50% while still cutting a\nlivelocked collector from 5 h to 1 h. Comment now cites both ranges.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-25T16:00:54+05:30",
-          "tree_id": "3683cfbab138feb618e446a4c353e4c5cde86aa8",
-          "url": "https://github.com/kaappi/kaappi/commit/7a82c59384a4391cd8d03def81843a4b20dfa213"
-        },
-        "date": 1787665616990,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.333128,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.002368,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.601614,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.114036,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004801,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.048231,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.309203,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.055504,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.725545,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.22227,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.687065,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.287048,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.82399,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.695063,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045137,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045772,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0555079e2ee502454eaa267d8ba23d3aaeb32ad7",
+          "message": "Add the call/cc mode to the SRFI 231 differential tester (#2544)\n\n* Add the call/cc mode to the SRFI 231 differential tester\n\nThe spec promises that every procedure without a trailing ! is call/cc\nsafe -- \"does not modify the state of any data captured by a\ncontinuation\" -- and kaappi#2539 showed how a single re-entry test\ncannot check that promise: the official suite's own continuation cases\npassed over a shared scratch vector. This mode generalizes the #2539\ndriver. One accumulating or callback-taking procedure per case\n(array-copy, the list/vector conversions and their * forms, the array\nand interval folds, array-reduce, array-every, array-any,\narray-for-each, array-map under a copy, and\narray-stack/append/block/decurry) runs with two continuations captured\non the first pass at random positions, then re-invoked with random\nvalues in a random order, and the whole result history is compared.\nThe capture sits either in the source array's getter or in the callback\nitself (fold kernel, predicate, operator), and an escape-out variant\nthrows to an outer continuation from inside the walk and then runs the\nprocedure again. The driver is one procedure body, so a re-entered\ncontinuation resumes inside that frame and never re-executes a\ntop-level form.\n\nNegative control: against the library as it was before kaappi#2540\n(scratch-vector array-copy, set!-cell folds) the mode mismatches on 25\nof 60 cases, across exactly the families that fix changed -- copy, the\nconversions, both folds, reduce, map under copy, and all four assembly\nprocedures that delegate to array-copy. Against main, 40 of 40 clean.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Fix two callcc-mode templates and record chibi's array-copy divergence\n\nThe block family built a 1-D outer array of blocks for 2-D pieces;\narray-block requires the outer array to have the pieces' rank, so both\nimplementations rejected it and the only \"difference\" was Gambit\nprinting the error on stdout. The outer array is now 2 x 1 x ... x 1.\n\nThe for-each families accumulated with (set! acc (cons (h x) acc)),\nwhich reads acc before or after the capture depending on the\nimplementation's argument evaluation order -- unspecified by R7RS, and\nchibi's is right-to-left -- so a legal answer differed by construction.\nThe hook's value is now bound before acc is read.\n\nWhat remains chibi-only is a finding: its array-copy into a typed\nstorage class, or of an array-map result, keeps a value written by an\nearlier re-entry across a second continuation -- the kaappi#2539 shape,\na shared scratch behind a call/cc-safe procedure -- where Gambit and\nKaappi rebuild from the captured prefix. Recorded with the other chibi\ndivergences.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Record chibi's set!-cell fold-right in the callcc divergence note\n\nGambit sides with Kaappi on all 21 chibi-only callcc mismatches; besides\narray-copy, chibi's array-fold-right and interval-fold-right accumulate\nthrough a set! cell, so a re-entry conses onto the whole first run's\nlist -- the shape kaappi#2540 removed here.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review on the callcc mode\n\nA schedule step whose continuation was never captured -- array-any past\nits short-circuit point, array-reduce seeded from element 0 so the hook\nfirst runs at element 1 -- returned from the driver and silently\ndropped every later step, including ones whose own continuation was\ncaptured. The driver now skips such a step and goes on to the next, and\nprints which of the two continuations were captured, so a degenerate\ncase shows in its own output and a differing short-circuit point or\nfold seeding becomes a differential signal in its own right.\n\nAlso: the {N} placeholder was documented and passed but used by no\ntemplate, so it is gone; the map2-copy family says why passing the\nsame source twice is benign (both calls carry the same position and +\ncommutes) and what a mismatch there would mean; and testing.md names\nthe library state by the fix (#2540), not the issue.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-07T11:06:16Z",
+          "tree_id": "48042d9a3b2702f2b034e94c3e912426df0f321a",
+          "url": "https://github.com/kaappi/kaappi/commit/0555079e2ee502454eaa267d8ba23d3aaeb32ad7"
+        },
+        "date": 1788781816318,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.454281,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.639078,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.603236,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.764972,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004564,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.04874,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.311612,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056362,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.922231,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.28725,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.67428,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.288628,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.737363,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.722591,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046352,
             "unit": "seconds"
           }
         ]
