@@ -923,7 +923,23 @@ from a functional accumulator — the official suite's own continuation cases
 drive two continuations, each invoked twice — and `tools/srfi231_diff.py`
 (`docs/dev/testing.md`) now generates random view/reshape programs and diffs
 Kaappi against the reference under Gambit, for the properties fixed cases
-cannot see. `array-copy` of a non-specialized
+cannot see. The tester's first find (kaappi#2542) is the imag-part
+convention leaking through the reference's own code: its c64/c128 checker
+is textually `(and (complex? obj) (inexact? (real-part obj)) (inexact?
+(imag-part obj)))`, but Gambit's exact-0 `(imag-part 1.0)` makes it reject
+a bare real flonum that Kaappi's equally R7RS-legal inexact `0.0` accepted
+— so the shipped checker carries an explicit `(not (real? x))`, encoding
+the reference's verdict under either convention (a `1.0+0.0i` with a real
+inexact-zero imaginary part is still accepted). A residual the checker
+cannot reach: a mixed-exactness complex (`1+2.0i`,
+`(make-rectangular 1 2.0)`) keeps an exact real part under Gambit, so the
+reference rejects it, while Kaappi's complex representation makes
+exactness contagious — both parts are inexact before any checker runs —
+and accepts it (chibi accepts it as well, through a checker that is not
+the reference's). R7RS-legal on both; if the tester's value pool
+ever grows a mixed-exactness literal, the Kaappi-accepts/Gambit-rejects
+verdict it will surface is this known residual, not a new bug.
+`array-copy` of a non-specialized
 source is therefore the reference's exact shape (reversed list, then a body
 filled by linear position). A specialized source takes the direct fill, as in
 the reference's `%!array-copy` — a deliberate, documented exception: a

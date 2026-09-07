@@ -56,10 +56,13 @@ Modes
 Known oracle divergences. Gambit's bundled reference flips the initial
 value of `specialized-array-default-safe?` to #t (spec and the SRFI
 repository's copy: #f); the storage mode pins it to #f in its prelude.
-Kaappi's own open divergence kaappi#2542 (c64/c128 checkers accept real
-flonums, the reference rejects them) surfaces as `check` mismatches on those
-two classes; use `--classes` to exclude them until it is fixed, since a
-program's first difference hides everything after it. And chibi 0.12's port raises on a `copy-on-failure? #t`
+kaappi#2542 (the c64/c128 checkers accepted real flonums, which the
+reference rejects) used to surface as `check` mismatches on those two
+classes; before kaappi#2543 fixed it, the workaround was excluding them
+with `--classes`, and both are back in the default draw. Since a
+program's first difference hides everything after it, `--classes` is
+still the way to focus a run on the classes you care about.
+And chibi 0.12's port raises on a `copy-on-failure? #t`
 reshape that needs the copy, where the spec (and Gambit, and Kaappi) return a
 copy -- expect that mismatch shape with `--oracle chibi` (seeds 5227 and 5248
 of the reshape mode show it) and confirm against Gambit before chasing it.
