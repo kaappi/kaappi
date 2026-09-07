@@ -392,7 +392,7 @@ class Chain:
         return "\n".join(self.lines) + "\n"
 
 
-def gen_reshape(seed, classes=None):
+def gen_reshape(seed, classes=None, spec=None):
     rng = random.Random(seed)
     c = Chain(rng)
     ops = [c.op_extract, c.op_translate, c.op_permute, c.op_permute, c.op_reverse,
@@ -484,7 +484,7 @@ def value(rng, cls):
     return likely_valid(rng, cls) if rng.random() < 0.7 else any_value(rng)
 
 
-def gen_storage(seed, classes=None):
+def gen_storage(seed, classes=None, spec=None):
     rng = random.Random(seed)
     cls = rng.choice(classes or CLASSES)
     sc = f"{cls}-storage-class"
@@ -651,7 +651,7 @@ CALLCC_FAMILIES = [
 ]
 
 
-def gen_callcc(seed, classes=None):
+def gen_callcc(seed, classes=None, spec=None):
     rng = random.Random(seed)
     # a small domain: 1-D of 4..6, or 2-D 2x2 / 2x3 / 3x2, lower bounds 0
     shape = rng.choice([[4], [5], [6], [2, 2], [2, 3], [3, 2]])
@@ -718,8 +718,16 @@ PROSE_PRELUDE = """\
                          (else (exact v))))
         ((number? v) (list 'c (render (real-part v)) (render (imag-part v))))
         ((char? v) (list 'ch (char->integer v)))
-        ((u16vector? v) (list 'u16 (u16vector->list v)))
+        ;; every SRFI 4 body type, so a body an example displays never
+        ;; reaches write (whose float spelling differs)
         ((u8vector? v) (list 'u8 (u8vector->list v)))
+        ((s8vector? v) (list 's8 (s8vector->list v)))
+        ((u16vector? v) (list 'u16 (u16vector->list v)))
+        ((s16vector? v) (list 's16 (s16vector->list v)))
+        ((u32vector? v) (list 'u32 (u32vector->list v)))
+        ((s32vector? v) (list 's32 (s32vector->list v)))
+        ((u64vector? v) (list 'u64 (u64vector->list v)))
+        ((s64vector? v) (list 's64 (s64vector->list v)))
         ((f32vector? v) (render (list 'f32 (f32vector->list v))))
         ((f64vector? v) (render (list 'f64 (f64vector->list v))))
         (else v)))
@@ -794,7 +802,7 @@ def tokenize_scheme(src):
         elif c in ")]":
             yield ("close", i, i + 1)
             i += 1
-        elif c == "#" and i + 1 < n and (src[i + 1] == "(" or re.match(r"[usfc]\d+\(", src[i + 1:i + 5])):
+        elif c == "#" and i + 1 < n and (src[i + 1] == "(" or re.match(r"[usfc]\d+\(", src[i + 1:])):
             j = src.index("(", i)
             yield ("open", i, j + 1)
             i = j + 1
@@ -836,8 +844,9 @@ def parse_scheme(src):
         kind, a, b = toks[pos]
         if kind == "datum-comment":
             pos += 1
-            datum()
-            return datum() if pos < len(toks) else None
+            if pos < len(toks):
+                datum()
+            return None
         if kind == "prefix":
             pos += 1
             inner = datum()
@@ -1092,7 +1101,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("mode", choices=sorted(MODES))
     ap.add_argument("--seed", type=int, default=1)
-    ap.add_argument("--count", type=int, default=100)
+    ap.add_argument("--count", type=int, default=None,
+                    help="cases to run (default 100; prose: every remaining example)")
     ap.add_argument("--oracle", choices=["gambit", "chibi"], default="gambit")
     ap.add_argument("--kaappi", default=os.path.join(ROOT, "zig-out", "bin", "kaappi"))
     ap.add_argument("--gsi", default=shutil.which("gsi") or "/opt/homebrew/bin/gsi")
@@ -1119,15 +1129,14 @@ def main():
 
     if args.mode == "prose":
         revision, examples, _ = load_prose(args.spec)
-        if "--count" not in " ".join(sys.argv):
-            args.count = len(examples) - args.seed + 1
-        args.count = max(0, min(args.count, len(examples) - args.seed + 1))
+        remaining = len(examples) - args.seed + 1
+        args.count = remaining if args.count is None else max(0, min(args.count, remaining))
         print(f"prose: {len(examples)} code examples, {revision}")
+    elif args.count is None:
+        args.count = 100
 
     def gen(seed):
-        if args.mode == "prose":
-            return gen_prose(seed, classes, args.spec)
-        return MODES[args.mode](seed, classes)
+        return MODES[args.mode](seed, classes, args.spec)
 
     if args.print:
         sys.stdout.write(gen(args.seed))
@@ -1157,6 +1166,9 @@ def run(args, gen, oracle_cmd, work):
     save = args.save  # created on the first mismatch, so a clean run leaves nothing behind
 
     mismatches = 0
+    skipped = 0
+    silent = 0   # programs that printed no value at all (definitions only)
+    vacuous = 0  # programs whose every printed value was ERROR
     for seed in range(args.seed, args.seed + args.count):
         prog = gen(seed)
         path = os.path.join(work, f"{args.mode}-{seed}.scm")
@@ -1170,6 +1182,17 @@ def run(args, gen, oracle_cmd, work):
         timed_out = kc is TIMED_OUT or oc is TIMED_OUT
         same = (not timed_out and normalize(ko) == normalize(oo)
                 and (kc == 0) == (oc == 0))
+        # equal output is not the same as a comparison: a program whose
+        # values are all ERROR on both sides (a prose fragment with free
+        # variables, or a broken prelude) agrees trivially, and a summary
+        # of "0 mismatches" must not hide that
+        lines = [ln for ln in normalize(ko).splitlines() if ln and ln != "end"]
+        if any(ln.startswith("skipped ") for ln in lines):
+            skipped += 1
+        elif not lines:
+            silent += 1
+        elif all(ln.endswith("ERROR") for ln in lines):
+            vacuous += 1
         if same:
             continue
         mismatches += 1
@@ -1199,8 +1222,12 @@ def run(args, gen, oracle_cmd, work):
         else:
             print(f"  exit codes differ: kaappi {kc}, {args.oracle} {oc}; stderr: {ke.strip()[:200]} | {oe.strip()[:200]}")
 
+    note = ""
+    if skipped or silent or vacuous:
+        note = (f"; {skipped} skipped, {silent} printed no value (definitions only), "
+                f"{vacuous} compared nothing (every value ERROR on both sides)")
     print(f"{args.mode}: {args.count} cases from seed {args.seed}, oracle {args.oracle}, "
-          f"{mismatches} mismatches" + (f" saved under {save}" if mismatches else ""))
+          f"{mismatches} mismatches" + (f" saved under {save}" if mismatches else "") + note)
     return 1 if mismatches else 0
 
 
