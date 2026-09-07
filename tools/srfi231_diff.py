@@ -62,6 +62,8 @@ program's first difference hides everything after it. And chibi 0.12's port rais
 reshape that needs the copy, where the spec (and Gambit, and Kaappi) return a
 copy -- expect that mismatch shape with `--oracle chibi` (seeds 5227 and 5248
 of the reshape mode show it) and confirm against Gambit before chasing it.
+Its storage classes have checker bugs of their own (u16 accepts 65536, u64
+accepts negatives, c64 accepts a real flonum), all contradicted by Gambit.
 
 Each case is a pure function of (mode, seed); `--seed N --count K` runs seeds
 N..N+K-1. Mismatches are saved as <save-dir>/<mode>-<seed>.scm with the two
@@ -361,12 +363,14 @@ STORAGE_PRELUDE = PRELUDE.replace(
 ;; 0.5 and 1.0), so print every value in a representation both write
 ;; identically: finite reals as exact rationals (bit-exact, so f16/f32
 ;; rounding is compared precisely), complex as a tagged pair of those,
-;; chars as code points, nested lists recursively
+;; chars as code points, nested lists recursively; infinities and nan as
+;; tagged lists rather than symbols, which chibi would write as |+inf|
 (define (canon v)
-  (cond ((and (number? v) (exact? v)) v)
-        ((real? v) (cond ((nan? v) 'nan)
-                         ((infinite? v) (if (> v 0) '+inf '-inf))
+  (cond ((and (real? v) (exact? v)) v)
+        ((real? v) (cond ((nan? v) '(nan))
+                         ((infinite? v) (if (> v 0) '(inf 1) '(inf -1)))
                          (else (exact v))))
+        ;; exact complex too: chibi writes 0+1i as 0+i, Kaappi as +i
         ((number? v) (list 'c (canon (real-part v)) (canon (imag-part v))))
         ((char? v) (list 'ch (char->integer v)))
         ((pair? v) (cons (canon (car v)) (canon (cdr v))))
