@@ -26,8 +26,25 @@ tests/scheme/srfi/, with the seed in the comment so they replay:
     tools/srfi231_diff.py storage --count 400               # all 16 storage classes
     tools/srfi231_diff.py storage --classes u1,f16 --count 200
     tools/srfi231_diff.py storage --count 50 --keep         # keep the work dir
+    tools/srfi231_diff.py callcc --count 300                # continuation re-entry
 
 Modes
+  callcc   Call/cc safety of every accumulating or callback-taking non-!
+           procedure -- the spec's promise that such procedures "do not
+           modify the state of any data captured by a continuation". One
+           procedure per case (array-copy, array->list/vector and their *
+           forms, the array and interval folds, array-reduce, array-every,
+           array-any, array-for-each, array-map under array-copy, and
+           array-stack/append/block/decurry) is driven by the kaappi#2539
+           schedule generalized: two continuations captured on the first
+           run at random positions, then re-invoked with random values in
+           a random order, the whole result history printed at the end.
+           The capture sits either in the source array's getter or in the
+           callback itself (fold kernel, predicate, operator), and an
+           escape-out variant invokes an outer continuation from inside
+           the walk and then runs the procedure again. One re-entry cannot
+           tell a shared accumulator from a functional one; the second
+           can, which is how #2539 passed the official suite's own cases.
   storage  One storage class per case, through everything that consults its
            checker, getter and setter: the checker's verdict on boundary and
            wrong-typed values, make-specialized-array with an initial value,
@@ -502,7 +519,128 @@ def gen_storage(seed, classes=None):
     return "\n".join(L) + "\n"
 
 
-MODES = {"reshape": gen_reshape, "storage": gen_storage}
+# --- the call/cc-mode generator ----------------------------------------------
+
+CALLCC_PRELUDE = """\
+(import (scheme base) (scheme write) (srfi 231))
+(define (show . xs) (for-each (lambda (x) (write x) (display " ")) xs) (newline))
+;; The kaappi#2539 driver, generalized. `collect` is a procedure of one
+;; argument: a hook (lambda (x) ...) that returns x, which the case
+;; threads into the source array's getter or into the callback under
+;; test. On the FIRST run the hook captures its continuation at two
+;; positions; afterwards the schedule re-invokes those continuations with
+;; fresh values in the generated order, and every result the procedure
+;; returned -- first run and each re-entry -- is recorded. All of it is
+;; one procedure body, so a re-entered continuation resumes inside this
+;; frame and never re-executes a top-level form. The schedule index and
+;; the result list are shared mutable state on purpose: that is the
+;; caller's own state, which each re-entry is meant to see.
+(define (drive collect p1 p2 schedule)
+  (let* ((cont1 #f) (cont2 #f) (first-run? #t) (i 0) (results '())
+         (hook (lambda (x)
+                 (call-with-current-continuation
+                  (lambda (c)
+                    (if first-run?
+                        (cond ((= x p1) (set! cont1 c))
+                              ((= x p2) (set! cont2 c))))
+                    x)))))
+    (let ((r (collect hook)))
+      (set! first-run? #f)
+      (set! results (cons r results)))
+    (if (< i (length schedule))
+        (let ((step (list-ref schedule i)))
+          (set! i (+ i 1))
+          (if (= (car step) 1)
+              (if cont1 (cont1 (cdr step)) 'never-captured)
+              (if cont2 (cont2 (cdr step)) 'never-captured))))
+    (reverse results)))
+;; escape variant: the hook throws to a continuation OUTSIDE the
+;; procedure under test at position p1, then the same procedure is run
+;; again with an identity hook -- the escape must not have left it or
+;; its inputs in a state the second run can observe
+(define (escape collect p1)
+  (list (call-with-current-continuation
+         (lambda (k)
+           (collect (lambda (x) (if (= x p1) (k (list 'escaped x)) x)))))
+        (collect (lambda (x) x))))
+"""
+
+# Each family is (name, template). In the template, {A} is the source
+# array expression and {H} the hook; a template that uses {H} directly
+# puts the capture in the callback, one that only uses {A} relies on the
+# getter capture. {IV} is the domain, {L} a lambda mapping a multi-index
+# to its linear position (so a capture position means the same thing in
+# every dimension), {N} the volume.
+CALLCC_FAMILIES = [
+    # capture in the source array's getter
+    ("copy", "(array->list* (array-copy {A}))"),
+    ("copy-typed", "(array->list* (array-copy {A} s32-storage-class))"),
+    ("->list", "(array->list {A})"),
+    ("->vector", "(array->vector {A})"),
+    ("->list*", "(array->list* {A})"),
+    ("->vector*", "(array->vector* {A})"),
+    ("fold-left", "(reverse (array-fold-left (lambda (acc x) (cons x acc)) '() {A}))"),
+    ("fold-right", "(array-fold-right cons '() {A})"),
+    ("reduce", "(array-reduce + {A})"),
+    ("every", "(array-every list {A})"),
+    ("any", "(array-any (lambda (x) (and (>= x 2) (list x))) {A})"),
+    ("for-each", "(let ((acc '())) (array-for-each (lambda (x) (set! acc (cons x acc))) {A}) (reverse acc))"),
+    ("map-copy", "(array->list* (array-copy (array-map (lambda (x) (* 2 x)) {A})))"),
+    ("map2-copy", "(array->list* (array-copy (array-map + {A} {A})))"),
+    ("stack", "(array->list* (array-stack 0 (list {A} (make-array {IV} (lambda idx 99)))))"),
+    ("append", "(array->list* (array-append 0 (list {A} (make-array {IV} (lambda idx 99)))))"),
+    ("block", "(array->list* (array-block (list->array (make-interval '#(2)) (list (array-copy {A}) (array-copy {A})))))"),
+    ("decurry", "(array->list* (array-decurry (list->array (make-interval '#(2)) (list {A} (make-array {IV} (lambda idx 99))))))"),
+    ("interval-fold-left", "(reverse (interval-fold-left (lambda idx ({H} ({L} idx))) (lambda (acc x) (cons x acc)) '() {IV}))"),
+    ("interval-fold-right", "(interval-fold-right (lambda idx ({H} ({L} idx))) cons '() {IV})"),
+    ("interval-for-each", "(let ((acc '())) (interval-for-each (lambda idx (set! acc (cons ({H} ({L} idx)) acc))) {IV}) (reverse acc))"),
+    # capture in the callback, over a plain (non-capturing) array
+    ("kernel-fold-left", "(reverse (array-fold-left (lambda (acc x) (cons ({H} x) acc)) '() {P}))"),
+    ("kernel-fold-right", "(array-fold-right (lambda (x acc) (cons ({H} x) acc)) '() {P})"),
+    ("kernel-reduce", "(array-reduce (lambda (a b) (+ a ({H} b))) {P})"),
+    ("kernel-every", "(array-every (lambda (x) (list ({H} x))) {P})"),
+    ("kernel-any", "(array-any (lambda (x) (let ((y ({H} x))) (and (>= y 2) (list y)))) {P})"),
+    ("kernel-for-each", "(let ((acc '())) (array-for-each (lambda (x) (set! acc (cons ({H} x) acc))) {P}) (reverse acc))"),
+    ("kernel-map-copy", "(array->list* (array-copy (array-map (lambda (x) ({H} x)) {P})))"),
+    ("kernel-interval-fold-left", "(reverse (interval-fold-left (lambda idx ({L} idx)) (lambda (acc x) (cons ({H} x) acc)) '() {IV}))"),
+]
+
+
+def gen_callcc(seed, classes=None):
+    rng = random.Random(seed)
+    # a small domain: 1-D of 4..6, or 2-D 2x2 / 2x3 / 3x2, lower bounds 0
+    shape = rng.choice([[4], [5], [6], [2, 2], [2, 3], [3, 2]])
+    n = 1
+    for w in shape:
+        n *= w
+    iv = f"(make-interval {fmt_vec(shape)})"
+    if len(shape) == 1:
+        lin = "(lambda (idx) (car idx))"
+    else:
+        lin = f"(lambda (idx) (+ (* (car idx) {shape[1]}) (cadr idx)))"
+    p1 = rng.randrange(0, n - 1)
+    p2 = rng.randrange(p1 + 1, n)
+    name, tmpl = rng.choice(CALLCC_FAMILIES)
+    # the getter-capturing source: element = linear position through the hook
+    A = f"(make-array {iv} (lambda idx (h ({lin} idx))))"
+    # the plain source for callback-capturing families
+    P = f"(make-array {iv} (lambda idx ({lin} idx)))"
+    body = tmpl.format(A=A, P=P, H="h", IV=iv, L=lin, N=n)
+    L = [CALLCC_PRELUDE, f"(define collect (lambda (h) {body}))"]
+    L.append(f"(show 'family '{name} 'shape '({' '.join(map(str, shape))}) 'p1 {p1} 'p2 {p2})")
+    if rng.random() < 0.2:
+        L.append(f"(show 'escape (escape collect {p1}))")
+    else:
+        # 3-5 re-invocations, each of a random continuation with a fresh value
+        steps = [(rng.choice([1, 2]), rng.randint(10, 40)) for _ in range(rng.randint(3, 5))]
+        sched = " ".join(f"(cons {c} {v})" for c, v in steps)
+        L.append(f"(show 'schedule '({' '.join(f'({c} {v})' for c, v in steps)}))")
+        L.append(f"(show 'results (drive collect {p1} {p2} (list {sched})))")
+    L.append("(show 'end)")
+    return "\n".join(L) + "\n"
+
+
+MODES = {"reshape": gen_reshape, "storage": gen_storage, "callcc": gen_callcc}
 
 
 # --- running -----------------------------------------------------------------
