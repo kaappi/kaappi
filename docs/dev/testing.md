@@ -385,11 +385,14 @@ f16/f32 rounding is compared bit-exactly and Gambit's `.5` never differs
 textually from Kaappi's `0.5`; `--classes u1,f16` narrows the draw. New
 modes are one generator function each in `MODES`.
 
-Two oracle divergences are known and recorded in the tool's docstring: Gambit's
+The known oracle divergences are recorded in the tool's docstring: Gambit's
 bundled reference flips `specialized-array-default-safe?` to `#t` (the spec
-and the SRFI repository's copy say `#f`; the storage prelude pins it), and
-chibi raises on a `copy-on-failure? #t` reshape that needs the copy. The
-storage mode's first real finding is kaappi#2542.
+and the SRFI repository's copy say `#f`; the storage prelude pins it); chibi
+raises on a `copy-on-failure? #t` reshape that needs the copy, does not
+validate `make-specialized-array`'s initial value, has checker bugs on
+u16/u64/c64, and returns a list rather than a boolean from its u1 checker
+(the storage mode prints only the boolean verdict, so that one never fires).
+The storage mode's first real finding is kaappi#2542.
 
 It is not part of `run-all.sh`: it needs an oracle installed and a useful
 run takes minutes.

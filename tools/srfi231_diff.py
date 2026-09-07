@@ -25,6 +25,7 @@ tests/scheme/srfi/, with the seed in the comment so they replay:
     tools/srfi231_diff.py reshape --seed 7 --print          # show its program
     tools/srfi231_diff.py storage --count 400               # all 16 storage classes
     tools/srfi231_diff.py storage --classes u1,f16 --count 200
+    tools/srfi231_diff.py storage --count 50 --keep         # keep the work dir
 
 Modes
   storage  One storage class per case, through everything that consults its
@@ -63,7 +64,10 @@ reshape that needs the copy, where the spec (and Gambit, and Kaappi) return a
 copy -- expect that mismatch shape with `--oracle chibi` (seeds 5227 and 5248
 of the reshape mode show it) and confirm against Gambit before chasing it.
 Its storage classes have checker bugs of their own (u16 accepts 65536, u64
-accepts negatives, c64 accepts a real flonum), all contradicted by Gambit.
+accepts negatives, c64 accepts a real flonum, make-specialized-array does
+not validate its initial value), all contradicted by Gambit; its u1 checker
+returns a list rather than a boolean, which the storage mode hides by
+printing only the boolean verdict.
 
 Each case is a pure function of (mode, seed); `--seed N --count K` runs seeds
 N..N+K-1. Mismatches are saved as <save-dir>/<mode>-<seed>.scm with the two
@@ -92,6 +96,11 @@ PRELUDE = """\
         (array->list* a)))
 (define-syntax try
   (syntax-rules () ((_ e) (guard (c (#t 'ERROR)) e))))
+;; specialized-array-default-safe? is deliberately left unpinned here,
+;; unlike the storage prelude: every array in this mode is generic (the
+;; checker accepts anything), every index is valid by construction, and
+;; nothing printed observes the flag -- so Gambit's flipped default cannot
+;; show. The storage mode prints array-safe?, hence pins it.
 ;; write-through probe: set the r-th multi-index (lexicographic) of a to 'X
 ;; and print the BASE array, so body sharing across the whole chain is
 ;; compared; the index is chosen here, from a's actual domain, so it is
@@ -197,6 +206,8 @@ class Chain:
         self.lo = [rng.randint(-2, 2) for _ in range(d)]
         self.hi = [l + rng.choice([0, 1, 2, 2, 3, 3, 4, 4]) for l in self.lo]
         self.n = 0
+        # set by a no-copy reshape, which is always the chain's last step
+        self.terminal = False
         # elements are their own multi-index, so contents identify positions
         # unambiguously whatever order an implementation visits them in
         self.lines.append(
@@ -343,7 +354,7 @@ def gen_reshape(seed, classes=None):
            c.op_reshape, c.op_reshape]
     nsteps = rng.randint(1, 6)
     done = 0
-    while done < nsteps and not getattr(c, "terminal", False):
+    while done < nsteps and not c.terminal:
         if rng.choice(ops)():
             done += 1
     return c.finish()
@@ -439,7 +450,9 @@ def gen_storage(seed, classes=None):
     # the checker's verdict on a handful of values -- the most direct probe
     for _ in range(8):
         v = value(rng, cls)
-        L.append(f"(show 'check (canon {v}) ((storage-class-checker sc) {v}))")
+        # `(and ... #t)`: chibi's u1 checker is memv-shaped and returns the
+        # tail, so only the boolean verdict is compared, never its spelling
+        L.append(f"(show 'check (canon {v}) (and ((storage-class-checker sc) {v}) #t))")
     # a small 1-2 axis domain; sometimes empty
     d = rng.choice([1, 1, 2, 2, 2])
     lo = [rng.randint(-2, 2) for _ in range(d)]
@@ -491,13 +504,16 @@ MODES = {"reshape": gen_reshape, "storage": gen_storage}
 
 # --- running -----------------------------------------------------------------
 
+TIMED_OUT = object()  # never compares equal to an exit status
+
+
 def run_one(cmd, path, env, timeout):
     try:
         p = subprocess.run(cmd + [path], capture_output=True, text=True,
                            timeout=timeout, env=env)
         return p.returncode, p.stdout, p.stderr
-    except subprocess.TimeoutExpired:
-        return -1, "", "TIMEOUT"
+    except subprocess.TimeoutExpired as e:
+        return TIMED_OUT, (e.stdout or b"").decode(errors="replace"), "timed out"
 
 
 def normalize(out):
@@ -513,7 +529,10 @@ def main():
     ap.add_argument("--kaappi", default=os.path.join(ROOT, "zig-out", "bin", "kaappi"))
     ap.add_argument("--gsi", default=shutil.which("gsi") or "/opt/homebrew/bin/gsi")
     ap.add_argument("--chibi", default=shutil.which("chibi-scheme") or "chibi-scheme")
-    ap.add_argument("--save", default=None, help="directory for mismatching cases")
+    ap.add_argument("--save", default=None,
+                    help="directory for mismatching cases (default: a temp dir, created on the first mismatch)")
+    ap.add_argument("--keep", action="store_true",
+                    help="do not delete the work dir (generated cases, warm KAAPPI_HOME) on exit")
     ap.add_argument("--timeout", type=float, default=60.0)
     ap.add_argument("--print", action="store_true", help="print the first case's program and exit")
     ap.add_argument("--classes", default=None,
@@ -535,14 +554,28 @@ def main():
         sys.stdout.write(gen(args.seed))
         return 0
 
-    oracle_cmd = [args.gsi] if args.oracle == "gambit" else [args.chibi]
-    save = args.save or tempfile.mkdtemp(prefix="srfi231-diff-")
-    os.makedirs(save, exist_ok=True)
+    oracle = args.gsi if args.oracle == "gambit" else args.chibi
+    for name, exe, hint in (("kaappi", args.kaappi, "run zig build, or pass --kaappi"),
+                            (args.oracle, oracle, "brew install gambit-scheme / chibi-scheme, or pass --gsi/--chibi")):
+        if not (os.access(exe, os.X_OK) or shutil.which(exe)):
+            sys.exit(f"no {name} binary at {exe} ({hint})")
+
     work = tempfile.mkdtemp(prefix="srfi231-diff-work-")
+    try:
+        return run(args, gen, [oracle], work)
+    finally:
+        if args.keep:
+            print(f"work dir kept: {work}")
+        else:
+            shutil.rmtree(work, ignore_errors=True)
+
+
+def run(args, gen, oracle_cmd, work):
     # one isolated KAAPPI_HOME for the whole run: the checkout's lib/ wins over
     # any ~/.kaappi/lib (kaappi#2352) and the .sld cache warms once
     env = dict(os.environ, KAAPPI_HOME=os.path.join(work, "home"))
     os.makedirs(env["KAAPPI_HOME"])
+    save = args.save  # created on the first mismatch, so a clean run leaves nothing behind
 
     mismatches = 0
     for seed in range(args.seed, args.seed + args.count):
@@ -552,17 +585,29 @@ def main():
             f.write(prog)
         kc, ko, ke = run_one([args.kaappi], path, env, args.timeout)
         oc, oo, oe = run_one(oracle_cmd, path, env, args.timeout)
-        same = normalize(ko) == normalize(oo) and (kc == 0) == (oc == 0)
+        # a timeout on either side is always a finding -- a hang with the
+        # same partial output as the other side's error is the case that
+        # matters most, not the one to hide
+        timed_out = kc is TIMED_OUT or oc is TIMED_OUT
+        same = (not timed_out and normalize(ko) == normalize(oo)
+                and (kc == 0) == (oc == 0))
         if same:
             continue
         mismatches += 1
+        if save is None:
+            save = tempfile.mkdtemp(prefix="srfi231-diff-")
+        os.makedirs(save, exist_ok=True)
         dst = os.path.join(save, f"{args.mode}-{seed}.scm")
         shutil.copy(path, dst)
-        with open(dst + ".kaappi.txt", "w") as f:
-            f.write(f"exit {kc}\n--- stdout\n{ko}\n--- stderr\n{ke}")
-        with open(dst + f".{args.oracle}.txt", "w") as f:
-            f.write(f"exit {oc}\n--- stdout\n{oo}\n--- stderr\n{oe}")
+        for label, code, out, err in (("kaappi", kc, ko, ke), (args.oracle, oc, oo, oe)):
+            with open(f"{dst}.{label}.txt", "w") as f:
+                status = "timed out" if code is TIMED_OUT else f"exit {code}"
+                f.write(f"{status}\n--- stdout\n{out}\n--- stderr\n{err}")
         print(f"MISMATCH seed {seed}: {dst}")
+        if timed_out:
+            who = [n for n, c in (("kaappi", kc), (args.oracle, oc)) if c is TIMED_OUT]
+            print(f"  timed out after {args.timeout}s: {', '.join(who)}")
+            continue
         kl, ol = normalize(ko).splitlines(), normalize(oo).splitlines()
         for i in range(max(len(kl), len(ol))):
             a = kl[i] if i < len(kl) else "<none>"
