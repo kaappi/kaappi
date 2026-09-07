@@ -1,11 +1,12 @@
-;; SRFI 231 (Intervals and Generalized Arrays) tests -- phase 1b: storage
-;; classes. Arrays themselves are a later phase of this multi-slice SRFI,
-;; tracked under issue #1694; (srfi 231) itself is not yet an importable
-;; bare library.
+;; SRFI 231 (Intervals and Generalized Arrays) tests -- storage classes.
+;; The intervals/arrays/views imports exist only for the end-to-end
+;; array-copy checker assertions below; the storage-class surface itself
+;; needs none of them.
 ;; Run directly: zig-out/bin/kaappi tests/scheme/srfi/srfi231-storage-classes.scm
 
 (import (scheme base) (scheme inexact) (scheme process-context) (srfi 64)
         (srfi 160 u16) (srfi 160 f32) (srfi 160 f64) (srfi 160 c64)
+        (srfi 231 intervals) (srfi 231 arrays) (srfi 231 views)
         (srfi 231 storage-classes))
 
 (test-begin "srfi-231-storage-classes")
@@ -223,6 +224,17 @@
 (test-equal #f ((storage-class-checker c64-storage-class) (make-rectangular 3 4)))
 (test-equal #f ((storage-class-checker c64-storage-class) 1/3))
 (test-equal #f ((storage-class-checker c128-storage-class) (make-rectangular 1/2 2)))
+;; the user-visible symptom of #2542 was array-copy of a real-flonum
+;; array SUCCEEDING -- the generic->typed copy branch is the only copy
+;; path that consults the checker at all (same-class copies skip it,
+;; #2448), so pin it end to end
+(test-assert "array-copy of real flonums into c64 is rejected (#2542)"
+             (guard (e (#t #t))
+               (array-copy (make-array (make-interval '#(2)) (lambda (i) 1.5)) c64-storage-class)
+               #f))
+(test-assert "array-copy of 1.0+0.0i into c64 is accepted (#2542)"
+             (guard (e (#t #f))
+               (array-ref (array-copy (make-array (make-interval '#(2)) (lambda (i) 1.5+0.0i)) c64-storage-class) 0)))
 
 ;;; --- c64/c128 use the reference's interleaved-float representation
 ;;; (#2382): the body is an f32/f64vector of twice the logical length
