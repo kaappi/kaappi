@@ -393,7 +393,16 @@ positions, re-invoked with random values in a random order, the whole result
 history printed — with the capture placed either in the source's getter or
 in the callback itself, plus an escape-out variant. Against the pre-#2540
 library it mismatches on the accumulating families; against main it is
-clean. New modes are one generator function each in `MODES`.
+clean. The `prose` mode is not random at all: it takes every code block of
+the spec's own HTML (fetched, or `--spec FILE`) as a corpus, one case per
+block, with a small reader wrapping each top-level expression — and each
+body expression of a top-level `let`, where the spec puts its `;; =>`
+annotations — in a canonical renderer, so every annotated value is compared
+rather than the block's last; each program carries the definitions of the
+earlier blocks (the examples build on their own helpers) except the prose's
+illustrative re-definitions of library procedures, and blocks that read
+files, time, or draw random numbers are skipped and listed. New modes are
+one generator function each in `MODES`.
 
 The known oracle divergences are recorded in the tool's docstring: Gambit's
 bundled reference flips `specialized-array-default-safe?` to `#t` (the spec

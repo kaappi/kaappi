@@ -27,8 +27,24 @@ tests/scheme/srfi/, with the seed in the comment so they replay:
     tools/srfi231_diff.py storage --classes u1,f16 --count 200
     tools/srfi231_diff.py storage --count 50 --keep         # keep the work dir
     tools/srfi231_diff.py callcc --count 300                # continuation re-entry
+    tools/srfi231_diff.py prose                             # every spec example
+    tools/srfi231_diff.py prose --seed 44 --print           # one example's program
 
 Modes
+  prose    The spec's own code examples as a corpus: every code block of
+           srfi-231.html (fetched, or --spec FILE), one case per block. A
+           small reader wraps each top-level expression -- and each body
+           expression of a top-level let, where the spec puts its `;; =>`
+           annotations -- in a printer, so every annotated value is
+           compared, not just the block's last. Values print through a
+           canonical renderer (arrays as domain + contents, intervals as
+           bounds, floats as exact rationals, unspecified as a symbol), and
+           pretty-print/pp are replaced by it so Gambit's line breaking
+           never counts. Each program carries the definitions of every
+           earlier block, since the examples build on their own helpers
+           (array-unveil, array-squeeze, ...). Blocks that read files,
+           time, or draw random numbers are skipped and listed. The seed
+           is the 1-based example number; --count defaults to all of them.
   callcc   Call/cc safety of every accumulating or callback-taking non-!
            procedure -- the spec's promise that such procedures "do not
            modify the state of any data captured by a continuation". One
@@ -102,12 +118,15 @@ outputs beside them, and the run exits 1.
 """
 
 import argparse
+import html as html_mod
 import os
 import random
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -667,7 +686,306 @@ def gen_callcc(seed, classes=None):
     return "\n".join(L) + "\n"
 
 
-MODES = {"reshape": gen_reshape, "storage": gen_storage, "callcc": gen_callcc}
+# --- the prose-examples mode: the spec's code blocks as a corpus -------------
+
+SPEC_URL = "https://srfi.schemers.org/srfi-231/srfi-231.html"
+
+PROSE_PRELUDE = """\
+(import (scheme base) (scheme write) (scheme inexact) (scheme complex)
+        (scheme char) (scheme cxr) (srfi 1) (srfi 4) (srfi 231))
+(define (show . xs) (for-each (lambda (x) (write x) (display " ")) xs) (newline))
+(define-syntax try
+  (syntax-rules () ((_ e) (guard (c (#t 'ERROR)) e))))
+(define (dom a)
+  (let ((d (array-domain a)))
+    (list (interval-lower-bounds->list d) (interval-upper-bounds->list d))))
+;; one printable form for everything an example can evaluate to, written
+;; identically by every implementation: arrays as domain + contents (so a
+;; lazy array is forced through its own getter, which is what the example
+;; is about), intervals as bounds, opaque things as a tag, floats as exact
+;; rationals, the unspecified value as a symbol
+(define (render v)
+  (cond ((eq? v (if #f #f)) 'unspecified)
+        ((array? v) (list 'array (dom v) (render (try (array->list* v)))))
+        ((interval? v) (list 'interval (interval-lower-bounds->list v)
+                             (interval-upper-bounds->list v)))
+        ((storage-class? v) 'storage-class)
+        ((procedure? v) 'procedure)
+        ((pair? v) (cons (render (car v)) (render (cdr v))))
+        ((vector? v) (list 'vec (render (vector->list v))))
+        ((and (real? v) (exact? v)) v)
+        ((real? v) (cond ((nan? v) '(nan))
+                         ((infinite? v) (if (> v 0) '(inf 1) '(inf -1)))
+                         (else (exact v))))
+        ((number? v) (list 'c (render (real-part v)) (render (imag-part v))))
+        ((char? v) (list 'ch (char->integer v)))
+        (else v)))
+;; the examples call Gambit's pretty printer; its line breaking would
+;; never match, so both implementations get this one
+(define (pretty-print x . port) (write (render x)) (newline))
+(define (pp x . port) (write (render x)) (newline))
+;; Gambit's fixnum ops appear in a few examples
+(define (fx+ a b) (+ a b))
+(define (fx- a b) (- a b))
+(define (fx* a b) (* a b))
+(define (fx< a b) (< a b))
+(define (fx<= a b) (<= a b))
+(define (fx= a b) (= a b))
+(define (fx> a b) (> a b))
+(define (fx>= a b) (>= a b))
+(define (fxquotient a b) (quotient a b))
+(define (fxremainder a b) (remainder a b))
+"""
+
+# a block containing any of these needs files, a clock, or randomness
+PROSE_SKIP_MARKERS = ["read-char", "read-line", "open-input", "open-output",
+                      "call-with-input", "call-with-output", "with-input-from",
+                      "with-output-to", "read-pgm", "write-pgm", "(time ",
+                      "random", "(include "]
+
+
+def tokenize_scheme(src):
+    """Yield (kind, start, end) over src: kind in open/close/prefix/atom."""
+    i, n = 0, len(src)
+    while i < n:
+        c = src[i]
+        if c.isspace():
+            i += 1
+        elif c == ";":
+            while i < n and src[i] != "\n":
+                i += 1
+        elif src.startswith("#|", i):
+            depth, i = 1, i + 2
+            while i < n and depth:
+                if src.startswith("#|", i):
+                    depth, i = depth + 1, i + 2
+                elif src.startswith("|#", i):
+                    depth, i = depth - 1, i + 2
+                else:
+                    i += 1
+        elif src.startswith("#;", i):
+            yield ("datum-comment", i, i + 2)
+            i += 2
+        elif c in "([":
+            yield ("open", i, i + 1)
+            i += 1
+        elif c in ")]":
+            yield ("close", i, i + 1)
+            i += 1
+        elif c == "#" and i + 1 < n and (src[i + 1] == "(" or re.match(r"[usfc]\d+\(", src[i + 1:i + 5])):
+            j = src.index("(", i)
+            yield ("open", i, j + 1)
+            i = j + 1
+        elif c == '"':
+            j = i + 1
+            while j < n and src[j] != '"':
+                j += 2 if src[j] == "\\" else 1
+            yield ("atom", i, j + 1)
+            i = j + 1
+        elif src.startswith("#\\", i):
+            j = i + 3
+            while j < n and not src[j].isspace() and src[j] not in "()[]":
+                j += 1
+            yield ("atom", i, max(j, i + 3))
+            i = max(j, i + 3)
+        elif c in "'`":
+            yield ("prefix", i, i + 1)
+            i += 1
+        elif c == ",":
+            j = i + 2 if src.startswith(",@", i) else i + 1
+            yield ("prefix", i, j)
+            i = j
+        else:
+            j = i
+            while j < n and not src[j].isspace() and src[j] not in "()[];\"":
+                j += 1
+            yield ("atom", i, j)
+            i = j
+
+
+def parse_scheme(src):
+    """Return top-level nodes: ('list', children, start, end) or ('atom', start, end).
+    A prefixed datum ('x, `x, ,x) is one node spanning the prefix too."""
+    toks = list(tokenize_scheme(src))
+    pos = 0
+
+    def datum():
+        nonlocal pos
+        kind, a, b = toks[pos]
+        if kind == "datum-comment":
+            pos += 1
+            datum()
+            return datum() if pos < len(toks) else None
+        if kind == "prefix":
+            pos += 1
+            inner = datum()
+            return ("atom", a, inner[-1]) if inner else ("atom", a, b)
+        if kind == "open":
+            pos += 1
+            children = []
+            while pos < len(toks) and toks[pos][0] != "close":
+                d = datum()
+                if d:
+                    children.append(d)
+            end = toks[pos][2] if pos < len(toks) else b
+            pos += 1
+            return ("list", children, a, end)
+        pos += 1
+        return ("atom", a, b)
+
+    out = []
+    while pos < len(toks):
+        d = datum()
+        if d:
+            out.append(d)
+    return out
+
+
+def node_text(src, node):
+    return src[node[-2]:node[-1]] if node[0] == "list" else src[node[1]:node[2]]
+
+
+def head_of(src, node):
+    if node[0] == "list" and node[1] and node[1][0][0] == "atom":
+        return node_text(src, node[1][0])
+    return None
+
+
+LET_FORMS = {"let", "let*", "letrec", "letrec*"}
+KEEP_FORMS = {"define", "define-record-type", "define-syntax", "define-values",
+              "import", "define-macro"}
+
+
+def wrap_expr(text):
+    return f"(show 'v (try (render {text})))"
+
+
+def defined_name(src, node):
+    kids = node[1]
+    if len(kids) < 2:
+        return None
+    target = kids[1]
+    if target[0] == "list" and target[1]:
+        return node_text(src, target[1][0])
+    return node_text(src, target)
+
+
+def transform_define(src, node):
+    """(define name expr) -> guarded, so a failing definition still binds."""
+    kids = node[1]
+    if len(kids) == 3 and kids[1][0] == "atom":
+        return f"(define {node_text(src, kids[1])} (try {node_text(src, kids[2])}))"
+    return node_text(src, node)
+
+
+def transform_toplevel(src, node):
+    head = head_of(src, node)
+    if head == "define":
+        return transform_define(src, node)
+    if head in KEEP_FORMS:
+        return node_text(src, node)
+    if head == "begin":
+        return "\n".join(transform_toplevel(src, k) for k in node[1][1:])
+    if head in LET_FORMS:
+        kids = node[1]
+        body_from = 3 if (head == "let" and len(kids) > 1 and kids[1][0] == "atom") else 2
+        if len(kids) > body_from:
+            # wrap each body expression in place, last first so offsets hold
+            text = node_text(src, node)
+            base = node[-2]
+            for k in reversed(kids[body_from:]):
+                if head_of(src, k) in KEEP_FORMS:
+                    continue
+                a, b = k[-2] - base, k[-1] - base
+                text = text[:a] + wrap_expr(text[a:b]) + text[b:]
+            return text
+    return wrap_expr(node_text(src, node))
+
+
+_PROSE = None
+
+
+def load_prose(spec):
+    """(revision line, [(pre-index, code, following-output-or-None)])."""
+    global _PROSE
+    if _PROSE is not None:
+        return _PROSE
+    if re.match(r"https?://", spec):
+        with urllib.request.urlopen(spec, timeout=60) as r:
+            page = r.read().decode("utf-8", errors="replace")
+    else:
+        page = open(spec, encoding="utf-8", errors="replace").read()
+    pres = [html_mod.unescape(re.sub(r"<[^>]+>", "", x))
+            for x in re.findall(r"<pre[^>]*>(.*?)</pre>", page, re.S)]
+    rev = re.findall(r"(\d{4}-\d{2}-\d{2}) \(([^)]*)\)", page)
+    revision = (f"spec revision {rev[-1][0]} ({re.sub(r'<[^>]+>', '', rev[-1][1])})"
+                if rev else "spec revision unknown")
+    # the SRFI's own export surface, from its "Procedure: (name ..." headings
+    text = html_mod.unescape(re.sub(r"<[^>]+>", "", page))
+    exports = set(re.findall(r"^\s*(?:Procedure|Variable|Parameter|Syntax):\s*\(?([^\s()]+)", text, re.M))
+    examples = []
+    for i, text in enumerate(pres):
+        if not text.lstrip().startswith("("):
+            continue
+        nxt = pres[i + 1] if i + 1 < len(pres) and not pres[i + 1].lstrip().startswith("(") else None
+        examples.append((i, text.strip("\n"), nxt))
+    _PROSE = (revision, examples, exports)
+    return _PROSE
+
+
+def prose_skip_reason(code):
+    for m in PROSE_SKIP_MARKERS:
+        if m in code:
+            return m
+    return None
+
+
+def gen_prose(seed, classes=None, spec=SPEC_URL):
+    revision, examples, exports = load_prose(spec)
+    idx = seed - 1
+    if not 0 <= idx < len(examples):
+        raise IndexError(f"prose example {seed} is out of range 1..{len(examples)}")
+    pre_i, code, following = examples[idx]
+    L = [PROSE_PRELUDE, f";; {revision}; example {seed} of {len(examples)} (spec <pre> block {pre_i})"]
+    reason = prose_skip_reason(code)
+    if reason:
+        L.append(f"(show 'skipped \"{reason}\")")
+        L.append("(show 'end)")
+        return "\n".join(L) + "\n"
+    # context: every definition the earlier blocks made, in order
+    ctx = []
+    for j in range(idx):
+        pj, cj, _ = examples[j]
+        if prose_skip_reason(cj):
+            continue
+        try:
+            for node in parse_scheme(cj):
+                if head_of(cj, node) not in KEEP_FORMS:
+                    continue
+                # the prose also shows illustrative definitions of the
+                # library's own procedures (index-first, array-curry ...);
+                # carrying those forward would make later examples run the
+                # pseudocode instead of the implementation under test
+                if head_of(cj, node) == "define" and defined_name(cj, node) in exports:
+                    continue
+                ctx.append(transform_toplevel(cj, node))
+        except Exception:
+            continue
+    if ctx:
+        L.append(";; --- definitions from earlier examples ---")
+        L.extend(ctx)
+    L.append(f";; --- example {seed} ---")
+    for node in parse_scheme(code):
+        L.append(transform_toplevel(code, node))
+    if following:
+        L.append(";; the spec says this shows:")
+        L.extend(";;   " + ln for ln in following.strip("\n").splitlines())
+    L.append("(show 'end)")
+    return "\n".join(L) + "\n"
+
+
+MODES = {"reshape": gen_reshape, "storage": gen_storage, "callcc": gen_callcc,
+         "prose": gen_prose}
 
 
 # --- running -----------------------------------------------------------------
@@ -706,6 +1024,8 @@ def main():
     ap.add_argument("--classes", default=None,
                     help="storage mode: comma-separated storage classes to draw from "
                          "(default all 16), e.g. --classes u1,f16,c64")
+    ap.add_argument("--spec", default=SPEC_URL,
+                    help="prose mode: the srfi-231.html to take examples from (path or URL)")
     args = ap.parse_args()
 
     classes = None
@@ -715,7 +1035,16 @@ def main():
         if bad:
             sys.exit(f"unknown storage class(es): {', '.join(bad)}; known: {', '.join(CLASSES)}")
 
+    if args.mode == "prose":
+        revision, examples, _ = load_prose(args.spec)
+        if "--count" not in " ".join(sys.argv):
+            args.count = len(examples) - args.seed + 1
+        args.count = max(0, min(args.count, len(examples) - args.seed + 1))
+        print(f"prose: {len(examples)} code examples, {revision}")
+
     def gen(seed):
+        if args.mode == "prose":
+            return gen_prose(seed, classes, args.spec)
         return MODES[args.mode](seed, classes)
 
     if args.print:
