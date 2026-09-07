@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788804379998,
+  "lastUpdate": 1788814282248,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "296c198166026a768feefd0e58c10e9b5f1ee5e7",
-          "message": "Run top-level call/cc forms wholly in the VM natively (#2119) (#2332)\n\nA top-level form whose own evaluation captures a full continuation was\nlowered with its outer structure native and only the call/cc\nsubexpression eval-fallbacked to the VM. The captured continuation then\nspanned only that subexpression, so invoking it from a later top-level\nform (e.g. a for-each callback) re-ran just the subexpression and\ndelivered its value into a native context that had already completed and\ncould not re-run -- the enclosing set!/define store never fired again,\nsilently keeping the pre-capture value: (set! result (+ 100 (call/cc ...)))\nkept 100 where the interpreter gives 142.\n\nForce any top-level form that may capture a full continuation onto\nwhole-form VM evaluation (a single passthrough), so the captured\ncontinuation spans the entire form and a later resume re-runs its tail,\nmatching the pure-VM tier per the continuation-strategy doc's behavioral\nequivalence guarantee.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-25T18:50:04+05:30",
-          "tree_id": "91f030418270f5c9f10b4959e047b88663f25b6a",
-          "url": "https://github.com/kaappi/kaappi/commit/296c198166026a768feefd0e58c10e9b5f1ee5e7"
-        },
-        "date": 1787669709547,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.961877,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.827201,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.558015,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.836149,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004883,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046703,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.282416,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.053322,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.332261,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.127767,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.600052,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.300374,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.680094,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.792118,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046174,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046824,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "171b601e6039c011913b88a3fce88dd969f9faae",
+          "message": "Report whether a failed REPL pty scenario's output arrives late (#2551)\n\n* Report whether a failed REPL pty scenario's output arrives late\n\nIssue #2550: the type-ahead scenario of repl-mouse-click-2264.sh failed\nonce on the ubuntu Debug CI job with the echo of the second form stalled\nmid-way, and the two candidate causes — a loaded runner pushing output\npast the 20 s waits, or genuine loss of type-ahead bytes in the isocline\npushback path — are indistinguishable in the captured failure buffer.\n\nOn failure the driver now keeps the pty open and keeps pumping for 30\nmore seconds (answering anchor queries as they come, stopping early once\neverything missing has shown up) before reporting, then prints one\nTAIL-CHECK verdict per failure: a marker that arrived during the drain\nmeans late output on a loaded runner, a flake; a marker that never\narrived is candidate reader byte loss — the escalation criterion the\nissue defines for raising it to high and treating it as a reader bug.\n\nAll failure paths record through the same check, so the verdict covers\nthe click, off-mode, wrapped-row, and garble scenarios as well.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Make the failure verdicts honest about what the drain saw\n\nReview on #2551 surfaced four ways the TAIL-CHECK verdict could say the\nopposite of what happened, plus one missing distinction:\n\n- A click-mapping regression prints the no-click reject line -- the form\n  arrived in full and was evaluated -- and that failure took the drain\n  path, came back 'never arrived', and claimed candidate reader byte\n  loss. That is the exact failure shape this script exists to catch, so\n  the misdiagnosis would have fired on its most likely real occurrence.\n  The reject case now records the failure directly: nothing can be late\n  or lost when the wrong result already printed.\n\n- If the REPL died mid-scenario (garble's expected failure mode), the\n  drain broke on eof after one iteration and the report still claimed a\n  30 s silence and byte loss. The stop reason is now tracked and the\n  verdict names the exit. Writing the trailing ,quit to the dead pty\n  also raised EIO and crashed the driver before any report printed, so\n  the exit sequence absorbs it.\n\n- What arrived during the drain was discarded; it is the evidence. The\n  non-empty drain tail is now printed (DRAIN-TAIL).\n\n- A never verdict could not separate bytes the reader dropped from a\n  reader wedged shut. After a full silent drain it now probes: ctrl-C,\n  then (+ 40 2); a 42 means the reader is alive and bytes were dropped\n  (the issue's high case), silence means wedged. PROBE reports which.\n\n- The drain used time.time on both sides of its deadline; a wall-clock\n  step could cut it short or stretch it. time.monotonic now.\n\nAll verdict strings are pure ASCII (-- not em dashes) so a non-UTF-8\nlocale cannot turn the one report this PR exists to print into a\nUnicodeEncodeError traceback.\n\nVerified per branch with extracted driver copies: reject regression\n(repl.mouse: true under mode off) now fails fast with no drain; late\narrival prints the drain tail and the flake verdict; a SIGKILLed child\nprints the exited-during-drain verdict; the probe reports 42 for an\nalive reader and the no-answer verdict with the check needle bogus.\nFull five-scenario suite green on ReleaseSafe and Debug.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Close the probe's EIO window and keep the probe's evidence\n\nThree review points on the second commit:\n\n- The died flag could be False while eof was True: the final pump(0.5)\n  of the drain can be the one that observes the exit, and the deadline\n  check then ends the loop without the flag ever being set. The probe\n  would run anyway and its ctrl-C write into the dead pty raises EIO\n  that escapes record as a traceback, so nothing at all is reported --\n  on exactly the crash path the verdict exists to describe. The flag is\n  redundant with the eof global, so it is gone; the branches test eof\n  after the loop, which has no window. And since any write can now be\n  the first into a dead pty, send and answer_dsr absorb OSError into\n  eof themselves -- no call site needs its own guard, and the try\n  around the trailing ,quit goes away.\n\n- The probe's exchange was discarded: tail was computed before the\n  probe and seen(p0) only answered the 42 question. But the ctrl-C\n  redraw shows what the buffer still held -- (list alone, an unsubmitted\n  (list 9 8), or replayed digits -- three causes printing the same\n  PROBE line. The tail now covers the drain and the probe, so the\n  evidence for the verdict ships with it.\n\n- The reject path printed a bare FAIL with no verdict, leaving the\n  reader to spot the no-click result in the buffer and know what it\n  means. It now says so: VERDICT: the no-click result printed -- the\n  form arrived and was evaluated, the click did not reposition.\n\nRe-validated every branch with extracted driver copies: the reject\nsimulation prints the VERDICT line; the killed-child run prints the\nexited-during-drain verdict without a crash; the probe run's DRAIN-TAIL\nnow carries the ctrl-C redraw, the (+ 40 2) echo, and the 42; the\nbogus-check probe still reports wedged. Full five-scenario suite green\non ReleaseSafe and Debug.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Check eof in the probe's wait and name a mid-probe exit\n\nThe probe's 5 s wait loop had no eof check, two ways that hurt: a child\nthat dies mid-probe makes pump return immediately on a dead master --\nselect reports it readable at once and read raises -- so the loop spun\nat full speed for the remaining seconds, and then the else branch\nreported a wedged reader for a process that had exited. The loop now\nstops on eof like the drain's does, and the three probe outcomes each\nname themselves: 42 printed (reader alive, bytes dropped), exited\nduring the probe, no answer (wedged).\n\nThe drain's eof verdict also says 'exited during the drain', but eof\ncan already be set on entry when the child died during the scenario\nitself; reworded to 'had exited by the end of the drain', which is\ntrue in both cases.\n\nValidated the new outcome with a driver copy whose probe form is a slow\ncounting loop and a wrapper that kills the child mid-evaluation: the\nreport asserts PROBE: the REPL exited during the probe, and the run\nends at the eof rather than spinning to the deadline. The remaining\nverdict paths (reject, late, never+alive 42, wedged, eof-on-entry) and\nthe five-scenario suite on ReleaseSafe and Debug are green.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-09-07T20:06:23Z",
+          "tree_id": "6f1b5231794cf063662de2fb145f0c8ebd855dd9",
+          "url": "https://github.com/kaappi/kaappi/commit/171b601e6039c011913b88a3fce88dd969f9faae"
+        },
+        "date": 1788814281002,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.409589,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.455714,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.56078,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.038692,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004444,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047486,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.314958,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05683,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.877569,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.268683,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.651977,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.272482,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.71618,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.619819,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046653,
             "unit": "seconds"
           }
         ]
