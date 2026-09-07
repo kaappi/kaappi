@@ -151,13 +151,17 @@ def pump(timeout):
 def answer_dsr():
     """Answer every ESC[6n anchor query the child sent, the way a terminal
     emulator would. The child blocks ~400ms waiting, so we answer on sight."""
-    global answered_dsr
+    global answered_dsr, eof
     while True:
         idx = buf.find(b'\x1b[6n', answered_dsr)
         if idx < 0:
             return
         answered_dsr = idx + 4
-        os.write(fd, DSR)
+        try:
+            os.write(fd, DSR)
+        except OSError:
+            eof = True        # the child is gone; same handling as a dead read
+            return
 
 def seen(mark=0):
     """Everything the child has written since *raw* byte `mark`, escapes
@@ -192,8 +196,109 @@ def idle(quiet=0.5, limit=5.0):
             return
 
 def send(data):
-    os.write(fd, data)
+    global eof
+    try:
+        os.write(fd, data)
+    except OSError:
+        # A child that died mid-scenario (the garble case's expected failure
+        # mode) leaves the master unwritable: writing raises EIO. Mark eof,
+        # exactly like a dead read, and let the caller's wait end in the
+        # eof checks — no call site needs a guard of its own.
+        eof = True
+        return
     time.sleep(0.05)
+
+# Issue #2550: when a scenario fails, a 20 s wait that a loaded, Debug-speed
+# runner outran and bytes that were lost look identical in the captured
+# output. Before reporting, keep the pty open and keep pumping for this many
+# more seconds (answering anchor queries as they come, stopping early once
+# everything missing has shown up). The verdict lines then say which it was:
+# a marker that arrived during the drain is a slow-output flake; one that
+# never arrived is candidate reader byte loss -- the issue's escalation
+# criterion, so do not remove it. monotonic, not time.time: a wall-clock
+# step must not cut the drain short or stretch it.
+DRAIN_S = 30
+
+def record(failed, expect, mark, needles):
+    produced = seen(mark)
+    missing = [n for n in needles if n not in produced]
+    lines = []
+    if missing:
+        n0 = len(buf)
+        end = time.monotonic() + DRAIN_S
+        while time.monotonic() < end:
+            if all(n in seen(mark) for n in missing):
+                break
+            answer_dsr()
+            if eof:
+                break
+            pump(0.5)
+        final = seen(mark)
+        late = [n for n in missing if n in final]
+        never = [n for n in missing if n not in final]
+        if late:
+            lines.append('TAIL-CHECK: %r arrived during the post-failure'
+                         ' drain -- late output on a loaded runner, not lost'
+                         ' bytes' % (late,))
+        if never and eof:
+            # The child is gone -- during the drain, or already when the
+            # failure was detected (a failed send sets eof too): the garble
+            # scenario's expected failure mode is exactly this, so name it
+            # instead of claiming a 30 s silence that never happened. eof,
+            # not a flag set inside the loop: the final pump(0.5) can be
+            # the one that observes the exit, after which the deadline
+            # check ends the loop without ever looking.
+            lines.append('TAIL-CHECK: %r never arrived; the REPL had exited'
+                         ' by the end of the drain -- not a 30 s silence,'
+                         ' see the buffer above' % (never,))
+        if never and not eof:
+            # Still missing and the child is alive. Passive pumping cannot
+            # separate bytes the reader dropped from a reader wedged shut,
+            # so probe it: ctrl-C clears whatever open form the editor
+            # holds (the garble scenario's recovery), then a form with an
+            # unambiguous result decides it -- a 42 means the reader works
+            # and the missing bytes were dropped in flight (the issue's
+            # high-priority case); silence means wedged. The probe's output
+            # lands in buf before the next scenario takes its mark, so it
+            # cannot pollute later assertions.
+            p0 = len(buf)
+            send(b'\x03')
+            idle(0.3)
+            send(b'(+ 40 2)\r')
+            pend = time.monotonic() + 5
+            while time.monotonic() < pend and not eof:
+                # not eof, matching the drain loop: a dead master's select
+                # reports readable at once and read raises, so pump returns
+                # immediately -- without the check this loop would spin at
+                # full speed for the remaining seconds and then misreport
+                # an exited REPL as a wedged reader.
+                if b'\n42\n' in seen(p0):
+                    break
+                pump(0.5)
+            lines.append('TAIL-CHECK: %r never arrived, even after %ds more'
+                         ' pumping -- candidate byte loss in the reader; this'
+                         ' is the escalation criterion in issue #2550'
+                         % (never, DRAIN_S))
+            if b'\n42\n' in seen(p0):
+                lines.append('PROBE: ctrl-C then (+ 40 2) printed 42 -- the'
+                             ' reader is alive; the missing bytes were'
+                             ' dropped')
+            elif eof:
+                lines.append('PROBE: the REPL exited during the probe --'
+                             ' see the buffer above')
+            else:
+                lines.append('PROBE: no answer to ctrl-C then (+ 40 2)'
+                             ' within 5 s -- the reader is wedged, not'
+                             ' merely lossy')
+        # Everything that arrived after the failure was detected: the drain
+        # and, when the probe ran, its exchange. That output is the evidence
+        # for the verdicts above -- a ctrl-C redraw showing what the buffer
+        # still held, the missing result turning up, or silence -- so print
+        # it rather than discard it.
+        tail = ansi.sub(b'', buf[n0:])
+        if tail:
+            lines.append('DRAIN-TAIL: %r' % (tail,))
+    failures.append((failed, expect, produced, lines))
 
 if not wait_for(b'kaappi> ', 0, 25):
     # Two very different things look alike here, and conflating them is how a
@@ -225,7 +330,7 @@ if scenario == 'ahead':
     ok2 = wait_for(b'\n(9 8)\n', mark, 20)
     idle()
     if not (ok1 and ok2):
-        failures.append((b'ahead', b'3 then (9 8)', seen(mark)))
+        record(b'ahead', b'3 then (9 8)', mark, [b'\n3\n', b'\n(9 8)\n'])
 elif scenario == 'garble':
     # Hostile terminal report (maintainer review, memory safety): a CSI with
     # 40 digits/semicolons not terminated by R, arriving while the DSR
@@ -244,7 +349,7 @@ elif scenario == 'garble':
     ok2 = wait_for(b'\n42\n', mark, 20)
     idle()
     if not (ok1 and ok2):
-        failures.append((b'garble', b'3 then 42 (no crash)', seen(mark)))
+        record(b'garble', b'3 then 42 (no crash)', mark, [b'\n3\n', b'\n42\n'])
 else:
     for send_bytes, echo, clk, editkey, expect, reject in cases:
         mark = len(buf)
@@ -253,7 +358,7 @@ else:
         # and typing on while the REPL is still evaluating puts the bytes in the
         # tty's canonical buffer, where the click then arrives as a literal ESC.
         if not wait_for(echo, mark, 20):
-            failures.append((send_bytes, expect, seen(mark)))
+            record(send_bytes, expect, mark, [echo])
             idle()
             continue
         idle(0.3)
@@ -271,8 +376,20 @@ else:
         # typed echo of `abc` contains `ab`, which would false-positive a plain
         # substring check.
         produced = seen(mark)
-        if not ok or (reject is not None and (b'\n' + reject + b'\n') in produced):
-            failures.append((send_bytes, expect, produced))
+        rejected = reject is not None and (b'\n' + reject + b'\n') in produced
+        if rejected:
+            # The REPL evaluated the form and printed the no-click result:
+            # the bytes all arrived and were evaluated, the click just did
+            # not reposition. Nothing can be late or lost here, so the
+            # #2550 drain would only misreport it as byte loss -- and this
+            # is exactly the failure shape a click-mapping or repl.mouse
+            # regression produces, the thing this script exists to catch.
+            failures.append((send_bytes, expect, produced, [
+                'VERDICT: the no-click result %r printed -- the form arrived'
+                ' and was evaluated, the click did not reposition (not a'
+                ' #2550 timing question)' % (reject,)]))
+        elif not ok:
+            record(send_bytes, expect, mark, [b'\n' + expect + b'\n'])
 
 send(b',quit\r')
 while pump(1.0):
@@ -283,8 +400,10 @@ try:
 except OSError:
     pass
 
-for failed, expect, produced in failures:
+for failed, expect, produced, lines in failures:
     sys.stdout.write('FAIL %r: expected %r in\n%r\n\n' % (failed, expect, produced))
+    for line in lines:
+        sys.stdout.write('%s\n\n' % line)
 sys.exit(1 if failures else 0)
 PY
 
