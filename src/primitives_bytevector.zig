@@ -358,11 +358,13 @@ fn openInputBytevector(args: []const Value) PrimitiveError!Value {
 fn openCyclicInputBytevector(args: []const Value) PrimitiveError!Value {
     if (!types.isBytevector(args[0])) return primitives.typeError("open-cyclic-input-bytevector", "bytevector", args[0]);
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const port_val = gc.allocCyclicInputPort(bv_data: {
+    const port_val = gc.allocStringInputPort(bv_data: {
         const bv = types.toBytevector(args[0]);
         break :bv_data bv.data;
     }) catch return PrimitiveError.OutOfMemory;
-    types.toObject(port_val).as(types.Port).is_binary = true;
+    const port = types.toObject(port_val).as(types.Port);
+    port.is_binary = true;
+    port.cyclic = true;
     return port_val;
 }
 

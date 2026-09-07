@@ -3,6 +3,7 @@
 
 (import (scheme base)
         (scheme read)
+        (scheme write)
         (scheme char)
         (srfi 64)
         (srfi 277)
@@ -69,9 +70,10 @@
 
 (test-assert "a long read never yields the eof object"
   (let ((p (open-cyclic-input-bytevector #u8(1 2 3))))
-    (let loop ((i 0) (last 'eof-sentinel))
-      (cond ((= i 100) (not (eof-object? last)))
-            (else (loop (+ i 1) (read-u8 p)))))))
+    (let loop ((i 0))
+      (or (= i 100)
+          (and (not (eof-object? (read-u8 p)))
+               (loop (+ i 1)))))))
 
 (test-assert "char-ready? is #t on a cyclic port"
   (char-ready? (open-cyclic-input-string "x")))
@@ -119,6 +121,19 @@
   '((a) b)
   (let ((p (open-cyclic-input-string "(a)b")))
     (list (read p) (read p))))
+
+;; Large enough that the one-byte-per-reparse form of the refill loop (fixed
+;; to a 4096-byte burst) would take seconds under the Debug CI leg; not timed.
+(test-equal "read of a multi-kilobyte datum from a cyclic port"
+  4001
+  (let* ((big (let loop ((i 0) (acc '()))
+                (if (= i 4000)
+                    (cons 'config (reverse acc))
+                    (loop (+ i 1) (cons i acc)))))
+         (out (open-output-string)))
+    (write big out)
+    (let ((p (open-cyclic-input-string (get-output-string out))))
+      (length (read p)))))
 
 ;;; --- positioning (SRFI 192) ----------------------------------------------
 

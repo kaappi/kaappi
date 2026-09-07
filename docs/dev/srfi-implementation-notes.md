@@ -1777,9 +1777,9 @@ exactly right.
 
 **Snapshot copy is the documented extension.** The SRFI leaves "source
 modified after the call" undefined behavior; since the port reads its own
-copy (`allocCyclicInputPort` dupes the data, as `allocStringInputPort`
-always has), Kaappi defines it: mutations of the source never affect the
-port. Pinned in `tests/scheme/srfi/srfi277.scm`.
+copy (`allocStringInputPort` dupes the data, and the cyclic constructors
+just flip the flag on the result), Kaappi defines it: mutations of the
+source never affect the port. Pinned in `tests/scheme/srfi/srfi277.scm`.
 
 **Positions are byte offsets**, as everywhere else in Kaappi (see the SRFI
 192 section in CONFORMANCE.md): `port-position` on
@@ -1789,6 +1789,10 @@ port. Pinned in `tests/scheme/srfi/srfi277.scm`.
 returns, and `read` on a cycle that never completes a datum accumulates
 until memory does — spec-conforming (the same is true of reading
 `/dev/zero` anywhere), so the test suite deliberately does not exercise
-either. Positions on a cyclic port grow without bound; `string_pos` is a
-`usize` and would take ~584 years of one-byte reads per nanosecond to
-overflow it.
+either. Positions on a cyclic port grow without bound; on 64-bit targets
+`string_pos` would take ~584 years of one-byte reads per nanosecond to
+overflow, and on wasm32 `set-port-position!` bounds the value to `usize`
+explicitly. `read` pulls a whole 4096-byte burst per parse attempt (the
+cycle can never block or EOF, so reading ahead is free) — one byte per
+re-parse of the whole accumulation made an 85 KB datum take 50 s, versus
+1 ms on the plain string port.

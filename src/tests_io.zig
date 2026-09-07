@@ -650,3 +650,16 @@ test "read parses successive datums from a cyclic port (SRFI 277)" {
     try std.testing.expectEqual(types.TRUE, try vm.eval("(equal? '(a) (read p))"));
     try std.testing.expectEqual(types.TRUE, try vm.eval("(eq? 'b (read p))"));
 }
+
+test "read on a degenerate empty cyclic port returns EOF (SRFI 277)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // The refill burst must propagate the empty cycle's EOF out of the parse
+    // loop, not just out of one pull — the first version of the burst loop
+    // spun forever here.
+    _ = try vm.eval("(define p (%open-cyclic-input-string \"\"))");
+    try std.testing.expectEqual(types.EOF, try vm.eval("(read p)"));
+}

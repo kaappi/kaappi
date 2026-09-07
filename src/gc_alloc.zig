@@ -572,37 +572,6 @@ pub fn allocStringOutputPort(self: *GC) !Value {
     return types.makePointer(&port.header);
 }
 
-/// SRFI 277: a cyclic input port — an ordinary input string port whose
-/// stream wraps to `data`'s start instead of ending. The port reads its own
-/// snapshot copy, so mutating the source afterwards cannot affect it (the
-/// SRFI leaves the source-mutation case undefined; the snapshot is the
-/// well-defined extension). Callers flip `is_binary` themselves for the
-/// bytevector constructor, exactly as openInputBytevector does.
-pub fn allocCyclicInputPort(self: *GC, data: []const u8) !Value {
-    // Copy before collecting: `data` usually aliases a SchemeString or
-    // Bytevector.
-    const owned = try self.allocator.dupe(u8, data);
-    errdefer self.allocator.free(owned);
-    try self.maybeCollect();
-    const port = try self.allocator.create(Port);
-    port.* = .{
-        .header = .{ .tag = .port },
-        .fd = -1,
-        .is_input = true,
-        .is_output = false,
-        .is_open = true,
-        .name = "string",
-        .owns_name = false,
-        .peek_byte = null,
-        .is_string_port = true,
-        .string_data = owned,
-        .string_pos = 0,
-        .cyclic = true,
-    };
-    self.finishAlloc(&port.header, @sizeOf(Port) + data.len);
-    return types.makePointer(&port.header);
-}
-
 /// SRFI 181: a port backed by user-supplied Scheme procedures. Up to 6
 /// Values need protecting across the collection at once -- beyond
 /// rootArgs2's 2-Value cap -- so this follows allocMultipleValues's
