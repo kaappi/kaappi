@@ -554,12 +554,19 @@ CALLCC_PRELUDE = """\
     (let ((r (collect hook)))
       (set! first-run? #f)
       (set! results (cons r results)))
-    (if (< i (length schedule))
-        (let ((step (list-ref schedule i)))
-          (set! i (+ i 1))
-          (if (= (car step) 1)
-              (if cont1 (cont1 (cdr step)) 'never-captured)
-              (if cont2 (cont2 (cdr step)) 'never-captured))))
+    ;; a step whose continuation was never captured (the walk stopped
+    ;; before its position: array-any past its short-circuit, a reduce
+    ;; seeded from element 0) is skipped, never allowed to end the
+    ;; schedule and starve the steps after it
+    (let loop ()
+      (if (< i (length schedule))
+          (let ((step (list-ref schedule i)))
+            (set! i (+ i 1))
+            (let ((k (if (= (car step) 1) cont1 cont2)))
+              (if k (k (cdr step)) (loop))))))
+    ;; which positions were reached is itself a differential signal: a
+    ;; differing short-circuit point or fold seeding shows up here
+    (show 'captured (and cont1 #t) (and cont2 #t))
     (reverse results)))
 ;; escape variant: the hook throws to a continuation OUTSIDE the
 ;; procedure under test at position p1, then the same procedure is run
@@ -577,7 +584,7 @@ CALLCC_PRELUDE = """\
 # puts the capture in the callback, one that only uses {A} relies on the
 # getter capture. {IV} is the domain, {L} a lambda mapping a multi-index
 # to its linear position (so a capture position means the same thing in
-# every dimension), {N} the volume.
+# every dimension).
 CALLCC_FAMILIES = [
     # capture in the source array's getter
     ("copy", "(array->list* (array-copy {A}))"),
@@ -598,6 +605,11 @@ CALLCC_FAMILIES = [
     # so the hook's value is always bound first
     ("for-each", "(let ((acc '())) (array-for-each (lambda (x) (set! acc (cons x acc))) {A}) (reverse acc))"),
     ("map-copy", "(array->list* (array-copy (array-map (lambda (x) (* 2 x)) {A})))"),
+    # the same source twice: the hook fires twice per position and the later
+    # capture at p1 overwrites the earlier, which is benign only because both
+    # calls carry the same position and + commutes. An implementation that
+    # read a duplicated source once per position would show a re-entry as
+    # (+ v v) rather than (+ v p1) -- that is what a mismatch here means.
     ("map2-copy", "(array->list* (array-copy (array-map + {A} {A})))"),
     ("stack", "(array->list* (array-stack 0 (list {A} (make-array {IV} (lambda idx 99)))))"),
     ("append", "(array->list* (array-append 0 (list {A} (make-array {IV} (lambda idx 99)))))"),
@@ -640,7 +652,7 @@ def gen_callcc(seed, classes=None):
     # the plain source for callback-capturing families
     P = f"(make-array {iv} (lambda idx ({lin} idx)))"
     outer = f"(make-interval {fmt_vec([2] + [1] * (len(shape) - 1))})"
-    body = tmpl.format(A=A, P=P, H="h", IV=iv, L=lin, N=n, OUTER=outer)
+    body = tmpl.format(A=A, P=P, H="h", IV=iv, L=lin, OUTER=outer)
     L = [CALLCC_PRELUDE, f"(define collect (lambda (h) {body}))"]
     L.append(f"(show 'family '{name} 'shape '({' '.join(map(str, shape))}) 'p1 {p1} 'p2 {p2})")
     if rng.random() < 0.2:

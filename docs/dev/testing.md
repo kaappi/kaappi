@@ -391,7 +391,7 @@ under a copy, and stack/append/block/decurry) is driven by the kaappi#2539
 schedule generalized — two continuations captured on the first run at random
 positions, re-invoked with random values in a random order, the whole result
 history printed — with the capture placed either in the source's getter or
-in the callback itself, plus an escape-out variant. Against the pre-#2539
+in the callback itself, plus an escape-out variant. Against the pre-#2540
 library it mismatches on the accumulating families; against main it is
 clean. New modes are one generator function each in `MODES`.
 
