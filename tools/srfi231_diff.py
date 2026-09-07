@@ -719,7 +719,14 @@ PROSE_PRELUDE = """\
         ((number? v) (list 'c (render (real-part v)) (render (imag-part v))))
         ((char? v) (list 'ch (char->integer v)))
         ;; every SRFI 4 body type, so a body an example displays never
-        ;; reaches write (whose float spelling differs)
+        ;; reaches write (whose float spelling differs). The three storage
+        ;; classes that are not SRFI 4 -- f16, c64, c128 -- have no
+        ;; predicate bound by (srfi 4) in either implementation, and a bare
+        ;; (c64vector? v) arm here would raise unbound-variable for EVERY
+        ;; value that reaches it, which try turns into ERROR: the mode would
+        ;; silently degrade to ERROR==ERROR agreement. Their bodies are
+        ;; f32/f64vectors in the reference and here, so they render through
+        ;; the arms below; an arm for a native type would need a guard.
         ((u8vector? v) (list 'u8 (u8vector->list v)))
         ((s8vector? v) (list 's8 (s8vector->list v)))
         ((u16vector? v) (list 'u16 (u16vector->list v)))
@@ -958,11 +965,21 @@ def load_prose(spec):
     # the SRFI's own export surface, from its "Procedure: (name ..." headings
     text = html_mod.unescape(re.sub(r"<[^>]+>", "", page))
     exports = set(re.findall(r"^\s*(?:Procedure|Variable|Parameter|Syntax):\s*\(?([^\s()]+)", text, re.M))
+    def is_code(text):
+        # a block may open with comment lines (the last one does, before
+        # defining the tables its expressions use); judge by the first
+        # line that is neither blank nor a comment
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith(";"):
+                return stripped.startswith("(")
+        return False
+
     examples = []
     for i, text in enumerate(pres):
-        if not text.lstrip().startswith("("):
+        if not is_code(text):
             continue
-        nxt = pres[i + 1] if i + 1 < len(pres) and not pres[i + 1].lstrip().startswith("(") else None
+        nxt = pres[i + 1] if i + 1 < len(pres) and not is_code(pres[i + 1]) else None
         examples.append((i, text.strip("\n"), nxt))
     _PROSE = (revision, examples, exports)
     return _PROSE
@@ -1129,6 +1146,8 @@ def main():
 
     if args.mode == "prose":
         revision, examples, _ = load_prose(args.spec)
+        if not 1 <= args.seed <= len(examples):
+            ap.error(f"prose: --seed must be in 1..{len(examples)} (the example number)")
         remaining = len(examples) - args.seed + 1
         args.count = remaining if args.count is None else max(0, min(args.count, remaining))
         print(f"prose: {len(examples)} code examples, {revision}")
@@ -1186,14 +1205,15 @@ def run(args, gen, oracle_cmd, work):
         # values are all ERROR on both sides (a prose fragment with free
         # variables, or a broken prelude) agrees trivially, and a summary
         # of "0 mismatches" must not hide that
-        lines = [ln for ln in normalize(ko).splitlines() if ln and ln != "end"]
-        if any(ln.startswith("skipped ") for ln in lines):
-            skipped += 1
-        elif not lines:
-            silent += 1
-        elif all(ln.endswith("ERROR") for ln in lines):
-            vacuous += 1
         if same:
+            # only an agreeing case can be a vacuous agreement
+            lines = [ln for ln in normalize(ko).splitlines() if ln and ln != "end"]
+            if any(ln.startswith("skipped ") for ln in lines):
+                skipped += 1
+            elif not lines:
+                silent += 1
+            elif all(ln.endswith("ERROR") for ln in lines):
+                vacuous += 1
             continue
         mismatches += 1
         if save is None:
