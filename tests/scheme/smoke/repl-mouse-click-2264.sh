@@ -195,6 +195,34 @@ def send(data):
     os.write(fd, data)
     time.sleep(0.05)
 
+# Issue #2550: when a scenario fails, a 20 s wait that a loaded, Debug-speed
+# runner outran and bytes that were lost look identical in the captured
+# output. Before reporting, keep the pty open and keep pumping for this many
+# more seconds (answering anchor queries as they come, stopping early once
+# everything missing has shown up). The failure line then says which it was:
+# a marker that arrived during the drain is a slow-output flake; one that
+# never arrived is candidate reader byte loss — that report is the issue's
+# escalation criterion, so do not remove it.
+DRAIN_S = 30
+
+def record(failed, expect, mark, needles):
+    produced = seen(mark)
+    missing = [n for n in needles if n not in produced]
+    late, never = [], []
+    if missing:
+        end = time.time() + DRAIN_S
+        while time.time() < end:
+            if all(n in seen(mark) for n in missing):
+                break
+            answer_dsr()
+            if eof:
+                break
+            pump(0.5)
+        final = seen(mark)
+        late = [n for n in missing if n in final]
+        never = [n for n in missing if n not in final]
+    failures.append((failed, expect, produced, late, never))
+
 if not wait_for(b'kaappi> ', 0, 25):
     # Two very different things look alike here, and conflating them is how a
     # test goes quietly green: a REPL that wrote *nothing at all* did not run,
@@ -225,7 +253,7 @@ if scenario == 'ahead':
     ok2 = wait_for(b'\n(9 8)\n', mark, 20)
     idle()
     if not (ok1 and ok2):
-        failures.append((b'ahead', b'3 then (9 8)', seen(mark)))
+        record(b'ahead', b'3 then (9 8)', mark, [b'\n3\n', b'\n(9 8)\n'])
 elif scenario == 'garble':
     # Hostile terminal report (maintainer review, memory safety): a CSI with
     # 40 digits/semicolons not terminated by R, arriving while the DSR
@@ -244,7 +272,7 @@ elif scenario == 'garble':
     ok2 = wait_for(b'\n42\n', mark, 20)
     idle()
     if not (ok1 and ok2):
-        failures.append((b'garble', b'3 then 42 (no crash)', seen(mark)))
+        record(b'garble', b'3 then 42 (no crash)', mark, [b'\n3\n', b'\n42\n'])
 else:
     for send_bytes, echo, clk, editkey, expect, reject in cases:
         mark = len(buf)
@@ -253,7 +281,7 @@ else:
         # and typing on while the REPL is still evaluating puts the bytes in the
         # tty's canonical buffer, where the click then arrives as a literal ESC.
         if not wait_for(echo, mark, 20):
-            failures.append((send_bytes, expect, seen(mark)))
+            record(send_bytes, expect, mark, [echo])
             idle()
             continue
         idle(0.3)
@@ -272,7 +300,7 @@ else:
         # substring check.
         produced = seen(mark)
         if not ok or (reject is not None and (b'\n' + reject + b'\n') in produced):
-            failures.append((send_bytes, expect, produced))
+            record(send_bytes, expect, mark, [b'\n' + expect + b'\n'])
 
 send(b',quit\r')
 while pump(1.0):
@@ -283,8 +311,18 @@ try:
 except OSError:
     pass
 
-for failed, expect, produced in failures:
+for failed, expect, produced, late, never in failures:
     sys.stdout.write('FAIL %r: expected %r in\n%r\n\n' % (failed, expect, produced))
+    if late:
+        sys.stdout.write(
+            'TAIL-CHECK: %r arrived during the %ds drain after the failure'
+            ' — late output on a loaded runner, not lost bytes\n\n'
+            % (late, DRAIN_S))
+    if never:
+        sys.stdout.write(
+            'TAIL-CHECK: %r never arrived, even after %ds more pumping'
+            ' — candidate byte loss in the reader; this is the escalation'
+            ' criterion in issue #2550\n\n' % (never, DRAIN_S))
 sys.exit(1 if failures else 0)
 PY
 
