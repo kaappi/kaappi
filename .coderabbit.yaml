@@ -106,8 +106,16 @@ reviews:
 
     - path: "tests/**"
       instructions: |
-        Test files. Every bug fix must include a regression test. Scheme tests
-        use either (chibi test) or simple display+newline assertions.
+        Test files. Every bug fix must include a regression test. The
+        standard Scheme harness is (srfi 64) with a name on every
+        test-assert/test-equal — an unnamed failure prints a bare #f — and
+        an (exit 1) epilogue when the runner's fail count is nonzero; that
+        is what tests/scheme/srfi/ uses almost uniformly and what new
+        tests everywhere under tests/scheme/ should use (see
+        tests/scheme/CLAUDE.md). Do not ask a test to drop SRFI 64.
+        Older smoke/ and compliance/ files that predate it may still use
+        display+newline or hand-rolled counters, and tests/scheme/r7rs/
+        uses (chibi test); both are acceptable as-is.
         Check that tests actually exercise the behavior being tested and
         would fail without the corresponding fix.
 
