@@ -23,8 +23,23 @@ tests/scheme/srfi/, with the seed in the comment so they replay:
     tools/srfi231_diff.py reshape --oracle chibi --count 200
     tools/srfi231_diff.py reshape --seed 7 --count 1        # exactly one case
     tools/srfi231_diff.py reshape --seed 7 --print          # show its program
+    tools/srfi231_diff.py storage --count 400               # all 16 storage classes
+    tools/srfi231_diff.py storage --classes u1,f16 --count 200
 
 Modes
+  storage  One storage class per case, through everything that consults its
+           checker, getter and setter: the checker's verdict on boundary and
+           wrong-typed values, make-specialized-array with an initial value,
+           array-set! through the array and through a reversed extract of it,
+           array-copy and list->array from a generic source, array-assign!
+           into a view, and storage-class-length of the body. Values are
+           canonicalized before printing -- finite reals as exact rationals,
+           complex as a pair of those, chars as code points -- so f16/f32
+           rounding is compared bit-exactly and Gambit's `.5` never differs
+           from Kaappi's `0.5` textually. Aimed at the software u1 bit
+           packing and f16 half-floats, the interleaved c64/c128 bodies, and
+           the checker of every class (whether f64 rejects an exact integer,
+           whether c64 accepts a real flonum), through views with offsets.
   reshape  A chain of view operations over one specialized array -- extract,
            translate, permute, reverse, sample, curry-pick, tile-pick, copy,
            and specialized-array-reshape with and without copy-on-failure? --
@@ -37,7 +52,13 @@ Modes
            implementation reasons about index arithmetic rather than copying
            the reference's structure.
 
-Known oracle divergence: chibi 0.12's port raises on a `copy-on-failure? #t`
+Known oracle divergences. Gambit's bundled reference flips the initial
+value of `specialized-array-default-safe?` to #t (spec and the SRFI
+repository's copy: #f); the storage mode pins it to #f in its prelude.
+Kaappi's own open divergence kaappi#2542 (c64/c128 checkers accept real
+flonums, the reference rejects them) surfaces as `check` mismatches on those
+two classes; use `--classes` to exclude them until it is fixed, since a
+program's first difference hides everything after it. And chibi 0.12's port raises on a `copy-on-failure? #t`
 reshape that needs the copy, where the spec (and Gambit, and Kaappi) return a
 copy -- expect that mismatch shape with `--oracle chibi` (seeds 5227 and 5248
 of the reshape mode show it) and confirm against Gambit before chasing it.
@@ -312,7 +333,7 @@ class Chain:
         return "\n".join(self.lines) + "\n"
 
 
-def gen_reshape(seed):
+def gen_reshape(seed, classes=None):
     rng = random.Random(seed)
     c = Chain(rng)
     ops = [c.op_extract, c.op_translate, c.op_permute, c.op_permute, c.op_reverse,
@@ -326,7 +347,142 @@ def gen_reshape(seed):
     return c.finish()
 
 
-MODES = {"reshape": gen_reshape}
+# --- the storage-class-mode generator -----------------------------------------
+
+STORAGE_PRELUDE = PRELUDE.replace(
+    "(import (scheme base) (scheme write) (srfi 231))",
+    "(import (scheme base) (scheme write) (scheme inexact) (scheme complex) (srfi 231))") + """\
+;; the spec says (specialized-array-default-safe?) is initially #f, and so
+;; does the SRFI repository's reference source, but Gambit's bundled copy
+;; of that same file flips the initial value to #t -- pin it, so an omitted
+;; safe? argument means the same thing under both
+(specialized-array-default-safe? #f)
+;; implementations print flonums differently (Gambit: .5 and 1.; Kaappi:
+;; 0.5 and 1.0), so print every value in a representation both write
+;; identically: finite reals as exact rationals (bit-exact, so f16/f32
+;; rounding is compared precisely), complex as a tagged pair of those,
+;; chars as code points, nested lists recursively
+(define (canon v)
+  (cond ((and (number? v) (exact? v)) v)
+        ((real? v) (cond ((nan? v) 'nan)
+                         ((infinite? v) (if (> v 0) '+inf '-inf))
+                         (else (exact v))))
+        ((number? v) (list 'c (canon (real-part v)) (canon (imag-part v))))
+        ((char? v) (list 'ch (char->integer v)))
+        ((pair? v) (cons (canon (car v)) (canon (cdr v))))
+        ((array? v) 'array)
+        (else v)))
+"""
+
+CLASSES = ["generic", "char", "u1", "u8", "s8", "u16", "s16", "u32", "s32",
+           "u64", "s64", "f16", "f32", "f64", "c64", "c128"]
+
+# every candidate value, as source text both readers accept
+INTS = [-(2**64), -(2**63) - 1, -(2**63), -(2**32), -(2**31) - 1, -(2**31), -32769,
+        -32768, -129, -128, -2, -1, 0, 1, 2, 127, 128, 255, 256, 32767, 32768,
+        65535, 65536, 2**31 - 1, 2**31, 2**32 - 1, 2**32, 2**63 - 1, 2**63,
+        2**64 - 1, 2**64]
+FLOATS = ["0.0", "-0.0", "0.5", "-0.5", "0.1", "1.0", "-1.5", "2.5", "3.0",
+          "255.0", "65504.0", "65520.0", "1e-8", "6.1e-5", "5.96e-8", "1e-10",
+          "3.4e38", "3.5e38", "1e300", "+inf.0", "-inf.0", "+nan.0",
+          "1/2", "1/3"]  # the two rationals are exact reals, not flonums
+COMPLEX = ["1.0+2.0i", "0.5-0.25i", "-1.5+0.0i", "0.0+1.0i", "1+2i", "0+1i",
+           "1.0+1e300i", "65504.0+65520.0i"]
+CHARS = ["#\\a", "#\\x0", "#\\x3bb", "#\\space"]
+OTHERS = ["'sym", "\"s\"", "'(1 2)", "#t", "#f", "'()"]
+
+
+def int_range(name):
+    bits = int(name[1:]) if name[1:].isdigit() else None
+    if name == "u1":
+        return 0, 1
+    if name.startswith("u"):
+        return 0, 2**bits - 1
+    return -(2**(bits - 1)), 2**(bits - 1) - 1
+
+
+def likely_valid(rng, cls):
+    """A value the class's checker should (or plausibly might) accept."""
+    if cls == "generic":
+        return rng.choice([str(v) for v in INTS] + FLOATS + COMPLEX + CHARS + OTHERS)
+    if cls == "char":
+        return rng.choice(CHARS)
+    if cls[0] in "us":
+        lo, hi = int_range(cls)
+        return str(rng.choice([lo, hi, lo + 1, hi - 1, 0, 1] + [rng.randint(lo, hi) for _ in range(3)]))
+    if cls[0] == "f":
+        return rng.choice(FLOATS)
+    return rng.choice(COMPLEX + FLOATS)
+
+
+def any_value(rng):
+    return rng.choice([str(v) for v in INTS] + FLOATS + COMPLEX + CHARS + OTHERS)
+
+
+def value(rng, cls):
+    return likely_valid(rng, cls) if rng.random() < 0.7 else any_value(rng)
+
+
+def gen_storage(seed, classes=None):
+    rng = random.Random(seed)
+    cls = rng.choice(classes or CLASSES)
+    sc = f"{cls}-storage-class"
+    L = [STORAGE_PRELUDE]
+    L.append(f"(define sc {sc})")
+    L.append(f"(show 'class '{cls} (canon (storage-class-default sc)) (storage-class? sc))")
+    # no f8 probe: the spec lets an implementation with an 8-bit float type
+    # define f8-storage-class (chibi does); Gambit and Kaappi leave it #f
+    # the checker's verdict on a handful of values -- the most direct probe
+    for _ in range(8):
+        v = value(rng, cls)
+        L.append(f"(show 'check (canon {v}) ((storage-class-checker sc) {v}))")
+    # a small 1-2 axis domain; sometimes empty
+    d = rng.choice([1, 1, 2, 2, 2])
+    lo = [rng.randint(-2, 2) for _ in range(d)]
+    hi = [l + rng.choice([0, 1, 2, 3, 3, 4]) for l in lo]
+    vol = volume(lo, hi)
+    iv = fmt_interval(lo, hi)
+    L.append(f"(define iv {iv})")
+    init = value(rng, cls)
+    L.append(f"(define a0 (try (make-specialized-array iv sc {init} #t)))")
+    L.append(f"(show 'make (canon {init}) (if (eq? a0 'ERROR) 'ERROR (canon (array->list a0))))")
+    # keep going with a default-initialized array if the initial value was rejected
+    L.append("(define a (if (eq? a0 'ERROR) (make-specialized-array iv sc) a0))")
+    L.append("(show 'length ((storage-class-length sc) (array-body a)) (mutable-array? a) (array-safe? a))")
+    if vol > 0:
+        for _ in range(rng.randint(2, 5)):
+            v = value(rng, cls)
+            idx = " ".join(str(rng.randrange(l, h)) for l, h in zip(lo, hi))
+            L.append(f"(show 'set (canon {v}) (try (begin (array-set! a {v} {idx}) 'ok)))")
+        L.append("(show 'contents (canon (array->list a)))")
+        # a view with an offset into the body: extract a sub-interval, reverse it
+        slo = [rng.randint(l, h - 1) for l, h in zip(lo, hi)]
+        shi = [rng.randint(sl + 1, h) for sl, h in zip(slo, hi)]
+        flips = fmt_vec(["#t" if rng.random() < 0.6 else "#f" for _ in range(d)])
+        L.append(f"(define b (array-reverse (array-extract a {fmt_interval(slo, shi)}) {flips}))")
+        L.append("(show 'view (dom b) (array-packed? b) (canon (array->list b)))")
+        for _ in range(rng.randint(1, 3)):
+            v = value(rng, cls)
+            idx = " ".join(str(rng.randrange(l, h)) for l, h in zip(slo, shi))
+            L.append(f"(show 'view-set (canon {v}) (try (begin (array-set! b {v} {idx}) 'ok)))")
+        L.append("(show 'contents (canon (array->list a)))")
+        # array-assign! from a generic array of one (usually valid) value
+        v = value(rng, cls)
+        L.append(f"(show 'assign (canon {v}) (try (begin (array-assign! b (array-copy (make-array (array-domain b) (lambda idx {v})) generic-storage-class)) (canon (array->list a)))))")
+    # bulk constructors from generic sources, with the checker in the loop
+    vals = [value(rng, cls) for _ in range(vol)]
+    L.append(f"(define g (list->array iv (list {' '.join(vals)}) generic-storage-class))")
+    L.append("(show 'copy (try (canon (array->list (array-copy g sc)))))")
+    L.append(f"(show 'list->array (try (canon (array->list (list->array iv (list {' '.join(vals)}) sc)))))")
+    L.append(f"(show 'vector->array (try (canon (array->list (vector->array iv (vector {' '.join(vals)}) sc)))))")
+    # and a copy of the typed array back to generic and to itself
+    L.append("(show 'copy-generic (try (canon (array->list (array-copy a generic-storage-class)))))")
+    L.append("(show 'copy-same (try (canon (array->list (array-copy a)))) (try (eq? sc (array-storage-class (array-copy a)))))")
+    L.append("(show 'end)")
+    return "\n".join(L) + "\n"
+
+
+MODES = {"reshape": gen_reshape, "storage": gen_storage}
 
 
 # --- running -----------------------------------------------------------------
@@ -356,9 +512,21 @@ def main():
     ap.add_argument("--save", default=None, help="directory for mismatching cases")
     ap.add_argument("--timeout", type=float, default=60.0)
     ap.add_argument("--print", action="store_true", help="print the first case's program and exit")
+    ap.add_argument("--classes", default=None,
+                    help="storage mode: comma-separated storage classes to draw from "
+                         "(default all 16), e.g. --classes u1,f16,c64")
     args = ap.parse_args()
 
-    gen = MODES[args.mode]
+    classes = None
+    if args.classes:
+        classes = args.classes.split(",")
+        bad = [c for c in classes if c not in CLASSES]
+        if bad:
+            sys.exit(f"unknown storage class(es): {', '.join(bad)}; known: {', '.join(CLASSES)}")
+
+    def gen(seed):
+        return MODES[args.mode](seed, classes)
+
     if args.print:
         sys.stdout.write(gen(args.seed))
         return 0

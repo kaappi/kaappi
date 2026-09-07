@@ -354,10 +354,8 @@ output differs. The oracle is the reference itself — this SRFI's documented
 rule is "when prose and reference code disagree, trust the code" — as
 bundled by Gambit (`brew install gambit-scheme`; `gsi` may be shadowed by a
 shell alias, the tool defaults to `/opt/homebrew/bin/gsi`), with chibi's
-independent port as a tie-breaker (`--oracle chibi`; chibi 0.12 itself
-raises on a `copy-on-failure? #t` reshape that needs the copy, where the spec,
-Gambit and Kaappi return one — confirm a chibi-only mismatch against Gambit
-before chasing it).
+independent port as a tie-breaker (`--oracle chibi`; confirm a chibi-only
+mismatch against Gambit before chasing it).
 
 ```bash
 tools/srfi231_diff.py reshape --count 500          # seeds 1..500 vs Gambit
@@ -375,8 +373,23 @@ the base to compare body sharing; every step is guarded, so *whether* a
 step errors is compared too. It is deliberately biased toward the affine
 boundary — merging axes whose strides no longer chain after a permute or
 sample — since that is where `specialized-array-reshape` reasons about index
-arithmetic rather than mirroring the reference's structure. New modes are
-one generator function each in `MODES`.
+arithmetic rather than mirroring the reference's structure. The `storage`
+mode takes one storage class per case through everything that consults its
+checker, getter and setter — the checker's verdict on boundary and
+wrong-typed values, `make-specialized-array` with an initial value,
+`array-set!` directly and through a reversed extract, `array-copy`,
+`list->array` and `vector->array` from a generic source, `array-assign!`
+into a view — with every value canonicalized before printing (finite reals
+as exact rationals, complex as pairs of those, chars as code points), so
+f16/f32 rounding is compared bit-exactly and Gambit's `.5` never differs
+textually from Kaappi's `0.5`; `--classes u1,f16` narrows the draw. New
+modes are one generator function each in `MODES`.
+
+Two oracle divergences are known and recorded in the tool's docstring: Gambit's
+bundled reference flips `specialized-array-default-safe?` to `#t` (the spec
+and the SRFI repository's copy say `#f`; the storage prelude pins it), and
+chibi raises on a `copy-on-failure? #t` reshape that needs the copy. The
+storage mode's first real finding is kaappi#2542.
 
 It is not part of `run-all.sh`: it needs an oracle installed and a useful
 run takes minutes.
