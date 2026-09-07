@@ -87,7 +87,11 @@ Its storage classes have checker bugs of their own (u16 accepts 65536, u64
 accepts negatives, c64 accepts a real flonum, make-specialized-array does
 not validate its initial value), all contradicted by Gambit; its u1 checker
 returns a list rather than a boolean, which the storage mode hides by
-printing only the boolean verdict.
+printing only the boolean verdict. In the callcc mode chibi's array-copy --
+into a typed storage class, or of an array-map result -- keeps a value
+written by an earlier re-entry across a second continuation: the
+kaappi#2539 shape, a shared scratch behind a call/cc-safe procedure, which
+Gambit and Kaappi (since #2540) rebuild from the captured prefix instead.
 
 Each case is a pure function of (mode, seed); `--seed N --count K` runs seeds
 N..N+K-1. Mismatches are saved as <save-dir>/<mode>-<seed>.scm with the two
@@ -584,23 +588,30 @@ CALLCC_FAMILIES = [
     ("reduce", "(array-reduce + {A})"),
     ("every", "(array-every list {A})"),
     ("any", "(array-any (lambda (x) (and (>= x 2) (list x))) {A})"),
+    # the for-each families accumulate through a set! cell on the CALLER's
+    # side, which is legitimate -- but (set! acc (cons (h x) acc)) would read
+    # acc before or after the capture depending on the implementation's
+    # argument evaluation order (unspecified by R7RS; chibi is right-to-left),
+    # so the hook's value is always bound first
     ("for-each", "(let ((acc '())) (array-for-each (lambda (x) (set! acc (cons x acc))) {A}) (reverse acc))"),
     ("map-copy", "(array->list* (array-copy (array-map (lambda (x) (* 2 x)) {A})))"),
     ("map2-copy", "(array->list* (array-copy (array-map + {A} {A})))"),
     ("stack", "(array->list* (array-stack 0 (list {A} (make-array {IV} (lambda idx 99)))))"),
     ("append", "(array->list* (array-append 0 (list {A} (make-array {IV} (lambda idx 99)))))"),
-    ("block", "(array->list* (array-block (list->array (make-interval '#(2)) (list (array-copy {A}) (array-copy {A})))))"),
+    # the outer array of blocks must have the pieces' rank: two blocks
+    # stacked along axis 0, so its domain is 2 x 1 x ... x 1
+    ("block", "(array->list* (array-block (list->array {OUTER} (list (array-copy {A}) (array-copy {A})))))"),
     ("decurry", "(array->list* (array-decurry (list->array (make-interval '#(2)) (list {A} (make-array {IV} (lambda idx 99))))))"),
     ("interval-fold-left", "(reverse (interval-fold-left (lambda idx ({H} ({L} idx))) (lambda (acc x) (cons x acc)) '() {IV}))"),
     ("interval-fold-right", "(interval-fold-right (lambda idx ({H} ({L} idx))) cons '() {IV})"),
-    ("interval-for-each", "(let ((acc '())) (interval-for-each (lambda idx (set! acc (cons ({H} ({L} idx)) acc))) {IV}) (reverse acc))"),
+    ("interval-for-each", "(let ((acc '())) (interval-for-each (lambda idx (let ((y ({H} ({L} idx)))) (set! acc (cons y acc)))) {IV}) (reverse acc))"),
     # capture in the callback, over a plain (non-capturing) array
     ("kernel-fold-left", "(reverse (array-fold-left (lambda (acc x) (cons ({H} x) acc)) '() {P}))"),
     ("kernel-fold-right", "(array-fold-right (lambda (x acc) (cons ({H} x) acc)) '() {P})"),
     ("kernel-reduce", "(array-reduce (lambda (a b) (+ a ({H} b))) {P})"),
     ("kernel-every", "(array-every (lambda (x) (list ({H} x))) {P})"),
     ("kernel-any", "(array-any (lambda (x) (let ((y ({H} x))) (and (>= y 2) (list y)))) {P})"),
-    ("kernel-for-each", "(let ((acc '())) (array-for-each (lambda (x) (set! acc (cons ({H} x) acc))) {P}) (reverse acc))"),
+    ("kernel-for-each", "(let ((acc '())) (array-for-each (lambda (x) (let ((y ({H} x))) (set! acc (cons y acc)))) {P}) (reverse acc))"),
     ("kernel-map-copy", "(array->list* (array-copy (array-map (lambda (x) ({H} x)) {P})))"),
     ("kernel-interval-fold-left", "(reverse (interval-fold-left (lambda idx ({L} idx)) (lambda (acc x) (cons ({H} x) acc)) '() {IV}))"),
 ]
@@ -625,7 +636,8 @@ def gen_callcc(seed, classes=None):
     A = f"(make-array {iv} (lambda idx (h ({lin} idx))))"
     # the plain source for callback-capturing families
     P = f"(make-array {iv} (lambda idx ({lin} idx)))"
-    body = tmpl.format(A=A, P=P, H="h", IV=iv, L=lin, N=n)
+    outer = f"(make-interval {fmt_vec([2] + [1] * (len(shape) - 1))})"
+    body = tmpl.format(A=A, P=P, H="h", IV=iv, L=lin, N=n, OUTER=outer)
     L = [CALLCC_PRELUDE, f"(define collect (lambda (h) {body}))"]
     L.append(f"(show 'family '{name} 'shape '({' '.join(map(str, shape))}) 'p1 {p1} 'p2 {p2})")
     if rng.random() < 0.2:
