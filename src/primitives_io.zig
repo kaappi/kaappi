@@ -48,6 +48,9 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "eof-object?", .func = &eofObjectP, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
     .{ .name = "eof-object", .func = &eofObjectFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "open-input-string", .func = &openInputString, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    // SRFI 277's raw constructors (lib/srfi/277.sld wraps them with the
+    // spec's argument checks and exports the public names).
+    .{ .name = "%open-cyclic-input-string", .func = &openCyclicInputString, .arity = .{ .exact = 1 }, .libs = primitives.INTERNAL_PUBLIC },
     .{ .name = "open-output-string", .func = &openOutputString, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "get-output-string", .func = &getOutputString, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "read-string", .func = &readStringFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.scheme_base) },
@@ -1264,7 +1267,10 @@ fn setPortPositionBang(args: []const Value) PrimitiveError!Value {
     if (port.is_string_port) {
         if (port.is_input) {
             const len = if (port.string_data) |d| d.len else 0;
-            if (pos > len) return primitives.indexError("set-port-position!", pos, len);
+            // SRFI 277: a cyclic port has no end, so any non-negative
+            // position is valid — the unbounded cursor simply counts into
+            // the endless repetition, and reads wrap modulo len.
+            if (!(port.cyclic and len > 0) and pos > len) return primitives.indexError("set-port-position!", pos, len);
             port.string_pos = @intCast(pos);
             // Discard stale read-ahead exactly as the fd branch below
             // does: a pushed-back peek byte describes the *old* position
@@ -1504,6 +1510,18 @@ pub fn readOneByte(port: *types.Port) PrimitiveError!?u8 {
     // String input port
     if (port.is_string_port) {
         const data = port.string_data orelse return null;
+        // SRFI 277: a cyclic port wraps to the start instead of ending, so
+        // string_pos keeps counting monotonically past data.len and indexes
+        // modulo len — that unbounded count is what port-position reports
+        // and set-port-position! stores. An empty cycle can deliver nothing;
+        // it falls through to the EOF exit rather than dividing by zero (the
+        // exported constructors reject empty sources; the raw % one is still
+        // directly callable from (kaappi primitives)).
+        if (port.cyclic and data.len > 0) {
+            const byte = data[port.string_pos % data.len];
+            port.string_pos += 1;
+            return byte;
+        }
         if (port.string_pos >= data.len) return null;
         const byte = data[port.string_pos];
         port.string_pos += 1;
@@ -1808,12 +1826,19 @@ fn peekCharFn(args: []const Value) PrimitiveError!Value {
         if (port.is_string_port) {
             const data = port.string_data orelse return types.EOF;
             const pos = port.string_pos;
+            // SRFI 277: a cyclic port's cursor runs unbounded past the
+            // data's end, so index modulo len — the reconstruction also
+            // has to survive a multi-byte sequence straddling the wrap.
+            const cyclic = port.cyclic and data.len > 0;
             if (pos > 0) {
                 const start = pos - 1;
-                if (start + seq_len <= data.len) {
+                if (cyclic or start + seq_len <= data.len) {
                     var buf: [4]u8 = undefined;
                     buf[0] = b;
-                    for (1..seq_len) |i| buf[i] = data[start + i];
+                    for (1..seq_len) |i| buf[i] = if (cyclic)
+                        data[(start + i) % data.len]
+                    else
+                        data[start + i];
                     const cp = std.unicode.utf8Decode(buf[0..seq_len]) catch return types.makeChar(@intCast(b));
                     return types.makeChar(cp);
                 }
@@ -2017,8 +2042,12 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const port = try getInputPort(args, 0, "read");
 
-    // For string ports, read directly from the string data
-    if (port.is_string_port) {
+    // For string ports, read directly from the string data. SRFI 277 cyclic
+    // ports take the incremental path below instead: their cursor runs
+    // unbounded past the snapshot's end, so a data[string_pos..] slice would
+    // be out of bounds — and an endless source must parse byte-at-a-time
+    // until a datum completes, never "running out" to report EOF.
+    if (port.is_string_port and !port.cyclic) {
         const data = port.string_data orelse {
             if (port.peek_byte != null) return readFromPeekByteOnly(gc, port);
             return types.EOF;
@@ -2135,13 +2164,14 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
             }
         }
 
-        // SRFI 181 ports have no fd (the -1 sentinel): refill through
-        // readOneByte — the single byte source for every port kind — which
-        // invokes the read! callback / transcoder decode and stashes the
-        // burst's tail into read_buf, drained right back out here. Before
-        // #1995 this fell through to portFdRead(-1, ...), whose EBADF read
-        // as EOF, so `read` never invoked the callback at all.
-        if (port.custom_backend != null or port.transcode != null) {
+        // SRFI 181 ports have no fd (the -1 sentinel), and SRFI 277 cyclic
+        // string ports must never see EOF: refill through readOneByte — the
+        // single byte source for every port kind — which invokes the read!
+        // callback / transcoder decode / cycle wrap and stashes the burst's
+        // tail into read_buf, drained right back out here. Before #1995 this
+        // fell through to portFdRead(-1, ...), whose EBADF read as EOF, so
+        // `read` never invoked the callback at all.
+        if (port.custom_backend != null or port.transcode != null or port.cyclic) {
             // A park (only the transcoded path can park, on the wrapped
             // port's fd) re-stashes the accumulation so the re-executed
             // primitive re-drains it on entry; the wrapped port's own
@@ -2241,6 +2271,19 @@ fn openInputString(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
     return gc.allocStringInputPort(str.data[0..str.len]) catch return PrimitiveError.OutOfMemory;
+}
+
+/// SRFI 277: `(srfi 277)`'s raw constructor — the exported
+/// `open-cyclic-input-string` (lib/srfi/277.sld) does the argument checks,
+/// including the spec's empty-argument error, before calling this. It still
+/// type-checks here, since (kaappi primitives) exposes it directly; an empty
+/// string is *not* rejected here — the port simply reads EOF forever, a
+/// degenerate but safe cycle (reads index modulo len only when len > 0).
+fn openCyclicInputString(args: []const Value) PrimitiveError!Value {
+    if (!types.isString(args[0])) return primitives.typeError("open-cyclic-input-string", "string", args[0]);
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const str = types.toObject(args[0]).as(types.SchemeString);
+    return gc.allocCyclicInputPort(str.data[0..str.len]) catch return PrimitiveError.OutOfMemory;
 }
 
 fn openOutputString(args: []const Value) PrimitiveError!Value {

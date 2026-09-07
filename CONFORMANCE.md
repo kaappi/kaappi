@@ -341,6 +341,7 @@ Loaded on demand from `.sld` files via `(import (srfi N))`. Sub-libraries: (srfi
 | 271 | Random port libraries |
 | 273 | Extensions to data (type) checking |
 | 274 | Extended list conversion procedures |
+| 277 | Cyclic ports |
 
 § SRFI 115 is matched by a backtracking interpreter, not by the reference
 implementation's NFA, so it shares the cost profile of every backtracking

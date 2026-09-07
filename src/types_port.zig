@@ -35,6 +35,14 @@ pub const Port = struct {
     is_string_port: bool = false,
     string_data: ?[]const u8 = null, // for input string ports (owned copy)
     string_pos: usize = 0, // read position for input string ports
+    /// SRFI 277 cyclic input port: when true (input string ports only), the
+    /// end of `string_data` wraps to its start instead of reporting EOF, and
+    /// `string_pos` keeps counting monotonically past `string_data.len` —
+    /// reads index `string_pos % string_data.len`, so `port-position` stays
+    /// an unbounded monotonic byte count (SRFI 192 positioning for free) and
+    /// `set-port-position!` accepts any non-negative offset. A plain bool,
+    /// so it needs no GC tracing and no write barrier.
+    cyclic: bool = false,
     string_out_buf: ?[]u8 = null, // for output string ports (owned, growable)
     string_out_len: usize = 0, // total extent ever written (get-output-string reads [0..this))
     string_out_cap: usize = 0,

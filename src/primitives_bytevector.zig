@@ -28,6 +28,9 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "read-bytevector", .func = &readBytevectorFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "write-bytevector", .func = &writeBytevectorFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "open-input-bytevector", .func = &openInputBytevector, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    // SRFI 277's raw constructor (lib/srfi/277.sld wraps it with the spec's
+    // argument checks and exports the public name).
+    .{ .name = "%open-cyclic-input-bytevector", .func = &openCyclicInputBytevector, .arity = .{ .exact = 1 }, .libs = primitives.INTERNAL_PUBLIC },
     .{ .name = "open-output-bytevector", .func = &openOutputBytevector, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "get-output-bytevector", .func = &getOutputBytevector, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "read-bytevector!", .func = &readBytevectorMut, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.scheme_base) },
@@ -338,6 +341,24 @@ fn openInputBytevector(args: []const Value) PrimitiveError!Value {
     if (!types.isBytevector(args[0])) return primitives.typeError("open-input-bytevector", "bytevector", args[0]);
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const port_val = gc.allocStringInputPort(bv_data: {
+        const bv = types.toBytevector(args[0]);
+        break :bv_data bv.data;
+    }) catch return PrimitiveError.OutOfMemory;
+    types.toObject(port_val).as(types.Port).is_binary = true;
+    return port_val;
+}
+
+/// SRFI 277: `(srfi 277)`'s raw constructor — the exported
+/// `open-cyclic-input-bytevector` (lib/srfi/277.sld) does the argument
+/// checks, including the spec's empty-argument error, before calling this.
+/// It still type-checks here, since (kaappi primitives) exposes it directly;
+/// an empty bytevector is *not* rejected here — the port simply reads EOF
+/// forever, a degenerate but safe cycle (reads index modulo len only when
+/// len > 0).
+fn openCyclicInputBytevector(args: []const Value) PrimitiveError!Value {
+    if (!types.isBytevector(args[0])) return primitives.typeError("open-cyclic-input-bytevector", "bytevector", args[0]);
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const port_val = gc.allocCyclicInputPort(bv_data: {
         const bv = types.toBytevector(args[0]);
         break :bv_data bv.data;
     }) catch return PrimitiveError.OutOfMemory;

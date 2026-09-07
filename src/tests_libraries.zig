@@ -792,7 +792,7 @@ test "(kaappi primitives) exports what the portable .slds import (#1856)" {
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
-    // lib/srfi/{27,74,271/*,57,131,136,150,237}.sld name these in Scheme
+    // lib/srfi/{27,74,271/*,277,57,131,136,150,237}.sld name these in Scheme
     // source and import (kaappi primitives) for them. A .sld cannot spell the
     // base_binding_prefix compiler-synthesized references use, so this export
     // is the only declared route — losing it breaks those libraries at load.
@@ -801,11 +801,12 @@ test "(kaappi primitives) exports what the portable .slds import (#1856)" {
         return error.TestUnexpectedResult;
     };
     for ([_][]const u8{
-        "%make-record",                 "%make-record-type",            "%record?",
-        "%record-ref",                  "%record-set!",                 "%host-big-endian?",
-        "%rs-next-int",                 "%rs-next-real",                "%default-random-source",
-        "%random-port?",                "%random-port-state",           "%random-port-make-from-seed",
-        "%random-port-make-from-state", "%random-port-make-randomized",
+        "%make-record",                  "%make-record-type",            "%record?",
+        "%record-ref",                   "%record-set!",                 "%host-big-endian?",
+        "%rs-next-int",                  "%rs-next-real",                "%default-random-source",
+        "%random-port?",                 "%random-port-state",           "%random-port-make-from-seed",
+        "%random-port-make-from-state",  "%random-port-make-randomized", "%open-cyclic-input-string",
+        "%open-cyclic-input-bytevector",
     }) |name| {
         if (lib.exports.get(name) == null) {
             std.debug.print("(kaappi primitives) is missing \"{s}\"\n", .{name});

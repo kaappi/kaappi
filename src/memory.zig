@@ -655,6 +655,7 @@ pub const GC = struct {
     pub const allocPort = gc_alloc.allocPort;
     pub const allocStringInputPort = gc_alloc.allocStringInputPort;
     pub const allocStringOutputPort = gc_alloc.allocStringOutputPort;
+    pub const allocCyclicInputPort = gc_alloc.allocCyclicInputPort;
     pub const allocCustomPort = gc_alloc.allocCustomPort;
     pub const allocTranscodedPort = gc_alloc.allocTranscodedPort;
     pub const allocRandomPort = gc_alloc.allocRandomPort;
