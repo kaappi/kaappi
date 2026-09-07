@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788793646969,
+  "lastUpdate": 1788798226459,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9bcc06ba9d5da64d0122f9b43331cd4a1cf64bbf",
-          "message": "Reject subcommand-scoped CLI flags at global scope (#2330)\n\nThe global flag loop accepted --check and --no-opt in any position with no\nscope check. --no-opt was merely inert there, but --check is one hyphen-pair\nfrom the check subcommand whose contract is that nothing executes, so\n'kaappi --check foo.scm' silently RAN the file it meant only to analyse.\n\ncli.parse now tracks the active inline subcommand and rejects a top_level=false\nflag (usage error, exit 2) unless its owning subcommand word preceded it,\nnaming that subcommand and — for --check — pointing at the check subcommand as\nthe likely intent. The owner is derived data-driven from cli_spec's globalSubset\nmembership via owningSubcommand, and a comptime check pins every scoped flag to\nexactly one subcommand so the reject path always has an owner to name.\n'kaappi fmt --check' and 'kaappi ir --no-opt' keep working.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-25T18:24:51+05:30",
-          "tree_id": "589a4b9c07043f8a6f8be4117b4dca9ea1bba201",
-          "url": "https://github.com/kaappi/kaappi/commit/9bcc06ba9d5da64d0122f9b43331cd4a1cf64bbf"
-        },
-        "date": 1787669053992,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.355466,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.568191,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.592874,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.99887,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004783,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047608,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.308154,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.055264,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.781497,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.233792,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.6381,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.284101,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.79564,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.667284,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046423,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.038441,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f0f68586a50d085946702f9a1f27afcf16f48cf6",
+          "message": "Implement SRFI 277: cyclic ports (open-cyclic-input-string / open-cyclic-input-bytevector) (#2546)\n\n* Implement SRFI 277: cyclic ports (kaappi#2545)\n\nA cyclic port is an ordinary input port over a string or bytevector\nwhose stream repeats forever — (open-cyclic-input-bytevector\n#u8(1 2 3)) delivers 1 2 3 1 2 3 ... and never an EOF object. The SRFI\nwas written to close SRFI 271's one gap: a reproducible random-port\nseed that does not depend on a caller hand-building a 32-byte\nbytevector, so (make-random-port (open-cyclic-input-bytevector\n#u8(1 2 3))) now works — and two ports from equal cyclic seeds yield\nidentical streams (tested). A portable /dev/zero is\n(open-cyclic-input-bytevector #u8(0)).\n\nNative route, mirroring SRFI 271's shape: Kaappi's string input ports\nare already a cyclic port minus the wrap, so the engine change is a\nplain-bool Port.cyclic turning readOneByte's one EOF exit into a\nmodulo-indexed wrap. Keeping string_pos unbounded makes SRFI 192\npositioning come free — port-position stays the existing monotonic\nstring_pos minus read-ahead, and set-port-position! just skips its\npos > len bound. read takes the incremental path rather than the\nstring fast path: the fast path slices data[string_pos..], which the\nunbounded cursor would run out of bounds, and it reports EOF for a\ndatum unterminated at the snapshot's end, which a cyclic port must\nnever do. char-ready?/u8-ready? needed nothing. The portable route\nover (srfi 181) was rejected because the 4096-byte read! burst\nparks its tail in read_buf and the custom-port position correction\n(#1996) assumes a monotonic get-position — the reference's modular\nindex computes negative positions after one burst; a textual custom\nport would additionally misreport non-ASCII cycles (byte vs character\noffsets) and pay a 4096-iteration Scheme loop per burst.\n\nSince the port reads its own snapshot copy (allocCyclicInputPort, like\nallocStringInputPort always has), Kaappi defines the SRFI's undefined\n\"source modified after the call\" case: mutations never affect the\nport. The exported constructors reject empty sources with an ordinary\nerror per spec; the raw %open-cyclic-input-* ones still guard\nmodulo-by-zero by reading EOF forever on an empty cycle.\n\nSRFI counts 180 -> 181, portable 164 -> 165 (re-derived with\nkaappi features --json). Tests: tests/scheme/srfi/srfi277.scm (39\nnamed assertions, including both spec examples, never-EOF, the SRFI's\nown re-read positioning test, the empty/type/closed error set, and the\n271 seeding integration) plus Zig unit tests in tests_io.zig.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: burst refill for cyclic read, wasm32 position bound\n\nThe one merge-blocking finding: read on a cyclic port refilled one\nbyte per loop iteration and re-parsed the whole accumulation after\nevery byte — quadratic in the datum's length, 50 s for an 85 KB datum\nversus 1 ms on the plain string port. A cyclic port can never block\nand never EOFs, so the refill now pulls a full read_chunk_size burst\nper parse attempt (custom and transcoded refills were already\nburst-shaped — one readOneByte call is one read!/decode burst — so\nthey keep their single-byte loop shape). The 85 KB datum now takes\n~14 ms. Regression test: a 4000-element datum in srfi277.scm, large\nenough that the quadratic form would take seconds under the Debug CI\nleg.\n\nThat burst loop also carried a bug its own test caught while landing:\nthe EOF break ended the burst, not the parse loop, so a custom or\ntranscoded port whose datum completes only at EOF spun forever\n(tests_srfi181 hung on the first unit run). EOF now sets a flag that\nbreaks the parse loop itself, preserving the post-loop final-verdict\nparse; a new unit test pins the empty cyclic cycle through read.\n\nAlso from review:\n\n- set-port-position! bounds a cyclic position to maxInt(usize) before\n  the @intCast: positions are fixnums (±2^47), so 64-bit targets are\n  provably in range, but wasm32's usize is u32 in a ReleaseSmall\n  shipped build — [2^32, 2^47] would silently truncate instead of\n  erroring. (The string_pos += 1 increment guard CodeRabbit also\n  flagged stays out: it needs 4 GiB of reads first.)\n- allocCyclicInputPort is gone; both constructors call\n  allocStringInputPort and flip .cyclic (and is_binary) on the result,\n  the same post-allocation pattern openInputBytevector already uses,\n  so the string input-port field set is initialised in one place.\n- The never-EOF scheme test now checks every read-u8 result, not just\n  the 100th.\n- The notes' overflow sentence says \"on 64-bit targets\" and points at\n  the explicit wasm32 bound; the burst-refill rationale is recorded\n  there too.\n\nDeclined, agreeing with review triage: CLAUDE.md 717→718 (the\nbuilt-in procedure count is refreshed at release time, and the diff\nadds two % names, so 718 is not the right number anyway), cond-expand\ngating of (kaappi primitives) (eight shipped .slds import it\nunconditionally; lib/srfi is Kaappi's own tree, not a portable\ndistribution), and replacing (srfi 64) in tests (201 of the 240\ntests/scheme/srfi files use it; the .coderabbit.yaml tests/**\ninstruction is stale).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Fix peek-char after read on a cyclic port: rewind, don't buffer\n\nReview finding: after (read p) on a cyclic port, peek-char returned\none character and the following read-char a different one — (#\\b #\\()\nfor \"(a)b\", (#\\λ #\\( 4) for \"(a)λ\", (#\\Î #\\λ) after a read-line CR\npushback. The burst refill made every read leave ~4 KB of unconsumed\ntail in read_buf, which no string port had ever carried, and\npeek-char's string-port fast paths assume none exists: the un-peeked\npath rewinds the cursor (string_pos -= len) instead of pushing bytes\nback, so a character served from read_buf was consumed while the\ncursor moved backwards over bytes never read; the pushed-back path\nreconstructed a multi-byte character from data[string_pos - 1 + i],\nthe wrong place when peek_byte came out of read_buf.\n\nFix (as verified in review): keep the string-port invariant instead of\nteaching peek-char about read_buf. At the datum-complete site a cyclic\nport rewinds string_pos by the unconsumed tail's length rather than\nsaving it to read_buf — every byte in the parse buffer either advanced\nstring_pos (the burst) or sat behind an already-advanced cursor (a\npushed-back peek_byte drained at entry), so the rewind is exact, the\n85 KB read keeps its ~14 ms timing, and the \"no string-port path fills\nread_buf\" comment in portPosition stays true.\n\nPins the three review probes in srfi277.scm: ASCII tail, multi-byte\ntail with the position assertion that catches the backwards cursor,\nand the read-line CR-pushback case (43 assertions total).\n\nDeclines CodeRabbit's two trivia: splitting primitives_io.zig\n(the file-size policy explicitly exempts flat primitives files) and\nTestContext in the new unit test (tests_io.zig uses makeTestVM 36\ntimes and TestContext never; the test follows its file's convention).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-09-07T21:10:14+05:30",
+          "tree_id": "7ebaedabcd459c7dc6c4dc707cd4b7f52469f0e0",
+          "url": "https://github.com/kaappi/kaappi/commit/f0f68586a50d085946702f9a1f27afcf16f48cf6"
+        },
+        "date": 1788798223815,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.395139,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.017483,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.607515,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.052975,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004651,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.048082,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.3078,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057038,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.909291,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.246084,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.67224,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.284386,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.748031,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.712509,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.047385,
             "unit": "seconds"
           }
         ]
