@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788753704399,
+  "lastUpdate": 1788766698015,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "423ef45efb386a4409e1df96042542226e88b1e3",
-          "message": "Compile top-level define-values in program order, not the preamble (#2311)\n\nThe --compile path recorded every top-level form handleTopLevelForm claims\ninto the .sbc preamble, which the artifact replays before any compiled form.\nHoisting is correct for the five isEnvSetup() declarations, but define-values\nis ordinary program code whose producer can depend on an earlier top-level\nform, so replaying it first reorders execution and fails where the interpreter\nsucceeds (e.g. (define x 1)(define-values (a b)(values x 2)) errored with\nundefined variable 'x').\n\nRestrict preamble hoisting to isEnvSetup() heads; let define-values fall\nthrough to ordinary compilation via its existing compilable lowering\n(compileDefineValues), so it keeps its position in the compiled stream. Its\nproducer is still not executed at compile time.\n\nAdd a compile/*.sh regression test (native/artifact tier) asserting the bundled\nbinary prints (1 2) and exits 0, plus an env-setup control that stays hoisted.\nUpdate docs/dev/cache.md, which had documented #2200 as an open limitation.\n\nCloses #2200\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-25T16:00:42+05:30",
-          "tree_id": "1f75b9ca3cd37ff7440d41b506beaa4d639ab95d",
-          "url": "https://github.com/kaappi/kaappi/commit/423ef45efb386a4409e1df96042542226e88b1e3"
-        },
-        "date": 1787665449149,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.546985,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.379885,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.492583,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.563833,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004794,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04319,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.274752,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.046542,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.459056,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.128313,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.412791,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.261063,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.553349,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.959058,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.039861,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046059,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7a6b9e659f856c5c66c39304facf9dbf507d6c9f",
+          "message": "Reject bare real flonums in the c64/c128 storage-class checkers (#2543)\n\n* Reject bare real flonums in the c64/c128 storage-class checkers\n\nThe reference's checker is textually (and (complex? obj) (inexact?\n(real-part obj)) (inexact? (imag-part obj))), and Kaappi's\n%inexact-complex-checker was that line verbatim — yet the verdicts\ndiffered on every real flonum: Gambit's (imag-part 1.0) is an exact 0,\nso the reference rejects 1.0, while Kaappi's imag-part returns 0.0 (also\nR7RS-legal; 6.2.6 requires only zero?, not exactness) and the same line\naccepted it. Kaappi's imag-part is not the bug — but this SRFI's rule is\n\"when the prose and the reference code disagree, trust the code\", and a\nprogram copying real flonum data into a c64/c128 array succeeded on\nKaappi and errored on the reference. Found by tools/srfi231_diff.py\nstorage against Gambit 4.9.8 (kaappi#2542).\n\nAdd (not (real? x)) so the checker encodes the reference's verdict\nindependently of the host's imag-part exactness convention: a bare real\nis rejected as in the reference, while 1.0+0.0i — a real inexact-zero\nimaginary part written out — is still accepted, since (real?\n1.0+0.0i) is #f under both. The official suite never caught this\nbecause its c64/c128 fixtures are all proper complex values.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: stale diff-tool note, mixed-exactness residual, end-to-end copy checks\n\nThe diff tool's docstring still told readers to exclude c64/c128 with\n--classes \"until it is fixed\" -- with #2542 closed by this PR that is\nadvice to exclude two classes for nothing; it is now past tense, and\n--classes is presented as what it is, a way to focus a run.\n\nThe implementation notes' checker paragraph gains the one residual the\nfix cannot reach: a mixed-exactness complex (1+2.0i) keeps an exact real\npart under Gambit and is rejected by the reference, while Kaappi's\ncomplex representation makes exactness contagious -- both parts are\ninexact before any checker runs -- so it accepts (chibi's real-part\nstays exact like Gambit's, so Kaappi is the only lenient side). Naming\nit here keeps a future differential-tester hit from being filed as a\nnew bug. Also the review's an/a grammar nit.\n\nThe issue's user-visible symptom was array-copy of a real-flonum array\nsucceeding, not the checker verdict itself; two end-to-end assertions\nnow pin that path through %copy-value-checker's generic->typed branch\n(the only copy path that consults the checker, #2448): real flonums\nrejected, 1.0+0.0i accepted. array-copy lives in (srfi 231 views), not\n(srfi 231 arrays), so the test file imports intervals/arrays/views --\nthe header's stale \"arrays are a later phase\" claim went with it.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Correct the chibi claim in the mixed-exactness residual, rewrap the diff-tool docstring\n\nThe notes said Kaappi is \"the only lenient side\" on mixed-exactness\ncomplexes because chibi's real-part stays exact like Gambit's — but\nchibi's checker accepts 1+2.0i and a bare 1.0 anyway, because its port\ndoes not run the reference's checker logic. Kaappi is the only side\nthat is lenient while running the reference's checker; the parenthetical\nnow says chibi accepts it as well, through a checker that is not the\nreference's.\n\nThe docstring rewrite had glued \"And chibi...\" onto the closing line,\nleaving it at 115 columns; the paragraph now ends before it.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-09-07T07:03:39Z",
+          "tree_id": "d4923eb6007c822913f7f9533bbdd6389b71bd2b",
+          "url": "https://github.com/kaappi/kaappi/commit/7a6b9e659f856c5c66c39304facf9dbf507d6c9f"
+        },
+        "date": 1788766696280,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.09739,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.368334,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.578635,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.8867,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004804,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047187,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.291428,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054233,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.454457,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.15314,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.641772,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.309119,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.664584,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.781635,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045772,
             "unit": "seconds"
           }
         ]
