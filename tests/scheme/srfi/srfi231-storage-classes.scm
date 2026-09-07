@@ -208,16 +208,18 @@
   (test-equal 2046 nan-patterns))
 
 ;;; --- fX/cX checkers match the reference exactly: inexact reals only
-;;; for f32/f64 (flonum?), inexact-real-part + inexact-imag-part for
-;;; c64/c128 -- exact values were silently coerced (1/3 into c64 lost
-;;; f32 precision) before kaappi#2355 ---
+;;; for f32/f64 (flonum?), proper complexes with inexact real and
+;;; imaginary parts for c64/c128 -- exact values were silently coerced
+;;; (1/3 into c64 lost f32 precision) before kaappi#2355 ---
 (test-equal #t ((storage-class-checker f64-storage-class) 3.5))
 (test-equal #t ((storage-class-checker f64-storage-class) -0.0))
 (test-equal #f ((storage-class-checker f64-storage-class) 3))
 (test-equal #f ((storage-class-checker f64-storage-class) 1/3))
 (test-equal #f ((storage-class-checker f32-storage-class) 42))
 (test-equal #t ((storage-class-checker c64-storage-class) (make-rectangular 3.5 -1.0)))
-(test-equal #t ((storage-class-checker c64-storage-class) 3.5))     ; inexact real: imag-part is 0.0
+(test-equal #t ((storage-class-checker c64-storage-class) 1.0+0.0i)) ; explicit inexact zero imag
+(test-equal #f ((storage-class-checker c64-storage-class) 3.5))     ; bare real: reference rejects (#2542)
+(test-equal #f ((storage-class-checker c128-storage-class) 1.0))    ; same, under the other convention too
 (test-equal #f ((storage-class-checker c64-storage-class) (make-rectangular 3 4)))
 (test-equal #f ((storage-class-checker c64-storage-class) 1/3))
 (test-equal #f ((storage-class-checker c128-storage-class) (make-rectangular 1/2 2)))

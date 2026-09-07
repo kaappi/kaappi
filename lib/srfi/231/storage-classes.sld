@@ -129,13 +129,22 @@
 
     ;; fX/cX checkers match the reference exactly: f32/f64 accept only
     ;; inexact reals (flonum?, generic-arrays.scm's f32/f64 checker) and
-    ;; c64/c128 only complexes whose real and imaginary parts are both
-    ;; inexact. Accepting exact values silently coerces them (1/3 stored
-    ;; into c64 narrows to f32 precision), diverging from the reference's
-    ;; "value cannot be stored in body" error (#2355).
+    ;; c64/c128 only proper complexes whose real and imaginary parts are
+    ;; both inexact. Accepting exact values silently coerces them (1/3
+    ;; stored into c64 narrows to f32 precision), diverging from the
+    ;; reference's "value cannot be stored in body" error (#2355). The
+    ;; reference's checker is (and (complex? obj) (inexact? (real-part
+    ;; obj)) (inexact? (imag-part obj))), but under Gambit's exact-0
+    ;; (imag-part 1.0) that rejects a bare real flonum, while Kaappi's
+    ;; inexact 0.0 (also R7RS-legal, 6.2.6 mandates only zero?, not
+    ;; exactness) accepted it -- so (not (real? x)) encodes the
+    ;; reference's verdict independently of the host's imag-part
+    ;; convention; 1.0+0.0i with an explicit inexact zero imaginary part
+    ;; is still accepted (#2542).
     (define (%flonum-checker x) (and (real? x) (inexact? x)))
     (define (%inexact-complex-checker x)
-      (and (complex? x) (inexact? (real-part x)) (inexact? (imag-part x))))
+      (and (complex? x) (not (real? x))
+           (inexact? (real-part x)) (inexact? (imag-part x))))
 
     (define f32-storage-class
       (make-storage-class f32vector-ref f32vector-set! %flonum-checker
