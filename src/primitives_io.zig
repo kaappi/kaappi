@@ -2150,9 +2150,21 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
                     // inside the consumed span: persist the final flag for
                     // the next call on this port (#2175).
                     port.fold_case = reader.fold_case;
-                    // Save unconsumed bytes back to port buffer.
+                    // Handle unconsumed bytes. A cyclic port rewinds instead
+                    // of buffering: every byte in `buf` advanced string_pos
+                    // (the burst) or sat behind an already-advanced cursor
+                    // (a pushed-back peek_byte drained at the top), so the
+                    // unconsumed tail is exactly the last remaining.len
+                    // positions — and keeping string ports read_buf-free
+                    // preserves the invariant peek-char's cursor rewind
+                    // relies on. (Before the burst refill, a cyclic read
+                    // left a tail here only when a token needed one
+                    // delimiter byte; now every read does, so the rewind is
+                    // load-bearing, not an optimization.)
                     const remaining = buf.items[reader.pos..];
-                    if (remaining.len > 0) {
+                    if (port.cyclic and remaining.len > 0) {
+                        port.string_pos -= remaining.len;
+                    } else if (remaining.len > 0) {
                         const saved = gc.allocator.alloc(u8, remaining.len) catch return PrimitiveError.OutOfMemory;
                         @memcpy(saved, remaining);
                         port.read_buf = saved;

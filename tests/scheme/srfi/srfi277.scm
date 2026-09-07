@@ -122,6 +122,29 @@
   (let ((p (open-cyclic-input-string "(a)b")))
     (list (read p) (read p))))
 
+;; read leaves the parse's unconsumed tail un-consumed on the port; peek-char
+;; then read-char must agree on what comes next. These guard the invariant
+;; that a string port carries no read-ahead buffer (read rewinds the cursor
+;; instead of buffering), which peek-char's rewind relies on.
+(test-equal "read then peek-char: ASCII tail after a completed datum"
+  (list #\b #\b)
+  (let ((p (open-cyclic-input-string "(a)b")))
+    (read p)
+    (list (peek-char p) (read-char p))))
+
+(test-equal "read then peek-char: multi-byte tail, cursor not rewound backwards"
+  (list #\λ #\λ 5)
+  (let ((p (open-cyclic-input-string "(a)λ")))
+    (read p)
+    (list (peek-char p) (read-char p) (port-position p))))
+
+(test-equal "read then read-line's CR pushback then peek-char"
+  (list #\λ #\λ)
+  (let ((p (open-cyclic-input-string "(a) \rλ")))
+    (read p)
+    (read-line p)                       ; consumes up to \r, pushes back λ
+    (list (peek-char p) (read-char p))))
+
 ;; Large enough that the one-byte-per-reparse form of the refill loop (fixed
 ;; to a 4096-byte burst) would take seconds under the Debug CI leg; not timed.
 (test-equal "read of a multi-kilobyte datum from a cyclic port"

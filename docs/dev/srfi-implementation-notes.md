@@ -1747,7 +1747,14 @@ wrap:
   string-port fast path — that path slices `data[string_pos..]`, which the
   unbounded cursor would run out of bounds, and worse, it reports EOF for a
   datum unterminated at the snapshot's end, which a cyclic port must never
-  do. The incremental path just keeps pulling bytes until a datum completes.
+  do. The incremental path just keeps pulling bytes until a datum completes
+  (a whole 4096-byte burst per parse attempt — the cycle can never block or
+  EOF, so reading ahead is free) and then rewinds `string_pos` over the
+  unconsumed tail instead of buffering it into `read_buf`: no string port
+  may carry read-ahead there, because `peek-char`'s string-port fast paths
+  rewind the cursor on exactly that assumption. Buffering the tail (the
+  burst refill's first cut) made `peek-char` serve one character and the
+  following `read-char` a different one after every `(read p)`.
 - `char-ready?`/`u8-ready?` needed nothing: a string port is always ready,
   cyclic ones included.
 
