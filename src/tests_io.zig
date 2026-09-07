@@ -568,3 +568,98 @@ test "set-port-position! on a string port discards the pushed-back peek byte (#1
     _ = try vm.eval("(set-port-position! p 0)");
     try std.testing.expectEqual(types.makeChar('a'), try vm.eval("(read-char p)"));
 }
+
+test "cyclic input string port wraps under read-char (SRFI 277)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define p (%open-cyclic-input-string \"ab\"))");
+    // Five reads over a two-character cycle: a b a b a — and no EOF ever.
+    const expected = [_]u8{ 'a', 'b', 'a', 'b', 'a' };
+    for (expected) |ch| {
+        try std.testing.expectEqual(types.makeChar(ch), try vm.eval("(read-char p)"));
+    }
+}
+
+test "cyclic input bytevector port wraps under read-u8 (SRFI 277)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define p (%open-cyclic-input-bytevector #u8(1 2 3)))");
+    const expected = [_]i64{ 1, 2, 3, 1, 2 };
+    for (expected) |byte| {
+        try std.testing.expectEqual(types.makeFixnum(byte), try vm.eval("(read-u8 p)"));
+    }
+}
+
+test "cyclic port-position counts monotonically across the wrap (SRFI 277)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // The SRFI's own re-read test: read 13 of a 3-byte cycle, position 13;
+    // read 5, seek back, the same 5 come again.
+    _ = try vm.eval("(define p (%open-cyclic-input-bytevector #u8(1 2 3)))");
+    _ = try vm.eval("(read-bytevector 13 p)");
+    try std.testing.expectEqual(types.makeFixnum(13), try vm.eval("(port-position p)"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval(
+        "(let ((five (read-bytevector 5 p))) (set-port-position! p 13) (equal? five (read-bytevector 5 p)))",
+    ));
+}
+
+test "set-port-position! accepts any position past a cyclic port's cycle (SRFI 277)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // An ordinary string port rejects pos > len; a cyclic port's cursor is
+    // an unbounded count into the endless repetition.
+    _ = try vm.eval("(define p (%open-cyclic-input-string \"ab\"))");
+    _ = try vm.eval("(set-port-position! p 5)");
+    try std.testing.expectEqual(types.makeFixnum(5), try vm.eval("(port-position p)"));
+    try std.testing.expectEqual(types.makeChar('b'), try vm.eval("(read-char p)"));
+}
+
+test "a degenerate empty cyclic port reads EOF instead of panicking (SRFI 277)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // lib/srfi/277.sld rejects empty sources; the raw % constructor does not,
+    // so the modulo-indexing read must stay guarded against len 0.
+    _ = try vm.eval("(define p (%open-cyclic-input-string \"\"))");
+    try std.testing.expectEqual(types.EOF, try vm.eval("(read-char p)"));
+}
+
+test "read parses successive datums from a cyclic port (SRFI 277)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // The incremental path (never the string fast path): a datum that
+    // completes returns even though the source never ends.
+    _ = try vm.eval("(define p (%open-cyclic-input-string \"(a)b\"))");
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(equal? '(a) (read p))"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(eq? 'b (read p))"));
+}
+
+test "read on a degenerate empty cyclic port returns EOF (SRFI 277)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // The refill burst must propagate the empty cycle's EOF out of the parse
+    // loop, not just out of one pull — the first version of the burst loop
+    // spun forever here.
+    _ = try vm.eval("(define p (%open-cyclic-input-string \"\"))");
+    try std.testing.expectEqual(types.EOF, try vm.eval("(read p)"));
+}

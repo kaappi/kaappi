@@ -13,8 +13,8 @@ Companions:
 
 ## What ships
 
-180 SRFIs supported. 12 built-in (Zig primitives): 1, 9, 13, 18, 39, 69, 133,
-170, 192, 254, 258, 260. 164 portable R7RS .sld files loaded on demand via
+181 SRFIs supported. 12 built-in (Zig primitives): 1, 9, 13, 18, 39, 69, 133,
+170, 192, 254, 258, 260. 165 portable R7RS .sld files loaded on demand via
 `(import (srfi N))`, plus SRFI 261 (Portable SRFI Library References) as an
 import-resolver convention with no library file, and SRFI 226, SRFI 160, and
 SRFI 211 (see below) as sub-libraries only with no bare `(srfi 226)`/`(srfi
@@ -29,7 +29,7 @@ features`' scan): 0, 2, 4, 5, 6, 7, 8, 11, 14, 16, 17, 19, 23, 25, 26, 27, 28,
 201, 202, 203, 207, 209, 210, 213, 214, 215, 216, 217, 219, 221, 222, 223,
 224, 225, 227, 228, 229, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240,
 241, 242, 244, 247, 248, 250, 251, 252, 253, 255, 257, 259, 263, 264, 267,
-270, 271, 273, 274. Sub-libraries: (srfi 146 hash), (srfi 171 meta), (srfi 166 pretty),
+270, 271, 273, 274, 277. Sub-libraries: (srfi 146 hash), (srfi 171 meta), (srfi 166 pretty),
 (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color), (srfi 211
 explicit-renaming), (srfi 211 define-macro), (srfi 211 syntax-parameter),
 (srfi 226 control prompts), (srfi 226 control continuations), (srfi 226
@@ -1714,3 +1714,92 @@ sub-library catalogue — it is plumbing) holding the shared `argcheck!` and
   `(srfi 274 internal)`; the reference recurses, also properly tail-recursive).
   Boundedness is the point: the check terminates on circular lists and is
   what lets every `end`-supplied conversion accept them.
+
+### SRFI 277 — cyclic ports
+
+A cyclic port is an ordinary input port over a string or bytevector whose
+stream repeats forever: for `x0 … xn` it delivers `x0 … xn x0 … xn …` and
+never an EOF object. It exists chiefly to give SRFI 271's
+`make-random-port` a reproducible seed that is not a caller-built 32-byte
+bytevector — `(make-random-port (open-cyclic-input-bytevector #u8(1 2 3)))`
+— plus the usual endless-pattern jobs (a portable `/dev/zero` is
+`(open-cyclic-input-bytevector #u8(0))`).
+
+**The native route, mirroring SRFI 271's shape.** Kaappi's string/bytevector
+input ports are already a cyclic port minus the wrap: an owned snapshot in
+`Port.string_data` plus a cursor `string_pos`, with every read primitive
+funneling through the single byte source `readOneByte`. So the whole engine
+change is a plain-bool `Port.cyclic` turning that path's one EOF exit into a
+wrap:
+
+- `readOneByte` indexes `data[string_pos % data.len]` and lets
+  `string_pos` keep counting past `data.len` (guarded on `len > 0` — the raw
+  `%` constructors are callable from `(kaappi primitives)` with an empty
+  source, and modulo-by-zero would panic under ReleaseSafe; such a port
+  reads EOF forever, degenerate but safe).
+- `port-position` needs no change: it already reports
+  `string_pos − read-ahead` (kaappi#1941), which is now an unbounded
+  monotonic byte count — exactly the SRFI 192 contract, same as
+  `open-input-string`.
+- `set-port-position!` skips its `pos > len` bound for a cyclic port and
+  stores any non-negative position; the wrap makes it meaningful.
+- `read` takes the incremental (custom-port/fd) path instead of the
+  string-port fast path — that path slices `data[string_pos..]`, which the
+  unbounded cursor would run out of bounds, and worse, it reports EOF for a
+  datum unterminated at the snapshot's end, which a cyclic port must never
+  do. The incremental path just keeps pulling bytes until a datum completes
+  (a whole 4096-byte burst per parse attempt — the cycle can never block or
+  EOF, so reading ahead is free) and then rewinds `string_pos` over the
+  unconsumed tail instead of buffering it into `read_buf`: no string port
+  may carry read-ahead there, because `peek-char`'s string-port fast paths
+  rewind the cursor on exactly that assumption. Buffering the tail (the
+  burst refill's first cut) made `peek-char` serve one character and the
+  following `read-char` a different one after every `(read p)`.
+- `char-ready?`/`u8-ready?` needed nothing: a string port is always ready,
+  cyclic ones included.
+
+Everything above the byte source works unchanged because the wrap lands at
+the end of the whole snapshot, which is always a codepoint boundary:
+UTF-8 decoding, `peek-char`'s lookahead (its pushed-back-byte
+reconstruction indexes modulo len for the same unbounded-cursor reason),
+`read-line`'s CR handling, `close-port`.
+
+**Why not the portable route over `(srfi 181)`.** The reference
+implementation is ~50 lines of `make-custom-*-input-port`, and a verbatim
+port passes the read tests but fails the SRFI's own positioning test on
+Kaappi, for a reason worth remembering before anyone retries that route:
+`readOneByteFromCustomPort` calls `read!` in bursts of
+`read_chunk_size = 4096` and parks the tail in `read_buf`, and
+`portPositionFromCustomPort` then reports `get-position − read-ahead`
+(kaappi#1996) — an adjustment that assumes `get-position` returns a
+*monotonic source position*. The reference's `get-position` returns the
+modular index into the cycle, so after `(read-bytevector 13 p)` on a 3-byte
+source the correction computes `4096 mod 3 − (4096 − 13) = −4082` and
+`set-port-position!` rejects it as negative. A custom port *could* paper
+over this by reporting a monotonic count, but two further costs remain:
+kaappi's positions are byte offsets while a custom *textual* port's `read!`
+counts characters, so non-ASCII cycles would still misreport, and every
+4096-byte burst is a 4096-iteration Scheme loop. Native was cheaper and
+exactly right.
+
+**Snapshot copy is the documented extension.** The SRFI leaves "source
+modified after the call" undefined behavior; since the port reads its own
+copy (`allocStringInputPort` dupes the data, and the cyclic constructors
+just flip the flag on the result), Kaappi defines it: mutations of the
+source never affect the port. Pinned in `tests/scheme/srfi/srfi277.scm`.
+
+**Positions are byte offsets**, as everywhere else in Kaappi (see the SRFI
+192 section in CONFORMANCE.md): `port-position` on
+`(open-cyclic-input-string "λμ")` counts UTF-8 bytes, not characters.
+
+**Endless means endless.** `read-line` on a cycle with no newline never
+returns, and `read` on a cycle that never completes a datum accumulates
+until memory does — spec-conforming (the same is true of reading
+`/dev/zero` anywhere), so the test suite deliberately does not exercise
+either. Positions on a cyclic port grow without bound; on 64-bit targets
+`string_pos` would take ~584 years of one-byte reads per nanosecond to
+overflow, and on wasm32 `set-port-position!` bounds the value to `usize`
+explicitly. `read` pulls a whole 4096-byte burst per parse attempt (the
+cycle can never block or EOF, so reading ahead is free) — one byte per
+re-parse of the whole accumulation made an 85 KB datum take 50 s, versus
+1 ms on the plain string port.
