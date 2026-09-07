@@ -935,8 +935,8 @@ cannot reach: a mixed-exactness complex (`1+2.0i`,
 `(make-rectangular 1 2.0)`) keeps an exact real part under Gambit, so the
 reference rejects it, while Kaappi's complex representation makes
 exactness contagious — both parts are inexact before any checker runs —
-and accepts it (chibi's `real-part` stays exact like Gambit's, so Kaappi
-is the only lenient side). R7RS-legal on both; if the tester's value pool
+and accepts it (chibi accepts it as well, through a checker that is not
+the reference's). R7RS-legal on both; if the tester's value pool
 ever grows a mixed-exactness literal, the Kaappi-accepts/Gambit-rejects
 verdict it will surface is this known residual, not a new bug.
 `array-copy` of a non-specialized
