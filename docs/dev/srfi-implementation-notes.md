@@ -920,7 +920,10 @@ that a second re-entry of a getter's continuation resumes over an earlier
 re-entry's overwrites. A single re-entry cannot distinguish a shared buffer
 from a functional accumulator — the official suite's own continuation cases
 (entries 737-741) passed over the scratch design — so the regression tests
-drive two continuations, each invoked twice. `array-copy` of a non-specialized
+drive two continuations, each invoked twice — and `tools/srfi231_diff.py`
+(`docs/dev/testing.md`) now generates random view/reshape programs and diffs
+Kaappi against the reference under Gambit, for the properties fixed cases
+cannot see. `array-copy` of a non-specialized
 source is therefore the reference's exact shape (reversed list, then a body
 filled by linear position). A specialized source takes the direct fill, as in
 the reference's `%!array-copy` — a deliberate, documented exception: a
