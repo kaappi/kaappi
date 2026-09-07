@@ -342,6 +342,61 @@ Conventions specific to this suite:
   (`KAAPPI_SRFI231_OFFICIAL_TIMEOUT`, default 600 s) instead of the 60 s
   default.
 
+### Differential testing against the reference (`tools/srfi231_diff.py`)
+
+The official suite encodes the reference implementation's answers on the
+inputs its author wrote down; it cannot see a property its cases never
+exercise. kaappi#2539 — `array-copy` breaking the spec's own definition of
+call/cc-safe — passed all of it. `tools/srfi231_diff.py` looks for what
+fixed cases miss: it generates random SRFI 231 programs from a seed, runs
+each under Kaappi and an oracle, and reports every program whose printed
+output differs. The oracle is the reference itself — this SRFI's documented
+rule is "when prose and reference code disagree, trust the code" — as
+bundled by Gambit (`brew install gambit-scheme`; `gsi` may be shadowed by a
+shell alias, the tool defaults to `/opt/homebrew/bin/gsi`), with chibi's
+independent port as a tie-breaker (`--oracle chibi`; confirm a chibi-only
+mismatch against Gambit before chasing it).
+
+```bash
+tools/srfi231_diff.py reshape --count 500          # seeds 1..500 vs Gambit
+tools/srfi231_diff.py reshape --seed 7 --print     # the program for one seed
+```
+
+Each case is a pure function of (mode, seed). A mismatch is saved with both
+outputs and the run exits 1; reduce it by hand, then pin it as an ordinary
+test under `tests/scheme/srfi/` with the seed in a comment. The `reshape`
+mode chains view operations (extract, translate, permute, reverse, sample,
+curry-pick, tile-pick, copy, reshape with and without `copy-on-failure?`)
+over one specialized array, printing domain, `array-packed?`, mutability and
+contents after every step, then writes through the final view and prints
+the base to compare body sharing; every step is guarded, so *whether* a
+step errors is compared too. It is deliberately biased toward the affine
+boundary — merging axes whose strides no longer chain after a permute or
+sample — since that is where `specialized-array-reshape` reasons about index
+arithmetic rather than mirroring the reference's structure. The `storage`
+mode takes one storage class per case through everything that consults its
+checker, getter and setter — the checker's verdict on boundary and
+wrong-typed values, `make-specialized-array` with an initial value,
+`array-set!` directly and through a reversed extract, `array-copy`,
+`list->array` and `vector->array` from a generic source, `array-assign!`
+into a view — with every value canonicalized before printing (finite reals
+as exact rationals, complex as pairs of those, chars as code points), so
+f16/f32 rounding is compared bit-exactly and Gambit's `.5` never differs
+textually from Kaappi's `0.5`; `--classes u1,f16` narrows the draw. New
+modes are one generator function each in `MODES`.
+
+The known oracle divergences are recorded in the tool's docstring: Gambit's
+bundled reference flips `specialized-array-default-safe?` to `#t` (the spec
+and the SRFI repository's copy say `#f`; the storage prelude pins it); chibi
+raises on a `copy-on-failure? #t` reshape that needs the copy, does not
+validate `make-specialized-array`'s initial value, has checker bugs on
+u16/u64/c64, and returns a list rather than a boolean from its u1 checker
+(the storage mode prints only the boolean verdict, so that one never fires).
+The storage mode's first real finding is kaappi#2542.
+
+It is not part of `run-all.sh`: it needs an oracle installed and a useful
+run takes minutes.
+
 ### Writing a Scheme test
 
 A Scheme test is a SRFI-64 suite that **exits nonzero when an assertion
