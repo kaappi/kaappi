@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788798226459,
+  "lastUpdate": 1788804379998,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "45951828823b99a7f77cb12f358b98294ff8dfcf",
-          "message": "Accept unresolvable SRFI 211 transformer-specs under kaappi check (#2329)\n\nkaappi check (and the LSP) run compile-only static analysis, executing\nnothing. Two valid SRFI 211 transformer-spec shapes could therefore not be\nresolved and were wrongly reported as KP2001 'invalid syntax' (exit 1) even\nthough the program compiles and runs: a runtime-bound Transformer used as a\nbare-symbol alias, and an er/lisp-macro-transformer expression that\nreferences a global bound only at run time. Since check never executes the\nearlier define, the globals lookup and the transformer-expr eval both come\nback empty and resolveTransformerSpecRec fell through to InvalidSyntax.\n\nUnder analysis (check_lint.active != null) accept these still-unresolvable\nspecs as a benign catch-all placeholder macro so the file is clean and later\nuses of the keyword compile too. A normal run is unaffected: the branch is\nonly reached when nothing has executed. Genuine invalid detection is kept\nintact: a non-symbol/non-pair literal, a bare alias to a bound\nnon-transformer value (e.g. a procedure), and a malformed-arity er-macro\nform are all still reported.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-25T18:33:23+05:30",
-          "tree_id": "29113c9471816d347985304f8157aea2e66440a4",
-          "url": "https://github.com/kaappi/kaappi/commit/45951828823b99a7f77cb12f358b98294ff8dfcf"
-        },
-        "date": 1787669071988,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.954536,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.265512,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.560124,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.833546,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004863,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046477,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.285731,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.053412,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.412739,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.137955,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.608903,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.30134,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.68079,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.791993,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045863,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.047385,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "563cbc76ae5c3f67ceb6e5755fdd0373dc574ec4",
+          "message": "Add the spec-examples mode to the SRFI 231 differential tester (#2549)\n\n* Add the spec-examples mode to the SRFI 231 differential tester\n\nThe spec's prose carries 169 code blocks, most annotated with the value\neach expression should produce. They are a corpus the official suite\ndoes not contain, and this mode runs each of them under Kaappi and the\nreference and compares.\n\nA small s-expression reader lets the mode compare every annotated\nvalue, not only a block's last: each top-level expression is wrapped\nin a printer, and so is each body expression of a top-level let, which\nis where the spec puts its `;; =>` comments. Values go through a\ncanonical renderer -- arrays as domain plus contents (so a lazy array is\nforced through its own getter), intervals as bounds, opaque objects as\na tag, floats as exact rationals, the unspecified value as a symbol --\nand pretty-print/pp are replaced by it, since Gambit's line breaking\nwould never match. Each program carries the definitions of every\nearlier block, because the examples build on their own helpers\n(array-unveil, array-squeeze, make-u16-array ...), but not the prose's\nillustrative re-definitions of library procedures (index-first,\narray-curry ...), which would otherwise shadow the implementation under\ntest for every later example. Blocks that read files, time, or draw\nrandom numbers are skipped and say so.\n\nThe corpus is read from srfi-231.html, fetched or given with --spec;\nthe spec's revision date is printed so a run names the corpus it used.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Make the prose mode's corpus handling robust to the spec's own habits\n\nThe first full run against Gambit mismatched on 22 examples, none of\nthem about arrays. The spec's code blocks bind free pseudocode\nvariables in a top-level let's bindings (guarded now as a whole, with\nthe body expressions still printed one by one), write \"=> value\"\nannotations in code position (now a comment beside the expression they\nannotate, so neither the arrow nor the value is evaluated -- one such\nvalue was a #u16(...) literal Kaappi's reader rejects, taking the whole\nprogram with it), contain fragments and result listings that start\nwith a parenthesis (skipped as unbalanced or data, judged by the first\nform only -- a later bare 78498 is an annotation, and (val . rest) is a\nparameter list), use signature lines with [optional] arguments, name\nidentifiers a digit first (1D-transform: quoted with |...|, which both\nreaders accept), call Gambit built-ins without importing anything\n(identity, fl+ and friends: shimmed like fx+), and display homogeneous\nvectors and arrays through display and pretty-print (both replaced in\nthe prelude by the canonical renderer, which now also renders\nhomogeneous vectors). One example sums a lazy array of a billion\nelements; it is skipped by name.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review on the prose mode\n\nThe datum-comment branch of the reader mishandled a comment before a\nclosing paren (the close token became an atom child and the list's end\nfell back to its open) and one at end of input (an IndexError past the\ntoken list, uncaught for the current block). It now skips the next\ndatum and contributes nothing, which every caller already handles.\n\nThe typed-vector literal prefix was matched in a four-character window,\nso #u16( fit and #c128( did not; it is matched against the open\nremainder now. render canonicalizes every SRFI 4 body type, not four of\nthem, so a body an example displays never reaches write and Gambit's\nfloat spelling.\n\n--count uses argparse's own default (None) and is filled per mode --\n100, or every remaining example for prose -- instead of sniffing\nsys.argv; and every generator takes (seed, classes, spec) so MODES is\nthe single dispatch path with no special case in main.\n\nThe summary now says how much of a run compared anything: equal output\nis not a comparison when every value is ERROR on both sides -- a prose\nfragment with free variables, or a broken prelude helper -- and a\n\"0 mismatches\" line must not hide that. For the current corpus: 13\nskipped, 26 definition-only programs that print no value, 52 whose\nevery value is ERROR, 78 that compare real values.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address the second review round on the prose mode\n\nThree of the spec's code blocks open with comment lines before their\nfirst form, and the block classifier judged by the first character, so\nit dropped them -- the last one defines the TABLE1/TABLE2 arrays its\nexpressions use -- and paired one as the preceding block's \"output\".\nClassification now looks at the first line that is neither blank nor a\ncomment, for code selection and output pairing alike: 172 examples,\nstill 0 mismatches against Gambit.\n\nThe prose seed is validated as an example number (1..N) with an\nargparse error, so a seed past the end no longer produces a \"-1 cases\"\nsummary, and the three agreement buckets are counted only for cases\nthat agreed, since a mismatching case is not a vacuous agreement\nwhatever Kaappi printed.\n\nrender says why f16/c64/c128 have no arm of their own: neither\nimplementation binds a predicate for them under (srfi 4), and a bare\none mid-cond would raise for every value reaching it, degrading the\nmode to ERROR==ERROR agreement; their bodies are f32/f64vectors and\nrender through those arms.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-07T17:31:15Z",
+          "tree_id": "f654d60d8024e7ee4a70fc35c75533848e13e21d",
+          "url": "https://github.com/kaappi/kaappi/commit/563cbc76ae5c3f67ceb6e5755fdd0373dc574ec4"
+        },
+        "date": 1788804378563,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.393403,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.605451,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.582327,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.043623,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004621,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047468,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.30432,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056101,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.877009,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.237391,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.655313,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.279612,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.727069,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.664166,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046824,
             "unit": "seconds"
           }
         ]
