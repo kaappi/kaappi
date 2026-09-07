@@ -5,10 +5,11 @@ const reader_mod = @import("reader.zig");
 const Value = types.Value;
 
 /// Numeric vectors store multi-byte elements in host-native byte order --
-/// there's no reader syntax to round-trip and no cross-process persistence
-/// (bytecode serialization is out of scope, see docs/dev/srfi-exclusions
-/// equivalent notes), so native order avoids needless byte-swaps on
-/// big-endian hosts (s390x, ppc64le) for zero portability cost.
+/// the #TAG( literal reader (reader_datum.zig) and the .sbc constant codec
+/// go through the same encoder the (srfi 160 <tag>) constructors use, and
+/// all three live in the same binary on the same host, so native order
+/// avoids needless byte-swaps on big-endian hosts (s390x, ppc64le) for zero
+/// portability cost.
 const native_endian = builtin.cpu.arch.endian();
 
 pub const PrintMode = enum {
@@ -633,12 +634,19 @@ fn printValueOnce(
             },
             .numeric_vector => {
                 const nv = obj.as(types.NumericVector);
-                try writer.print("#<{s}vector", .{@tagName(nv.kind)});
+                // SRFI 4's external representation, which both read and write
+                // must support: #s16(1 2 3), #f64(-1.5), and SRFI 160's
+                // #c64(1.5+0.0i) extension. Elements print exactly as the
+                // decoder would return them, so write's output is the
+                // read-identical literal — which the native tier's
+                // constant embedding (print + re-read at runtime) also
+                // relies on.
+                try writer.print("#{s}(", .{@tagName(nv.kind)});
                 const width = nv.kind.elementWidth();
                 var buf: [64]u8 = undefined;
                 var i: usize = 0;
                 while (i < nv.data.len) : (i += width) {
-                    try writer.writeByte(' ');
+                    if (i > 0) try writer.writeByte(' ');
                     switch (nv.kind) {
                         .s8 => try writer.print("{d}", .{@as(i8, @bitCast(nv.data[i]))}),
                         .u16 => try writer.print("{d}", .{std.mem.readInt(u16, nv.data[i..][0..2], native_endian)}),
@@ -671,7 +679,7 @@ fn printValueOnce(
                         },
                     }
                 }
-                try writer.writeByte('>');
+                try writer.writeByte(')');
             },
             .promise => {
                 try writer.writeAll("#<promise>");
@@ -984,7 +992,13 @@ fn isInfComponent(v: Value) bool {
     return types.isFlonum(v) and std.math.isInf(types.toFlonum(v));
 }
 
-pub fn formatFlonum(buf: []u8, f: f64) []const u8 {
+/// Format an inexact element the way `read` accepts it. Generic over f32/f64
+/// deliberately: a numeric-vector f32 element formats at F32 precision (the
+/// shortest decimal that round-trips the stored bits), not the f64 promotion
+/// of it — `#f32(0.1)`, not `#f32(0.10000000149011612)`. Both round-trip
+/// bit-exactly through the reader's f64-parse-then-narrow, but the f32 form
+/// is what every other Scheme writes.
+pub fn formatFlonum(buf: []u8, f: anytype) []const u8 {
     if (std.math.isNan(f)) return "+nan.0";
     if (std.math.isInf(f)) return if (f > 0) "+inf.0" else "-inf.0";
 
@@ -1061,7 +1075,7 @@ pub fn formatFlonum(buf: []u8, f: f64) []const u8 {
 /// NaN/Inf/signbit handling below -- unlike a standalone `Complex` Value,
 /// a numeric-vector element is always inexact, so this always calls
 /// `formatFlonum` directly rather than `formatComplexPart`.
-fn writeImaginaryPart(writer: anytype, buf: []u8, im: f64) !void {
+fn writeImaginaryPart(writer: anytype, buf: []u8, im: anytype) !void {
     if (std.math.isNan(im)) {
         try writer.writeAll("+nan.0i");
     } else if (std.math.isInf(im)) {

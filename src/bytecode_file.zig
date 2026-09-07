@@ -60,7 +60,10 @@ pub const MAGIC = [4]u8{ 'K', 'P', 'B', 'C' };
 /// else stops the reader from parsing an older tail under the new layout. A
 /// bump that only appends header fields may leave `MIN_READ_VERSION` alone,
 /// provided the readers gate the new fields on `ver >=` a named threshold
-/// like `TARGET_FIELDS_SINCE`.
+/// like `TARGET_FIELDS_SINCE`. v14 also gained `TAG_NUMERICVECTOR`
+/// (kaappi#2548) without a bump: additive, and an older same-version reader
+/// that meets tag 19 returns CorruptedFile, which the cache treats as a
+/// plain miss — it misses rather than misreads.
 pub const VERSION: u16 = 14;
 /// Oldest header version this binary reads. v13 files lack the target and
 /// version strings but share v14's tail layout (entry kind, slots, sections),
@@ -146,16 +149,23 @@ pub const TAG_RATIONAL: u8 = 13;
 pub const TAG_COMPLEX: u8 = 14;
 pub const TAG_EOF: u8 = 15;
 pub const TAG_UNDEFINED: u8 = 16;
-/// Back-reference to an already-decoded pair/string/vector/bytevector, by
-/// pre-order first-encounter index (kaappi#2111). This is what lets datum-label
-/// sharing (`'(#1=(1 2) #1#)`) and cyclic literals round-trip as the *same*
-/// object instead of a copy per reference.
+/// Back-reference to an already-decoded pair/string/vector/bytevector/
+/// numeric-vector, by pre-order first-encounter index (kaappi#2111). This is
+/// what lets datum-label sharing (`'(#1=(1 2) #1#)`) and cyclic literals
+/// round-trip as the *same* object instead of a copy per reference.
 pub const TAG_BACKREF: u8 = 17;
 /// A closure (kaappi#1888): a nested function-table reference plus its captured
 /// upvalues. Reached from serialized procedural (`er-macro-transformer`)
 /// transformer `proc`s; an ordinary compiled body never needs it, because a HIT
 /// re-runs the body and recreates its closures against the live environment.
 pub const TAG_CLOSURE: u8 = 18;
+/// SRFI 4/160 homogeneous-vector literal (#s16( ... / #f64( ... / #c128( ...):
+/// an immutability byte, a kind byte (a NumericElementKind discriminant),
+/// a u32 byte length, then the raw element bytes in host-native order — the
+/// same element encoding the heap type and the #TAG( reader already share.
+/// Byte order is host-local by construction: a cache entry or bundle is
+/// consumed by a binary of the same architecture that wrote it.
+pub const TAG_NUMERICVECTOR: u8 = 19;
 
 pub const BytecodeError = error{
     InvalidMagic,

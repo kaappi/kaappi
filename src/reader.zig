@@ -47,7 +47,7 @@ pub fn resetReadErrorDetail() void {
 /// writer directly and read back exactly how much it actually wrote -- same
 /// pattern as `compiler.formatSyntaxError`. The result is a cleanly truncated
 /// prefix of the intended message, never a partially-overwritten buffer.
-fn setReadErrorDetail(comptime fmt: []const u8, args: anytype) void {
+pub fn setReadErrorDetail(comptime fmt: []const u8, args: anytype) void {
     var w: std.Io.Writer = .fixed(&read_error_detail);
     w.print(fmt, args) catch {};
     read_error_detail_len = w.buffered().len;
@@ -63,6 +63,10 @@ pub const Token = union(enum) {
     comma_at,
     hash_lparen,
     hash_u8_lparen,
+    /// SRFI 4/160 homogeneous-vector literal, #TAG(: the datum constructor
+    /// reads elements through the same encodeElement the (srfi 160 <tag>)
+    /// constructors use, so a literal and a constructor can never disagree.
+    hash_numvec_lparen: types.NumericElementKind,
     boolean: bool,
     fixnum: i64,
     flonum: f64,

@@ -29,6 +29,7 @@
 //! (returns null) rather than guessing.
 
 const std = @import("std");
+const types = @import("types.zig");
 const Reader = @import("reader.zig").Reader;
 
 /// A half-open byte range `[start, end)` of the buffer.
@@ -116,16 +117,23 @@ fn skipTrivia(src: []const u8, from: usize, depth: u32) usize {
     }
 }
 
-/// How many bytes open a list at `i`, or null if nothing does. `#(` and `#u8(`
-/// are list openers as much as `(` is: their contents are datums that barf and
-/// slurp move across.
+/// How many bytes open a list at `i`, or null if nothing does. `#(` and the
+/// `#u8(`-style SRFI 4/160 homogeneous-vector opens are list openers as much
+/// as `(` is: their contents are datums that barf and slurp move across.
 fn listOpenLen(src: []const u8, i: usize) ?usize {
     if (i >= src.len) return null;
     if (src[i] == '(') return 1;
     if (src[i] != '#') return null;
     if (i + 1 < src.len and src[i + 1] == '(') return 2;
-    if (i + 3 < src.len and (src[i + 1] == 'u' or src[i + 1] == 'U') and
-        src[i + 2] == '8' and src[i + 3] == '(') return 4;
+    // #T( where T is one of the SRFI 4/160 tags (u8, s16, f64, c128, ...).
+    // Tag table mirrors reader_tokens.homogeneousVectorPrefix.
+    if (i + 2 < src.len and std.ascii.isAlphanumeric(src[i + 1])) {
+        var j = i + 1;
+        while (j < src.len and std.ascii.isAlphanumeric(src[j])) j += 1;
+        if (j < src.len and src[j] == '(' and j > i + 1 and types.isHomogeneousVectorTag(src[i + 1 .. j])) {
+            return j + 1 - i;
+        }
+    }
     return null;
 }
 
@@ -430,8 +438,13 @@ fn rotate(allocator: std.mem.Allocator, src: []const u8, form: Form, pos: usize)
     var kids: std.ArrayList(Span) = .empty;
     defer kids.deinit(allocator);
     try collectChildren(allocator, src, form, &kids);
-    if (kids.items.len < 3) return null;
-    const args = kids.items[1..];
+    // A `#(`/`#TAG(` literal has no call head -- every child is data and all
+    // of them rotate. A plain list keeps kids[0] as the head and cycles only
+    // its arguments.
+    const is_data = src[form.open] == '#';
+    const min_kids: usize = if (is_data) 2 else 3;
+    if (kids.items.len < min_kids) return null;
+    const args = if (is_data) kids.items else kids.items[1..];
 
     var slots: std.ArrayList(usize) = .empty;
     defer slots.deinit(allocator);
@@ -648,6 +661,14 @@ test "vector and bytevector literals are forms too" {
     try expectEdit(.barf, "#(1 2| 3)", "#(1 2|) 3");
     try expectEdit(.slurp, "#u8(1 2|) 3", "#u8(1 2 3|)");
     try expectEdit(.rotate, "#(a| b c)", "#(b c a|)");
+    // SRFI 4 homogeneous-vector opens (#2548): the whole #TAG( is the form.
+    try expectEdit(.barf, "#s16(1 2| 3)", "#s16(1 2|) 3");
+    try expectEdit(.slurp, "#f32(1.5 2.5|) 3", "#f32(1.5 2.5 3|)");
+    // A cursor on a MIDDLE child is what separates "every child rotates"
+    // from "kids[0] is a head": the child under the cursor moves to the
+    // front slot and the cursor rides with it (#2548 review).
+    try expectEdit(.rotate, "#(a b| c)", "#(b| c a)");
+    try expectEdit(.rotate, "#s16(1 2| 3)", "#s16(2| 3 1)");
 }
 
 test "a quoted form is still a form (its prefix is not a datum boundary)" {

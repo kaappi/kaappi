@@ -134,6 +134,74 @@
   (s32vector-set! v 0 -1000000)
   (test-equal -1000000 (s32vector-ref v 0)))
 
+;;; --- the external representation: #TAG( ... ) literals (kaappi#2548) ---
+;;; SRFI 4's read/write syntax for every one of its ten kinds. Before the
+;;; fix the reader accepted only #u8( and rejected the rest at read time,
+;;; so a conforming program failed before it ran.
+(test-equal "u16vector literal reads" 3 (u16vector-length #u16(1 2 3)))
+(test-equal "u8vector literal reads" 3 (u8vector-length #u8(1 2 3)))
+(test-equal "s16vector literal reads, full integer syntax in elements" '(1 -2 255) (s16vector->list #s16(1 -2 #xff)))
+(test-equal "s8vector literal reads" '(-128 127) (s8vector->list #s8(-128 127)))
+(test-equal "u16vector literal bounds" '(0 65535) (u16vector->list #u16(0 65535)))
+(test-equal "s16vector literal bounds" '(-32768 32767) (s16vector->list #s16(-32768 32767)))
+(test-equal "u32vector literal bounds" '(0 4294967295) (u32vector->list #u32(0 4294967295)))
+(test-equal "s32vector literal bounds" '(-2147483648 2147483647) (s32vector->list #s32(-2147483648 2147483647)))
+(test-equal "u64vector literal bounds" '(0 18446744073709551615) (u64vector->list #u64(0 18446744073709551615)))
+(test-equal "s64vector literal bounds" '(-9223372036854775808 1) (s64vector->list #s64(-9223372036854775808 1)))
+(test-equal "f32vector literal reads" 1.5 (f32vector-ref #f32(1.5) 0))
+(test-equal "f64vector literal reads" -1.5 (f64vector-ref #f64(-1.5) 0))
+;;; The spec's own example: full integer syntax inside the literal.
+(test-equal "the spec's #u8(0 #e1e2 #xff) example" '(0 100 255) (u8vector->list #u8(0 #e1e2 #xff)))
+;;; An empty literal.
+(test-equal "empty literal reads" 0 (u16vector-length #u16()))
+;;; Literals are self-evaluating in code position, including nested inside
+;;; other literals (the shape of SRFI 231's u1-body spec example).
+(test-equal "literal self-evaluates in a list" 3895 (u16vector-ref (list-ref (list 16 #u16(3895)) 1) 0))
+(test-equal "literal self-evaluates in a vector" 3895 (u16vector-ref (vector-ref (vector #u16(3895)) 0) 0))
+(test-equal "nested literal equal? against quoted form" #t (equal? '(16 #u16(3895)) '(16 #u16(3895))))
+;;; Quoted literals read to the same objects.
+(test-equal "quoted literal keeps its elements" 6 (u16vector-ref '#u16(5 6) 1))
+;;; A literal that IS a macro's expansion goes through Compiler.compileExpr,
+;;; not lowerWithMacros — the one code position that needed its own
+;;; self-evaluating arm (kaappi#2548 review).
+(define-syntax %lit (syntax-rules () ((_) #s16(1 2))))
+(test-equal "macro expanding to a bare literal" '(1 2) (s16vector->list (%lit)))
+(test-equal "let-syntax expanding to a bare literal" 7 (u16vector-ref (let-syntax ((m (syntax-rules () ((_) #u16(7))))) (m)) 0))
+
+;;; write produces the readable form, and read accepts it back.
+(let* ((w (open-output-string)))
+  (write #s16(1 -2) w)
+  (test-equal "write emits the readable form" "#s16(1 -2)" (get-output-string w)))
+(test-equal "written s16vector reads back equal" #t
+            (let* ((w (open-output-string))
+                   (v (s16vector 1 -2 255)))
+              (write v w)
+              (equal? v (read (open-input-string (get-output-string w))))))
+(test-equal "written f64vector reads back equal" #t
+            (let* ((w (open-output-string))
+                   (v (f64vector -1.5 2.5)))
+              (write v w)
+              (equal? v (read (open-input-string (get-output-string w))))))
+(test-equal "written f32vector reads back bit-exact" #t
+            (let* ((w (open-output-string))
+                   (v (f32vector 0.1)))
+              (write v w)
+              ;; f32 elements write at f32 precision and round-trip the
+              ;; stored bits exactly.
+              (equal? v (read (open-input-string (get-output-string w))))))
+(test-equal "write-u16vector output is the literal" "#u16(3895)" (let ((w (open-output-string))) (write (u16vector 3895) w) (get-output-string w)))
+
+;;; Literals are immutable, like #u8( and #(... literals.
+(test-equal "immutable s16vector literal refuses set!" 'caught (guard (e (#t 'caught)) (s16vector-set! #s16(1) 0 9)))
+(test-equal "immutable u16vector literal refuses set!" 'caught (guard (e (#t 'caught)) (u16vector-set! #u16(1) 0 9)))
+(test-equal "immutable f64vector literal refuses set!" 'caught (guard (e (#t 'caught)) (f64vector-set! #f64(1.0) 0 2.0)))
+
+;;; Out-of-range / non-number elements are read errors.
+(test-equal "out-of-range literal element is a read error" 'caught (guard (e (#t 'caught)) (read (open-input-string "#u16(70000)"))))
+(test-equal "out-of-range s8 element is a read error" 'caught (guard (e (#t 'caught)) (read (open-input-string "#s8(200)"))))
+(test-equal "non-number literal element is a read error" 'caught (guard (e (#t 'caught)) (read (open-input-string "#s16(foo)"))))
+(test-equal "out-of-range u8 element is a read error" 'caught (guard (e (#t 'caught)) (read (open-input-string "#u8(300)"))))
+
 (let ((runner (test-runner-current)))
   (test-end "srfi-4")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))

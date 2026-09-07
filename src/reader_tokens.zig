@@ -796,6 +796,28 @@ fn readNumberPrefixed(self: *Reader, radix0: u8, exact0: ?bool) ReadError!Token 
     }
 }
 
+/// What the token after `#` may name as a homogeneous-vector literal.
+/// `bytevector` is `u8` — the R7RS bytevector form, reading to a plain
+/// Bytevector; every other prefix reads to a NumericVector of that element
+/// kind (SRFI 4's ten kinds plus SRFI 160's optional c64/c128 extension).
+const HomogeneousVectorPrefix = union(enum) {
+    bytevector,
+    numeric_vector: types.NumericElementKind,
+};
+
+/// The fixed prefix table of the `#TAG(` homogeneous-vector literals. All
+/// eleven non-u8 kinds route through NumericElementKind, so the literal and
+/// the `(srfi 160 <tag>)` constructors can never disagree about an element;
+/// the name set is types.isHomogeneousVectorTag, shared with the fmt/REPL
+/// lexeme layers.
+fn homogeneousVectorPrefix(word: []const u8) ?HomogeneousVectorPrefix {
+    if (std.mem.eql(u8, word, "u8")) return .bytevector;
+    if (types.isHomogeneousVectorTag(word)) {
+        return .{ .numeric_vector = std.meta.stringToEnum(types.NumericElementKind, word).? };
+    }
+    return null;
+}
+
 pub fn readHash(self: *Reader) ReadError!Token {
     self.pos += 1; // skip #
     if (self.pos >= self.source.len) return ReadError.UnexpectedEof;
@@ -820,48 +842,53 @@ pub fn readHash(self: *Reader) ReadError!Token {
                 return ReadError.UnexpectedChar;
             return .{ .boolean = true };
         },
-        'f' => {
-            self.pos += 1;
-            if (self.pos < self.source.len and std.ascii.isAlphabetic(self.source[self.pos])) {
-                const start = self.pos - 1;
-                while (self.pos < self.source.len and std.ascii.isAlphabetic(self.source[self.pos])) {
-                    self.pos += 1;
-                }
-                if (self.truncatedHere()) return ReadError.UnexpectedEof;
-                const word = self.source[start..self.pos];
-                if (!std.mem.eql(u8, word, "false")) return ReadError.UnexpectedChar;
-            }
-            if (self.truncatedHere()) return ReadError.UnexpectedEof;
-            if (self.pos < self.source.len and !Reader.isDelimiter(self.source[self.pos]))
-                return ReadError.UnexpectedChar;
-            return .{ .boolean = false };
-        },
         '\\' => return readCharacter(self),
         '"' => return readRawString(self), // SRFI 267 raw string: #"X"..."X"
         '(' => {
             self.pos += 1;
             return .hash_lparen;
         },
-        'u' => {
-            // #u8( bytevector literal, or SRFI 207's #u8"..." string-
-            // notated form.
-            if (self.pos + 2 < self.source.len and self.source[self.pos + 1] == '8') {
-                if (self.source[self.pos + 2] == '(') {
-                    self.pos += 3;
-                    return .hash_u8_lparen;
-                }
-                if (self.source[self.pos + 2] == '"') {
-                    self.pos += 2;
-                    return readByteStringLiteral(self);
-                }
+        'u', 's', 'f', 'c' => {
+            // SRFI 4's homogeneous-vector literals (#u8(, #s16(, #f64(, ...)
+            // and SRFI 160's extension of the same shape to #c64(/#c128(:
+            // a fixed lowercase alphanumeric prefix directly followed by '('.
+            // 'u8' stays the R7RS bytevector form (hash_u8_lparen) and
+            // #u8"..." is SRFI 207's string-notated bytevector; the same arm
+            // also serves the boolean #f/#false, which the prefix match must
+            // not swallow.
+            const word_start = self.pos;
+            while (self.pos < self.source.len and std.ascii.isAlphanumeric(self.source[self.pos])) {
+                self.pos += 1;
             }
-            // "#u" or "#u8" cut at end-of-slice may still become #u8( or
-            // #u8" once the next chunk arrives (#1940). "#u<other>" is a
-            // real error regardless of what follows.
-            if (self.incomplete_input and
-                (self.pos + 1 >= self.source.len or
-                    (self.source[self.pos + 1] == '8' and self.pos + 2 >= self.source.len)))
-                return ReadError.UnexpectedEof;
+            const word = self.source[word_start..self.pos];
+            if (std.mem.eql(u8, word, "f") or std.mem.eql(u8, word, "false")) {
+                if (self.pos >= self.source.len) {
+                    // A cut "#f"/"#false" may still gain its delimiter (and
+                    // "#f" grow into "#false" or "#f32(") in the next chunk
+                    // (#1940); a true end-of-input is a complete boolean.
+                    if (self.truncatedHere()) return ReadError.UnexpectedEof;
+                    return .{ .boolean = false };
+                }
+                if (!Reader.isDelimiter(self.source[self.pos])) return ReadError.UnexpectedChar;
+                return .{ .boolean = false };
+            }
+            // Any other cut run may still complete into a prefix (#1940).
+            if (self.truncatedHere()) return ReadError.UnexpectedEof;
+            if (self.pos >= self.source.len) return ReadError.UnexpectedChar;
+            const next = self.source[self.pos];
+            if (next == '(') {
+                if (homogeneousVectorPrefix(word)) |prefix| {
+                    self.pos += 1;
+                    return switch (prefix) {
+                        .bytevector => .hash_u8_lparen,
+                        .numeric_vector => |kind| .{ .hash_numvec_lparen = kind },
+                    };
+                }
+                return ReadError.UnexpectedChar;
+            }
+            if (std.mem.eql(u8, word, "u8") and next == '"') {
+                return readByteStringLiteral(self);
+            }
             return ReadError.UnexpectedChar;
         },
         'b', 'B' => {

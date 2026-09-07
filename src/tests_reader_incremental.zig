@@ -106,6 +106,14 @@ test "incomplete mode: every proper prefix of every token class is UnexpectedEof
         "...",
         ".5",
         "#u8(1 2)",
+        // SRFI 4 homogeneous-vector literals (#2548): the same closed
+        // self-delimiting class as #u8(, and the prefix cut points the
+        // 'u'/'s'/'f'/'c' dispatch must refill on, not finalize ("#s1" is
+        // not a #s1 datum — it is the beginning of #s16( ... )).
+        "#s16(1 -2)",
+        "#f32(1.5)",
+        "#u64(1 2)",
+        "#c64(1.5+0.5i)",
         // multi-byte UTF-8 codepoints (#1945): 2-, 3-, 4-byte, bare and
         // inside a container
         "λλ",
@@ -148,7 +156,7 @@ test "incomplete mode: bare tokens at end-of-slice do not finalize" {
 test "incomplete mode: self-delimiting closers finalize at end-of-slice" {
     var gc = memory.GC.init(testing.allocator);
     defer gc.deinit();
-    const closed = [_][]const u8{ "(a b)", "\"zz\"", "#u8(1)", "#(x)", "|qq|", "(a . b)", "#\"D\"r\"D\"", "#u8\"a\"" };
+    const closed = [_][]const u8{ "(a b)", "\"zz\"", "#u8(1)", "#(x)", "|qq|", "(a . b)", "#\"D\"r\"D\"", "#u8\"a\"", "#s16(1)", "#f32(1.5)" };
     for (closed) |src| {
         const parsed = try parseOne(&gc, src, true);
         try testing.expect(parsed != null);
@@ -181,6 +189,105 @@ test "whole-input mode keeps the precise final verdicts" {
     const sym_str = try printer.valueToString(testing.allocator, sym, .write);
     defer testing.allocator.free(sym_str);
     try testing.expectEqualStrings("zzz", sym_str);
+}
+
+test "homogeneous-vector prefixes: cut runs refill, complete verdicts (#2548)" {
+    var gc = memory.GC.init(testing.allocator);
+    defer gc.deinit();
+    // A run cut at end-of-slice may still complete into a #TAG( prefix once
+    // the next chunk arrives — "#s1" is the beginning of #s16( ... ), never
+    // a finished "#s1" datum.
+    const cut_prefixes = [_][]const u8{ "#s", "#s1", "#s16", "#s8", "#u", "#u1", "#u16", "#f3", "#f32", "#c", "#c6", "#c128" };
+    for (cut_prefixes) |src| {
+        try testing.expectError(ReadError.UnexpectedEof, parseOne(&gc, src, true));
+        try testing.expectError(ReadError.UnexpectedChar, parseOne(&gc, src, false));
+    }
+    // "#f"/"#false" keep the boolean verdicts: cut runs refill (#1940), a
+    // true end-of-input is the boolean.
+    for ([_][]const u8{ "#f", "#false" }) |src| {
+        try testing.expectError(ReadError.UnexpectedEof, parseOne(&gc, src, true));
+        try testing.expect((try parseOne(&gc, src, false)) != null);
+    }
+    // A complete prefix before '(' is a closed literal even in incomplete
+    // mode; a mismatched prefix ('u9') is a final error in both modes.
+    try testing.expect((try parseOne(&gc, "#s16(1)", true)) != null);
+    try testing.expectError(ReadError.UnexpectedChar, parseOne(&gc, "#u9(1)", true));
+    try testing.expectError(ReadError.UnexpectedChar, parseOne(&gc, "#u9(1)", false));
+    // "#u8\"...\"" (SRF 207) is untouched, and its cut before the quote
+    // still refills.
+    try testing.expect((try parseOne(&gc, "#u8\"ab\"", true)) != null);
+}
+
+test "SRFI 4 homogeneous-vector literals: kinds, immutability, round-trip (#2548)" {
+    var gc = memory.GC.init(testing.allocator);
+    defer gc.deinit();
+
+    // Reads to a NumericVector of the right kind, elements stored exactly,
+    // including full integer syntax in an element (#xff).
+    const v = (try parseOne(&gc, "#s16(1 -2 #xff)", false)) orelse return error.TestUnexpectedResult;
+    try testing.expect(types.isNumericVector(v));
+    const nv = types.toObject(v).as(types.NumericVector);
+    try testing.expectEqual(types.NumericElementKind.s16, nv.kind);
+    try testing.expectEqual(@as(usize, 6), nv.data.len);
+    var expect: [6]u8 = undefined;
+    const native_endian = @import("builtin").cpu.arch.endian();
+    std.mem.writeInt(i16, expect[0..2], 1, native_endian);
+    std.mem.writeInt(i16, expect[2..4], -2, native_endian);
+    std.mem.writeInt(i16, expect[4..6], 255, native_endian);
+    try testing.expectEqualSlices(u8, &expect, nv.data);
+
+    // A literal is immutable, like #u8( and #(... literals.
+    try testing.expect(types.toObject(v).flags.immutable);
+
+    // Range and type failures are read errors with kinds. An integer-vector
+    // element that is not an exact integer (a symbol, or 1.5) is InvalidNumber;
+    // a float/complex-vector element that is not a number at all is the
+    // tokenizer-level UnexpectedChar.
+    try testing.expectError(ReadError.InvalidNumber, parseOne(&gc, "#u16(70000)", false));
+    try testing.expectError(ReadError.InvalidNumber, parseOne(&gc, "#u8(300)", false));
+    try testing.expectError(ReadError.InvalidNumber, parseOne(&gc, "#s16(sym)", false));
+    try testing.expectError(ReadError.UnexpectedChar, parseOne(&gc, "#f32(sym)", false));
+
+    // write produces the read-identical literal (SRFI 4's external
+    // representation) — the native tier's constant embedding relies on it.
+    const s = try printer.valueToString(testing.allocator, v, .write);
+    defer testing.allocator.free(s);
+    try testing.expectEqualStrings("#s16(1 -2 255)", s);
+    const back = (try parseOne(&gc, s, false)) orelse return error.TestUnexpectedResult;
+    try testing.expect(types.isNumericVector(back));
+    try testing.expectEqualSlices(u8, nv.data, types.toObject(back).as(types.NumericVector).data);
+}
+
+test "nested homogeneous-vector literals pay the depth gate (#2548 review)" {
+    var gc = memory.GC.init(testing.allocator);
+    defer gc.deinit();
+
+    // Scalar elements are depth-neutral, so a literal under the LAST plain
+    // nesting that still reads (1023 parens, the same boundary the plain-atom
+    // controls in tests/scheme/compliance/printer-gaps.scm sit at) reads
+    // fine — a real seam guard, since it fails if elements ever start paying
+    // the per-datum depth increment.
+    var leaf: std.ArrayList(u8) = .empty;
+    defer leaf.deinit(testing.allocator);
+    const plain = Reader.MAX_NESTING_DEPTH - 1; // 1023: the last depth that reads
+    for (0..plain) |_| leaf.append(testing.allocator, '(') catch return error.OutOfMemory;
+    leaf.appendSlice(testing.allocator, "#s16(1 2)") catch return error.OutOfMemory;
+    for (0..plain) |_| leaf.append(testing.allocator, ')') catch return error.OutOfMemory;
+    try testing.expect((try parseOne(&gc, leaf.items, false)) != null);
+    // One more paren on each side crosses the seam: the literal token now
+    // sits at MAX_NESTING_DEPTH and pays the gate, so the same shape reads
+    // as NestingTooDeep.
+    leaf.insert(testing.allocator, 0, '(') catch return error.OutOfMemory;
+    leaf.append(testing.allocator, ')') catch return error.OutOfMemory;
+    try testing.expectError(ReadError.NestingTooDeep, parseOne(&gc, leaf.items, false));
+
+    var nested: std.ArrayList(u8) = .empty;
+    defer nested.deinit(testing.allocator);
+    const depth = Reader.MAX_NESTING_DEPTH + 50;
+    for (0..depth) |_| nested.appendSlice(testing.allocator, "#s8(") catch return error.OutOfMemory;
+    nested.append(testing.allocator, '1') catch return error.OutOfMemory;
+    for (0..depth) |_| nested.append(testing.allocator, ')') catch return error.OutOfMemory;
+    try testing.expectError(ReadError.NestingTooDeep, parseOne(&gc, nested.items, false));
 }
 
 test "readDatumOrEof: trailing trivia is clean EOF, not a read error" {

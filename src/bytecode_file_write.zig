@@ -220,7 +220,7 @@ fn writeConstant(w: *Writer, allocator: std.mem.Allocator, val: Value, all_funcs
         // (kaappi#2111), so shared structure and cycles read back as the same
         // object, not a fresh copy per reference.
         switch (obj.tag) {
-            .pair, .string, .vector, .bytevector => {
+            .pair, .string, .vector, .bytevector, .numeric_vector => {
                 if (seen.get(@intFromPtr(obj))) |id| {
                     try w.writeU8(allocator, bf.TAG_BACKREF);
                     try w.writeU32(allocator, id);
@@ -310,6 +310,16 @@ fn writeConstant(w: *Writer, allocator: std.mem.Allocator, val: Value, all_funcs
                 try w.writeU8(allocator, immutableByte(obj));
                 try w.writeU32(allocator, @intCast(bv.data.len));
                 try w.writeBytes(allocator, bv.data);
+            },
+            .numeric_vector => {
+                const nv = obj.as(types.NumericVector);
+                if (nv.data.len > bf.MAX_BYTEVECTOR_LEN) return BytecodeError.LimitExceeded;
+                try noteShared(seen, obj);
+                try w.writeU8(allocator, bf.TAG_NUMERICVECTOR);
+                try w.writeU8(allocator, immutableByte(obj));
+                try w.writeU8(allocator, @intFromEnum(nv.kind));
+                try w.writeU32(allocator, @intCast(nv.data.len));
+                try w.writeBytes(allocator, nv.data);
             },
             .bignum => {
                 const bn = obj.as(types.Bignum);

@@ -98,7 +98,8 @@ pub const Node = struct {
     /// separated them. Drives trailing-vs-leading comment placement and
     /// blank-line grouping; ordinary code layout is otherwise reflowed.
     newlines_before: u32 = 0,
-    /// A `#(` / `#u8(` literal, whose first element is data, never an operator.
+    /// A `#(` / `#u8(` / `#s16(`-style homogeneous-vector literal, whose
+    /// first element is data, never an operator.
     is_data: bool = false,
     /// Memoised inline width (see `fmt_print`), so fit checks stay linear.
     inline_width: ?usize = null,
@@ -123,7 +124,7 @@ const max_nesting: u32 = 1024;
 const TokKind = enum {
     lparen,
     rparen,
-    list_open, // "#(" or "#u8("
+    list_open, // "#(" or "#u8("/"#s16("-style vector opens
     atom,
     prefix, // ' ` , ,@ #N=
     datum_comment, // #;
@@ -235,9 +236,22 @@ const Lexer = struct {
             self.pos += 2;
             return .list_open;
         }
-        if (rest.len >= 4 and std.mem.eql(u8, rest[0..4], "#u8(")) {
-            self.pos += 4;
-            return .list_open;
+        // SRFI 4/160 homogeneous-vector opens -- #u8( plus the eleven
+        // NumericElementKind prefixes (#s16(, #f64(, #c128(, ...). The tag
+        // and its '(' are ONE lexeme, a list_open, exactly like #(: the '('
+        // belongs to the literal, so splitting "#s16" off as an atom and
+        // "(1 2)" off as a following list would reflow the program into
+        // something the reader rejects (or reads differently), which the
+        // round-trip check would then refuse.
+        if (rest.len >= 2) {
+            var i: usize = 1;
+            while (i < rest.len and std.ascii.isAlphanumeric(rest[i])) i += 1;
+            if (i >= 2 and i < rest.len and rest[i] == '(' and
+                types.isHomogeneousVectorTag(rest[1..i]))
+            {
+                self.pos += i + 1;
+                return .list_open;
+            }
         }
         // SRFI 207 string-notated bytevector #u8"...": one verbatim lexeme,
         // like the ordinary string it contains-ish -- checked before the

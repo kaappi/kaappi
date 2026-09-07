@@ -823,7 +823,13 @@ pub const Compiler = struct {
             return;
         }
 
-        if (types.isBytevector(expr)) {
+        if (types.isBytevector(expr) or types.isNumericVector(expr)) {
+            // SRFI 4/160 literals reach here as macro EXPANSIONS (the
+            // syntax-rules template's constant output, compiler_macro.zig)
+            // and passthrough IR — code that went through lowerWithMacros
+            // already saw them via ir.zig's own self-evaluating arm, so this
+            // sibling must accept them too or `(lit)` expanding to #s16(1 2)
+            // dies with KP2001 (#2548 review).
             const idx = try self.addConstant(expr);
             try self.emitOp(.load_const);
             try self.emitU16(dst);
