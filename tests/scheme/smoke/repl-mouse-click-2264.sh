@@ -241,14 +241,16 @@ def record(failed, expect, mark, needles):
                          ' drain -- late output on a loaded runner, not lost'
                          ' bytes' % (late,))
         if never and eof:
-            # The child is gone: the garble scenario's expected failure mode
-            # is exactly this, so name it instead of claiming a 30 s silence
-            # that never happened. eof, not a flag set inside the loop: the
-            # final pump(0.5) can be the one that observes the exit, after
-            # which the deadline check ends the loop without ever looking.
-            lines.append('TAIL-CHECK: %r never arrived and the REPL exited'
-                         ' during the drain -- not a 30 s silence, see the'
-                         ' buffer above' % (never,))
+            # The child is gone -- during the drain, or already when the
+            # failure was detected (a failed send sets eof too): the garble
+            # scenario's expected failure mode is exactly this, so name it
+            # instead of claiming a 30 s silence that never happened. eof,
+            # not a flag set inside the loop: the final pump(0.5) can be
+            # the one that observes the exit, after which the deadline
+            # check ends the loop without ever looking.
+            lines.append('TAIL-CHECK: %r never arrived; the REPL had exited'
+                         ' by the end of the drain -- not a 30 s silence,'
+                         ' see the buffer above' % (never,))
         if never and not eof:
             # Still missing and the child is alive. Passive pumping cannot
             # separate bytes the reader dropped from a reader wedged shut,
@@ -264,7 +266,12 @@ def record(failed, expect, mark, needles):
             idle(0.3)
             send(b'(+ 40 2)\r')
             pend = time.monotonic() + 5
-            while time.monotonic() < pend:
+            while time.monotonic() < pend and not eof:
+                # not eof, matching the drain loop: a dead master's select
+                # reports readable at once and read raises, so pump returns
+                # immediately -- without the check this loop would spin at
+                # full speed for the remaining seconds and then misreport
+                # an exited REPL as a wedged reader.
                 if b'\n42\n' in seen(p0):
                     break
                 pump(0.5)
@@ -276,6 +283,9 @@ def record(failed, expect, mark, needles):
                 lines.append('PROBE: ctrl-C then (+ 40 2) printed 42 -- the'
                              ' reader is alive; the missing bytes were'
                              ' dropped')
+            elif eof:
+                lines.append('PROBE: the REPL exited during the probe --'
+                             ' see the buffer above')
             else:
                 lines.append('PROBE: no answer to ctrl-C then (+ 40 2)'
                              ' within 5 s -- the reader is wedged, not'
