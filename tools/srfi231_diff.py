@@ -693,7 +693,6 @@ SPEC_URL = "https://srfi.schemers.org/srfi-231/srfi-231.html"
 PROSE_PRELUDE = """\
 (import (scheme base) (scheme write) (scheme inexact) (scheme complex)
         (scheme char) (scheme cxr) (srfi 1) (srfi 4) (srfi 231))
-(define (show . xs) (for-each (lambda (x) (write x) (display " ")) xs) (newline))
 (define-syntax try
   (syntax-rules () ((_ e) (guard (c (#t 'ERROR)) e))))
 (define (dom a)
@@ -719,12 +718,30 @@ PROSE_PRELUDE = """\
                          (else (exact v))))
         ((number? v) (list 'c (render (real-part v)) (render (imag-part v))))
         ((char? v) (list 'ch (char->integer v)))
+        ((u16vector? v) (list 'u16 (u16vector->list v)))
+        ((u8vector? v) (list 'u8 (u8vector->list v)))
+        ((f32vector? v) (render (list 'f32 (f32vector->list v))))
+        ((f64vector? v) (render (list 'f64 (f64vector->list v))))
         (else v)))
-;; the examples call Gambit's pretty printer; its line breaking would
-;; never match, so both implementations get this one
+;; the examples display array bodies (homogeneous vectors, whose written
+;; form is implementation-specific) and call Gambit's pretty printer,
+;; whose line breaking would never match -- so both implementations get
+;; these: strings and chars verbatim, everything else rendered
+(define (display x . port)
+  (cond ((string? x) (write-string x))
+        ((char? x) (write-char x))
+        (else (write (render x)))))
+(define (show . xs) (for-each (lambda (x) (write x) (write-string " ")) xs) (newline))
 (define (pretty-print x . port) (write (render x)) (newline))
 (define (pp x . port) (write (render x)) (newline))
-;; Gambit's fixnum ops appear in a few examples
+;; Gambit built-ins the examples use without importing anything
+(define (identity x) x)
+(define (fl+ a b) (+ a b))
+(define (fl- a b) (- a b))
+(define (fl* a b) (* a b))
+(define (fl/ a b) (/ a b))
+(define (flsqrt a) (sqrt a))
+(define (flsquare a) (* a a))
 (define (fx+ a b) (+ a b))
 (define (fx- a b) (- a b))
 (define (fx* a b) (* a b))
@@ -741,7 +758,12 @@ PROSE_PRELUDE = """\
 PROSE_SKIP_MARKERS = ["read-char", "read-line", "open-input", "open-output",
                       "call-with-input", "call-with-output", "with-input-from",
                       "with-output-to", "read-pgm", "write-pgm", "(time ",
-                      "random", "(include "]
+                      "random", "(include ",
+                      # signature lines with optional arguments are prose
+                      "[",
+                      # a lazy array of 10^9 elements summed in blocks: the
+                      # reference needs minutes for it
+                      "'#(1000000001)"]
 
 
 def tokenize_scheme(src):
@@ -894,11 +916,15 @@ def transform_toplevel(src, node):
             text = node_text(src, node)
             base = node[-2]
             for k in reversed(kids[body_from:]):
-                if head_of(src, k) in KEEP_FORMS:
+                if head_of(src, k) in KEEP_FORMS or k[-1] <= k[-2]:
                     continue
                 a, b = k[-2] - base, k[-1] - base
                 text = text[:a] + wrap_expr(text[a:b]) + text[b:]
-            return text
+            # the bindings themselves run outside the body's guards, and
+            # several examples bind free pseudocode variables there
+            return f"(let ((r (try {text}))) (if (eq? r 'ERROR) (show 'form 'ERROR)))"
+    if node[-1] <= node[-2]:
+        return ""
     return wrap_expr(node_text(src, node))
 
 
@@ -940,14 +966,57 @@ def prose_skip_reason(code):
     return None
 
 
+def quote_digit_identifiers(code):
+    """1D-transform and 2x2-matrix-multiply-into! are identifiers to Gambit
+    but not to an R7RS reader (Kaappi's says so); |...| is read by both."""
+    def fix(m):
+        tok = m.group(1)
+        if re.fullmatch(r"[0-9]+(?:e[-+]?[0-9]+|i|/[0-9]+)?", tok):
+            return tok
+        return f"|{tok}|"
+    return re.sub(r"(?<![\w#\\|.'-])([0-9]+[A-Za-z][-\w!?*<>=/+]*)", fix, code)
+
+
+def prose_code_kind(code):
+    """'code', or why this block is not: unbalanced, or a data literal."""
+    depth = 0
+    for kind, a, b in tokenize_scheme(code):
+        if kind == "open":
+            depth += 1
+        elif kind == "close":
+            depth -= 1
+            if depth < 0:
+                return "unbalanced"
+    if depth != 0:
+        return "unbalanced"
+    # a result listing starts with nested lists whose innermost head is a
+    # number or an empty list; code starts with an operator symbol (or an
+    # application like ((storage-class-maker sc) n v), whose innermost
+    # head is still a symbol)
+    # judged by the first top-level form only: later bare numbers are the
+    # spec's "=> 78498" annotations, which the transform turns into comments
+    nodes = parse_scheme(code)
+    n = nodes[0] if nodes else None
+    while n and n[0] == "list":
+        if not n[1]:
+            return "data, not code"
+        n = n[1][0]
+    if n and re.match(r"[-+]?[0-9.]", node_text(code, n)):
+        return "data, not code"
+    return "code"
+
+
 def gen_prose(seed, classes=None, spec=SPEC_URL):
     revision, examples, exports = load_prose(spec)
     idx = seed - 1
     if not 0 <= idx < len(examples):
         raise IndexError(f"prose example {seed} is out of range 1..{len(examples)}")
     pre_i, code, following = examples[idx]
+    code = quote_digit_identifiers(code)
     L = [PROSE_PRELUDE, f";; {revision}; example {seed} of {len(examples)} (spec <pre> block {pre_i})"]
     reason = prose_skip_reason(code)
+    if not reason and prose_code_kind(code) != "code":
+        reason = prose_code_kind(code)
     if reason:
         L.append(f"(show 'skipped \"{reason}\")")
         L.append("(show 'end)")
@@ -956,7 +1025,8 @@ def gen_prose(seed, classes=None, spec=SPEC_URL):
     ctx = []
     for j in range(idx):
         pj, cj, _ = examples[j]
-        if prose_skip_reason(cj):
+        cj = quote_digit_identifiers(cj)
+        if prose_skip_reason(cj) or prose_code_kind(cj) != "code":
             continue
         try:
             for node in parse_scheme(cj):
@@ -975,8 +1045,20 @@ def gen_prose(seed, classes=None, spec=SPEC_URL):
         L.append(";; --- definitions from earlier examples ---")
         L.extend(ctx)
     L.append(f";; --- example {seed} ---")
-    for node in parse_scheme(code):
+    nodes = parse_scheme(code)
+    k = 0
+    while k < len(nodes):
+        node = nodes[k]
+        # the spec writes "(expr) => value" on one line in some blocks: the
+        # arrow and its datum are the expectation, not code -- keep them as
+        # a comment beside the expression they annotate
+        if node[0] == "atom" and node_text(code, node) == "=>":
+            expected = node_text(code, nodes[k + 1]) if k + 1 < len(nodes) else ""
+            L.append(";; spec: => " + " ".join(expected.split()))
+            k += 2
+            continue
         L.append(transform_toplevel(code, node))
+        k += 1
     if following:
         L.append(";; the spec says this shows:")
         L.extend(";;   " + ln for ln in following.strip("\n").splitlines())
