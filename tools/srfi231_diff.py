@@ -91,7 +91,10 @@ printing only the boolean verdict. In the callcc mode chibi's array-copy --
 into a typed storage class, or of an array-map result -- keeps a value
 written by an earlier re-entry across a second continuation: the
 kaappi#2539 shape, a shared scratch behind a call/cc-safe procedure, which
-Gambit and Kaappi (since #2540) rebuild from the captured prefix instead.
+Gambit and Kaappi (since #2540) rebuild from the captured prefix instead;
+its array-fold-right and interval-fold-right accumulate through a set! cell,
+so a re-entry conses onto the whole first run's list. Gambit sides with
+Kaappi on every one of these.
 
 Each case is a pure function of (mode, seed); `--seed N --count K` runs seeds
 N..N+K-1. Mismatches are saved as <save-dir>/<mode>-<seed>.scm with the two
