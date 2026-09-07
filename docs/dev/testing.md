@@ -382,8 +382,18 @@ wrong-typed values, `make-specialized-array` with an initial value,
 into a view — with every value canonicalized before printing (finite reals
 as exact rationals, complex as pairs of those, chars as code points), so
 f16/f32 rounding is compared bit-exactly and Gambit's `.5` never differs
-textually from Kaappi's `0.5`; `--classes u1,f16` narrows the draw. New
-modes are one generator function each in `MODES`.
+textually from Kaappi's `0.5`; `--classes u1,f16` narrows the draw. The
+`callcc` mode checks the spec's promise that every procedure without a
+trailing `!` is call/cc safe: one accumulating or callback-taking procedure
+per case (`array-copy`, the list/vector conversions, the array and interval
+folds, `array-reduce`, `array-every`/`-any`, `array-for-each`, `array-map`
+under a copy, and stack/append/block/decurry) is driven by the kaappi#2539
+schedule generalized — two continuations captured on the first run at random
+positions, re-invoked with random values in a random order, the whole result
+history printed — with the capture placed either in the source's getter or
+in the callback itself, plus an escape-out variant. Against the pre-#2540
+library it mismatches on the accumulating families; against main it is
+clean. New modes are one generator function each in `MODES`.
 
 The known oracle divergences are recorded in the tool's docstring: Gambit's
 bundled reference flips `specialized-array-default-safe?` to `#t` (the spec
