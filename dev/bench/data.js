@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788781817643,
+  "lastUpdate": 1788793646969,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "dffd8510c5f2c3d0cc156aba75d5576d5e934a39",
-          "message": "Render offending value's identity in type errors (#1899) (#2310)\n\n* Render offending value's identity in type errors (#1899)\n\nprimitives.safeValueDescription printed symbol, string, vector, bytevector,\nrational and bignum as opaque #<tag>s, and characters (immediates) as #<char>\n-- dropping the one thing a type-error message needs: which value was wrong.\nIt now renders identifying content: a symbol's name, a bounded quoted string\nprefix, a vector/bytevector length summary, a rational's num/den, a small\nbignum's value, and a character's #\\ form.\n\nThe \"safe\" properties are preserved: no allocation or VM callback (bignums\nbeyond u128 fall back to #<bignum> rather than allocate scratch to stringify),\nbounded output (fixed 128-byte writer, plus string/symbol truncation), and no\nrecursion into heap structure (compound types get a one-level summary, so a\ncyclic value cannot loop).\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Update the two docs that stated the old opaque-rendering contract\n\nadding-features.md:75 still told contributors safeValueDescription\n'deliberately does not dereference heap payloads' and renders every symbol\nas #<symbol> -- both false after this PR. audit-strategy.md's D3 dimension\ndescribed the opaque rendering as live; F10 (the dated 2026-07-31 findings\ntable) is kept as history per its own preamble, so it stays.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-25T16:13:46+05:30",
-          "tree_id": "b2465b34b1c31c86b0db41b838a9d5f424627170",
-          "url": "https://github.com/kaappi/kaappi/commit/dffd8510c5f2c3d0cc156aba75d5576d5e934a39"
-        },
-        "date": 1787668952243,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.367815,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.447875,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.583743,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.980276,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004656,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047678,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.3068,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.055789,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.817288,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.199194,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.655834,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.281,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.773599,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.637273,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044413,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046352,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "285ffcd8661c74891af175dc03c38b8428829d81",
+          "message": "Update CodeRabbit's tests/** harness description to SRFI 64 (#2547)\n\nThe path instruction said Scheme tests use \"(chibi test) or simple\ndisplay+newline assertions\". That was stale: 200 of 239 files under\ntests/scheme/srfi/ import (srfi 64), tests/scheme/CLAUDE.md prescribes\nit for every new test, and (chibi test) is used only by the R7RS suite.\nOn PR #2546 CodeRabbit cited the stale text to demand that the new\nsrfi277.scm drop SRFI 64 - a false finding produced entirely by the\nconfig. The instruction now names SRFI 64 with a name on every\nassertion as the standard harness, points at tests/scheme/CLAUDE.md,\nand keeps display+newline acceptable for the older smoke/ and\ncompliance/ files that predate it.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-07T19:52:39+05:30",
+          "tree_id": "c6b88a5ac3e5c4f948cecd57b21041dc21d0d693",
+          "url": "https://github.com/kaappi/kaappi/commit/285ffcd8661c74891af175dc03c38b8428829d81"
+        },
+        "date": 1788793643749,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.322073,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.949111,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.424686,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.283183,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004613,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.040292,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.234069,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.046915,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.369094,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.915882,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.303547,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.241396,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.270594,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.964048,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.038441,
             "unit": "seconds"
           }
         ]
