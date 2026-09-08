@@ -103,8 +103,10 @@ timeout_for() {
 # release ci-gate over a commit whose only code change was a version string
 # (kaappi#2555). A leg-wide bump is the wrong tool — every other script fits
 # the shared budget — so this one script gets its own, at twice the measured
-# all-cold total. A genuine hang still dies at 20 minutes, inside every job
-# cap that runs this suite.
+# all-cold total. A genuine hang still dies at the 1200s tick budget —
+# wait_with_timeout counts sleep 0.05 ticks, not wall clock, so that is
+# ~20 min of wall clock on Linux and stretches further where sleep spawns
+# cost more — inside every job cap that runs this suite.
 PER_SCRIPT_TIMEOUTS="bundle-cpu-baseline-2515.sh:${KAAPPI_BUNDLE_CPU_BASELINE_TIMEOUT:-1200}"
 
 shell_timeout_for() {

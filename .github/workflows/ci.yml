@@ -336,9 +336,10 @@ jobs:
           #
           # bundle-cpu-baseline-2515 outgrew any leg-wide budget: its premise
           # is full -Doptimize=ReleaseSafe builds, all cold when the Zig cache
-          # is -- the Debug leg always (the Build step warms only its own
-          # optimize mode), and any leg the moment GH Actions discards the
-          # cache mid-run for size. The flat 600s cap killed it twice on PR
+          # has been cleared or never warmed -- the Debug leg always (the
+          # Build step warms only its own optimize mode), and any leg the
+          # moment GH Actions discards the cache mid-run for size. The flat
+          # 600s cap killed it twice on PR
           # #2538 (2026-09-06) and again on the v0.27.0 tag push (ReleaseFast;
           # kaappi#2555), the last one cancelling the release ci-gate over a
           # commit whose only code change was a version string. Since that

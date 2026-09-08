@@ -376,7 +376,9 @@ Three things make that safe and worthwhile (kaappi#1926):
   mid-run for size, cancelling the release ci-gate over a version-string
   commit (kaappi#2555). Its 1200s default (`KAAPPI_BUNDLE_CPU_BASELINE_TIMEOUT`
   to tune) buys the measured all-cold total twice over; a genuine hang still
-  dies at 20 minutes, inside every job cap that runs this suite.
+  dies at that tick budget — `wait_with_timeout` counts `sleep 0.05` ticks,
+  not wall clock, so ~20 min on Linux, somewhat more where sleep spawns cost
+  more — inside every job cap that runs this suite.
   `tests/scheme/test-runner/shell-timeout-override.sh` pins the routing,
   the bounding, and the reporting.
 

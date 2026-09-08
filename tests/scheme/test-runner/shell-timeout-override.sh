@@ -11,9 +11,10 @@
 #
 # This pins the mechanism by driving run-all.sh's own dispatch functions
 # against fixture scripts that only sleep, with both budgets dialed down to
-# seconds. The functions are extracted from run-all.sh with sed rather than
-# copied here, so the shipping code is what runs — the same technique
-# runner-agreement.sh uses to keep its verdict regex honest.
+# seconds. The functions are extracted from run-all.sh with sed and executed
+# directly — one step further than runner-agreement.sh, which keeps a copy
+# of its net regex and only greps that the copy still appears verbatim in
+# run-all.sh; here the shipping code itself is what runs.
 #
 # No kaappi binary and no zig are needed, so this runs on every leg that can
 # run bash, including the ones with no toolchain.
@@ -32,9 +33,11 @@ trap 'rm -rf "$DIR"' EXIT
 # The table entry itself is part of the fix. Without this check the behaviour
 # assertions below could pass against a PER_SCRIPT_TIMEOUTS the test set
 # itself, and the override for the script that motivated it could be dropped
-# silently.
-if ! grep -q '^PER_SCRIPT_TIMEOUTS="bundle-cpu-baseline-2515.sh:' "$RUN_ALL"; then
-    echo "FAIL: run-all.sh has no PER_SCRIPT_TIMEOUTS entry for bundle-cpu-baseline-2515.sh" >&2
+# silently. -F -x: the whole line as a fixed string, so a malformed key or a
+# retuned default cannot slip through a looser match.
+if ! grep -Fxq 'PER_SCRIPT_TIMEOUTS="bundle-cpu-baseline-2515.sh:${KAAPPI_BUNDLE_CPU_BASELINE_TIMEOUT:-1200}"' "$RUN_ALL"; then
+    echo "FAIL: run-all.sh's PER_SCRIPT_TIMEOUTS entry is not exactly:" >&2
+    echo '       PER_SCRIPT_TIMEOUTS="bundle-cpu-baseline-2515.sh:${KAAPPI_BUNDLE_CPU_BASELINE_TIMEOUT:-1200}"' >&2
     exit 1
 fi
 
@@ -61,12 +64,16 @@ done
 # The globals the extracted functions read. run-all.sh sets these at top
 # level, outside any function, so the sed ranges above do not carry them;
 # here they are the second-scale stand-ins: the budget every other script
-# gets, and the override the listed script gets instead.
+# gets, and the override the listed script gets instead. KAAPPI is the
+# runner-provided binary argument ($1) where one was passed — the fixtures
+# ignore it, but taking it keeps this script's invocation contract the same
+# as every other script the runners launch.
 SHELL_TIMEOUT=2
 PER_SCRIPT_TIMEOUTS="bundle-cpu-baseline-2515.sh:6"
 TICKS_PER_SEC=20
 sleep 0.05 2>/dev/null || TICKS_PER_SEC=1
-export KAAPPI=/bin/true
+KAAPPI="${1:-/bin/true}"
+export KAAPPI
 
 # --- the lookup --------------------------------------------------------------
 # Basename-matched, so the dispatch that passes full paths still finds the
@@ -114,15 +121,26 @@ fi
 
 # The override is a budget, not a waiver: past it, the listed script dies too.
 # A second copy under slow/ so both basename matches can exist at once.
+#
+# The over-budget fixtures sleep 60, far past the budgets that kill them
+# (6s and 2s), on purpose: wait_with_timeout counts `sleep 0.05` ticks, not
+# wall clock, so a nominal budget stretches by the per-spawn cost of sleep —
+# a few percent on Linux, ~36% on macOS (120 ticks = 8.2s), worse under
+# MSYS/Git Bash — and a fixture that only slightly outlives the budget can
+# complete inside the stretched window and record PASS (the macOS and both
+# Windows legs of this PR's first CI run, exactly). A fixture past the
+# budget by 10x is killed at the budget whatever the drift; the kill is
+# the assertion.
 mkdir -p "$DIR/slow"
-mk_fixture slow/bundle-cpu-baseline-2515 8
+mk_fixture slow/bundle-cpu-baseline-2515 60
 if [[ "$(run_fixture listed-slow "$DIR/slow/bundle-cpu-baseline-2515.sh")" != "TIMEOUT 6s" ]]; then
     echo "FAIL: listed script was not killed (and recorded) at its own budget" >&2
     exit 1
 fi
 
-# Every other script still lives under the global budget...
-mk_fixture unlisted-slow 4
+# Every other script still lives under the global budget... (same drift
+# argument for the 60)
+mk_fixture unlisted-slow 60
 if [[ "$(run_fixture unlisted-slow "$DIR/unlisted-slow.sh")" != "TIMEOUT 2s" ]]; then
     echo "FAIL: unlisted script was not killed at SHELL_TIMEOUT" >&2
     exit 1
