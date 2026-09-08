@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788873757649,
+  "lastUpdate": 1788874804164,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "0f499465681c4c8e2a72f7f5ff7f5a5109205c54",
-          "message": "Widen the bare-error gate to src/ffi.zig and fix misclassified FFI ranges (#2335)\n\nThe `Check bare TypeError regression` CI gate scanned only\n`src/primitives*.zig` for `return PrimitiveError.TypeError`, so it never\nsaw `src/ffi.zig` — wrong path (glob excludes ffi.zig) and wrong spelling\n(all 27 sites are `return error.TypeError`). Both blind spots hid the same\nfile, and among its returns the narrow-integer range checks were\nmisclassified: a wrong *magnitude* surfaced as KP3002 (type error) instead\nof KP3007 (invalid argument), so a caller catching `error-object-code`\ncould not tell a wrong type from a value that is simply too large.\n\nWiden the gate on both axes and across the taxonomy: it now scans all of\n`src/`, both `error.Foo` and `PrimitiveError./VMError.Foo` spellings, and\nTypeError/IndexOutOfBounds/InvalidArgument. Test files legitimately use\n`error.TypeError` in `expectError`, so `src/tests_*.zig` is excluded. A\nbacklog of bare sibling returns in the primitives (kaappi#2020/#2021/#2022)\nremains out of scope here, so the gate is once again a ratchet with a\nBASELINE that may only decrease — exactly the shape it had for TypeError\nbefore kaappi#1868 drove it to zero.\n\nReclassify the FFI argument checks in `validateArgsDetailed`: a value of\nthe right kind that does not fit the declared narrow/`c_int` type, or a\nstring that violates a size/content constraint, now returns\n`error.InvalidArgument` (KP3007), while a genuine type mismatch stays\n`error.TypeError` (KP3002). `mapFfiError` preserves the tag instead of\nflattening every FFI failure to TypeError. The remaining marshalling and\nsignature fall-throughs funnel through `mapFfiError` and carry a\n`// bare-ok` reason; the argError/indexError helper definitions in\nprimitives.zig get the same annotation their typeError sibling already had.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-25T23:33:02+05:30",
-          "tree_id": "805f12635a0159bc47ec0cf8a63415c70e84dc86",
-          "url": "https://github.com/kaappi/kaappi/commit/0f499465681c4c8e2a72f7f5ff7f5a5109205c54"
-        },
-        "date": 1787683544334,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.047031,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.291303,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.439348,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.185447,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.003863,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.035889,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.219264,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.041424,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.853247,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.876192,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.234144,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.245416,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.281105,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.412665,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.036564,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.048278,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6993c702171e13c57f76eaab9fe75a9c589c1fb4",
+          "message": "Call SRFI 231's bundled implementation what the SRFI calls it (#2558)\n\n* Call SRFI 231's bundled implementation what the SRFI calls it\n\nWe described the implementation Gambit bundles as SRFI 231's \"reference\nimplementation\", and wrote up \"when prose and reference code disagree,\ntrust the code\" as *this SRFI's documented rule* -- in the dev notes, in\ndocs/dev/testing.md, and in tools/srfi231_diff.py's docstring.\n\nNeither is right. The document says \"sample implementation\" 15 times and\n\"reference implementation\" zero times, and it states no such rule anywhere:\nthat heuristic was ours, and calling it documented asserted something about\nthe spec that is not in it. Brad Lucier (the SRFI's author) corrected us on\nr/KaappiScheme, noting that \"generally speaking the document is the\nspecification\".\n\nSo the rule paragraph now says what it actually is -- a working heuristic we\nadopted after hitting two prose/code divergences (check-nested-list's\ndimension-0 case, array-inner-product's missing array-curry argument) -- and\nrecords that the prose governs unless there is positive reason to think it\nis in error. The oracle in the differential tester is demoted to match: a\ndivergence is a lead to check against the prose, not a verdict.\n\nTerminology follows across lib/srfi/231/*.sld, docs/dev/testing.md and the\ntool. Comment blocks whose lines the longer word pushed past the files'\n79-column wrap are reflowed, which is most of the diff; no code changed.\n\nThis also puts the c64/c128 checker (#2542/#2543) in question, and the note\nthere now says so. That clause rejects a bare real flonum purely to match\nthe sample implementation's verdict under Gambit, where (imag-part 1.0) is\nan exact 0. The normative prose says cX-storage-class manipulates \"complex\nnumbers with ... floating-point numbers as real and imaginary parts\", and\nunder Kaappi's representation 1.0 is one -- real-part 1.0, imag-part 0.0,\nboth inexact -- while the one normative constraint on a checker, that\n(checker (getter v i)) be #t, holds either way. So it is a portability\nchoice, not conformance. Left in place and asked upstream; no behavior\nchange here.\n\nVerified: all eight SRFI 231 suites pass, the official suite at 10936\npassed / 0 unexpected failures; the tool parses and its CLI is unchanged;\nmarkdownlint clean.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review on the terminology retraction\n\nSeven findings, four of them damage the mechanical reflow did to structured\ncomments -- which is the argument for reading a rename diff rather than\ntrusting it.\n\n- The tool docstring contradicted itself: the rename pass rewrote the quoted\n  phrase inside my own sentence, so it claimed the document \"never says\n  'sample implementation'\" when the phrase it never says is \"reference\n  implementation\". Fixed; the sentence now says what it was written to say.\n- assembly.sld read \"the sample implementation implementation's\" -- the\n  rename hit a line already wrapped mid-phrase.\n- arrays.sld and views.sld each lost a two-item bullet list, flattened into\n  a run-on by the reflow. views.sld's is the historical record of the two\n  array-copy shapes that shipped and failed (pre-#2454 direct fill;\n  #2454..#2539 scratch vector), so the structure is the point. Both restored.\n- arrays.sld had \"out-of- domain\" -- the rewrap split a hyphenated compound\n  and stranded the hyphen.\n- Five lines the rename pushed to 81-88 chars in the tool are wrapped to the\n  79 columns the rest of that file holds to.\n\nThe seventh is the substantive one: the rename stopped at the paragraph it\ntouched, leaving the full phrase on two lines of the SRFI 231 notes section\nand bare \"the reference('s)\" on about a dozen more, plus testing.md. Since\nthis PR's whole point is that \"reference\" mischaracterizes that code, the\nsurviving shorthand quietly re-asserted it -- the section read like an\nincomplete sed. Renamed throughout rather than defining a shorthand, so no\nreader has to hold an exception in mind. Several sites were wrapped\nmid-phrase and invisible to a single-line grep, the same trap that produced\ntwo of the bugs above.\n\nVerified again: eight SRFI 231 suites pass, official suite 10936 passed /\n0 unexpected failures; lib/srfi/231 diff still touches only `;;` lines; the\ntool parses and its CLI is unchanged; markdownlint clean.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-09-08T18:31:31+05:30",
+          "tree_id": "208117ae4cc7d6cabefde2a41e3dadd9256c64c8",
+          "url": "https://github.com/kaappi/kaappi/commit/6993c702171e13c57f76eaab9fe75a9c589c1fb4"
+        },
+        "date": 1788874801441,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.101431,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.230442,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.590343,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.893181,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004673,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046836,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.292425,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.0548,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.498439,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.149291,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.63193,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.304831,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.646478,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.85843,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.048354,
             "unit": "seconds"
           }
         ]
