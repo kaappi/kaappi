@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788844652915,
+  "lastUpdate": 1788853935417,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ad52ca4cd2ff221ef874285cc9640bc88726f8f5",
-          "message": "Guard the WASM differential against a stale kaappi.wasm (#2328)\n\n* Guard the WASM differential against a stale kaappi.wasm\n\nrun-wasm-differential.sh only checked that a module existed, never that it\nwas built from the tree under test. run-all.sh has no `zig build wasm` step,\nso a local run compared today's interpreter against whatever module happened\nto sit in zig-out/ — producing confident, specific FALSE tier divergences\nagainst an old engine (or, silently, a clean PASS that tested nothing).\n\nAdd a freshness gate: if any interpreter source compiled into the module\n(src/, build.zig{,.zon}, vendor/) is newer than the module, SKIP (77) with a\nmessage to run 'zig build wasm' instead of reporting divergences against a\nmodule of unknown provenance. Only the binary's inputs are checked, so editing\na test or doc does not trip it. `find -newer` is plain POSIX. Also surface the\nmodule size in the preamble. Wire run-all.sh to build the module up front when\nzig and wasmtime are both present, so the common local path runs the leg\ninstead of skipping; it degrades to the SKIP when the toolchain is absent.\n\nCloses #2197\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Fail closed on WASM freshness scan and name the full input scope\n\nAddresses CodeRabbit review: exit 77 when the find scan itself cannot\nestablish freshness (instead of proceeding on an empty result), and report\nthat the module was verified newer than all interpreter build inputs\n(src/, build.zig{, .zon}, vendor/) rather than only src/.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-25T19:26:18+05:30",
-          "tree_id": "0cd3ad1159a4f60182c2309c2ef36df1826c92d6",
-          "url": "https://github.com/kaappi/kaappi/commit/ad52ca4cd2ff221ef874285cc9640bc88726f8f5"
-        },
-        "date": 1787671427450,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.438491,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.511063,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.584076,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.107319,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004753,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.048232,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.30752,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057066,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.879507,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.241337,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.689383,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.284853,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.803737,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.648788,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044847,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.037451,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "699ab8ec4b623cf51860794af2de8c6e4d4cb32b",
+          "message": "Compile repl_sexp/repl_highlight tests into the unit suite (#2554)\n\nmain.zig's test aggregation block referenced repl_mod but never\nrepl_sexp or repl_highlight. Zig only collects a file's test decls when\nthe file is referenced from test code, so repl_sexp.zig's 31 tests\n(added #2221) and repl_highlight.zig's 17 never ran — dead since they\nwere written, and 8 repl_sexp expectations drifted from the shipped\nconventions with no CI signal to catch it.\n\nReconcile the drift, each side a deliberate choice:\n\n- One real behavior fix: barf of a one-element list now inserts the gap\n  it documents — `(a)` barfs to `() a` (paredit's convention), not\n  `()a`. A cursor after the barfed datum rides past the inserted gap.\n- The rest are test flips to the shipped, documented conventions:\n  slurp's cursor stays put (only the close paren moves), raise keeps\n  the cursor's offset inside the raised datum, rotate's cursor follows\n  the datum it was on, and brackets are ordinary characters — barf\n  moves the datums the reader actually sees (`([i` and `0]` are\n  single atoms), so the old bracket-aware pins were unreachable.\n- The pipe-symbol test is rewritten: expectEdit takes the first `|` as\n  the cursor, which in the old input was the pipe symbol's own opening\n  delimiter, leaving the pipe unterminated and the command declining —\n  it could never have passed as written.\n- The `#(` rotate expectation pins current skip-the-head semantics;\n  rotating a vector's every child is #2552's change and belongs there.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-09-08T07:14:23Z",
+          "tree_id": "be20601a3efa6f14f4b41a4c4e76fc910ab34d20",
+          "url": "https://github.com/kaappi/kaappi/commit/699ab8ec4b623cf51860794af2de8c6e4d4cb32b"
+        },
+        "date": 1788853933089,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.164798,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.119225,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.437188,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.217964,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003641,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.039146,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.22469,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.042407,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.916683,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.888063,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.39852,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.229451,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.267016,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.409818,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.036815,
             "unit": "seconds"
           }
         ]
