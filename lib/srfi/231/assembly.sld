@@ -9,7 +9,7 @@
 ;;; stack/decurry/append/block, it has no bang-less/bang-ful pair (just
 ;;; itself) and is intrinsically NOT call/cc safe (it explicitly mutates
 ;;; destination in place, interleaved get-then-set per index in
-;;; lexicographic order -- confirmed via the reference implementation,
+;;; lexicographic order -- confirmed via the sample implementation,
 ;;; since the spec's own prose is ambiguous between "read all, then
 ;;; write all" and "interleaved"; the spec's own aliasing warning --
 ;;; "if assigning any element of destination affects the value of any
@@ -18,7 +18,7 @@
 ;;; Requires EXACT domain equality (interval=, confirmed via the spec's
 ;;; own regression test showing same-volume-but-different-domain is
 ;;; explicitly rejected, not merely discouraged) and returns an
-;;; unspecified value (confirmed via the reference implementation
+;;; unspecified value (confirmed via the sample implementation
 ;;; returning (void), not destination).
 ;;;
 ;;; array-stack/array-decurry/array-append/array-block all follow the
@@ -29,7 +29,7 @@
 ;;; safe? option parsing and the materializing fill loop) rather than
 ;;; hand-rolling a separate fill mechanism per procedure. Their `!`
 ;;; twins are implemented as pure aliases of the non-! version --
-;;; confirmed by reading the reference implementation directly: every
+;;; confirmed by reading the sample implementation directly: every
 ;;; one of these four's `!` and non-`!` entry points are two one-line
 ;;; wrappers around one shared internal helper differing only in
 ;;; whether input arrays are eagerly materialized before the fill runs.
@@ -74,11 +74,11 @@
       ;; interval-for-each over them, so the index check is redundant on
       ;; both sides -- but the VALUE check is not (#2448).
       (let ((dest-setter (array-unsafe-setter destination)) (src-getter (array-unsafe-getter source)))
-        ;; The reference validates every element against the destination's
-        ;; checker even when the destination is an UNSAFE specialized array
-        ;; ("should check anyway", test-arrays.scm:4361); the unsafe setter
-        ;; skips checking, which for e.g. u1 silently corrupts bits
-        ;; instead of erroring (#2359).
+        ;; The sample implementation validates every element against the
+        ;; destination's checker even when the destination is an UNSAFE
+        ;; specialized array ("should check anyway", test-arrays.scm:4361); the
+        ;; unsafe setter skips checking, which for e.g. u1 silently corrupts
+        ;; bits instead of erroring (#2359).
         (let ((checker (and (specialized-array? destination)
                             (%copy-value-checker source (array-storage-class destination)))))
           (interval-for-each (lambda multi-index
@@ -117,21 +117,21 @@
 
     (define (array-stack! k arrays . opts) (apply array-stack k arrays opts))
 
-    ;; Takes a "curried" array of arrays (all inner arrays sharing one
-    ;; common domain -- actively validated here, matching the reference
-    ;; implementation's stricter-than-the-bare-spec behavior) and returns
-    ;; a single specialized array with domain (interval-cartesian-product
-    ;; outer-domain inner-domain) -- outer axes first, inner axes second.
-    ;; An inverse to array-curry; a multi-dimensional version of
-    ;; array-stack.
+    ;; Takes a "curried" array of arrays (all inner arrays sharing one common
+    ;; domain -- actively validated here, matching the sample
+    ;; implementation's stricter-than-the-bare-spec behavior) and returns a
+    ;; single specialized array with domain (interval-cartesian-product
+    ;; outer-domain inner-domain) -- outer axes first, inner axes second. An
+    ;; inverse to array-curry; a multi-dimensional version of array-stack.
     (define (array-decurry AofA . opts)
       (unless (array? AofA) (error "array-decurry: not an array" AofA))
       (when (array-empty? AofA) (error "array-decurry: outer array must be nonempty" AofA))
-      ;; Copy AofA before any validation or consumption, as the reference
-      ;; does ((array-copy A-arg) up front): the user-visible outer getter
-      ;; then fires exactly once per element -- during this copy -- per
-      ;; the spec's access-count guarantee, instead of once per validation
-      ;; probe plus once per result element via the virtual getter (#2356).
+      ;; Copy AofA before any validation or consumption, as the sample
+      ;; implementation does ((array-copy A-arg) up front): the user-visible
+      ;; outer getter then fires exactly once per element -- during this copy
+      ;; -- per the spec's access-count guarantee, instead of once per
+      ;; validation probe plus once per result element via the virtual getter
+      ;; (#2356).
       (let* ((Acopy (array-copy AofA))
              (outer-domain (array-domain Acopy))
              (outer-d (array-dimension Acopy))
@@ -248,17 +248,17 @@
     ;; array-append. AofA's own domain is normalized to zero lower bounds
     ;; first so every "corner"/pencil-start probe used by validation and
     ;; offset computation is always literally an all-zeros multi-index,
-    ;; matching the reference implementation's own approach and avoiding
+    ;; matching the sample implementation's own approach and avoiding
     ;; having to track bounds by hand through the axis permutations both
     ;; helpers perform internally.
     (define (array-block AofA . opts)
       (unless (array? AofA) (error "array-block: not an array" AofA))
       (when (array-empty? AofA) (error "array-block: outer array must be nonempty" AofA))
-      ;; Copy AofA before validating, as the reference does -- the outer
-      ;; getter fires once per element (during this copy) instead of once
+      ;; Copy AofA before validating, as the sample implementation does -- the
+      ;; outer getter fires once per element (during this copy) instead of once
       ;; for validation and once for the fill (#2356). The copy is also
-      ;; normalized to zero lower bounds so every "corner"/pencil-start
-      ;; probe below is always literally an all-zeros multi-index.
+      ;; normalized to zero lower bounds so every "corner"/pencil-start probe
+      ;; below is always literally an all-zeros multi-index.
       (let* ((d (array-dimension AofA))
              (orig-lowers (interval-lower-bounds->vector (array-domain AofA)))
              (A (array-translate (array-copy AofA) (vector-map - orig-lowers)))

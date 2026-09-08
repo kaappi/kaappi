@@ -342,18 +342,21 @@ Conventions specific to this suite:
   (`KAAPPI_SRFI231_OFFICIAL_TIMEOUT`, default 600 s) instead of the 60 s
   default.
 
-### Differential testing against the reference (`tools/srfi231_diff.py`)
+### Differential testing against the sample implementation (`tools/srfi231_diff.py`)
 
-The official suite encodes the reference implementation's answers on the
+The official suite encodes the sample implementation's answers on the
 inputs its author wrote down; it cannot see a property its cases never
 exercise. kaappi#2539 — `array-copy` breaking the spec's own definition of
 call/cc-safe — passed all of it. `tools/srfi231_diff.py` looks for what
 fixed cases miss: it generates random SRFI 231 programs from a seed, runs
 each under Kaappi and an oracle, and reports every program whose printed
-output differs. The oracle is the reference itself — this SRFI's documented
-rule is "when prose and reference code disagree, trust the code" — as
-bundled by Gambit (`brew install gambit-scheme`; `gsi` may be shadowed by a
-shell alias, the tool defaults to `/opt/homebrew/bin/gsi`), with chibi's
+output differs. The oracle is the SRFI's own *sample* implementation — the
+document's term; it says "reference implementation" nowhere, and its author
+notes that "generally speaking the document is the specification", so a
+Kaappi/oracle divergence is a lead to investigate against the prose, not a
+verdict on its own — as bundled by Gambit (`brew install gambit-scheme`;
+`gsi` may be shadowed by a shell alias, the tool defaults to
+`/opt/homebrew/bin/gsi`), with chibi's
 independent port as a tie-breaker (`--oracle chibi`; confirm a chibi-only
 mismatch against Gambit before chasing it).
 
@@ -373,7 +376,7 @@ the base to compare body sharing; every step is guarded, so *whether* a
 step errors is compared too. It is deliberately biased toward the affine
 boundary — merging axes whose strides no longer chain after a permute or
 sample — since that is where `specialized-array-reshape` reasons about index
-arithmetic rather than mirroring the reference's structure. The `storage`
+arithmetic rather than mirroring the sample implementation's structure. The `storage`
 mode takes one storage class per case through everything that consults its
 checker, getter and setter — the checker's verdict on boundary and
 wrong-typed values, `make-specialized-array` with an initial value,

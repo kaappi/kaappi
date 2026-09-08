@@ -20,7 +20,7 @@
 ;;;
 ;;; Every procedure's calling convention and error behavior below was
 ;;; confirmed against the primary spec text (srfi.schemers.org/srfi-231)
-;;; and its official reference implementation before being written --
+;;; and its official sample implementation before being written --
 ;;; including two procedures (translation?, permutation?) whose exact
 ;;; validation rule the spec states only in prose, not executable
 ;;; pseudocode, and interval-fold-right's "all f evaluations before any
@@ -262,9 +262,9 @@
 
     (define (interval-scale interval scales)
       (%check-dimension-match! scales interval "interval-scale")
-      ;; The spec requires "a length-d vector of positive exact integers";
-      ;; the reference rejects bad scales up front. Without this check a
-      ;; negative scale on a zero-width axis or a rational scale silently
+      ;; The spec requires "a length-d vector of positive exact integers"; the
+      ;; sample implementation rejects bad scales up front. Without this check
+      ;; a negative scale on a zero-width axis or a rational scale silently
       ;; produces a plausible-looking interval instead of an error (#2357).
       (let ((d (vector-length scales)))
         (let loop ((i 0))

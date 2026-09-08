@@ -3,7 +3,7 @@
 ;;; A storage-class is a 9-field record of procedures/values managing a
 ;;; specialized array's backing store (getter, setter, checker, maker,
 ;;; copier, length, default, data?, data->body) -- confirmed via primary
-;;; source + the official reference implementation before writing any code.
+;;; source + the official sample implementation before writing any code.
 ;;; This mirrors, and can directly extend, the (kind maker ref setter!
 ;;; length default) table already built for SRFI 63's array kinds
 ;;; (lib/srfi/63.sld's %kind-table), just with two more fields (checker,
@@ -12,22 +12,21 @@
 ;;; phase) and itself a first-class Scheme object rather than a bare list.
 ;;;
 ;;; 17 storage-class global variables must all be BOUND, but per spec --
-;;; "Implementations with an appropriate homogeneous vector type should
-;;; define the associated global variable using make-storage-class.
-;;; Otherwise, they shall define the associated global variable to #f" --
-;;; an implementation lacking the underlying element type may bind one to
-;;; #f. 12 of the 17 map cleanly onto this codebase's already-shipped
-;;; (srfi 160 <tag>) NumericVector substrate; 2 more (generic, char) need
-;;; no numeric substrate at all -- Kaappi's native vector/string already
-;;; satisfy the "linearly indexed, 0-based, vector-like" contract, and the
-;;; spec gives their exact reference definitions verbatim, reused here
-;;; unchanged. u1 is a direct port of the reference's own bit-packing over
-;;; u16vector (the representation the spec itself documents for bit
-;;; arrays), and f16 a faithful port of its software half-floats over
-;;; u16vector (#2379) -- the spec's #f escape clause is for implementations
-;;; lacking the substrate, which neither port is. f8 alone is left #f,
-;;; even in the SRFI's OWN reference implementation (no standard 8-bit
-;;; float Scheme type exists anywhere).
+;;; "Implementations with an appropriate homogeneous vector type should define
+;;; the associated global variable using make-storage-class. Otherwise, they
+;;; shall define the associated global variable to #f" -- an implementation
+;;; lacking the underlying element type may bind one to #f. 12 of the 17 map
+;;; cleanly onto this codebase's already-shipped (srfi 160 <tag>) NumericVector
+;;; substrate; 2 more (generic, char) need no numeric substrate at all --
+;;; Kaappi's native vector/string already satisfy the "linearly indexed,
+;;; 0-based, vector-like" contract, and the spec gives their exact definitions
+;;; verbatim, reused here unchanged. u1 is a direct port of the sample
+;;; implementation's own bit-packing over u16vector (the representation the
+;;; spec itself documents for bit arrays), and f16 a faithful port of its
+;;; software half-floats over u16vector (#2379) -- the spec's #f escape clause
+;;; is for implementations lacking the substrate, which neither port is. f8
+;;; alone is left #f, even in the SRFI's OWN sample implementation (no standard
+;;; 8-bit float Scheme type exists anywhere).
 (define-library (srfi 231 storage-classes)
   (import (scheme base)
           (srfi 160 s8) (srfi 160 s16) (srfi 160 s32) (srfi 160 s64)
@@ -65,7 +64,7 @@
     ;; data->body: the body IS the data for every built-in class (no
     ;; offset/scale to install), but the contract still requires rejecting
     ;; wrong-typed data instead of handing it back as a would-be body
-    ;; (reference implementation: "converts data to a body, raising an
+    ;; (sample implementation: "converts data to a body, raising an
     ;; exception if needed").
     (define (%checked-data->body pred class-name type-name)
       (lambda (data)
@@ -86,9 +85,10 @@
                            make-vector vector-copy! vector-length
                            #f vector? (%checked-data->body vector? "generic-storage-class" "vector")))
 
-    ;; Reference default is #\null (NUL, U+0000) -- generic-arrays.scm's
-    ;; defaults list and the official test suite both assert it; the spec
-    ;; prose's #\0 (digit zero) is stale relative to its own reference.
+    ;; The sample implementation's default is #\null (NUL, U+0000) --
+    ;; generic-arrays.scm's defaults list and the official test suite both
+    ;; assert it; the spec prose's #\0 (digit zero) is stale relative to its
+    ;; own sample implementation.
     (define char-storage-class
       (make-storage-class string-ref string-set! char?
                            make-string string-copy! string-length
@@ -127,20 +127,19 @@
       (make-storage-class u64vector-ref u64vector-set! (%exact-int-range-checker 0 18446744073709551615)
                            make-u64vector u64vector-copy! u64vector-length 0 u64vector? (%checked-data->body u64vector? "u64-storage-class" "u64vector")))
 
-    ;; fX/cX checkers match the reference exactly: f32/f64 accept only
-    ;; inexact reals (flonum?, generic-arrays.scm's f32/f64 checker) and
-    ;; c64/c128 only proper complexes whose real and imaginary parts are
-    ;; both inexact. Accepting exact values silently coerces them (1/3
-    ;; stored into c64 narrows to f32 precision), diverging from the
-    ;; reference's "value cannot be stored in body" error (#2355). The
-    ;; reference's checker is (and (complex? obj) (inexact? (real-part
-    ;; obj)) (inexact? (imag-part obj))), but under Gambit's exact-0
-    ;; (imag-part 1.0) that rejects a bare real flonum, while Kaappi's
-    ;; inexact 0.0 (also R7RS-legal, 6.2.6 mandates only zero?, not
-    ;; exactness) accepted it -- so (not (real? x)) encodes the
-    ;; reference's verdict independently of the host's imag-part
-    ;; convention; 1.0+0.0i with an explicit inexact zero imaginary part
-    ;; is still accepted (#2542).
+    ;; fX/cX checkers match the sample implementation exactly: f32/f64 accept
+    ;; only inexact reals (flonum?, generic-arrays.scm's f32/f64 checker) and
+    ;; c64/c128 only proper complexes whose real and imaginary parts are both
+    ;; inexact. Accepting exact values silently coerces them (1/3 stored into
+    ;; c64 narrows to f32 precision), diverging from the sample
+    ;; implementation's "value cannot be stored in body" error (#2355). The
+    ;; sample implementation's checker is (and (complex? obj) (inexact?
+    ;; (real-part obj)) (inexact? (imag-part obj))), but under Gambit's exact-0
+    ;; (imag-part 1.0) that rejects a bare real flonum, while Kaappi's inexact
+    ;; 0.0 (also R7RS-legal, 6.2.6 mandates only zero?, not exactness) accepted
+    ;; it -- so (not (real? x)) encodes the sample implementation's verdict
+    ;; independently of the host's imag-part convention; 1.0+0.0i with an
+    ;; explicit inexact zero imaginary part is still accepted (#2542).
     (define (%flonum-checker x) (and (real? x) (inexact? x)))
     (define (%inexact-complex-checker x)
       (and (complex? x) (not (real? x))
@@ -153,28 +152,27 @@
       (make-storage-class f64vector-ref f64vector-set! %flonum-checker
                            make-f64vector f64vector-copy! f64vector-length 0.0 f64vector? (%checked-data->body f64vector? "f64-storage-class" "f64vector")))
 
-    ;; c64/c128 -- a faithful port of the reference's representation
-    ;; (generic-arrays.scm's make-complex-storage-classes): the body is a
-    ;; homogeneous FLOAT vector (f32vector for c64, f64vector for c128) of
-    ;; twice the logical length, real and imaginary parts interleaved.
-    ;; data? accepts exactly the even-length float vectors that can serve
-    ;; as the body zero-copy -- the spec's data? contract ("returns #t if
-    ;; and only if data->body returns a body sharing data with data,
-    ;; without copying") permits accepting the reference's data shape only
-    ;; by actually using it as the body, so reference-coupled portable code
+    ;; c64/c128 -- a faithful port of the sample implementation's
+    ;; representation (generic-arrays.scm's make-complex-storage-classes): the
+    ;; body is a homogeneous FLOAT vector (f32vector for c64, f64vector for
+    ;; c128) of twice the logical length, real and imaginary parts interleaved.
+    ;; data? accepts exactly the even-length float vectors that can serve as
+    ;; the body zero-copy -- the spec's data? contract ("returns #t if and only
+    ;; if data->body returns a body sharing data with data, without copying")
+    ;; permits accepting the sample implementation's data shape only by
+    ;; actually using it as the body, so portable code coupled to that shape
     ;; and the official suite's fixtures flow into
-    ;; make-specialized-array-from-data unchanged (#2382; the class
-    ;; previously rejected them -- kaappi's bodies were native
-    ;; c64vector/c128vector). Kaappi's SRFI 160 c64vector/c128vector use
-    ;; the identical byte layout -- 2 consecutive f32s/f64s per element,
-    ;; never boxed -- so this is a change of type tag, not of memory
-    ;; shape; the spec explicitly allows either representation ("another
-    ;; implementation ... might make another choice"), and reference
-    ;; fidelity is what interoperates. Consequence:
-    ;; c64vector/c128vector data is no longer accepted -- convert with
-    ;; make-specialized-array's maker or a copy loop if needed. Like the
-    ;; reference's own c64vector-copy!/c128vector-copy! wrappers, the
-    ;; copier takes LOGICAL complex-element offsets and scales by 2
+    ;; make-specialized-array-from-data unchanged (#2382; the class previously
+    ;; rejected them -- kaappi's bodies were native c64vector/c128vector).
+    ;; Kaappi's SRFI 160 c64vector/c128vector use the identical byte layout --
+    ;; 2 consecutive f32s/f64s per element, never boxed -- so this is a change
+    ;; of type tag, not of memory shape; the spec explicitly allows either
+    ;; representation ("another implementation ... might make another choice"),
+    ;; and matching the sample implementation is what interoperates.
+    ;; Consequence: c64vector/c128vector data is no longer accepted -- convert
+    ;; with make-specialized-array's maker or a copy loop if needed. Like the
+    ;; sample implementation's own c64vector-copy!/c128vector-copy! wrappers,
+    ;; the copier takes LOGICAL complex-element offsets and scales by 2
     ;; internally -- the same units as every other storage-class field.
     (define (%complex-storage-class float-ref float-set! make-float-vector
                                     float-copy! float-length vec?
@@ -209,8 +207,8 @@
                        ((= i l) result)
                      (float-set! result i re)
                      (float-set! result (+ i 1) im))))))
-         ;; copier -- the reference's c64vector-copy! wrapper: logical
-         ;; element offsets, scaled by 2 onto the float block copy
+         ;; copier -- the sample implementation's c64vector-copy! wrapper:
+         ;; logical element offsets, scaled by 2 onto the float block copy
          (lambda (to at from start end)
            (float-copy! to (* 2 at) from (* 2 start) (* 2 end)))
          ;; length -- half the physical float count
@@ -233,16 +231,16 @@
                               f64vector-copy! f64vector-length f64vector?
                               "c128-storage-class" "f64vector"))
 
-    ;; u1 -- bit arrays, ported from the reference implementation's own
+    ;; u1 -- bit arrays, ported from the sample implementation's own
     ;; bit-packing (generic-arrays.scm's u1-storage-class): the body is a
-    ;; (vector n u16vector) pair where n is the number of VALID bits and
-    ;; the u16vector holds the bit string little-endian within each u16
-    ;; (bit i lives at u16[i div 16], bit position i mod 16). The spec
-    ;; mandates uX for X=1 and documents exactly this representation, and
-    ;; (srfi 160 u16) supplies the substrate, so #f was not the spec's
-    ;; sanctioned fallback here (#2353). The reference passes #f for the
-    ;; copier ("no copier (for now") and so do we; nothing in this
-    ;; package ever calls storage-class-copier.
+    ;; (vector n u16vector) pair where n is the number of VALID bits and the
+    ;; u16vector holds the bit string little-endian within each u16 (bit i
+    ;; lives at u16[i div 16], bit position i mod 16). The spec mandates uX for
+    ;; X=1 and documents exactly this representation, and (srfi 160 u16)
+    ;; supplies the substrate, so #f was not the spec's sanctioned fallback
+    ;; here (#2353). The sample implementation passes #f for the copier ("no
+    ;; copier (for now") and so do we; nothing in this package ever calls
+    ;; storage-class-copier.
     (define u1-storage-class
       (make-storage-class
        ;; getter
@@ -268,7 +266,7 @@
        (lambda (size initializer)
          (let ((u16-size (quotient (+ size 15) 16)))
            (vector size (make-u16vector u16-size (if (= 0 initializer) 0 65535)))))
-       ;; no copier, as in the reference
+       ;; no copier, as in the sample implementation
        #f
        ;; length -- the valid-bit count, not 16 * u16 length
        (lambda (v) (vector-ref v 0))
@@ -282,12 +280,12 @@
              (error "Expecting a u16vector passed to (storage-class-data->body u1-storage-class): " data)
              (vector (* 16 (u16vector-length data)) data)))))
 
-    ;; f8 -- #f even in the SRFI's OWN reference implementation: no
+    ;; f8 -- #f even in the SRFI's OWN sample implementation: no
     ;; standard 8-bit float format exists to conform to.
     (define f8-storage-class #f)
 
     ;; f16 -- software half-floats over a u16vector: a faithful
-    ;; transliteration of the reference implementation's own codec
+    ;; transliteration of the sample implementation's own codec
     ;; (generic-arrays.scm's f16->double / double->f16), hand-expanded
     ;; from its defining macro for the single instantiation (mantissa-width
     ;; 10, exponent-width 5, bias 15) the class needs (#2379). The codec
@@ -304,7 +302,7 @@
     ;;     (comparisons don't distinguish -0.0; eqv? does, per R7RS)
     ;;   flfinite?/flnan? -> finite?/nan? from (scheme inexact)
     ;; The two structural properties that make this codec correct, both
-    ;; from the reference and both preserved:
+    ;; from the sample implementation and both preserved:
     ;;   - the subnormal branch scales by 2^24 directly: ONE rounding at
     ;;     the subnormal ulp (a normalize-then-shift formula would round
     ;;     twice, at the wrong ulp);
@@ -335,13 +333,13 @@
                (let ((n (if (= s 0) m (- m))))
                  (* n (expt 2.0 -24)))))))
 
-    ;; floor(log2|x|), clamped to [-15, 16], for a finite, nonzero real
-    ;; x -- the reference's flilogb, written fresh as a halving/doubling
-    ;; loop (exact at every step: multiplying by 2.0 or 0.5 never
-    ;; rounds). The clamp loses nothing: %f16-encode only ever consumes
-    ;; the classification ("<= -15", "in [-14,15]", ">= 16") plus the
-    ;; exact exponent inside the normal range, and it bounds the loop to
-    ;; ~31 iterations even for astronomically large or tiny doubles.
+    ;; floor(log2|x|), clamped to [-15, 16], for a finite, nonzero real x --
+    ;; the sample implementation's flilogb, written fresh as a halving/doubling
+    ;; loop (exact at every step: multiplying by 2.0 or 0.5 never rounds). The
+    ;; clamp loses nothing: %f16-encode only ever consumes the classification
+    ;; ("<= -15", "in [-14,15]", ">= 16") plus the exact exponent inside the
+    ;; normal range, and it bounds the loop to ~31 iterations even for
+    ;; astronomically large or tiny doubles.
     (define (%ilogb x)
       (let ((ax (abs x)))
         (if (>= ax 1.0)
@@ -403,8 +401,8 @@
                               ;; overflow to smallest normal
                               (%construct sign-bit 1 0))))))))))
 
-    ;; Class wiring mirrors the reference's f16 entry exactly: the same
-    ;; checker acceptance as f32/f64 (flonum? -- the setter ROUNDS, never
+    ;; Class wiring mirrors the sample implementation's f16 entry exactly: the
+    ;; same checker acceptance as f32/f64 (flonum? -- the setter ROUNDS, never
     ;; rejects), the fill encoded once by the maker, and the identity
     ;; data->body contract of every u16vector-backed class.
     (define f16-storage-class
