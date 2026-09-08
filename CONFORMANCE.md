@@ -1,6 +1,6 @@
 # R7RS Conformance
 
-Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/) — 717 built-in procedures, 32 syntax forms, and all 16 standard libraries. R7RS test suite: 1,395 pass, 0 fail.
+Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/) — 719 built-in procedures, 32 syntax forms, and all 16 standard libraries. R7RS test suite: 1,395 pass, 0 fail.
 
 One behavior of the program runner, beyond the language proper: running a
 script (`kaappi program.scm`) echoes the value of every non-void top-level
@@ -16,7 +16,7 @@ must stay clean. See README.md "Known limitations → Script output".
 
 ## SRFI conformance
 
-180 SRFIs supported. 12 built-in (native Zig), 164 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file, and SRFI 226, SRFI 160, and SRFI 211 as sub-libraries only with no bare `(srfi 226)`/`(srfi 160)`/`(srfi 211)` file (so none appears as a bare number in `kaappi features`' scan, unlike every other portable SRFI). `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
+181 SRFIs supported. 12 built-in (native Zig), 165 portable (.sld files), plus SRFI 261 (Portable SRFI Library Reference) as an import-resolver convention with no library file, and SRFI 226, SRFI 160, and SRFI 211 as sub-libraries only with no bare `(srfi 226)`/`(srfi 160)`/`(srfi 211)` file (so none appears as a bare number in `kaappi features`' scan, unlike every other portable SRFI). `(srfi srfi-<n>)` and `(srfi <mnemonic>-<n>)` — e.g. `(srfi srfi-1)`, `(srfi lists-1)`, `(srfi vectors-133)` — resolve to `(srfi <n>)`, with literal names winning when they exist. Coverage details for the built-in SRFIs follow.
 
 ### SRFI 1 — List Library
 

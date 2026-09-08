@@ -1,6 +1,6 @@
 # Kaappi — R7RS Scheme in Zig
 
-Complete R7RS-small Scheme implementation. Zig 0.16, ~120k lines, 717 built-in
+Complete R7RS-small Scheme implementation. Zig 0.16, ~120k lines, 719 built-in
 procedures, 181 SRFIs.
 
 This file is the orientation map. Detail lives in `docs/dev/` — every section

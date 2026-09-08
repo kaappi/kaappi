@@ -11,6 +11,89 @@ this file — put the *why* in the commit body instead.
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-09-08
+
+### Added
+
+- **SRFI 277: cyclic ports (#2545)** — `open-cyclic-input-string` and
+  `open-cyclic-input-bytevector` return ordinary input ports whose stream
+  repeats forever: `(open-cyclic-input-bytevector #u8(1 2 3))` delivers
+  `1 2 3 1 2 3 …` and never an EOF object. The SRFI exists to close SRFI
+  271's one gap — a reproducible random-port seed that does not require a
+  caller hand-building a 32-byte bytevector — so
+  `(make-random-port (open-cyclic-input-bytevector #u8(1 2 3)))` now works,
+  and two ports from `equal?` cyclic seeds yield identical streams. A
+  portable `/dev/zero` is `(open-cyclic-input-bytevector #u8(0))`. SRFI 192
+  positioning comes free: `port-position` stays monotonic across wraps. The
+  port reads its own snapshot of the source, so Kaappi defines the SRFI's
+  undefined "source modified after the call" case — mutations never affect
+  the port. SRFI count 180 → 181 (165 portable).
+- **SRFI 4's homogeneous-vector literal syntax (#2548)** — the reader
+  accepts all eleven `#TAG(` prefixes the SRFI specifies an external
+  representation for — `#s8(…)`, `#u16(…)`, `#f64(…)` and the rest, plus
+  SRFI 160's `#c64(…)`/`#c128(…)`. Only `#u8(` (the R7RS bytevector form)
+  was accepted before; every other prefix was a read error, so a conforming
+  program failed before it ran. Literals are self-evaluating in code
+  position, take full number syntax (`#u8(0 #e1e2 #xff)` reads, on the
+  bytevector path too), and are immutable like `#u8(` and `#(…)` literals.
+  `write` emits the readable form for every kind, with f32/c64 elements
+  formatted at f32 precision so the shortest decimal round-trips
+  bit-exactly. The `.sbc` codec carries the new tag, so a program using
+  literals caches and bundles instead of taking a permanent cache miss;
+  `kaappi fmt`, the REPL structural editor and the highlighter all learned
+  the new opens.
+
+### Fixed
+
+- **SRFI 231's accumulating non-`!` procedures are call/cc safe (#2539)** —
+  the spec defines a call/cc-safe procedure as one "written in a way that
+  does not modify the state of any data captured by a continuation", and
+  intends every procedure without a trailing `!` to be one. `array-copy`
+  collected a non-specialized source's values into a shared mutable scratch
+  vector, so a *second* continuation re-entry — or a second continuation
+  captured during the first pass — resumed over positions an earlier
+  re-entry had already overwritten and materialized the wrong prefix. Brad
+  Lucier, the SRFI's author, reported it with a two-continuation,
+  two-re-entry case. `array-stack`/`append`/`block`/`decurry` all delegate
+  to `array-copy`, so one loop accounted for five procedures; the older
+  `set!`-cell accumulators in `interval-fold-left`/`right`,
+  `array-fold-left`/`right`, `array-reduce`, `array-every` and
+  `array->list` had the same defect, the `fold-left` pair escaping notice
+  only because Kaappi's left-to-right argument evaluation happened to
+  snapshot the accumulator. Every accumulating procedure is now built on
+  the reference implementation's shape: one lexicographic walk threading
+  the accumulator through its loop variables and return values, never a
+  cell. The official conformance suite passed all 10,936 of its evaluations
+  against the broken code — a single re-entry cannot distinguish a shared
+  buffer from a functional accumulator.
+- **The c64/c128 storage-class checkers reject bare real flonums (#2542)** —
+  copying real-flonum data into a `c64`/`c128` array succeeded on Kaappi and
+  errored on the reference implementation. Kaappi's checker was the
+  reference's line verbatim, but the verdicts diverged on every real flonum
+  because Gambit's `(imag-part 1.0)` is an exact `0` while Kaappi's is `0.0`
+  (R7RS 6.2.6 requires only `zero?`, not exactness). The checker now encodes
+  the reference's verdict independently of the host's `imag-part`
+  convention; `1.0+0.0i` is still accepted. Found by differential testing
+  against Gambit 4.9.8.
+- **Completed unjoined threads free their resources at process exit
+  (#2537)** — a thread that finishes but is never joined must keep its
+  result envelope until a `thread-join!` copies it out, so its registry
+  entry holds the child's GC and VM. At process exit that join can never
+  happen, yet the entry survived: a Debug build's leak-tracking allocator
+  reported every object in those heaps, 29,366 entries symbolized through
+  DWARF, exhausting a CI leg's entire time budget. The exit path now sweeps
+  the registry in its no-live-children branch; the live-children fast path
+  is untouched, and an entry whose thread has not exited is skipped rather
+  than freed.
+- **`set!` on an immutable homogeneous-vector literal raises (#2548)** — it
+  silently mutated shared constant storage before, unlike `set-car!` and
+  `bytevector-u8-set!` on their literals.
+- **REPL: barfing a one-element list inserts the gap it documents
+  (#2554)** — `(a)` barfs to `() a`, paredit's convention, not `()a`. A
+  cursor after the barfed datum rides past the inserted gap. The REPL
+  structural-editing tests added in #2221 had never been compiled into the
+  unit suite, so this drift shipped with no CI signal.
+
 ## [0.26.2] - 2026-09-06
 
 ### Fixed
