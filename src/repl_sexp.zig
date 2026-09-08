@@ -54,6 +54,11 @@ const max_depth: u32 = 256;
 
 // --- Lexical scanning ------------------------------------------------------
 
+/// The inline whitespace `skipAtomicTrivia` skips, as a one-byte predicate.
+fn isInlineSpace(c: u8) bool {
+    return c == ' ' or c == '\t' or c == '\n' or c == '\r' or c == 0x0b or c == 0x0c;
+}
+
 /// Whitespace, `;` line comments, `#|…|#` block comments (nesting), and
 /// `#!fold-case` directives — everything the reader skips *except* `#;`, which
 /// needs to scan a datum and so lives in `skipTrivia`.
@@ -61,7 +66,7 @@ fn skipAtomicTrivia(src: []const u8, from: usize) usize {
     var i = from;
     while (i < src.len) {
         const c = src[i];
-        if (c == ' ' or c == '\t' or c == '\n' or c == '\r' or c == 0x0b or c == 0x0c) {
+        if (isInlineSpace(c)) {
             i += 1;
             continue;
         }
@@ -374,16 +379,20 @@ fn barf(allocator: std.mem.Allocator, src: []const u8, form: Form, pos: usize) !
     // that separated the barfed datum stays outside with it.
     const n = kids.items.len;
     const at = if (n >= 2) kids.items[n - 2].end else form.body;
+    // A one-element list has no gap to inherit, so synthesize the canonical
+    // one: `(a)` barfs to `() a`, matching paredit.
+    const pad: usize = if (n >= 2 or isInlineSpace(src[at])) 0 else 1;
 
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(allocator);
     try out.appendSlice(allocator, src[0..at]);
     try out.append(allocator, ')');
+    if (pad == 1) try out.append(allocator, ' ');
     try out.appendSlice(allocator, src[at..form.close]);
     try out.appendSlice(allocator, src[form.close + 1 ..]);
     return Edit{
         .text = try out.toOwnedSlice(allocator),
-        .pos = if (pos > at) pos + 1 else pos,
+        .pos = if (pos > at) pos + 1 + pad else pos,
     };
 }
 
@@ -513,7 +522,9 @@ fn expectDeclined(cmd: Command, before: []const u8) !void {
 
 test "slurp — pulls the next datum in" {
     try expectEdit(.slurp, "(a| b) c d", "(a| b c) d");
-    try expectEdit(.slurp, "(+ 1 2|) 3", "(+ 1 2 3|)");
+    // Only the close paren moves, so the cursor stays where it was — even
+    // when the cursor sat on the close paren itself.
+    try expectEdit(.slurp, "(+ 1 2|) 3", "(+ 1 2| 3)");
     try expectEdit(.slurp, "(a|) (b c) d", "(a| (b c)) d");
 }
 
@@ -536,6 +547,8 @@ test "barf — pushes the last datum out" {
 
 test "barf — a one-element list barfs to an empty one" {
     try expectEdit(.barf, "(|a)", "(|) a");
+    // A cursor after the barfed datum rides with it, past the new gap.
+    try expectEdit(.barf, "(a|)", "() a|");
 }
 
 test "barf — an empty list declines" {
@@ -595,7 +608,9 @@ test "rotate — too few datums to rotate" {
 }
 
 test "rotate — preserves the gaps, moves only the datums" {
-    try expectEdit(.rotate, "(f a|   bb  ccc)", "(f bb|   ccc  a)");
+    // The cursor rides with the datum it was on (`a`), keeping its offset
+    // within the datum.
+    try expectEdit(.rotate, "(f a|   bb  ccc)", "(f bb   ccc  a|)");
 }
 
 test "the cursor must be inside a form" {
@@ -642,12 +657,17 @@ test "a paren inside a comment is not a paren" {
 
 test "a character literal paren is not a paren (kaappi#358)" {
     try expectEdit(.barf, "(char=? #\\(| x)", "(char=? #\\(|) x");
-    try expectEdit(.raise, "(f (char=? #\\)| ))", "(f |#\\))");
+    // Raise keeps the cursor's offset inside the datum it raised; the cursor
+    // was at the end of `#\)` and stays at its end.
+    try expectEdit(.raise, "(f (char=? #\\)| ))", "(f #\\)|)");
     try expectEdit(.barf, "(list #\\space| #\\a)", "(list #\\space|) #\\a");
 }
 
 test "a pipe symbol hides its parens too (kaappi#358)" {
-    try expectEdit(.barf, "(list '|foo(bar|| x)", "(list '|foo(bar|) x");
+    // The cursor marker is the first `|` in the buffer, so it sits before the
+    // pipe symbol; the `(` and the extra `|` inside `|foo(bar|` never reach
+    // the paren stack, and barf moves the outer close past `x` as usual.
+    try expectEdit(.barf, "(list |'|foo(bar| x)", "(list |'|foo(bar|) x");
 }
 
 test "a datum comment is skipped, not treated as a datum" {
@@ -659,11 +679,12 @@ test "a datum comment is skipped, not treated as a datum" {
 
 test "vector and bytevector literals are forms too" {
     try expectEdit(.barf, "#(1 2| 3)", "#(1 2|) 3");
-    try expectEdit(.slurp, "#u8(1 2|) 3", "#u8(1 2 3|)");
+    // Slurp keeps the cursor where it was; only the close paren moves.
+    try expectEdit(.slurp, "#u8(1 2|) 3", "#u8(1 2| 3)");
     try expectEdit(.rotate, "#(a| b c)", "#(b c a|)");
     // SRFI 4 homogeneous-vector opens (#2548): the whole #TAG( is the form.
     try expectEdit(.barf, "#s16(1 2| 3)", "#s16(1 2|) 3");
-    try expectEdit(.slurp, "#f32(1.5 2.5|) 3", "#f32(1.5 2.5 3|)");
+    try expectEdit(.slurp, "#f32(1.5 2.5|) 3", "#f32(1.5 2.5| 3)");
     // A cursor on a MIDDLE child is what separates "every child rotates"
     // from "kids[0] is a head": the child under the cursor moves to the
     // front slot and the cursor rides with it (#2548 review).
@@ -679,9 +700,12 @@ test "a quoted form is still a form (its prefix is not a datum boundary)" {
 
 test "brackets are ordinary characters, not parens" {
     // The reader gives `[`/`]` no meaning, so they neither open a form nor
-    // delimit a datum: `[i` and `0]` are one atom each.
-    try expectEdit(.barf, "(let loop| ([i 0]) i)", "(let loop|) ([i 0]) i");
-    try expectDeclined(.barf, "(let loop ([i| 0]) i)");
+    // delimit a datum: `([i` and `0]` are one atom each. Barf from the outer
+    // form pushes its actual last datum (`i`) and leaves `([i 0])` alone.
+    try expectEdit(.barf, "(let loop| ([i 0]) i)", "(let loop| ([i 0])) i");
+    // The `(` still opens a real form even with `[` right after it, so barf
+    // inside it moves that form's close past its last datum (`0]`).
+    try expectEdit(.barf, "(let loop ([i| 0]) i)", "(let loop ([i|) 0] i)");
 }
 
 test "a multi-line form edits across the newline" {
@@ -694,7 +718,8 @@ test "a multi-line form edits across the newline" {
 
 test "utf-8 stays intact" {
     try expectEdit(.barf, "(list \"λ\" |π)", "(list \"λ\") |π");
-    try expectEdit(.rotate, "(f λ| π ω)", "(f π| ω λ)");
+    // The cursor rides with λ (two bytes) to its new slot at the end.
+    try expectEdit(.rotate, "(f λ| π ω)", "(f π ω λ|)");
 }
 
 test "deeply nested input declines rather than smashing the stack" {
