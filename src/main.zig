@@ -677,6 +677,11 @@ test {
     _ = diagnostics;
     _ = lsp_diagnostic;
     _ = repl_mod;
+    // repl_sexp/repl_highlight are only imported by repl.zig's non-test code,
+    // which does not pull their test decls in — reference them here or they
+    // never run (kaappi#2553).
+    _ = @import("repl_sexp.zig");
+    _ = @import("repl_highlight.zig");
     _ = cli;
     _ = explain;
     _ = features;
