@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788861928735,
+  "lastUpdate": 1788873757649,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "90c5bf90ae7c757c9f007648ce90189d27ef0769",
-          "message": "Report call_cc/call_ec as medians and widen the PR-gate noise floor (#2334)\n\nThe PR benchmark gate presented run-to-run noise with the same confidence\nas real results, in two distinct ways.\n\ncall_cc and call_ec were emitted as single-shot measurements with a\nhardcoded \"min 0, max 0, iterations 1\", while every other row is a median\nover 5 runs with real dispersion. A ~45ms unrepeated sample on a shared\nrunner is one scheduling hiccup away from tripping the 1.20x threshold,\nturning an unrelated PR red. zig build bench now repeats the depth-0\nmeasurement 5 times and reports the median with real min/max/iterations,\nmatching benchmarks/common.scm; run-benchmarks.sh parses those fields\ninstead of hardcoding the single-shot marker (kaappi#2101).\n\nSeparately, the gate's own base-vs-base spread reaches ~1.62x for the same\ncommit on a shared runner, yet the threshold was 120% — so a red check sat\nwell inside the measured noise and meant nothing. Raise it to 175%: above\nthe noise floor, still catches a genuine >=2x regression (kaappi#1906).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-25T23:31:13+05:30",
-          "tree_id": "62a0a06e2ba53745c202e6991aefb5c60aea9d7e",
-          "url": "https://github.com/kaappi/kaappi/commit/90c5bf90ae7c757c9f007648ce90189d27ef0769"
-        },
-        "date": 1787683408165,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.512192,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.892315,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.582851,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.174679,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004711,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.048361,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.314901,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.058776,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.885468,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.255253,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.706023,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.287624,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.835933,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.767203,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.049871,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045106,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e797b6d86d7523323b4eb3eec12eec010ddf3335",
+          "message": "Add a per-script timeout for shell test scripts (#2555) (#2557)\n\n* Add a per-script timeout for shell test scripts (#2555)\n\nbundle-cpu-baseline-2515.sh sat close enough to the 600s\nKAAPPI_SHELL_TEST_TIMEOUT cap that a shared runner starting from a cold\nZig cache tipped it over: on the v0.27.0 tag push GH Actions discarded\nthe cache mid-run for size, the script's three full ReleaseSafe builds\n(fixture interpreter, default bundle, -Dcpu=native twin) all went cold,\nand the timeout killed it — cancelling the release ci-gate over a commit\nwhose only code change was a version string. The test's behaviour is\ncorrect and its assertions are load-bearing for #2515; only its budget\nwas wrong, and a leg-wide bump is the wrong tool when every other script\nfits the shared one.\n\nrun-all.sh's shell workers now consult PER_SCRIPT_TIMEOUTS — the twin of\nthe .scm runner's PER_FILE_TIMEOUTS — before every launch. Its one entry\ngives that script 1200s (twice its measured all-cold total; a genuine\nhang still dies at 20 minutes, inside every job cap that runs this\nsuite), tunable via KAAPPI_BUNDLE_CPU_BASELINE_TIMEOUT. A killed\nscript's report now names the budget that actually applied instead of\nhardcoding SHELL_TIMEOUT.\n\ntests/scheme/test-runner/shell-timeout-override.sh pins the mechanism by\ndriving run-all.sh's own dispatch functions (sed-extracted, the\nrunner-agreement.sh technique) against sleeping fixtures with\nsecond-scale budgets; the routing, the bounding, and the reporting each\nfail without the fix. ci.yml's now-falsified \"has not flaked on\nReleaseSafe\" comment is rewritten to record the v0.27.0 incident and\npoint at the new table, and docs/dev/test-runner.md documents it.\n\nCloses #2555.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: drift-proof the kill fixtures; sign off; nits\n\nCI and review found one real bug and several nits in the new test:\n\n- The over-budget fixtures slept 8s/4s against nominal 6s/2s budgets,\n  but wait_with_timeout counts sleep 0.05 ticks, not wall clock, so a\n  budget stretches by the per-spawn cost of sleep — a few percent on\n  Linux, ~36% on macOS (120 ticks = 8.17s measured), worse under\n  MSYS/Git Bash — and the fixtures completed inside the stretched\n  window, recording PASS instead of TIMEOUT. That failed the macOS leg\n  and both Windows legs. They now sleep 60s, far past any budget, so\n  the kill fires at the budget whatever the drift; the kill is the\n  assertion.\n\n- The test header wrongly credited runner-agreement.sh with\n  sed-extraction; it keeps a copy of its regex and greps run-all.sh for\n  it. Reworded: executing the extracted functions is the stronger\n  technique this test adds on top.\n\n- The production-entry guard now matches the whole PER_SCRIPT_TIMEOUTS\n  line as a fixed string (grep -Fxq), so a malformed key or a retuned\n  default cannot slip through a looser pattern.\n\n- KAAPPI takes the runner-provided $1 like every other script the\n  runners launch, instead of hardcoding /bin/true.\n\n- \"a genuine hang still dies at 20 minutes\" (run-all.sh,\n  docs/dev/test-runner.md) restated as the 1200s tick budget — ~20 min\n  of wall clock on Linux, stretched further where sleep spawns cost\n  more — and the ci.yml comment's dangling \"when the Zig cache is --\"\n  clause repaired.\n\n- DCO: the original commit is amended to carry its Signed-off-by too,\n  so every commit in the PR passes the check.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-09-08T18:13:19+05:30",
+          "tree_id": "92d7d4e2f880ff2c10d4c6402d97d0cc561a98d1",
+          "url": "https://github.com/kaappi/kaappi/commit/e797b6d86d7523323b4eb3eec12eec010ddf3335"
+        },
+        "date": 1788873756153,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.11418,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.588268,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.583147,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.032633,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00468,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046541,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.291814,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054007,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.472983,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.141964,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.620615,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.3022,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.653695,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.826206,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.048278,
             "unit": "seconds"
           }
         ]
