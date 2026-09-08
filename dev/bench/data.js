@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788814282248,
+  "lastUpdate": 1788844652915,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "7ecbdf3525fd1ed420979506407a2a673721d025",
-          "message": "Make the untraced env-map invariant explicit and checkable (#2331)\n\nFunction.env and Transformer.def_env are raw *StringHashMap(Value) pointers\nthat no GC switch traces. They are safe only by an unwritten rule: the map\nis GC-reachable through its paired env_val/def_env_val, EXCEPT when it is one\nof the VM-rooted library registries markVmRoots traces (lib_env, retired_envs,\npending_lib_envs, current_lib_env), where the paired value may be NIL. A\nfuture call site handing a private map a NIL paired value would silently lose\nevery binding at the next collection, looking identical to the safe sites.\n\nDocument the invariant on both fields and make it checkable: a VM predicate\nisGcRootedEnvMap plus a globals.assertEnvMapInvariant that, in debug/test\nbuilds only, fires the moment a construction site violates it. Wired into the\none Function.env site (compileExpressionInEnv) and the three Transformer\ndef_env sites, reaching the VM through a registered callback so the compiler\nneed not import vm.zig (mirroring #1812's current_lib_name_lookup). Compiled\nout of release builds, so no shipped behavior or perf change.\n\nCloses #1962\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-25T18:58:27+05:30",
-          "tree_id": "a15e861c18fe9d0f46020fe63a74c7fd24233d86",
-          "url": "https://github.com/kaappi/kaappi/commit/7ecbdf3525fd1ed420979506407a2a673721d025"
-        },
-        "date": 1787670921721,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.046866,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.938692,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.432254,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.178391,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.003761,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.036436,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.219127,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.042144,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.852855,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.87251,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.225384,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.235038,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.299348,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.415922,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.036874,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046653,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4b2326b2f8918773688362dbb9a068e1e64683ad",
+          "message": "Implement SRFI 4's homogeneous-vector literal syntax (#2548) (#2552)\n\nSRFI 4 specifies an external representation for every one of its ten\nvector kinds — #s8(...), #u16(...), #f64(...) and so on — which read\nand write must support, and SRFI 160 extends the same optional shape to\n#c64(...)/#c128(...). Kaappi advertised SRFI 4 but the reader accepted\nonly #u8( (the R7RS bytevector form); every other prefix was a read\nerror, so a conforming program — the SRFI 231 spec corpus writes\n#(16 #u16(3895)) in code position — failed before it ran.\n\nReader: the eleven new #TAG( prefixes read to NumericVector constants,\nself-evaluating in code position like every other literal (they were\nKP2001 before). #u8( stays the bytevector form and #u8\"...\" SRFI 207's\nstring notation. Elements take full number syntax — the spec's own\nexample is #u8(0 #e1e2 #xff), which the bytevector path now accepts\ntoo — and are read token-level, so a literal is ONE datum to the\nreader's depth limit and the printer-gaps depth-1023 controls still\nhold. Literals are immutable, like #u8( and #(... literals. A prefix\ncut at end-of-slice refills under incremental reads (#1940), which\nalso fixed the old #u1-shaped gap.\n\nElement coercion splits into a pure core (encodeElementRaw) that the\nliteral reader shares, with the primitive-shaped encodeElement wrapping\nit for %numeric-vector-set! — one range/exactness table, so a literal\nand a constructor can never disagree, and a read failure can never\nwrite the VM error-detail channel a primitive would (that detail would\notherwise leak into an unrelated runtime error's report). set! on an\nimmutable literal now raises, matching set-car!/bytevector-u8-set!.\n\nPrinter: write emits the readable form for every kind (#s16(1 -2 255),\n#c64(1.5+0.0i)), with f32/c64 elements formatted at f32 precision so\nthe shortest decimal is what round-trips bit-exactly. That readable\nform is also what makes the native tier work: emitQuotedEvalExpr\nembeds heap constants by printing them and re-reading at run time.\n\n.sbc codec: TAG_NUMERICVECTOR carries an immutability byte, the kind\nbyte and the raw element bytes, with backref eligibility like the\nother containers — a program with literals now caches and bundles\ninstead of taking a permanent cache miss.\n\nAlso taught kaappi fmt's lexer (whose round-trip guard refused a file\ncontaining a new literal) and the REPL structural editor and\nhighlighter the #TAG( opens. rotate now treats a #(... / #TAG(... form\nas data and cycles every child, including the first, instead of\nskipping kids[0] as a call head.\n\nReview hardening: Compiler.compileExpr got the same self-evaluating\narm (a literal that IS a macro's expansion goes through compileExpr,\nnot lowerWithMacros, and died with KP2001); compound literal elements\n(a nested #TAG( inside a literal) now pay the reader's depth gate once,\nso deep nesting is NestingTooDeep rather than unbounded native-stack\nrecursion; and the tag name set lives in ONE place —\ntypes.isHomogeneousVectorTag, derived from NumericElementKind — behind\nthe reader, fmt and the REPL lexeme layers.\n\nTests: reader unit tests for kinds, cut-prefix refills, immutability\nand write->read round-trips; .sbc equivalence through the new tag;\nfmt round-trip tests; a literals section in tests/scheme/srfi/srfi4.scm;\nand tests/scheme/compile/srfi4-literal-roundtrip-2548.sh running the\nSRFI 231 spec-example shape through the LLVM native backend against\nthe interpreter oracle. The audit assertions that pinned the old\nopaque #<u16vector ...> print now pin the readable form.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-09-08T04:33:40Z",
+          "tree_id": "5811f88b1e280055687b591f57bcea0286e35429",
+          "url": "https://github.com/kaappi/kaappi/commit/4b2326b2f8918773688362dbb9a068e1e64683ad"
+        },
+        "date": 1788844650676,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.069796,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.953239,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.414087,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.142781,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004266,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.037112,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.217245,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.042224,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.216848,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.864373,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.222946,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.244562,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.291231,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.926493,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.037451,
             "unit": "seconds"
           }
         ]
