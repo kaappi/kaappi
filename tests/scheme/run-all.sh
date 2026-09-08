@@ -92,6 +92,33 @@ timeout_for() {
     echo "$TIMEOUT"
 }
 
+# The shell-suite twin of the list above, for scripts that legitimately outlive
+# SHELL_TIMEOUT. bundle-cpu-baseline-2515.sh is the one entry so far: warm it
+# is ~116s of cache hits, but its premise is three full -Doptimize=ReleaseSafe
+# builds (fixture interpreter, default bundle, -Dcpu=native twin), and when the
+# Zig cache is cold — the Debug leg always, and any leg the moment GH Actions
+# discards the cache mid-run for size — that is ~600s of builds alone on an
+# idle 4-core runner, leaving nothing for load. The flat 600s cap killed it on
+# PR #2538 and again on the v0.27.0 tag push, the second time cancelling the
+# release ci-gate over a commit whose only code change was a version string
+# (kaappi#2555). A leg-wide bump is the wrong tool — every other script fits
+# the shared budget — so this one script gets its own, at twice the measured
+# all-cold total. A genuine hang still dies at 20 minutes, inside every job
+# cap that runs this suite.
+PER_SCRIPT_TIMEOUTS="bundle-cpu-baseline-2515.sh:${KAAPPI_BUNDLE_CPU_BASELINE_TIMEOUT:-1200}"
+
+shell_timeout_for() {
+    local base entry
+    base=$(basename "$1")
+    for entry in $PER_SCRIPT_TIMEOUTS; do
+        if [[ "$base" == "${entry%%:*}" ]]; then
+            echo "${entry##*:}"
+            return
+        fi
+    done
+    echo "$SHELL_TIMEOUT"
+}
+
 # How many .scm files to run at once. Each file is a fresh interpreter with no
 # shared state (see tests/scheme/CLAUDE.md), so they parallelise cleanly — the
 # suite's own audit found no cross-file collisions on fixed paths or ports.
@@ -334,7 +361,9 @@ run_suite() {
 # Same shape as run_file_worker: record the verdict, never touch the counters.
 run_shell_worker() {
     local script="$1" slot="$2"
-    local pid status
+    local pid status tmo
+    # The budget is per script (PER_SCRIPT_TIMEOUTS), not the flat SHELL_TIMEOUT.
+    tmo=$(shell_timeout_for "$script")
     # Launch under `set -m` so the script leads its own process group (pgid ==
     # pid): a shell script can fork a whole `zig build`, and on timeout we must
     # signal that build too. Killing the script pid alone leaves the build
@@ -349,7 +378,7 @@ run_shell_worker() {
     KAAPPI="$KAAPPI" bash "$script" "$KAAPPI" > "$slot.out" 2>&1 &
     pid=$!
     set +m
-    if wait_with_timeout "$pid" "$SHELL_TIMEOUT"; then
+    if wait_with_timeout "$pid" "$tmo"; then
         status=0
         wait "$pid" || status=$?
     else
@@ -358,7 +387,7 @@ run_shell_worker() {
         # with the script rather than racing the next writer's install.
         kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
         wait "$pid" 2>/dev/null || true
-        echo "TIMEOUT" > "$slot.rec"
+        echo "TIMEOUT ${tmo}s" > "$slot.rec"
         return 0
     fi
     case $status in
@@ -384,8 +413,10 @@ report_shell_result() {
             echo "  SKIP  $script"
             SKIPPED=$((SKIPPED + 1))
             ;;
-        TIMEOUT)
-            echo "  TIMEOUT  $script  (killed after ${SHELL_TIMEOUT}s)"
+        TIMEOUT*)
+            # ${kind#TIMEOUT } is the "<n>s" the worker recorded, which for a
+            # PER_SCRIPT_TIMEOUTS entry is not SHELL_TIMEOUT.
+            echo "  TIMEOUT  $script  (killed after ${kind#TIMEOUT })"
             [[ -f "$slot.out" ]] && cat "$slot.out"
             TIMEDOUT=$((TIMEDOUT + 1))
             ;;

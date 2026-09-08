@@ -334,16 +334,19 @@ jobs:
           # the same "catch hangs, don't race the slowest legitimate build"
           # budget the per-file timeout above gives the .scm suites.
           #
-          # bundle-cpu-baseline-2515 outgrew even the 600: on top of the
-          # fixture it builds TWO full -Doptimize=ReleaseSafe bundle variants
-          # (default vs baseline CPU -- deliberately separate cache keys,
-          # comparing them is the test's point), so its all-cold total sits at
-          # ~600s on the Debug leg and runner-load variance alone decides it:
-          # killed at 600s twice on PR #2538 (2026-09-06) where the identical
-          # script had passed inside the same budget on the PR's first commit
-          # the day's run before. Debug gets 900 -- a hang still dies three
-          # times over inside the 40m job cap -- and ReleaseSafe legs stay at
-          # 600, where this has not flaked.
+          # bundle-cpu-baseline-2515 outgrew any leg-wide budget: its premise
+          # is full -Doptimize=ReleaseSafe builds, all cold when the Zig cache
+          # is -- the Debug leg always (the Build step warms only its own
+          # optimize mode), and any leg the moment GH Actions discards the
+          # cache mid-run for size. The flat 600s cap killed it twice on PR
+          # #2538 (2026-09-06) and again on the v0.27.0 tag push (ReleaseFast;
+          # kaappi#2555), the last one cancelling the release ci-gate over a
+          # commit whose only code change was a version string. Since that
+          # issue the script carries its own budget in run-all.sh's
+          # PER_SCRIPT_TIMEOUTS (1200s; KAAPPI_BUNDLE_CPU_BASELINE_TIMEOUT to
+          # tune), which supersedes this variable for that one script. The
+          # 900/600 split below remains as generic Debug headroom for every
+          # other script.
           KAAPPI_SHELL_TEST_TIMEOUT: ${{ matrix.optimize == 'Debug' && '900' || '600' }}
 
       - name: Sandbox escape tests

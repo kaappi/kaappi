@@ -328,7 +328,7 @@ Three things make that safe and worthwhile (kaappi#1926):
   `shell-common.sh` serialise anything that installs into `zig-out/`, using a
   `mkdir` lock (atomic on POSIX and Git Bash alike; `flock` is Linux-only and
   macOS has none). A lock whose holder died — `run-all.sh` kills a script that
-  overruns `SHELL_TIMEOUT` — is stolen by the next waiter via the recorded pid.
+  overruns its timeout — is stolen by the next waiter via the recorded pid.
 - **One interpreter rebuild, not two.** `zig build -Dbundle=…` recompiles the
   whole interpreter, because the embedded bytecode is part of the compiled
   module graph; at ~180s on a 4-core runner, the two scripts that needed one
@@ -363,6 +363,22 @@ Three things make that safe and worthwhile (kaappi#1926):
   builds at the time — sat close enough to the 600s `KAAPPI_SHELL_TEST_TIMEOUT`
   that ordinary runner variance decided it, failing a *required* check about
   one run in fourteen. Keep the count of full builds per script at one.
+
+  When a script's cold-cache cost cannot come down, its budget goes up
+  instead — per script, not per leg: `run_shell_worker` consults
+  `PER_SCRIPT_TIMEOUTS` (the shell twin of the `.scm` runner's
+  `PER_FILE_TIMEOUTS`) before every launch, and the TIMEOUT report names the
+  budget that actually applied. `bundle-cpu-baseline-2515.sh` is the one
+  entry: three full ReleaseSafe builds when the Zig cache is cold (fixture
+  interpreter, default bundle, `-Dcpu=native` twin), ~600s of builds alone on
+  an idle 4-core runner. The flat 600s cap killed it on PR #2538 and again on
+  the v0.27.0 tag push — that time because Actions discarded the cache
+  mid-run for size, cancelling the release ci-gate over a version-string
+  commit (kaappi#2555). Its 1200s default (`KAAPPI_BUNDLE_CPU_BASELINE_TIMEOUT`
+  to tune) buys the measured all-cold total twice over; a genuine hang still
+  dies at 20 minutes, inside every job cap that runs this suite.
+  `tests/scheme/test-runner/shell-timeout-override.sh` pins the routing,
+  the bounding, and the reporting.
 
   The same one-key discipline applies to the CPU: since kaappi#2515 every
   `-Dbundle=` build resolves the portable **baseline** CPU model by default
