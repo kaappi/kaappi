@@ -621,7 +621,8 @@ pub fn isSpecialForm(name: []const u8) bool {
 pub fn lowerWithMacros(ir: *IR, expr: Value, macros: ?*std.StringHashMap(Value)) CompileError!*Node {
     if (types.isFixnum(expr) or types.isFlonum(expr) or types.isBignum(expr) or
         types.isComplex(expr) or types.isRationalObj(expr) or types.isString(expr) or
-        types.isChar(expr) or types.isVector(expr) or types.isBytevector(expr))
+        types.isChar(expr) or types.isVector(expr) or types.isBytevector(expr) or
+        types.isNumericVector(expr))
     {
         return ir.makeConst(expr);
     }

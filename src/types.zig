@@ -516,6 +516,7 @@ pub const Bytevector = struct {
 const types_numeric = @import("types_numeric.zig");
 pub const NumericElementKind = types_numeric.NumericElementKind;
 pub const NumericVector = types_numeric.NumericVector;
+pub const isHomogeneousVectorTag = types_numeric.isHomogeneousVectorTag;
 
 pub const Promise = struct {
     header: Object,

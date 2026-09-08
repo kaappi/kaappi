@@ -18,6 +18,7 @@ const std = @import("std");
 const is_wasm = @import("builtin").os.tag == .wasi;
 const reader = @import("reader.zig");
 const config_mod = @import("config.zig");
+const types = @import("types.zig");
 
 const use_isocline = !is_wasm;
 const ic = if (use_isocline) @import("isocline.zig") else struct {};
@@ -157,11 +158,16 @@ fn scanHighlight(input: []const u8, ctx: anytype) void {
             continue;
         }
 
-        // #u8( bytevector literal
-        if (ch == '#' and i + 3 < input.len and input[i + 1] == 'u' and input[i + 2] == '8' and input[i + 3] == '(') {
-            i += 4;
-            ctx.emit(start, i, style_paren);
-            continue;
+        // #u8( / #s16( / ... SRFI 4/160 homogeneous-vector literal opens
+        // (tag table mirrors reader_tokens.homogeneousVectorPrefix)
+        if (ch == '#' and i + 2 < input.len and std.ascii.isAlphanumeric(input[i + 1])) {
+            var j = i + 1;
+            while (j < input.len and std.ascii.isAlphanumeric(input[j])) j += 1;
+            if (j < input.len and input[j] == '(' and types.isHomogeneousVectorTag(input[i + 1 .. j])) {
+                i = j + 1;
+                ctx.emit(start, i, style_paren);
+                continue;
+            }
         }
 
         // #( vector literal
@@ -434,6 +440,9 @@ test "scanHighlight — #trueish is not boolean" {
 test "scanHighlight — vector and bytevector open" {
     try expectSpan("#(1 2)", 0, 2, style_paren);
     try expectSpan("#u8(1 2)", 0, 4, style_paren);
+    // SRFI 4 homogeneous-vector opens (#2548)
+    try expectSpan("#s16(1 2)", 0, 5, style_paren);
+    try expectSpan("#c128(1.5-2.5i)", 0, 6, style_paren);
 }
 
 test "scanHighlight — radix prefixes are numbers" {

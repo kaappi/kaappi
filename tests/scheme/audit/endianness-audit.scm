@@ -301,28 +301,28 @@
 
 (test-equal "u16vector: ref agrees with the encoder" 258 (u16vector-ref (u16vector 258) 0))
 (test-equal "u16vector: printer agrees with the encoder"
-            "#<u16vector 258>" (write-to-string (u16vector 258)))
+            "#u16(258)" (write-to-string (u16vector 258)))
 (test-equal "s16vector: ref agrees with the encoder on a negative"
             -2 (s16vector-ref (s16vector -2) 0))
 (test-equal "s16vector: printer agrees with the encoder on a negative"
-            "#<s16vector -2>" (write-to-string (s16vector -2)))
+            "#s16(-2)" (write-to-string (s16vector -2)))
 (test-equal "u32vector: ref agrees with the encoder"
             16909060 (u32vector-ref (u32vector 16909060) 0))
 (test-equal "u32vector: printer agrees with the encoder"
-            "#<u32vector 16909060>" (write-to-string (u32vector 16909060)))
+            "#u32(16909060)" (write-to-string (u32vector 16909060)))
 (test-equal "s32vector: ref agrees with the encoder on a negative"
             -2 (s32vector-ref (s32vector -2) 0))
 (test-equal "u64vector: ref agrees with the encoder"
             72623859790382856 (u64vector-ref (u64vector 72623859790382856) 0))
 (test-equal "u64vector: printer agrees with the encoder"
-            "#<u64vector 72623859790382856>"
+            "#u64(72623859790382856)"
             (write-to-string (u64vector 72623859790382856)))
 (test-equal "s64vector: ref agrees with the encoder on a negative"
             -2 (s64vector-ref (s64vector -2) 0))
 (test-equal "f32vector: ref agrees with the encoder" 1.5 (f32vector-ref (f32vector 1.5) 0))
 (test-equal "f64vector: ref agrees with the encoder" 1.5 (f64vector-ref (f64vector 1.5) 0))
 (test-equal "f64vector: printer agrees with the encoder"
-            "#<f64vector 1.5>" (write-to-string (f64vector 1.5)))
+            "#f64(1.5)" (write-to-string (f64vector 1.5)))
 (test-equal "f64vector: an asymmetric double survives encode/decode"
             1.0000000000000002 (f64vector-ref (f64vector 1.0000000000000002) 0))
 
@@ -336,7 +336,7 @@
             (make-rectangular 1.5 -2.5)
             (c128vector-ref (c128vector (make-rectangular 1.5 -2.5)) 0))
 (test-equal "c64vector: printer agrees with the encoder"
-            "#<c64vector 1.5-2.5i>"
+            "#c64(1.5-2.5i)"
             (write-to-string (c64vector (make-rectangular 1.5 -2.5))))
 
 ;; Adjacent elements must not bleed into one another -- the failure mode a

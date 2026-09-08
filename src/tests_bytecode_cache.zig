@@ -207,6 +207,17 @@ test "sbc equiv: list operations" {
     try expectSbcEquivalence("(car (cons 42 '()))");
 }
 
+test "sbc equiv: SRFI 4 homogeneous-vector literals" {
+    if (comptime platform.is_wasm) return error.SkipZigTest; // bytecode-file writes are gated off on wasm (bytecode_file_write.zig)
+    // A literal reaches the codec as a TAG_NUMERICVECTOR constant — bare,
+    // and nested inside a vector constant (the SRFI 231 spec-example shape,
+    // kaappi#2548). `equal?` against a reconstructed literal checks the
+    // kind, length and element bytes across the round trip.
+    try expectSbcEquivalence("(equal? #s16(1 -2 #xff) #s16(1 -2 255))");
+    try expectSbcEquivalence("(equal? (list 16 #u16(3895)) '(16 #u16(3895)))");
+    try expectSbcEquivalence("(equal? #c64(1.5+0.5i) #c64(1.5+0.5i))");
+}
+
 test "sbc equiv: tail-recursive loop" {
     if (comptime platform.is_wasm) return error.SkipZigTest; // bytecode-file writes are gated off on wasm (bytecode_file_write.zig)
     try expectSbcEquivalence(

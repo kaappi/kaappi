@@ -114,6 +114,7 @@ fn tokenToValue(self: *Reader, tok: Token) ReadError!Value {
         .comma_at => return readAbbreviation(self, "unquote-splicing"),
         .hash_lparen => return readVector(self),
         .hash_u8_lparen => return readBytevector(self),
+        .hash_numvec_lparen => |kind| return readNumericVector(self, kind),
         .datum_label_def => |n| {
             if (n >= self.labels.len) return ReadError.InvalidNumber;
             // Pre-allocate a placeholder pair for circular references.
@@ -344,6 +345,31 @@ fn patchPlaceholder(gc: *memory.GC, datum: Value, placeholder: Value) error{OutO
     }
 }
 
+/// One element of a `#u8(` / `#TAG(` homogeneous-vector literal: the next
+/// token, converted by the same datum constructor readDatum uses, but
+/// WITHOUT the per-datum depth increment — a literal's elements are lexical
+/// parts of the enclosing datum, not nested datums, so a #u8( leaf under
+/// 1023 plain parens reads and one under 1024 is NestingTooDeep, exactly as
+/// for a plain atom (the "nested homogeneous-vector literals pay the depth
+/// gate" test in tests_reader_incremental.zig pins the boundary). The one
+/// exception is a
+/// compound element — a nested `#u8(`/#TAG( literal — which recurses into
+/// another literal loop, so it pays the depth gate exactly once; without
+/// it, `#s8(` nested 2000 deep would recurse unboundedly on the native
+/// stack instead of reporting NestingTooDeep.
+fn readElementValue(self: *Reader) ReadError!Value {
+    const tok = try self.nextToken();
+    switch (tok) {
+        .hash_u8_lparen, .hash_numvec_lparen => {
+            if (self.depth >= Reader.MAX_NESTING_DEPTH) return ReadError.NestingTooDeep;
+            self.depth += 1;
+            defer self.depth -= 1;
+            return tokenToValue(self, tok);
+        },
+        else => return tokenToValue(self, tok),
+    }
+}
+
 fn readBytevector(self: *Reader) ReadError!Value {
     var bytes: std.ArrayList(u8) = .empty;
     defer bytes.deinit(self.gc.allocator);
@@ -355,17 +381,82 @@ fn readBytevector(self: *Reader) ReadError!Value {
             self.pos += 1;
             break;
         }
-        const tok = try self.nextToken();
-        switch (tok) {
-            .fixnum => |n| {
-                if (n < 0 or n > 255) return ReadError.InvalidNumber;
-                bytes.append(self.gc.allocator, @intCast(@as(u64, @bitCast(n)))) catch return ReadError.OutOfMemory;
-            },
-            else => return ReadError.UnexpectedChar,
+        // SRFI 4 (kaappi#2548): the u8vector is one of its ten kinds, and the
+        // spec's own example -- #u8(0 #e1e2 #xff) -- writes elements in full
+        // integer syntax, so accept any exact integer 0..255. Elements are
+        // read token-level (nextToken + tokenToValue, no datum nesting), so
+        // they do not count toward the reader's depth limit -- a #u8( leaf
+        // under 1023 plain parens reads and one under 1024 is
+        // NestingTooDeep, pinned by the depth-gate test in
+        // tests_reader_incremental.zig. Anything not in 0..255 is a read
+        // error, as the R7RS bytevector grammar demands.
+        const elem = try readElementValue(self);
+        // No root needed: nothing between here and the rejection/accept
+        // decision allocates (toFixnum and two compares), and the buffer
+        // growth below happens only after elem is dead.
+        const is_byte = types.isFixnum(elem) and
+            types.toFixnum(elem) >= 0 and types.toFixnum(elem) <= 255;
+        const n: i64 = if (is_byte) types.toFixnum(elem) else 0;
+        if (!is_byte) {
+            reader_mod.setReadErrorDetail("bad element for #u8(...): expected an exact integer in 0..255", .{});
+            return ReadError.InvalidNumber;
         }
+        bytes.append(self.gc.allocator, @intCast(n)) catch return ReadError.OutOfMemory;
     }
 
     const bv = self.gc.allocBytevector(bytes.items) catch return ReadError.OutOfMemory;
     if (self.mark_immutable) types.toObject(bv).flags.immutable = true;
     return bv;
+}
+
+/// SRFI 4/160 homogeneous-vector literal: #s8( ... #u16( ... #f64( ... and
+/// SRFI 160's #c64(/#c128(. Elements use full number syntax — the spec's own
+/// example is #u8(0 #e1e2 #xff) — and are read token-level (no datum
+/// nesting), like the bytevector literal's elements, then validated/coerced
+/// by the very encodeElementRaw the (srfi 160 <tag>) constructors use, making
+/// a literal and a constructor call inseparable in what they accept. A
+/// literal is immutable like #u8( and #(... literals.
+fn readNumericVector(self: *Reader, kind: types.NumericElementKind) ReadError!Value {
+    const srfi160 = @import("primitives_srfi160.zig");
+    const tag_name = @tagName(kind);
+    var data: std.ArrayList(u8) = .empty;
+    defer data.deinit(self.gc.allocator);
+    const width = kind.elementWidth();
+
+    while (true) {
+        try self.skipWhitespaceAndCommentsChecked();
+        if (self.pos >= self.source.len) return ReadError.UnexpectedEof;
+        if (self.source[self.pos] == ')') {
+            self.pos += 1;
+            break;
+        }
+        const elem = try readElementValue(self);
+        // Cheap insurance around the coercion: nothing in this window
+        // collects today (ArrayList.resize on the GC allocator bypasses
+        // maybeCollect, and encodeElementRaw never allocates), but the
+        // push/pop costs nothing and roots elem if that ever changes.
+        var elem_root = elem;
+        self.gc.pushRoot(&elem_root);
+        const old_len = data.items.len;
+        data.resize(self.gc.allocator, old_len + width) catch {
+            self.gc.popRoot();
+            return ReadError.OutOfMemory;
+        };
+        const encoded = srfi160.encodeElementRaw(kind, elem, data.items[old_len..]);
+        self.gc.popRoot();
+        encoded catch |err| switch (err) {
+            error.not_a_number => {
+                reader_mod.setReadErrorDetail("not a number in #{s}(...) literal", .{tag_name});
+                return ReadError.UnexpectedChar;
+            },
+            else => {
+                reader_mod.setReadErrorDetail("bad element for #{s}(...): the value cannot be stored in a {s}vector", .{ tag_name, tag_name });
+                return ReadError.InvalidNumber;
+            },
+        };
+    }
+
+    const nv = self.gc.allocNumericVector(kind, data.items) catch return ReadError.OutOfMemory;
+    if (self.mark_immutable) types.toObject(nv).flags.immutable = true;
+    return nv;
 }

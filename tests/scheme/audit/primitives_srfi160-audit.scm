@@ -258,8 +258,8 @@
                (eq? (real? e)
                     (real? (read (open-input-string (write-to-string e)))))))
 ;; Control 3: the vector printer is honest about the zero imaginary part.
-(test-equal "#<c128vector 1.5+0.0i>" (write-to-string (c128vector 1.5)))
-(test-equal "#<c64vector 1.5+0.0i>" (write-to-string (c64vector 1.5)))
+(test-equal "c128vector writes the zero imaginary part" "#c128(1.5+0.0i)" (write-to-string (c128vector 1.5)))
+(test-equal "c64vector writes the zero imaginary part" "#c64(1.5+0.0i)" (write-to-string (c64vector 1.5)))
 
 ;;; #1951/#2269 (a zero-imaginary c64/c128 element writes as a real): a
 ;;; +0.0 imaginary part now decodes to the complex 1.5+0.0i and `write`
@@ -536,12 +536,12 @@
 ;;; ------------------------------------------------------------------
 
 (define endian-probe
-  (list (list 'u16  (u16vector 258)                "#<u16vector 258>")
-        (list 's16  (s16vector 258)                "#<s16vector 258>")
-        (list 'u32  (u32vector 16909060)           "#<u32vector 16909060>")
-        (list 's32  (s32vector 16909060)           "#<s32vector 16909060>")
-        (list 'u64  (u64vector 72623859790382856)  "#<u64vector 72623859790382856>")
-        (list 's64  (s64vector 72623859790382856)  "#<s64vector 72623859790382856>")))
+  (list (list 'u16  (u16vector 258)                "#u16(258)")
+        (list 's16  (s16vector 258)                "#s16(258)")
+        (list 'u32  (u32vector 16909060)           "#u32(16909060)")
+        (list 's32  (s32vector 16909060)           "#s32(16909060)")
+        (list 'u64  (u64vector 72623859790382856)  "#u64(72623859790382856)")
+        (list 's64  (s64vector 72623859790382856)  "#s64(72623859790382856)")))
 
 (for-each
  (lambda (p)
@@ -555,8 +555,9 @@
 (test-equal 16909060 (u32vector-ref (u32vector 16909060) 0))
 (test-equal 72623859790382856 (u64vector-ref (u64vector 72623859790382856) 0))
 (test-equal 1.5 (f64vector-ref (f64vector 1.5) 0))
-(test-equal "#<f64vector 1.5>" (write-to-string (f64vector 1.5)))
-(test-equal "#<c64vector 1.5-2.5i>"
+(test-equal "f64vector writes the readable literal" "#f64(1.5)" (write-to-string (f64vector 1.5)))
+(test-equal "c64vector writes the readable literal"
+            "#c64(1.5-2.5i)"
             (write-to-string (c64vector (make-rectangular 1.5 -2.5))))
 
 ;; Multi-element buffers: element N must not bleed into element N+1.
@@ -814,21 +815,23 @@
 ;;; ------------------------------------------------------------------
 ;;; 12. write-@vector and the external representation
 ;;;
-;;; SRFI 160's lexical-syntax section is titled "Optional lexical syntax",
-;;; so omitting the `#s8(...)` read syntax is permitted. What is pinned
-;;; here is the resulting INCONSISTENCY: u8 writes the spec's readable
-;;; `#u8(...)` because it is a bytevector, while the other 11 kinds write
-;;; an unreadable `#<...>` form. If the read syntax is ever added, these
-;;; are the assertions to revisit.
+;;; SRFI 4's external representation (#TAG( ... ) for the flat kinds,
+;;; SRFI 160's optional extension for c64/c128) is what `write` produces
+;;; and what `read` accepts for every kind, kaappi#2548: the written form
+;;; round-trips through read bit-exactly, which the native tier's
+;;; print-and-re-read constant embedding relies on.
 ;;; ------------------------------------------------------------------
 
-(test-equal "#u8(1 2 3)" (write-to-string (u8vector 1 2 3)))
-(test-equal "#<s8vector 1 2 3>" (write-to-string (s8vector 1 2 3)))
-(test-equal "#<f32vector 1.5>" (write-to-string (f32vector 1.5)))
+(test-equal "write-to-string writes a u8vector literal"
+            "#u8(1 2 3)" (write-to-string (u8vector 1 2 3)))
+(test-equal "write-to-string writes an s8vector literal"
+            "#s8(1 2 3)" (write-to-string (s8vector 1 2 3)))
+(test-equal "write-to-string writes an f32vector literal"
+            "#f32(1.5)" (write-to-string (f32vector 1.5)))
 (test-assert "write-s8vector writes what write writes"
              (let ((p (open-output-string)))
                (write-s8vector (s8vector 1 2) p)
-               (string=? "#<s8vector 1 2>" (get-output-string p))))
+               (string=? "#s8(1 2)" (get-output-string p))))
 (test-assert "write-u8vector writes the spec's readable syntax"
              (let ((p (open-output-string)))
                (write-u8vector (u8vector 1 2) p)

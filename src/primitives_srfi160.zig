@@ -27,8 +27,9 @@
 //! default for both).
 //!
 //! Multi-byte elements are stored in host-native byte order (matching
-//! printer.zig's own numeric-vector display arm) -- there is no reader
-//! syntax to round-trip and no cross-process persistence, so native order
+//! printer.zig's own numeric-vector display arm) -- the #TAG( literal syntax
+//! and the .sbc constant codec both carry kind-tagged raw bytes, and both
+//! halves live in the same binary reading its own output, so native order
 //! avoids needless byte-swaps on big-endian hosts (s390x, ppc64le).
 
 const std = @import("std");
@@ -102,67 +103,6 @@ fn magnitudeAndSign(val: Value) ExactMag {
     return .not_exact;
 }
 
-fn expectSignedInRange(proc: []const u8, val: Value, comptime bits: u7) PrimitiveError!i64 {
-    const ms = switch (magnitudeAndSign(val)) {
-        .fits => |m| m,
-        .too_wide => return argError(proc, "integer does not fit a signed {d}-bit element", .{bits}),
-        .not_exact => return typeError(proc, "exact integer", val),
-    };
-    const shift: u6 = bits - 1;
-    const max_mag_pos: u64 = (@as(u64, 1) << shift) - 1;
-    const max_mag_neg: u64 = @as(u64, 1) << shift;
-    if (ms.positive) {
-        if (ms.mag > max_mag_pos) return argError(proc, "integer does not fit a signed {d}-bit element", .{bits});
-        return @intCast(ms.mag);
-    }
-    if (ms.mag > max_mag_neg) return argError(proc, "integer does not fit a signed {d}-bit element", .{bits});
-    if (ms.mag == max_mag_neg) {
-        // Only reachable when bits == 64 and mag == 2^63 (i64::MIN) -- for
-        // bits < 64, max_mag_neg fits comfortably in a positive i64 already,
-        // so the general path below would work too; this keeps it exact.
-        if (bits == 64) return std.math.minInt(i64);
-        return -@as(i64, @intCast(ms.mag));
-    }
-    return -@as(i64, @intCast(ms.mag));
-}
-
-fn expectUnsignedInRange(proc: []const u8, val: Value, comptime bits: u7) PrimitiveError!u64 {
-    const ms = switch (magnitudeAndSign(val)) {
-        .fits => |m| m,
-        // A negative one is rejected for being negative, not for being wide --
-        // the same reason, and the same message, a negative fixnum gets below.
-        .too_wide => |w| return if (w.positive)
-            argError(proc, "integer does not fit an unsigned {d}-bit element", .{bits})
-        else
-            argError(proc, "negative integer for an unsigned {d}-bit element", .{bits}),
-        .not_exact => return typeError(proc, "exact integer", val),
-    };
-    if (!ms.positive and ms.mag != 0) return argError(proc, "negative integer for an unsigned {d}-bit element", .{bits});
-    const max_mag: u64 = if (bits == 64) std.math.maxInt(u64) else blk: {
-        const shift: u6 = bits;
-        break :blk (@as(u64, 1) << shift) - 1;
-    };
-    if (ms.mag > max_mag) return argError(proc, "integer does not fit an unsigned {d}-bit element", .{bits});
-    return ms.mag;
-}
-
-fn expectReal(proc: []const u8, val: Value) PrimitiveError!f64 {
-    if (types.isFixnum(val) or types.isFlonum(val) or types.isBignum(val) or types.isRationalObj(val)) {
-        return types.toF64(val);
-    }
-    return typeError(proc, "real number", val);
-}
-
-const ComplexParts = struct { re: f64, im: f64 };
-
-fn expectComplexParts(proc: []const u8, val: Value) PrimitiveError!ComplexParts {
-    if (types.isComplex(val)) {
-        const c = types.toComplex(val);
-        return .{ .re = try expectReal(proc, c.real), .im = try expectReal(proc, c.imag) };
-    }
-    return .{ .re = try expectReal(proc, val), .im = 0.0 };
-}
-
 fn makeExactFromI64(gc: *memory.GC, n: i64) PrimitiveError!Value {
     const fixnum_min: i64 = -(@as(i64, 1) << 47);
     const fixnum_max: i64 = (@as(i64, 1) << 47) - 1;
@@ -182,34 +122,151 @@ fn makeExactFromU64(gc: *memory.GC, n: u64) PrimitiveError!Value {
 // Encode (Value -> element bytes) / decode (element bytes -> Value)
 // ---------------------------------------------------------------------------
 
-fn encodeElement(proc: []const u8, kind: NumericElementKind, val: Value, out: []u8) PrimitiveError!void {
+/// The typed failure reasons of element coercion. The pure core
+/// (`encodeElementRaw`) answers only with these -- the reader's #TAG(
+/// literal syntax shares it and must not touch the VM error-detail channel
+/// a primitive failure would write (a stale detail set during reading
+/// would otherwise leak into an unrelated runtime error's report). The
+/// primitive-shaped wrapper (`encodeElement`) maps the same reasons onto
+/// typeError/argError. ONE range/exactness table serves both callers, so a
+/// literal and a constructor can never disagree about what an element is.
+pub const ElementCoerceError = error{
+    not_a_number,
+    not_exact_integer,
+    not_real,
+    out_of_range,
+    negative_unsigned,
+};
+
+fn signedElement(val: Value, comptime bits: u7) ElementCoerceError!i64 {
+    const ms = switch (magnitudeAndSign(val)) {
+        .fits => |m| m,
+        .too_wide => return error.out_of_range,
+        .not_exact => return error.not_exact_integer,
+    };
+    const shift: u6 = bits - 1;
+    const max_mag_pos: u64 = (@as(u64, 1) << shift) - 1;
+    const max_mag_neg: u64 = @as(u64, 1) << shift;
+    if (ms.positive) {
+        if (ms.mag > max_mag_pos) return error.out_of_range;
+        return @intCast(ms.mag);
+    }
+    if (ms.mag > max_mag_neg) return error.out_of_range;
+    if (ms.mag == max_mag_neg) {
+        // Only reachable when bits == 64 and mag == 2^63 (i64::MIN) -- for
+        // bits < 64, max_mag_neg fits comfortably in a positive i64 already,
+        // so the general path below would work too; this keeps it exact.
+        if (bits == 64) return std.math.minInt(i64);
+        return -@as(i64, @intCast(ms.mag));
+    }
+    return -@as(i64, @intCast(ms.mag));
+}
+
+fn unsignedElement(val: Value, comptime bits: u7) ElementCoerceError!u64 {
+    const ms = switch (magnitudeAndSign(val)) {
+        .fits => |m| m,
+        // A negative multi-limb bignum is rejected for being negative, not
+        // for being wide -- the same reason, and the same mapped failure, a
+        // negative fixnum gets below.
+        .too_wide => |w| return if (w.positive) error.out_of_range else error.negative_unsigned,
+        .not_exact => return error.not_exact_integer,
+    };
+    if (!ms.positive and ms.mag != 0) return error.negative_unsigned;
+    const max_mag: u64 = if (bits == 64) std.math.maxInt(u64) else blk: {
+        const shift: u6 = bits;
+        break :blk (@as(u64, 1) << shift) - 1;
+    };
+    if (ms.mag > max_mag) return error.out_of_range;
+    return ms.mag;
+}
+
+fn realElement(val: Value) ElementCoerceError!f64 {
+    if (types.isComplex(val)) return error.not_real;
+    if (types.isFixnum(val) or types.isFlonum(val) or types.isBignum(val) or types.isRationalObj(val)) {
+        return types.toF64(val);
+    }
+    return error.not_a_number;
+}
+
+const ComplexParts = struct { re: f64, im: f64 };
+
+fn complexElementParts(val: Value) ElementCoerceError!ComplexParts {
+    if (types.isComplex(val)) {
+        const c = types.toComplex(val);
+        return .{ .re = try realElement(c.real), .im = try realElement(c.imag) };
+    }
+    return .{ .re = try realElement(val), .im = 0.0 };
+}
+
+/// Pure Value -> element bytes: no VM state, no error details. Shared by
+/// `%numeric-vector-set!` (through `encodeElement`) and the reader's #TAG(
+/// literal syntax (reader_datum.zig's readNumericVector), so a literal and a
+/// constructor call can never disagree about what an element may be.
+pub fn encodeElementRaw(kind: NumericElementKind, val: Value, out: []u8) ElementCoerceError!void {
     switch (kind) {
-        .s8 => out[0] = @bitCast(@as(i8, @intCast(try expectSignedInRange(proc, val, 8)))),
-        .u16 => std.mem.writeInt(u16, out[0..2], @intCast(try expectUnsignedInRange(proc, val, 16)), native_endian),
-        .s16 => std.mem.writeInt(i16, out[0..2], @intCast(try expectSignedInRange(proc, val, 16)), native_endian),
-        .u32 => std.mem.writeInt(u32, out[0..4], @intCast(try expectUnsignedInRange(proc, val, 32)), native_endian),
-        .s32 => std.mem.writeInt(i32, out[0..4], @intCast(try expectSignedInRange(proc, val, 32)), native_endian),
-        .u64 => std.mem.writeInt(u64, out[0..8], try expectUnsignedInRange(proc, val, 64), native_endian),
-        .s64 => std.mem.writeInt(i64, out[0..8], try expectSignedInRange(proc, val, 64), native_endian),
+        .s8 => out[0] = @bitCast(@as(i8, @intCast(try signedElement(val, 8)))),
+        .u16 => std.mem.writeInt(u16, out[0..2], @intCast(try unsignedElement(val, 16)), native_endian),
+        .s16 => std.mem.writeInt(i16, out[0..2], @intCast(try signedElement(val, 16)), native_endian),
+        .u32 => std.mem.writeInt(u32, out[0..4], @intCast(try unsignedElement(val, 32)), native_endian),
+        .s32 => std.mem.writeInt(i32, out[0..4], @intCast(try signedElement(val, 32)), native_endian),
+        .u64 => std.mem.writeInt(u64, out[0..8], try unsignedElement(val, 64), native_endian),
+        .s64 => std.mem.writeInt(i64, out[0..8], try signedElement(val, 64), native_endian),
         .f32 => {
-            const f = try expectReal(proc, val);
+            const f = try realElement(val);
             std.mem.writeInt(u32, out[0..4], @bitCast(@as(f32, @floatCast(f))), native_endian);
         },
         .f64 => {
-            const f = try expectReal(proc, val);
+            const f = try realElement(val);
             std.mem.writeInt(u64, out[0..8], @bitCast(f), native_endian);
         },
         .c64 => {
-            const parts = try expectComplexParts(proc, val);
+            const parts = try complexElementParts(val);
             std.mem.writeInt(u32, out[0..4], @bitCast(@as(f32, @floatCast(parts.re))), native_endian);
             std.mem.writeInt(u32, out[4..8], @bitCast(@as(f32, @floatCast(parts.im))), native_endian);
         },
         .c128 => {
-            const parts = try expectComplexParts(proc, val);
+            const parts = try complexElementParts(val);
             std.mem.writeInt(u64, out[0..8], @bitCast(parts.re), native_endian);
             std.mem.writeInt(u64, out[8..16], @bitCast(parts.im), native_endian);
         },
     }
+}
+
+fn kindIsUnsigned(kind: NumericElementKind) bool {
+    return switch (kind) {
+        .u16, .u32, .u64 => true,
+        else => false,
+    };
+}
+
+fn kindIntegerBits(kind: NumericElementKind) u7 {
+    return switch (kind) {
+        .s8 => 8,
+        .u16, .s16 => 16,
+        .u32, .s32, .f32, .c64 => 32,
+        .u64, .s64, .f64, .c128 => 64,
+    };
+}
+
+/// The primitive-shaped wrapper: same coercion as `encodeElementRaw`, with
+/// the typed failure reasons mapped onto the typeError/argError reports a
+/// `%`-primitive caller expects. The messages match the pre-refactor ones
+/// exactly, including kaappi#1916's too-wide-vs-not-exact distinction.
+pub fn encodeElement(proc: []const u8, kind: NumericElementKind, val: Value, out: []u8) PrimitiveError!void {
+    encodeElementRaw(kind, val, out) catch |err| switch (err) {
+        error.not_a_number, error.not_exact_integer => switch (kind) {
+            .f32, .f64, .c64, .c128 => return typeError(proc, "real number", val),
+            else => return typeError(proc, "exact integer", val),
+        },
+        error.not_real => return typeError(proc, "real number", val),
+        error.negative_unsigned => return argError(proc, "negative integer for an unsigned {d}-bit element", .{kindIntegerBits(kind)}),
+        error.out_of_range => {
+            if (kindIsUnsigned(kind)) {
+                return argError(proc, "integer does not fit an unsigned {d}-bit element", .{kindIntegerBits(kind)});
+            }
+            return argError(proc, "integer does not fit a signed {d}-bit element", .{kindIntegerBits(kind)});
+        },
+    };
 }
 
 fn decodeElement(gc: *memory.GC, kind: NumericElementKind, bytes: []const u8) PrimitiveError!Value {
@@ -304,6 +361,12 @@ fn numericVectorRefFn(args: []const Value) PrimitiveError!Value {
 fn numericVectorSetFn(args: []const Value) PrimitiveError!Value {
     if (!types.isNumericVector(args[0])) return typeError("%numeric-vector-set!", "numeric-vector", args[0]);
     const nv = asNumericVector(args[0]);
+    // A #TAG( literal reads back immutable, exactly like #u8( and #(...)
+    // literals — set-car!/bytevector-u8-set! on a literal raise, so
+    // TAGvector-set! must too. The message names the kind ("immutable
+    // s16vector") so the user knows which literal they hit.
+    if (types.toObject(args[0]).flags.immutable)
+        return argError("%numeric-vector-set!", "cannot mutate an immutable {s}vector", .{@tagName(nv.kind)});
     if (!types.isFixnum(args[1])) return typeError("%numeric-vector-set!", "exact integer", args[1]);
     const raw_idx = types.toFixnum(args[1]);
     const width = nv.kind.elementWidth();

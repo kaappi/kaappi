@@ -1,6 +1,18 @@
+const std = @import("std");
 const types = @import("types.zig");
 const Value = types.Value;
 const Object = types.Object;
+
+/// Is `name` one of the `#TAG(` homogeneous-vector literal tags — every
+/// `NumericElementKind` name, plus the `u8` special case (the R7RS
+/// bytevector form, which is not an enum member)? This is the ONE table
+/// behind the reader's prefix match and the fmt/REPL lexeme layers
+/// (kaappi#2548); deriving it from the enum means a new element kind cannot
+/// drift out of the literal syntax.
+pub fn isHomogeneousVectorTag(name: []const u8) bool {
+    if (std.mem.eql(u8, name, "u8")) return true;
+    return std.meta.stringToEnum(NumericElementKind, name) != null;
+}
 
 /// SRFI 160's homogeneous numeric vector element types, minus `u8` (which
 /// stays a plain R7RS bytevector -- SRFI 160 explicitly recommends

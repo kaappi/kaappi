@@ -629,8 +629,11 @@ touch points. c64/c128 (complex) elements are stored as two consecutive f32s
 or f64s (real, imag) packed contiguously in the raw byte buffer, decoded into
 a real Kaappi `Complex` only at the `%numeric-vector-ref`/`-set!` boundary;
 multi-byte elements use host-native byte order (`builtin.cpu.arch.endian()`),
-since there is no reader syntax to round-trip and no cross-process
-persistence. Six generic `%`-prefixed primitives in `primitives_srfi160.zig`
+matching the `#TAG(` literal reader (kaappi#2548: SRFI 4's external
+representation, which `read`/`write` must support, plus SRFI 160's optional
+c64/c128 extension) and the `.sbc` constant codec (`TAG_NUMERICVECTOR`) —
+all three halves live in the same binary on the same host. Six generic
+`%`-prefixed primitives in `primitives_srfi160.zig`
 (registered under `.srfi_160_primitives`, the same
 registry-shadows-a-same-named-.sld precedent as `.srfi_237_primitives`) —
 create/predicate/kind/length/ref/set! — are the *entire* native surface; every

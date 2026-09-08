@@ -71,6 +71,17 @@ test "vector literals keep their prefix" {
     try expectFormat("#u8( 0 255 )", "#u8(0 255)\n");
 }
 
+test "SRFI 4 homogeneous-vector literals keep their prefix (#2548)" {
+    // The tag and its '(' are one lexeme for every prefix: splitting "#s16"
+    // off as an atom used to leave "(1 2)" a separate form, which changed
+    // the program and made fmt refuse the file.
+    try expectFormat("#s16( 1 -2 )", "#s16(1 -2)\n");
+    try expectFormat("#f64( 1.5 )", "#f64(1.5)\n");
+    try expectFormat("#c128( 1.5-2.5i )", "#c128(1.5-2.5i)\n");
+    try expectRoundTrips("(display (list 16 #u16(3895)))\n(write #s16(1\n 2))\n");
+    try expectIdempotent("(define v #s32(1 2 3))\n");
+}
+
 // ── Special-form indentation ──────────────────────────────────────────────────
 
 test "define body breaks to two-space indent" {

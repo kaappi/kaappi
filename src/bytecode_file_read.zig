@@ -108,15 +108,15 @@ fn freePreambleEntries(allocator: std.mem.Allocator, entries: [][]const u8, coun
 // ---------------------------------------------------------------------------
 
 /// Decoded-object table for `TAG_BACKREF` (kaappi#2111): every
-/// pair/string/vector/bytevector is appended at the same pre-order position
-/// the writer assigned its id, so `shared.items[n]` is the object
-/// `TAG_BACKREF n` names. Entries need no rooting of their own: an object is
-/// registered only after being linked into (or while rooted as part of) the
-/// constant under construction, whose spine is rooted, and completed
-/// constants hang off functions rooted in `gc.extra_roots`.
+/// pair/string/vector/bytevector/numeric-vector is appended at the same
+/// pre-order position the writer assigned its id, so `shared.items[n]` is
+/// the object `TAG_BACKREF n` names. Entries need no rooting of their own: an
+/// object is registered only after being linked into (or while rooted as
+/// part of) the constant under construction, whose spine is rooted, and
+/// completed constants hang off functions rooted in `gc.extra_roots`.
 const SharedTable = std.ArrayList(Value);
 
-/// The `1`/`0` immutability byte v11 adds after the tag of the four mutable
+/// The `1`/`0` immutability byte v11 adds after the tag of the mutable
 /// literal types (kaappi#2110). The reader restores `Object.flags.immutable`
 /// so a `set-car!` on a literal raises KP3002 warm exactly as it does cold.
 fn readImmutableByte(r: *Reader) !bool {
@@ -259,10 +259,26 @@ fn readConstantTagged(r: *Reader, gc: *GC, all_funcs: []*Function, shared: *Shar
         },
         bf.TAG_BYTEVECTOR => {
             const immutable = try readImmutableByte(r);
-            const len = try r.readU32();
-            if (len > bf.MAX_BYTEVECTOR_LEN) return BytecodeError.CorruptedFile;
-            const data = try r.readBytes(len);
+            const data_len = try r.readU32();
+            if (data_len > bf.MAX_BYTEVECTOR_LEN) return BytecodeError.CorruptedFile;
+            const data = try r.readBytes(data_len);
             const v = gc.allocBytevector(data) catch return BytecodeError.OutOfMemory;
+            markImmutable(v, immutable);
+            shared.append(gc.allocator, v) catch return BytecodeError.OutOfMemory;
+            return v;
+        },
+        bf.TAG_NUMERICVECTOR => {
+            const immutable = try readImmutableByte(r);
+            const kind_byte = try r.readU8();
+            if (kind_byte >= @typeInfo(types.NumericElementKind).@"enum".fields.len) return BytecodeError.CorruptedFile;
+            const kind: types.NumericElementKind = @enumFromInt(kind_byte);
+            const data_len = try r.readU32();
+            if (data_len > bf.MAX_BYTEVECTOR_LEN) return BytecodeError.CorruptedFile;
+            // A kind's element width must divide the byte count exactly: the
+            // writer only ever emits whole elements.
+            if (data_len % kind.elementWidth() != 0) return BytecodeError.CorruptedFile;
+            const data = try r.readBytes(data_len);
+            const v = gc.allocNumericVector(kind, data) catch return BytecodeError.OutOfMemory;
             markImmutable(v, immutable);
             shared.append(gc.allocator, v) catch return BytecodeError.OutOfMemory;
             return v;
