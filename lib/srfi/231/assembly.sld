@@ -118,7 +118,7 @@
     (define (array-stack! k arrays . opts) (apply array-stack k arrays opts))
 
     ;; Takes a "curried" array of arrays (all inner arrays sharing one common
-    ;; domain -- actively validated here, matching the sample implementation
+    ;; domain -- actively validated here, matching the sample
     ;; implementation's stricter-than-the-bare-spec behavior) and returns a
     ;; single specialized array with domain (interval-cartesian-product
     ;; outer-domain inner-domain) -- outer axes first, inner axes second. An

@@ -111,12 +111,14 @@
     ;; because the caller asked for an unsafe array (#2448).
     ;;
     ;; Returns the checker to apply per element, or #f when the check is
-    ;; provably vacuous: - a generic destination manipulates every value; or -
-    ;; source and destination share a storage class, so every value read out of
-    ;; the source body already satisfies the destination's checker by
-    ;; construction. (The sample implementation goes further with a widening
-    ;; table -- u8 into u32 and friends. Not needed for the paths here; the two
-    ;; cases above already cover same-class copies and generic destinations.)
+    ;; provably vacuous:
+    ;;   - a generic destination manipulates every value; or
+    ;;   - source and destination share a storage class, so every value read
+    ;;     out of the source body already satisfies the destination's checker
+    ;;     by construction.
+    ;; (The sample implementation goes further with a widening table -- u8
+    ;; into u32 and friends. Not needed for the paths here; the two cases
+    ;; above already cover same-class copies and generic destinations.)
     (define (%copy-value-checker source dest-storage-class)
       (if (or (eq? dest-storage-class generic-storage-class)
               (and (specialized-array? source)
@@ -148,11 +150,11 @@
           (error "make-array: setter must be a procedure or #f" setter))
         ;; The sample implementation wraps EVERY generalized array's
         ;; getter/setter in index checks (%%make-safer-array,
-        ;; generic-arrays.scm): out-of- domain, wrong-arity, and empty-domain
+        ;; generic-arrays.scm): out-of-domain, wrong-arity, and empty-domain
         ;; calls all error there, and the official suite tests it -- plain
-        ;; arrays are not exempt (#2362). Valid accesses are unaffected. Plain
-        ;; arrays have no storage-class checker, so the setter's value check is
-        ;; vacuous.
+        ;; arrays are not exempt (#2362). Valid accesses are unaffected.
+        ;; Plain arrays have no storage-class checker, so the setter's value
+        ;; check is vacuous.
         (%make-array interval (%safe-getter interval getter)
                      (and setter (%safe-setter interval (lambda (v) #t) setter))
                      #f #f #f #f)))

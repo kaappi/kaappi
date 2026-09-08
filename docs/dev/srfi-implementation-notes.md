@@ -873,7 +873,7 @@ textual relationship, per its own spec) shipped across 6 phases (issues
 tracked under #1694;
 `lib/srfi/231/{misc,intervals,storage-classes,arrays,views,combinators,assembly}.sld`,
 merged into a public `lib/srfi/231.sld` re-export hub — 118 bindings total, an
-exact bijection confirmed against the reference implementation's own export
+exact bijection confirmed against the sample implementation's own export
 clause) — the largest single SRFI in this codebase by an order of magnitude.
 An `<interval>` is two parallel exact-integer vectors (lower/upper bounds,
 arbitrary — including negative — per axis), not 25/164's shape-of-pairs nor
@@ -886,54 +886,55 @@ conventions on two independent axes: `array?` is disjoint from vector/string
 (matching 25/164, not 63), while `array-set!`'s new-value argument is
 *second*, right after the array (matching 63, not 25/164's value-last). A
 storage class (17 singletons, 16 real, plus `make-storage-class` for custom
-ones; only `f8` is deferred to `#f` — even the reference leaves it `#f`,
-since no standard 8-bit float type exists. `u1` and `f16` are ports of the
-reference's own bit-packing and software half-floats over `u16vector`) is a
-9-field record
+ones; only `f8` is deferred to `#f` — even the sample implementation leaves it
+`#f`, since no standard 8-bit float type exists. `u1` and `f16` are ports of
+the sample implementation's own bit-packing and software half-floats over
+`u16vector`) is a 9-field record
 (getter/setter/checker/maker/copier/length/default/data?/data->body) that a
 specialized array's `body`/`indexer` pair delegates to for the actual
-backing-store representation. c64/c128 bodies follow the reference's
-interleaved-float representation — an f32/f64vector of twice the logical
-length holding re/im pairs — rather than native `c64vector`/`c128vector`
-(whose byte layout is identical: 2 consecutive f32s/f64s per element): the
-spec's `data?` contract ("`#t` iff `data->body` returns a body sharing the
-data, without copying") makes accepting the reference's even-length float
-vectors possible only by actually using them as the body, and that shape is
-what reference-coupled code and the official suite's fixtures feed to
-`make-specialized-array-from-data` (#2382). The single most-reused implementation pattern
-across the views/combinators/assembly phases: build a lazy virtual array via
-`make-array` with a computed getter over the target domain, then delegate to
-`array-copy` (which already owns all storage-class/mutable?/safe? option
-parsing and the materializing fill loop) rather than hand-rolling a fill
-mechanism per procedure — used for `array-stack`, `array-decurry`,
-`array-append`, `array-block`, and more. Their `!` twins are confirmed-safe
-pure aliases (verified by reading the reference implementation: both entry
-points wrap one shared helper differing only in whether inputs are eagerly
-pre-materialized before the fill, a distinction observable only under
-multi-shot-continuation re-entry, which the spec itself declares undefined).
-Every *accumulating* non-`!` procedure — `interval-fold-left`/`-right`,
-`array-fold-left`/`-right`, `array-reduce`, `array-every`, `array->list`, and
-the collection half of `array-copy` — threads its accumulator functionally
-through one shared walk (`%interval-fold` in `intervals.sld`), never a `set!`
-cell or a pre-sized scratch vector. The spec defines *call/cc safe* as written
-"in a way that does not modify the state of any data captured by a
-continuation" and intends every procedure without a trailing `!` to be that;
-both mutable shapes shipped here until the SRFI's author showed (kaappi#2539)
-that a second re-entry of a getter's continuation resumes over an earlier
-re-entry's overwrites. A single re-entry cannot distinguish a shared buffer
-from a functional accumulator — the official suite's own continuation cases
-(entries 737-741) passed over the scratch design — so the regression tests
-drive two continuations, each invoked twice — and `tools/srfi231_diff.py`
-(`docs/dev/testing.md`) now generates random view/reshape programs and diffs
-Kaappi against the reference under Gambit, for the properties fixed cases
-cannot see. The tester's first find (kaappi#2542) is the imag-part
-convention leaking through the reference's own code: its c64/c128 checker
-is textually `(and (complex? obj) (inexact? (real-part obj)) (inexact?
-(imag-part obj)))`, but Gambit's exact-0 `(imag-part 1.0)` makes it reject
-a bare real flonum that Kaappi's equally R7RS-legal inexact `0.0` accepted
-— so the shipped checker carries an explicit `(not (real? x))`, encoding
-the sample implementation's verdict under either convention (a `1.0+0.0i`
-with a real inexact-zero imaginary part is still accepted).
+backing-store representation. c64/c128 bodies follow the sample
+implementation's interleaved-float representation — an f32/f64vector of twice
+the logical length holding re/im pairs — rather than native
+`c64vector`/`c128vector` (whose byte layout is identical: 2 consecutive
+f32s/f64s per element): the spec's `data?` contract ("`#t` iff `data->body`
+returns a body sharing the data, without copying") makes accepting the sample
+implementation's even-length float vectors possible only by actually using them
+as the body, and that shape is what sample-implementation-coupled code and the
+official suite's fixtures feed to `make-specialized-array-from-data` (#2382).
+The single most-reused implementation pattern across the
+views/combinators/assembly phases: build a lazy virtual array via `make-array`
+with a computed getter over the target domain, then delegate to `array-copy`
+(which already owns all storage-class/mutable?/safe? option parsing and the
+materializing fill loop) rather than hand-rolling a fill mechanism per
+procedure — used for `array-stack`, `array-decurry`, `array-append`,
+`array-block`, and more. Their `!` twins are confirmed-safe pure aliases
+(verified by reading the sample implementation: both entry points wrap one
+shared helper differing only in whether inputs are eagerly pre-materialized
+before the fill, a distinction observable only under multi-shot-continuation
+re-entry, which the spec itself declares undefined). Every *accumulating*
+non-`!` procedure — `interval-fold-left`/`-right`, `array-fold-left`/`-right`,
+`array-reduce`, `array-every`, `array->list`, and the collection half of
+`array-copy` — threads its accumulator functionally through one shared walk
+(`%interval-fold` in `intervals.sld`), never a `set!` cell or a pre-sized
+scratch vector. The spec defines *call/cc safe* as written "in a way that does
+not modify the state of any data captured by a continuation" and intends every
+procedure without a trailing `!` to be that; both mutable shapes shipped here
+until the SRFI's author showed (kaappi#2539) that a second re-entry of a
+getter's continuation resumes over an earlier re-entry's overwrites. A single
+re-entry cannot distinguish a shared buffer from a functional accumulator — the
+official suite's own continuation cases (entries 737-741) passed over the
+scratch design — so the regression tests drive two continuations, each invoked
+twice — and `tools/srfi231_diff.py` (`docs/dev/testing.md`) now generates
+random view/reshape programs and diffs Kaappi against the sample implementation
+under Gambit, for the properties fixed cases cannot see. The tester's first
+find (kaappi#2542) is the imag-part convention leaking through the sample
+implementation's own code: its c64/c128 checker is textually `(and (complex?
+obj) (inexact? (real-part obj)) (inexact? (imag-part obj)))`, but Gambit's
+exact-0 `(imag-part 1.0)` makes it reject a bare real flonum that Kaappi's
+equally R7RS-legal inexact `0.0` accepted — so the shipped checker carries an
+explicit `(not (real? x))`, encoding the sample implementation's verdict under
+either convention (a `1.0+0.0i` with a real inexact-zero imaginary part is
+still accepted).
 
 **That clause is under review (see the terminology note below), because the
 document does not require it.** The normative prose says `cX-storage-class`
@@ -949,36 +950,36 @@ not conformance. Raised with the SRFI's author; revisit when he answers.
 
 A residual the checker cannot reach: a mixed-exactness complex (`1+2.0i`,
 `(make-rectangular 1 2.0)`) keeps an exact real part under Gambit, so the
-reference rejects it, while Kaappi's complex representation makes
-exactness contagious — both parts are inexact before any checker runs —
-and accepts it (chibi accepts it as well, through a checker that is not
-the reference's). R7RS-legal on both; if the tester's value pool
-ever grows a mixed-exactness literal, the Kaappi-accepts/Gambit-rejects
-verdict it will surface is this known residual, not a new bug.
-`array-copy` of a non-specialized
-source is therefore the reference's exact shape (reversed list, then a body
-filled by linear position). A specialized source takes the direct fill, as in
-the reference's `%!array-copy` — a deliberate, documented exception: a
-`make-storage-class` getter or a `specialized-array-share` mapping is user code
-that runs inside that fill and could capture a continuation, and neither the
-reference nor Kaappi defends it (the list path would cost 14× the peak memory
-on the common typed-array copy; the measurements are in `views.sld`).
+sample implementation rejects it, while Kaappi's complex representation makes
+exactness contagious — both parts are inexact before any checker runs — and
+accepts it (chibi accepts it as well, through a checker that is not the sample
+implementation's). R7RS-legal on both; if the tester's value pool ever grows a
+mixed-exactness literal, the Kaappi-accepts/Gambit-rejects verdict it will
+surface is this known residual, not a new bug. `array-copy` of a
+non-specialized source is therefore the sample implementation's exact shape
+(reversed list, then a body filled by linear position). A specialized source
+takes the direct fill, as in the sample implementation's `%!array-copy` — a
+deliberate, documented exception: a `make-storage-class` getter or a
+`specialized-array-share` mapping is user code that runs inside that fill and
+could capture a continuation, and neither the sample implementation nor Kaappi
+defends it (the list path would cost 14× the peak memory on the common
+typed-array copy; the measurements are in `views.sld`).
 `specialized-array-reshape` uses a deliberate packed-check-based
-affine-detection simplification instead of the reference's full multi-group
-algorithm, verified identical on the spec's own worked examples. (`array-packed?`
-itself means consecutive-increasing from any body base — not a zero base —
-per #2314; an `array-extract` view with a non-zero offset is packed and
-reshapes in place through this same fast path, like the reference.) `array-block`
-needed a genuinely two-phase algorithm unlike everything else in the SRFI:
-full per-axis width-consistency validation (reusing
-`array-curry`+`array-permute`+`index-first`) followed by cheap
+affine-detection simplification instead of the sample implementation's full
+multi-group algorithm, verified identical on the spec's own worked examples.
+(`array-packed?` itself means consecutive-increasing from any body base — not a
+zero base — per #2314; an `array-extract` view with a non-zero offset is packed
+and reshapes in place through this same fast path, like the sample
+implementation.) `array-block` needed a genuinely two-phase algorithm unlike
+everything else in the SRFI: full per-axis width-consistency validation
+(reusing `array-curry`+`array-permute`+`index-first`) followed by cheap
 single-pencil-probing for offsets (reusing
-`array-curry`+`array-permute`+`index-last`), both confirmed against the
-sample implementation. The SRFI's own prose pseudocode disagreed with its
-sample implementation at least twice (`check-nested-list`'s dimension-0
-case returns `'()`, not the prose's nonsensical `#t`; `array-inner-product`'s
-prose omits a required `array-curry` argument the sample code supplies), so
-where the two diverge we read the code to work out what was meant.
+`array-curry`+`array-permute`+`index-last`), both confirmed against the sample
+implementation. The SRFI's own prose pseudocode disagreed with its sample
+implementation at least twice (`check-nested-list`'s dimension-0 case returns
+`'()`, not the prose's nonsensical `#t`; `array-inner-product`'s prose omits a
+required `array-curry` argument the sample code supplies), so where the two
+diverge we read the code to work out what was meant.
 
 **That is a working heuristic, not a rule the SRFI states.** An earlier
 version of this note called it "this SRFI's documented rule"; the document

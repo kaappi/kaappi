@@ -317,20 +317,21 @@
     ;; re-invokes it after the copy returned must get a FRESH array, computed
     ;; from the values ITS run had collected at the capture point, and the
     ;; array the first call already returned must never mutate under its
-    ;; holder. Two shapes fail that, and both have shipped here: * a direct
-    ;; fill into a pre-allocated destination (pre-#2454): the resumed fill
-    ;; overwrites the already-returned array; * collecting into a shared
-    ;; scratch vector before the destination exists, with only the position
-    ;; threaded functionally (#2454..#2539): one re-entry looks right, but the
-    ;; scratch is one object shared by every continuation captured during the
-    ;; collection, so a second re-entry -- or a second continuation captured on
-    ;; the first run -- resumes over positions an earlier re-entry has already
-    ;; overwritten and materializes ITS prefix. The official suite's
-    ;; single-re-entry cases (737-741) cannot see this; the SRFI's author's
-    ;; two-continuation, two-re-entry case (kaappi#2539) can. Any partially
-    ;; filled structure that a *-set! procedure modifies is state a
-    ;; continuation captured mid-collection shares with every other invocation
-    ;; of it. So this is the sample implementation's shape exactly
+    ;; holder. Two shapes fail that, and both have shipped here:
+    ;;   * a direct fill into a pre-allocated destination (pre-#2454): the
+    ;;     resumed fill overwrites the already-returned array;
+    ;;   * collecting into a shared scratch vector before the destination
+    ;;     exists, with only the position threaded functionally
+    ;;     (#2454..#2539): one re-entry looks right, but the scratch is one
+    ;;     object shared by every continuation captured during the
+    ;;     collection, so a second re-entry -- or a second continuation
+    ;;     captured on the first run -- resumes over positions an earlier
+    ;;     re-entry has already overwritten and materializes ITS prefix.
+    ;; The official suite's single-re-entry cases (737-741) cannot see this;
+    ;; the SRFI's author's two-continuation, two-re-entry case (kaappi#2539)
+    ;; can. Any partially filled structure that a *-set! procedure modifies is
+    ;; state a continuation captured mid-collection shares with every other
+    ;; invocation of it. So this is the sample implementation's shape exactly
     ;; (%%generalized-array->specialized-array): collect the values into a
     ;; reversed LIST through %interval-fold's functionally threaded
     ;; accumulator, allocate the destination only afterwards, and fill its body

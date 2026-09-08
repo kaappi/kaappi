@@ -376,7 +376,7 @@ the base to compare body sharing; every step is guarded, so *whether* a
 step errors is compared too. It is deliberately biased toward the affine
 boundary — merging axes whose strides no longer chain after a permute or
 sample — since that is where `specialized-array-reshape` reasons about index
-arithmetic rather than mirroring the reference's structure. The `storage`
+arithmetic rather than mirroring the sample implementation's structure. The `storage`
 mode takes one storage class per case through everything that consults its
 checker, getter and setter — the checker's verdict on boundary and
 wrong-typed values, `make-specialized-array` with an initial value,
