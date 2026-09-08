@@ -29,7 +29,7 @@
 ;;; specialized-array-reshape's affine-detectability test is, in the
 ;;; spec's own words, "modeled on the corresponding code in the Python
 ;;; library NumPy" and not specified in prose beyond that. This port
-;;; follows the reference implementation's actual algorithm, derived from
+;;; follows the sample implementation's actual algorithm, derived from
 ;;; NumPy's _attempt_nocopy_reshape: empirically probe the source array's
 ;;; own (affine) indexer to recover its base and per-axis strides, drop
 ;;; the size-1 axes, then greedily match minimal adjacent-axis volume
@@ -46,7 +46,7 @@
 ;;;
 ;;; The reshape matching loops (loop-1..loop-4 in %specialized-array-reshape)
 ;;; are a line-by-line translation of NumPy's _attempt_nocopy_reshape
-;;; (numpy/core/src/multiarray/shape.c), by way of the SRFI 231 reference
+;;; (numpy/core/src/multiarray/shape.c), by way of the SRFI 231 sample
 ;;; implementation, which carries the same derivation note. NumPy is
 ;;; distributed under the BSD 3-Clause License, Copyright (c) 2005-2024,
 ;;; NumPy Developers.
@@ -255,7 +255,7 @@
        ((and (integer? Sk) (exact? Sk) (positive? Sk))
         ;; A scalar slice-width is legal only on a positive-width axis; a
         ;; zero-width axis must use the explicit-vector form (e.g. #(0)),
-        ;; whose entries sum to the width -- the reference implementation's
+        ;; whose entries sum to the width -- the sample implementation's
         ;; own rule.
         (if (eqv? width 0)
             (error "array-tile: a scalar slice-width is allowed only on an axis of positive width" k Sk width)
@@ -310,62 +310,58 @@
     ;; generic-storage-class/specialized-array-default-mutable?/-safe? --
     ;; confirmed via an explicit spec quote naming this exact asymmetry.
     ;;
-    ;; array-copy must be call/cc safe -- the spec's term for "does not
-    ;; modify the state of any data captured by a continuation", the
-    ;; whole documented difference from array-copy!, whose getter
-    ;; continuations it is an error to invoke more than once. A getter
-    ;; that captures a continuation and re-invokes it after the copy
-    ;; returned must get a FRESH array, computed from the values ITS run
-    ;; had collected at the capture point, and the array the first call
-    ;; already returned must never mutate under its holder. Two shapes
-    ;; fail that, and both have shipped here:
-    ;;   * a direct fill into a pre-allocated destination (pre-#2454):
-    ;;     the resumed fill overwrites the already-returned array;
-    ;;   * collecting into a shared scratch vector before the destination
-    ;;     exists, with only the position threaded functionally
-    ;;     (#2454..#2539): one re-entry looks right, but the scratch is
-    ;;     one object shared by every continuation captured during the
-    ;;     collection, so a second re-entry -- or a second continuation
-    ;;     captured on the first run -- resumes over positions an earlier
-    ;;     re-entry has already overwritten and materializes ITS prefix.
-    ;;     The official suite's single-re-entry cases (737-741) cannot
-    ;;     see this; the SRFI's author's two-continuation, two-re-entry
-    ;;     case (kaappi#2539) can.
-    ;; Any partially filled structure that a *-set! procedure modifies
-    ;; is state a continuation captured mid-collection shares with every
-    ;; other invocation of it. So this is the reference implementation's
-    ;; shape exactly (%%generalized-array->specialized-array): collect
-    ;; the values into a reversed LIST through %interval-fold's
-    ;; functionally threaded accumulator, allocate the destination only
-    ;; afterwards, and fill its body from the list. The list's prefix is
-    ;; immutable, so a re-entry re-runs the collection over precisely
-    ;; the cells its own frames hold and allocates its own destination.
-    ;; The costs the scratch design was chosen to avoid (kaappi#2464) come
-    ;; back for this path -- N live pairs during the collection, one
-    ;; cons per element -- but the copy-out no longer regenerates a
-    ;; multi-index per element: a fresh destination's body IS the
+    ;; array-copy must be call/cc safe -- the spec's term for "does not modify
+    ;; the state of any data captured by a continuation", the whole documented
+    ;; difference from array-copy!, whose getter continuations it is an error
+    ;; to invoke more than once. A getter that captures a continuation and
+    ;; re-invokes it after the copy returned must get a FRESH array, computed
+    ;; from the values ITS run had collected at the capture point, and the
+    ;; array the first call already returned must never mutate under its
+    ;; holder. Two shapes fail that, and both have shipped here: * a direct
+    ;; fill into a pre-allocated destination (pre-#2454): the resumed fill
+    ;; overwrites the already-returned array; * collecting into a shared
+    ;; scratch vector before the destination exists, with only the position
+    ;; threaded functionally (#2454..#2539): one re-entry looks right, but the
+    ;; scratch is one object shared by every continuation captured during the
+    ;; collection, so a second re-entry -- or a second continuation captured on
+    ;; the first run -- resumes over positions an earlier re-entry has already
+    ;; overwritten and materializes ITS prefix. The official suite's
+    ;; single-re-entry cases (737-741) cannot see this; the SRFI's author's
+    ;; two-continuation, two-re-entry case (kaappi#2539) can. Any partially
+    ;; filled structure that a *-set! procedure modifies is state a
+    ;; continuation captured mid-collection shares with every other invocation
+    ;; of it. So this is the sample implementation's shape exactly
+    ;; (%%generalized-array->specialized-array): collect the values into a
+    ;; reversed LIST through %interval-fold's functionally threaded
+    ;; accumulator, allocate the destination only afterwards, and fill its body
+    ;; from the list. The list's prefix is immutable, so a re-entry re-runs the
+    ;; collection over precisely the cells its own frames hold and allocates
+    ;; its own destination. The costs the scratch design was chosen to avoid
+    ;; (kaappi#2464) come back for this path -- N live pairs during the
+    ;; collection, one cons per element -- but the copy-out no longer
+    ;; regenerates a multi-index per element: a fresh destination's body IS the
     ;; lexicographic order (%make-lex-indexer), so it is filled by linear
-    ;; position through the storage class's own setter, the shape the
-    ;; reference uses too. Measured, that trade is a net win in time: 20
-    ;; copies of a 1M-element non-specialized array took 73.5s here
-    ;; against 114.9s over the scratch design (PR #2540 review) -- the
-    ;; per-element indexer call the copy-out used to make cost more than
-    ;; the pairs it avoided. What the pairs DO cost is peak memory: a 1M
-    ;; u8 specialized source copied 6 times peaks at 176 MB RSS through
-    ;; the list against 12.5 MB through the direct fill (18.7s vs 33.3s),
-    ;; which is why the direct fill below stays for specialized sources
-    ;; rather than being retired for speed.
+    ;; position through the storage class's own setter, the shape the sample
+    ;; implementation uses too. Measured, that trade is a net win in time: 20
+    ;; copies of a 1M-element non-specialized array took 73.5s here against
+    ;; 114.9s over the scratch design (PR #2540 review) -- the per-element
+    ;; indexer call the copy-out used to make cost more than the pairs it
+    ;; avoided. What the pairs DO cost is peak memory: a 1M u8 specialized
+    ;; source copied 6 times peaks at 176 MB RSS through the list against 12.5
+    ;; MB through the direct fill (18.7s vs 33.3s), which is why the direct
+    ;; fill below stays for specialized sources rather than being retired for
+    ;; speed.
     ;;
-    ;; A specialized SOURCE takes the direct fill, as in the reference
-    ;; (%!array-copy): its getter is the storage class's, so no user
-    ;; code runs during the copy and nothing can capture a continuation
-    ;; in it. (A make-storage-class getter, or a specialized-array-share
-    ;; mapping, is user code that could -- the reference does not defend
-    ;; that either, and neither does this.) The storage-class setter on
-    ;; the copy-out is likewise user code for a custom storage class; a
+    ;; A specialized SOURCE takes the direct fill, as in the sample
+    ;; implementation (%!array-copy): its getter is the storage class's, so no
+    ;; user code runs during the copy and nothing can capture a continuation in
+    ;; it. (A make-storage-class getter, or a specialized-array-share mapping,
+    ;; is user code that could -- the sample implementation does not defend
+    ;; that either, and neither does this.) The storage-class setter on the
+    ;; copy-out is likewise user code for a custom storage class; a
     ;; continuation captured THERE re-enters with the destination already
     ;; allocated and rewrites the same collected values into it, the same
-    ;; residual exposure the reference's shape has.
+    ;; residual exposure the sample implementation's shape has.
     (define (%array-copy-impl array opts call/cc-safe?)
       (unless (array? array) (error "array-copy: not an array" array))
       (%check-boolean! (%opt opts 1 (specialized-array-default-mutable?)) "array-copy: mutable?")
@@ -416,11 +412,11 @@
     ;; --- specialized-array-reshape: see the file header for the
     ;; algorithm description. ---
 
-    ;; Returns all-lowers first, then one multi-index per axis with that
-    ;; single axis incremented by 1 (staying in-domain if the axis width
-    ;; permits, else left at its lower bound). Probing the array's affine
-    ;; indexer at the base and at each of these recovers base + per-axis
-    ;; strides. Mirrors the reference impl's %%compute-multi-index-increments.
+    ;; Returns all-lowers first, then one multi-index per axis with that single
+    ;; axis incremented by 1 (staying in-domain if the axis width permits, else
+    ;; left at its lower bound). Probing the array's affine indexer at the base
+    ;; and at each of these recovers base + per-axis strides. Mirrors the
+    ;; sample implementation impl's %%compute-multi-index-increments.
     (define (%reshape-index-increments lowers uppers)
       (if (null? lowers)
           (list lowers)
@@ -487,11 +483,11 @@
                  (newdims (interval-widths new-domain))
                  (newnd (vector-length newdims))
                  (oldnd (vector-length olddims))
-                 ;; Any new axis not assigned a stride by the matching below
-                 ;; is a width-1 axis, whose (index - lower) term is always 0,
-                 ;; so its stride value is never observed -- leaving it 0 is
-                 ;; safe (the reference notes NumPy instead sets these to a
-                 ;; value; "we leave it zero").
+                 ;; Any new axis not assigned a stride by the matching below is
+                 ;; a width-1 axis, whose (index - lower) term is always 0, so
+                 ;; its stride value is never observed -- leaving it 0 is safe
+                 ;; (the sample implementation notes NumPy instead sets these
+                 ;; to a value; "we leave it zero").
                  (newstrides (make-vector newnd 0))
                  (fail (lambda ()
                          (if copy-on-failure?

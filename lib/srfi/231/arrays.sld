@@ -7,7 +7,7 @@
 ;;;
 ;;; An array is a domain (an interval) plus a getter (a procedure called
 ;;; with SEPARATE positional index arguments, confirmed throughout the
-;;; primary spec text and its reference implementation -- never a packed
+;;; primary spec text and its sample implementation -- never a packed
 ;;; vector/list). A setter, if present, makes it mutable; array-set!'s
 ;;; value argument is SECOND (right after the array), matching SRFI 63's
 ;;; convention, not SRFI 25/164's value-last -- confirmed directly from
@@ -111,14 +111,12 @@
     ;; because the caller asked for an unsafe array (#2448).
     ;;
     ;; Returns the checker to apply per element, or #f when the check is
-    ;; provably vacuous:
-    ;;   - a generic destination manipulates every value; or
-    ;;   - source and destination share a storage class, so every value
-    ;;     read out of the source body already satisfies the destination's
-    ;;     checker by construction.
-    ;; (The reference goes further with a widening table -- u8 into u32 and
-    ;; friends. Not needed for the paths here; the two cases above already
-    ;; cover same-class copies and generic destinations.)
+    ;; provably vacuous: - a generic destination manipulates every value; or -
+    ;; source and destination share a storage class, so every value read out of
+    ;; the source body already satisfies the destination's checker by
+    ;; construction. (The sample implementation goes further with a widening
+    ;; table -- u8 into u32 and friends. Not needed for the paths here; the two
+    ;; cases above already cover same-class copies and generic destinations.)
     (define (%copy-value-checker source dest-storage-class)
       (if (or (eq? dest-storage-class generic-storage-class)
               (and (specialized-array? source)
@@ -148,19 +146,20 @@
       (let ((setter (if (null? maybe-setter) #f (car maybe-setter))))
         (unless (or (not setter) (procedure? setter))
           (error "make-array: setter must be a procedure or #f" setter))
-        ;; The reference wraps EVERY generalized array's getter/setter in
-        ;; index checks (%%make-safer-array, generic-arrays.scm): out-of-
-        ;; domain, wrong-arity, and empty-domain calls all error there, and
-        ;; the official suite tests it -- plain arrays are not exempt
-        ;; (#2362). Valid accesses are unaffected. Plain arrays have no
-        ;; storage-class checker, so the setter's value check is vacuous.
+        ;; The sample implementation wraps EVERY generalized array's
+        ;; getter/setter in index checks (%%make-safer-array,
+        ;; generic-arrays.scm): out-of- domain, wrong-arity, and empty-domain
+        ;; calls all error there, and the official suite tests it -- plain
+        ;; arrays are not exempt (#2362). Valid accesses are unaffected. Plain
+        ;; arrays have no storage-class checker, so the setter's value check is
+        ;; vacuous.
         (%make-array interval (%safe-getter interval getter)
                      (and setter (%safe-setter interval (lambda (v) #t) setter))
                      #f #f #f #f)))
 
     ;; safe?/mutable? are booleans everywhere they appear (the two default
     ;; parameters and both specialized constructors' options) -- the
-    ;; reference implementation rejects non-booleans at each site rather
+    ;; sample implementation rejects non-booleans at each site rather
     ;; than letting a truthy wrong-typed value silently flip a mode.
     (define (%check-boolean! x who)
       (unless (boolean? x) (error (string-append who ": argument must be a boolean") x)))
@@ -180,7 +179,7 @@
     ;; widths -- a direct generalization of SRFI 63's %row-major-offset to
     ;; arbitrary (not just zero-based) lower bounds. The walk consumes
     ;; exactly d arguments; anything left over is a too-long multi-index,
-    ;; which must error even on the unsafe path -- the reference's
+    ;; which must error even on the unsafe path -- the sample implementation's
     ;; fixed-arity getters reject wrong arity regardless of safe? (#2358).
     (define (%make-lex-indexer interval)
       (let ((lo (interval-lower-bounds->vector interval))
@@ -218,11 +217,11 @@
       (let* ((storage-class (%opt opts 0 generic-storage-class))
              (initial-value (%opt opts 1 (storage-class-default storage-class)))
              (safe? (%opt opts 2 (specialized-array-default-safe?))))
-        ;; Upfront validation matching the reference (:2587-:2601): a
-        ;; non-storage-class second argument and an initial value the
-        ;; class cannot manipulate both error at construction, named by
-        ;; this procedure, instead of surfacing from the maker later (or,
-        ;; for float classes, silently coercing) (#2359).
+        ;; Upfront validation matching the sample implementation (:2587-:2601):
+        ;; a non-storage-class second argument and an initial value the class
+        ;; cannot manipulate both error at construction, named by this
+        ;; procedure, instead of surfacing from the maker later (or, for float
+        ;; classes, silently coercing) (#2359).
         (unless (storage-class? storage-class)
           (error "make-specialized-array: not a storage class" storage-class))
         (unless ((storage-class-checker storage-class) initial-value)
@@ -275,7 +274,7 @@
     ;; lexicographical order, are stored in (array-body array) with
     ;; increasing and consecutive indices". The first visited position may
     ;; be ANY base (a non-zero offset view such as array-extract's is still
-    ;; packed), matching the reference implementation, which checks only
+    ;; packed), matching the sample implementation, which checks only
     ;; stride-1 differences between lexicographic neighbors and treats a
     ;; length-1 axis as trivially packed. Always true immediately after
     ;; make-specialized-array/make-specialized-array-from-data; becomes

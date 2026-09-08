@@ -932,9 +932,22 @@ is textually `(and (complex? obj) (inexact? (real-part obj)) (inexact?
 (imag-part obj)))`, but Gambit's exact-0 `(imag-part 1.0)` makes it reject
 a bare real flonum that Kaappi's equally R7RS-legal inexact `0.0` accepted
 — so the shipped checker carries an explicit `(not (real? x))`, encoding
-the reference's verdict under either convention (a `1.0+0.0i` with a real
-inexact-zero imaginary part is still accepted). A residual the checker
-cannot reach: a mixed-exactness complex (`1+2.0i`,
+the sample implementation's verdict under either convention (a `1.0+0.0i`
+with a real inexact-zero imaginary part is still accepted).
+
+**That clause is under review (see the terminology note below), because the
+document does not require it.** The normative prose says `cX-storage-class`
+procedures "manipulate complex numbers with, respectively, 32- and 64-bit
+floating-point numbers as real and imaginary parts" — and under Kaappi's
+representation `1.0` is one: `(complex? 1.0)` is `#t` with `real-part` `1.0`
+and `imag-part` `0.0`, both inexact. The one normative constraint on a
+checker is that `(checker (getter v i))` be `#t`, which holds either way
+(the getter returns `1.0+0.0i`). So rejecting a bare real matches Gambit's
+verdict rather than the document's requirement, and it is a portability
+choice — code written against Kaappi will not silently break on Gambit —
+not conformance. Raised with the SRFI's author; revisit when he answers.
+
+A residual the checker cannot reach: a mixed-exactness complex (`1+2.0i`,
 `(make-rectangular 1 2.0)`) keeps an exact real part under Gambit, so the
 reference rejects it, while Kaappi's complex representation makes
 exactness contagious — both parts are inexact before any checker runs —
@@ -961,12 +974,22 @@ full per-axis width-consistency validation (reusing
 `array-curry`+`array-permute`+`index-first`) followed by cheap
 single-pencil-probing for offsets (reusing
 `array-curry`+`array-permute`+`index-last`), both confirmed against the
-reference implementation. The SRFI's own prose pseudocode disagreed with its
-reference implementation at least twice (`check-nested-list`'s dimension-0
+sample implementation. The SRFI's own prose pseudocode disagreed with its
+sample implementation at least twice (`check-nested-list`'s dimension-0
 case returns `'()`, not the prose's nonsensical `#t`; `array-inner-product`'s
-prose omits a required `array-curry` argument the reference code supplies) —
-confirming "when this SRFI's prose and its reference implementation disagree,
-trust the code" as a load-bearing rule for this SRFI specifically.
+prose omits a required `array-curry` argument the sample code supplies), so
+where the two diverge we read the code to work out what was meant.
+
+**That is a working heuristic, not a rule the SRFI states.** An earlier
+version of this note called it "this SRFI's documented rule"; the document
+says no such thing, and Brad Lucier (the SRFI's author) corrected us on it:
+the implementation Gambit bundles is a *sample* implementation, not a
+reference one, and "generally speaking the document is the specification."
+The document uses "sample implementation" throughout and "reference
+implementation" nowhere. Where prose and sample code disagree, the prose
+governs unless there is positive reason to think it is an error — and a
+divergence that turns on the *host's* representation choices (see the
+c64/c128 checker note above) is not evidence of a prose error at all.
 `array-extract`-derived views preserve **absolute** source coordinates, never
 resetting to 0-based, per the spec's own worked example. SRFI 231 supersedes
 SRFI 179 (its own abstract: "a revised and improved version of SRFI 179") with

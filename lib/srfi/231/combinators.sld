@@ -9,14 +9,14 @@
 ;;; arrays, ALL of which must have the exact SAME domain -- interval
 ;;; equality, not just matching shape). array-reduce is the one
 ;;; exception: fixed 2-arg, single array only, hard-errors on an empty
-;;; array (confirmed unconditional in the reference implementation --
+;;; array (confirmed unconditional in the sample implementation --
 ;;; there is no seed/identity to fall back on, unlike fold-left/right).
 ;;; array-map returns a lazy (recomputed on every access), immutable,
 ;;; non-specialized array -- never eagerly evaluated.
 ;;;
 ;;; array-fold-left calls operator as (operator acc e0 e1 ...); array-
 ;;; fold-right calls it as (operator e0 e1 ... acc) -- accumulator LAST,
-;;; not first -- confirmed via the spec's own formal reference
+;;; not first -- confirmed via the spec's own formal
 ;;; definition, which passes elements as SEPARATE positional arguments
 ;;; via apply, never as one packed list argument. Confirmed via the
 ;;; spec's own example that this distinction is observable, not just
@@ -28,10 +28,10 @@
 ;;; copy + outer-product + map + reduce) needed care in two places the
 ;;; spec's own prose pseudocode gets subtly wrong: it omits the required
 ;;; second argument to array-curry on its second call (both calls need
-;;; it -- confirmed against the reference implementation, not just the
+;;; it -- confirmed against the sample implementation, not just the
 ;;; inconsistent prose), and its "Assumes" paragraph doesn't mention
 ;;; that the shared axis's width must be nonzero (also confirmed only
-;;; via the reference implementation -- needed because the inner
+;;; via the sample implementation -- needed because the inner
 ;;; reduction would otherwise call array-reduce on an empty array).
 ;;;
 ;;; list*->array/array->list*/vector*->array/array->vector* infer or
@@ -64,7 +64,7 @@
 
     (define (%opt lst i default) (if (> (length lst) i) (list-ref lst i) default))
 
-    ;; The reference implementation validates the function argument of
+    ;; The sample implementation validates the function argument of
     ;; every combinator at call time -- without this, the lazy ones
     ;; (array-map, array-outer-product) would defer the failure to the
     ;; first element access (possibly never), and the eager ones would
@@ -74,11 +74,11 @@
       (unless (procedure? x) (error (string-append who ": the function argument must be a procedure") x)))
 
     (define (%check-same-domain! all who)
-      ;; Every element must be an array before array-domain can be called
-      ;; on it -- otherwise a non-array argument surfaces as an internal
-      ;; %record-ref type error instead of a message naming the procedure
-      ;; (the reference checks "Not all arguments after the first are
-      ;; arrays" up front) (#2359).
+      ;; Every element must be an array before array-domain can be called on it
+      ;; -- otherwise a non-array argument surfaces as an internal %record-ref
+      ;; type error instead of a message naming the procedure (the sample
+      ;; implementation checks "Not all arguments after the first are arrays"
+      ;; up front) (#2359).
       (for-each (lambda (a)
                   (unless (array? a)
                     (error (string-append who ": all arguments after the first must be arrays") all)))
@@ -92,7 +92,7 @@
     ;; --- mapping / folding / iteration ---
 
     ;; Lazy: the result's getter recomputes f on every access, never
-    ;; eagerly evaluated -- confirmed by the spec's own reference
+    ;; eagerly evaluated -- confirmed by the spec's own
     ;; definition, which builds an ordinary (immutable, non-specialized)
     ;; make-array rather than a specialized/precomputed one.
     (define (array-map f array . arrays)
@@ -141,7 +141,7 @@
 
     ;; No identity/seed -- a private sentinel distinguishes "no elements
     ;; combined yet" from a legitimate accumulated value, matching the
-    ;; reference implementation's own technique (needed because there is
+    ;; sample implementation's own technique (needed because there is
     ;; no safe placeholder value that couldn't collide with a real
     ;; element). Hard error on an empty array -- confirmed unconditional,
     ;; not gated by any safety flag.
@@ -247,11 +247,10 @@
       (let* ((storage-class (%opt opts 0 generic-storage-class))
              (mutable? (%opt opts 1 (specialized-array-default-mutable?)))
              (safe? (%opt opts 2 (specialized-array-default-safe?)))
-             ;; The reference validates every element against the checker
-             ;; up front ("Not all elements of the source can be
-             ;; manipulated by the storage class"); the raw fill below
-             ;; skips checking, which for e.g. u1 silently corrupts bits
-             ;; (#2359).
+             ;; The sample implementation validates every element against the
+             ;; checker up front ("Not all elements of the source can be
+             ;; manipulated by the storage class"); the raw fill below skips
+             ;; checking, which for e.g. u1 silently corrupts bits (#2359).
              (checker (storage-class-checker storage-class)))
         (for-each (lambda (x)
                     (unless (checker x)
@@ -281,7 +280,8 @@
       (let* ((storage-class (%opt opts 0 generic-storage-class))
              (mutable? (%opt opts 1 (specialized-array-default-mutable?)))
              (safe? (%opt opts 2 (specialized-array-default-safe?)))
-             ;; see list->array: upfront element validation per the reference
+             ;; see list->array: upfront element validation per the sample
+             ;; implementation
              (checker (storage-class-checker storage-class)))
         (let loop ((i 0))
           (when (< i (vector-length vect))
@@ -317,7 +317,7 @@
       (nested-list->nested-vector (array-dimension array) (array->list* array)))
 
     ;; dimension=0 short-circuits to '() unconditionally (per the
-    ;; reference implementation -- the spec's own prose pseudocode has a
+    ;; sample implementation -- the spec's own prose pseudocode has a
     ;; documentation bug here, returning #t via `or`, which cannot
     ;; possibly be right since the caller immediately does
     ;; (list->vector (check-nested-list ...))). A length-0 list at ANY
@@ -346,10 +346,10 @@
         (else (apply append (map (lambda (l) (%flatten-nested-list (- dimension 1) l)) nested-list)))))
 
     (define (list*->array dimension nested-list . opts)
-      ;; The reference validates the dimension argument up front ("The
-      ;; first argument is not a nonnegative fixnum"); without this a
-      ;; negative or non-integer dimension fails inside make-list or the
-      ;; shape walk with an internal error instead (#2359).
+      ;; The sample implementation validates the dimension argument up front
+      ;; ("The first argument is not a nonnegative fixnum"); without this a
+      ;; negative or non-integer dimension fails inside make-list or the shape
+      ;; walk with an internal error instead (#2359).
       (unless (and (exact-integer? dimension) (>= dimension 0))
         (error "list*->array: dimension must be a nonnegative exact integer" dimension))
       (let ((shape (%check-nested-list dimension nested-list)))

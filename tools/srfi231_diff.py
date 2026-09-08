@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-"""Differential testing of Kaappi's SRFI 231 against the reference implementation.
+"""Differential testing of Kaappi's SRFI 231 against the sample implementation.
 
-SRFI 231's documented rule in this codebase is "when the spec's prose and its
-reference implementation disagree, trust the code" -- which makes the reference
-an oracle in the strict sense. Gambit bundles it as `(srfi 231)`, and chibi
-ships an independent port. This tool generates random SRFI 231 programs in the
+"Sample implementation" is the SRFI's own term -- the document uses it
+throughout and never says "sample implementation" -- and its author has
+noted that "generally speaking the document is the specification". So this
+tool's oracle is a very good second opinion, not an authority: a divergence
+is a lead to check against the prose, and where the two genuinely disagree
+the prose governs unless there is positive reason to think it is an error.
+Gambit bundles the sample implementation as `(srfi 231)`, and chibi ships an
+independent port. This tool generates random SRFI 231 programs in the
 subset of R7RS all three run, executes each under Kaappi and an oracle, and
 reports any program whose printed output differs.
 
 Why this exists: the official conformance suite (10,936 evaluations) encodes
-the reference's answers on the inputs its author wrote down. It cannot see a
+the sample implementation's answers on the inputs its author wrote down. It cannot see a
 property violation its cases never exercise -- kaappi#2539 passed the whole
 suite while breaking the spec's own definition of call/cc-safe. Generated
 inputs find bugs at the rate of inputs, not ideas.
@@ -84,13 +88,13 @@ Modes
            NumPy-derived affine-reshape detection in lib/srfi/231/views.sld
            and at array-packed? over composed views, the two places where the
            implementation reasons about index arithmetic rather than copying
-           the reference's structure.
+           the sample implementation's structure.
 
-Known oracle divergences. Gambit's bundled reference flips the initial
+Known oracle divergences. Gambit's bundled sample implementation flips the initial
 value of `specialized-array-default-safe?` to #t (spec and the SRFI
 repository's copy: #f); the storage mode pins it to #f in its prelude.
 kaappi#2542 (the c64/c128 checkers accepted real flonums, which the
-reference rejects) used to surface as `check` mismatches on those two
+sample implementation rejects) used to surface as `check` mismatches on those two
 classes; before kaappi#2543 fixed it, the workaround was excluding them
 with `--classes`, and both are back in the default draw. Since a
 program's first difference hides everything after it, `--classes` is
@@ -412,7 +416,7 @@ STORAGE_PRELUDE = PRELUDE.replace(
     "(import (scheme base) (scheme write) (srfi 231))",
     "(import (scheme base) (scheme write) (scheme inexact) (scheme complex) (srfi 231))") + """\
 ;; the spec says (specialized-array-default-safe?) is initially #f, and so
-;; does the SRFI repository's reference source, but Gambit's bundled copy
+;; does the SRFI repository's sample-implementation source, but Gambit's bundled copy
 ;; of that same file flips the initial value to #t -- pin it, so an omitted
 ;; safe? argument means the same thing under both
 (specialized-array-default-safe? #f)
@@ -725,7 +729,7 @@ PROSE_PRELUDE = """\
         ;; (c64vector? v) arm here would raise unbound-variable for EVERY
         ;; value that reaches it, which try turns into ERROR: the mode would
         ;; silently degrade to ERROR==ERROR agreement. Their bodies are
-        ;; f32/f64vectors in the reference and here, so they render through
+        ;; f32/f64vectors in the sample implementation and here, so they render through
         ;; the arms below; an arm for a native type would need a guard.
         ((u8vector? v) (list 'u8 (u8vector->list v)))
         ((s8vector? v) (list 's8 (s8vector->list v)))
@@ -777,7 +781,7 @@ PROSE_SKIP_MARKERS = ["read-char", "read-line", "open-input", "open-output",
                       # signature lines with optional arguments are prose
                       "[",
                       # a lazy array of 10^9 elements summed in blocks: the
-                      # reference needs minutes for it
+                      # the sample implementation needs minutes for it
                       "'#(1000000001)"]
 
 
