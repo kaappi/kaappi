@@ -50,7 +50,7 @@ asking for 1000 gets 1000.
 ## Patch 3 — structural s-expression editing
 
 **Files:** `include/isocline.h`, `src/env.h`, `src/isocline.c`,
-`src/editline.c`, `src/editline_help.c`
+`src/editline.c`, `src/editline_help.c`, `src/tty.c`
 
 Upstream has no structural editing — no way to move a paren rather than a
 character. The patch adds four keys and one callback:
@@ -92,6 +92,47 @@ The commands and keybindings come from [bestline](https://github.com/jart/bestli
 (BSD-2-Clause) by way of kaappi#2216. The code does not: bestline's `raise` is
 an empty stub, its `rotate` rotates the kill ring rather than a form, and its
 barf and slurp count parens with no awareness of strings or comments.
+
+### Windows: normalise Alt+Shift+letter (kaappi#2564)
+
+**File:** `src/tty.c` (`tty_waitc_console`, the `_WIN32` key path).
+
+Three of the four bindings above are *shifted* letters (alt-shift-S/B/R); only
+alt-y is unshifted. On the Windows console those three could never fire while
+alt-y worked, because the shifted and unshifted Alt paths deliver different
+codes:
+
+- **POSIX tty:** the terminal applies Shift before sending `ESC S`, so the ALT
+  path in `tty_esc.c` yields `'S' | KEY_MOD_ALT` — no SHIFT bit.
+- **Windows console:** `ReadConsoleInputW` delivers Alt+Shift+S as one
+  `KEY_EVENT_RECORD` whose `dwControlKeyState` carries both `LEFT_ALT_PRESSED`
+  and `SHIFT_PRESSED`, with `uChar.UnicodeChar` already the *shifted* glyph
+  (`'S'`). `tty_waitc_console` therefore builds `mods =
+  KEY_MOD_ALT | KEY_MOD_SHIFT` and pushes `ESC [ 83 ; 4 u`, which decodes back
+  to `'S' | KEY_MOD_ALT | KEY_MOD_SHIFT`.
+
+The dispatch arms in `editline.c` compare against `WITH_ALT('S')` (=
+`'S' | KEY_MOD_ALT`), which has no SHIFT bit, so no `case` matched and the
+keystroke was silently dropped (`debug_msg("edit: ignore code")`, nothing in a
+non-debug build). alt-y carries no SHIFT bit, so it matched `WITH_ALT('y')` and
+rotate worked — which is why the bug was slurp/barf/raise-only.
+
+The fix normalises the Windows path to what the POSIX ESC path produces: in the
+"regular character" arm, when `KEY_MOD_ALT` is set and the char is already a
+printable that Shift transformed (`chr >= 0x20 && chr != 0x7f`), drop
+`KEY_MOD_SHIFT` before `tty_cpush_csi_unicode`. The shift information is already
+encoded in the glyph, so this loses nothing and makes both platforms agree. It
+lives in the `#if defined(_WIN32)` console branch only, not the shared
+`modify_code` in `tty.c`, so it cannot affect the POSIX/xterm decode. The
+change is strictly parity-restoring: it activates no new bindings. The unshifted
+upstream Alt bindings (`alt-d`/`alt-m`/`alt-f`/`alt-b`) never carry a SHIFT bit
+and are unaffected, and their *shifted* variants remain unbound on both
+platforms — the arms match the lowercase glyph (`WITH_ALT('d')`) while a shifted
+key delivers the uppercase one, so alt-shift-D → `'D' | KEY_MOD_ALT` matches
+nothing here just as `ESC D` matches nothing on a POSIX tty.
+
+Found by code reading; end-to-end confirmation requires a real Alt+Shift key
+event on a Windows console.
 
 ## Patch 4 — don't discard buffered input when leaving/entering raw mode
 
