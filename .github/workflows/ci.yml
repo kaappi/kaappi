@@ -265,8 +265,18 @@ jobs:
             optimize: ReleaseSafe
             timeout: 50
             test_args: -Dtest-strip=true
+          # ReleaseFast was the last leg still on the 30-min default, and the
+          # suite outgrew it the same way Debug and macOS did above: healthy
+          # runs crept to 20-28 min (28 on 2026-09-08), then a slow runner
+          # cancelled it at 30:00 twice on 2026-09-09 -- once on main, once on
+          # PR #2566 -- every suite green, killed mid "Differential tiers" on
+          # wall clock alone. 40 matches the Debug leg and leaves ~12 min over
+          # the worst healthy run while still catching a real hang. Include-only
+          # key, so it merges into this os+optimize combination without renaming
+          # the required check (see the naming note above).
           - os: ubuntu-latest
             optimize: ReleaseFast
+            timeout: 40
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
