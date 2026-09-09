@@ -107,7 +107,8 @@ timeout_for() {
 # wait_with_timeout counts sleep 0.05 ticks, not wall clock, so that is
 # ~20 min of wall clock on Linux and stretches further where sleep spawns
 # cost more — inside every job cap that runs this suite.
-PER_SCRIPT_TIMEOUTS="bundle-cpu-baseline-2515.sh:${KAAPPI_BUNDLE_CPU_BASELINE_TIMEOUT:-1200}"
+PER_SCRIPT_TIMEOUTS="bundle-cpu-baseline-2515.sh:${KAAPPI_BUNDLE_CPU_BASELINE_TIMEOUT:-1200}
+                     unit-chunk-watchdog-2560.sh:${KAAPPI_UNIT_CHUNK_WATCHDOG_TIMEOUT:-480}"
 
 shell_timeout_for() {
     local base entry
@@ -445,7 +446,7 @@ report_shell_result() {
 is_slow_shell_test() {
     # `^[^#]*`: skip comment lines, several of which mention the build they
     # deliberately do not run.
-    grep -Eq '^[^#]*(zig build -D|bundle_fixture_binary|fixture_interpreter)' "$1" 2>/dev/null
+    grep -Eq '^[^#]*(zig build -D|bundle_fixture_binary|fixture_interpreter|run-unit-test-chunk\.sh)' "$1" 2>/dev/null
 }
 
 run_shell_suite() {

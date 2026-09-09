@@ -56,15 +56,21 @@
 # solo run. A half that finishes never exonerates slow TESTS -- the tight
 # bound kills those mid-level and zig flushes their names when the level
 # exits, which the script echoes as NOTE lines; if no level ever wedged,
-# the whole chunk is re-run under the tight bound (cache-hot: the same
-# filter set just compiled) so every per-test culprit is named in full
-# context. The last line before any kill therefore names the filter, the
+# the whole chunk is re-run under the tight bound (the same filter set as
+# the chunk run, so its compile is cached whenever that run got past
+# compiling) so every per-test culprit is named in full context. The last line before any kill therefore names the filter, the
 # narrowed subset, or the slow test -- the reopen criterion of #2488. Each
 # level costs at most one test-binary compile for its fresh filter set
 # (~1.5m cold on the CI host, cache-warm objects after phase 1), so levels
 # are binary-searched, never swept, and the whole phase runs inside
-# KAAPPI_BISECT_BUDGET (default 1080s): when the pot empties, the suspects
-# list is printed as-is and a human can re-run with a bigger pot.
+# KAAPPI_BISECT_BUDGET (default 1080s). The pot funds FULL level
+# estimates; a level whose allowance the pot could only clip is run anyway
+# but its timeout is reported INCONCLUSIVE and never narrows the descent
+# (its completion still exonerates). When the pot empties, the suspects
+# list is printed as-is and a human can re-run with a bigger pot. At the
+# kill itself the script also reports the tree's phase -- compiling vs
+# running tests, read from the process tree -- so every "did not finish"
+# line says what it was doing instead of asserting a wedge it cannot see.
 # Caveat, stated plainly: a wedge that is order- or load-dependent may
 # reproduce under none of these treatments; the log then says so instead
 # of guessing.
@@ -77,7 +83,12 @@
 #   KAAPPI_BISECT_BUDGET           total bisection pot, SECONDS (default 1080)
 #   KAAPPI_BISECT_TEST_TIMEOUT     per-test bound during bisection levels
 #                                  (Zig duration; default 90s)
+#   KAAPPI_BISECT_LEVEL_BASE_SECS  level-funding estimate base, SECONDS
+#                                  (default 120; see the constants below)
+#   KAAPPI_BISECT_LEVEL_PER_FILTER_SECS   ...and per-filter term (default 25)
 #   KAAPPI_HEARTBEAT_SECS          heartbeat cadence, SECONDS (default 60)
+#   KAAPPI_ZIG                     zig binary to drive (default `zig`); for
+#                                  the shim-driven regression test
 #
 # The chunk run exits 124 when the wall budget fired (the `timeout(1)`
 # convention), so CI fails loudly while the log carries the localisation.
@@ -171,20 +182,25 @@ TOOLING_FILES="cli cli_spec completions config check_lint tests_check doctor
 LISTED_FILES="$PROCESS_FILES $CONCURRENCY_FILES $IO_FILES $FUZZ_FILES $GC_FILES $NATIVE_FILES $TOOLING_FILES"
 CHUNK_NAMES="process|concurrency|io|fuzz|gc|native|tooling|rest"
 
-# Bisection level allowance, seconds: a fresh compile for the subset (~90s
-# on the CI host) + runtime under QEMU at ~35s per filter -- generously
-# over the ~15s/filter the `rest` chunk averages, so a CLEAN level is never
-# misread as wedged. Natively everything finishes far under this. A WEDGED
-# level burns its whole allowance (that is how it is recognised), so each
-# level is additionally capped at 3/5 of the remaining pot: the pot then
-# degrades geometrically down the descent instead of being consumed by the
-# first wedged level, and 90s (one cold compile, no tests) is the floor
-# below which a level cannot tell wedge from clean and is not started.
-BISECT_LEVEL_BASE_SECS=300
-BISECT_LEVEL_PER_FILTER_SECS=35
-BISECT_LEVEL_POT_SHARE_NUMERATOR=3
-BISECT_LEVEL_POT_SHARE_DENOMINATOR=5
-BISECT_LEVEL_MIN_SECS=90
+# Bisection level funding, seconds. A level's ESTIMATE is the plausible
+# worst case for a CLEAN level of n filters under QEMU: a fresh compile for
+# the subset (~90s on the CI host) plus runtime at ~25s per filter (~2x the
+# ~12s/filter the #2560 numbers give for `rest`). A level run at its full
+# estimate therefore separates the outcomes: finishing exonerates its half,
+# and only not-finishing implicates it. The pot funds FULL estimates --
+# deliberately no fractional share, because a clipped level's TIMEOUT is
+# not evidence (a clean level can simply be slower than a clipped
+# allowance): an under-funded timeout is reported INCONCLUSIVE and never
+# narrows the descent, while an under-funded COMPLETION still exonerates
+# (finishing is finishing whatever the allowance was). Below MIN (BASE/3:
+# a fraction of even the compile) a level cannot decide anything and is
+# not started. Natively everything finishes far under the estimate; the
+# two constants are env-overridable for fast hosts and for the shim-driven
+# regression test.
+BISECT_LEVEL_BASE_SECS="${KAAPPI_BISECT_LEVEL_BASE_SECS:-120}"
+BISECT_LEVEL_PER_FILTER_SECS="${KAAPPI_BISECT_LEVEL_PER_FILTER_SECS:-25}"
+BISECT_LEVEL_MIN_SECS=$((BISECT_LEVEL_BASE_SECS / 3))
+[ "$BISECT_LEVEL_MIN_SECS" -ge 1 ] || BISECT_LEVEL_MIN_SECS=1
 
 usage() {
     echo "usage: $0 [--list] <$CHUNK_NAMES> [zig build args...]" >&2
@@ -268,22 +284,57 @@ budget="${KAAPPI_CHUNK_BUDGET:-0}"
 bisect_pot="${KAAPPI_BISECT_BUDGET:-1080}"
 bisect_timeout="${KAAPPI_BISECT_TEST_TIMEOUT:-90s}"
 heartbeat_secs="${KAAPPI_HEARTBEAT_SECS:-60}"
+# The zig binary to drive. KAAPPI_ZIG exists so the regression test can
+# point the script at a shim that plays wedged/clean subsets in seconds;
+# everything else gets the real `zig` from PATH.
+zig_bin="${KAAPPI_ZIG:-zig}"
 
-# kill_tree <pid> <signal>: signal pid and, best-effort, its descendants,
-# children first. `zig build`'s direct child is the cached build-runner
-# binary, whose child is the (possibly emulated) test binary; none of them
-# die with their parent on their own (verified: TERMing `zig build` leaves
-# the runner orphaned and burning CPU), so a watchdog kill must walk down.
-# pgrep -P exists on Linux, macOS and the BSDs; where it does not (MSYS),
-# the lone pid is signalled and the caller's own process group is the net.
-kill_tree() {
-    local pid="$1" sig="$2" child
+# tree_pids <pid>: the pid and its descendants, deepest first. `zig
+# build`'s direct child is the cached build-runner binary, whose child is
+# the (possibly emulated) test binary; none of them die with their parent
+# on their own (verified: TERMing `zig build` leaves the runner orphaned
+# and burning CPU), so a watchdog kill must walk the whole tree -- and the
+# KILL escalation must walk a SNAPSHOT taken BEFORE the TERM: once the
+# parent exits, `pgrep -P` can no longer find the re-parented survivors,
+# and an escalation computed from the live tree signals nothing. pgrep -P
+# exists on Linux, macOS and the BSDs; where it does not (MSYS), only the
+# pid itself is captured and the caller's own process group is the net.
+tree_pids() {
+    local pid="$1" child
     if command -v pgrep > /dev/null 2>&1; then
         for child in $(pgrep -P "$pid" 2>/dev/null); do
-            kill_tree "$child" "$sig"
+            tree_pids "$child"
         done
     fi
-    kill -"$sig" "$pid" 2> /dev/null || true
+    printf '%s\n' "$pid"
+}
+
+# phase_of <zig-pid>: what the tree was doing when the budget fired --
+# "compiling" while a grandchild is the zig compiler itself, "running
+# tests" once a grandchild is a spawned test binary instead (under QEMU
+# that grandchild is the emulator wrapper, also not `zig`). zig prints
+# nothing (see the header), so the tree's shape is the only signal, and
+# the verdicts quote it as a heuristic, not a fact.
+phase_of() {
+    local pid="$1" child gc base verdict
+    command -v pgrep > /dev/null 2>&1 || { echo "unknown"; return; }
+    verdict=""
+    for child in $(pgrep -P "$pid" 2>/dev/null); do
+        for gc in $(pgrep -P "$child" 2>/dev/null); do
+            base="$(ps -o comm= -p "$gc" 2>/dev/null | awk '{print $1}')"
+            base="${base##*/}"
+            if [ "$base" != "zig" ] && [ -n "$base" ]; then
+                echo "running tests"
+                return
+            fi
+            verdict="compiling"
+        done
+    done
+    if [ -n "$verdict" ]; then
+        echo "$verdict"
+    else
+        echo "unknown"
+    fi
 }
 
 # run_supervised <budget-secs> <label> <zig args...>
@@ -297,9 +348,13 @@ kill_tree() {
 # watchdog_fired (1 = budget expired and the tree was killed), ran_secs.
 run_supervised() {
     local budget="$1" label="$2"; shift 2
-    local start now next_beat sent size grace budget_note
+    local start now next_beat sent size grace doomed p
+    # Empty by default: a heartbeat must expand it on the unbudgeted path
+    # too, and `local x` alone is UNSET under `set -u` on bash >= 4 (bash
+    # 3.2 leaves it set-but-empty, which is why macOS hid the bug).
+    local budget_note=""
     : > "$log"
-    zig build test "$@" --summary all > "$log" 2>&1 &
+    "$zig_bin" build test "$@" --summary all > "$log" 2>&1 &
     zig_pid=$!
     start=$(date +%s)
     next_beat=$((start + heartbeat_secs))
@@ -316,21 +371,32 @@ run_supervised() {
             tail -c +$((sent + 1)) "$log"
             sent=$size
         fi
-        if [ "$now" -ge "$next_beat" ]; then
-            echo "== $label: still running at $((now - start))s${budget_note} (zig pid $zig_pid; zig buffers its output until exit, so silence here is normal)"
-            next_beat=$((now + heartbeat_secs))
-        fi
-        if [ "$budget" -gt 0 ] && [ $((now - start)) -ge "$budget" ]; then
-            watchdog_fired=1
-            echo "== $label: WALL BUDGET EXCEEDED after $((now - start))s -- killing the zig build (its buffered output dies with it)"
-            kill_tree "$zig_pid" TERM
-            grace=0
-            while [ "$grace" -lt 10 ] && kill -0 "$zig_pid" 2> /dev/null; do
-                sleep 1
-                grace=$((grace + 1))
-            done
-            kill_tree "$zig_pid" KILL
-            break
+        # Re-check liveness after the sleep: a run that FINISHED during
+        # the poll interval must not be heartbeat-reported as running or
+        # watchdog-killed as overran, which a bare elapsed >= budget test
+        # would do whenever the budget is under the poll interval.
+        if kill -0 "$zig_pid" 2> /dev/null; then
+            if [ "$now" -ge "$next_beat" ]; then
+                echo "== $label: still running at $((now - start))s${budget_note} (zig pid $zig_pid; zig buffers its output until exit, so silence here is normal)"
+                next_beat=$((now + heartbeat_secs))
+            fi
+            if [ "$budget" -gt 0 ] && [ $((now - start)) -ge "$budget" ]; then
+                watchdog_fired=1
+                kill_phase=$(phase_of "$zig_pid")
+                doomed=$(tree_pids "$zig_pid")
+                echo "== $label: WALL BUDGET EXCEEDED after $((now - start))s ($kill_phase) -- killing the zig build tree (its buffered output dies with it)"
+                for p in $doomed; do kill -TERM "$p" 2> /dev/null || true; done
+                grace=0
+                while [ "$grace" -lt 10 ] && kill -0 "$zig_pid" 2> /dev/null; do
+                    sleep 1
+                    grace=$((grace + 1))
+                done
+                # KILL the SNAPSHOT, not the live tree: TERM may have
+                # already reaped zig itself, and survivors are unfindable
+                # afterwards.
+                for p in $doomed; do kill -KILL "$p" 2> /dev/null || true; done
+                break
+            fi
         fi
     done
     wait "$zig_pid" 2> /dev/null
@@ -347,7 +413,8 @@ run_supervised() {
 # spending at most $bisect_pot seconds in total. Prints one line per level
 # BEFORE running it, so a kill anywhere leaves the in-flight subset named.
 #
-# Three honest outcomes, because a wedge has three shapes:
+# Four honest outcomes, because a wedge has three shapes and the pot can
+# run out:
 #   * a PROCESS-level wedge (emulation or runner stuck) also wedges every
 #     bisection level that contains it; the descent follows the wedged
 #     halves and ends on one filter, confirmed by a solo run;
@@ -355,14 +422,18 @@ run_supervised() {
 #     each one mid-level and the level completes -- so the descent cannot
 #     follow them; instead every name the tight bound flushes is echoed as
 #     a NOTE line, and if NO level ever wedged, the whole chunk is re-run
-#     under the tight bound (compile is cache-hot: same filter set as the
-#     phase that just ran) to name every per-test culprit in full context;
+#     under the tight bound (same filter set as the chunk run, so its
+#     compile is cached whenever that run got past compiling) to name
+#     every per-test culprit in full context;
 #   * a wedge that reproduces under neither treatment is order- or
-#     load-dependent, and the log says so instead of guessing.
+#     load-dependent, and the log says so instead of guessing;
+#   * a level the pot could only fund below its estimate never narrows on
+#     a timeout -- that is INCONCLUSIVE, not evidence -- though its
+#     completion still exonerates (finishing is finishing).
 bisect_chunk() {
-    local lo=0 hi=${#filters[@]} depth=0 mid n allow remaining now pot_share
+    local lo=0 hi=${#filters[@]} depth=0 mid n est allow remaining now
     local pot_start first last f i tn
-    local wedged_seen=0 full_rerun_wedged=0 bisect_slow_notes=""
+    local wedged_seen=0 full_rerun_wedged=0 inconclusive_seen=0 bisect_slow_notes=""
     pot_start=$(date +%s)
     echo "== bisect: ${#filters[@]} filter(s), per-test timeout $bisect_timeout, total budget ${bisect_pot}s"
     while [ $((hi - lo)) -gt 1 ]; do
@@ -371,20 +442,25 @@ bisect_chunk() {
         remaining=$((bisect_pot - (now - pot_start)))
         mid=$(((lo + hi) / 2))
         n=$((mid - lo))
-        allow=$((BISECT_LEVEL_BASE_SECS + BISECT_LEVEL_PER_FILTER_SECS * n))
-        pot_share=$((remaining * BISECT_LEVEL_POT_SHARE_NUMERATOR / BISECT_LEVEL_POT_SHARE_DENOMINATOR))
-        [ "$allow" -gt "$pot_share" ] && allow=$pot_share
+        est=$((BISECT_LEVEL_BASE_SECS + BISECT_LEVEL_PER_FILTER_SECS * n))
+        allow=$est
+        [ "$allow" -gt "$remaining" ] && allow=$remaining
         if [ "$allow" -lt "$BISECT_LEVEL_MIN_SECS" ]; then
             echo "== bisect: remaining pot (${remaining}s) is too shallow for depth $depth (a level needs >= ${BISECT_LEVEL_MIN_SECS}s to tell wedged from clean)"
             break
         fi
         first=$(fname "${filters[lo]}")
         last=$(fname "${filters[mid - 1]}")
-        echo "== bisect depth $depth: $n filter(s) $first..$last, budget ${allow}s"
+        echo "== bisect depth $depth: $n filter(s) $first..$last, budget ${allow}s of a ${est}s estimate"
         run_supervised "$allow" "bisect depth $depth ($first..$last)" "${filters[@]:lo:n}" "$@" --test-timeout "$bisect_timeout"
         if [ "$watchdog_fired" = 1 ]; then
+            if [ "$allow" -lt "$est" ]; then
+                inconclusive_seen=1
+                echo "== bisect depth $depth: $first..$last did NOT finish in ${allow}s, but that allowance was clipped below the ${est}s estimate -- INCONCLUSIVE (a clean level of this size can be slower than a clipped allowance); not descending"
+                break
+            fi
             wedged_seen=1
-            echo "== bisect depth $depth: $first..$last did NOT finish in ${allow}s -- the wedge reproduces inside this half"
+            echo "== bisect depth $depth: $first..$last did NOT finish in ${allow}s at its full estimated allowance ($kill_phase at kill time) -- descending into this half"
             hi=$mid
         else
             echo "== bisect depth $depth: $first..$last finished in ${ran_secs}s (zig exit $zig_status) -- no process wedge here, discarding this half"
@@ -416,11 +492,11 @@ bisect_chunk() {
         # bound) or it does not reproduce at all. The tight-bound full
         # re-run names the former; the log's honesty covers the latter.
         if [ "$remaining" -ge "$BISECT_LEVEL_MIN_SECS" ]; then
-            echo "== bisect: no level wedged -- re-running the whole chunk under the tight $bisect_timeout bound (compile is cache-hot) to name per-test culprits in full context, budget ${remaining}s"
+            echo "== bisect: no level wedged -- re-running the whole chunk under the tight $bisect_timeout bound (same filter set as the chunk run; its compile is cached whenever that run got past compiling) to name per-test culprits in full context, budget ${remaining}s"
             run_supervised "$remaining" "bisect full re-run" "${filters[@]}" "$@" --test-timeout "$bisect_timeout"
             if [ "$watchdog_fired" = 1 ]; then
                 full_rerun_wedged=1
-                echo "== the full chunk wedged again under the tight bound without any level wedging first -- an order- or interaction-dependent wedge, not a single slow test"
+                echo "== the full chunk did not finish the re-run in ${ran_secs}s ($kill_phase at kill time) -- if the tests were in flight that is an order- or interaction-dependent wedge; if it was still compiling, the pot was simply too small to conclude anything"
             else
                 echo "== the full re-run finished (zig exit $zig_status): any 'timed out after' name above is a phase-1 suspect"
                 while IFS= read -r tn; do
@@ -435,11 +511,13 @@ bisect_chunk() {
             echo "== bisect: budget pot too dry for the tight-bound full re-run"
         fi
         if [ "$full_rerun_wedged" = 1 ]; then
-            echo "== RESULT: the wedge reproduced only in the full chunk, never in any subset -- order- or interaction-dependent"
+            echo "== RESULT: inconclusive -- the full-chunk re-run did not finish ($kill_phase); nothing is narrowed"
+        elif [ "$inconclusive_seen" = 1 ]; then
+            echo "== RESULT: inconclusive -- the pot could not fund decisive levels (see the INCONCLUSIVE line above); re-run with a larger KAAPPI_BISECT_BUDGET"
         elif [ -n "$bisect_slow_notes" ]; then
-            echo "== RESULT: no process-level wedge reproduced; per-test suspect(s) named by the tight bound:$bisect_slow_notes"
+            echo "== RESULT: no level wedged; per-test suspect(s) named by the tight bound:$bisect_slow_notes"
         else
-            echo "== RESULT: no wedge and no slow test reproduced under bisection -- the phase-1 overrun was order- or load-dependent"
+            echo "== RESULT: nothing reproduced under bisection -- the phase-1 overrun was order- or load-dependent, or slower than every budget here"
         fi
         return 0
     fi
@@ -451,8 +529,10 @@ bisect_chunk() {
             [ "$allow" -gt "$remaining" ] && allow=$remaining
             echo "== bisect: confirming the single suspect $f alone (budget ${allow}s)"
             run_supervised "$allow" "bisect confirm ($f)" "${filters[lo]}" "$@" --test-timeout "$bisect_timeout"
-            if [ "$watchdog_fired" = 1 ]; then
-                echo "== LOCALISED AND CONFIRMED: filter '$f.test.' alone does not finish within its budget"
+            if [ "$watchdog_fired" = 1 ] && [ "$allow" -ge $((BISECT_LEVEL_BASE_SECS + BISECT_LEVEL_PER_FILTER_SECS)) ]; then
+                echo "== LOCALISED AND CONFIRMED: filter '$f.test.' alone did not finish at its full estimated allowance ($kill_phase at kill time)"
+            elif [ "$watchdog_fired" = 1 ]; then
+                echo "== LOCALISED (unconfirmed): filter '$f.test.' did not finish its solo run, but on a clipped allowance -- a clean solo run can be slower than that"
             else
                 echo "== NARROWED BUT NOT CONFIRMED: '$f.test.' completed alone in ${ran_secs}s -- the wedge is order- or load-dependent; this is the last unexonerated filter"
             fi

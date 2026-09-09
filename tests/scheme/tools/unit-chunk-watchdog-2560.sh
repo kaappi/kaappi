@@ -15,17 +15,19 @@
 # (the timeout(1) convention) so the run fails loudly instead of just
 # quietly bleeding out at a CI cap.
 #
-# Both cases below drive that machinery with budgets small enough that the
-# initial test-binary compile itself "wedges": no real test hangs, and each
-# case is bounded by its budgets (~40s and ~75s). Which side of a bisection
-# level's own budget the machine lands on (cold compile vs warm objects)
-# varies by host, so every assertion accepts exactly the two outcomes the
-# script is allowed to print for it.
+# Every case below drives the script through a fake `zig` (KAAPPI_ZIG): a
+# shim that plays wedged or clean subsets in seconds, with real child
+# processes so the watchdog's process-tree snapshot has a tree to kill.
+# That makes each outcome deterministic -- the descent, the solo confirm,
+# the NOTE lines for tight-bound overruns, the INCONCLUSIVE stop for a
+# level the pot could only clip, and the unbudgeted heartbeat (which died
+# on an unbound variable under bash >= 4 before the fix) -- without ever
+# compiling the unit suite or contending for the Zig cache locks. The
+# real-zig path is what the riscv64 chunk steps run eight times per CI job.
 
 . "$(dirname "$0")/../shell-common.sh"
 
 skip_on_windows "the watchdog kills the zig process tree via pgrep, which MSYS lacks"
-skip_without_zig "the chunk script runs zig build"
 
 cd "$(dirname "$0")/../../.." || exit 1
 
@@ -33,6 +35,61 @@ fail() {
     echo "FAIL: $1" >&2
     exit 1
 }
+
+work=$(mktemp -d "${TMPDIR:-/tmp}/kaappi-chunk-watchdog-XXXXXX")
+trap 'rm -rf "$work"' EXIT
+out="$work/out"
+
+# The fake `zig build test`: never compiles, decides from its arguments.
+#   wedge (hang with two children) iff, in order:
+#     - SHIM_WEDGE_ONCE is set and its stamp file is missing (first call), or
+#     - SHIM_HANG_FIRST is set and fewer than that many calls have hung, or
+#     - SHIM_WEDGE_FILTER is set and some -Dtest-filter= arg contains it;
+#   otherwise sleep SHIM_DELAY, print SHIM_TIMEOUT_NAME as a zig per-test
+#   timeout line (exercising the script's sed parser, spaces included),
+#   print a summary the script's floor check accepts, exit SHIM_EXIT.
+shim="$work/zig"
+cat > "$shim" <<'SHIM'
+#!/usr/bin/env bash
+set -u
+if [ -n "${SHIM_WEDGE_ONCE:-}" ] && [ ! -f "${SHIM_WEDGE_ONCE}" ]; then
+    : > "${SHIM_WEDGE_ONCE}"
+    sleep 9999 & sleep 9999 & wait
+fi
+if [ -n "${SHIM_HANG_FIRST:-}" ]; then
+    count=0
+    [ -f "${SHIM_HANG_FIRST}" ] && count=$(cat "${SHIM_HANG_FIRST}")
+    if [ "$count" -gt 0 ]; then
+        echo $((count - 1)) > "${SHIM_HANG_FIRST}"
+        sleep 9999 & sleep 9999 & wait
+    fi
+fi
+if [ -n "${SHIM_WEDGE_FILTER:-}" ]; then
+    for a in "$@"; do
+        case "$a" in
+            -Dtest-filter=*"$SHIM_WEDGE_FILTER"*) sleep 9999 & sleep 9999 & wait ;;
+        esac
+    done
+fi
+[ -n "${SHIM_DELAY:-}" ] && sleep "$SHIM_DELAY"
+if [ -n "${SHIM_TIMEOUT_NAME:-}" ]; then
+    printf "error: '%s' timed out after 90s\n" "$SHIM_TIMEOUT_NAME"
+fi
+printf '%s\n' \
+    "test success" \
+    "+- run test unit-tests 60 pass (60 total) 1s MaxRSS:1M" \
+    "+- run test thottam-tests 1 pass (1 total) 1s MaxRSS:1M"
+exit "${SHIM_EXIT:-0}"
+SHIM
+chmod +x "$shim"
+
+# Common knobs: the pinned KAAPPI_TEST_TIMEOUT guards against a caller's
+# run-all.sh KAAPPI_TEST_TIMEOUT (seconds, for Scheme tests) leaking into
+# the --test-timeout grammar (a Zig duration). The level-funding constants
+# are scaled down so a level's "full estimate" is seconds, not minutes.
+base_env="KAAPPI_ZIG=$shim KAAPPI_TEST_TIMEOUT=8m KAAPPI_BISECT_TEST_TIMEOUT=90s"
+base_env="$base_env KAAPPI_BISECT_LEVEL_BASE_SECS=2 KAAPPI_BISECT_LEVEL_PER_FILTER_SECS=1"
+base_env="$base_env KAAPPI_HEARTBEAT_SECS=2"
 
 # Structure: --list still derives the rest chunk's filters from the tree,
 # and an unknown chunk name is a usage error, not a silent success.
@@ -42,37 +99,66 @@ if bash tools/run-unit-test-chunk.sh --list bogus-chunk > /dev/null 2>&1; then
     fail "an unknown chunk name must exit 2"
 fi
 
-# Case 1: the wall budget fires and the bisection pot is too dry for even
-# one level. The kill must still be loud, streamed, and exit 124.
-out=$(mktemp)
-trap 'rm -f "$out" "$out2"' EXIT
-KAAPPI_CHUNK_BUDGET=12 KAAPPI_BISECT_BUDGET=20 KAAPPI_HEARTBEAT_SECS=3 \
-    bash tools/run-unit-test-chunk.sh rest > "$out" 2>&1
-status=$?
+# Case 1: NO wall budget (the header's primary invocation). The heartbeat
+# must fire on this path too -- before the budget_note fix it died on an
+# unbound variable under bash >= 4 and orphaned the zig tree it supervised
+# -- and a clean finish must still reach the floor-checked summary.
+rc=0
+# shellcheck disable=SC2086  # base_env is a deliberate VAR=val word list for env
+env $base_env SHIM_DELAY=8 bash tools/run-unit-test-chunk.sh rest > "$out" 2>&1 || rc=$?
+[ "$rc" -eq 0 ] || fail "case 1 (no budget): a clean unbudgeted run must exit 0 (got $rc)"
+grep -q "still running at" "$out" || fail "case 1: no heartbeat on the unbudgeted path"
+grep -q "== unit-test chunk 'rest': 60 tests (floor " "$out" ||
+    fail "case 1: no floor-checked summary line after a clean finish"
 
-[ "$status" -eq 124 ] || fail "case 1: wall-budget overrun must exit 124 (timeout(1) convention), got $status"
-grep -q "WALL BUDGET EXCEEDED" "$out" || fail "case 1: no streamed budget-exceeded line"
-grep -q "still running at" "$out" || fail "case 1: no heartbeat line survived the kill"
-grep -q "too shallow for depth 1" "$out" || fail "case 1: the dry pot was not reported as too shallow"
-grep -q "RESULT:" "$out" || fail "case 1: no summary verdict line"
+# Case 2: the descent. The shim wedges exactly when the subset contains
+# tests_printer, so every half holding it times out at its FULL estimate
+# (decisive), every other half completes, and the descent must end on the
+# single filter, confirmed by its solo run.
+rc=0
+# shellcheck disable=SC2086  # base_env is a deliberate VAR=val word list for env
+env $base_env KAAPPI_CHUNK_BUDGET=3 KAAPPI_BISECT_BUDGET=120 \
+    SHIM_WEDGE_FILTER="tests_printer.test." \
+    bash tools/run-unit-test-chunk.sh rest > "$out" 2>&1 || rc=$?
+[ "$rc" -eq 124 ] || fail "case 2 (descent): wall-budget overrun must exit 124 (got $rc)"
+grep -q "WALL BUDGET EXCEEDED" "$out" || fail "case 2: no streamed budget-exceeded line"
+grep -q "descending into this half" "$out" || fail "case 2: no decisive-timeout descent line"
+grep -q "LOCALISED AND CONFIRMED: filter 'tests_printer.test.'" "$out" ||
+    fail "case 2: the descent did not end confirmed on tests_printer"
+grep -q "zig build test -Dtest-filter=tests_printer.test." "$out" ||
+    fail "case 2: no reproduce command for the confirmed filter"
 
-# Case 2: enough pot for one bisection level (a level gets 3/5 of the pot
-# and needs >= 90s, so 180s is the smallest pot that starts one). A cold
-# cache cannot compile the subset in ~108s (level watchdog fires, descent
-# enters that half); a warm one runs the subset's tests (level finishes,
-# half is discarded). Both are correct; both must name the subset BEFORE
-# running it, and the level's outcome must be reported as a decision.
-out2=$(mktemp)
-KAAPPI_CHUNK_BUDGET=12 KAAPPI_BISECT_BUDGET=180 KAAPPI_HEARTBEAT_SECS=3 \
-    bash tools/run-unit-test-chunk.sh rest > "$out2" 2>&1
-status=$?
+# Case 3: the per-test reading. Only the FIRST invocation (the chunk run
+# itself) wedges; every level then completes while printing a zig per-test
+# timeout line with SPACES in the name, which must surface whole as a NOTE
+# and exactly once in the RESULT (the level and the full re-run both see
+# it; the collection dedups).
+rc=0
+# shellcheck disable=SC2086  # base_env is a deliberate VAR=val word list for env
+env $base_env KAAPPI_CHUNK_BUDGET=3 KAAPPI_BISECT_BUDGET=120 \
+    SHIM_WEDGE_ONCE="$work/once" SHIM_TIMEOUT_NAME="tests_fake.test.slow one" \
+    bash tools/run-unit-test-chunk.sh rest > "$out" 2>&1 || rc=$?
+[ "$rc" -eq 124 ] || fail "case 3 (per-test): wall-budget overrun must exit 124 (got $rc)"
+grep -q "NOTE: 'tests_fake.test.slow one' exceeded the tight 90s bound" "$out" ||
+    fail "case 3: no NOTE line carrying the whole space-containing name"
+[ "$(grep -c "^== RESULT: no level wedged; per-test suspect(s) named by the tight bound: 'tests_fake.test.slow one'$" "$out")" -eq 1 ] ||
+    fail "case 3: the RESULT must name the suspect exactly once"
 
-[ "$status" -eq 124 ] || fail "case 2: wall-budget overrun must exit 124, got $status"
-grep -Eq "bisect depth 1: [0-9]+ filter\\(s\\) [a-z_0-9.]+\.\.[a-z_0-9.]+, budget [0-9]+s" "$out2" ||
-    fail "case 2: no bisect level line naming its filter subset and its budget"
-grep -Eq "(did NOT finish in [0-9]+s -- the wedge reproduces inside this half|finished in [0-9]+s \\(zig exit [0-9]+\\) -- no process wedge here)" "$out2" ||
-    fail "case 2: the level's outcome was not reported as a bisection decision"
-grep -Eq "(bisect incomplete|RESULT:)" "$out2" ||
-    fail "case 2: neither an incomplete-descent suspects list nor a verdict line was printed"
+# Case 4: a level the pot can only clip. The chunk run and depth 1 both
+# hang (the counter file seeds two hangs), and the pot funds 10s of a 25s
+# estimate: the timeout must be reported INCONCLUSIVE and must NOT narrow
+# the descent.
+echo 2 > "$work/count"
+rc=0
+# shellcheck disable=SC2086  # base_env is a deliberate VAR=val word list for env
+env $base_env KAAPPI_CHUNK_BUDGET=3 KAAPPI_BISECT_BUDGET=10 \
+    SHIM_HANG_FIRST="$work/count" \
+    bash tools/run-unit-test-chunk.sh rest > "$out" 2>&1 || rc=$?
+[ "$rc" -eq 124 ] || fail "case 4 (clipped level): wall-budget overrun must exit 124 (got $rc)"
+grep -q "INCONCLUSIVE" "$out" || fail "case 4: a clipped-allowance timeout was not reported INCONCLUSIVE"
+grep -q "descending into this half" "$out" && fail "case 4: an inconclusive level must not descend"
+grep -q "RESULT: inconclusive -- the pot could not fund decisive levels" "$out" ||
+    fail "case 4: no pot-too-small verdict line"
 
-echo "PASS: watchdog fired loudly, bisection streamed its subsets, exit 124"
+echo "PASS: watchdog, heartbeat, decisive descent, per-test NOTEs, and the"
+echo "PASS: clipped-level INCONCLUSIVE stop all behave and are all streamed"
