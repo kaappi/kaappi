@@ -931,22 +931,37 @@ find (kaappi#2542) is the imag-part convention leaking through the sample
 implementation's own code: its c64/c128 checker is textually `(and (complex?
 obj) (inexact? (real-part obj)) (inexact? (imag-part obj)))`, but Gambit's
 exact-0 `(imag-part 1.0)` makes it reject a bare real flonum that Kaappi's
-equally R7RS-legal inexact `0.0` accepted — so the shipped checker carries an
-explicit `(not (real? x))`, encoding the sample implementation's verdict under
-either convention (a `1.0+0.0i` with a real inexact-zero imaginary part is
-still accepted).
+equally R7RS-legal inexact `0.0` accepted — so #2543 shipped the checker with
+an explicit `(not (real? x))` clause, encoding the sample implementation's
+verdict under either convention (a `1.0+0.0i` with a real inexact-zero
+imaginary part was still accepted).
 
-**That clause is under review (see the terminology note below), because the
-document does not require it.** The normative prose says `cX-storage-class`
-procedures "manipulate complex numbers with, respectively, 32- and 64-bit
-floating-point numbers as real and imaginary parts" — and under Kaappi's
-representation `1.0` is one: `(complex? 1.0)` is `#t` with `real-part` `1.0`
-and `imag-part` `0.0`, both inexact. The one normative constraint on a
-checker is that `(checker (getter v i))` be `#t`, which holds either way
-(the getter returns `1.0+0.0i`). So rejecting a bare real matches Gambit's
-verdict rather than the document's requirement, and it is a portability
-choice — code written against Kaappi will not silently break on Gambit —
-not conformance. Raised with the SRFI's author; revisit when he answers.
+**That clause was reverted in #2559.** The two checkers are the sample
+implementation's line verbatim; the verdicts differ because Gambit's
+`(imag-part 1.0)` is an exact `0` and Kaappi's is `0.0`. Brad Lucier confirmed
+that exact-0 is **R6RS**'s rule — adopted there on his own suggestion — and
+"that's not what R7RS small does", adding that implementers can argue either
+way. Verified against `docs/errata-corrected-r7rs.pdf` §6.2.6 rather than
+taken on report: the section's sole exactness permission is that `real-part`
+and `imag-part` "may return exact real numbers when applied to an inexact
+complex number **if** the corresponding argument passed to `make-rectangular`
+was exact", which a bare `1.0` never went through; what governs it instead is
+"`(real? z)` is true if and only if `(zero? (imag-part z))` is true", and
+`(zero? 0.0)` is `#t`, so an inexact `0.0` satisfies that rule exactly as an
+exact `0` would. Nothing in the document requires one over the other. (That
+iff rule does *not* survive contact with the inexact-zero-imaginary case —
+§6.2.6 also prints `(real? -2.5+0.0i) ⇒ #f`, which the rule would make `#t`;
+the rule and the example contradict each other and every implementation,
+Kaappi and Gambit included, follows the example.) Kaappi is R7RS-small, and
+the normative
+prose asks only for "complex numbers with, respectively, 32- and 64-bit
+floating-point numbers as real and imaginary parts", which `1.0` is under our
+tower: `(complex? 1.0)` is `#t` with `real-part` `1.0` and `imag-part` `0.0`,
+both inexact. The one normative constraint on a checker, that
+`(checker (getter v i))` be `#t`, holds either way. So a bare real flonum is
+accepted again, and the differential tester's c64/c128 disagreement with
+Gambit is a permanent known divergence rather than a finding — recorded in the
+tool so it is not re-filed as #2542 was.
 
 A residual the checker cannot reach: a mixed-exactness complex (`1+2.0i`,
 `(make-rectangular 1 2.0)`) keeps an exact real part under Gambit, so the
@@ -976,10 +991,14 @@ everything else in the SRFI: full per-axis width-consistency validation
 single-pencil-probing for offsets (reusing
 `array-curry`+`array-permute`+`index-last`), both confirmed against the sample
 implementation. The SRFI's own prose pseudocode disagreed with its sample
-implementation at least twice (`check-nested-list`'s dimension-0 case returns
-`'()`, not the prose's nonsensical `#t`; `array-inner-product`'s prose omits a
-required `array-curry` argument the sample code supplies), so where the two
-diverge we read the code to work out what was meant.
+implementation at least twice, so where the two diverge we read the code to
+work out what was meant. Both were put to the author, and neither turned out
+to support that heuristic as stated. `array-inner-product`'s prose does omit a
+required `array-curry` argument the sample code supplies — he confirmed that
+is a document error and will fix it, so the document gets corrected rather
+than overridden. And `check-nested-list`'s dimension-0 case (`'()` in the
+code, `#t` in the prose) is moot: the library does not export it, so what it
+returns is nobody's business.
 
 **That is a working heuristic, not a rule the SRFI states.** An earlier
 version of this note called it "this SRFI's documented rule"; the document

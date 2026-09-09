@@ -127,22 +127,45 @@
       (make-storage-class u64vector-ref u64vector-set! (%exact-int-range-checker 0 18446744073709551615)
                            make-u64vector u64vector-copy! u64vector-length 0 u64vector? (%checked-data->body u64vector? "u64-storage-class" "u64vector")))
 
-    ;; fX/cX checkers match the sample implementation exactly: f32/f64 accept
-    ;; only inexact reals (flonum?, generic-arrays.scm's f32/f64 checker) and
-    ;; c64/c128 only proper complexes whose real and imaginary parts are both
-    ;; inexact. Accepting exact values silently coerces them (1/3 stored into
-    ;; c64 narrows to f32 precision), diverging from the sample
-    ;; implementation's "value cannot be stored in body" error (#2355). The
-    ;; sample implementation's checker is (and (complex? obj) (inexact?
-    ;; (real-part obj)) (inexact? (imag-part obj))), but under Gambit's exact-0
-    ;; (imag-part 1.0) that rejects a bare real flonum, while Kaappi's inexact
-    ;; 0.0 (also R7RS-legal, 6.2.6 mandates only zero?, not exactness) accepted
-    ;; it -- so (not (real? x)) encodes the sample implementation's verdict
-    ;; independently of the host's imag-part convention; 1.0+0.0i with an
-    ;; explicit inexact zero imaginary part is still accepted (#2542).
+    ;; fX/cX checkers are the sample implementation's, run under our own
+    ;; numeric tower: f32/f64 accept only inexact reals (flonum?,
+    ;; generic-arrays.scm's f32/f64 checker) and c64/c128 only complexes whose
+    ;; real and imaginary parts are both inexact. Accepting exact values
+    ;; silently coerces them (1/3 stored into c64 narrows to f32 precision),
+    ;; diverging from the sample implementation's "value cannot be stored in
+    ;; body" error (#2355).
+    ;;
+    ;; A bare real flonum is ACCEPTED here and rejected under Gambit, and that
+    ;; is a numeric-tower difference, not a checker difference: the line below
+    ;; is the sample implementation's verbatim, but Gambit's (imag-part 1.0) is
+    ;; an exact 0 where ours is 0.0. #2543 added a (not (real? x)) clause to
+    ;; force Gambit's verdict; #2559 reverted it.
+    ;;
+    ;; Exact-0 imag-part is R6RS's rule, adopted there on the SRFI author's own
+    ;; suggestion. R7RS small does not mandate it, and Kaappi is R7RS-small.
+    ;; Checked against docs/errata-corrected-r7rs.pdf, 6.2.6: the sole
+    ;; exactness permission there is that "the real-part and imag-part
+    ;; procedures may return exact real numbers when applied to an inexact
+    ;; complex number IF the corresponding argument passed to make-rectangular
+    ;; was exact" -- which a bare 1.0 never went through, so it does not reach
+    ;; this case. What does govern it is "(real? z) is true if and only if
+    ;; (zero? (imag-part z)) is true": (zero? 0.0) is #t, so an inexact 0.0
+    ;; satisfies that rule exactly as an exact 0 would. Nothing in the document
+    ;; requires one over the other.
+    ;;
+    ;; (Do not lean on that iff rule for the INEXACT-zero-imaginary case: 6.2.6
+    ;; also prints (real? -2.5+0.0i) => #f, which the rule would make #t, since
+    ;; imag-part has no non-zero? value to return there. The rule and the
+    ;; example contradict each other; we follow the example, as Gambit does.)
+    ;;
+    ;; The SRFI's own prose asks only for "complex numbers with ...
+    ;; floating-point numbers as real and imaginary parts", which 1.0 is under
+    ;; our tower, and the author confirmed implementations may differ here. So
+    ;; the differential tester's c64/c128 disagreement with Gambit is a known
+    ;; oracle divergence, not a bug.
     (define (%flonum-checker x) (and (real? x) (inexact? x)))
     (define (%inexact-complex-checker x)
-      (and (complex? x) (not (real? x))
+      (and (complex? x)
            (inexact? (real-part x)) (inexact? (imag-part x))))
 
     (define f32-storage-class

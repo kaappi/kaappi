@@ -95,20 +95,29 @@ Known oracle divergences. Gambit's bundled sample implementation flips the
 initial
 value of `specialized-array-default-safe?` to #t (spec and the SRFI
 repository's copy: #f); the storage mode pins it to #f in its prelude.
-kaappi#2542 (the c64/c128 checkers accepted real flonums, which the
-sample implementation rejects) used to surface as `check` mismatches on those
-two
-classes; before kaappi#2543 fixed it, the workaround was excluding them
-with `--classes`, and both are back in the default draw. Since a
-program's first difference hides everything after it, `--classes` is
-still the way to focus a run on the classes you care about.
+The c64/c128 checkers disagree with Gambit on a bare real flonum -- Kaappi
+accepts `1.0`, Gambit rejects it -- and that is PERMANENT and expected, not a
+bug to re-file. Both run the sample implementation's checker line verbatim;
+they differ because Gambit's `(imag-part 1.0)` is an exact 0 and Kaappi's is
+`0.0`. Exact-0 is R6RS's rule, adopted there on the SRFI author's own
+suggestion; R7RS small leaves the exactness open and Kaappi is R7RS-small.
+The author confirmed implementations may differ. This was filed once as
+kaappi#2542 and "fixed" in kaappi#2543 by forcing Gambit's verdict; kaappi#2559
+reverted that. Because it cascades -- once the checker accepts, the setter
+runs and the array contents diverge too -- essentially every c64/c128 case
+mismatches, so those two are drawn only when `--classes` names them. A run
+that does name them compares everything, noise included.
 And chibi 0.12's port raises on a `copy-on-failure? #t`
 reshape that needs the copy, where the spec (and Gambit, and Kaappi) return a
 copy -- expect that mismatch shape with `--oracle chibi` (seeds 5227 and 5248
 of the reshape mode show it) and confirm against Gambit before chasing it.
 Its storage classes have checker bugs of their own (u16 accepts 65536, u64
-accepts negatives, c64 accepts a real flonum, make-specialized-array does
-not validate its initial value), all contradicted by Gambit; its u1 checker
+accepts negatives, make-specialized-array does not validate its initial
+value), all contradicted by Gambit. Its c64 accepts a real flonum too, but
+that is NOT Kaappi's sanctioned divergence wearing a different hat: chibi's
+(imag-part 1.0) is an exact 0, Gambit's convention, so the sample
+implementation's checker text would REJECT the value there -- chibi diverges
+from that text, where Kaappi runs the same text under a different tower; its u1 checker
 returns a list rather than a boolean, which the storage mode hides by
 printing only the boolean verdict. In the callcc mode chibi's array-copy --
 into a typed storage class, or of an array-map result -- keeps a value
@@ -446,6 +455,16 @@ STORAGE_PRELUDE = PRELUDE.replace(
 CLASSES = ["generic", "char", "u1", "u8", "s8", "u16", "s16", "u32", "s32",
            "u64", "s64", "f16", "f32", "f64", "c64", "c128"]
 
+# c64/c128 are drawn only when asked for by name. Kaappi accepts a bare real
+# flonum there and Gambit rejects it -- a permanent numeric-tower difference
+# (kaappi#2559), not a bug on either side -- and it CASCADES: once the checker
+# accepts, the setter runs and the array contents diverge too. So essentially
+# every c64/c128 case mismatches, which would make a default run red forever
+# and bury findings in the other fourteen classes. They are not filtered out
+# of a run that names them: `--classes c64` still compares everything, noise
+# included, which is what you want when you are actually investigating c64.
+DEFAULT_CLASSES = [c for c in CLASSES if c not in ("c64", "c128")]
+
 # every candidate value, as source text both readers accept
 INTS = [-(2**64), -(2**63) - 1, -(2**63), -(2**32), -(2**31) - 1, -(2**31), -32769,
         -32768, -129, -128, -2, -1, 0, 1, 2, 127, 128, 255, 256, 32767, 32768,
@@ -494,7 +513,7 @@ def value(rng, cls):
 
 def gen_storage(seed, classes=None, spec=None):
     rng = random.Random(seed)
-    cls = rng.choice(classes or CLASSES)
+    cls = rng.choice(classes or DEFAULT_CLASSES)
     sc = f"{cls}-storage-class"
     L = [STORAGE_PRELUDE]
     L.append(f"(define sc {sc})")
@@ -1141,7 +1160,8 @@ def main():
     ap.add_argument("--print", action="store_true", help="print the first case's program and exit")
     ap.add_argument("--classes", default=None,
                     help="storage mode: comma-separated storage classes to draw from "
-                         "(default all 16), e.g. --classes u1,f16,c64")
+                         "(default: the 14 excluding c64/c128, see the module docstring), "
+                         "e.g. --classes u1,f16,c64")
     ap.add_argument("--spec", default=SPEC_URL,
                     help="prose mode: the srfi-231.html to take examples from (path or URL)")
     args = ap.parse_args()

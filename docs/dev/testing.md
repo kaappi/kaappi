@@ -414,7 +414,16 @@ raises on a `copy-on-failure? #t` reshape that needs the copy, does not
 validate `make-specialized-array`'s initial value, has checker bugs on
 u16/u64/c64, and returns a list rather than a boolean from its u1 checker
 (the storage mode prints only the boolean verdict, so that one never fires).
-The storage mode's first real finding is kaappi#2542.
+
+One divergence there is permanent and expected rather than a bug in either
+side: Kaappi's c64/c128 checkers accept a bare real flonum and Gambit's
+reject it, because Gambit's `(imag-part 1.0)` is an exact `0` and Kaappi's is
+`0.0` — R6RS mandates the former, R7RS small leaves it open. Filed once as
+kaappi#2542 and "fixed" in kaappi#2543 by forcing Gambit's verdict;
+kaappi#2559 reverted that. It cascades — once the checker accepts, the setter
+runs and the contents diverge too — so the storage mode draws c64/c128 only
+when `--classes` names them, keeping a default run a usable signal. A run that
+names them compares everything.
 
 It is not part of `run-all.sh`: it needs an oracle installed and a useful
 run takes minutes.
