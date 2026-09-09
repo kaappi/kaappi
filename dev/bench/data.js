@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788874804164,
+  "lastUpdate": 1788928003832,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "645d2bba6d60d2d4f3fdc6bda45ba956627d8091",
-          "message": "pr-groups: work each PR on its own git worktree (#2336)\n\nThe pr-groups skill planned the groups but said nothing about how to\nexecute them once a wave starts. Launching concurrent implementation\nsessions in the shared checkout means they collide on files and on the\nworking tree, and a fix can land on main by accident.\n\nDocument the execution half: one git worktree per group, branched off\nmain, with a self-contained brief and a commit/PR wrap-up contract\n(regression test, DCO sign-off, per-issue Closes keyword). Bake in the\ntwo operational failures that each cost a session in practice — a\nbackgrounded test run that stalls waiting on a notification, and\nconcurrent builds serialising on the Zig cache lock looking hung — plus\nthe reminder that one worktree's green run does not prove main is green.\n\nAdd eval #5 covering the \"start the wave\" behaviour.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-25T19:02:58Z",
-          "tree_id": "535555475b2bbabbbba3d8a04af73d979afeb1ca",
-          "url": "https://github.com/kaappi/kaappi/commit/645d2bba6d60d2d4f3fdc6bda45ba956627d8091"
-        },
-        "date": 1787685034917,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.407817,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.35227,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.57014,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.050149,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004674,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.048018,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.307422,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057181,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.839549,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.238747,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.66755,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.282488,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.794084,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.621578,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04442,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.048354,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bd57760ed21ab5feb4e0b6d4975d5959f6862989",
+          "message": "Accept bare real flonums in the c64/c128 checkers again (#2559)\n\n* Accept bare real flonums in the c64/c128 checkers again\n\nReverts the (not (real? x)) clause #2543 added, restoring the sample\nimplementation's checker line verbatim.\n\n#2543 rejected a bare real flonum so that Kaappi's verdict would match\nGambit's. Both run the same checker text; they disagreed only because\nGambit's (imag-part 1.0) is an exact 0 and ours is 0.0. Asked about it,\nBrad Lucier -- who suggested the exact-0 rule in the first place -- confirmed\nR6RS adopted it and \"that's not what R7RS small does\", adding that\nimplementers can argue either way.\n\nKaappi is R7RS-small, which leaves that exactness open, so under our numeric\ntower 1.0 is exactly what the normative prose asks a cX-storage-class to\nmanipulate: a complex number whose real and imaginary parts are floating\npoint (real-part 1.0, imag-part 0.0, both inexact). The one normative\nconstraint on a checker, that (checker (getter v i)) be #t, holds either way\n-- the getter returns 1.0+0.0i. So the restriction was never conformance,\nonly agreement with one other implementation's tower, and it cost a legal\nprogram the ability to copy real data into a complex array.\n\nThe justification #2543 actually rested on was \"when prose and reference code\ndisagree, trust the code\", which this branch retracts: that rule is not in the\nSRFI, and the divergence here turns on the host's representation rather than\non any disagreement about what the document means.\n\nGambit will now disagree with us on c64/c128 in the differential tester\npermanently. That is recorded as a known oracle divergence in the tool, and\nthe test file says in-line why these assertions must not be \"fixed\" back to\nmatch Gambit -- both are places the next person would otherwise re-derive\n#2542 and re-apply #2543.\n\nAlso corrects the two prose/code divergences this branch cited: he confirmed\narray-inner-product's missing array-curry argument is a document error and\nwill fix it, and check-nested-list is not exported, so what it returns is\nnobody's business. Neither supports the heuristic as it was stated.\n\nTests: the checker and end-to-end array-copy assertions flip to the accepting\nbehavior, with the round-trip value pinned (1.5 -> 1.5+0.0i). Eight SRFI 231\nsuites pass; storage-classes 253 expected passes; official suite 10936 passed\n/ 0 unexpected failures.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Cite R7RS 6.2.6 in the c64/c128 checker comment\n\nThe comment asserted \"R7RS small leaves the exactness open\" without saying\nwhere, and that claim reached it from two secondary sources -- the comment\n#2543 had left behind and the SRFI author's word in the thread -- rather than\nfrom the specification, a copy of which sits in docs/.\n\nNow quoted from docs/errata-corrected-r7rs.pdf 6.2.6. The section's sole\nexactness permission is that real-part and imag-part \"may return exact real\nnumbers when applied to an inexact complex number if the corresponding\nargument passed to make-rectangular was exact\", which a bare 1.0 never went\nthrough, so it does not reach this case. What governs it instead is \"(real? z)\nis true if and only if (zero? (imag-part z)) is true\" -- and (zero? 0.0) is #t,\nso an inexact 0.0 satisfies that rule exactly as an exact 0 would. Nothing in\nthe document requires one over the other, which is what makes this an\nimplementation choice and the Gambit disagreement a permanent divergence.\n\nAlso warns off the trap in the rule just cited: 6.2.6 prints\n(real? -2.5+0.0i) => #f, which its own iff rule would make #t, since imag-part\nhas no non-zero? value to return there. The rule and the example contradict\neach other for an inexact zero imaginary part; Kaappi follows the example, as\nGambit does, and matches all six of the section's printed examples. Without\nthat note a reader who tests the cited rule against 1.0+0.0i finds Kaappi\nviolating it and concludes the citation is wrong.\n\nComment-only in the .sld; the notes carry the same citation so the two cannot\ndrift. Suites re-run: storage-classes 253 expected passes, official 10936\npassed / 0 unexpected failures.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review on the c64/c128 revert\n\nSix findings across two reviews.\n\nTest file:\n- Name the two new checker assertions. An unnamed SRFI-64 failure prints a\n  bare #f, which does not say which storage class failed.\n- The section header still described c64/c128 as accepting \"proper complexes\",\n  which the revert makes false, and still said \"the reference\" -- a site the\n  terminology pass missed because it lives in tests/, not lib/. Both fixed.\n- The end-to-end assertion used 1.5, which is exactly representable in f32, so\n  it pinned acceptance and result type but not the narrowing. It now uses 0.1\n  (0.10000000149011612+0.0i out), proving the element really went through the\n  interleaved f32 body, with the c128 case beside it as the control: same\n  input, f64 body, 0.1 back unchanged.\n\nNotes:\n- The paragraph above the retraction still said \"the shipped checker carries\n  an explicit (not (real? x))\" in the present tense, asserting something false\n  of the current code that the next paragraph then had to undo. Past tense.\n\nTool:\n- The chibi paragraph listed \"c64 accepts a real flonum\" among chibi's checker\n  bugs \"all contradicted by Gambit\", which now reads against the verdict\n  sanctioned three paragraphs up. They are not the same thing: chibi's\n  (imag-part 1.0) is an exact 0, so the sample implementation's checker text\n  would reject the value there -- chibi diverges from that text, where we run\n  the same text under a different tower.\n- Kaappi/Gambit now disagree on essentially every c64/c128 case, so a default\n  run was red forever, burying findings in the other fourteen classes. c64 and\n  c128 are drawn only when --classes names them; such a run still compares\n  everything.\n\n  A post-filter for \"exactly this divergence\" was tried first and abandoned:\n  the difference CASCADES -- once the checker accepts, the setter runs and the\n  array contents diverge too -- and infinities canonicalize as (inf 1) rather\n  than a bare rational, so a filter tight enough to be safe missed most real\n  instances and one loose enough to catch them would have to model the whole\n  downstream consequence. That is precisely the shape that later hides a real\n  c64 setter bug. Narrowing the draw filters nothing and cannot mask anything.\n\n- docs/dev/testing.md's known-divergence summary enumerates the tool's\n  divergences and had missed this one; it now carries a matching clause.\n\nVerified: default storage draw 8/8 clean; --classes c64 still reports (2/2);\neight SRFI 231 suites pass, storage-classes 254 expected passes, official\n10936 passed / 0 unexpected failures; markdownlint clean.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-09-09T09:10:15+05:30",
+          "tree_id": "a365ebc924d8cb42495106c0a7a955e6d083b192",
+          "url": "https://github.com/kaappi/kaappi/commit/bd57760ed21ab5feb4e0b6d4975d5959f6862989"
+        },
+        "date": 1788928001478,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.418902,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.486029,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.576489,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.11389,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004543,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047987,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.315328,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055566,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.808831,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.263103,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.652391,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.276606,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.74543,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.638726,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045383,
             "unit": "seconds"
           }
         ]
