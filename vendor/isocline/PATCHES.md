@@ -124,8 +124,12 @@ printable that Shift transformed (`chr >= 0x20 && chr != 0x7f`), drop
 encoded in the glyph, so this loses nothing and makes both platforms agree. It
 lives in the `#if defined(_WIN32)` console branch only, not the shared
 `modify_code` in `tty.c`, so it cannot affect the POSIX/xterm decode. The
-unshifted upstream Alt bindings (`alt-d`/`alt-m`/`alt-f`/`alt-b`) never carry a
-SHIFT bit and are unaffected.
+change is strictly parity-restoring: it activates no new bindings. The unshifted
+upstream Alt bindings (`alt-d`/`alt-m`/`alt-f`/`alt-b`) never carry a SHIFT bit
+and are unaffected, and their *shifted* variants remain unbound on both
+platforms — the arms match the lowercase glyph (`WITH_ALT('d')`) while a shifted
+key delivers the uppercase one, so alt-shift-D → `'D' | KEY_MOD_ALT` matches
+nothing here just as `ESC D` matches nothing on a POSIX tty.
 
 Found by code reading; end-to-end confirmation requires a real Alt+Shift key
 event on a Windows console.
