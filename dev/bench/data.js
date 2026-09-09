@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788981535442,
+  "lastUpdate": 1788983570651,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "603d3cd682894262f63af0a378267bab5dd4d9f6",
-          "message": "srfi-158: begin range generators with start; gflatten yields nothing for empty lists (#2339)\n\nTwo defects in lib/srfi/158-impl.scm, both ported faithfully from the\nSRFI's own reference implementation (chibi-scheme reproduces each):\n\n#2055 -- make-range-generator's three-argument case coerced start with\n(- (+ start step) step).  The round trip achieves the spec's exactness\ncontagion but does not leave an already-inexact start alone: the\nsequence began with 0.10000000000000009 instead of 0.1, and when step\ndwarfed start, the addition rounded start away entirely and the\nsubtraction returned 0.0 -- (make-range-generator 1e-20 1.0 1.0) began\nwith 0.0.  The spec's \"The sequence begins with start\" is explicit.\nCoerce with exact->inexact only when step is inexact; an inexact start\nnow passes through untouched, and exact/exact stays exact.\n\n#2057 -- gflatten's refill ran exactly once instead of until it held a\nnon-empty list, so an empty list from the source reached car and raised\na type error.  The spec's \"yields the elements of the lists produced\nby the given generator\" means a list with no elements contributes no\nelements.  The refill now loops; exhaustion still sticks.  This is the\nnatural shape of a filtering map (gmap returning '() for every rejected\nelement), which previously could not be flattened at all.\n\nBoth fixes diverge deliberately from the reference implementation and\nfrom chibi-scheme; the spec text is unambiguous in each case, and the\ndivergence is noted in comments at both sites.\n\nTests: the eight assertions the audit file had parked under ;; FAIL\nmarkers are enabled (and the three raises? pins for gflatten's raising\nbehaviour removed), plus a new consecutive-empty-sub-lists regression --\nthe case a refill that loops only once more still misses.  All nine\nfail on the old library; with the fix srfi158-audit reports 355 passes\nand exit 0, every other suite importing (srfi 158) passes, and\nzig build test is green.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-26T06:02:50+05:30",
-          "tree_id": "9632254f0d5bb29009393f8277bfca940a4cb5f8",
-          "url": "https://github.com/kaappi/kaappi/commit/603d3cd682894262f63af0a378267bab5dd4d9f6"
-        },
-        "date": 1787709364106,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.729232,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.638382,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.503902,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.683984,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004849,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.044513,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.273237,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.047098,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.464125,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.111798,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.473097,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.26501,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.545105,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.9614,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.040786,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.037125,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5d11623a97f7bdbdce2a524c9c872285e4bdb727",
+          "message": "Treat REPL ESC as a sticky Meta prefix so alt-<key> bindings are reachable (#2566)\n\n* Treat REPL ESC as a sticky Meta prefix so alt-<key> bindings are reachable\n\nThe four structural-editing keys from #2216 (alt-shift-S slurp,\nalt-shift-B barf, alt-shift-R raise, alt-y rotate) are bound as ESC <char>,\nwhich needs the terminal to send Option/Alt as Meta. No default macOS\nterminal does that -- Terminal.app, iTerm2, kitty, Alacritty and Ghostty\nall insert the composed character instead. So out of the box on the\nprimary dev platform the documented keys never ran: they inserted a stray\nglyph, and the natural readline habit (press Escape, then the letter) ran\nedit_delete_all and wiped the whole form. That is data loss, and the four\nstructural keys have no ctrl/arrow alternative, so the feature was simply\nunreachable.\n\nMake ESC a sticky Meta prefix, like readline/zsh/Emacs: ESC followed by\nany key is that key with Alt, with no timeout. tty_read_timeout now decodes\nthe byte after ESC with a blocking (-1) read, so a real escape sequence\nstill decodes immediately from its burst while a lone ESC waits for the\nnext key and composes it as alt-<key>. The lone-ESC edit-loop arm no longer\nruns edit_delete_all -- with the prefix it is unreachable from an\ninteractive keypress anyway, and deleting there was the data-loss path.\nThe __APPLE__-only esc_initial_timeout bump (200ms, \"apple use ESC+<key>\nfor alt-<key>\") loses its rationale and is unified to one value; the field\nnow only bounds the terminal query-response readers.\n\nCost, and it is deliberate: a lone Escape no longer clears the input.\nctrl-u and ctrl-c still do. This overrides upstream isocline behaviour, so\nit is a new entry in vendor/isocline/PATCHES.md (Patch 7).\n\nThe regression is driven under a pty in the #2216 smoke test: a lone ESC,\na pause far longer than the removed compose window, then S -- which now\ncomposes to slurp instead of wiping the form.\n\nCloses #2562\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: fix F1 help and dev docs for the sticky ESC Meta prefix\n\nThe F1 overlay and docs/dev/repl.md still described ESC as delete-input and\nsaid the structural keys need a Meta-configured terminal — both inverted by\nPatch 7. Reword the editline_help.c esc entries (marked KAAPPI PATCH 7),\nrewrite the repl.md paragraph and note the lone-ESC cost, bump the isocline\npatch count to seven in CLAUDE.md, and add two PATCHES.md notes:\nic_set_tty_esc_delay now bounds only the query-response readers, and the\nSIGWINCH-drops-pending-prefix race is on record.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: trim help/doc text that outlived the sticky ESC change\n\nTwo non-blocking wording nits from PR review. The F1 help esc row still said\n\"or done with empty input\", but with the sticky decoder a lone ESC keypress\nnever reaches the edit loop — the empty-input break now fires only on\nEOF-after-ESC, an implementation detail rather than a documented affordance —\nso trim the row to just \"Meta prefix for alt-<key>\". And repl.md's \"ESC then S\"\nholds only for the capital byte (the bindings are WITH_ALT('S')/('B')/('R'));\nlowercase s composes to unbound alt-s, so say \"ESC then shift-S\".\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-09-09T19:13:11Z",
+          "tree_id": "0a29c982c7eb7474a0476a40de577bd54f62de1b",
+          "url": "https://github.com/kaappi/kaappi/commit/5d11623a97f7bdbdce2a524c9c872285e4bdb727"
+        },
+        "date": 1788983568701,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.436947,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.335307,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.577489,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.112706,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004496,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047684,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.315368,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055607,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.844283,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.241548,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.648504,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.283262,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.737803,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.661252,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045557,
             "unit": "seconds"
           }
         ]
