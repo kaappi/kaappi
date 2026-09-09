@@ -215,9 +215,12 @@ grep -q "WALL BUDGET EXCEEDED after .*s (compiling)" "$out" ||
 # and depth-2 lines must carry estimates computed from each subset's own
 # declared-test count (the test derives them independently, from the same
 # grep of the same files), so a regression back to a flat or per-filter
-# estimate changes the printed numbers and fails here. Depth 1 completing
-# (the wedge-once stamp was consumed in phase 1) puts depth 2 at filters
-# 24-34, the two windows differing in density.
+# estimate changes the printed numbers and fails here. The two probe
+# windows are derived from --list with the same mid arithmetic the script
+# uses, so a new test file landing in the derived rest chunk moves them
+# with it instead of failing the case: depth 1 is the first half, and
+# depth 1 completing (the wedge-once stamp was consumed in phase 1) puts
+# depth 2 just past it.
 est_of() { # est_of <start-1-based> <count>: 2s base + 1 tenth x the slice's tests
     local start="$1" n="$2" total=0 f c
     for f in $(bash tools/run-unit-test-chunk.sh --list rest \
@@ -228,8 +231,13 @@ est_of() { # est_of <start-1-based> <count>: 2s base + 1 tenth x the slice's tes
     done
     echo $(( 2 + total / 10 ))
 }
-e1=$(est_of 1 23)
-e2=$(est_of 24 11)
+total=$(bash tools/run-unit-test-chunk.sh --list rest | wc -l | tr -d ' ')
+mid1=$((total / 2))             # depth 1: filters 1..mid1
+mid2=$(((mid1 + total) / 2))    # depth 2 after depth 1 completes: mid1+1..mid2
+n1=$mid1
+n2=$((mid2 - mid1))
+e1=$(est_of 1 "$n1")
+e2=$(est_of $((mid1 + 1)) "$n2")
 [ "$e1" -ne "$e2" ] || fail "case 7 setup: the two probe windows estimate equal; pick denser windows"
 rc=0
 # shellcheck disable=SC2086  # base_env is a deliberate VAR=val word list for env
@@ -238,9 +246,9 @@ env $base_env KAAPPI_CHUNK_BUDGET=3 KAAPPI_BISECT_BUDGET=45 \
     SHIM_WEDGE_ONCE="$work/once7" \
     bash tools/run-unit-test-chunk.sh rest > "$out" 2>&1 || rc=$?
 [ "$rc" -eq 124 ] || fail "case 7 (per-test funding): wall-budget overrun must exit 124 (got $rc)"
-grep -q "bisect depth 1: 23 filter(s) .* budget .*s of a ${e1}s estimate" "$out" ||
+grep -q "bisect depth 1: ${n1} filter(s) .* budget .*s of a ${e1}s estimate" "$out" ||
     fail "case 7: depth 1's estimate is not ${e1}s from its subset's test count"
-grep -q "bisect depth 2: 11 filter(s) .* budget .*s of a ${e2}s estimate" "$out" ||
+grep -q "bisect depth 2: ${n2} filter(s) .* budget .*s of a ${e2}s estimate" "$out" ||
     fail "case 7: depth 2's estimate is not ${e2}s from its subset's test count"
 
 echo "PASS: watchdog, heartbeat, decisive descent, per-test NOTEs, the"
