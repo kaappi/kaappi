@@ -51,7 +51,8 @@ static const char* help[] = {
   "alt-d",      "delete to the end of the current word",
   "^u",         "delete to the start of the current line",
   "^k",         "delete to the end of the current line",
-  "esc",        "delete the current input, or done with empty input",
+  // KAAPPI PATCH 7: esc is a sticky Meta prefix now, not delete-input (see PATCHES.md)
+  "esc",        "Meta prefix for alt-<key>, or done with empty input",
   "","",
 
   "", "Editing:",
@@ -126,7 +127,8 @@ static const char* help_initial =
   "         │        ┌───────┼──────┐        │    ctrl-r   : search history\n"
   "         ▼        ▼       ▼      ▼        ▼    tab      : complete word\n"
   "  prompt> [ansi-darkgray]it's the quintessential language[/]     shift-tab: insert new line\n"
-  "         ▲        ▲              ▲        ▲    esc      : delete input, done\n"
+  // KAAPPI PATCH 7: esc is a sticky Meta prefix now (see PATCHES.md)
+  "         ▲        ▲              ▲        ▲    esc      : alt-<key> prefix\n"
   "         │        └──────────────┘        │    ctrl-z   : undo\n"
   "         │   alt-backsp        alt-d      │\n"
   //"       │                │               │\n"

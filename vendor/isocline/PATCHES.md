@@ -273,7 +273,7 @@ audit (kaappi#2414).
 
 ## Patch 7 — ESC is a sticky Meta prefix (reach alt-<key> without a Meta terminal)
 
-**Files:** `src/tty.c`, `src/editline.c`
+**Files:** `src/tty.c`, `src/editline.c`, `src/editline_help.c`
 
 The four structural-editing keys from Patch 3 (`alt-shift-S` slurp,
 `alt-shift-B` barf, `alt-shift-R` raise, `alt-y` rotate) and the upstream
@@ -309,6 +309,12 @@ Two sites:
    platform distinction has no rationale left. The field still bounds the
    terminal query-response readers (`tty_read_esc_response`,
    `tty_read_dsr_response` from Patch 5), which use `2*esc_initial_timeout`.
+   Note that the field — and therefore the `initial_delay_ms` parameter of the
+   public `ic_set_tty_esc_delay` setter (`isocline.h` → `tty_set_esc_delay`) —
+   now bounds *only* those query-response readers; it no longer affects
+   interactive ESC compose at all. Kaappi never calls the setter, so there is no
+   functional impact, but an embedder or a future upstream merge would otherwise
+   puzzle over why the knob does nothing.
 
 3. **`src/editline.c`** — the lone `KEY_ESC` arm no longer runs
    `edit_delete_all`. With the sticky prefix a lone ESC from an interactive
@@ -322,6 +328,17 @@ Two sites:
 isocline behaviour we override, which is why it is a patch; it is also the
 convention every other line editor on macOS already follows, and it turns the
 old destructive "Escape then S" into the slurp the user meant.
+
+**One race, on record:** a signal while the prefix is pending drops the prefix.
+`tty_readc_blocking` swallows `EINTR` (e.g. SIGWINCH on a resize) and returns
+false, so `tty_read_esc` returns `KEY_ESC`, the edit loop handles the resize,
+and the user's pending sticky prefix is silently abandoned — their next key
+arrives un-prefixed. Upstream had the identical race inside its 100–200ms
+window; the no-timeout window makes it marginally more likely, but the
+consequence is trivial (press ESC again), and the old code's failure mode in
+this exact race was *wiping the input*, so this is strictly an improvement. No
+code change; recorded here so "my ESC-S sometimes types a plain S after a
+resize" is explicable.
 
 ## Deliberately not patched
 
