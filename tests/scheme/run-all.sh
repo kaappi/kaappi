@@ -107,8 +107,7 @@ timeout_for() {
 # wait_with_timeout counts sleep 0.05 ticks, not wall clock, so that is
 # ~20 min of wall clock on Linux and stretches further where sleep spawns
 # cost more — inside every job cap that runs this suite.
-PER_SCRIPT_TIMEOUTS="bundle-cpu-baseline-2515.sh:${KAAPPI_BUNDLE_CPU_BASELINE_TIMEOUT:-1200}
-                     unit-chunk-watchdog-2560.sh:${KAAPPI_UNIT_CHUNK_WATCHDOG_TIMEOUT:-480}"
+PER_SCRIPT_TIMEOUTS="bundle-cpu-baseline-2515.sh:${KAAPPI_BUNDLE_CPU_BASELINE_TIMEOUT:-1200} unit-chunk-watchdog-2560.sh:${KAAPPI_UNIT_CHUNK_WATCHDOG_TIMEOUT:-480}"
 
 shell_timeout_for() {
     local base entry

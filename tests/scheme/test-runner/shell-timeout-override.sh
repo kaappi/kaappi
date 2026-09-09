@@ -30,14 +30,17 @@ fi
 DIR=$(mktemp -d)
 trap 'rm -rf "$DIR"' EXIT
 
-# The table entry itself is part of the fix. Without this check the behaviour
+# The table itself is part of the fix. Without this check the behaviour
 # assertions below could pass against a PER_SCRIPT_TIMEOUTS the test set
-# itself, and the override for the script that motivated it could be dropped
-# silently. -F -x: the whole line as a fixed string, so a malformed key or a
-# retuned default cannot slip through a looser match.
-if ! grep -Fxq 'PER_SCRIPT_TIMEOUTS="bundle-cpu-baseline-2515.sh:${KAAPPI_BUNDLE_CPU_BASELINE_TIMEOUT:-1200}"' "$RUN_ALL"; then
+# itself, and the override for a script that motivated the mechanism could
+# be dropped silently. -F -x: the whole line as a fixed string, so a
+# malformed key or a retuned default cannot slip through a looser match.
+# unit-chunk-watchdog-2560.sh joined the table in kaappi#2561: its shim
+# cases carry wedged-level allowances that must not be squeezed by a leg's
+# flat KAAPPI_SHELL_TEST_TIMEOUT under load.
+if ! grep -Fxq 'PER_SCRIPT_TIMEOUTS="bundle-cpu-baseline-2515.sh:${KAAPPI_BUNDLE_CPU_BASELINE_TIMEOUT:-1200} unit-chunk-watchdog-2560.sh:${KAAPPI_UNIT_CHUNK_WATCHDOG_TIMEOUT:-480}"' "$RUN_ALL"; then
     echo "FAIL: run-all.sh's PER_SCRIPT_TIMEOUTS entry is not exactly:" >&2
-    echo '       PER_SCRIPT_TIMEOUTS="bundle-cpu-baseline-2515.sh:${KAAPPI_BUNDLE_CPU_BASELINE_TIMEOUT:-1200}"' >&2
+    echo '       PER_SCRIPT_TIMEOUTS="bundle-cpu-baseline-2515.sh:${KAAPPI_BUNDLE_CPU_BASELINE_TIMEOUT:-1200} unit-chunk-watchdog-2560.sh:${KAAPPI_UNIT_CHUNK_WATCHDOG_TIMEOUT:-480}"' >&2
     exit 1
 fi
 
@@ -69,7 +72,7 @@ done
 # ignore it, but taking it keeps this script's invocation contract the same
 # as every other script the runners launch.
 SHELL_TIMEOUT=2
-PER_SCRIPT_TIMEOUTS="bundle-cpu-baseline-2515.sh:6"
+PER_SCRIPT_TIMEOUTS="bundle-cpu-baseline-2515.sh:6 unit-chunk-watchdog-2560.sh:5"
 TICKS_PER_SEC=20
 sleep 0.05 2>/dev/null || TICKS_PER_SEC=1
 KAAPPI="${1:-/bin/true}"
@@ -80,6 +83,10 @@ export KAAPPI
 # entry; an unlisted script (and a near-miss name) falls back to the global.
 if [[ "$(shell_timeout_for "$DIR/bundle-cpu-baseline-2515.sh")" != "6" ]]; then
     echo "FAIL: listed script did not get its PER_SCRIPT_TIMEOUTS budget" >&2
+    exit 1
+fi
+if [[ "$(shell_timeout_for "$DIR/unit-chunk-watchdog-2560.sh")" != "5" ]]; then
+    echo "FAIL: second table entry did not route its own budget" >&2
     exit 1
 fi
 if [[ "$(shell_timeout_for "$DIR/unlisted-script.sh")" != "2" ]]; then
