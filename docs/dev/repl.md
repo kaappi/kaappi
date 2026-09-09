@@ -54,9 +54,11 @@ cursor:
 | alt+y | rotate | `(if a\| b c)` → `(if b c a\|)` |
 
 They are listed under F1 too, and only when the callback is set. Each is
-`ESC` followed by the character, so a terminal that does not send Option as
-Meta (macOS Terminal.app, unless "Use Option as Meta key" is on) will not
-deliver them.
+reached by pressing `ESC` then the character. Since patch 7 (kaappi#2562) `ESC`
+is a sticky Meta prefix with no timeout, so `ESC` then `shift-S` composes to
+`alt-shift-S` on *every* terminal, whether or not it sends Option as Meta — no
+"Use Option as Meta key" setting is needed. The deliberate cost is that a lone
+`ESC` no longer clears the input; `ctrl-u` and `ctrl-c` still do.
 
 `src/repl_sexp.zig` holds the transforms — pure functions over
 `(buffer, byte cursor)`, so they unit-test without a terminal. The keys and the

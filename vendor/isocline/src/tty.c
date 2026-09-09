@@ -164,7 +164,15 @@ ic_private bool tty_read_timeout(tty_t* tty, long timeout_ms, code_t* code)
 
   if (c == KEY_ESC) {
     // escape sequence?
-    *code = tty_read_esc(tty, tty->esc_initial_timeout, tty->esc_timeout);
+    // KAAPPI PATCH 7: ESC is a sticky Meta prefix (see PATCHES.md) — pass -1 so
+    // the first byte after ESC is read with NO timeout. A real escape sequence
+    // (arrow keys, mouse) still arrives as a burst and decodes immediately; a
+    // lone ESC keypress now waits indefinitely for the next key and composes it
+    // as alt-<key>, which is the only way to reach the alt-<key> structural
+    // bindings on a default macOS terminal (kaappi#2562). Upstream passed
+    // tty->esc_initial_timeout here, which required the terminal to send Option
+    // as Meta within a short window — no default Mac terminal does.
+    *code = tty_read_esc(tty, -1, tty->esc_timeout);
   }
   else if (c <= 0x7F) {
     // ascii
@@ -488,11 +496,14 @@ ic_private tty_t* tty_new(alloc_t* mem, int fd_in)
   tty_t* tty = mem_zalloc_tp(mem, tty_t);
   tty->mem = mem;
   tty->fd_in = (fd_in < 0 ? STDIN_FILENO : fd_in);
-  #if defined(__APPLE__)
-  tty->esc_initial_timeout = 200;  // apple use ESC+<key> for alt-<key>
-  #else
+  // KAAPPI PATCH 7: one platform-independent value. The interactive ESC decode
+  // no longer consults this field (tty_read_timeout passes -1 for a blocking,
+  // no-timeout sticky Meta prefix — see PATCHES.md and kaappi#2562), so the old
+  // __APPLE__ bump to 200ms "apple use ESC+<key> for alt-<key>" no longer has a
+  // rationale. The field now only bounds the terminal query-response readers
+  // (tty_read_esc_response / tty_read_dsr_response, both 2*this = 200ms), which
+  // are round-trips to the terminal, not user typing.
   tty->esc_initial_timeout = 100;
-  #endif
   tty->esc_timeout = 10;
   if (!(isatty(tty->fd_in) && tty_init_raw(tty) && tty_init_utf8(tty))) {
     tty_free(tty);
