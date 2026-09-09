@@ -49,25 +49,45 @@ out="$work/out"
 #   timeout line (exercising the script's sed parser, spaces included),
 #   print a summary the script's floor check accepts, exit SHIM_EXIT.
 shim="$work/zig"
+# A copy of sleep under the name `zig`: as a GRANDCHILD of the shim its
+# comm is "zig", which pins phase_of's compiling branch (the test binary
+# and the QEMU wrapper hold the same position with a different name).
+mkdir -p "$work/bin"
+cp "$(command -v sleep)" "$work/bin/zig"
+# macOS AMFI kills a copied system binary that carries no valid signature,
+# so re-sign the copy ad hoc; Linux and the BSDs enforce nothing here.
+if [ "$(uname -s)" = "Darwin" ]; then
+    codesign --force -s - "$work/bin/zig" > /dev/null 2>&1 || true
+fi
 cat > "$shim" <<'SHIM'
 #!/usr/bin/env bash
 set -u
+# hang_tree: hang with a GRANDCHILD whose executable name decides what
+# the script's phase_of reports -- `sleep` (default) reads as a spawned
+# test binary ("running tests"); the sleep copy named zig
+# (SHIM_WEDGE_STYLE=compile + SHIM_FAKE_ZIG) reads as the compiler.
+hang_tree() {
+    case "${SHIM_WEDGE_STYLE:-}" in
+        compile) bash -c '"$SHIM_FAKE_ZIG" 9999 & wait' ;;
+        *)       bash -c 'sleep 9999 & wait' ;;
+    esac
+}
 if [ -n "${SHIM_WEDGE_ONCE:-}" ] && [ ! -f "${SHIM_WEDGE_ONCE}" ]; then
     : > "${SHIM_WEDGE_ONCE}"
-    sleep 9999 & sleep 9999 & wait
+    hang_tree
 fi
 if [ -n "${SHIM_HANG_FIRST:-}" ]; then
     count=0
     [ -f "${SHIM_HANG_FIRST}" ] && count=$(cat "${SHIM_HANG_FIRST}")
     if [ "$count" -gt 0 ]; then
         echo $((count - 1)) > "${SHIM_HANG_FIRST}"
-        sleep 9999 & sleep 9999 & wait
+        hang_tree
     fi
 fi
 if [ -n "${SHIM_WEDGE_FILTER:-}" ]; then
     for a in "$@"; do
         case "$a" in
-            -Dtest-filter=*"$SHIM_WEDGE_FILTER"*) sleep 9999 & sleep 9999 & wait ;;
+            -Dtest-filter=*"$SHIM_WEDGE_FILTER"*) hang_tree ;;
         esac
     done
 fi
@@ -88,7 +108,7 @@ chmod +x "$shim"
 # the --test-timeout grammar (a Zig duration). The level-funding constants
 # are scaled down so a level's "full estimate" is seconds, not minutes.
 base_env="KAAPPI_ZIG=$shim KAAPPI_TEST_TIMEOUT=8m KAAPPI_BISECT_TEST_TIMEOUT=90s"
-base_env="$base_env KAAPPI_BISECT_LEVEL_BASE_SECS=2 KAAPPI_BISECT_LEVEL_PER_FILTER_SECS=1"
+base_env="$base_env KAAPPI_BISECT_LEVEL_BASE_SECS=2 KAAPPI_BISECT_LEVEL_PER_TEST_TENTHS=0"
 base_env="$base_env KAAPPI_HEARTBEAT_SECS=2"
 
 # Structure: --list still derives the rest chunk's filters from the tree,
@@ -152,6 +172,7 @@ echo 2 > "$work/count"
 rc=0
 # shellcheck disable=SC2086  # base_env is a deliberate VAR=val word list for env
 env $base_env KAAPPI_CHUNK_BUDGET=3 KAAPPI_BISECT_BUDGET=10 \
+    KAAPPI_BISECT_LEVEL_BASE_SECS=30 \
     SHIM_HANG_FIRST="$work/count" \
     bash tools/run-unit-test-chunk.sh rest > "$out" 2>&1 || rc=$?
 [ "$rc" -eq 124 ] || fail "case 4 (clipped level): wall-budget overrun must exit 124 (got $rc)"
@@ -160,5 +181,29 @@ grep -q "descending into this half" "$out" && fail "case 4: an inconclusive leve
 grep -q "RESULT: inconclusive -- the pot could not fund decisive levels" "$out" ||
     fail "case 4: no pot-too-small verdict line"
 
-echo "PASS: watchdog, heartbeat, decisive descent, per-test NOTEs, and the"
-echo "PASS: clipped-level INCONCLUSIVE stop all behave and are all streamed"
+# Case 5: the kill-time phase report, running-tests branch. The shim's
+# default hang_tree leaves a `sleep` grandchild, which phase_of must read
+# as a spawned test binary. A dry pot keeps the case to the kill itself.
+rc=0
+# shellcheck disable=SC2086  # base_env is a deliberate VAR=val word list for env
+env $base_env KAAPPI_CHUNK_BUDGET=3 KAAPPI_BISECT_BUDGET=0 \
+    SHIM_WEDGE_ONCE="$work/once5" \
+    bash tools/run-unit-test-chunk.sh rest > "$out" 2>&1 || rc=$?
+[ "$rc" -eq 124 ] || fail "case 5 (phase, tests): wall-budget overrun must exit 124 (got $rc)"
+grep -q "WALL BUDGET EXCEEDED after .*s (running tests)" "$out" ||
+    fail "case 5: a sleep grandchild must be reported as tests in flight"
+
+# Case 6: the compiling branch -- same shape, but the grandchild is the
+# sleep copy named zig, which phase_of must read as the compiler itself.
+rc=0
+# shellcheck disable=SC2086  # base_env is a deliberate VAR=val word list for env
+env $base_env KAAPPI_CHUNK_BUDGET=3 KAAPPI_BISECT_BUDGET=0 \
+    SHIM_WEDGE_ONCE="$work/once6" SHIM_WEDGE_STYLE=compile \
+    SHIM_FAKE_ZIG="$work/bin/zig" \
+    bash tools/run-unit-test-chunk.sh rest > "$out" 2>&1 || rc=$?
+[ "$rc" -eq 124 ] || fail "case 6 (phase, compile): wall-budget overrun must exit 124 (got $rc)"
+grep -q "WALL BUDGET EXCEEDED after .*s (compiling)" "$out" ||
+    fail "case 6: a zig-named grandchild must be reported as compiling"
+
+echo "PASS: watchdog, heartbeat, decisive descent, per-test NOTEs, the"
+echo "PASS: clipped-level INCONCLUSIVE stop, and both kill-time phase reads"

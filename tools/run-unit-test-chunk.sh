@@ -58,7 +58,8 @@
 # exits, which the script echoes as NOTE lines; if no level ever wedged,
 # the whole chunk is re-run under the tight bound (the same filter set as
 # the chunk run, so its compile is cached whenever that run got past
-# compiling) so every per-test culprit is named in full context. The last line before any kill therefore names the filter, the
+# compiling) so every per-test culprit is named in full context. The last
+# line before any kill therefore names the filter, the
 # narrowed subset, or the slow test -- the reopen criterion of #2488. Each
 # level costs at most one test-binary compile for its fresh filter set
 # (~1.5m cold on the CI host, cache-warm objects after phase 1), so levels
@@ -83,9 +84,11 @@
 #   KAAPPI_BISECT_BUDGET           total bisection pot, SECONDS (default 1080)
 #   KAAPPI_BISECT_TEST_TIMEOUT     per-test bound during bisection levels
 #                                  (Zig duration; default 90s)
-#   KAAPPI_BISECT_LEVEL_BASE_SECS  level-funding estimate base, SECONDS
-#                                  (default 120; see the constants below)
-#   KAAPPI_BISECT_LEVEL_PER_FILTER_SECS   ...and per-filter term (default 25)
+#   KAAPPI_BISECT_LEVEL_BASE_SECS        level-funding estimate base,
+#                                        SECONDS (default 120; see the
+#                                        constants below)
+#   KAAPPI_BISECT_LEVEL_PER_TEST_TENTHS  ...and per-TEST term, tenths of
+#                                        a second (default 12 = 1.2s/test)
 #   KAAPPI_HEARTBEAT_SECS          heartbeat cadence, SECONDS (default 60)
 #   KAAPPI_ZIG                     zig binary to drive (default `zig`); for
 #                                  the shim-driven regression test
@@ -183,22 +186,29 @@ LISTED_FILES="$PROCESS_FILES $CONCURRENCY_FILES $IO_FILES $FUZZ_FILES $GC_FILES 
 CHUNK_NAMES="process|concurrency|io|fuzz|gc|native|tooling|rest"
 
 # Bisection level funding, seconds. A level's ESTIMATE is the plausible
-# worst case for a CLEAN level of n filters under QEMU: a fresh compile for
-# the subset (~90s on the CI host) plus runtime at ~25s per filter (~2x the
-# ~12s/filter the #2560 numbers give for `rest`). A level run at its full
-# estimate therefore separates the outcomes: finishing exonerates its half,
-# and only not-finishing implicates it. The pot funds FULL estimates --
-# deliberately no fractional share, because a clipped level's TIMEOUT is
-# not evidence (a clean level can simply be slower than a clipped
-# allowance): an under-funded timeout is reported INCONCLUSIVE and never
-# narrows the descent, while an under-funded COMPLETION still exonerates
-# (finishing is finishing whatever the allowance was). Below MIN (BASE/3:
-# a fraction of even the compile) a level cannot decide anything and is
-# not started. Natively everything finishes far under the estimate; the
-# two constants are env-overridable for fast hosts and for the shim-driven
-# regression test.
+# worst case for a CLEAN level: a fresh compile for the subset (~90s on
+# the CI host) plus runtime per TEST in it. The term is per test, not per
+# filter, because the `rest` chunk's filters are skewed 2.4-4.7x in test
+# count (tests_ir carries 94 against a ~20-per-file average) and a
+# per-filter term underestimates the heavy windows enough to misread a
+# clean level as wedged -- worst at the solo confirm, which would print
+# LOCALISED AND CONFIRMED for a merely-heavy file. The default term is 12
+# tenths of a second (~2x the ~0.6s/test the #2560 numbers give for
+# `rest` under QEMU: 907 tests in ~9.5m after the ~1.5m compile). A level
+# run at its full estimate therefore separates the outcomes: finishing
+# exonerates its half, and only not-finishing implicates it. The pot
+# funds FULL estimates -- deliberately no fractional share, because a
+# clipped level's TIMEOUT is not evidence (a clean level can simply be
+# slower than a clipped allowance): an under-funded timeout is reported
+# INCONCLUSIVE and never narrows the descent, while an under-funded
+# COMPLETION still exonerates (finishing is finishing whatever the
+# allowance was). Below MIN (BASE/3: a fraction of even the compile) a
+# level cannot decide anything and is not started. Natively everything
+# finishes far under the estimate; the constants are env-overridable for
+# fast hosts and for the shim-driven regression test (which zeroes the
+# per-test term so an estimate is the base alone).
 BISECT_LEVEL_BASE_SECS="${KAAPPI_BISECT_LEVEL_BASE_SECS:-120}"
-BISECT_LEVEL_PER_FILTER_SECS="${KAAPPI_BISECT_LEVEL_PER_FILTER_SECS:-25}"
+BISECT_LEVEL_PER_TEST_TENTHS="${KAAPPI_BISECT_LEVEL_PER_TEST_TENTHS:-12}"
 BISECT_LEVEL_MIN_SECS=$((BISECT_LEVEL_BASE_SECS / 3))
 [ "$BISECT_LEVEL_MIN_SECS" -ge 1 ] || BISECT_LEVEL_MIN_SECS=1
 
@@ -265,7 +275,15 @@ case "$chunk" in
 esac
 
 filters=()
-for n in $names; do filters+=("-Dtest-filter=$n.test."); done
+filter_tests=()
+for n in $names; do
+    filters+=("-Dtest-filter=$n.test.")
+    # The bisection's level estimates are per TEST (see the constants
+    # above), so carry each file's declared-test count alongside its
+    # filter. grep -c prints 0 (and exits 1, which set -u does not mind)
+    # for a listed file with no named tests.
+    filter_tests+=("$(grep -c '^test "' "src/$n.zig" | tr -d ' ')")
+done
 
 if [ "$list_only" = 1 ]; then
     printf '%s\n' "${filters[@]}"
@@ -321,7 +339,14 @@ phase_of() {
     verdict=""
     for child in $(pgrep -P "$pid" 2>/dev/null); do
         for gc in $(pgrep -P "$child" 2>/dev/null); do
-            base="$(ps -o comm= -p "$gc" 2>/dev/null | awk '{print $1}')"
+            # Whole line, not the first word: macOS comm= is the full
+            # executable path, so a checkout under a directory with a
+            # space in its name would split to a non-zig first word and
+            # misclassify a compile as running tests. Linux comm= is the
+            # 15-char executable name, never a path; the basename is
+            # identity either way.
+            base=""
+            read -r base < <(ps -o comm= -p "$gc" 2>/dev/null)
             base="${base##*/}"
             if [ "$base" != "zig" ] && [ -n "$base" ]; then
                 echo "running tests"
@@ -431,7 +456,7 @@ run_supervised() {
 #     a timeout -- that is INCONCLUSIVE, not evidence -- though its
 #     completion still exonerates (finishing is finishing).
 bisect_chunk() {
-    local lo=0 hi=${#filters[@]} depth=0 mid n est allow remaining now
+    local lo=0 hi=${#filters[@]} depth=0 mid n est allow remaining now subset_tests
     local pot_start first last f i tn
     local wedged_seen=0 full_rerun_wedged=0 inconclusive_seen=0 bisect_slow_notes=""
     pot_start=$(date +%s)
@@ -442,7 +467,13 @@ bisect_chunk() {
         remaining=$((bisect_pot - (now - pot_start)))
         mid=$(((lo + hi) / 2))
         n=$((mid - lo))
-        est=$((BISECT_LEVEL_BASE_SECS + BISECT_LEVEL_PER_FILTER_SECS * n))
+        subset_tests=0
+        i=$lo
+        while [ "$i" -lt "$mid" ]; do
+            subset_tests=$((subset_tests + filter_tests[i]))
+            i=$((i + 1))
+        done
+        est=$((BISECT_LEVEL_BASE_SECS + (BISECT_LEVEL_PER_TEST_TENTHS * subset_tests) / 10))
         allow=$est
         [ "$allow" -gt "$remaining" ] && allow=$remaining
         if [ "$allow" -lt "$BISECT_LEVEL_MIN_SECS" ]; then
@@ -525,11 +556,12 @@ bisect_chunk() {
     if [ $((hi - lo)) -eq 1 ]; then
         f=$(fname "${filters[lo]}")
         if [ "$remaining" -ge "$BISECT_LEVEL_MIN_SECS" ]; then
-            allow=$((BISECT_LEVEL_BASE_SECS + BISECT_LEVEL_PER_FILTER_SECS))
+            est=$((BISECT_LEVEL_BASE_SECS + (BISECT_LEVEL_PER_TEST_TENTHS * filter_tests[lo]) / 10))
+            allow=$est
             [ "$allow" -gt "$remaining" ] && allow=$remaining
             echo "== bisect: confirming the single suspect $f alone (budget ${allow}s)"
             run_supervised "$allow" "bisect confirm ($f)" "${filters[lo]}" "$@" --test-timeout "$bisect_timeout"
-            if [ "$watchdog_fired" = 1 ] && [ "$allow" -ge $((BISECT_LEVEL_BASE_SECS + BISECT_LEVEL_PER_FILTER_SECS)) ]; then
+            if [ "$watchdog_fired" = 1 ] && [ "$allow" -ge "$est" ]; then
                 echo "== LOCALISED AND CONFIRMED: filter '$f.test.' alone did not finish at its full estimated allowance ($kill_phase at kill time)"
             elif [ "$watchdog_fired" = 1 ]; then
                 echo "== LOCALISED (unconfirmed): filter '$f.test.' did not finish its solo run, but on a clipped allowance -- a clean solo run can be slower than that"
