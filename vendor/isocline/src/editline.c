@@ -1033,9 +1033,15 @@ static char* edit_line( ic_env_t* env, const char* prompt_text )
       break; // STOP event quits with NULL
     }
     else if (c == KEY_ESC) {
+      // KAAPPI PATCH 7: ESC is a sticky Meta prefix now (see PATCHES.md and
+      // kaappi#2562). The decoder in tty_read_timeout blocks for the next key
+      // and composes it as alt-<key>, so a lone ESC from an interactive
+      // keypress no longer reaches here — this arm only fires if the input
+      // stream ends right after an ESC byte. Do NOT edit_delete_all: that was
+      // the data-loss path (Escape-then-letter wiped the whole form on macOS,
+      // where Option is not Meta). ctrl-u / ctrl-c still clear the input.
       if (eb.pos == 0 && editor_pos_is_at_end(&eb)) break;  // ESC on empty input returns with empty input
-      edit_delete_all(env,&eb);      // otherwise delete the current input
-      // edit_delete_line(env,&eb);  // otherwise delete the current line
+      // otherwise: ignore. (Upstream, and Kaappi before #2562, ran edit_delete_all here.)
     }
     else if (c == KEY_BELL /* ^G */ || c == KEY_CTRL_C) {
       edit_delete_all(env,&eb);

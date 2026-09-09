@@ -4,7 +4,7 @@ Vendored from <https://github.com/daanx/isocline> at commit
 `8d6dc1ef95b1b46711e66eb23d39d4467a0fcdac` (2026-04-23, v1.1.0), MIT licensed —
 see `LICENSE`.
 
-**This is a patched copy.** Six changes diverge from upstream. Each is marked
+**This is a patched copy.** Seven changes diverge from upstream. Each is marked
 in the source with a `KAAPPI PATCH <n>` comment pointing here. When updating
 isocline, re-apply them; `grep -rn 'KAAPPI PATCH' vendor/isocline/` finds every
 site.
@@ -270,6 +270,58 @@ is a bigger diff to re-apply than a post-open `fcntl`.) The wasm32-wasi build
 never compiles isocline (`use_isocline = !is_wasm_target` in `build.zig`), so
 no WASI guard is needed. Fixes kaappi#2423; found by the KEP-0022 CLOEXEC
 audit (kaappi#2414).
+
+## Patch 7 — ESC is a sticky Meta prefix (reach alt-<key> without a Meta terminal)
+
+**Files:** `src/tty.c`, `src/editline.c`
+
+The four structural-editing keys from Patch 3 (`alt-shift-S` slurp,
+`alt-shift-B` barf, `alt-shift-R` raise, `alt-y` rotate) and the upstream
+`alt-<key>` bindings are only reachable when the terminal sends Option/Alt as
+Meta, i.e. as `ESC <char>`. **No default macOS terminal does that** —
+Terminal.app, iTerm2, kitty, Alacritty and Ghostty all insert the *composed*
+character instead. So out of the box on the primary dev platform the documented
+keys did not run; they inserted a stray glyph (`Í`, `¥`, …), and the natural
+readline habit — press Escape, then the letter — ran `edit_delete_all` and
+**wiped the whole form** (kaappi#2562). The four structural keys have no
+ctrl/arrow alternative, so the feature was simply unreachable.
+
+The fix makes `ESC` a **sticky Meta prefix**, exactly like readline / zsh /
+Emacs: `ESC` followed by any key is that key with Alt, with **no timeout**.
+
+Two sites:
+
+1. **`src/tty.c` (`tty_read_timeout`)** — the interactive ESC decode now calls
+   `tty_read_esc(tty, -1, ...)` instead of passing `tty->esc_initial_timeout`.
+   The `-1` makes the read of the byte *after* ESC block indefinitely (see
+   `tty_readc_noblock`: `timeout_ms < 0` is a plain blocking read). A genuine
+   terminal escape sequence (arrows, mouse) still arrives as one burst and
+   decodes immediately; only a lone ESC keypress waits — for the key the user
+   is about to press — and composes it as alt-<key> at the `alt:` label in
+   `tty_esc.c`. That path (`key_unicode(peek) | KEY_MOD_ALT`) is upstream's and
+   is unchanged.
+
+2. **`src/tty.c` (`tty_new`)** — the `esc_initial_timeout` field is now one
+   platform-independent value (100ms). The old `#if defined(__APPLE__)` bump to
+   200ms carried the comment "apple use ESC+<key> for alt-<key>", which was only
+   true once a user had configured their terminal to send Option as Meta. With
+   the sticky prefix the interactive decode ignores this field entirely, so the
+   platform distinction has no rationale left. The field still bounds the
+   terminal query-response readers (`tty_read_esc_response`,
+   `tty_read_dsr_response` from Patch 5), which use `2*esc_initial_timeout`.
+
+3. **`src/editline.c`** — the lone `KEY_ESC` arm no longer runs
+   `edit_delete_all`. With the sticky prefix a lone ESC from an interactive
+   keypress never reaches the edit loop (the decoder blocks for the next key),
+   so this arm now only fires if the input stream ends right after an ESC byte;
+   deleting the buffer there was the kaappi#2562 data-loss path. The
+   empty-input `break` is kept.
+
+**Cost, and it is deliberate:** a lone Escape no longer clears the input.
+`ctrl-u` (delete-to-start) and `ctrl-c` (cancel) still do. This is upstream
+isocline behaviour we override, which is why it is a patch; it is also the
+convention every other line editor on macOS already follows, and it turns the
+old destructive "Escape then S" into the slurp the user meant.
 
 ## Deliberately not patched
 

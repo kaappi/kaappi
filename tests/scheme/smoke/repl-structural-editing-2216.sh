@@ -1,5 +1,7 @@
 #!/bin/bash
 # kaappi#2216: structural s-expression editing at the REPL.
+# kaappi#2562: ESC is a sticky Meta prefix so those bindings are reachable
+#              without a Meta-configured terminal.
 #
 # The transforms themselves are unit-tested in `src/repl_sexp.zig`. What this
 # covers is the half that lives in C and cannot be reached from Zig: isocline's
@@ -11,6 +13,12 @@
 # key, submits, and asserts on what the *evaluator* printed. That keeps the
 # check independent of how the editor redraws the line: the only way to print
 # `(1 2)` from `(list 1 2 3)` is for barf to have moved the paren.
+#
+# The final case is the #2562 regression: it sends a lone ESC, waits far longer
+# than the old ESC-compose window, then sends `S`. With the sticky-Meta prefix
+# (KAAPPI PATCH 7) that composes to alt-S (slurp); before the fix the lone ESC
+# ran `edit_delete_all` and wiped the whole form, and `S` was left as an
+# undefined variable.
 
 set -eu
 
@@ -173,6 +181,35 @@ for typed, lefts, key, expect, reject in CASES:
     if not ok or (reject is not None and reject in produced):
         failures.append((key, expect, produced))
 
+# kaappi#2562: ESC as a sticky Meta prefix, driven the way a Mac user actually
+# reaches these keys — press Escape, then the letter. The pause below is far
+# longer than the ESC-compose window this fix removed (200 ms on macOS, 100 ms
+# elsewhere), so it exercises the *no-timeout* prefix specifically. Before the
+# fix the lone ESC deleted the whole form and `S` evaluated as an undefined
+# variable; with it, ESC+S composes to alt-S = slurp. Same form/cursor as the
+# slurp case above so the only variable is how the key is delivered.
+esc_label = b'\x1b <pause> S'
+mark = len(buf)
+send(b'(list 1 2) 3')
+if not wait_for(b'(list 1 2) 3', mark, 20):
+    failures.append((esc_label, b'(list 1 2) 3', seen(mark)))
+else:
+    for _ in range(3):
+        send(b'\x02')          # ctrl-b: cursor to just after the `2`
+    idle(0.3)
+    send(b'\x1b')              # lone ESC — the sticky Meta prefix, no timeout
+    time.sleep(0.4)            # longer than the removed ESC-compose window
+    send(b'S')                 # composes to alt-S = slurp
+    idle(0.3)
+    send(b'\r')
+    ok = wait_for(b'\n(1 2 3)\n', mark, 20)
+    idle()
+    produced = seen(mark)
+    # Without the fix the form is gone and `S` is undefined; guard both the
+    # positive result and that no wipe-then-error snuck through.
+    if not ok or b'undefined variable' in produced:
+        failures.append((esc_label, b'(1 2 3)', produced))
+
 send(b',quit\r')
 while pump(1.0):
     pass
@@ -193,7 +230,7 @@ status=$?
 set -e
 
 case $status in
-    0)  echo "PASS: barf, slurp, raise and rotate all edit the buffer"; exit 0 ;;
+    0)  echo "PASS: barf, slurp, raise, rotate edit the buffer; ESC is a sticky Meta prefix"; exit 0 ;;
     77) echo "SKIP: no usable pty for the REPL here"; exit 77 ;;
     *)  echo "FAIL: structural editing did not take effect"; exit 1 ;;
 esac
