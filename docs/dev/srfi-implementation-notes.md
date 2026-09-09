@@ -931,10 +931,10 @@ find (kaappi#2542) is the imag-part convention leaking through the sample
 implementation's own code: its c64/c128 checker is textually `(and (complex?
 obj) (inexact? (real-part obj)) (inexact? (imag-part obj)))`, but Gambit's
 exact-0 `(imag-part 1.0)` makes it reject a bare real flonum that Kaappi's
-equally R7RS-legal inexact `0.0` accepted — so the shipped checker carries an
-explicit `(not (real? x))`, encoding the sample implementation's verdict under
-either convention (a `1.0+0.0i` with a real inexact-zero imaginary part is
-still accepted).
+equally R7RS-legal inexact `0.0` accepted — so #2543 shipped the checker with
+an explicit `(not (real? x))` clause, encoding the sample implementation's
+verdict under either convention (a `1.0+0.0i` with a real inexact-zero
+imaginary part was still accepted).
 
 **That clause was reverted in #2559.** The two checkers are the sample
 implementation's line verbatim; the verdicts differ because Gambit's

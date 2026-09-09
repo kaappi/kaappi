@@ -208,10 +208,12 @@
   (test-equal #t ok)
   (test-equal 2046 nan-patterns))
 
-;;; --- fX/cX checkers match the reference exactly: inexact reals only
-;;; for f32/f64 (flonum?), proper complexes with inexact real and
-;;; imaginary parts for c64/c128 -- exact values were silently coerced
-;;; (1/3 into c64 lost f32 precision) before kaappi#2355 ---
+;;; --- fX/cX checkers are the sample implementation's line exactly:
+;;; inexact reals only for f32/f64 (flonum?), and for c64/c128 any complex
+;;; whose real and imaginary parts are both inexact -- which includes a bare
+;;; real flonum under our tower, since our (imag-part 1.0) is 0.0 (#2559).
+;;; Exact values were silently coerced (1/3 into c64 lost f32 precision)
+;;; before kaappi#2355 ---
 (test-equal #t ((storage-class-checker f64-storage-class) 3.5))
 (test-equal #t ((storage-class-checker f64-storage-class) -0.0))
 (test-equal #f ((storage-class-checker f64-storage-class) 3))
@@ -225,8 +227,10 @@
 ;; R6RS's rule, not R7RS small's. Do not "fix" these to #f to match Gambit --
 ;; that is a numeric-tower difference, and the SRFI's author confirmed
 ;; implementations may differ.
-(test-equal #t ((storage-class-checker c64-storage-class) 3.5))
-(test-equal #t ((storage-class-checker c128-storage-class) 1.0))
+(test-equal "c64 checker accepts a bare real flonum (#2559)"
+            #t ((storage-class-checker c64-storage-class) 3.5))
+(test-equal "c128 checker accepts a bare real flonum (#2559)"
+            #t ((storage-class-checker c128-storage-class) 1.0))
 (test-equal #f ((storage-class-checker c64-storage-class) (make-rectangular 3 4)))
 (test-equal #f ((storage-class-checker c64-storage-class) 1/3))
 (test-equal #f ((storage-class-checker c128-storage-class) (make-rectangular 1/2 2)))
@@ -234,10 +238,19 @@
 ;; that consults the checker at all (same-class copies skip it, #2448).
 ;; Copying real flonums into a c64 array succeeds and round-trips, the
 ;; behavior #2543 removed and #2559 restored.
-(test-equal "array-copy of real flonums into c64 succeeds (#2559)"
-            1.5+0.0i
-            (array-ref (array-copy (make-array (make-interval '#(2)) (lambda (i) 1.5))
+;; 0.1 rather than an f32-exact value like 1.5: the result proves the element
+;; really went through the interleaved f32 body, so this one assertion pins
+;; acceptance, the complex result type, AND the narrowing. The c128 case is
+;; the control -- same input, f64 body, no narrowing.
+(test-equal "array-copy of real flonums into c64 succeeds and narrows (#2559)"
+            0.10000000149011612+0.0i
+            (array-ref (array-copy (make-array (make-interval '#(2)) (lambda (i) 0.1))
                                    c64-storage-class)
+                       0))
+(test-equal "array-copy of real flonums into c128 succeeds without narrowing (#2559)"
+            0.1+0.0i
+            (array-ref (array-copy (make-array (make-interval '#(2)) (lambda (i) 0.1))
+                                   c128-storage-class)
                        0))
 (test-assert "array-copy of 1.0+0.0i into c64 is accepted (#2542)"
              (guard (e (#t #f))
