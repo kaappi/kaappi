@@ -280,8 +280,10 @@ for n in $names; do
     filters+=("-Dtest-filter=$n.test.")
     # The bisection's level estimates are per TEST (see the constants
     # above), so carry each file's declared-test count alongside its
-    # filter. grep -c prints 0 (and exits 1, which set -u does not mind)
-    # for a listed file with no named tests.
+    # filter. grep -c prints 0 and exits 1 for a listed file with no
+    # named tests; that status is harmless here because the command
+    # substitution feeding an array append discards it (set -e is what
+    # would mind, and this script does not set it).
     filter_tests+=("$(grep -c '^test "' "src/$n.zig" | tr -d ' ')")
 done
 

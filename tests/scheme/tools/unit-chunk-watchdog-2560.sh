@@ -170,8 +170,14 @@ grep -q "NOTE: 'tests_fake.test.slow one' exceeded the tight 90s bound" "$out" |
 # the descent.
 echo 2 > "$work/count"
 rc=0
+# The pot must clear the level floor (BASE/3 = 10s here) by more than a
+# second: pot_start and depth 1's now-stamp straddle a clock-tick boundary
+# whenever a second flips between them, and a pot equal to the floor then
+# reads as one second short and the level is refused as "too shallow"
+# instead of run clipped -- a low-single-digit-percent flake per run.
+# 12 leaves that tick of slack while still clipping 12 < 30.
 # shellcheck disable=SC2086  # base_env is a deliberate VAR=val word list for env
-env $base_env KAAPPI_CHUNK_BUDGET=3 KAAPPI_BISECT_BUDGET=10 \
+env $base_env KAAPPI_CHUNK_BUDGET=3 KAAPPI_BISECT_BUDGET=12 \
     KAAPPI_BISECT_LEVEL_BASE_SECS=30 \
     SHIM_HANG_FIRST="$work/count" \
     bash tools/run-unit-test-chunk.sh rest > "$out" 2>&1 || rc=$?
@@ -205,5 +211,38 @@ env $base_env KAAPPI_CHUNK_BUDGET=3 KAAPPI_BISECT_BUDGET=0 \
 grep -q "WALL BUDGET EXCEEDED after .*s (compiling)" "$out" ||
     fail "case 6: a zig-named grandchild must be reported as compiling"
 
+# Case 7: the per-TEST funding term, with the term nonzero. The depth-1
+# and depth-2 lines must carry estimates computed from each subset's own
+# declared-test count (the test derives them independently, from the same
+# grep of the same files), so a regression back to a flat or per-filter
+# estimate changes the printed numbers and fails here. Depth 1 completing
+# (the wedge-once stamp was consumed in phase 1) puts depth 2 at filters
+# 24-34, the two windows differing in density.
+est_of() { # est_of <start-1-based> <count>: 2s base + 1 tenth x the slice's tests
+    local start="$1" n="$2" total=0 f c
+    for f in $(bash tools/run-unit-test-chunk.sh --list rest \
+               | sed -n "${start},$((start + n - 1))p" \
+               | sed 's/^-Dtest-filter=//; s/\.test\.$//'); do
+        c=$(grep -c '^test "' "src/$f.zig" | tr -d ' ')
+        total=$((total + c))
+    done
+    echo $(( 2 + total / 10 ))
+}
+e1=$(est_of 1 23)
+e2=$(est_of 24 11)
+[ "$e1" -ne "$e2" ] || fail "case 7 setup: the two probe windows estimate equal; pick denser windows"
+rc=0
+# shellcheck disable=SC2086  # base_env is a deliberate VAR=val word list for env
+env $base_env KAAPPI_CHUNK_BUDGET=3 KAAPPI_BISECT_BUDGET=45 \
+    KAAPPI_BISECT_LEVEL_PER_TEST_TENTHS=1 \
+    SHIM_WEDGE_ONCE="$work/once7" \
+    bash tools/run-unit-test-chunk.sh rest > "$out" 2>&1 || rc=$?
+[ "$rc" -eq 124 ] || fail "case 7 (per-test funding): wall-budget overrun must exit 124 (got $rc)"
+grep -q "bisect depth 1: 23 filter(s) .* budget .*s of a ${e1}s estimate" "$out" ||
+    fail "case 7: depth 1's estimate is not ${e1}s from its subset's test count"
+grep -q "bisect depth 2: 11 filter(s) .* budget .*s of a ${e2}s estimate" "$out" ||
+    fail "case 7: depth 2's estimate is not ${e2}s from its subset's test count"
+
 echo "PASS: watchdog, heartbeat, decisive descent, per-test NOTEs, the"
-echo "PASS: clipped-level INCONCLUSIVE stop, and both kill-time phase reads"
+echo "PASS: clipped-level INCONCLUSIVE stop, both kill-time phase reads,"
+echo "PASS: and level estimates that follow the subset's own test count"
