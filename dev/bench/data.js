@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788978263685,
+  "lastUpdate": 1788981535442,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6565e7835a905b22b666feceed3ac1dd766ef6d4",
-          "message": "SRFI 231: validate boolean options and reshape strided views (#2351)\n\n* SRFI 231: validate boolean options and reshape strided views\n\nTwo anomalies reported by Brad Lucier (SRFI 231 author) after v0.24.0, both\n\"it is an error\" conditions the implementation failed to enforce or reshapes\nit wrongly rejected.\n\nlist->array/vector->array accepted a non-boolean mutable?/safe? option and\nspecialized-array-reshape accepted a non-boolean copy-on-failure?, silently\nreturning a wrong-typed array instead of raising. Add %check-boolean! at each\nsite, matching the reference implementation's per-argument checks.\n\nspecialized-array-reshape only handled the array-packed? case, so it raised\n\"not affinely representable\" for a reversed (negatively-strided) view whose\nelements are still affinely reachable by stepping the body backwards. Replace\nthe packed-only shortcut with a faithful port of the reference's NumPy\n_attempt_nocopy_reshape: probe the affine indexer for base + per-axis strides,\ndrop size-1 axes, greedily match adjacent-axis volume groups, and verify\nC-contiguity within each group. Genuinely non-affine reshapes still raise;\nbody sharing is preserved.\n\nRegression tests mirror the reference suite's reversed / per-axis-flipped /\narray-sample'd reshapes and its non-affine test-error cases.\n\nCloses #2350\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* SRFI 231: address reshape review nits (docs + attribution)\n\nFollow the PR review on the reshape port:\n- Trim the stale section banner that still described the old packed-only\n  simplification (contradicting the rewritten file header).\n- Note why unassigned newstrides left at 0 are safe (only width-1 new axes\n  keep 0, whose (index - lower) term is always 0, so the value is unobserved).\n- Add the NumPy BSD 3-Clause attribution the reference carries, since the\n  loop-1..loop-4 matching is a line-by-line translation of\n  _attempt_nocopy_reshape.\n\nComments only; no behavior change.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-26T05:59:48+05:30",
-          "tree_id": "f0e2d146726aca8444a847ad0c1c4ff72933e21b",
-          "url": "https://github.com/kaappi/kaappi/commit/6565e7835a905b22b666feceed3ac1dd766ef6d4"
-        },
-        "date": 1787709313667,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.953683,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.387151,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.57233,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.81978,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004858,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04621,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.282546,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.053456,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.52086,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.121562,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.582839,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.309553,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.670991,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.836407,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046431,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045062,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c5250aded27ae35b809760f2f1dff9c92a66ff2a",
+          "message": "Raise the default test-leg CI timeout from 30 to 40 minutes (#2569)\n\nEvery test leg that outgrew the 30-min cap this cycle was given an explicit\nper-leg override -- macOS and Debug at 50, ReleaseFast at 40 (#2567, #2568) --\nwhich left the two ubuntu ReleaseSafe legs as the only ones still on the bare\ndefault. Both have now reached the wall: ubuntu-latest was cancelled at 30:27\n(build 3 min, unit tests 3 min, Scheme suites killed at the 30:00 mark with\nevery suite green -- wall clock, not a hang), while ubuntu-24.04-arm squeaked\nthrough at 27:27.\n\nThe default is no longer a realistic hang-bound. Raise it to 40, matching the\nReleaseFast override and giving the remaining default legs the same ~13-min\nheadroom over a ~27-min healthy run. The check name is pinned to os+optimize\nand never included matrix.timeout, so the default number has never affected a\nrequired check's name -- changing it renames nothing.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-09-10T00:01:13+05:30",
+          "tree_id": "2ae2ee7e69e2983508f80b37d7f8fcf4695c6aad",
+          "url": "https://github.com/kaappi/kaappi/commit/c5250aded27ae35b809760f2f1dff9c92a66ff2a"
+        },
+        "date": 1788981532606,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.16729,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.643607,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.440242,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.221959,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003693,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.038308,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.231096,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.042515,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.930808,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.887852,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.376464,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.232581,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.427392,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.479228,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.037125,
             "unit": "seconds"
           }
         ]
