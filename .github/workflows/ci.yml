@@ -226,7 +226,8 @@ jobs:
     # mark) -- the suite had grown enough that 30 min stopped being a
     # hang-bound and started being exactly what the comment above says to
     # avoid. Bumped to 40 to restore real headroom, same fix as the
-    # macOS/PR #1635 recurrence.
+    # macOS/PR #1635 recurrence -- and then to 50 when the suite outgrew 40
+    # too (see the per-leg comment in the matrix below).
     timeout-minutes: ${{ matrix.timeout || 30 }}
     strategy:
       fail-fast: false
@@ -234,9 +235,19 @@ jobs:
         os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
         optimize: [ReleaseSafe]
         include:
+          # 40 restored headroom (see the timeout comment above), but the
+          # suite kept growing and a slow runner ate that margin too: healthy
+          # Debug runs now sit at 31-38 min (36, 37, 31, 36, 38 over the week
+          # of 2026-09-09), and 40:00 cancellations landed three times on that
+          # day alone -- twice on main and once on PR #2566 -- each mid "Scheme
+          # suites" with the unit tests already green, i.e. wall clock, not a
+          # hang. 50 matches the macOS leg and leaves ~12 min over the 38-min
+          # worst-healthy run while still catching a real hang. Include-only
+          # key, so it merges into this os+optimize combination without
+          # renaming the required check (see the naming note above).
           - os: ubuntu-latest
             optimize: Debug
-            timeout: 40
+            timeout: 50
           # macOS runners are slower and the suite has outgrown the 30-min
           # default here: a clean ReleaseSafe run now lands at ~35 min (build
           # ~2, unit tests ~10, Scheme suites ~18+), so the cap cancels healthy
