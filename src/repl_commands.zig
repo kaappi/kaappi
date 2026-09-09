@@ -311,10 +311,12 @@ pub fn handleCommand(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []cons
             \\  ,condition <id> <expr>  Set breakpoint condition
             \\
             \\ -- Structural editing (moves a paren, not a character):
-            \\  alt-shift-S       Slurp: pull the next datum into the form
-            \\  alt-shift-B       Barf: push the last datum out of the form
-            \\  alt-shift-R       Raise: replace the form with the datum at point
-            \\  alt-y             Rotate the form's arguments
+            \\   Press esc, then the key. On macOS "alt" is the Option key,
+            \\   which sends this directly only if the terminal is set to.
+            \\  esc shift-S       Slurp: pull the next datum into the form
+            \\  esc shift-B       Barf: push the last datum out of the form
+            \\  esc shift-R       Raise: replace the form with the datum at point
+            \\  esc y             Rotate the form's arguments
             \\  F1                All editor keys
             \\
             \\ -- System:

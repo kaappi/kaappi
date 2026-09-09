@@ -112,7 +112,11 @@ static const char* help_initial =
   "This is free software; you can redistribute it and/or\n"
   "modify it under the terms of the MIT License.\n"
   "See <[url]https://github.com/daanx/isocline[/url]> for further information.\n"
-  "We use ^<key> as a shorthand for ctrl-<key>.\n"
+  "We use ^<key> as a shorthand for ctrl-<key>, and alt-<key> means\n"
+  // KAAPPI PATCH 7: name the Meta prefix per platform, since esc reaches
+  // every alt- binding on every terminal now (see PATCHES.md, kaappi#2563).
+  "esc then <key> (on macOS \"alt\" is the Option key, which sends this\n"
+  "directly only if the terminal is set to).\n"
   "\n"
   "Overview:\n"
   "\n[ansi-lightgray]"
