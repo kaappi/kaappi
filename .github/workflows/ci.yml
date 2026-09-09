@@ -579,23 +579,53 @@ jobs:
     # That step printed nothing until it finished, so the log said nothing
     # about which test. The unit suite therefore runs as chunks
     # (tools/run-unit-test-chunk.sh), each its own step with its own
-    # `timeout-minutes`, so the next hang names its chunk. The first
-    # three-way split measured 35m healthy and localised the first
-    # recurrence to its `rest` chunk (1646 tests); the eight-way split below
-    # cuts that remainder along its QEMU-sensitive seams at the price of
-    # five more test-binary compiles (~1.5m each).
+    # `timeout-minutes`, so the next hang names its chunk. The eight-way
+    # split cuts the suite along its QEMU-sensitive seams at the price of
+    # seven extra test-binary compiles (~1.5m each).
     #
-    # The chunk script also passes `zig build test --test-timeout` (8m by
-    # default; see its header). That is what localises to a TEST: the build
-    # runner otherwise waits forever for a test's result, and with the bound
-    # it kills the overrunning test, prints its name, and carries on with
-    # the rest of the chunk, so the log ends with a named failure and a full
-    # verdict for every other test instead of a cancel. For that to happen
-    # the step must outlive the per-test bound, so every step cap below is
-    # its healthy time plus the 8m bound plus margin -- the cap is now the
-    # backstop, not the localiser. The job cap backstops the same way: setup
-    # + build + every chunk healthy (30m) + one hung test (8m) stays inside.
-    timeout-minutes: 55
+    # kaappi#2560 then measured the `rest` chunk bimodal under its cap --
+    # 9m46s-11m32s healthy vs >24m killed, nothing in between -- and found
+    # why the kills stayed silent even with #2491's `--test-timeout` in
+    # place: `zig build` buffers ALL of its output (summaries AND the
+    # per-test timeout names) until the process exits, so a step killed at
+    # its cap takes the buffer -- names included -- with it. A test name
+    # survives only when zig exits by itself. The localisation therefore
+    # now lives in the chunk script, whose own `echo` lines are unbuffered
+    # and survive any kill:
+    #
+    #   * KAAPPI_CHUNK_BUDGET (set per step below) bounds the whole chunk
+    #     run, sized to outlive ONE per-test bound (healthy + 8m + ~2m), so
+    #     a single hung test is still named by zig at its own exit; only a
+    #     second hang, or a wedge the runner cannot see, falls through.
+    #   * When the budget fires, the script kills the zig tree and
+    #     bisects the chunk's filter list (halves re-run under a 90s
+    #     per-test bound), streaming one line per level naming the subset
+    #     in flight, all inside the KAAPPI_BISECT_BUDGET pot below. The
+    #     last line before any kill names the filter or the narrowed
+    #     subset -- the reopen criterion of #2488 -- and the step exits
+    #     124 so the run is loud, not just annotated.
+    #
+    # Cap arithmetic per chunk step: wall budget + 18m bisection pot + 2m
+    # slop. Wall budgets are each chunk's slowest observed healthy time
+    # plus the 8m per-test bound plus ~2m margin (rest from the spread in
+    # #2560; the others from the slowest run of the two-run measurement on
+    # the eight-way split). The step cap is the backstop; the script's
+    # budget is the localiser. The job cap backstops the sum: setup+build
+    # (~8m) + every chunk healthy (~38m) leaves the LAST chunk's full cap
+    # (32m) inside 80m, so a wedge anywhere localises fully; healthy runs
+    # are unchanged (~50m) and stop at the first failed chunk anyway.
+    #
+    # `rest` runs FIRST although it is the biggest chunk: it is the one
+    # that has wedged (both #2488 recurrences localised there, and both
+    # #2560 cap kills), so a wedge fails fast instead of burning ~36m of
+    # healthy chunks first, and its bisection is the least likely to be
+    # clipped by the job cap.
+    timeout-minutes: 80
+    env:
+      # Total bisection pot per chunk step, seconds (18m); see the comment
+      # above. The per-test bound used during bisection levels (90s) and
+      # the rest of the knobs are the chunk script's own defaults.
+      KAAPPI_BISECT_BUDGET: "1080"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -631,38 +661,68 @@ jobs:
       # QEMU, two runs (33684320694 and PR #2491's), slowest of each:
       # process 1.8m, concurrency 7.0m (3.3m on the other run -- the
       # timing-sensitive chunk varies most with runner load), io 2.1m,
-      # fuzz 6.0m, gc 6.1m (2.9m), native 1.7m, tooling 2.1m, rest 6.9m.
+      # fuzz 6.0m, gc 6.1m (2.9m), native 1.7m, tooling 2.1m; and rest
+      # 9m46s-11m32s across the three runs tabulated in #2560.
+      #
+      # Each step sets KAAPPI_CHUNK_BUDGET (the script's wall budget) to
+      # its chunk's slowest healthy time + the 8m per-test bound + ~2m
+      # margin, and its `timeout-minutes` to that budget + the 18m
+      # bisection pot + 2m slop, per the job comment's arithmetic.
+      - name: Unit tests, rest chunk (riscv64 via QEMU)
+        timeout-minutes: 42
+        env:
+          # 22m = 11m32s slowest healthy + 8m per-test bound + ~2m margin.
+          KAAPPI_CHUNK_BUDGET: "1320"
+        run: bash tools/run-unit-test-chunk.sh rest -Dtarget=riscv64-linux
+
       - name: Unit tests, process chunk (riscv64 via QEMU)
-        timeout-minutes: 14
+        timeout-minutes: 32
+        env:
+          # 12m = 1.8m slowest healthy + 8m + ~2m.
+          KAAPPI_CHUNK_BUDGET: "720"
         run: bash tools/run-unit-test-chunk.sh process -Dtarget=riscv64-linux
 
       - name: Unit tests, concurrency chunk (riscv64 via QEMU)
-        timeout-minutes: 20
+        timeout-minutes: 37
+        env:
+          # 17m = 7m slowest healthy + 8m + ~2m.
+          KAAPPI_CHUNK_BUDGET: "1020"
         run: bash tools/run-unit-test-chunk.sh concurrency -Dtarget=riscv64-linux
 
       - name: Unit tests, io chunk (riscv64 via QEMU)
-        timeout-minutes: 14
+        timeout-minutes: 32
+        env:
+          # 12m = 2.1m slowest healthy + 8m + ~2m.
+          KAAPPI_CHUNK_BUDGET: "720"
         run: bash tools/run-unit-test-chunk.sh io -Dtarget=riscv64-linux
 
       - name: Unit tests, fuzz chunk (riscv64 via QEMU)
-        timeout-minutes: 20
+        timeout-minutes: 36
+        env:
+          # 16m = 6m slowest healthy + 8m + ~2m.
+          KAAPPI_CHUNK_BUDGET: "960"
         run: bash tools/run-unit-test-chunk.sh fuzz -Dtarget=riscv64-linux
 
       - name: Unit tests, gc chunk (riscv64 via QEMU)
-        timeout-minutes: 18
+        timeout-minutes: 36
+        env:
+          # 16m = 6.1m slowest healthy + 8m + ~2m.
+          KAAPPI_CHUNK_BUDGET: "960"
         run: bash tools/run-unit-test-chunk.sh gc -Dtarget=riscv64-linux
 
       - name: Unit tests, native chunk (riscv64 via QEMU)
-        timeout-minutes: 12
+        timeout-minutes: 32
+        env:
+          # 12m = 1.7m slowest healthy + 8m + ~2m.
+          KAAPPI_CHUNK_BUDGET: "720"
         run: bash tools/run-unit-test-chunk.sh native -Dtarget=riscv64-linux
 
       - name: Unit tests, tooling chunk (riscv64 via QEMU)
-        timeout-minutes: 14
+        timeout-minutes: 32
+        env:
+          # 12m = 2.1m slowest healthy + 8m + ~2m.
+          KAAPPI_CHUNK_BUDGET: "720"
         run: bash tools/run-unit-test-chunk.sh tooling -Dtarget=riscv64-linux
-
-      - name: Unit tests, rest chunk (riscv64 via QEMU)
-        timeout-minutes: 24
-        run: bash tools/run-unit-test-chunk.sh rest -Dtarget=riscv64-linux
 
       - name: R7RS test suite (riscv64 via QEMU)
         run: bash tools/run-r7rs-suite.sh zig-out/bin/kaappi

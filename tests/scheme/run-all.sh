@@ -706,6 +706,9 @@ run_shell_suite "Timings" tests/scheme/timings
 run_shell_suite "Shell completions" tests/scheme/completions
 run_shell_suite "Language server" tests/scheme/lsp
 run_shell_suite "Package manager" tests/scheme/thottam
+# Tests for the repo's own tooling shell scripts (the unit-suite chunker's
+# watchdog/bisection machinery is the first tenant, kaappi#2560).
+run_shell_suite "Repo tools" tests/scheme/tools
 # Execution-tier differential: every corpus file must give the same answer with
 # the IR optimiser off and from a warm bytecode cache as it does from a cold
 # one. Defaults to the smoke+compliance+audit corpus plus its own probes
