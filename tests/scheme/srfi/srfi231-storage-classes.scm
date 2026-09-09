@@ -219,19 +219,26 @@
 (test-equal #f ((storage-class-checker f32-storage-class) 42))
 (test-equal #t ((storage-class-checker c64-storage-class) (make-rectangular 3.5 -1.0)))
 (test-equal #t ((storage-class-checker c64-storage-class) 1.0+0.0i)) ; explicit inexact zero imag
-(test-equal #f ((storage-class-checker c64-storage-class) 3.5))     ; bare real: reference rejects (#2542)
-(test-equal #f ((storage-class-checker c128-storage-class) 1.0))    ; same, under the other convention too
+;; A bare real flonum is ACCEPTED (#2559, reverting #2543). Our (imag-part
+;; 1.0) is 0.0, so the sample implementation's own checker line admits it;
+;; Gambit rejects it only because its (imag-part 1.0) is an exact 0, which is
+;; R6RS's rule, not R7RS small's. Do not "fix" these to #f to match Gambit --
+;; that is a numeric-tower difference, and the SRFI's author confirmed
+;; implementations may differ.
+(test-equal #t ((storage-class-checker c64-storage-class) 3.5))
+(test-equal #t ((storage-class-checker c128-storage-class) 1.0))
 (test-equal #f ((storage-class-checker c64-storage-class) (make-rectangular 3 4)))
 (test-equal #f ((storage-class-checker c64-storage-class) 1/3))
 (test-equal #f ((storage-class-checker c128-storage-class) (make-rectangular 1/2 2)))
-;; the user-visible symptom of #2542 was array-copy of a real-flonum
-;; array SUCCEEDING -- the generic->typed copy branch is the only copy
-;; path that consults the checker at all (same-class copies skip it,
-;; #2448), so pin it end to end
-(test-assert "array-copy of real flonums into c64 is rejected (#2542)"
-             (guard (e (#t #t))
-               (array-copy (make-array (make-interval '#(2)) (lambda (i) 1.5)) c64-storage-class)
-               #f))
+;; End-to-end through the generic->typed copy branch, the only copy path
+;; that consults the checker at all (same-class copies skip it, #2448).
+;; Copying real flonums into a c64 array succeeds and round-trips, the
+;; behavior #2543 removed and #2559 restored.
+(test-equal "array-copy of real flonums into c64 succeeds (#2559)"
+            1.5+0.0i
+            (array-ref (array-copy (make-array (make-interval '#(2)) (lambda (i) 1.5))
+                                   c64-storage-class)
+                       0))
 (test-assert "array-copy of 1.0+0.0i into c64 is accepted (#2542)"
              (guard (e (#t #f))
                (array-ref (array-copy (make-array (make-interval '#(2)) (lambda (i) 1.5+0.0i)) c64-storage-class) 0)))
