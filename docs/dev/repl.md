@@ -55,7 +55,7 @@ cursor:
 
 They are listed under F1 too, and only when the callback is set. Each is
 reached by pressing `ESC` then the character. Since patch 7 (kaappi#2562) `ESC`
-is a sticky Meta prefix with no timeout, so `ESC` then `S` composes to
+is a sticky Meta prefix with no timeout, so `ESC` then `shift-S` composes to
 `alt-shift-S` on *every* terminal, whether or not it sends Option as Meta — no
 "Use Option as Meta key" setting is needed. The deliberate cost is that a lone
 `ESC` no longer clears the input; `ctrl-u` and `ctrl-c` still do.

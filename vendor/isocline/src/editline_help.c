@@ -52,7 +52,7 @@ static const char* help[] = {
   "^u",         "delete to the start of the current line",
   "^k",         "delete to the end of the current line",
   // KAAPPI PATCH 7: esc is a sticky Meta prefix now, not delete-input (see PATCHES.md)
-  "esc",        "Meta prefix for alt-<key>, or done with empty input",
+  "esc",        "Meta prefix for alt-<key>",
   "","",
 
   "", "Editing:",
