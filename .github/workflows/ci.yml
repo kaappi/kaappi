@@ -228,7 +228,19 @@ jobs:
     # avoid. Bumped to 40 to restore real headroom, same fix as the
     # macOS/PR #1635 recurrence -- and then to 50 when the suite outgrew 40
     # too (see the per-leg comment in the matrix below).
-    timeout-minutes: ${{ matrix.timeout || 30 }}
+    #
+    # The default itself outgrew 30 the same way. By 2026-09-09 every leg
+    # that hit the cap had been given an explicit override (macOS/Debug 50,
+    # ReleaseFast 40), leaving only the two ubuntu ReleaseSafe legs on the
+    # bare default -- and both reached the wall: ubuntu-latest was cancelled
+    # at 30:27 (build 3, unit tests 3, Scheme suites killed at the 30:00 mark
+    # with every suite green) while ubuntu-24.04-arm squeaked through at
+    # 27:27. So the default is no longer a hang-bound either; raised to 40 to
+    # give the remaining default legs the same ~13-min headroom over a ~27-min
+    # healthy run. The check name is pinned to os+optimize (see the naming
+    # note above) and never included matrix.timeout, so the default number
+    # has never affected a required check's name -- changing it here is safe.
+    timeout-minutes: ${{ matrix.timeout || 40 }}
     strategy:
       fail-fast: false
       matrix:
