@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788928003832,
+  "lastUpdate": 1788978263685,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "259f918732b1dc4eba933456ac67d4d908a24450",
-          "message": "ci: stop docs-only PRs blocking on the skipped test matrix's required checks (#2338)\n\nThe docs-only fast-path skipped the `test` job at the job level. GitHub does\nnot expand a skipped matrix job into its per-leg check names -- it reports one\ncheck under the raw template `test (${{ matrix.os }}, ${{ matrix.optimize }})`\n-- so the five required contexts (`test (ubuntu-latest, ReleaseSafe)` etc.)\nwere never reported and every docs-only PR sat at BLOCKED on phantom\n\"Expected -- Waiting for status\" checks (kaappi#2337). The classifier itself is\ncorrect; its safety premise (\"a skipped job reports Success to branch\nprotection\") holds for standalone required jobs (wasm, riscv64-test) but not\nfor a matrix job whose expanded legs are individually required.\n\nOption 2 from the issue: the `test` job no longer carries a job-level\n`if: docs_only`, so its matrix always expands and always reports the five\ncontexts. The docs-only short-circuit moves per-step onto `env.DOCS_ONLY`, so\neach leg still reports success on a docs-only PR while skipping the build and\nsuites -- costing ~5 runner startups (seconds), not the ~194 build/test\nminutes. Correct the `format` classifier comment that asserted the\nnow-disproven premise, so the matrix job is not \"simplified\" back.\n\nOnly `test` needs this; every other heavy job is either not a required context\nor a standalone job that skips cleanly.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-25T19:00:23Z",
-          "tree_id": "359864fc7c96ce902d5e048eac26c3ded2561a38",
-          "url": "https://github.com/kaappi/kaappi/commit/259f918732b1dc4eba933456ac67d4d908a24450"
-        },
-        "date": 1787687017316,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.9363,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.29621,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.560855,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.812177,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005149,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046115,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.281707,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.053457,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.574733,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.133392,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.5829,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.307755,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.668151,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.817397,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045789,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045383,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "47e148979c7a480f05220b590129df6e0d3f7b6c",
+          "message": "Give the ubuntu Debug CI leg a 50-minute timeout (#2568)\n\nThe Debug leg was bumped 30->40 in PR #1728 when its healthy runtime crept\ninto the high-20s. The suite kept growing, and a slow runner ate the 40-min\nmargin the same way it earlier ate ReleaseFast's 30 (PR #2567): healthy Debug\nruns now sit at 31-38 min, and 40:00 cancellations landed three times on\n2026-09-09 alone -- twice on main and once on PR #2566 -- each killed mid\n\"Scheme suites\" with the unit tests already green, i.e. wall clock, not a hang.\n\nBump the leg's include-only timeout to 50, matching the macOS leg and leaving\n~12 min over the 38-min worst-healthy run while still catching a real hang.\nAs an include-only key it merges into the existing os+optimize combination\nwithout renaming the required status check.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-09-09T23:16:55+05:30",
+          "tree_id": "45dc828c249a39e416043a860a4d85273ae558e4",
+          "url": "https://github.com/kaappi/kaappi/commit/47e148979c7a480f05220b590129df6e0d3f7b6c"
+        },
+        "date": 1788978262281,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.444788,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.795868,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.593708,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.109618,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004532,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047658,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.31542,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055739,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.869187,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.276668,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.648291,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.286571,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.737622,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.681886,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045062,
             "unit": "seconds"
           }
         ]
