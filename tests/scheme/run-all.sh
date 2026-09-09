@@ -107,7 +107,7 @@ timeout_for() {
 # wait_with_timeout counts sleep 0.05 ticks, not wall clock, so that is
 # ~20 min of wall clock on Linux and stretches further where sleep spawns
 # cost more — inside every job cap that runs this suite.
-PER_SCRIPT_TIMEOUTS="bundle-cpu-baseline-2515.sh:${KAAPPI_BUNDLE_CPU_BASELINE_TIMEOUT:-1200}"
+PER_SCRIPT_TIMEOUTS="bundle-cpu-baseline-2515.sh:${KAAPPI_BUNDLE_CPU_BASELINE_TIMEOUT:-1200} unit-chunk-watchdog-2560.sh:${KAAPPI_UNIT_CHUNK_WATCHDOG_TIMEOUT:-480}"
 
 shell_timeout_for() {
     local base entry
@@ -445,7 +445,7 @@ report_shell_result() {
 is_slow_shell_test() {
     # `^[^#]*`: skip comment lines, several of which mention the build they
     # deliberately do not run.
-    grep -Eq '^[^#]*(zig build -D|bundle_fixture_binary|fixture_interpreter)' "$1" 2>/dev/null
+    grep -Eq '^[^#]*(zig build -D|bundle_fixture_binary|fixture_interpreter|run-unit-test-chunk\.sh)' "$1" 2>/dev/null
 }
 
 run_shell_suite() {
@@ -706,6 +706,9 @@ run_shell_suite "Timings" tests/scheme/timings
 run_shell_suite "Shell completions" tests/scheme/completions
 run_shell_suite "Language server" tests/scheme/lsp
 run_shell_suite "Package manager" tests/scheme/thottam
+# Tests for the repo's own tooling shell scripts (the unit-suite chunker's
+# watchdog/bisection machinery is the first tenant, kaappi#2560).
+run_shell_suite "Repo tools" tests/scheme/tools
 # Execution-tier differential: every corpus file must give the same answer with
 # the IR optimiser off and from a warm bytecode cache as it does from a cold
 # one. Defaults to the smoke+compliance+audit corpus plus its own probes

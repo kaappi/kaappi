@@ -779,7 +779,7 @@ matrix covers:
 | `test` | Ubuntu (x86, ARM), macOS | Unit tests, `run-all.sh`, robustness, sandbox, thottam integration, SRFI final-status guard |
 | `gc-stress` | Ubuntu | Unit suite under `-Dgc-stress=true` |
 | `gc-stress-scheme` | Ubuntu | Scheme suites under `-Dgc-stress=true` |
-| `riscv64-test` | Ubuntu (QEMU) | Cross-compiled unit tests + R7RS suite. The unit suite runs as eight chunks (`tools/run-unit-test-chunk.sh`: process, concurrency, io, fuzz, gc, native, tooling, and a derived rest), each its own step with its own cap, and the script passes `zig build test --test-timeout 8m`, so a hang under emulation is killed and named per test while the rest of the chunk still reports (kaappi#2488) |
+| `riscv64-test` | Ubuntu (QEMU) | Cross-compiled unit tests + R7RS suite. The unit suite runs as eight chunks (`tools/run-unit-test-chunk.sh`: rest first, then process, concurrency, io, fuzz, gc, native, tooling), each its own step with its own cap. `zig build` buffers all of its output until it exits, so a step killed at its cap loses even the per-test names `--test-timeout 8m` recorded (kaappi#2560); the script therefore enforces its own `KAAPPI_CHUNK_BUDGET` wall budget per chunk, and on expiry kills the zig tree, bisects the filter list with streamed per-level lines, and exits 124 -- the last line before any kill names the filter or narrowed subset, the reopen criterion of kaappi#2488 |
 | `s390x-test` | Ubuntu (QEMU) | Big-endian leg — the byte-order canary (kaappi#1654); same `--test-timeout 8m` |
 | `ppc64le-test` | Ubuntu (QEMU) | Cross-compiled unit tests + R7RS suite; same `--test-timeout 8m` |
 | `freebsd-test`, `openbsd-test`, `netbsd-test` | Ubuntu (VM action) | Per-BSD build + tests; see the matching `docs/dev/<os>.md` |
