@@ -312,7 +312,8 @@ pub fn handleCommand(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []cons
             \\
             \\ -- Structural editing (moves a paren, not a character):
             \\   Press esc, then the key. On macOS "alt" is the Option key,
-            \\   which sends this directly only if the terminal is set to.
+            \\   which sends the esc prefix directly only if the terminal is
+            \\   configured to do so.
             \\  esc shift-S       Slurp: pull the next datum into the form
             \\  esc shift-B       Barf: push the last datum out of the form
             \\  esc shift-R       Raise: replace the form with the datum at point

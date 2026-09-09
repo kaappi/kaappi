@@ -115,8 +115,8 @@ static const char* help_initial =
   "We use ^<key> as a shorthand for ctrl-<key>, and alt-<key> means\n"
   // KAAPPI PATCH 7: name the Meta prefix per platform, since esc reaches
   // every alt- binding on every terminal now (see PATCHES.md, kaappi#2563).
-  "esc then <key> (on macOS \"alt\" is the Option key, which sends this\n"
-  "directly only if the terminal is set to).\n"
+  "esc then <key> (on macOS \"alt\" is the Option key, which sends the\n"
+  "esc prefix directly only if the terminal is configured to do so).\n"
   "\n"
   "Overview:\n"
   "\n[ansi-lightgray]"

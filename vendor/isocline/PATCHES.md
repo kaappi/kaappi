@@ -368,9 +368,9 @@ Two sites:
    assuming a Meta terminal. The `esc` entry reads "Meta prefix for alt-<key>",
    the overview diagram legend reads "esc : alt-<key> prefix", and the overview
    header spells the mechanism out — alt-<key> means esc then <key>, and on
-   macOS "alt" is the Option key, which sends this directly only if the terminal
-   is set to. That one note covers every `alt-` binding in both the main table
-   and the structural-editing table. Before it, F1, `,help`
+   macOS "alt" is the Option key, which sends the esc prefix directly only if
+   the terminal is configured to do so. That note covers every `alt-` binding
+   in both the main table and the structural-editing table. Before it, F1, `,help`
    (`src/repl_commands.zig`) and the site REPL guide all named the keys "alt"
    with no hint that a default Mac inserts a glyph instead; only the developer
    doc `docs/dev/repl.md` said so (kaappi#2563).
