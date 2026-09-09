@@ -952,6 +952,20 @@ static void tty_waitc_console(tty_t* tty, long timeout_ms)
 		}
     // regular character
     else {
+      // KAAPPI PATCH 3: see vendor/isocline/PATCHES.md — normalise Alt+Shift+letter.
+      // The Windows console reports Alt+Shift+S as one event carrying both
+      // LEFT_ALT_PRESSED and SHIFT_PRESSED with uChar already the *shifted*
+      // glyph ('S'), so `mods` becomes KEY_MOD_ALT|KEY_MOD_SHIFT. A POSIX tty
+      // applies Shift before sending `ESC S`, so its ALT path yields 'S'|ALT
+      // with no SHIFT bit — and the editor's structural-edit arms compare
+      // against WITH_ALT('S') (= 'S'|KEY_MOD_ALT), which has no SHIFT bit.
+      // Without this the shifted bindings (alt-shift-S/B/R) never match any
+      // case and are silently dropped, while the unshifted alt-y works
+      // (kaappi#2564). When Alt is held and the char is already a printable
+      // that Shift transformed, drop KEY_MOD_SHIFT so the two paths agree.
+      if ((mods & KEY_MOD_ALT) != 0 && chr >= 0x20 && chr != 0x7f) {
+        mods &= ~(code_t)KEY_MOD_SHIFT;
+      }
       tty_cpush_csi_unicode(tty,mods,chr);
 			return;
     }
