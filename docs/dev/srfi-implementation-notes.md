@@ -941,7 +941,19 @@ implementation's line verbatim; the verdicts differ because Gambit's
 `(imag-part 1.0)` is an exact `0` and Kaappi's is `0.0`. Brad Lucier confirmed
 that exact-0 is **R6RS**'s rule — adopted there on his own suggestion — and
 "that's not what R7RS small does", adding that implementers can argue either
-way. Kaappi is R7RS-small, which leaves the exactness open, and the normative
+way. Verified against `docs/errata-corrected-r7rs.pdf` §6.2.6 rather than
+taken on report: the section's sole exactness permission is that `real-part`
+and `imag-part` "may return exact real numbers when applied to an inexact
+complex number **if** the corresponding argument passed to `make-rectangular`
+was exact", which a bare `1.0` never went through; what governs it instead is
+"`(real? z)` is true if and only if `(zero? (imag-part z))` is true", and
+`(zero? 0.0)` is `#t`, so an inexact `0.0` satisfies that rule exactly as an
+exact `0` would. Nothing in the document requires one over the other. (That
+iff rule does *not* survive contact with the inexact-zero-imaginary case —
+§6.2.6 also prints `(real? -2.5+0.0i) ⇒ #f`, which the rule would make `#t`;
+the rule and the example contradict each other and every implementation,
+Kaappi and Gambit included, follows the example.) Kaappi is R7RS-small, and
+the normative
 prose asks only for "complex numbers with, respectively, 32- and 64-bit
 floating-point numbers as real and imaginary parts", which `1.0` is under our
 tower: `(complex? 1.0)` is `#t` with `real-part` `1.0` and `imag-part` `0.0`,

@@ -139,13 +139,30 @@
     ;; is a numeric-tower difference, not a checker difference: the line below
     ;; is the sample implementation's verbatim, but Gambit's (imag-part 1.0) is
     ;; an exact 0 where ours is 0.0. #2543 added a (not (real? x)) clause to
-    ;; force Gambit's verdict; #2559 reverted it. Exact-0 imag-part is R6RS
-    ;; (which adopted it on the SRFI author's own suggestion) -- R7RS small
-    ;; leaves the exactness open, Kaappi is R7RS-small, and the SRFI's prose
-    ;; asks only for "complex numbers with ... floating-point numbers as real
-    ;; and imaginary parts", which 1.0 is under our tower. The author confirmed
-    ;; implementations may differ here. So the differential tester's c64/c128
-    ;; disagreement with Gambit is a known oracle divergence, not a bug.
+    ;; force Gambit's verdict; #2559 reverted it.
+    ;;
+    ;; Exact-0 imag-part is R6RS's rule, adopted there on the SRFI author's own
+    ;; suggestion. R7RS small does not mandate it, and Kaappi is R7RS-small.
+    ;; Checked against docs/errata-corrected-r7rs.pdf, 6.2.6: the sole
+    ;; exactness permission there is that "the real-part and imag-part
+    ;; procedures may return exact real numbers when applied to an inexact
+    ;; complex number IF the corresponding argument passed to make-rectangular
+    ;; was exact" -- which a bare 1.0 never went through, so it does not reach
+    ;; this case. What does govern it is "(real? z) is true if and only if
+    ;; (zero? (imag-part z)) is true": (zero? 0.0) is #t, so an inexact 0.0
+    ;; satisfies that rule exactly as an exact 0 would. Nothing in the document
+    ;; requires one over the other.
+    ;;
+    ;; (Do not lean on that iff rule for the INEXACT-zero-imaginary case: 6.2.6
+    ;; also prints (real? -2.5+0.0i) => #f, which the rule would make #t, since
+    ;; imag-part has no non-zero? value to return there. The rule and the
+    ;; example contradict each other; we follow the example, as Gambit does.)
+    ;;
+    ;; The SRFI's own prose asks only for "complex numbers with ...
+    ;; floating-point numbers as real and imaginary parts", which 1.0 is under
+    ;; our tower, and the author confirmed implementations may differ here. So
+    ;; the differential tester's c64/c128 disagreement with Gambit is a known
+    ;; oracle divergence, not a bug.
     (define (%flonum-checker x) (and (real? x) (inexact? x)))
     (define (%inexact-complex-checker x)
       (and (complex? x)
