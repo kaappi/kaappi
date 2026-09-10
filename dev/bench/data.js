@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788983570651,
+  "lastUpdate": 1789011142020,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e510eaaf2acdc1bef4b5afa61961f938649dfd7a",
-          "message": "docs: correct SRFI 248 caveat count and document script top-level echo (#2341)\n\nREADME.md and CONFORMANCE.md claimed SRFI 248's delimited continuations\nhave exactly two observable caveats and asserted the list was complete.\nThere is a third, documented in lib/srfi/248.sld's header and demonstrated\nhere: the prompt is a single metacontinuation cell per thread shared by\nevery fiber, so a with-unwind-handler/guard body must not span a fiber\nsuspension point while another fiber runs delimited control (the prompts\ncross silently), and a user call/cc capture must not cross a\nwith-unwind-handler boundary (the guarded body re-runs exponentially --\n2^n-1 times instead of n, 255 where 8 is correct at n=8 -- and the\nprocess still exits 0).\n\nAlso surface, in user-facing docs, that running a script echoes every\nnon-void top-level expression's value to stdout (previously documented\nonly in docs/dev/fuzzing.md): a top-level guard yielding #f or a map used\nfor effect inserts a datum into otherwise structured output, and no flag\ndisables it. Chibi and Guile print nothing running the same file.\n\n#2252 needs no change: the FORMAL_FLAG comments in\nsrc/expander_instantiate.zig were already scoped to lambda formals only\nby #2251 (6ee91e23), and the behavior matches -- verified via kaappi\nexpand: a case-lambda formal colliding with a builtin is hygiene-renamed\nwhile the identical lambda formal keeps its bare spelling, and\ntests/scheme/hygiene/template-binds-builtin-name.scm passes.\n\nCloses #2038\nCloses #1994\nCloses #2252\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-26T06:06:36+05:30",
-          "tree_id": "f84b2d820aa03659224ac9cc8fa1cdef21b0e312",
-          "url": "https://github.com/kaappi/kaappi/commit/e510eaaf2acdc1bef4b5afa61961f938649dfd7a"
-        },
-        "date": 1787713240286,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.343353,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.754108,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.581159,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.032426,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004695,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047988,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.305184,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.055909,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.756664,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.233513,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.6549,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.29183,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.78242,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.642951,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04628,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045557,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e94aad4e91140f3e37dcad7c05ab13f926704f97",
+          "message": "Name the structural-editing keys per platform and by their esc prefix (#2570)\n\n* Name the structural-editing keys per platform and by their esc prefix\n\n`,help`, the F1 editor-key list, and the site REPL guide all called the\nstructural-editing keys \"alt\" (`alt-shift-S`, `Alt+Shift+S`). On macOS,\nthe primary dev platform, there is no Alt key: the key is Option, and a\ndefault Mac terminal does not send Option as Meta, so a user following\nthose surfaces pressed Option-Shift-S, got a stray glyph inserted, and\nhad only the developer doc to explain why.\n\nSince kaappi#2562 the binding is reachable on every terminal by pressing\nesc then the key, with no terminal configuration. Name it that way:\n\n- `,help` now lists `esc shift-S` / `esc y` and states the rule next to\n  the table, noting that on macOS \"alt\" is Option and sends this directly\n  only if the terminal is set to.\n- The F1 overview header spells out that alt-<key> means esc then <key>\n  (Option on macOS) — one note covering every alt- binding in both the\n  main table and the structural-editing table.\n- PATCHES.md gains a fourth site under patch 7 recording the help-text\n  wording.\n\nThe site REPL guide is updated in the kaappi.github.io repo.\n\nCloses kaappi#2563\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Complete the macOS Option-key sentence in the key-naming note\n\nThe note ended \"only if the terminal is set to\" — grammatically dangling\nand silent on what the terminal must send. Say it: Option sends the esc\nprefix directly only if the terminal is configured to do so. Applied\nidentically in `,help`, the F1 overview header, and the PATCHES.md quote\nof it (addresses CodeRabbit review on kaappi#2570).\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-09-10T02:45:13Z",
+          "tree_id": "5a880a9b5a8222971e7db5b18d2c415c55710cde",
+          "url": "https://github.com/kaappi/kaappi/commit/e94aad4e91140f3e37dcad7c05ab13f926704f97"
+        },
+        "date": 1789011140062,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.460326,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.225048,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.598184,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.092442,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00462,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047635,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.314893,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056835,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.835697,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.23897,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.669306,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.27183,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.720679,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.615065,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044938,
             "unit": "seconds"
           }
         ]
