@@ -11,6 +11,53 @@ this file — put the *why* in the commit body instead.
 
 ## [Unreleased]
 
+## [0.27.1] - 2026-09-10
+
+### Fixed
+
+- **REPL: `esc` is a sticky Meta prefix, so the structural-editing keys work
+  on every terminal (#2562, #2566)** — the four keys from 0.26.0 (slurp,
+  barf, raise, rotate) were bound as `ESC <char>`, which needs the terminal
+  to send Option/Alt as Meta. No default macOS terminal does — Terminal.app,
+  iTerm2, kitty, Alacritty and Ghostty all insert the composed glyph — so on
+  the primary dev platform the documented keys never ran, and the natural
+  readline habit (press Escape, then the letter) cleared the whole form
+  instead. `esc` followed by any key is now that key with Alt, with no
+  timeout, as in readline, zsh and Emacs; a real escape sequence still
+  decodes immediately from its burst. The one deliberate cost: a lone `esc`
+  no longer clears the input (`ctrl-u` and `ctrl-c` still do).
+- **REPL on the Windows console: `alt-shift-S`/`B`/`R` fire (#2565)** — the
+  console delivered Alt+Shift+letter with a SHIFT modifier bit the editor's
+  bindings never carry, so the three shifted structural-editing keys were
+  silently dropped while `alt-y` rotate worked. The Windows key path now
+  drops the redundant SHIFT bit, matching what a POSIX tty sends.
+- **SRFI 231: the c64/c128 storage-class checkers accept a bare real flonum
+  again (#2559)** — 0.27.0 (#2543) rejected `1.0` so Kaappi's verdict would
+  match Gambit's, but the two disagree only because Gambit's `(imag-part
+  1.0)` is an exact `0` and ours is `0.0`; R7RS-small §6.2.6 leaves that
+  exactness open, and the SRFI's author confirmed the exact-0 rule is R6RS's,
+  not R7RS's. The restriction cost a legal program the ability to copy real
+  data into a complex array. `(array-copy a c64-storage-class)` over real
+  flonums works, and the element really goes through the f32 body
+  (`0.1` → `0.10000000149011612+0.0i`; unchanged in c128).
+
+### Changed
+
+- **REPL help names the structural-editing keys as `esc shift-S`, `esc y`,
+  … (#2563, #2570)** — `,help` and the F1 key list called them `alt-shift-S`,
+  which on macOS is Option and inserts a stray glyph unless the terminal is
+  configured to send it as Meta. Both surfaces now spell the `esc`-prefix
+  form and state the rule once, next to the table.
+- **SRFI 231's bundled implementation is called what the SRFI calls it
+  (#2558)** — "sample implementation", not "reference implementation", across
+  the library comments, the dev notes and the differential tester. The
+  "when prose and code disagree, trust the code" rule those notes attributed
+  to the SRFI was ours, not the document's; it is now recorded as a working
+  heuristic, with the prose governing unless there is positive reason to
+  think it is in error. The tester draws the c64/c128 classes only when
+  `--classes` names them, since Kaappi and Gambit now diverge there
+  permanently.
+
 ## [0.27.0] - 2026-09-08
 
 ### Added
