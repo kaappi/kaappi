@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789016617604,
+  "lastUpdate": 1789017372933,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "92346fabc6076a03b97afbb2e73a9e90013da30f",
-          "message": "thottam: regression tests for state-file name validation (#2144) (#2346)\n\nThe code fix for #2144 — isValidPkgName guarding every read path out of\ninstalled.txt / thottam.lock in list, update and verify — landed with\n#2289, but nothing pinned the behaviour: reverting those five guards\nwould have passed the whole suite.\n\nThis adds the missing regression tests in src/tests_thottam.zig. They\ndrive doList/doUpdate/doVerify (now pub, with Config, so the test file\ncan run them against a throwaway $KAAPPI_HOME) with a traversal-shaped\nname planted in the state files, capture what the commands print via a\npipe swap of fd 1/2 (the commands write straight to the descriptors;\npipe/dup/dup2 are CRT calls on Windows too), and assert:\n\n- doList lists the real package and never prints the hostile line\n- doVerify names a hostile lockfile or installed.txt line as MALFORMED\n  and fails verification (pre-fix: the lockfile form exited clean, the\n  installed.txt form was reported as UNLOCKED after joining the name\n  onto src_dir for getPkgSha)\n- doUpdate rejects a hostile command-line name with the same loud error\n  as install/remove (pre-fix: NotInstalled)\n- update of every package skips hostile names silently (pre-fix: it\n  announced the package and ran git in the directory the traversal\n  names — TmpHome creates that directory as a plain non-repo so a\n  regression fails by assertion instead of killing the runner)\n\nAll five fail with the guards stripped and pass with them.\n\nOne adjacent gap found running the issue's repro: main()'s update\nhandler did not list InvalidPackageName, so 'thottam update <bad-name>'\nprinted the proper message and then Zig's raw 'error:\nInvalidPackageName' line. Install and remove already suppress it that\nway (kaappi#2132); update now does too.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-26T06:02:54+05:30",
-          "tree_id": "4a6dc5e63d355c0cabb4383a684873948a017a90",
-          "url": "https://github.com/kaappi/kaappi/commit/92346fabc6076a03b97afbb2e73a9e90013da30f"
-        },
-        "date": 1787713333464,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.391516,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.651403,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.569769,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.04362,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004603,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.048256,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.31099,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057299,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.849959,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.239469,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.659829,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.290388,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.796854,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.647415,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045931,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04756,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5a4efd071bda95e8595410b78400fd4e7214a0fa",
+          "message": "Open issues and pull requests to everyone (#2571)\n\nThe repo has been public for a long time, but issue and PR creation was\nrestricted to org collaborators, and the contributor path required asking\nfor an invite in Discussions first. That gate is going away: anyone can\nnow file an issue or open a PR from a fork.\n\nOpening the door means the guards have to be real rather than implied.\nBranch protection on main now requires one approving review, dismisses\nstale reviews on new pushes, and requires a code-owner review; CODEOWNERS\nroutes every path to the maintainer, so a collaborator with Write access\ncannot approve on their behalf. Fork workflow runs need maintainer\napproval for every outside contributor, not only first-timers, so one\nmerged docs PR cannot unlock the macOS and QEMU legs for an account\npermanently. The default GITHUB_TOKEN is read-only and cannot approve PRs.\nThose are repository settings; this commit carries the file half.\n\nThe benchmark comparison job skips itself on fork PRs: the read-only token\ncannot post its comment, and two full builds plus two benchmark runs before\na guaranteed failure is the worst possible use of a runner.\n\nThe markdown issue templates become issue forms with required fields. A\nversion, a platform, a pasted reproduction, and the full output are what\nmake a report actionable, and requiring them up front is what keeps triage\nfrom being the maintainer's job on every issue. Blank issues are off;\nquestions and security reports are routed to Discussions and the private\nadvisory form.\n\nCONTRIBUTING.md states the review rules plainly: run the tests first, be\nable to explain the change, disclose AI assistance, one change per PR, and\na KEP before anything large. The project has one maintainer, and review\ntime is what these rules protect.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-10T10:02:05+05:30",
+          "tree_id": "37d9370da4d838e08f9af684c35278b19121ddbb",
+          "url": "https://github.com/kaappi/kaappi/commit/5a4efd071bda95e8595410b78400fd4e7214a0fa"
+        },
+        "date": 1789017371541,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.436877,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.511787,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.605596,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.070184,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004639,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047731,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.314649,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057006,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.822173,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.240363,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.661795,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.283195,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.728723,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.689362,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.0464,
             "unit": "seconds"
           }
         ]
