@@ -1,9 +1,9 @@
 # GitHub Issues
 
 How the issue tracker is labeled and triaged. Two neighbouring documents own
-the rest: [`CONTRIBUTING.md`](../../CONTRIBUTING.md) covers *who* may file
-(org members) and the PR path, and `.github/ISSUE_TEMPLATE/` covers *what* a
-report must contain. This document covers the label taxonomy, the priority
+the rest: [`CONTRIBUTING.md`](../../CONTRIBUTING.md) covers the PR path and
+the review rules (anyone may file), and the issue forms under
+`.github/ISSUE_TEMPLATE/` cover *what* a report must contain. This document covers the label taxonomy, the priority
 rubric, and the triage invariant — the parts a maintainer has to apply by
 judgement rather than by template.
 
