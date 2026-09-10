@@ -1,0 +1,10 @@
+# Issue forms only -- the free-form "open a blank issue" link is hidden so
+# every bug report arrives with a version, a platform, and a reproduction.
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/orgs/kaappi/discussions
+    about: Ask how to do something, share what you built, or float an idea before it becomes an issue.
+  - name: Security vulnerability
+    url: https://github.com/kaappi/kaappi/security/advisories/new
+    about: Report privately. Do not open a public issue for a vulnerability.

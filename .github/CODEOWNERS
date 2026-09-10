@@ -1,0 +1,10 @@
+# Every path needs a review from the maintainer before it can merge.
+#
+# Branch protection on `main` requires one approving review *and* a code
+# owner's review. Without this file the code-owner rule is vacuous, and any
+# collaborator with Write access could approve another contributor's PR on
+# the maintainer's behalf. With it, "one approval" means the maintainer's.
+#
+# Maintainers are listed in kaappi/community's MAINTAINERS.md; keep this
+# file in step with it.
+*   @baijum

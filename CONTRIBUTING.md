@@ -177,18 +177,50 @@ All jobs must pass before merging.
 
 ## Submitting changes
 
-You need to be a member of the [kaappi org](https://github.com/kaappi) to open
-pull requests. If you aren't yet, ask in
-[Discussions](https://github.com/orgs/kaappi/discussions).
+Anyone can open issues and pull requests here; no org membership is needed.
 
 1. Fork the repo and create a branch from `main`.
 2. Make your changes and ensure all tests pass (`zig build test` +
    `bash tests/scheme/run-all.sh`).
 3. Run `zig fmt src/` to fix any formatting issues.
-4. Open a pull request against `main`. The PR template includes a checklist.
+4. Sign off every commit (`git commit -s`). The DCO check is a required
+   status check and the PR cannot merge without it.
+5. Open a pull request against `main`. The PR template includes a checklist.
 
 For bug fixes, include a test that fails without the fix and passes with it.
 For new features, add both Zig unit tests and Scheme-level tests.
+
+### What happens next
+
+Every PR needs all CI checks green and an approving review from a
+maintainer (see [CODEOWNERS](.github/CODEOWNERS)) before it merges. CI on a
+PR from a fork waits for a maintainer to approve the workflow run, so the
+checks may take a while to start; that is a GitHub safeguard on the
+runners, not a judgement on the PR. Pushing new commits after an approval
+dismisses it, and the PR is re-reviewed.
+
+This project has one maintainer and review time is the scarcest resource
+it has. A few rules keep it spent well:
+
+- **Run the tests yourself before opening the PR.** CI is a check, not a
+  substitute. A PR opened red is closed, not debugged.
+- **Be able to explain the change.** The reviewer will ask why a line is
+  there. "The tool generated it" is not an answer, and a PR whose author
+  cannot walk through it is closed without further review.
+- **Disclose AI assistance.** Using an LLM to write or review code is fine
+  here (this repo even ships a Claude Code harness, below). Say so in the
+  PR description, and understand that the sign-off certifies *you* stand
+  behind the contribution and have the right to submit it under MIT.
+- **One change per PR.** A fix and an unrelated refactor are two PRs.
+  Drive-by reformatting of code you did not otherwise touch is reverted.
+- **Talk first for anything large.** A new subsystem, a language-surface
+  change, or a change to the build model goes through a
+  [KEP](https://github.com/kaappi/keps) before code. A PR that arrives
+  without one may be closed with a pointer there.
+
+Note that contributions to the *Zig* project itself are governed by Zig's
+own no-LLM policy (`docs/dev/zig-upstream-policy.md`); nothing above
+changes that.
 
 ## Security
 

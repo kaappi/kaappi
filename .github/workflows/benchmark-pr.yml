@@ -17,6 +17,13 @@ permissions:
 
 jobs:
   benchmark-pr:
+    # A PR from a fork gets a read-only GITHUB_TOKEN, so the comparison
+    # step's PR comment would fail after two full builds and two benchmark
+    # runs. Skip the whole job instead: this check is not required, so a
+    # skipped job costs nothing (docs/dev/github-actions.md), and the
+    # maintainer can run the comparison locally before merging if the
+    # change looks performance-sensitive.
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

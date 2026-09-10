@@ -1,0 +1,71 @@
+name: Bug report
+description: A crash, a wrong answer, or an unexpected error
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. A reduced reproduction is what makes a bug
+        fixable: the smallest program that still shows the problem, pasted
+        inline, not attached and not linked. Bugs found while using a
+        kaappi-* ecosystem library belong here too when the interpreter is
+        at fault; say which library you were using.
+  - type: input
+    id: version
+    attributes:
+      label: Kaappi version
+      description: Output of `kaappi --version`.
+      placeholder: kaappi 0.27.1
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: OS and architecture, plus how you installed it (install script, release tarball, built from source).
+      placeholder: macOS aarch64, install script
+    validations:
+      required: true
+  - type: dropdown
+    id: build-mode
+    attributes:
+      label: Build mode
+      description: Release binaries are ReleaseSafe. Only a from-source build can be Debug or ReleaseFast.
+      options:
+        - ReleaseSafe (default, and every release binary)
+        - Debug
+        - ReleaseFast
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: The smallest program that triggers the bug, and the exact command you ran.
+      render: scheme
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Full output
+      description: Everything the command printed, including any `error[KPnnnn]` code. A panic (segfault, unreachable, abort) is higher severity than a wrong Scheme error, so say which it was.
+      render: text
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before filing
+      options:
+        - label: I searched existing issues and Discussions for this bug.
+          required: true
+        - label: The reproduction above is the smallest one I could find, and I ran it myself on the version listed.
+          required: true
