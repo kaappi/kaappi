@@ -101,13 +101,20 @@ point in opposite directions:
 
 So workflow-level `paths:`/`paths-ignore:` is unusable in `ci.yml`: it
 triggers (1). `benchmark-pr.yml` uses `paths:` safely only because none of
-its checks is required.
+its checks is required, and for the same reason it can skip itself outright
+on PRs from forks (a job-level `if:` on `head.repo.full_name`), where the
+read-only `GITHUB_TOKEN` could not post the comparison comment anyway.
+
+Fork PRs are the other reason the heavy jobs are gated the way they are:
+the repo requires a maintainer to approve workflow runs for *every* outside
+contributor (not only first-timers), because one merged docs PR would
+otherwise unlock the macOS and QEMU legs for that account permanently.
 
 The usable shape is a job-level `if:`, which skips the work *and* satisfies
 the check. But (2) is a loaded gun. A job whose `needs` **failed** is also
 skipped, and therefore also reports Success — so a dedicated gate job that
 errors would turn every heavy required context green with nothing built, on
-a branch that requires no approving review.
+a PR whose required review does not re-run the checks.
 
 `ci.yml` therefore computes its changed-path classification **inside
 `format`**, which is both a required context and every heavy job's `needs`.

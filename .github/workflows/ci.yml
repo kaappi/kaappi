@@ -34,7 +34,7 @@ jobs:
       # from merging, even if it is a required check"), and a job whose
       # `needs` failed is itself skipped -- so a standalone gate job that
       # errored would turn all seven heavy required contexts green with
-      # nothing built, on a branch that requires no approving review. `format`
+      # nothing built, and a reviewer approving the PR does not re-run CI. `format`
       # is already a required context AND already every heavy job's `needs`,
       # so a broken classifier here is a red required check instead of a
       # silent pass.

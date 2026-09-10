@@ -575,9 +575,8 @@ and ecosystem libraries alike.
 
 **New here?** Start with
 [GitHub Discussions](https://github.com/orgs/kaappi/discussions) — ask
-questions, report bugs, propose ideas. Issues and PRs are open to
-[org members](https://github.com/kaappi); request an invite in Discussions
-when you're ready to contribute directly.
+questions, propose ideas, show what you built. Issues and pull requests are
+open to everyone; no org membership is needed.
 
 - [CONTRIBUTING.md](CONTRIBUTING.md) — how to get involved, build, test, and submit changes
 - [Community](https://kaappi-lang.org/community/) — all the ways to participate
