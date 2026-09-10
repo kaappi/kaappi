@@ -364,6 +364,17 @@ Two sites:
    deleting the buffer there was the kaappi#2562 data-loss path. The
    empty-input `break` is kept.
 
+4. **`src/editline_help.c`** — the F1 help describes the prefix rather than
+   assuming a Meta terminal. The `esc` entry reads "Meta prefix for alt-<key>",
+   the overview diagram legend reads "esc : alt-<key> prefix", and the overview
+   header spells the mechanism out — alt-<key> means esc then <key>, and on
+   macOS "alt" is the Option key, which sends the esc prefix directly only if
+   the terminal is configured to do so. That note covers every `alt-` binding
+   in both the main table and the structural-editing table. Before it, F1, `,help`
+   (`src/repl_commands.zig`) and the site REPL guide all named the keys "alt"
+   with no hint that a default Mac inserts a glyph instead; only the developer
+   doc `docs/dev/repl.md` said so (kaappi#2563).
+
 **Cost, and it is deliberate:** a lone Escape no longer clears the input.
 `ctrl-u` (delete-to-start) and `ctrl-c` (cancel) still do. This is upstream
 isocline behaviour we override, which is why it is a patch; it is also the
