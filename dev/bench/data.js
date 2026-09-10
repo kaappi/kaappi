@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789013297866,
+  "lastUpdate": 1789016617604,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "499662f5ccbf393b4a00b6d85f091041945ab625",
-          "message": "SRFI-254: guardian weak resurrection and transport-cell weak keys (#2011, #2006) (#2348)\n\nGuardian resurrection followed the spec's 'weakly resurrected'\nhypothetical only halfway: markGuardianStrong marked every ready-queue\nelement in the strong mark phase, and the resurrect branch inside\nprocessWeakRefs marked the watched object as it moved each entry, so a\nsecond guardian (or a second registration in the same guardian) watching\nthe same object probed it as reachable and starved for as long as the\nfirst held it — permanently, if the first was never drained (#2011).\n\nprocessWeakRefs now implements the hypothetical directly:\n\n  * every registered element of every guardian is probed against the\n    frozen mark state before any element is resurrected in that round,\n    so N watchers of one object all fire in the same collection;\n  * ready-queue contents, freshly resurrected elements, and retained\n    representatives are recorded in a per-collection weak_resurrected\n    set — kept alive (a settle pass materializes the marks once every\n    weak decision is made) without ever counting as reachable;\n  * ephemeron keys and transport-cell keys probe with keptAlive\n    (marked or weakly resurrected), preserving the spec's kept-alive\n    reading: a key held only by a guardian's ready queue neither breaks\n    its ephemeron nor breaks its cell.\n\nTransport cell keys were held strongly — cells never broke and every\nregistration pinned its key forever (#2006). The .transport_cell mark\narms now defer the key to a new pending_transport_cells list (the value\nfield stays strong, per 'Except as noted, all newly chosen locations\nare strongly holding') and processWeakRefs breaks every cell whose key\nis neither reachable nor kept alive: broken reads #t, the key reads\n#f, the value survives. A weak key no longer blocks an object guardian\nwatching the same object. Registration stays permanent (the non-moving\ncollector never transports a cell, so (tg) always returns #f) — that\nhalf of the degeneracy is conformant and unchanged; the doc-truth in\nCONFORMANCE.md, the SRFI notes and the type/primitive comments now say\nboth halves.\n\nTests: the audit's pinned one-of-two and never-breaks assertions are\nflipped to the spec answers and extended (same-guardian double\nregistration, re-arming guardians, cross-cycle ready-queue hold,\nstays-broken); 5 Zig GC-semantics tests in tests_srfi254.zig and 3\nrewritten tracing tests in tests_gc_tracing.zig pin the same behavior\ndeterministically (enabled=false GC, explicit collect()). All of them\nfail on the unfixed collector. Verified: audit 189/189 (ReleaseSafe,\n3x under -Dgc-stress=true), R7RS suite 1395/1395 under gc-stress,\nrelated srfi18/srfi-254 suites green, native tier via kaappi compile.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-26T06:07:35+05:30",
-          "tree_id": "9418bdc40a556d70d8dff6de808f5e9bb0bb0cda",
-          "url": "https://github.com/kaappi/kaappi/commit/499662f5ccbf393b4a00b6d85f091041945ab625"
-        },
-        "date": 1787713300082,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 2.495937,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.806039,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.344366,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 1.864105,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.003683,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.029589,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.183231,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.038125,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.746935,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.739193,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.009904,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.213815,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.094298,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.89145,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.029042,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.036552,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "41ba2e94caa93f911a13394c9ea018f711e31c6c",
+          "message": "Remove the last two org-membership references (#2573)\n\nkaappi#2571 opened issues and PRs to everyone but left two sentences\nbehind that still described the old gate: CONTRIBUTING.md pointed at the\ncommunity repo for \"how to request org access\", and the issue-tracker\ndoc said CONTRIBUTING.md covers \"who may file (org members)\". Both now\ndescribe what is actually there: the review rules, and issue forms\nanyone can use.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-10T10:25:40+05:30",
+          "tree_id": "c7c1dcf21f9b72e68ffc826ab92b369e9d8448b5",
+          "url": "https://github.com/kaappi/kaappi/commit/41ba2e94caa93f911a13394c9ea018f711e31c6c"
+        },
+        "date": 1789016616235,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.438225,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.1114,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.59477,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.87642,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004665,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046785,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.293905,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055586,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.556524,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.336901,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.710544,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.311117,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.8687,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.795591,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04756,
             "unit": "seconds"
           }
         ]
