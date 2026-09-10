@@ -8,8 +8,8 @@ the essentials: how to get involved, building, testing, and submitting changes.
 ## How to get involved
 
 See [kaappi/community's CONTRIBUTING.md](https://github.com/kaappi/community/blob/main/CONTRIBUTING.md)
-for how to join the conversation, request org access, and the typical path
-for a new contributor. The rest of this document covers this repo's
+for how to join the conversation, what a PR needs before it merges, and the
+typical path for a new contributor. The rest of this document covers this repo's
 build/test/PR workflow specifically.
 
 ---
