@@ -21,7 +21,7 @@ All must pass before any change is considered complete.
 
 ### Location
 
-Unit tests live in `src/tests_*.zig`, organized by feature. There are ~50 of
+Unit tests live in `src/tests_*.zig`, organized by feature. There are 62 of
 them; the ones below are the entry points you are most likely to want:
 
 | File | Coverage |
@@ -218,20 +218,27 @@ tests/scheme/
                     below) — and srfi231-official-fixtures/ holding its
                     pristine upstream source and girl.pgm fixture
   ffi/              C FFI tests (+ fixtures/ built on the fly by run-all.sh)
+  process/          (kaappi process) subprocess tests (KEP-0022)
   audit/            Primitives correctness audits
 
   # shell suites (each directory's *.sh, run in parallel)
+  smoke/*.sh        REPL driving, lib-path resolution, build-lock and other
+                    regressions that need a real terminal or process tree
   errors/           Error format, diagnostics JSON, exit codes, crash handler
   compile/          Native tier — the only suite that runs `kaappi compile`
   test-runner/      `kaappi test`: discovery, --json, --seed, --jobs
   pipeline/         `kaappi ast` / `expand` / `ir` dumps
   doctor/ fmt/ cache/ timings/ completions/ lsp/ thottam/
                     One per CLI subcommand or tool surface
+  tools/            The repo's own tooling scripts (the unit-suite chunker's
+                    watchdog and bisection, kaappi#2560)
   differential/     Execution-tier differential (opt-off, warm cache, WASM)
+                    + probes/ (its own small corpus)
 
   # not run by run-all.sh
   robustness/       Malformed and adversarial input handling (its own .sh)
-  sandbox/          Sandbox escape prevention (its own .sh)
+  sandbox/          --sandbox: escape prevention plus the per-library
+                    degradation checks (four .sh; see below for which CI runs)
   bench/ coverage/  Deliberately skipped by run-all.sh
 
   run-all.sh        Run all suites with summary
@@ -265,6 +272,15 @@ bash tests/scheme/run-all.sh
 # assertions in the log (kaappi#2157). The wrapper parses the counts.
 bash tools/run-r7rs-suite.sh zig-out/bin/kaappi
 ```
+
+Two more `tools/` wrappers bundle what a CI leg runs, so a local run can
+reproduce it in one command. `tools/run-gc-stress-suite.sh` runs the Scheme
+corpus plus the R7RS suite against a `-Dgc-stress=true` build (the
+`gc-stress-scheme` job; it refuses a binary whose `features --json` does not
+report `gc_stress`). `tools/run-endian-suite.sh` runs every suite that carries
+a byte-order assertion — the QEMU legs (riscv64, s390x, ppc64le) are too slow
+for `run-all.sh`, and without it the s390x canary had never executed a single
+Scheme-level byte-order check.
 
 ### An installed `~/.kaappi/lib` shadows the checkout's `lib/`
 
@@ -512,7 +528,7 @@ conversions); keep any count here in step with it.
 
 ## Shell-Based Test Suites
 
-Roughly sixty shell scripts test behaviors that are easier to verify from
+About 115 shell scripts test behaviors that are easier to verify from
 outside the interpreter — exit codes, stderr text, subcommand output, native
 compilation. Most live in a per-topic directory that `run-all.sh` picks up
 wholesale via `run_shell_suite` (see the tree above); each sources
@@ -540,16 +556,29 @@ crashes. Uses `assert_error` (must produce `error:`) and `assert_no_crash`
 bash tests/scheme/robustness/robustness.sh
 ```
 
-### Sandbox escape (`tests/scheme/sandbox/sandbox-escape.sh`)
+### Sandbox (`tests/scheme/sandbox/*.sh`)
 
-Also invoked directly by CI rather than through `run-all.sh`. Verifies that
-`--sandbox` mode blocks all restricted operations (FFI, file I/O, eval, load,
-environment access) while allowing safe operations (arithmetic, string ports,
-hash tables). Uses `assert_blocked` and `assert_works` helpers.
+Also invoked directly by CI rather than through `run-all.sh`.
+`sandbox-escape.sh` verifies that `--sandbox` mode blocks all restricted
+operations (FFI, file I/O, eval, load, environment access) while allowing safe
+operations (arithmetic, string ports, hash tables), using `assert_blocked` and
+`assert_works` helpers. `parallel-degrades.sh` and `sysinfo-degrades.sh` check
+that `(kaappi parallel)` and `(kaappi sysinfo)` stay importable under
+`--sandbox` and degrade exactly as documented (fiber-backed pools; the four
+path-revealing sysinfo procedures unregistered). `srfi181-sandbox.sh` checks
+that the embedded `(srfi 181)` is fully available there.
 
 ```bash
 bash tests/scheme/sandbox/sandbox-escape.sh
+bash tests/scheme/sandbox/parallel-degrades.sh
+bash tests/scheme/sandbox/sysinfo-degrades.sh
+bash tests/scheme/sandbox/srfi181-sandbox.sh
 ```
+
+The POSIX `test` legs name the first three as separate steps; only the Windows
+legs, which loop over every `sandbox/*.sh`, run `srfi181-sandbox.sh` — nothing
+on a POSIX leg or in `run-all.sh` does. A new sandbox script therefore needs
+its own `ci.yml` step, or it runs on Windows alone.
 
 ### Error format (`tests/scheme/errors/error-format.sh`)
 
@@ -654,8 +683,11 @@ bash benchmarks/run-benchmarks.sh --json
 # Single benchmark
 echo "1 35 9227465" | zig-out/bin/kaappi benchmarks/fib.scm
 
-# call/cc vs call/ec micro-benchmark (Zig-level)
-zig build bench
+# Zig-level micro-benchmarks
+zig build bench            # call/cc vs call/ec capture
+zig build bench-fibers     # per-fiber switch time, RSS, footprint (KEP-0001)
+zig build bench-reactor    # reactor re-arm, wake-all, timer granularity
+zig build bench-channel    # channel local fast path and envelope cost (KEP-0002)
 
 # Compare two JSON result files (flags >10% regressions)
 bash benchmarks/compare-benchmarks.sh baseline.json current.json
@@ -672,8 +704,9 @@ time series used for trend visualization and regression detection.
 **Pull requests** (`benchmark-pr.yml`): triggered by path filter when `src/`,
 `benchmarks/`, `lib/`, or build files change. Builds and benchmarks both the
 PR branch and the base branch, then posts a comparison table as a PR comment
-via `github-action-pull-request-benchmark`. Alert threshold: 120% (flags >20%
-regression).
+via `github-action-pull-request-benchmark`. Alert threshold: 175% (flags >75%
+regression) — run-to-run noise on the shared runners reached ±60% on an
+unchanged commit (kaappi#1906), so the earlier 120% sat inside the noise.
 
 ### Trend dashboard
 
@@ -776,16 +809,16 @@ matrix covers:
 | Job | Platforms | What it runs |
 |-----|-----------|-------------|
 | `format` | Ubuntu | `zig fmt --check`, markdownlint, bare-`TypeError` ratchet (zero allowed) |
-| `test` | Ubuntu (x86, ARM), macOS | Unit tests, `run-all.sh`, robustness, sandbox, thottam integration, SRFI final-status guard |
+| `test` | Ubuntu (x86, ARM), macOS | Unit tests, `run-all.sh`, robustness, the three sandbox scripts, SRFI final-status guard; the ReleaseSafe legs add the e2e suite and thottam integration. Ubuntu x86 runs Debug and ReleaseFast legs too; macOS passes `-Dtest-strip=true` |
 | `gc-stress` | Ubuntu | Unit suite under `-Dgc-stress=true` |
-| `gc-stress-scheme` | Ubuntu | Scheme suites under `-Dgc-stress=true` |
-| `riscv64-test` | Ubuntu (QEMU) | Cross-compiled unit tests + R7RS suite. The unit suite runs as eight chunks (`tools/run-unit-test-chunk.sh`: rest first, then process, concurrency, io, fuzz, gc, native, tooling), each its own step with its own cap. `zig build` buffers all of its output until it exits, so a step killed at its cap loses even the per-test names `--test-timeout 8m` recorded (kaappi#2560); the script therefore enforces its own `KAAPPI_CHUNK_BUDGET` wall budget per chunk, and on expiry kills the zig tree, bisects the filter list with streamed per-level lines, and exits 124 -- the last line before any kill names the filter or narrowed subset, the reopen criterion of kaappi#2488 |
-| `s390x-test` | Ubuntu (QEMU) | Big-endian leg — the byte-order canary (kaappi#1654); same `--test-timeout 8m` |
-| `ppc64le-test` | Ubuntu (QEMU) | Cross-compiled unit tests + R7RS suite; same `--test-timeout 8m` |
+| `gc-stress-scheme` | Ubuntu | Scheme corpus + R7RS suite against a `-Dgc-stress=true` binary (`tools/run-gc-stress-suite.sh`); `KAAPPI_GC_STRESS_SKIP` names the files parked behind open issues |
+| `riscv64-test` | Ubuntu (QEMU) | Cross-compiled unit tests + R7RS suite. The unit suite runs as eight chunks (`tools/run-unit-test-chunk.sh`: rest first, then process, concurrency, io, fuzz, gc, native, tooling), each its own step with its own cap. `zig build` buffers all of its output until it exits, so a step killed at its cap loses even the per-test names `--test-timeout 8m` recorded (kaappi#2560); the script therefore enforces its own `KAAPPI_CHUNK_BUDGET` wall budget per chunk, and on expiry kills the zig tree, bisects the filter list with streamed per-level lines, and exits 124 -- the last line before any kill names the filter or narrowed subset, the reopen criterion of kaappi#2488. Then the R7RS suite and the endian suites (`tools/run-endian-suite.sh`, as the little-endian control) |
+| `s390x-test` | Ubuntu (QEMU) | Big-endian leg — the byte-order canary (kaappi#1654): unit tests (`--test-timeout 8m`), R7RS suite, endian suites |
+| `ppc64le-test` | Ubuntu (QEMU) | Cross-compiled unit tests (`--test-timeout 8m`), R7RS suite, endian suites |
 | `freebsd-test`, `openbsd-test`, `netbsd-test` | Ubuntu (VM action) | Per-BSD build + tests; see the matching `docs/dev/<os>.md` |
 | `windows-cross` | Ubuntu | Cross-compile check for both Windows targets |
-| `windows-arm-test` | Windows 11 ARM | Native build + tests |
-| `windows-x64-test` | Windows x86_64 | Native build + tests |
+| `windows-arm-test` | Windows 11 ARM | Native build, unit + thottam tests, R7RS suite, every shell suite directory (plus `sandbox/` and `robustness/`) |
+| `windows-x64-test` | Windows x86_64 | Same as the ARM leg, plus the e2e suite via `run-e2e.ps1` |
 | `wasm` | Ubuntu | WASM build + wasmtime smoke test |
 | `coverage` | Ubuntu (push to main only) | kcov unit + Scheme coverage, Codecov upload |
 | `benchmark` | Ubuntu (push to main only) | Performance benchmarks, trend data to `gh-pages` |
@@ -838,8 +871,11 @@ The script:
 3. For each program in `programs/`: runs via interpreter, compiles to
    native via `--emit-llvm` + `zig cc`, diffs output
 
-Uses `KAAPPI_CC` env var for the C compiler (defaults to `zig cc`).
-Runs in CI on Ubuntu ReleaseSafe builds.
+Uses `KAAPPI_CC` env var for the C compiler (defaults to `zig cc`). The BDD
+specs need `kaappi-bdd` checked out as a sibling of the repo (`../kaappi-bdd`);
+without it they print `SKIP` and only the parity programs run. CI clones it
+and runs the script on every ReleaseSafe `test` leg (Ubuntu x86, Ubuntu ARM,
+macOS); the Windows x86_64 leg runs `run-e2e.ps1` against `bin\kaappi.exe`.
 
 ---
 
