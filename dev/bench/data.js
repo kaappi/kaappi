@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789126254043,
+  "lastUpdate": 1789132200164,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5b211d179af46d5915bbdac19d7e99cc696cc99d",
-          "message": "Error taxonomy sweep: bounds -> KP3006, value rejections -> KP3007, real procedure names (#2020/#2021/#2022) (#2347)\n\nThree coupled error-taxonomy defects, fixed together because they share\ntwo helpers and one audit file:\n\nrange branches now use indexError (KP3006) and argError (KP3007 for\nstart > end, the case 'kaappi explain KP3007' names verbatim), so\nsubstring and string-copy -- one operation under two names per R7RS\n6.7 -- finally agree on the code. Direct sites fixed in\nprimitives_bytevector (bytevector-u8-ref/-set!, bytevector-copy!,\nstring->utf8), primitives_vector (vector-copy!, vector-swap!,\nvector-reverse-copy!, vector-unfold!(-right)!, vector-append-subvectors),\nprimitives_string (string-copy(!), string->list, string->vector UTF-8\noffset conversions), primitives_string_ext (string-replace), and the\nlist-walk family (list-tail, take, drop, take-right, drop-right now\nreport KP3006 when k walks off a proper list, matching list-ref; a\nnon-pair element is still a type error).\n\ntype branch and the range branch shared one message. Each conflated\nbranch is split: the type branch keeps typeError, the domain branch\nbecomes argError with wording that names the value. Covers byte ranges\n(0-255), negative lengths (make-vector/-string/-bytevector/-list/\n-s8vector), the integer->char Unicode domain, enumerated rejections\n(number->string radix, null-environment version, hash bound, s8vector\nelement range, transcoded-port codec/eol-style/error-mode), immutability\n(set-car!/set-cdr!, string-set!, vector-set!, vector-fill!, ... -- 'got\nhash-table keys, ffi name-length/param-count guards, make-time's\nnanosecond range, random bounds/seeds, thread-start! on a started\nthread, and exact on inf/nan.\n\nhelpers hardcoded a placeholder. parseStartEnd and callPredOrCharset in\nprimitives_string_ext now take the procedure name from each of their\ncall sites (20 SRFI-13 procedures blamed the real, unrelated procedure\n'string'; the predicate check blamed 'string operation').\nnumberTypeError/ratPartsVal/complexPartsOf/cmpPair/toF64Ext in\nprimitives_arithmetic thread the real name from + - * / < > <= >= =\nmax min abs quotient remainder modulo gcd lcm expt sqrt sin cos tan\nasin acos exp log magnitude angle numerator denominator, so '+' names\nitself like its neighbour '/'.\n\nAlso converts the 18 bare PrimitiveError.IndexOutOfBounds/InvalidArgument\nreturns in primitives_string_ext.zig to indexError/argError calls: the\ncode was right but no detail was set, losing the index and length.\n\nCI bare-error ratchet BASELINE lowered 28 -> 10 (all 18\nprimitives_string_ext.zig sites cleared; the remainder are\nVM-infrastructure guards in vm_calls/vm_dispatch_helpers/\nvm_continuations/fiber_wait plus io/fiber guards).\n\nTests: tests/scheme/audit/error-taxonomy-audit.scm rewritten -- every\ndisabled ';; FAIL:' assertion is now live (164 assertions, 0 failures),\nthe TODAY pins of the old behaviour are gone, and a self-naming sweep\nasserts all 20 SRFI-13 procedures and the arithmetic operators name\nthemselves, which catches any future shared-helper hardcode by name.\nRunning the pre-fix audit file against the fixed binary fails exactly\nthe 31 TODAY pins, proving the change is visible. Pinned wordings\nupdated in internal-primitives-audit (srfi160 element range) and\nprimitives_srfi181-audit (transcoded-port codec symbols); two stale\nprose comments corrected.\n\nzig build test: 1744 pass, 7 skip. bash tests/scheme/run-all.sh:\n717 pass / 0 fail, R7RS suite 1395 pass / 0 fail.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-26T07:37:41+05:30",
-          "tree_id": "eb3af1e77646b5c1afa78ce86155fcb259f80582",
-          "url": "https://github.com/kaappi/kaappi/commit/5b211d179af46d5915bbdac19d7e99cc696cc99d"
-        },
-        "date": 1787715805335,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.747341,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.913058,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.520532,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.674768,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004595,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.043173,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.267819,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.051309,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.309459,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.080397,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.482833,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.281574,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.55366,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.695049,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045547,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045506,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4f1956bf9faf0fd6776bb805c552d55ccf511f72",
+          "message": "Trim the README to visitor essentials; move Known limitations to docs/dev (#2577)\n\nThe README had grown to 605 lines, a third of it the Known limitations\nsection and another 30 lines of per-platform notes that duplicated the\nport documents -- the Windows one had gone stale (it still described the\npre-0.23 line reader). A first-time visitor needs what Kaappi is, how to\nget it, and what sets it apart; the rest belongs where contributors look.\n\n- Known limitations moves verbatim to docs/dev/known-limitations.md, with\n  the fiber scheduling rules from the Concurrency section folded in. The\n  README keeps a six-bullet summary under the same heading so existing\n  #known-limitations links (SECURITY.md, the site's conformance page)\n  still land somewhere useful.\n- The per-platform paragraphs go; the platforms table stays, with the\n  all-yes Tests column folded into its intro and the Linux rows grouped by\n  native-backend tier. The install script's BSD base-system fallback moves\n  to the porting guide's installer checklist, where a porter needs it.\n- Architecture keeps the one-line pipeline diagram and defers the\n  component table and NaN-box layout to architecture.md, which already\n  had both. The ir.zig node-count gate no longer lists README.md.\n- Cross-references in CLAUDE.md, CONFORMANCE.md, SECURITY.md,\n  docs/audit-strategy.md, vm_bootstrap.zig and four test comments now\n  name the new doc directly.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-11T17:52:11+05:30",
+          "tree_id": "d620613f6d55be1b966319c507ab25ce824db649",
+          "url": "https://github.com/kaappi/kaappi/commit/4f1956bf9faf0fd6776bb805c552d55ccf511f72"
+        },
+        "date": 1789132196850,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.166511,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.202098,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.441178,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.271375,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003636,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.035776,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.22431,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.041899,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.925903,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.909361,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.239568,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.231822,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.271119,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.397743,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.036592,
             "unit": "seconds"
           }
         ]
