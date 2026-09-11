@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789119236222,
+  "lastUpdate": 1789120173343,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5b01dfb71332b937772a5b0ddfd0126b84c26835",
-          "message": "wasi: make `zig build test -Dtarget=wasm32-wasi` a real gate and run the suite under wasmtime (kaappi#2153) (#2349)\n\nThe wasm32-wasi unit suite did not compile (~20 errors: 32-bit usize\narithmetic, platform-facade gaps in code the test module pulls in), so\nthe WASI reactor backend had no compile gate anywhere and the binary\nwas never executed by any test.\n\nDirection (a) of the issue, with direction (b)'s documentation for the\none piece no runtime can host:\n\n* The suite now compiles: WASI arms for platform.zig's write-open\n  family / openNullSink / DirIter (fd_readdir) / dl* / argsIterate, the\n  process-spawn sites (thottam_proc, test_runner, test_selection,\n  doctor, native_compiler), testing_helpers' fd-pair family, and\n  32-bit-safe FFI test constants. build.zig marks the wasm test module\n  single-threaded (matching the wasm executable), adds the atomics CPU\n  feature (std's futex plumbing analyzes atomic waits even\n  single-threaded; only waits need shared memory, and this module never\n  waits), defaults it to ReleaseSmall (Debug exceeds wasmtime's\n  per-function locals limit in the comptime-generated FFI dispatchers;\n  ReleaseSafe crashes the LLVM wasm32 backend on a float constant-pool\n  selection), and installs zig-out/bin/unit-tests.wasm.\n* The installed binary runs green under\n  `wasmtime run --dir=. --dir=/tmp`: 1542 passed, 209 skipped, 0 failed\n  of 1751 - the same test count as the native suite. This executes\n  WasiPollBackend's CLOCK path for real (addTimer/removeTimer/\n  popExpiredTimers/msFromNs and the scheduler/fiber halves).\n* The fd suites skip on wasm with per-test comptime gates, and\n  testing_helpers.wasmNoFdPairs panics if a test reaches a pair\n  constructor without its skip: WASI p1 has no pipe/socketpair creation\n  syscalls and wasmtime leaves sock_open unimplemented, so a guest\n  cannot construct any EAGAIN-capable fd; poll_oneoff even rejects fd\n  subscriptions on every obtainable fd with BADF (probed on wasmtime\n  48). porting.md Stage 3 now documents this boundary explicitly\n  instead of listing a criterion the backend cannot meet.\n* Bug found by the new gate: make-bytevector/make-string silently\n  allocated a truncated (much smaller) object for absurd lengths on\n  wasm32 - the i64 length truncated inside @intCast before the GC\n  payload cap could see it (the #1912 class). primitives.fixnumFitsUsize\n  now checks in u64 before narrowing; the fixnum-length absurd-payload\n  regression test runs on wasm and fails without the fix.\n* platform.zig's WASI opens now resolve paths through the preopen table\n  the way wasi-libc does (relative -> CWD preopen, absolute -> longest\n  preopen-name prefix), replacing the hardcoded fd 3.\n* Two feature assertions that assumed \"unit tests never build for WASM\"\n  (kaappi-threads, (library (srfi 18))) now expect each platform's\n  correct answer; features' sandbox_available likewise.\n\nCI: the wasm job gains a step that runs the compile gate and executes\nthe binary under wasmtime (the runner is already installed there).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-26T06:08:55+05:30",
-          "tree_id": "74ac555eb88599636887ba36875c0927339e3c85",
-          "url": "https://github.com/kaappi/kaappi/commit/5b01dfb71332b937772a5b0ddfd0126b84c26835"
-        },
-        "date": 1787713508189,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.092079,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.573529,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.407302,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.202629,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004513,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.036769,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.224057,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.040362,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.23013,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.894731,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.253253,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.2337,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.294074,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.829753,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.034961,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042691,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "a72ee0751ceaafa20949fade95e1dbac2d9cd525",
+          "message": "Move the uniform Build column out of the platforms table",
+          "timestamp": "2026-09-11T15:12:26+05:30",
+          "tree_id": "5a52e19082aae1458ef87c0c58ef401824e79164",
+          "url": "https://github.com/kaappi/kaappi/commit/a72ee0751ceaafa20949fade95e1dbac2d9cd525"
+        },
+        "date": 1789120170694,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.533218,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.266772,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.598552,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.078574,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004659,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047491,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.313205,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056832,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.818109,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.246615,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.652692,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.273192,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.715627,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.609941,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044804,
             "unit": "seconds"
           }
         ]
