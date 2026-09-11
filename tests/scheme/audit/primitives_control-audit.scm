@@ -9,7 +9,7 @@
 ;; callback sites can park a fiber).
 ;;
 ;; Oracles: R7RS-small §4.2.7 (guard), §6.10 (control features), §6.11
-;; (exceptions); README.md "Known limitations"; CONFORMANCE.md; the header of
+;; (exceptions); docs/dev/known-limitations.md; CONFORMANCE.md; the header of
 ;; lib/srfi/248.sld.  Behaviour R7RS leaves unspecified (multiple values in a
 ;; single-value context, escaping from a before/after thunk) is deliberately
 ;; NOT asserted.
@@ -520,8 +520,9 @@
               (lambda ()
                 (list 'in (with-unwind-handler (lambda (o k) o)
                             (lambda () (raise-continuable 7)))))))
-;; Documented caveat (README.md, CONFORMANCE.md, lib/srfi/248.sld): the handler
-;; runs at the raise point, so it precedes the guarded body's after-thunk.
+;; Documented caveat (docs/dev/known-limitations.md, CONFORMANCE.md,
+;; lib/srfi/248.sld): the handler runs at the raise point, so it precedes
+;; the guarded body's after-thunk.
 (test-equal "SRFI 248: handler precedes the guarded body's after-thunk (documented caveat)"
             '(B H A)
             (let ((log '()))

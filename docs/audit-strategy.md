@@ -365,7 +365,7 @@ Read this before every session. The phase sections say *what*; this says *how*.
    - **Construct a discriminating control** — a near-identical input that
      *should* behave differently. F4's symbol-vs-string control is the model:
      it converts "this errors" into "this errors *because of the string path*".
-   - Check `README.md § Known limitations` and `CONFORMANCE.md` — documented
+   - Check `docs/dev/known-limitations.md` and `CONFORMANCE.md` — documented
      deviations (SRFI 248 handler timing, continuations under native drivers,
      fibers in native-driver callbacks) are not bugs.
    - Check whether the docs merely *claim* it is broken. Five such claims were

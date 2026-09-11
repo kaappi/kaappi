@@ -10,7 +10,7 @@ a `map` used for effect prints its result, interleaved with the program's own
 output — Chibi and Guile print nothing when running the same file. The echo
 is deliberate (`printTopLevelResult` in `src/main.zig`) and no flag disables
 it; end effectful top-level sequences with a void-valued form when output
-must stay clean. See README.md "Known limitations → Script output".
+must stay clean. See docs/dev/known-limitations.md § Script output.
 
 ---
 
@@ -377,7 +377,7 @@ to an explicit target, and resend from a directly-overriding method, both work.
 continuations are effectively single-shot: each captured `k` may be resumed at
 most once — re-entering it twice crosses a native frame that cannot be
 re-entered after it returns, the same restriction as continuations captured
-under native drivers (see README.md "Known limitations → Continuations"). Every
+under native drivers (see docs/dev/known-limitations.md § Continuations). Every
 SRFI 248 idiom — coroutine generators, `for-each->fold`, effect handlers —
 invokes each `k` once. (2) The handler runs at the raise point rather than after
 unwinding to `with-unwind-handler`, so a handler side effect and a

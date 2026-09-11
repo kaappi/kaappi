@@ -287,7 +287,10 @@ thottam → #1608 readiness), and it kept every intermediate PR shippable.
       OpenBSD report `amd64` for x86_64, Linux reports `ppc64le` where the
       artifacts spell out `powerpc64le`), and, for an aarch64/x86_64 target,
       an arm in the `rt_artifact` case so `libkaappi_rt.a` installs and
-      `kaappi compile` works.
+      `kaappi compile` works. It must keep running from a bare base
+      system: on the BSDs it falls back to `fetch` (FreeBSD) or `ftp`
+      (OpenBSD, NetBSD) when neither `curl` nor `wget` is installed, and to
+      `sha256` for checksum verification — a new platform needs the same.
 - [ ] Write `docs/dev/<os>.md` modeled on [windows.md](windows.md):
       the mapping architecture, each deliberate degradation and *why*,
       the feature identifier, how to test on a real machine, known gaps

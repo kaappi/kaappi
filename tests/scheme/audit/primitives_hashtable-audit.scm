@@ -670,7 +670,7 @@
               n))
 ;; Resuming a continuation captured inside a walk after the native call has
 ;; returned must fail cleanly, not resume over the freed snapshot. This is
-;; the documented native-frame continuation limit (README).
+;; the documented native-frame continuation limit (docs/dev/known-limitations.md).
 (test-equal "resuming a walk continuation after the walk returned errors cleanly" #t
             (let ((ht (make-hash-table)) (saved #f))
               (do ((i 0 (+ i 1))) ((= i 4)) (hash-table-set! ht i i))

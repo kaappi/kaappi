@@ -46,8 +46,9 @@ commit log for contact information).
 
 ### Known limitations
 
-- **OS threads (SRFI-18):** Cross-thread GC is experimental. See the
-  [Known limitations](README.md#known-limitations) section in the README.
+- **OS threads (SRFI-18):** Cross-thread GC is experimental. See
+  [OS threads](docs/dev/known-limitations.md#os-threads-srfi-18) in the
+  known-limitations doc.
 
 - **JIT W^X:** The JIT compiler allocates executable memory. On macOS it uses
   `pthread_jit_write_protect_np` for proper W^X enforcement. The Linux path

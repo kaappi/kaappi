@@ -1002,8 +1002,8 @@
 ;;     can be resumed.  The controls below isolate the mechanism to the driver,
 ;;     not the SRFI.  The remaining native SRFI 1 drivers (fold-right, find,
 ;;     reduce, count, partition, remove, take-while, assoc/member with a
-;;     predicate, ...) keep the restriction — see #2060 and README
-;;     "Known limitations -> Continuations".
+;;     predicate, ...) keep the restriction — see #2060 and
+;;     docs/dev/known-limitations.md, "Continuations".
 ;; ---------------------------------------------------------------------------
 
 (define (portable-unfold stop? mapper successor seed . rest)

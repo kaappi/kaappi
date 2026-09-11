@@ -53,18 +53,12 @@ curl -fsSL https://kaappi-lang.org/install.sh | bash
 
 This installs `kaappi` and `thottam` (the package manager) to `~/.local/bin/`
 and the standard libraries to `~/.kaappi/lib/`, verifying SHA256 checksums
-along the way. On the BSDs the script works from the base system alone —
-when neither `curl` nor `wget` is installed it falls back to the base
-`fetch` (FreeBSD) or `ftp` (OpenBSD, NetBSD) for downloads and `sha256`
-for verification.
+along the way.
 
-Prebuilt binaries for every platform are on the
-[releases page](https://github.com/kaappi/kaappi/releases/latest). macOS
-binaries are Developer ID signed and notarized; all releases ship
-`SHA256SUMS` with a GPG signature (`SHA256SUMS.asc`, key at
-[keybase.io/baijum](https://keybase.io/baijum)). See the
-[download page](https://kaappi-lang.org/download/) for manual install and
-verification steps.
+Prebuilt, signed binaries for every platform are on the
+[releases page](https://github.com/kaappi/kaappi/releases/latest); the
+[download page](https://kaappi-lang.org/download/) covers manual installation
+and checksum and signature verification.
 
 ### Build from source
 
@@ -81,56 +75,26 @@ zig build test                       # run the unit tests
 
 ### Supported platforms
 
-Kaappi builds on every platform below — each non-macOS target
-cross-compiles from one host with `zig build -Dtarget=<arch>-<os>`, so
-building for a platform never requires running on it. The table records
-only what varies between them:
+CI builds every target below and runs the unit tests on all of them except
+WebAssembly; each non-macOS target cross-compiles from a single host with
+`zig build -Dtarget=<arch>-<os>`. The table records only what varies:
 
-| OS | Architecture | Tests | Native compilation |
-|----|-------------|-------|--------------------|
-| macOS | aarch64 (Apple Silicon) | yes | LLVM backend |
-| Linux | x86_64 | yes | LLVM backend |
-| Linux | aarch64 | yes | LLVM backend |
-| Linux | riscv64 | yes | interpreter only |
-| Linux | s390x (big-endian) | yes | interpreter only |
-| Linux | ppc64le | yes | interpreter only |
-| Windows | aarch64 (ARM64), x86_64 | yes | LLVM backend (needs a C toolchain) |
-| FreeBSD | x86_64, aarch64 | yes | LLVM backend (base `cc` suffices) |
-| OpenBSD | x86_64, aarch64 | yes | LLVM backend (base `cc` suffices) |
-| NetBSD | x86_64, aarch64 | yes | LLVM backend (needs pkgsrc `clang`; base `cc` is GCC) |
-| WebAssembly | wasm32-wasi | — | interpreter only |
+| OS | Architecture | Native compilation |
+|----|-------------|--------------------|
+| macOS | aarch64 (Apple Silicon) | LLVM backend |
+| Linux | x86_64, aarch64 | LLVM backend |
+| Linux | riscv64, s390x, ppc64le | interpreter only |
+| Windows | aarch64, x86_64 | LLVM backend (needs a C toolchain) |
+| FreeBSD | x86_64, aarch64 | LLVM backend (base `cc` suffices) |
+| OpenBSD | x86_64, aarch64 | LLVM backend (base `cc` suffices) |
+| NetBSD | x86_64, aarch64 | LLVM backend (needs pkgsrc `clang`) |
+| WebAssembly | wasm32-wasi | interpreter only |
 
 The WASM build (`zig build wasm`) runs in browsers and WASI runtimes — it
-powers the [playground](https://kaappi-lang.org/playground/).
-
-Per-platform notes, each linking to the full port document:
-
-- **[Windows](docs/dev/windows.md)** — the complete interpreter: REPL (plain
-  line editing, no history or completion), fibers, channels, OS threads, FFI
-  (`LoadLibrary`), and the `kaappi test` runner. thottam installs packages too
-  (with Git for Windows on PATH); only manifests with a `build:` command are
-  refused, since the C-FFI packages' Makefiles target POSIX. fd readiness
-  covers sockets (event-driven, WSAEventSelect) and pipes (polled) — file ports
-  keep blocking reads, while timers and cross-thread wakeups always work. The
-  POSIX-only slice of SRFI-170 (uid/gid, symlinks, chmod/umask, user/group
-  info) raises a catchable file error. Windows builds expose the `windows`
-  `cond-expand` feature identifier instead of `posix`.
-- **[FreeBSD](docs/dev/freebsd.md)** — full POSIX with no degradations:
-  kqueue-backed fiber I/O, OS threads, complete SRFI-170, the full isocline
-  REPL, and thottam with `build:` support. `kaappi compile` links native
-  binaries with the base system's `cc` — no extra toolchain needed.
-- **[OpenBSD](docs/dev/openbsd.md)** — the same full-POSIX kqueue platform, with
-  two automatic accommodations for OpenBSD's hardening: each binary is marked
-  `PT_OPENBSD_NOBTCFI` at build time to opt out of BTCFI enforcement (Zig 0.16
-  emits no BTI landing pads), and the interpreter raises its own stack limit at
-  startup to clear OpenBSD's tight 4 MiB default.
-- **[NetBSD](docs/dev/netbsd.md)** — the same feature set, verified on NetBSD
-  10.1. The runtime binds NetBSD's versioned libc symbols explicitly
-  (`__kevent50`, `__opendir30`, `__getpwnam50` — the plain names are old-ABI
-  compat symbols that silently misparse modern structs) and resets the aarch64
-  FPCR at startup, which NetBSD boots in flush-to-zero mode that would break
-  IEEE gradual underflow. `kaappi compile` needs clang from pkgsrc; NetBSD's
-  base `cc` is GCC, which can't consume LLVM IR.
+powers the [playground](https://kaappi-lang.org/playground/). What each port
+touches, and its deliberate degradations, is in the per-platform docs:
+[Windows](docs/dev/windows.md), [FreeBSD](docs/dev/freebsd.md),
+[OpenBSD](docs/dev/openbsd.md), [NetBSD](docs/dev/netbsd.md).
 
 ## A taste of Kaappi
 
@@ -151,50 +115,8 @@ kaappi> (char-alphabetic? #\λ)
 #t
 ```
 
-The REPL has **syntax highlighting**, **line editing**, **persistent history**
-(`~/.kaappi/history`), **tab completion** for all built-in and user-defined
-symbols, and **multi-line input** with automatic paren balancing.
-
-### Hygienic macros
-
-```scheme
-(define-syntax my-when
-  (syntax-rules ()
-    ((my-when test body ...)
-     (if test (begin body ...)))))
-
-(my-when #t
-  (display "hello world")
-  (newline))
-```
-
-### Libraries
-
-```scheme
-(define-library (mylib math)
-  (export square cube)
-  (import (scheme base))
-  (begin
-    (define (square x) (* x x))
-    (define (cube x) (* x x x))))
-
-(import (mylib math))
-(cube 5) ;=> 125
-```
-
-### First-class continuations
-
-```scheme
-(define saved #f)
-
-(+ 1 (call/cc (lambda (k)
-                (set! saved k)
-                10)))
-;=> 11
-
-(saved 42)
-;=> 43
-```
+The REPL has syntax highlighting, multi-line editing with paren balancing,
+persistent history, and tab completion for built-in and user-defined symbols.
 
 ## Features
 
@@ -211,17 +133,17 @@ symbols, and **multi-line input** with automatic paren balancing.
 
 ### Beyond the standard
 
-- **181 SRFIs** — 12 built-in, 165 as portable `.sld` libraries, plus SRFI 261 portable library references (`(srfi srfi-1)`, `(srfi lists-1)`) resolved in the importer and SRFI 226/160/211 as sub-libraries only (full list in [CONFORMANCE.md](CONFORMANCE.md))
-- **Native binaries** — `kaappi compile program.scm -o program` compiles Scheme to a native executable via LLVM, with self-tail-calls compiled as loops, tuned to the portable baseline CPU so the result runs on other machines of the same architecture ([details](docs/dev/llvm-backend.md))
-- **Standalone bundles** — `zig build -Dbundle-src=program.scm` embeds bytecode + libraries in a single executable, tuned to the portable baseline CPU so it runs on other machines of the same architecture (`-Dcpu=native` restores host tuning)
+- **181 SRFIs** — 12 built-in, 165 as portable `.sld` libraries, plus SRFI 261 library names and the sub-library-only SRFIs 160, 211 and 226 (full list in [CONFORMANCE.md](CONFORMANCE.md))
+- **Native binaries** — `kaappi compile program.scm -o program` compiles Scheme to a native executable via LLVM, tuned to the portable baseline CPU so it runs on other machines of the same architecture ([details](docs/dev/llvm-backend.md))
+- **Standalone bundles** — `zig build -Dbundle-src=program.scm` embeds bytecode and libraries in a single executable
 - **C FFI** — call shared libraries from Scheme via `(kaappi ffi)`; 18 marshalled types, callbacks for passing Scheme procedures to C
 - **Concurrency** — green threads with channels via `(kaappi fibers)`, plus real OS threads via SRFI-18
 - **Stepping debugger** — breakpoints (with conditions), watch expressions, step/next/step-out, frame navigation, locals — all from the REPL
 - **Profiler** — `kaappi --profile` or `,profile expr`: per-function self/total time, call counts, allocation bytes
 - **Sandbox mode** — `kaappi --sandbox` blocks FFI, file I/O, `eval`, `load`, and environment access
 - **Bytecode caching** — compiled `.sbc` files are reused when the source is unchanged
-- **Machine-legible diagnostics** — every error carries a stable `KP` code (`error[KP3001]`), with `--diagnostics=json` (LSP shape), `kaappi explain <code>`, and a Scheme accessor `(error-object-code e)` in `(kaappi diagnostics)` for dispatching on codes ([details](docs/dev/diagnostics.md))
-- **Capability discovery** — `kaappi features [--json]` reports this build's version, target, compiled-in subsystems, SRFIs, and limits from one source of truth ([details](docs/dev/features.md))
+- **Machine-legible diagnostics** — every error carries a stable `KP` code (`error[KP3001]`), with `--diagnostics=json` and `kaappi explain <code>` ([details](docs/dev/diagnostics.md))
+- **Capability discovery** — `kaappi features [--json]` reports this build's version, target, subsystems, SRFIs, and limits ([details](docs/dev/features.md))
 - **Editor support** — a bundled LSP server (`kaappi-lsp`) and a [VS Code extension](https://github.com/kaappi/vscode-kaappi)
 
 ## Ecosystem
@@ -249,10 +171,6 @@ kaappi app.scm
 More libraries (CSV, TOML, YAML, logging, templates, testing, crypto, SQLite,
 email, CLI parsing) are listed in the
 [ecosystem docs](https://kaappi-lang.org/ecosystem/).
-
-`thottam install <pkg>` resolves dependencies, supports version constraints
-(`thottam install kaappi-net@">=0.2.0"`), and installs to `~/.kaappi/lib/`
-where libraries are discovered automatically.
 
 ### A REST API in a few lines
 
@@ -294,16 +212,9 @@ Green threads (fibers) for cooperative multitasking within one OS thread:
 (display (channel-receive ch))  ;=> hello from fiber
 ```
 
-Scheduling is cooperative: spawned fibers run when the main program blocks
-(`channel-receive` on an empty channel, `fiber-join`) or calls `(yield)`.
-A fiber that blocks on an empty channel is parked and woken by the next
-`channel-send` on that channel. When the main program ends, fibers that are
-still parked (e.g. workers that never received a stop sentinel) are simply
-discarded and the process exits — like goroutines in Go. If the main program
-blocks on a channel that no runnable or parked-and-wakeable fiber can ever
-send to, `channel-receive` raises a deadlock error (an `error` object,
-catchable with `guard`); the same applies to `fiber-join` on a fiber that can
-never complete.
+Scheduling is cooperative: fibers run when the main program blocks or calls
+`(yield)`, and a receive that no fiber can ever satisfy raises a catchable
+deadlock error instead of hanging.
 
 Real OS threads via SRFI-18 — each thread gets its own VM and GC, enabling
 true parallel I/O (e.g., thread-per-connection servers):
@@ -320,6 +231,9 @@ true parallel I/O (e.g., thread-per-connection servers):
 (thread-join! t)
 ```
 
+See the [concurrency guide](https://kaappi-lang.org/guide/concurrency/) for
+channels across threads, worker pools, and `parallel-map`.
+
 ## Architecture
 
 ```text
@@ -329,26 +243,9 @@ Source → Reader → Expander → IR → Bytecode emission → VM
                                passes)                      continuations)
 ```
 
-| Component | Role |
-|-----------|------|
-| **Reader** | Tokenizer + recursive descent parser for the full R7RS lexical syntax, including Unicode identifiers and `#\λ` character literals. |
-| **Expander** | `syntax-rules` pattern matching and hygienic template instantiation. |
-| **IR** | Tree-structured intermediate representation (18 node types) with a tail-position analysis pass and 5 optimization passes (constant folding, dead-branch elimination, and more). |
-| **Compiler** | IR → register-based bytecode. |
-| **VM** | Bytecode interpreter with growable register file and frame stack, exception handler and dynamic-wind stacks, stack-copying continuations, and a stepping debugger. |
-| **GC** | Generational collector (young/old) with write barrier for old→young references. |
-
-Values are **NaN-boxed 64-bit words** — flonums, fixnums, booleans, characters,
-and nil all fit in a single u64 with zero heap allocation:
-
-```text
-Flonum:    any f64 that is not a NaN     ← stored directly
-Pointer:   0xFFFC | 48-bit pointer       ← heap object
-Fixnum:    0xFFFD | 48-bit signed int    ← up to ±2^47, auto-promotes to bignum
-Immediate: 0xFFFE | payload              ← nil, bool, void, eof, char
-```
-
-The full component map, file layout, and design notes are in
+Values are NaN-boxed 64-bit words, so flonums, fixnums, booleans, characters,
+and nil need no heap allocation. The component map, value representation,
+GC design, and file layout are in
 [docs/dev/architecture.md](docs/dev/architecture.md).
 
 ## Testing
@@ -358,11 +255,10 @@ zig build test                     # Zig unit tests
 bash tests/scheme/run-all.sh       # all Scheme-level suites
 ```
 
-The Scheme suites include a 1,395-test R7RS conformance suite (via
-`(chibi test)`), plus targeted suites for compliance, continuations, macro
-hygiene, SRFIs, and the FFI. CI runs on every platform in the support matrix,
-and per-commit performance trends are tracked on the
-[benchmark dashboard](https://kaappi-lang.org/kaappi/dev/bench/).
+The Scheme suites include the 1,395-test R7RS conformance suite. CI runs on
+every platform in the support matrix, and per-commit performance trends are
+tracked on the [benchmark dashboard](https://kaappi-lang.org/kaappi/dev/bench/).
+The [testing guide](docs/dev/testing.md) describes the full layout.
 
 ## Documentation
 
@@ -373,204 +269,30 @@ and per-commit performance trends are tracked on the
 | [Cookbook](https://kaappi-lang.org/cookbook/) | Task-oriented recipes: REST APIs, JSON, CSV, SQLite, testing |
 | [Ecosystem](https://kaappi-lang.org/ecosystem/) | thottam and all kaappi-* libraries |
 | [R7RS Conformance](CONFORMANCE.md) | Design choices and per-SRFI coverage details |
-| [Architecture](docs/dev/architecture.md) | Pipeline, value representation, GC, file organization |
-| [Adding Features](docs/dev/adding-features.md) | Step-by-step guides for extending the implementation |
-| [Testing Guide](docs/dev/testing.md) | Unit tests, Scheme tests, benchmarks, CI |
-| [Developer Docs Index](docs/dev/README.md) | All contributor docs: guides, design decisions, postmortems |
+| [Developer Docs](docs/dev/README.md) | Architecture, extension guides, testing, design decisions, postmortems |
 
 ## Known limitations
 
-### Continuations
+- **Continuations** — `call/cc` copies the VM stack, so a capture costs
+  O(stack depth). A continuation captured inside the callback of a *native
+  driver* (a higher-order primitive implemented in Zig) cannot be resumed
+  once that call returns; `apply`, `call-with-values`, `map`, `for-each`,
+  SRFI-1 `fold`/`filter`/`any`/`every` and others are exempt, most remaining
+  SRFI-1 drivers are not. SRFI 248's delimited continuations are single-shot.
+- **Exceptions** — a `with-exception-handler` or `guard` handler runs after
+  the stack has unwound to the installing form, not in the dynamic environment
+  of the `raise`. `raise-continuable` is unaffected.
+- **Fibers** — a fiber cannot park inside a native-driver callback; block in
+  plain loops or the bytecode-driven procedures instead.
+- **OS threads** — values cross by deep copy, except top-level bindings, which
+  are shared by pointer. Share mutexes and condition variables through a
+  global; pass channels by lexical capture.
+- **Script output** — `kaappi program.scm` echoes every non-void top-level
+  value to stdout, as the REPL does.
+- **Macros** — `syntax-rules` only; `syntax-case` is not implemented.
 
-`call/cc` captures continuations by copying the full VM state (registers, call
-frames, exception handlers, dynamic-wind stack). Cost is O(stack depth) per
-capture — negligible for most programs, but noticeable if continuations are
-captured in tight inner loops. Continuations captured in one top-level REPL
-expression cannot re-enter subsequent top-level expressions (standard behavior
-shared by Guile, Chibi, Chicken, Chez, and Racket).
-
-A continuation captured inside the callback of a **native driver** — a
-higher-order procedure implemented in Zig that re-enters the VM once per
-element — cannot be resumed once that driver's call has returned, because the
-driver's state lives on the Zig stack, not in the copied VM state. This is the
-restriction [CONFORMANCE.md](CONFORMANCE.md) refers to. It is why a
-continuation-backed value (e.g. a SRFI 158 coroutine generator, which captures
-a continuation on every `yield`) breaks when consumed inside such a driver.
-
-Which procedures are exempt is not guessable from the outside, so here is the
-list. **Exempt** — a continuation captured in the callback resumes freely:
-`apply` and `call-with-values` (both positions, and both halves of the latter:
-`#2451` for its consumer, `#2453` for its producer),
-`map`, `for-each`, `vector-map`, `vector-for-each`, `string-for-each`, and — as
-of #2060 — the SRFI-1 `fold`, `filter`, `any`, `every`, `unfold` and SRFI-69
-`hash-table-walk`. A coroutine generator can be applied, folded, filtered,
-mapped or walked freely.
-
-**Still restricted**: the remaining native SRFI-1 drivers — `fold-right`,
-`reduce`, `reduce-right`, `find`, `find-tail`, `count`, `partition`, `remove`,
-`take-while`, `drop-while`, `delete`, `delete-duplicates`, `filter-map`,
-`append-map`, `pair-for-each`, `pair-fold`, the `lset-*` family, and
-`assoc`/`member` with a custom predicate, among others — plus one corner of
-the exempt pair: an `apply` whose flattened argument list exceeds 255
-arguments, which falls back to the native route because the call opcode's
-argument count is a single byte.
-
-SRFI 248's delimited continuations (`with-unwind-handler`, and the extended
-`guard`) are built on this `call/cc` via a sticky exception handler, with three
-observable caveats:
-
-- **Single-shot** — each captured delimited continuation may be resumed at most
-  once. Every SRFI 248 idiom (coroutine generators, `for-each->fold`, effect
-  handlers) resumes each `k` once, so this does not affect them; resuming the
-  same `k` twice fails because it re-enters a native frame that has already
-  returned.
-- **Handler timing** — the handler runs at the raise point rather than after
-  unwinding to `with-unwind-handler`, so a handler side effect (and, since
-  `guard` is built on it, a `guard` clause) runs *before* a `dynamic-wind`
-  after-thunk of the guarded body, where R7RS-small runs it after. All the
-  effects still happen; only their order differs. See
-  [CONFORMANCE.md](CONFORMANCE.md) for details.
-- **Shared prompt cell** — the delimited-control prompt is a single cell per
-  thread, shared by every fiber in it, so a `with-unwind-handler`/`guard` body
-  must not span a fiber suspension point (a blocking channel operation, parked
-  I/O) while another fiber runs delimited control: the prompts cross silently —
-  one fiber's `with-unwind-handler` can return another fiber's handler value
-  while the parked body never completes, with no error raised. Mixing in user
-  `call/cc` is unsupported the same way: a `call/cc` capture that crosses a
-  `with-unwind-handler` boundary makes the guarded body re-run exponentially —
-  a loop that escapes through user `call/cc` from inside `with-unwind-handler`,
-  run under SRFI 248's `guard`, executes its body 2^n-1 times instead of n (255
-  where 8 is correct, at n = 8) and still exits 0.
-
-All three are limited to SRFI 248; plain `call/cc`, `dynamic-wind`, and the
-built-in `guard` are unaffected unless you import `(srfi 248)`.
-
-### Exceptions
-
-A handler runs after the stack has unwound to the `with-exception-handler` (or
-`guard`) that installed it, rather than at the raise point, so a `parameterize`
-or `dynamic-wind` extent entered between the two is already gone by the time
-the handler is called. R7RS-small calls the handler in the dynamic environment
-of the `raise`. `raise-continuable` is unaffected — its handler does run in
-place, as specified.
-
-`guard` clauses are evaluated in the guard's own dynamic environment, as R7RS
-4.2.7 requires. One consequence of the above shows in the implicit re-raise:
-when no clause matches, `raise-continuable` is invoked in the *guard's* dynamic
-environment rather than the original raise's, so an outer
-`with-exception-handler` observes the guard's parameterization. Restoring the
-raise point's dynamic environment needs a continuation captured under the
-native raise frame, which cannot be resumed once that frame has returned.
-
-This applies to the built-in `guard`. `(srfi 248)` replaces `guard` with its
-own, whose separate timing caveat is above.
-
-### Fibers
-
-Callbacks driven by `map`, `for-each`, `vector-map`, `vector-for-each`,
-`string-map`, `string-for-each`, `dynamic-wind`, `force`, and — since #2060 —
-SRFI-1 `fold`, `filter`, `any`, `every`, `unfold` and SRFI-69 `hash-table-walk`
-run in the bytecode dispatch loop, so a fiber can park inside them (e.g. block
-on an empty channel) and resume later. Other higher-order procedures are still
-native drivers — SRFI-1 (`fold-right`, `reduce`, `find`, `count`, `partition`,
-`remove`, ...), `hash-table-update!`, `assoc`/`member` with a custom
-predicate, `string-index`, `eval`, ... — and a fiber that blocks on
-an empty channel inside one of those callbacks cannot be parked: the native
-call's state lives on the Zig stack and cannot be suspended. If other fibers
-are runnable the scheduler still makes progress, but if the blocked receive
-is the only thing left it raises a deadlock error instead of suspending.
-Move blocking `channel-receive` calls into plain Scheme loops (named `let`,
-`do`) or the bytecode-driven procedures above when a fiber must wait inside
-iteration.
-
-Port I/O that would block (a socket or pipe read/write with no data or a
-full kernel buffer) parks the fiber on the per-thread reactor instead of
-blocking the OS thread, so fibers reading different connections interleave.
-The main fiber — or a fiber inside a native-driver callback — cannot be
-parked; it instead dispatches sibling fibers in place while it waits, so
-progress continues either way. Ports on fds other than 0/1/2 buffer output
-until `flush-output-port`, `close-port`, a read on the same port, the
-buffer filling (8 KiB), or program exit; stdin/stdout/stderr remain
-unbuffered.
-
-On WASI, whether a port can park a fiber depends on the host. Ports flip to
-non-blocking only if `fd_fdstat_set_flags(NONBLOCK)` succeeds; where it does
-not — the playground's browser shim, for one — no fd is ever registered and the
-reactor falls back to timer-only waits, leaving I/O blocking and single-fiber.
-Timers and `thread-sleep!` work either way.
-
-### OS threads (SRFI-18)
-
-Each OS thread gets its own VM and GC with an independent heap, and can
-allocate and collect without affecting the parent. A value reaches another
-thread by one of **two routes**, which behave differently:
-
-- **By copy** — the thunk closure at `thread-start!`, the result at
-  `thread-join!`, and every channel message are deep-copied. Fourteen types are
-  refused outright on this route (ports, continuations, fibers, mutexes,
-  condition variables, and more).
-- **By reference** — top-level bindings are shared *by pointer*, so a thunk
-  that merely *names* a global gets the parent's own object, uncopied. The
-  refusal list above does not apply, and only four types (channels, thread
-  handles, fibers, guardians) check that the caller owns them.
-
-So threads **can** share mutable state, through a top-level binding — and for
-mutexes and condition variables that is the *only* supported way to share one.
-Doing it with ordinary data is a hazard rather than an idiom: nothing
-synchronizes the writes, the child collects independently, and the child heap
-is freed after `thread-join!`. Prefer channels and return values. The full
-per-type matrix, and which route checks what, is in
-[docs/dev/thread-value-sharing.md](docs/dev/thread-value-sharing.md).
-
-A `(kaappi fibers)` channel captured by a thread's thunk (or nested inside a
-value sent over one) crosses safely: it is promoted to a mutex-protected,
-refcounted shared channel outside every GC heap, and every message crosses by
-copy (KEP-0002). `(kaappi parallel)` builds worker pools and `parallel-map`/
-`parallel-for-each` on top of this — see the [Concurrency
-guide](https://kaappi-lang.org/guide/concurrency/) for the higher-level API.
-A channel must reach the other thread through **lexical capture** in the
-thunk (or in a message sent over an already-promoted channel) — a channel
-reached instead through a shared top-level `define` is never promoted, and
-raises a descriptive error rather than corrupting memory
-([#1742](https://github.com/kaappi/kaappi/issues/1742) is exactly this
-trap). See [Standards
-Conformance](https://kaappi-lang.org/conformance/#extensions-beyond-r7rs-smalls-scope)
-for current status.
-
-`parallel-map`/`parallel-for-each` submit one task per list element. For
-very large inputs, chunking manually with `make-pool`/`pool-submit`/
-`task-wait` (one task per processor, each covering a slice of the input with
-an ordinary sequential loop) reduces per-task submission overhead — see
-`kaappi-examples/parallel-primes` for a worked example.
-
-### Script output
-
-Running a script (`kaappi program.scm`) echoes the value of every non-void
-top-level expression to stdout, as a REPL does; `define` and other
-void-valued forms print nothing. A top-level call used for effect therefore
-adds a datum to the program's own output — a cleanup helper ending in
-`(guard (e (#t #f)) ...)` prints its `#f`, and `(map f rows)` prints the
-resulting list. Chibi and Guile print nothing when running the same file. No
-flag disables the echo; keep effectful top-level sequences void-valued (end a
-`begin` with `(if #f #f)`) when the program's output must stay parseable.
-
-### Macros
-
-Only `syntax-rules` is supported. `syntax-case` was intentionally excluded from
-R7RS-small and is not implemented.
-
-### SRFI coverage
-
-181 SRFIs are supported. Some built-in SRFIs have minor coverage gaps (e.g.,
-linear-update variants in SRFI-1, `string-xcopy!` in SRFI-13). See
-[CONFORMANCE.md](CONFORMANCE.md) for per-SRFI details.
-
-SRFI 261 (Portable SRFI Library Reference) is supported as an import-resolver
-convention: `(import (srfi srfi-1))` and `(import (srfi lists-1))` resolve to
-`(srfi 1)` — the trailing number is authoritative — and sub-library tails pass
-through (`(srfi srfi-146 hash)`). Literal names win when they exist, so a
-library actually named `(srfi srfi-x)` is never shadowed. `cond-expand`'s
-`(library …)` test honors the same forms.
+The full list, with the exact procedures each restriction affects, is in
+[docs/dev/known-limitations.md](docs/dev/known-limitations.md).
 
 ## Contributing
 
@@ -585,9 +307,6 @@ open to everyone.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — how to get involved, build, test, and submit changes
 - [Community](https://kaappi-lang.org/community/) — all the ways to participate
 - [Code of Conduct](CODE_OF_CONDUCT.md)
-
-Every bug fix needs a regression test; see the
-[testing guide](docs/dev/testing.md).
 
 ## Support This Project
 

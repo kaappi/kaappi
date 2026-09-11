@@ -591,4 +591,5 @@ Skills in `.claude/skills/`: `/add-builtin`, `/audit-primitives`,
 
 ## Known limitations
 
-See the "Known limitations" section in `README.md` (single source of truth).
+`docs/dev/known-limitations.md` is the single source of truth; `README.md`
+carries a short summary that links to it.

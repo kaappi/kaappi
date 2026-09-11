@@ -82,6 +82,7 @@ investigations.
 | Document | Contents |
 |----------|----------|
 | [bytecode.md](bytecode.md) | Bytecode instruction set (34 opcodes), encoding, disassembler |
+| [known-limitations.md](known-limitations.md) | Documented deviations and restrictions — continuations under native drivers, SRFI 248's three caveats, exception-handler timing, fibers in native callbacks, the two SRFI-18 sharing routes, script top-level echo — the source the README summary and the site's conformance page point at |
 | [repl.md](repl.md) | REPL reference: line editing, comma commands, completion |
 | [unicode-case-mapping.md](unicode-case-mapping.md) | Case-conversion coverage by script |
 | [fuzzing-feasibility.md](fuzzing-feasibility.md) | Why neither Fuzzilli nor AFL++ is the tool, the existing `std.testing.fuzz` targets, and where fuzzing can improve |
