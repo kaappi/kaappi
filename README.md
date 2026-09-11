@@ -35,7 +35,7 @@ with generational garbage collection and stack-copying first-class continuations
 The name is Malayalam and Tamil for *coffee* — see the
 [FAQ](https://kaappi-lang.org/faq/) for the story.
 
-> **Note:** Kaappi was built with the assistance of AI (Claude by Anthropic).
+> **Note:** Kaappi was built with the assistance of AI/LLM.
 
 ## Try it
 
