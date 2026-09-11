@@ -10,6 +10,7 @@
 | `hygiene/` | Macro hygiene edge cases | yes |
 | `srfi/` | SRFI library conformance | yes |
 | `ffi/` | C FFI integration | yes |
+| `process/` | `(kaappi process)` subprocess tests (KEP-0022) | yes |
 | `audit/` | Auto-generated primitives audit tests | yes |
 | `r7rs/` | Full R7RS suite (1,395 tests, `chibi test`) | yes (special) |
 | `errors/` | Error message format, exit code, and reader error regression tests | yes |
@@ -23,6 +24,8 @@
 | `timings/` | `--timings` stage reporting | yes |
 | `completions/` | `--completions` scripts vs. the flag table (`docs/dev/cli-surface.md`) | yes |
 | `lsp/` | `kaappi-lsp` end-to-end JSON-RPC session over stdio | yes |
+| `thottam/` | `thottam` install/update/remove lifecycle against git fixtures | yes |
+| `tools/` | The repo's own tooling scripts (`tools/run-unit-test-chunk.sh` watchdog, kaappi#2560) | yes |
 | `differential/` | Execution-tier differential harnesses (`--no-ir-opt`, cold-vs-warm cache; WASM-vs-interpreter) + its `probes/` | yes |
 | `coverage/` | Coverage gap-fillers (`zig build coverage-scheme`) | no |
 | `robustness/` | Stress tests | no (CI runs it separately) |
