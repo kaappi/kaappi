@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789132200164,
+  "lastUpdate": 1789133178202,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "2d4a8a9e0c3b858839254373e463cbb67d9bc8fa",
-          "message": "Finish the SRFI 166 rework: truly lazy trimmed/lazy and immutable state variables (#2344)\n\nThe #2292 rewrite left two specified behaviors unimplemented:\n\n- trimmed/lazy was a non-lazy alias of trimmed/right, so the spec's\n  defining property -- \"safe to use with an infinite amount of output,\n  e.g. from written-simply on an infinite list\" -- did not hold: a\n  circular list under written-simply hit a hard KP3008 stack overflow\n  inside the output capture.  The writer now streams one token at a time\n  (%write-stream; written/-shared/-simply thread each chunk through the\n  output state variable), and trimmed/lazy installs a counting output\n  hook that unwinds the generator itself via call/cc once the width\n  budget is spent, restoring the hook by hand on both exit paths.\n\n- make-state-variable accepted the immutable flag but nothing enforced\n  it; the spec allows an immutable variable to be \"only dynamically\n  bound with with, and not set with with!\", so with! on one is now an\n  error.\n\nTwo stack-safety rewrites came along with the streaming change, both\npinned by the audit: extract-shared-objects is an explicit enter/exit\nworklist (a 50,000-element list no longer overflows -- the exit-event\ntiming preserves the cycle-vs-sharing distinction exactly), and the\nwriter's list/vector spines are tail-recursive.  Dead helpers\n(%shared-ref-prefix/%shared-ref-cdr) were folded into the streamer.\n\nThe audit gains 26 assertions: the two fixed behaviors (which abort the\naudit with KP3008 / fail on the pre-fix tree), plus spec examples the\nsuite never covered -- numeric/fitted's three hash examples, joined/dot,\nthe writer state variable, written's cycle-vs-sharing labelling, the\ncomma-sep and decimal-align state variables, wrapped's word-separator?\ntokenization, escaped's renamer, string-terminal-width/wide, and the\nSRFI's own columnar+pretty+justified worked example.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-26T07:38:20+05:30",
-          "tree_id": "2aee4ebb3b1a41a149fa57d84008b7f5c33c893b",
-          "url": "https://github.com/kaappi/kaappi/commit/2d4a8a9e0c3b858839254373e463cbb67d9bc8fa"
-        },
-        "date": 1787716350594,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.045621,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.458106,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.440654,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.185307,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.003767,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.035716,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.22073,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.042084,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.932833,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.879745,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.227929,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.233247,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.307848,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.380305,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.036492,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.036592,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b4174816189a70b25b78c429654d1662367d89c7",
+          "message": "Run every sandbox script on the POSIX CI legs (#2576)\n\n* Run every sandbox script on the POSIX CI legs\n\nThe test job named its sandbox scripts one by one and the list stopped\nat three, so srfi181-sandbox.sh (#1732) — the only check that the\nembedded copy of (srfi 181) stays importable under --sandbox — has run\non Linux/macOS exactly as often as someone invoked it by hand since it\nlanded. Only the Windows legs ran it, because they glob the whole\ntests/scheme/sandbox/ directory instead of naming scripts.\n\nReplace the three named steps with that same glob loop, so the next\nsandbox script joins the POSIX legs without a workflow edit instead of\nbeing orphaned the same way (kaappi#2575). Exit 77 (SKIP) is handled\nlike the Windows loop; script output now prints only on failure.\n\nFixes #2575\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Drive sandbox and robustness suites through one shared runner\n\nThe review of #2576 caught the glob loop reproducing, in miniature, the\nsame drift that caused kaappi#2575: a third hand-copied SKIP-77/capture\nloop, already diverging from the two Windows copies, and an empty glob\nthat would exit 0 having run nothing — the silent-orphan class one level\nup, since a moved or renamed suite would keep every POSIX leg green.\n\ntools/run-shell-dir.sh is now the one driver for the sandbox and\nrobustness directories on every leg: the POSIX test job calls it once\nper directory, and both Windows Shell-suites steps call it once per\ndirectory across their whole list. It borrows run-all.sh's machinery —\ntick-counted wait_with_timeout and the set -m process-group kill\n(kaappi#2434), which work on macOS and Git Bash where GNU timeout does\nnot exist — so every script now has a per-script budget\n(KAAPPI_SHELL_TEST_TIMEOUT, 600s default; 1200s on the Windows steps,\nwhere run-differential.sh alone takes ~9 min), a TIMEOUT verdict that\nnames the stuck script, a kept transcript (collapsed ::group:: on pass,\nraw plus a ::error annotation on failure, so the Checks tab names the\nfailing script again), and a hard failure when a directory holds no\nscripts.\n\nrobustness/ gets the same treatment in the same PR: it held the\nidentical hazard — one hand-listed script path on POSIX where the\nWindows legs glob the directory — so a second script there would have\nrun on Windows only, the exact state sandbox/ was in before #1732.\ntests/scheme/CLAUDE.md now records why the two directories stay out of\nrun-all.sh: the Windows legs cannot share run-all.sh, so the driver\nboth platforms share is the tool.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-09-11T18:14:22+05:30",
+          "tree_id": "5dc3d098c795f21e6c0c299bbd3e95088ce96e1c",
+          "url": "https://github.com/kaappi/kaappi/commit/b4174816189a70b25b78c429654d1662367d89c7"
+        },
+        "date": 1789133176826,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.431782,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.64348,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.615185,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.106192,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004555,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047457,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.314321,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057019,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.839091,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.238509,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.668731,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.281825,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.729839,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.653706,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045492,
             "unit": "seconds"
           }
         ]
