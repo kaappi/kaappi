@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789017372933,
+  "lastUpdate": 1789119236222,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "aba2468011db77d0c944de993d6af39b7e2a7a5d",
-          "message": "control: align tail-position/dynamic-wind error taxonomy; purge %unwind-to-escape (#2036, #2037) (#2343)\n\n* control: align tail-position and dynamic-wind error paths; purge %unwind-to-escape (#2036, #2037)\n\n#2036 — three control-flow error paths diverged from every other\nprimitive:\n\n- tail_call_cc's non-procedure receiver returned a detail-less\n  VMError.NotAProcedure, surfacing as KP3005 with the literal message\n  \"error\"; the same call one position away gave KP3002 naming the value.\n  The else arm now mirrors the non-tail path's typeError.\n- dynamic-wind's argument checks were Scheme-level `(error ...)`, so\n  error-object-code answered #f and the offending value was demoted to\n  an irritant. The checks now go through a native %check-procedure\n  (primitives.typeError), giving KP3002 with the value in the message.\n- compileCallCCTail / compileCallWithValuesTail / compileApplyTail\n  reported a proper-but-wrong-length operand list as KP2001 \"invalid\n  syntax\", abandoning the whole top-level form. Such lists now route\n  through the ordinary call path, so the runtime arity check reports\n  KP3003 exactly as the same form one position away does; improper\n  lists remain genuine syntax errors. The native tier's apply mirror\n  comment (llvm_emit_forms.zig) is updated to match — its <2-operand\n  abandon produces the identical runtime error via the eval fallback.\n\n#2037 — %unwind-to-escape was missing from\nvm_bootstrap.internal_helpers, so user code could pop the wind stack\nand the underflow surfaced as \"type error in '%pop-wind'\". It is purged\nnow, and popWindFn's underflow guard reports KP9001 (\"wind stack\nunderflow in '%pop-wind'\") per gc-safety-and-error-handling.md.\n\nOne deviation from the issue's fix shape, found the hard way: the\nclaimed \"pristine snapshot taken before the purge\" does not exist —\nregisterStandardLibraries snapshots globals into\nlibraries.internal_bindings only AFTER vm_bootstrap.install purges\n(both main.zig init paths and testing_helpers). Purging alone therefore\nbreaks every `guard` with\n`undefined variable '__kaappi_base__%unwind-to-escape'` (verified by\ntemporarily removing the seed). install() now seeds the entry itself,\nbefore the remove, which is order-independent and covers init paths\nthat never register libraries.\n\nTests: 4 disabled audit assertions enabled, plus new purge, guard-path,\nand tail-arity assertions (each fails without its fix — the pre-fix\nvalues KP3005/#f/KP2001/reachable were captured on the baseline\nbinary); the three direct-call %unwind-to-escape audit tests are gone\nwith the reachability they pinned, replaced by a guard-driven\nafter-thunk ordering pin. New Zig unit test in tests_libraries.zig\nlocks the purge+seed pair. Full unit suite, R7RS suite (1395),\nerror-format, error-object-code, continuation, guard-1988, and native\ncompile suites green. BASELINE (bare error-taxonomy returns) unchanged\nat 28.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* vm_dispatch: route tail call/cc type error through primitives.typeError\n\nReview nit on #2343: the tail path formatted the receiver with\nprinter.valueToString (a heap-allocated full print), while the non-tail\nsibling goes through primitives.typeError's safeValueDescription\n(bounded, cycle-safe, no allocation) -- identical for ordinary values\nbut able to diverge for exotic or cyclic receivers. The arm now calls\ntypeError directly and converts through mapNativeError, which passes\nthe already-set detail through untouched. Audit-pinned messages are\nbyte-identical (control audit 200/200; unit suite 1823 passed / 7\nskipped, exit 0).\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-26T06:05:44+05:30",
-          "tree_id": "b6652cb3dbf76875e20f0be10ff0bfd7a9dd9f8d",
-          "url": "https://github.com/kaappi/kaappi/commit/aba2468011db77d0c944de993d6af39b7e2a7a5d"
-        },
-        "date": 1787713401767,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.341755,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.765976,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.568818,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.032259,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004754,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047963,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.306158,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056034,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.778948,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.23307,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.661943,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.285562,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.780573,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.653233,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046993,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.0464,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "0263c60f8a28fee9f6661c8167e58868836f1e46",
+          "message": "Drop product name from the AI-assistance note",
+          "timestamp": "2026-09-11T14:56:16+05:30",
+          "tree_id": "632c49f2ce75b0c3ca5b594c0344f8daf19fcea5",
+          "url": "https://github.com/kaappi/kaappi/commit/0263c60f8a28fee9f6661c8167e58868836f1e46"
+        },
+        "date": 1789119233761,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.174702,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.34955,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.561791,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.818915,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004697,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.045567,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.281733,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053762,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.825141,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.165471,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.532827,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.262403,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.648405,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.0548,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042691,
             "unit": "seconds"
           }
         ]
