@@ -222,7 +222,7 @@ comptime {
 comptime {
     if (@typeInfo(NodeTag).@"enum".fields.len != 18)
         @compileError("NodeTag count changed. Update docs/dev/ir.md, docs/dev/architecture.md, " ++
-            "docs/dev/README.md, CLAUDE.md, README.md and .coderabbit.yaml. Find any others with: " ++
+            "docs/dev/README.md, CLAUDE.md and .coderabbit.yaml. Find any others with: " ++
             "grep -rniE 'node (type|tag)' --include='*.md' --include='*.yaml' . Then update this number.");
     if (@typeInfo(FormKind).@"enum".fields.len != 18)
         @compileError("FormKind count changed. Update the FormKind table in docs/dev/ir.md, and the " ++

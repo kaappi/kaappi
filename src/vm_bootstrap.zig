@@ -110,8 +110,8 @@ const definitions = [_][]const u8{
     // native versions re-entered the VM under a Zig frame, so a continuation
     // captured in the callback could not be resumed once that frame returned
     // (kaappi#2060). Scoped to the six the SRFI 158 spec examples flow through;
-    // the remaining native SRFI 1 drivers keep the restriction (see README
-    // "Known limitations -> Continuations").
+    // the remaining native SRFI 1 drivers keep the restriction (see
+    // docs/dev/known-limitations.md, "Continuations").
     fold_src,
     filter_src,
     any_src,

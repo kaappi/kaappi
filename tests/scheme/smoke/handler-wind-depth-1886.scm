@@ -150,7 +150,7 @@
 ;; stack before the memcpy. Both continuations below are invoked while the
 ;; nest that was live at capture is still live -- resuming one after its
 ;; native `guard` frames have returned is a separate, pre-existing limitation
-;; (README, "Known limitations"), unrelated to depth: it fails at depth 1.
+;; (docs/dev/known-limitations.md), unrelated to depth: it fails at depth 1.
 
 (define escape-hit #f)
 (define (deep-escape d k)
