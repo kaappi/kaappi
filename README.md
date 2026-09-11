@@ -580,7 +580,7 @@ and ecosystem libraries alike.
 **New here?** Start with
 [GitHub Discussions](https://github.com/orgs/kaappi/discussions) — ask
 questions, propose ideas, show what you built. Issues and pull requests are
-open to everyone; no org membership is needed.
+open to everyone.
 
 - [CONTRIBUTING.md](CONTRIBUTING.md) — how to get involved, build, test, and submit changes
 - [Community](https://kaappi-lang.org/community/) — all the ways to participate
@@ -593,7 +593,11 @@ Every bug fix needs a regression test; see the
 
 If you find Kaappi useful, consider supporting its development:
 
-[![Buy Me A Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://www.buymeacoffee.com/baiju)
+<p align="center">
+  <a href="https://www.buymeacoffee.com/baiju">
+    <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="50">
+  </a>
+</p>
 
 ## License
 
