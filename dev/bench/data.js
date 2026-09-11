@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789125487027,
+  "lastUpdate": 1789126254043,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f5ef594b6f9589fb842246de9720022e9c2687cd",
-          "message": "records: carry field names on R7RS define-record-type rtds (#2088) (#2345)\n\nAn R7RS positional define-record-type produced an rtd with zero own field\nnames: handleDefineRecordType called allocRecordType (count only), never\npopulating own_field_names/own_field_mutable. record-type-field-names\ntherefore answered #() -- a well-formed but false result -- and\nrecord-accessor, record-mutator and record-field-mutable? all failed with\n\"index 0 out of range for length 0\" on such a type (SRFI 240's whole\nreason for existing is that the R7RS and R6RS syntaxes produce\ninteroperable types; the R6RS-clause and make-record-type-descriptor\npaths already carried the metadata).\n\nAll three R7RS emit paths now record each field's name and mutability\n(mutable iff the clause names a mutator, R7RS 5.5.1):\n\n- handleDefineRecordType (top level and library bodies) allocates via\n  allocRecordTypeExtended -- parentless/generative/transparent, exactly\n  the shape allocRecordType built, plus the field metadata.\n- expandRecordTypeDefines (leading-define body scanning) and\n  compileDefineRecordType (general dispatch) emit the metadata through\n  %make-record-type, which gains an optional third argument: a list of\n  (name-string . mutable?) pairs, the same convention\n  %make-record-type-descriptor's field-specs use. Count-only callers\n  keep the two-argument form.\n\nThe rtd representation is unchanged -- own_field_names/own_field_mutable\nalready existed and were already traced by the GC switches (raw owned\nbytes, like RecordType.name); R7RS rtds now simply populate them, and\ngc_deep_copy's metadata-ful slow path carries them across thread\nboundaries. Stale comments that documented the old behavior\n(types_record.zig's \"0 for a plain R7RS record type\",\ngc_deep_copy.zig's fast-path rationale) are updated.\n\nTests:\n- tests/scheme/srfi/srfi240-audit.scm: the four assertions disabled\n  under \"FAIL: #2088\" are enabled (with the pinned broken-behavior set\n  flipped to assert the fixed behavior), plus new coverage: by-name\n  record-accessor, immutable-mutator rejection, out-of-range index\n  rejection, a zero-field type staying legitimately #(), and a\n  body-local define-record-type carrying its names.\n- src/tests_records.zig: unit tests for the top-level and body-local\n  desugarer paths asserting own_field_names/own_field_mutable on the\n  rtd.\n- tests/scheme/audit/internal-primitives-audit.scm: %make-record-type\n  arity assertions updated for the optional third argument, plus\n  positive and rejection tests for the field-specs form.\n\nEvidence: srfi240-audit 81/81 pass (9 failures without the fix),\ninternal-primitives-audit 255/255, srfi9/57/131/136/137/150/237/240\nall pass, R7RS suite 1395/0, zig build test green, and a no-import\nrecord program through `kaappi compile` prints its field names.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-26T06:14:41+05:30",
-          "tree_id": "39157d0b7b4efd89dc0cfbcd07ebc3110c9d8536",
-          "url": "https://github.com/kaappi/kaappi/commit/f5ef594b6f9589fb842246de9720022e9c2687cd"
-        },
-        "date": 1787715366020,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.939026,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.454008,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.555831,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.811681,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00496,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04616,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.284658,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.053533,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.374855,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.136201,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.583453,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.306018,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.688405,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.762866,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045963,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.036489,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a3bafae6667cd8ddfbeca62aafa8d3353073c018",
+          "message": "Bring testing.md back in step with the suites CI actually runs (#2574)\n\nThe guide had drifted in the direction that matters most for a testing\ndoc: it under-described what runs. Three suites that run-all.sh executes\n(process/, tools/, the smoke/*.sh scripts) were missing from the tree,\nthe shell-script count was stale by half, and the sandbox section\ndescribed one of four scripts. The CI table omitted the e2e suite and the\nDebug/ReleaseFast legs from the test job, the endian suites from the QEMU\nlegs, and reduced the Windows legs to \"build + tests\". The PR benchmark\nalert threshold still read 120% although kaappi#1906 raised it to 175%.\n\nTwo facts surfaced by the review are recorded rather than just fixed,\nbecause a reader would otherwise infer the opposite: the e2e script\nsilently skips its BDD half without a sibling kaappi-bdd checkout, and\nsrfi181-sandbox.sh is run by no POSIX CI step and not by run-all.sh --\nonly the Windows legs, which loop over every sandbox/*.sh, execute it. A\nnew sandbox script therefore needs its own ci.yml step.\n\nAlso documents the two CI-reproducing wrappers (tools/run-gc-stress-suite.sh,\ntools/run-endian-suite.sh) and the bench-fibers/reactor/channel steps, and\nadds the same three missing suite rows to tests/scheme/CLAUDE.md, which\ntesting.md tells readers to keep in step with.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-11T16:54:10+05:30",
+          "tree_id": "187390d0f1b03742c5957d224463a3ad4ac0335e",
+          "url": "https://github.com/kaappi/kaappi/commit/a3bafae6667cd8ddfbeca62aafa8d3353073c018"
+        },
+        "date": 1789126252768,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.415662,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.450205,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.597116,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.06792,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004596,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047607,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.316653,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057273,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.835541,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.237775,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.663541,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.271876,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.723815,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.634893,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045506,
             "unit": "seconds"
           }
         ]
