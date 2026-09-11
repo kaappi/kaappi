@@ -28,8 +28,16 @@
 | `tools/` | The repo's own tooling scripts (`tools/run-unit-test-chunk.sh` watchdog, kaappi#2560) | yes |
 | `differential/` | Execution-tier differential harnesses (`--no-ir-opt`, cold-vs-warm cache; WASM-vs-interpreter) + its `probes/` | yes |
 | `coverage/` | Coverage gap-fillers (`zig build coverage-scheme`) | no |
-| `robustness/` | Stress tests | no (CI runs it separately) |
-| `sandbox/` | Sandbox isolation tests | no (CI runs it separately) |
+| `robustness/` | Stress tests | no (CI: `tools/run-shell-dir.sh`) |
+| `sandbox/` | Sandbox isolation tests | no (CI: `tools/run-shell-dir.sh`) |
+
+Why `robustness/` and `sandbox/` are not in `run-all.sh`: their coverage must
+include the Windows legs, and the Windows "Shell suites" steps traverse the
+directories themselves rather than running `run-all.sh` — so the one driver
+both platforms share is `tools/run-shell-dir.sh` (kaappi#2575). It globs the
+whole directory (a hand-kept script list is how `srfi181-sandbox.sh` went
+unrun on every POSIX leg), treats exit 77 as SKIP, enforces a per-script
+timeout, keeps transcripts, and fails a directory that holds no scripts.
 
 **The globs in `run-all.sh` are non-recursive** (`tests/scheme/srfi/*.scm`,
 not `**`). A test placed in a subdirectory of a suite would be silently never

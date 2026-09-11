@@ -235,8 +235,8 @@ tests/scheme/
   differential/     Execution-tier differential (opt-off, warm cache, WASM)
                     + probes/ (its own small corpus)
 
-  # not run by run-all.sh
-  robustness/       Malformed and adversarial input handling (its own .sh)
+  # not run by run-all.sh — CI drives both through tools/run-shell-dir.sh
+  robustness/       Malformed and adversarial input handling
   sandbox/          --sandbox: escape prevention plus the per-library
                     degradation checks (four .sh; see below for which CI runs)
   bench/ coverage/  Deliberately skipped by run-all.sh
@@ -547,7 +547,8 @@ bash tests/scheme/compile/native-lexical-scope-fold-2117-2118.sh
 
 ### Robustness (`tests/scheme/robustness/robustness.sh`)
 
-Not wired into `run-all.sh` — CI invokes it directly. Tests that malformed,
+Not wired into `run-all.sh` — CI drives the directory through
+`tools/run-shell-dir.sh`, like `sandbox/` below. Tests that malformed,
 adversarial, or extreme inputs produce clean errors rather than panics or
 crashes. Uses `assert_error` (must produce `error:`) and `assert_no_crash`
 (must not exit by signal) helpers.
@@ -558,15 +559,16 @@ bash tests/scheme/robustness/robustness.sh
 
 ### Sandbox (`tests/scheme/sandbox/*.sh`)
 
-Also invoked directly by CI rather than through `run-all.sh`.
-`sandbox-escape.sh` verifies that `--sandbox` mode blocks all restricted
-operations (FFI, file I/O, eval, load, environment access) while allowing safe
-operations (arithmetic, string ports, hash tables), using `assert_blocked` and
-`assert_works` helpers. `parallel-degrades.sh` and `sysinfo-degrades.sh` check
-that `(kaappi parallel)` and `(kaappi sysinfo)` stay importable under
-`--sandbox` and degrade exactly as documented (fiber-backed pools; the four
-path-revealing sysinfo procedures unregistered). `srfi181-sandbox.sh` checks
-that the embedded `(srfi 181)` is fully available there.
+Also driven by CI through `tools/run-shell-dir.sh` rather than through
+`run-all.sh`. `sandbox-escape.sh` verifies that `--sandbox` mode blocks all
+restricted operations (FFI, file I/O, eval, load, environment access) while
+allowing safe operations (arithmetic, string ports, hash tables), using
+`assert_blocked` and `assert_works` helpers. `parallel-degrades.sh` and
+`sysinfo-degrades.sh` check that `(kaappi parallel)` and `(kaappi sysinfo)`
+stay importable under `--sandbox` and degrade exactly as documented
+(fiber-backed pools; the four path-revealing sysinfo procedures
+unregistered). `srfi181-sandbox.sh` checks that the embedded `(srfi 181)`
+is fully available there.
 
 ```bash
 bash tests/scheme/sandbox/sandbox-escape.sh
@@ -575,10 +577,15 @@ bash tests/scheme/sandbox/sysinfo-degrades.sh
 bash tests/scheme/sandbox/srfi181-sandbox.sh
 ```
 
-The POSIX `test` legs name the first three as separate steps; only the Windows
-legs, which loop over every `sandbox/*.sh`, run `srfi181-sandbox.sh` — nothing
-on a POSIX leg or in `run-all.sh` does. A new sandbox script therefore needs
-its own `ci.yml` step, or it runs on Windows alone.
+`tools/run-shell-dir.sh <dir>` is the one driver for both directories on
+every leg (kaappi#2575): the POSIX `test` job calls it once per directory,
+and both Windows "Shell suites" steps call it once per directory across
+their whole list, so a new script joins every platform without a workflow
+edit and the platforms' SKIP/timeout handling cannot drift apart. It
+enforces a per-script timeout (`KAAPPI_SHELL_TEST_TIMEOUT`, 600s default),
+treats exit 77 as SKIP, keeps transcripts (collapsed `::group::` on pass,
+raw with a `::error` annotation on failure), and fails a directory that
+holds no scripts rather than passing silently.
 
 ### Error format (`tests/scheme/errors/error-format.sh`)
 

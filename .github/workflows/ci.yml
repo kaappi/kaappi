@@ -383,21 +383,27 @@ jobs:
           # other script.
           KAAPPI_SHELL_TEST_TIMEOUT: ${{ matrix.optimize == 'Debug' && '900' || '600' }}
 
-      - name: Sandbox escape tests
+      - name: Sandbox tests
+        # Every script in the directory via the shared driver, not a
+        # hand-kept list of step names: the named steps this replaced stopped
+        # at three and left srfi181-sandbox.sh (#1732) unrun on every POSIX
+        # leg (kaappi#2575). tools/run-shell-dir.sh is the same driver the
+        # Windows "Shell suites" steps call, so the two platforms' handling
+        # of SKIP (77), timeouts, and transcripts cannot drift apart again.
         if: env.DOCS_ONLY != 'true'
-        run: bash tests/scheme/sandbox/sandbox-escape.sh
-
-      - name: Parallel pool sandbox degradation tests
-        if: env.DOCS_ONLY != 'true'
-        run: bash tests/scheme/sandbox/parallel-degrades.sh
-
-      - name: Sysinfo sandbox degradation tests
-        if: env.DOCS_ONLY != 'true'
-        run: bash tests/scheme/sandbox/sysinfo-degrades.sh
+        run: |
+          export KAAPPI_HOME="$(mktemp -d)"
+          bash tools/run-shell-dir.sh tests/scheme/sandbox
 
       - name: Robustness tests
+        # Same driver as the sandbox step. robustness/ held the identical
+        # hazard — one hand-listed script path where the Windows legs glob
+        # the whole directory — so a second script there would have run on
+        # Windows and never on Linux or macOS (kaappi#2575 review).
         if: env.DOCS_ONLY != 'true'
-        run: bash tests/scheme/robustness/robustness.sh
+        run: |
+          export KAAPPI_HOME="$(mktemp -d)"
+          bash tools/run-shell-dir.sh tests/scheme/robustness
 
       - name: E2E tests (LLVM native backend)
         if: matrix.optimize == 'ReleaseSafe' && env.DOCS_ONLY != 'true'
@@ -1306,25 +1312,17 @@ jobs:
           fi
           export KAAPPI=bin/kaappi.exe
           export KAAPPI_HOME="$RUNNER_TEMP/kaappi-test-home"
+          # Headroom over the shared driver's 600s per-script default:
+          # run-differential.sh is the expensive one at ~9 min (above).
+          export KAAPPI_SHELL_TEST_TIMEOUT=1200
           fail=0
           for dir in smoke errors compile test-runner pipeline doctor fmt cache timings \
                      completions lsp thottam differential sandbox robustness; do
-            for s in tests/scheme/$dir/*.sh; do
-              [ -e "$s" ] || continue
-              # `|| status=$?`: the runner's `shell: bash` implies -e, which
-              # would otherwise abort the whole step on the first SKIP (77).
-              status=0
-              out=$(KAAPPI="$KAAPPI" bash "$s" "$KAAPPI" 2>&1) || status=$?
-              if [ "$status" -eq 0 ]; then
-                echo "  PASS  $s"
-              elif [ "$status" -eq 77 ]; then
-                echo "  SKIP  $s"
-              else
-                echo "  FAIL  $s (exit $status)"
-                printf '%s\n' "$out"
-                fail=1
-              fi
-            done
+            # tools/run-shell-dir.sh is the same driver the POSIX `test`
+            # legs call for sandbox/ and robustness/, so the two platforms'
+            # SKIP (77), timeout, and transcript handling cannot drift
+            # apart again (kaappi#2575).
+            bash tools/run-shell-dir.sh "tests/scheme/$dir" "$KAAPPI" || fail=1
           done
           exit $fail
 
@@ -1474,25 +1472,17 @@ jobs:
           fi
           export KAAPPI=bin/kaappi.exe
           export KAAPPI_HOME="$RUNNER_TEMP/kaappi-test-home"
+          # Headroom over the shared driver's 600s per-script default:
+          # run-differential.sh is the expensive one at ~9 min (above).
+          export KAAPPI_SHELL_TEST_TIMEOUT=1200
           fail=0
           for dir in smoke errors compile test-runner pipeline doctor fmt cache timings \
                      completions lsp thottam differential sandbox robustness; do
-            for s in tests/scheme/$dir/*.sh; do
-              [ -e "$s" ] || continue
-              # `|| status=$?`: the runner's `shell: bash` implies -e, which
-              # would otherwise abort the whole step on the first SKIP (77).
-              status=0
-              out=$(KAAPPI="$KAAPPI" bash "$s" "$KAAPPI" 2>&1) || status=$?
-              if [ "$status" -eq 0 ]; then
-                echo "  PASS  $s"
-              elif [ "$status" -eq 77 ]; then
-                echo "  SKIP  $s"
-              else
-                echo "  FAIL  $s (exit $status)"
-                printf '%s\n' "$out"
-                fail=1
-              fi
-            done
+            # tools/run-shell-dir.sh is the same driver the POSIX `test`
+            # legs call for sandbox/ and robustness/, so the two platforms'
+            # SKIP (77), timeout, and transcript handling cannot drift
+            # apart again (kaappi#2575).
+            bash tools/run-shell-dir.sh "tests/scheme/$dir" "$KAAPPI" || fail=1
           done
           exit $fail
 
