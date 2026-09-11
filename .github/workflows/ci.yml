@@ -383,17 +383,34 @@ jobs:
           # other script.
           KAAPPI_SHELL_TEST_TIMEOUT: ${{ matrix.optimize == 'Debug' && '900' || '600' }}
 
-      - name: Sandbox escape tests
+      - name: Sandbox tests
+        # Every script in the directory, not a hand-kept list of step names:
+        # the named steps this replaced stopped at three and left
+        # srfi181-sandbox.sh (#1732) unrun on every POSIX leg (kaappi#2575) —
+        # only the Windows legs, which glob the directory, ever ran it. A glob
+        # cannot orphan the next sandbox script the way that list orphaned
+        # this one. Exit 77 = SKIP (tests/scheme/shell-common.sh), handled
+        # like the Windows "Shell suites" loop.
         if: env.DOCS_ONLY != 'true'
-        run: bash tests/scheme/sandbox/sandbox-escape.sh
-
-      - name: Parallel pool sandbox degradation tests
-        if: env.DOCS_ONLY != 'true'
-        run: bash tests/scheme/sandbox/parallel-degrades.sh
-
-      - name: Sysinfo sandbox degradation tests
-        if: env.DOCS_ONLY != 'true'
-        run: bash tests/scheme/sandbox/sysinfo-degrades.sh
+        run: |
+          fail=0
+          for s in tests/scheme/sandbox/*.sh; do
+            [ -e "$s" ] || continue
+            # `|| status=$?`: the runner's bash -e would otherwise abort the
+            # whole step on the first SKIP (77).
+            status=0
+            out=$(bash "$s" 2>&1) || status=$?
+            if [ "$status" -eq 0 ]; then
+              echo "  PASS  $s"
+            elif [ "$status" -eq 77 ]; then
+              echo "  SKIP  $s"
+            else
+              echo "  FAIL  $s (exit $status)"
+              printf '%s\n' "$out"
+              fail=1
+            fi
+          done
+          exit $fail
 
       - name: Robustness tests
         if: env.DOCS_ONLY != 'true'

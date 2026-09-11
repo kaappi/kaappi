@@ -551,6 +551,10 @@ hash tables). Uses `assert_blocked` and `assert_works` helpers.
 bash tests/scheme/sandbox/sandbox-escape.sh
 ```
 
+CI's `test` job runs every `tests/scheme/sandbox/*.sh` script in one loop
+step (kaappi#2575) — the same glob the Windows legs use, so a new sandbox
+script joins the POSIX legs without a workflow edit.
+
 ### Error format (`tests/scheme/errors/error-format.sh`)
 
 One of the `errors/` suite's scripts, so `run-all.sh` already covers it.
