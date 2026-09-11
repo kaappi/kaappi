@@ -81,24 +81,28 @@ zig build test                       # run the unit tests
 
 ### Supported platforms
 
-| OS | Architecture | Build | Tests | Native compilation |
-|----|-------------|-------|-------|--------------------|
-| macOS | aarch64 (Apple Silicon) | yes | yes | LLVM backend |
-| Linux | x86_64 | yes | yes | LLVM backend |
-| Linux | aarch64 | yes | yes | LLVM backend |
-| Linux | riscv64 | yes | yes | interpreter only |
-| Linux | s390x (big-endian) | yes | yes | interpreter only |
-| Linux | ppc64le | yes | yes | interpreter only |
-| Windows | aarch64 (ARM64), x86_64 | yes | yes | LLVM backend (needs a C toolchain) |
-| FreeBSD | x86_64, aarch64 | yes | yes | LLVM backend (base `cc` suffices) |
-| OpenBSD | x86_64, aarch64 | yes | yes | LLVM backend (base `cc` suffices) |
-| NetBSD | x86_64, aarch64 | yes | yes | LLVM backend (needs pkgsrc `clang`; base `cc` is GCC) |
-| WebAssembly | wasm32-wasi | yes | — | interpreter only |
+Kaappi builds on every platform below — each non-macOS target
+cross-compiles from one host with `zig build -Dtarget=<arch>-<os>`, so
+building for a platform never requires running on it. The table records
+only what varies between them:
+
+| OS | Architecture | Tests | Native compilation |
+|----|-------------|-------|--------------------|
+| macOS | aarch64 (Apple Silicon) | yes | LLVM backend |
+| Linux | x86_64 | yes | LLVM backend |
+| Linux | aarch64 | yes | LLVM backend |
+| Linux | riscv64 | yes | interpreter only |
+| Linux | s390x (big-endian) | yes | interpreter only |
+| Linux | ppc64le | yes | interpreter only |
+| Windows | aarch64 (ARM64), x86_64 | yes | LLVM backend (needs a C toolchain) |
+| FreeBSD | x86_64, aarch64 | yes | LLVM backend (base `cc` suffices) |
+| OpenBSD | x86_64, aarch64 | yes | LLVM backend (base `cc` suffices) |
+| NetBSD | x86_64, aarch64 | yes | LLVM backend (needs pkgsrc `clang`; base `cc` is GCC) |
+| WebAssembly | wasm32-wasi | — | interpreter only |
 
 The WASM build (`zig build wasm`) runs in browsers and WASI runtimes — it
 powers the [playground](https://kaappi-lang.org/playground/).
 
-Every non-macOS target cross-compiles with `zig build -Dtarget=<arch>-<os>`.
 Per-platform notes, each linking to the full port document:
 
 - **[Windows](docs/dev/windows.md)** — the complete interpreter: REPL (plain
