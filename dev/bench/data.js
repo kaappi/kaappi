@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789120173343,
+  "lastUpdate": 1789125487027,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6ed6eb95f8882bbfe04b4511d1bd76abf9f5dee4",
-          "message": "Preserve fiber fault identity and fix (kaappi fibers) argument diagnostics (#2204, #2002) (#2342)\n\nA VM-level fault in a fiber body lost both its error code and its message\nat the fiber boundary (#2204): the dispatch loop's error arm dropped the\nVMError tag, vm.last_error_detail was never copied into the fiber's saved\nstate, and fiber-join re-raised a substituted KP3007 \"fiber error (no\nexception value)\" — a different condition, so a guard clause discriminating\non the code could never match. The loop now converts the fault into the\nsame coded ErrorObject withExceptionHandlerFn hands a guard (via the\nnewly-pub nativeErrorToErrorObject, the shared error-coding boundary),\nbefore anything can overwrite the detail, and stages it in\nvm.current_exception, the one channel saveCurrentFiber already transports\nto the joiner. Uncatchable errors (StackOverflow, ExecutionTimeout,\nTerminated), continuation jumps, and Scheme-level raises keep their\nexisting behavior. fiber-join now reports e.g.\nKP3002 \"type error in 'car': expected pair, got 5\" for a (car 5) inside a\nspawned fiber, identical to the same fault outside one.\n\nTwo argument-diagnostic mislabels in (kaappi fibers) (#2002):\nmake-channel's u32 capacity range rejection was reported as a type error\nwhose \"expected non-negative exact integer\" text described exactly the\nvalue it got; it is now argError (KP3007) naming the real bound\n(\"an exact integer between 0 and 4294967295\"), with a bignum handled as\nthe range case it is and only genuinely non-integer arguments staying\ntypeError. And a bad timeout to channel-send/channel-receive was blamed on\na procedure named 'thread' — timeoutToDeadlineNs's hardcoded name; the\ncaller now passes its own name through, which also fixes the same message\nfrom thread-join!/mutex-lock!/mutex-unlock! timeouts.\n\nBASELINE for the bare error-taxonomy gate drops 28 -> 27: the reraise\nfallback's return is now annotated bare-ok (it sets its own detail, and\nsince #2204 is only reachable for uncatchable faults and conversion OOM).\n\nTests: +20 assertions in tests/scheme/audit/primitives_fiber-audit.scm\n(129 -> 149 passes) and +5 tests in src/tests_fibers.zig, all verified to\nfail without the fixes and pass with them; full zig build test green,\nfiber filter also green under -Dgc-stress=true.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-26T06:10:09+05:30",
-          "tree_id": "61484c761f9eb0c50cfbf5bbe9e843d9c1ed82bc",
-          "url": "https://github.com/kaappi/kaappi/commit/6ed6eb95f8882bbfe04b4511d1bd76abf9f5dee4"
-        },
-        "date": 1787715063313,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.344221,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.283432,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.565858,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.026977,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004669,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.048264,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.305497,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056046,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.876092,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.247431,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.661317,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.274925,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.811027,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.610985,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045315,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044804,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "3acb96a8f896e088b8457ea594e31f05ef52fda1",
+          "message": "Center the sponsor badge, trim the community note",
+          "timestamp": "2026-09-11T16:42:16+05:30",
+          "tree_id": "c2db5244d38b5c772aedcca8bb131caa2d4e355e",
+          "url": "https://github.com/kaappi/kaappi/commit/3acb96a8f896e088b8457ea594e31f05ef52fda1"
+        },
+        "date": 1789125485755,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.168134,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.491793,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.442388,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.213056,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00363,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.035657,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.224509,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.041888,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.901488,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.888263,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.243373,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.237653,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.271435,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.431852,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.036489,
             "unit": "seconds"
           }
         ]
