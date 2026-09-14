@@ -23,7 +23,8 @@ belongs here.
 | The VM: frames, calls, continuations, error propagation | `vm.md` (+ `bytecode.md` for the ISA) |
 | Macro expansion, hygiene, `syntax-rules`, SRFI 211 | `expander.md` |
 | LLVM native backend | `llvm-backend.md` |
-| GC safety | `gc-safety-and-error-handling.md` |
+| GC safety (the rules) | `gc-safety-and-error-handling.md` |
+| The collector and value model (why the rules) | `memory.md` |
 | SRFI-18 threads / what may cross a thread boundary | `thread-value-sharing.md` |
 | Fibers, the I/O reactor, port blocking | `fibers-and-reactor.md` |
 | Whether a behaviour is a documented deviation or a bug | `known-limitations.md` |
