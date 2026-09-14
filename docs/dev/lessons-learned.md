@@ -207,3 +207,23 @@ Full write-up: [postmortems/2026-06-18-complex-number-test-precision.md](postmor
 **Lesson:** A spin loop assumes the thread it waits for is running or will be run promptly. Fair schedulers (Linux, macOS) make that true; priority-decay schedulers do not, and the spinners starve the holder. Every wait on another OS thread goes through `platform.spinBackoff`, which sleeps after a bounded spin and yield. Underneath, a second NetBSD quirk made the starvation absolute: `pthread_join` transfers the dead LWP's CPU-usage estimate to the joiner uncapped, sinking it and all its future children to priority 0 — so SRFI-18 threads are detached at spawn and joined through an exit flag. And a frozen PC in gdb says nothing about *why* a thread is not running — get the scheduler's state before blaming the scheduler.
 
 Full write-up: [postmortems/2026-09-02-netbsd-spinlock-starvation.md](postmortems/2026-09-02-netbsd-spinlock-starvation.md).
+
+---
+
+## 16. A value reachable from several binding sites must be processed once per object
+
+**Symptom:** SRFI 147's `begin`-wrapped and bare-alias transformer specs let one `Transformer` value reach two or more binding sites — a helper aliased by its own generator and re-aliased by an enclosing one, or two siblings of one `let-syntax`. Each site unconditionally re-ran finalization and the R7RS 4.3.1 peer snapshot, overwriting slices without freeing them. The leak was the visible part. The invisible part: recomputing the peer snapshot against a *different* form's siblings silently changed a correct answer from 11 to −10, because 4.3.1 exists to pin a template's free references to its own point of definition, and recomputation is exactly the interference it prevents.
+
+**Lesson:** Per-object work must be gated by a flag *on the object* (`Transformer.finalized`, `Transformer.peers_computed`), never by a scan of the sites the current call happens to see — and the flag is set after the work it guards, so an OOM mid-build retries instead of freezing an empty result. Test the reasoning, not just the leak: a reproduction that only proves an allocation was dropped cannot tell "recompute per site" from "compute once" apart; the one that can uses a macro redefined between the two forms.
+
+Full write-up: [postmortems/2026-07-26-srfi147-shared-transformer-values.md](postmortems/2026-07-26-srfi147-shared-transformer-values.md).
+
+---
+
+## 17. Hygienic identity does not survive `quote`
+
+**Symptom:** SRFI 150's first shipped transformer stored hygienically renamed field-name symbols in a property table and compared them by `equal?` at run time. `compileQuote` strips the `__hyg_N_` rename from every quoted datum — correctly, since a template's `'foo` must yield `foo` — so a template's own field literal and the same-spelled identifier a use site supplied collapsed into one field. All four of the reference suite's hygiene assertions failed, and the defect was first blamed on an unrelated referential-transparency bug until a no-binding control failed identically.
+
+**Lesson:** A renamed symbol is an expansion-time object. Resolve everything that depends on its identity while the rename is in hand — own fields by full spelling, inherited fields by stripped spelling, each to a numeric index — and store only spellings and indices. Two "engine bugs" filed during the earlier, failing designs turned out to be artifacts of those designs; reduce a reproduction outside the design before filing it.
+
+Full write-up: [postmortems/2026-07-28-srfi150-hygienic-field-identity.md](postmortems/2026-07-28-srfi150-hygienic-field-identity.md).

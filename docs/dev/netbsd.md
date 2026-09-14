@@ -74,6 +74,12 @@ const kevent_sys = if (builtin.os.tag == .netbsd) struct {
 }.__kevent50 else std.c.kevent;
 ```
 
+The audit covers the calls the runtime makes today. A new `std.c.*` call
+whose NetBSD symbol is versioned and unmapped by Zig would regress silently
+— name-shifted directory listings, shuffled passwd fields — so re-run the
+inventory-plus-`nm` step whenever a platform call is added, until Zig's
+`std.c` closes the gaps upstream.
+
 ## Floating point: FPCR flush-to-zero on aarch64
 
 NetBSD/aarch64 starts every process with **FPCR = 0x3000000** — FZ
@@ -252,6 +258,10 @@ cc -shared -fPIC tests/scheme/ffi/fixtures/u64test.c \
 bash tests/scheme/run-all.sh
 ```
 
+Neither the reference machine nor CI has a Zig toolchain, so a native
+`zig build` on NetBSD is untested by design; `tests/e2e/run-e2e.sh` and the
+`-Dbundle` shell scripts run only where one is installed.
+
 Reference machine for this port: **NetBSD 10.1 aarch64** (evbarm GENERIC64,
 4-core / 4 GiB VM + 6 GiB swapfile).
 
@@ -265,17 +275,3 @@ suite, the thottam suite, and `run-all.sh` with the stack and data limits
 raised. One job, no artifact handoff, because the VM syncs the workspace
 directly. The VM tracks 10.1 to match the aarch64 reference machine and
 Zig's bundled libc floor.
-
-## Known gaps
-
-* **The versioned-symbol audit covers what the runtime calls today.** A
-  future `std.c.*` call whose NetBSD symbol is versioned and unmapped by
-  Zig would regress silently — re-run the `nm` audit (above) when adding
-  platform calls, until Zig's std.c closes the gaps upstream.
-* **The native backend needs pkgsrc clang** (base cc is GCC, which cannot
-  consume LLVM IR). Interpreter and thottam need base only.
-* Building natively with Zig **on** NetBSD is expected to work (the target
-  is supported upstream) but hasn't been exercised — the cross-compile +
-  copy flow covers development.
-* `tests/e2e/run-e2e.sh` and the `-Dbundle` shell scripts need a Zig
-  toolchain on the box; they run wherever one exists.

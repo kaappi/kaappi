@@ -88,7 +88,10 @@ bash tests/scheme/run-all.sh
 ```
 
 The `compile/` shell suite self-skips without Zig on the box, exactly as
-on Windows runners.
+on Windows runners. That is the only path exercised: neither the reference
+machine nor CI has a Zig toolchain, so a native `zig build` on FreeBSD is
+untested by design, and `tests/e2e/run-e2e.sh` and the `compile/` suite
+run only where one is installed.
 
 Reference machine for this port: FreeBSD 15.1-RELEASE aarch64 (4-core
 VM). Zig's bundled FreeBSD libc floor is 14.0 (`file` on the binaries
@@ -105,12 +108,3 @@ the thottam suite, and `run-all.sh` inside it. One job, no artifact
 handoff, because the VM syncs the workspace directly. The VM release
 pins the oldest supported line (14.x); the reference machine covers
 15.x and aarch64.
-
-## Known gaps
-
-* Building natively with Zig **on** FreeBSD is expected to work (the
-  target is fully supported upstream) but hasn't been exercised — the
-  cross-compile + copy flow covers development, and the native backend
-  needs only base `cc` at runtime.
-* `tests/e2e/run-e2e.sh` and the `compile/` suite need a Zig toolchain
-  on the box (see above); they run wherever one exists.
