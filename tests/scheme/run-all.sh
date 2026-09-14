@@ -93,7 +93,11 @@ timeout_for() {
 }
 
 # The shell-suite twin of the list above, for scripts that legitimately outlive
-# SHELL_TIMEOUT. bundle-cpu-baseline-2515.sh is the one entry so far: warm it
+# SHELL_TIMEOUT. unit-chunk-watchdog-2560.sh is built from wall time: every
+# case waits out the chunk script's 5s poll ticks and its second-granular
+# level allowances against an instant shim, ~4m40s in all on an idle host
+# (its forced depth-1 overrun, case 8, is ~30s of that), so 600 keeps ~2x
+# over that. bundle-cpu-baseline-2515.sh is the other entry: warm it
 # is ~116s of cache hits, but its premise is three full -Doptimize=ReleaseSafe
 # builds (fixture interpreter, default bundle, -Dcpu=native twin), and when the
 # Zig cache is cold — the Debug leg always, and any leg the moment GH Actions
@@ -107,7 +111,7 @@ timeout_for() {
 # wait_with_timeout counts sleep 0.05 ticks, not wall clock, so that is
 # ~20 min of wall clock on Linux and stretches further where sleep spawns
 # cost more — inside every job cap that runs this suite.
-PER_SCRIPT_TIMEOUTS="bundle-cpu-baseline-2515.sh:${KAAPPI_BUNDLE_CPU_BASELINE_TIMEOUT:-1200} unit-chunk-watchdog-2560.sh:${KAAPPI_UNIT_CHUNK_WATCHDOG_TIMEOUT:-480}"
+PER_SCRIPT_TIMEOUTS="bundle-cpu-baseline-2515.sh:${KAAPPI_BUNDLE_CPU_BASELINE_TIMEOUT:-1200} unit-chunk-watchdog-2560.sh:${KAAPPI_UNIT_CHUNK_WATCHDOG_TIMEOUT:-600}"
 
 shell_timeout_for() {
     local base entry
