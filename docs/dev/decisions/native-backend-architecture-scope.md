@@ -9,6 +9,15 @@ checklist item, and there is no user demand paying for one. Revisit when a
 concrete user needs native binaries on an interpreter-tier architecture;
 riscv64 is the designated pathfinder if that happens.
 
+**Status** (2026-09-14): revisited — a user asked for riscv64 and the
+pathfinder port shipped. The native backend now targets **aarch64, x86_64,
+and riscv64 (Linux)**; s390x and ppc64le remain interpreter-tier, and
+everything below about what a port costs still stands for them. The
+July segfault this record leans on turned out to be #1808, not the triple:
+[postmortems/2026-09-14-riscv64-native-segfault.md](../postmortems/2026-09-14-riscv64-native-segfault.md)
+has the investigation, and [porting.md](../porting.md) the updated
+native-backend checklist.
+
 Prerequisite shipped independently of any port: #1656 — `kaappi compile`
 on an unsupported architecture must refuse loudly instead of linking a
 binary that crashes (see "The failure mode that forced this decision").

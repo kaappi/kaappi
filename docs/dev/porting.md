@@ -27,7 +27,7 @@ in [netbsd.md](netbsd.md)).
 | macOS | aarch64 | native | unit + all Scheme suites + sandbox + robustness + native-backend E2E | `test` (macos-latest) | yes (signed + notarized) |
 | Linux | x86_64 | native | same as macOS, in Debug/ReleaseSafe/ReleaseFast | `test` (ubuntu-latest) | yes |
 | Linux | aarch64 | native | same | `test` (ubuntu-24.04-arm) | yes |
-| Linux | riscv64 | cross-compiled | unit + R7RS under QEMU user-mode | `riscv64-test` | yes |
+| Linux | riscv64 | cross-compiled | unit + R7RS under QEMU user-mode; native-backend e2e (cross-linked, run under QEMU) | `riscv64-test` + `riscv64-native-test` | yes |
 | Linux | s390x | cross-compiled | unit + R7RS under QEMU user-mode; full battery (unit + thottam + R7RS + `tests/scheme/`) on a real-kernel Alpine VM (#1654) | `s390x-test` | yes |
 | Linux | ppc64le | cross-compiled | unit + R7RS under QEMU user-mode; full battery on a real-kernel Alpine VM (#1654) | `ppc64le-test` | yes |
 | Windows | aarch64 | cross-compiled only (#1613) | unit + thottam + R7RS + VM-verified `.scm` suites on `windows-11-arm` runners | `windows-cross` + `windows-arm-test` | yes (unstripped, #1607) |
@@ -421,11 +421,14 @@ all, only build/CI work — *provided* the preconditions hold.
 ### Native (LLVM) backend
 
 The interpreter ships without this; the native backend is a separate,
-optional tier (riscv64, s390x, and ppc64le ship interpreter-only today).
+optional tier (s390x and ppc64le ship interpreter-only today; riscv64
+joined the native tier in 2026-09 — the pathfinder port described in
+[decisions/native-backend-architecture-scope.md](decisions/native-backend-architecture-scope.md)).
 
-- [ ] Add the triple to `llvm_emit.zig`'s `emitPreamble` switch
-      (currently aarch64/x86_64 × macos/linux; everything else emits
-      `unknown-unknown-unknown` and is unsupported).
+- [ ] Add the triple to `llvm_emit.targetTriple` (currently aarch64/x86_64
+      × the six OSes, plus riscv64 × linux; every other `(arch, os)`
+      returns null, which makes `native_backend_supported` false so
+      `kaappi compile` refuses loudly, kaappi#1656).
 - [ ] Decide `fast_tailcalls_supported` (`llvm_emit.zig`): `musttail` +
       `tailcc` codegen quality is per-architecture in LLVM. `false` is
       always safe — mutual tail calls fall back to the trampoline
@@ -434,8 +437,12 @@ optional tier (riscv64, s390x, and ppc64le ship interpreter-only today).
 - [ ] `zig build lib -Dtarget=…` builds `libkaappi_rt.a`, and
       `kaappi compile` produces a working binary on the target. Link
       with `zig cc`, never bare `clang` (Zig compiler-rt intrinsics).
-- [ ] Run the native-backend E2E tests (`bash tests/e2e/run-e2e.sh`,
-      the "E2E tests" CI step) on the target.
+- [ ] Run the native-backend E2E tests on the target: `bash
+      tests/e2e/run-e2e.sh` on a hosted runner, or for an emulated arch
+      `bash tests/e2e/run-e2e-cross.sh <zig-target> [<target-zig>]`, which
+      cross-builds and cross-links on the host and runs only kaappi and
+      the linked binaries under the emulator (the `riscv64-native-test`
+      CI job is the pattern).
 
 ### CI + release
 

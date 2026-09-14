@@ -275,9 +275,10 @@ jobs:
   test-install-script:
     # The installer's platform detection is where per-OS bugs have historically
     # lived, so exercise it on every OS/arch pair GitHub hosts. riscv64, s390x
-    # and ppc64le are absent because no runner executes them natively — and
-    # they are interpreter-tier, so the archive assertions below would not
-    # apply there anyway.
+    # and ppc64le are absent because no runner executes them natively (s390x
+    # and ppc64le are interpreter-tier besides, so the archive assertions
+    # below would not apply there anyway; riscv64's archive is exercised by
+    # ci.yml's riscv64-native-test under QEMU).
     strategy:
       fail-fast: false
       matrix:

@@ -284,7 +284,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The LLVM native backend supports aarch64 and x86_64 only, so both
+        # The LLVM native backend runs natively on aarch64 and x86_64 (its
+        # third arch, riscv64, has no hosted runner and is covered by
+        # ci.yml's riscv64-native-test under QEMU instead), so both
         # sides of this VM-vs-native diff run natively, one job per arch. The
         # arm64 leg is the ONLY fuzz coverage of aarch64 code generation:
         # the x86_64 leg never exercises the ARM instruction emitter, calling

@@ -83,7 +83,8 @@ WebAssembly; each non-macOS target cross-compiles from a single host with
 |----|-------------|--------------------|
 | macOS | aarch64 (Apple Silicon) | LLVM backend |
 | Linux | x86_64, aarch64 | LLVM backend |
-| Linux | riscv64, s390x, ppc64le | interpreter only |
+| Linux | riscv64 | LLVM backend (needs a C toolchain; verified under QEMU) |
+| Linux | s390x, ppc64le | interpreter only |
 | Windows | aarch64, x86_64 | LLVM backend (needs a C toolchain) |
 | FreeBSD | x86_64, aarch64 | LLVM backend (base `cc` suffices) |
 | OpenBSD | x86_64, aarch64 | LLVM backend (base `cc` suffices) |

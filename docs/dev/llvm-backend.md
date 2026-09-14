@@ -876,7 +876,13 @@ always links, correct though not itself constant-stack for that one edge.
 **Per-target gate.** `fast_tailcalls_supported` (a comptime switch on the host
 arch) enables all of the above only on `aarch64` and `x86_64`, whose LLVM
 backends support `tailcc`/`musttail`. Other hosts keep the uniform-only ABI
-unchanged; RISC-V can be enabled once its `musttail` support is confirmed.
+unchanged. riscv64 — native-tier since 2026-09 — deliberately stays on the
+uniform ABI: the port was scoped to interpreter parity (the e2e suite, which
+includes `native-mutual-tail.scm` running through the #1499 trampoline), and
+flipping the gate is a separate step that needs the same suite re-run on the
+target with `musttail` in play, since LLVM's RISC-V `musttail` support is
+recent and its guaranteed-tail-call coverage is narrower than on the two
+established arches.
 
 ## Testing
 
@@ -898,6 +904,19 @@ End-to-end tests live in `tests/e2e/`:
 - `programs/*.scm` — test programs compiled to native binaries
 
 Run with: `bash tests/e2e/run-e2e.sh`
+
+`run-e2e-cross.sh <zig-target> [<target-zig>]` is the same parity suite for
+a target the host cannot run natively — riscv64, whose only CI machine is
+QEMU user-mode. It cross-builds `kaappi` and `libkaappi_rt.a` on the host,
+cross-links every program's `.ll` on the host with `zig cc -target`, and
+emulates only the cross-built `kaappi` (the oracle and `--emit-llvm` — the
+emitter is a comptime switch on the *host* arch, so the IR has to come from
+a kaappi that believes it is the target) and the linked binaries; with a
+target-arch `zig` supplied it also runs one genuine on-target
+`kaappi compile`. `KAAPPI_EMU` is the command prefix that runs a target
+binary (empty under binfmt; a `podman run --platform` line locally — the
+header comment has the exact form). CI's `riscv64-native-test` job is the
+canonical invocation.
 
 The e2e tests run in CI on Ubuntu ReleaseSafe builds. The `KAAPPI_CC`
 environment variable controls the C compiler (defaults to `zig cc`).

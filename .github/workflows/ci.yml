@@ -773,6 +773,62 @@ jobs:
       - name: Endian-sensitive Scheme suites (riscv64 via QEMU)
         run: bash tools/run-endian-suite.sh zig-out/bin/kaappi
 
+  # riscv64 native tier: the LLVM backend's third architecture (the
+  # pathfinder port of docs/dev/decisions/native-backend-architecture-scope.md;
+  # docs/dev/postmortems/2026-09-14-riscv64-native-segfault.md). GitHub
+  # hosts no riscv64 runner, so this is tests/e2e/run-e2e-cross.sh rather
+  # than run-e2e.sh: kaappi and libkaappi_rt.a are cross-compiled on the
+  # host, each program's IR is cross-linked on the host with
+  # `zig cc -target riscv64-linux`, and only the cross-built kaappi (oracle
+  # + --emit-llvm) and the linked binaries run as riscv64 -- inside a stock
+  # riscv64/ubuntu container via docker --platform, with a checksum-pinned
+  # riscv64 Zig mounted in, so the on-target `kaappi compile` smoke at the
+  # end forks a real riscv64 `zig cc` the way a user on a riscv64 box does
+  # (the org's ghcr.io builder image is not pullable anonymously, and a
+  # stock image plus one tarball is one less thing to keep in sync). Each
+  # emulated invocation is one container start (~115 of them), still far
+  # cheaper than building the interpreter under TCG.
+  riscv64-native-test:
+    needs: format
+    if: needs.format.outputs.docs_only != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # ziglang.org/download/index.json, 0.16.0 -> riscv64-linux.shasum.
+      RV_ZIG_SHA256: bc069b0f2f568f54bafbdfc1d65b12fd386ed6a652044a37aee6a4f72f14076e
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Zig
+        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
+        with:
+          version: 0.16.0
+          cache-key: riscv64-native
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
+        with:
+          platforms: riscv64
+
+      - name: Fetch a riscv64 Zig (the on-target C compiler for the smoke)
+        run: |
+          mkdir -p "$RUNNER_TEMP/zig-rv"
+          curl -sSL -o "$RUNNER_TEMP/zig-rv/zig.tar.xz" https://ziglang.org/download/0.16.0/zig-riscv64-linux-0.16.0.tar.xz
+          echo "$RV_ZIG_SHA256  $RUNNER_TEMP/zig-rv/zig.tar.xz" | sha256sum -c -
+          tar xJf "$RUNNER_TEMP/zig-rv/zig.tar.xz" -C "$RUNNER_TEMP/zig-rv"
+          echo "RV_ZIG=$(echo "$RUNNER_TEMP"/zig-rv/zig-riscv64-linux-*/zig)" >> "$GITHUB_ENV"
+
+      - name: Pull the riscv64 base image
+        run: docker pull --platform linux/riscv64 riscv64/ubuntu:24.04
+
+      - name: Native-backend e2e (cross-linked, run on riscv64 via QEMU)
+        run: |
+          export TMPDIR="$RUNNER_TEMP"
+          export KAAPPI_EMU="docker run --rm --platform linux/riscv64 -v $PWD:$PWD -v $RUNNER_TEMP:$RUNNER_TEMP -w $PWD riscv64/ubuntu:24.04"
+          bash tests/e2e/run-e2e-cross.sh riscv64-linux "$RV_ZIG"
+
   # s390x: interpreter tier like riscv64 (#1654), and the only big-endian
   # target in the matrix — a permanent canary for byte-order bugs in the
   # `.sbc` codec and any future serialization. Also validated on a

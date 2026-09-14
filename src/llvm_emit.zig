@@ -16,16 +16,18 @@ const Value = types.Value;
 // #1499: tailcc + musttail give guaranteed constant-stack mutual tail calls,
 // but only on backends whose LLVM target supports them. aarch64 and x86_64 both
 // do; other hosts keep the uniform array ABI (best-effort `tail call` hint).
-// RISC-V musttail is recent LLVM work and can be enabled here once verified.
+// riscv64 stays on the uniform ABI for now: it joined the native tier as an
+// interpreter-parity port first (kaappi#1656 follow-up); `musttail`/`tailcc`
+// on RISC-V is a separate verification step (see docs/dev/llvm-backend.md).
 pub const fast_tailcalls_supported = switch (@import("builtin").cpu.arch) {
     .aarch64, .x86_64 => true,
     else => false,
 };
 
 /// The LLVM `target triple` for a host `(arch, os)`, or null when the native
-/// backend cannot emit a *concrete* triple for it. That is exactly aarch64 and
-/// x86_64 × the six supported OSes; every other arch — and any other OS on
-/// those two arches — returns null. A non-concrete triple would come out as
+/// backend cannot emit a *concrete* triple for it. That is aarch64 and x86_64 ×
+/// the six supported OSes, plus riscv64 × linux; every other arch — and any
+/// other OS on those arches — returns null. A non-concrete triple would come out as
 /// `*-unknown-unknown`, which the `-w` on the `zig cc` link lets the driver
 /// silently override with the host default — so the link *succeeds* and the
 /// user gets a binary that segfaults (#1656). Returning null instead routes
@@ -54,29 +56,41 @@ pub fn targetTriple(arch: std.Target.Cpu.Arch, os: std.Target.Os.Tag) ?[]const u
             .netbsd => "x86_64-unknown-netbsd",
             else => null,
         },
+        // riscv64 is native-tier on Linux only (the one riscv64 OS Kaappi
+        // ships for). The gnu ABI matches what `zig cc` links against on a
+        // glibc host; a musl host's driver resolves the same triple to its
+        // own libc, as it does for the aarch64/x86_64 linux-gnu spellings.
+        .riscv64 => switch (os) {
+            .linux => "riscv64-unknown-linux-gnu",
+            else => null,
+        },
         else => null,
     };
 }
 
 /// Whether the LLVM native backend can target this host. False on the
-/// interpreter-tier arches (riscv64, s390x, ppc64le, …) — `kaappi compile`,
+/// interpreter-tier arches (s390x, ppc64le, …) — `kaappi compile`,
 /// `--emit-llvm`, and `kaappi doctor` consult this to refuse native compilation
 /// *loudly* instead of emitting an unknown-triple module that links to a
 /// crashing binary (#1656). The interpreter tier runs on every arch regardless.
 /// See docs/dev/decisions/native-backend-architecture-scope.md.
 pub const native_backend_supported = targetTriple(@import("builtin").cpu.arch, @import("builtin").os.tag) != null;
 
-test "targetTriple: only aarch64/x86_64 are native-compilable; others refuse (#1656)" {
+test "targetTriple: aarch64/x86_64 everywhere and riscv64 on linux are native-compilable; others refuse (#1656)" {
     // Supported hosts get a concrete triple for every supported OS.
     try std.testing.expect(targetTriple(.aarch64, .linux) != null);
     try std.testing.expect(targetTriple(.aarch64, .macos) != null);
     try std.testing.expect(targetTriple(.x86_64, .linux) != null);
     try std.testing.expect(targetTriple(.x86_64, .windows) != null);
+    // riscv64 is native-tier on Linux (the pathfinder port from
+    // docs/dev/decisions/native-backend-architecture-scope.md), and only
+    // there: Kaappi ships no other riscv64 OS.
+    try std.testing.expectEqualStrings("riscv64-unknown-linux-gnu", targetTriple(.riscv64, .linux).?);
+    try std.testing.expect(targetTriple(.riscv64, .freebsd) == null);
     // The interpreter-tier arches have no triple, so native_backend_supported
     // is false there and `kaappi compile` refuses instead of linking a
     // segfaulting binary. A future port that adds one of these arms flips this
     // assertion and native_backend_supported together (single source of truth).
-    try std.testing.expect(targetTriple(.riscv64, .linux) == null);
     try std.testing.expect(targetTriple(.s390x, .linux) == null);
     try std.testing.expect(targetTriple(.powerpc64le, .linux) == null);
     // A supported arch on an *unsupported OS* has no concrete triple either, so

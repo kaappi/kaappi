@@ -62,7 +62,7 @@ fn nativeUnsupportedMessage(buf: []u8, arch_name: []const u8, path: []const u8) 
     return std.fmt.bufPrint(
         buf,
         "error: native compilation is not supported on this architecture ({s}).\n" ++
-            "The LLVM native backend targets aarch64 and x86_64 only; run the program with the interpreter instead:\n" ++
+            "The LLVM native backend targets aarch64, x86_64 and riscv64 (Linux) only; run the program with the interpreter instead:\n" ++
             "    kaappi {s}\n",
         .{ arch_name, path },
     ) catch "error: native compilation is not supported on this architecture\n";
