@@ -33,6 +33,7 @@ investigation produced analysis worth keeping.
 | [porting.md](porting.md) | Porting to a new OS or CPU architecture: the support matrix, where portability lives, the degradation ladder, staged checklists, what "supported" means |
 | [adding-features.md](adding-features.md) | Step-by-step guides for the most common extension tasks |
 | [fibers-and-reactor.md](fibers-and-reactor.md) | KEP-0001: the per-thread reactor, parking vs. driving in place, lazy non-blocking mode as the platform probe, write buffering |
+| [ffi.md](ffi.md) | The C FFI and the sandbox boundary: the `(kaappi ffi)` surface, the 18 types and 7 canonical classes, marshaling and its error codes, the arity dispatch tables and their limits, the `dlopen` search path, callback trampolines and the error stash, the GC and thread-boundary rules, the two sandbox layers |
 | [subprocess.md](subprocess.md) | KEP-0022: `(kaappi process)` — spawn without fork, reactor-reaped child exit, the three park tiers, `run-process` and its `process-timeout` condition |
 | [bounded-step.md](bounded-step.md) | kaappi#2283: the resumable, instruction-budgeted step entry point — the safepoint mechanism, the outermost-loop invariant, the `beginStep`/`resumeStep` and `kaappi_step_*` WASM APIs |
 | [srfi-implementation-notes.md](srfi-implementation-notes.md) | How each non-trivial SRFI is implemented: what needed engine changes, resolved spec ambiguities, bugs each port surfaced |

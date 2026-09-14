@@ -30,6 +30,7 @@ belongs here.
 | Fibers, the I/O reactor, port blocking | `fibers-and-reactor.md` |
 | Whether a behaviour is a documented deviation or a bug | `known-limitations.md` |
 | Subprocesses / `(kaappi process)` | `subprocess.md` |
+| The C FFI, `--sandbox` | `ffi.md` |
 | Implementing or editing a SRFI library | `srfi-implementation-notes.md` |
 | The package manager | `thottam.md` |
 | Tests | `testing.md`, `test-runner.md` |
