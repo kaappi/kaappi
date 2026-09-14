@@ -269,7 +269,8 @@ Full release workflow with 11 steps and multiple confirmation gates:
 1. Analyze changes since last tag, recommend semver bump.
 2. Generate release notes from `git log` since the previous tag — this is
    where `CHANGELOG.md` gets written; PRs never touch it.
-3. Update CHANGELOG.md (insert the new version section).
+3. Update CHANGELOG.md (insert the new version section, one line per
+   change; a new minor series moves the previous one to `changelog/`).
 4. Bump version in `build.zig.zon` (the single source; `main.zig` and
    `thottam.zig` read it from `build_options`) and the workspace
    `../CLAUDE.md` "Current release" line.

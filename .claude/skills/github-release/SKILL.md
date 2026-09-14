@@ -68,7 +68,7 @@ The file uses Keep a Changelog format. After editing, it should look like:
 ## [X.Y.Z] - YYYY-MM-DD
 
 ### Added
-- ...
+- **Short summary of the change** (#NNNN). One clarifying sentence at most.
 
 ### Fixed
 - ...
@@ -81,6 +81,25 @@ The file uses Keep a Changelog format. After editing, it should look like:
 - Insert new `## [X.Y.Z] - YYYY-MM-DD` section with the confirmed release notes
 - Use today's date in YYYY-MM-DD format
 - Preserve all existing versioned sections below
+
+**One line per change.** A bold summary, the issue or PR number, and at most
+one sentence saying what a user now sees differently. The *why* stays in the
+commit body and the PR, which is where the project already says it belongs;
+a changelog entry that reproduces it is a second copy that drifts. Through
+v0.27.1 each entry was a 5–10 line paragraph, and the file reached 300 KB
+in three months of releases — the size that prompted the `changelog/`
+archive below.
+
+**When X.Y.0 opens a new minor series, archive the previous one.** Move
+every `## [X.(Y-1).*]` section, verbatim and in order, out of
+`CHANGELOG.md` into `changelog/X.(Y-1).md`, headed the way the existing
+archive files are (`# Changelog — X.(Y-1).x` plus the standard two-sentence
+note — copy the top of the newest file in `changelog/`). Then add the new
+file to the "Earlier series" list in the `CHANGELOG.md` intro, newest first.
+`CHANGELOG.md` holds only the current series afterwards; the release workflow
+only ever extracts the section it is releasing, so nothing else reads the
+old ones from this file. Patch releases (`X.Y.1`, `X.Y.2`, …) archive
+nothing.
 
 ## Step 4: Update version string
 
@@ -181,11 +200,12 @@ Fix any errors before proceeding.
 
 ## Step 7: Commit and tag
 
-Add the version files, the changelog, and any doc files whose procedure count
+Add the version files, the changelog (and an archived series, if Step 3
+moved one), and any doc files whose procedure count
 changed in Step 5:
 
 ```bash
-git add build.zig.zon CHANGELOG.md
+git add build.zig.zon CHANGELOG.md changelog/  # changelog/ only when a series was archived
 git add README.md CONFORMANCE.md CLAUDE.md docs/dev/  # if the count changed
 git commit -m "Release vX.Y.Z"
 git tag -a vX.Y.Z -m "Release vX.Y.Z"
