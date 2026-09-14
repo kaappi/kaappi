@@ -247,3 +247,13 @@ Full write-up: [postmortems/2026-09-06-srfi231-callcc-reentry.md](postmortems/20
 **Lesson:** where prose and sample code disagree, the prose governs unless there is positive reason to think it is in error, and a divergence that turns on the host's representation choices is not such a reason. Check a spec claim against the spec's own text before writing "documented". A differential oracle across two standards is a lead, not a verdict; when a divergence is permanent, record it in the tool so it is not re-filed.
 
 Full write-up: [postmortems/2026-09-07-srfi231-sample-implementation.md](postmortems/2026-09-07-srfi231-sample-implementation.md).
+
+---
+
+## 20. A crash on a new target is not evidence about the port
+
+**Symptom:** the first `kaappi compile` on riscv64 (2026-07) linked and segfaulted on a self-tail-call loop plus a closure. The crash was attributed to the emitter's `unknown-unknown-unknown` triple being overridden by the `-w` link, and the native backend was scoped to aarch64/x86_64 on the strength of it. Re-run in 2026-09, the same tree segfaults at 10 million iterations and passes at 100 thousand — with a correct triple — while the current tree passes both: it was kaappi#1808, per-iteration `alloca` growth in native loops, an arch-independent bug fixed nine days after the decision that the established arches' e2e programs never iterated far enough to hit.
+
+**Lesson:** before a failure on a new target is charged to the port, run the same program at the same scale on a primary platform. A control run there either finds the bug where the debugging tools are good, or turns the new-target result into a genuine port finding. And when a decision rests on a crash with no root cause, say so in the record and expect the revisit to start there.
+
+Full write-up: [postmortems/2026-09-14-riscv64-native-segfault.md](postmortems/2026-09-14-riscv64-native-segfault.md).

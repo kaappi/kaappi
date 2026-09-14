@@ -52,6 +52,13 @@ jobs:
             lib_src: libkaappi_rt.a
             lib_ext: .a
             strip: true
+          # riscv64 is native-tier since 2026-09 (the archive is what
+          # `kaappi compile` links on a riscv64 box; ci.yml's
+          # riscv64-native-test exercises exactly these artifacts under
+          # QEMU). Still Zig's musl-static default rather than the
+          # gnu.2.28 the two arches above use, so this binary cannot
+          # dlopen (kaappi ffi) — the #1783 trade-off, not yet resolved
+          # for riscv64.
           - os: ubuntu-latest
             target: riscv64-linux
             artifact: kaappi-riscv64-linux
@@ -59,8 +66,8 @@ jobs:
             lib_src: libkaappi_rt.a
             lib_ext: .a
             strip: true
-          # Interpreter-tier Linux arches like riscv64 (no native
-          # backend). Cross-compiled; execution is verified by CI's
+          # Interpreter-tier Linux arches (no native backend).
+          # Cross-compiled; execution is verified by CI's
           # s390x-test/ppc64le-test QEMU jobs and was validated on
           # real-kernel Alpine VMs (#1654). s390x is the only big-endian
           # target.

@@ -105,7 +105,7 @@ history.
 | macOS | aarch64 (Apple Silicon) | yes | yes | Primary dev platform |
 | Linux | x86_64 | yes | yes | CI tested (Ubuntu) |
 | Linux | aarch64 | yes | yes | CI tested (Ubuntu ARM) |
-| Linux | riscv64 | yes | yes | CI tested (QEMU) |
+| Linux | riscv64 | yes | yes | CI tested (QEMU); native backend too, e2e under QEMU (`riscv64-native-test`) |
 | Linux | s390x (big-endian) | yes | yes | CI tested (QEMU); the byte-order canary (kaappi#1654) |
 | Linux | ppc64le | yes | yes | CI tested (QEMU) |
 | Windows | aarch64, x86_64 | yes | yes | `docs/dev/windows.md` |
@@ -116,8 +116,9 @@ history.
 
 Every non-macOS target cross-compiles from macOS ARM with
 `zig build -Dtarget=<arch>-<os>`. The LLVM native backend covers
-aarch64/x86_64 only; other arches are interpreter-tier. Linux binaries run in
-containers via podman (x86_64 via Rosetta, riscv64/s390x/ppc64le via QEMU).
+aarch64/x86_64 everywhere plus riscv64 on Linux; s390x and ppc64le are
+interpreter-tier. Linux binaries run in containers via podman (x86_64 via
+Rosetta, riscv64/s390x/ppc64le via QEMU).
 
 **Porting to a new OS or CPU architecture: `docs/dev/porting.md`** — porting
 surfaces, the degradation ladder, staged checklists, and the per-OS

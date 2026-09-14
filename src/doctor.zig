@@ -352,7 +352,8 @@ fn collectPackageManager(r: *Report) void {
 fn collectNativeBackend(r: *Report) void {
     const a = r.allocator();
 
-    // #1656: on an arch the LLVM backend can't target (riscv64, s390x, ppc64le),
+    // #1656: on a host the LLVM backend can't target (s390x, ppc64le, or
+    // riscv64 on anything but Linux),
     // `kaappi compile` refuses — native compilation is unavailable, by design.
     // Report that once, honestly, instead of running the c-compiler / archive /
     // smoke-link probes below, which would all PASS and falsely imply native
@@ -363,7 +364,7 @@ fn collectNativeBackend(r: *Report) void {
             "native-backend",
             "arch",
             .warn,
-            r.fmt("native compilation unavailable on {s} — the LLVM backend targets aarch64 and x86_64 only; the interpreter tier is fully supported", .{@tagName(builtin.cpu.arch)}),
+            r.fmt("native compilation unavailable on {s}-{s} — the LLVM backend targets aarch64 and x86_64 (all six OSes) and riscv64 (Linux) only; the interpreter tier is fully supported", .{ @tagName(builtin.cpu.arch), @tagName(builtin.os.tag) }),
             "run programs with the interpreter: kaappi <file.scm>",
         );
         return;

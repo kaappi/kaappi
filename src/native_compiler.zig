@@ -56,16 +56,19 @@ test "cc_search_order: zig first, gcc last, clang before NetBSD's base GCC" {
 
 /// Builds the #1656 refuse-loudly diagnostic naming the host arch and pointing
 /// at the interpreter, into `buf`. Split out so a test can assert its content
-/// without having to run on an interpreter-tier arch. Returns the written slice
-/// (or a static fallback if `buf` cannot hold even the arch-less form).
-fn nativeUnsupportedMessage(buf: []u8, arch_name: []const u8, path: []const u8) []const u8 {
+/// without having to run on an interpreter-tier host. Names the `arch-os`
+/// pair, not just the arch: since riscv64 is native-tier on Linux only, "not
+/// supported on riscv64" would be wrong on a riscv64 BSD — it is the pair
+/// `targetTriple` has no arm for. Returns the written slice (or a static
+/// fallback if `buf` cannot hold even the host-less form).
+fn nativeUnsupportedMessage(buf: []u8, arch_name: []const u8, os_name: []const u8, path: []const u8) []const u8 {
     return std.fmt.bufPrint(
         buf,
-        "error: native compilation is not supported on this architecture ({s}).\n" ++
-            "The LLVM native backend targets aarch64 and x86_64 only; run the program with the interpreter instead:\n" ++
+        "error: native compilation is not supported on this host ({s}-{s}).\n" ++
+            "The LLVM native backend targets aarch64 and x86_64 (macOS, Linux, Windows, FreeBSD, OpenBSD, NetBSD) and riscv64 (Linux) only; run the program with the interpreter instead:\n" ++
             "    kaappi {s}\n",
-        .{ arch_name, path },
-    ) catch "error: native compilation is not supported on this architecture\n";
+        .{ arch_name, os_name, path },
+    ) catch "error: native compilation is not supported on this host\n";
 }
 
 /// #1743 refuse-loudly diagnostic: `files` is the set of library .sld files
@@ -128,7 +131,7 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
     // covers both. See docs/dev/decisions/native-backend-architecture-scope.md.
     if (!llvm_emit.native_backend_supported) {
         var errbuf: [2048]u8 = undefined;
-        writeStderr(nativeUnsupportedMessage(&errbuf, @tagName(@import("builtin").cpu.arch), path));
+        writeStderr(nativeUnsupportedMessage(&errbuf, @tagName(@import("builtin").cpu.arch), @tagName(@import("builtin").os.tag), path));
         return error.NativeBackendUnsupported;
     }
 
@@ -649,9 +652,9 @@ test "deriveOutputPath strips .scm and appends the platform exe suffix" {
 
 test "nativeUnsupportedMessage names the arch and points at the interpreter (#1656)" {
     var buf: [512]u8 = undefined;
-    const msg = nativeUnsupportedMessage(&buf, "riscv64", "hello.scm");
+    const msg = nativeUnsupportedMessage(&buf, "s390x", "linux", "hello.scm");
     // Names the offending arch and the interpreter fallback command...
-    try std.testing.expect(std.mem.indexOf(u8, msg, "riscv64") != null);
+    try std.testing.expect(std.mem.indexOf(u8, msg, "s390x-linux") != null);
     try std.testing.expect(std.mem.indexOf(u8, msg, "not supported") != null);
     try std.testing.expect(std.mem.indexOf(u8, msg, "kaappi hello.scm") != null);
     // ...and the two arches that *are* supported, so the user sees the boundary.
@@ -659,9 +662,21 @@ test "nativeUnsupportedMessage names the arch and points at the interpreter (#16
     try std.testing.expect(std.mem.indexOf(u8, msg, "x86_64") != null);
 }
 
+test "nativeUnsupportedMessage names the arch-os pair, so a riscv64 BSD is not called an unsupported arch" {
+    // riscv64 is native-tier on Linux only (targetTriple): the message must
+    // blame the pair, or a riscv64-freebsd user reads "riscv64 unsupported"
+    // while the same box's Linux install compiles fine.
+    var buf: [2048]u8 = undefined;
+    const msg = nativeUnsupportedMessage(&buf, "riscv64", "freebsd", "hello.scm");
+    try std.testing.expect(std.mem.indexOf(u8, msg, "riscv64-freebsd") != null);
+    try std.testing.expect(std.mem.indexOf(u8, msg, "this host") != null);
+    try std.testing.expect(std.mem.indexOf(u8, msg, "riscv64 (Linux)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, msg, "kaappi hello.scm") != null);
+}
+
 test "nativeUnsupportedMessage falls back safely when the buffer is tiny" {
     var buf: [8]u8 = undefined;
-    const msg = nativeUnsupportedMessage(&buf, "riscv64", "hello.scm");
+    const msg = nativeUnsupportedMessage(&buf, "riscv64", "linux", "hello.scm");
     // Too small for the formatted form, but still a non-empty honest message.
     try std.testing.expect(std.mem.indexOf(u8, msg, "not supported") != null);
 }

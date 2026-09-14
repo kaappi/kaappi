@@ -1,6 +1,10 @@
 .zig-cache/
 .zig-global-cache/
 zig-out/
+# Cross-build install prefixes. tests/e2e/run-e2e-cross.sh builds under
+# $TMPDIR now, but a prefix from a manual `zig build --prefix zig-out-cross-*`
+# (or from an older version of the script) must never reach `git add -A`.
+/zig-out-cross-*/
 
 # Interpreter copies kept in the repo root for A/B runs (build one, stash it
 # under a distinct name, rebuild, compare). Root-anchored so they cannot mask
