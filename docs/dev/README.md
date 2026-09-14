@@ -56,6 +56,7 @@ investigation produced analysis worth keeping.
 | [cache.md](cache.md) | The `.sbc` bytecode cache: what the key contains (source hash + build id), where entries live, what invalidates them, how to inspect/clear/bypass |
 | [check.md](check.md) | `kaappi check`: compile-only static analysis, the `KP4xxx` lint findings, `--deny-warnings` |
 | [timings.md](timings.md) | `--timings`: per-stage pipeline wall time and cache HIT/MISS, text or JSON |
+| [lsp.md](lsp.md) | The language server: JSON-RPC framing and the LSP 3.17 lifecycle rules, diagnostics as `kaappi check` behind the loop (`analyzeSource` + the shared `Diagnostic` writer), one VM diagnosing many documents without leakage, completion/hover from the live globals, the lexical navigation features |
 | [cli-surface.md](cli-surface.md) | The annotated flag/subcommand surface, plus `src/cli_spec.zig` — the one table every parser, `--help`, and all six shell completion scripts are derived from, and the comptime gate that keeps them from drifting |
 | [claude-code-harness.md](claude-code-harness.md) | Hooks, permissions, path-scoped rules, and skills for AI-assisted development |
 

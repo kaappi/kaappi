@@ -125,5 +125,5 @@ inline.
 | CLI flag parsing | `src/cli.zig` |
 | Reporting funnel (text ⇄ json switch) | `src/toplevel_driver.zig` |
 | Code registry (source of `code`/`message`) | `src/diagnostics.zig` |
-| LSP consumer of the same serializer | `src/kaappi_lsp.zig` |
+| LSP consumer of the same serializer | `src/kaappi_lsp.zig` ([lsp.md](lsp.md)) |
 | Tests | `tests/scheme/errors/diagnostics-json.sh`, `src/lsp_diagnostic.zig` |

@@ -39,6 +39,7 @@ belongs here.
 | Porting to a new OS/arch | `porting.md` + the OS-specific doc (`windows.md`, `freebsd.md`, `openbsd.md`, `netbsd.md`) |
 | CLI subcommands | `check.md`, `fmt.md`, `features.md`, `doctor.md`, `cache.md`, `timings.md` |
 | Diagnostics / lint codes | `diagnostics.md`, `diagnostics-json.md`, `explain.md` |
+| The language server (`kaappi-lsp`) | `lsp.md` |
 | Claude Code harness | `claude-code-harness.md` |
 | Filing or triaging an issue | `github-issues.md` |
 | Workflow YAML | `github-actions.md` |
