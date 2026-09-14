@@ -84,6 +84,8 @@ investigations.
 | [complex-number-test-precision](postmortems/2026-06-18-complex-number-test-precision.md) | `test-approx=?` didn't compare complex numbers component-wise | Fixed 2026-06-18 |
 | [srfi147-shared-transformer-values](postmortems/2026-07-26-srfi147-shared-transformer-values.md) | One `Transformer` value reached from several binding sites was finalized and peer-snapshotted per site: a LIFO root-stack pop, two leaks, and a recomputation that broke R7RS 4.3.1 | Fixed 2026-07-27 |
 | [srfi150-hygienic-field-identity](postmortems/2026-07-28-srfi150-hygienic-field-identity.md) | Two record-syntax designs broke with two coexisting types; two "engine bugs" that weren't; hygienic field names collapsed when round-tripped through `quote` | Fixed 2026-08-11 |
+| [srfi231-callcc-reentry](postmortems/2026-09-06-srfi231-callcc-reentry.md) | `array-copy` and every accumulating SRFI 231 procedure passed the official suite's single re-entry cases and still broke under two; a `set!` accumulator was safe only by argument-evaluation order | Fixed 2026-09-07 |
+| [srfi231-sample-implementation](postmortems/2026-09-07-srfi231-sample-implementation.md) | A differential tester's disagreement with Gambit on c64/c128 was filed, fixed by matching Gambit, then reverted: the bundled code is a *sample* implementation, and the difference was R6RS vs R7RS `imag-part` exactness | Resolved 2026-09-09 |
 | [netbsd-spinlock-starvation](postmortems/2026-09-02-netbsd-spinlock-starvation.md) | Pure spin-waits starved a preempted lock holder under NetBSD's 4BSD scheduler; misdiagnosed as an OS stranding the thread | Fixed 2026-09-02 |
 
 ## Campaign records

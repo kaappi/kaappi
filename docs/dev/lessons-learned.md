@@ -227,3 +227,23 @@ Full write-up: [postmortems/2026-07-26-srfi147-shared-transformer-values.md](pos
 **Lesson:** A renamed symbol is an expansion-time object. Resolve everything that depends on its identity while the rename is in hand — own fields by full spelling, inherited fields by stripped spelling, each to a numeric index — and store only spellings and indices. Two "engine bugs" filed during the earlier, failing designs turned out to be artifacts of those designs; reduce a reproduction outside the design before filing it.
 
 Full write-up: [postmortems/2026-07-28-srfi150-hygienic-field-identity.md](postmortems/2026-07-28-srfi150-hygienic-field-identity.md).
+
+---
+
+## 18. A single re-entry is not evidence of call/cc safety
+
+**Symptom:** SRFI 231's `array-copy` collected into a scratch vector and its folds accumulated through a `set!` cell; both passed the official suite's continuation cases (737–741) and both were unsafe. The first re-entry of a captured getter continuation writes into the buffer again and looks right; only the second re-entry, or a second continuation captured during the first run, resumes over the earlier overwrites (kaappi#2539). The `set!` fold passed for a different reason: Kaappi evaluates arguments left to right, so the accumulator was read into a register before the getter ran — under chibi's order the same code returns garbage.
+
+**Lesson:** a continuation-safety test drives at least two continuations, each invoked at least twice, and a shared fixture (`tests/scheme/srfi/fixtures/srfi231-reentry.scm`) does that for the whole library. Accumulators are loop variables threaded through one fold (`%interval-fold`), never a mutable cell — a cell that passes may be passing on evaluation-order luck. For properties fixed cases cannot see, a generator diffed against a second implementation (`tools/srfi231_diff.py`) is the instrument.
+
+Full write-up: [postmortems/2026-09-06-srfi231-callcc-reentry.md](postmortems/2026-09-06-srfi231-callcc-reentry.md).
+
+---
+
+## 19. A sample implementation is a second opinion, not the specification
+
+**Symptom:** the SRFI 231 differential tester found Kaappi's c64/c128 checkers accepting `1.0` where Gambit rejects it. It was filed as a bug, fixed by matching Gambit, and the implementation notes called "when prose and reference code disagree, trust the code" the SRFI's documented rule. The SRFI's author corrected both: the document uses "sample implementation" throughout and states no such rule, and the verdicts differ because Gambit's `(imag-part 1.0)` is an exact `0` (R6RS's rule) while Kaappi's is `0.0` (R7RS-small leaves it open). The fix was reverted (kaappi#2558, #2559).
+
+**Lesson:** where prose and sample code disagree, the prose governs unless there is positive reason to think it is in error, and a divergence that turns on the host's representation choices is not such a reason. Check a spec claim against the spec's own text before writing "documented". A differential oracle across two standards is a lead, not a verdict; when a divergence is permanent, record it in the tool so it is not re-filed.
+
+Full write-up: [postmortems/2026-09-07-srfi231-sample-implementation.md](postmortems/2026-09-07-srfi231-sample-implementation.md).
