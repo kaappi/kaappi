@@ -59,7 +59,7 @@ the leakiness measurement.
 ### 1. Value representation & heap-object layout
 
 - **Where:** `src/types.zig` (`Value`, `Object`/`ObjectTag`, type
-  predicates); individual heap-type structs are split across 11
+  predicates); individual heap-type structs are split across 12
   `types_*.zig` domain files (kaappi#1731), re-exported from `types.zig`
 - **Theory:** the NaN-boxing scheme (which payloads are immediate and why
   any non-NaN f64 is a flonum), fixnum range and bignum promotion, and the
@@ -75,7 +75,8 @@ the leakiness measurement.
 ### 2. GC: rooting, write barrier, generations
 
 - **Where:** `src/memory.zig`, `src/gc_collect.zig`; rules in
-  `.claude/rules/gc-safety.md`
+  `.claude/rules/gc-safety.md`; the collector as built in
+  [memory.md](memory.md)
 - **Theory:** root-before-allocate, and why an unrooted fresh result dies
   between two allocations (#1414: every bignum/bignum division returned 1
   by aliasing); the write barrier's direction (old→young) and what a minor
@@ -89,12 +90,20 @@ the leakiness measurement.
 
 ### 3. IR pipeline & the register/frame contract
 
-- **Where:** `src/ir.zig`, `src/compiler_ir.zig`, `src/compiler.zig`
+- **Where:** `src/ir.zig`, `src/compiler_ir.zig`, `src/compiler.zig`; the
+  VM side of the contract in [vm.md](vm.md)
 - **Theory:** the lowering shape (structured nodes vs. `sexpr_form`
   passthrough), what the tail-position analysis pass establishes, what the
   5 optimization passes are allowed to assume, and the
   contract emitted bytecode relies on from the VM: register file, frames,
-  gap registers.
+  gap registers, the in-place frame reuse of the tail-call opcodes, and the
+  `returns_to_native` rule (a frame whose result belongs to a Zig caller
+  must not deliver it into whatever bytecode frame sits below once that
+  caller is gone — #1377, #2453). The opcode set itself is *not* theory to
+  hold: it changed three times in September 2026 (`apply`, `values_list`,
+  `guard_builtin`) and is a same-build contract keyed into the `.sbc`
+  cache; what an opcode does to the register window is, and that is what
+  the rows above are.
 - **Why core:** every new form passes through it, and tail-position
   mistakes are semantic bugs, not slowdowns. The gap-register capture
   class (#1464, fixed by PR #1528 + `clearGapRegisters` #1529) came from
@@ -102,7 +111,7 @@ the leakiness measurement.
 
 ### 4. Continuations & dynamic-wind
 
-- **Where:** `src/vm_continuations.zig`
+- **Where:** `src/vm_continuations.zig`; [vm.md](vm.md)
 - **Theory:** stack-copying capture (what exactly is copied and when),
   wind-stack transitions, the invariant that a callee's return never
   unwinds the caller's winds, and the native-frame limit (a continuation
@@ -114,7 +123,8 @@ the leakiness measurement.
 
 ### 5. Expander hygiene
 
-- **Where:** `src/expander.zig`, `src/compiler_macro.zig`
+- **Where:** `src/expander.zig`, `src/compiler_macro.zig`;
+  [expander.md](expander.md)
 - **Theory:** syntax-rules matching and template instantiation, free-ref
   collection (`computeBoundFreeRefs`, PR #1344), why renaming is the hard
   part, and where the current model's edges are. Since PR #1811 also the
@@ -157,18 +167,45 @@ the leakiness measurement.
   worst-case debugging experience. The cross-thread named-helper hang
   (#1520) showed this model must be held, not rediscovered per incident.
 
+### 8. Native backend strategy (not emitter mechanics)
+
+- **Where:** the gating and re-lowering layer of `src/llvm_emit*.zig` and
+  `src/native_compiler.zig`; [llvm-backend.md](llvm-backend.md)'s first
+  three rules
+- **Theory:** the what-compiles-natively line and the three gates that
+  decide it (`ir.eval_fallback_form_names`, `isRejectedFormHead`,
+  `LLVMEmitter.lexicalNames`, all comptime-derived since #1896); that the
+  backend re-derives lexical scope because every lambda body it is handed
+  is still a raw S-expression, so `LLVMEmitter.lowerScoped` is the *only*
+  way to re-lower a sub-form; the boxing rule (#1497) and the tailcc
+  trampoline (#1499); and that native code side-exits to the VM for
+  `call/cc` ([decisions/continuation-strategy.md](decisions/continuation-strategy.md)).
+- **Why core:** each rule was learned by the same bug recurring at a new
+  site — the lexical-scope rule at seven (#2117, #2118, #2211), the gate
+  rule each time a hand-kept parallel list drifted. And the fence below it
+  is blind to a whole class: a `.scm` regression test is interpreter-only
+  evidence, and three of them passed for years while the native tier
+  failed them. Someone has to hold *where* the fence does not reach.
+- **The mechanics stay fenced:** instruction selection, register
+  allocation and calling-convention emission are checked by 39
+  `tests/scheme/compile/*.sh` scripts that assert on `--emit-llvm` output
+  and by the nightly VM-vs-native differential fuzz
+  (`tests/fuzz/native-diff.sh`). Edit those contract-first.
+
 ## Fenced tier
 
 | Area | The fence | Notes |
 |------|-----------|-------|
-| 72 portable SRFI `.sld`s | The SRFI documents (external spec) + `tests/scheme/srfi/` conformance suites | The ideal fence: a spec someone else wrote, mechanically checked |
+| 165 portable SRFI `.sld`s | The SRFI documents (external spec) + `tests/scheme/srfi/` conformance suites | The ideal fence: a spec someone else wrote, mechanically checked |
 | Primitive bodies (`src/primitives_*.zig`) | R7RS spec + audit suites (`tests/scheme/audit/`) + procedure coverage | The GC rules *inside* them stay core — see below |
-| LLVM emitter mechanics (`src/llvm_emit.zig`) | Differential fence: native output must agree with the interpreter (parity tests) | The *strategy* layer is borderline — see below |
+| LLVM emitter mechanics (`src/llvm_emit*.zig`) | Differential fence: 39 `compile/*.sh` IR-assertion scripts + nightly `native-diff.sh` fuzz | The *strategy* layer is core #8 |
 | Platform ports (`src/platform*.zig`) | The `platform.zig` facade + real-VM CI jobs per OS/arch | Per-OS theory lives in `docs/dev/<os>.md` |
 | `.sbc` bytecode codec (`src/bytecode_file*.zig`) | Format contract + build-id cache keys (#1516) + round-trip | Build-id keys retired the stale-cache footgun class outright |
 | `kaappi fmt` layout engine (`src/fmt_print.zig`) | Real-reader `equal?` round-trip: a formatter bug cannot change a program | A fence so strong even its author needn't trust the layout code |
 | thottam (`src/thottam.zig`) | CLI contract + end-to-end install flows; blast radius contained to `~/.kaappi` | |
-| Reader lexical syntax (`src/reader*.zig`) | R7RS §7.1 formal grammar + compliance tests | Borderline — see below |
+| VM debugger (`src/vm_debug.zig`) | `tests/scheme/smoke/step-debug-mode-823.sh` | Adjudicated fenced 2026-09-14 (below). The fence is one script — extend it before changing behaviour |
+| Dispatch loop mechanics (`src/vm_dispatch.zig`) | The Scheme suites + `native-diff.sh` + the Chibi oracle (`oracle-diff.sh`) + `ensureOperands` validating every arm against `fixed_operand_bytes` | The register/frame *contract* an arm must honour is core #3 |
+| Reader lexical syntax (`src/reader*.zig`) | R7RS §7.1 grammar + `compliance/reader-*.scm` + the incomplete-input prefix sweep (`tests_reader_incremental.zig`) + `fuzz reader` | Adjudicated fenced 2026-09-14 (below); its one leaky *product* is a core rule — see the next section. [reader.md](reader.md) |
 | Bignum arithmetic (`src/bignum.zig`) | Audit tests against mathematical ground truth | #1414 lived here, but it was a GC-rule violation, not an arithmetic one |
 | Generated (`src/unicode_tables.zig`) | The generator | Never hand-edit |
 | Vendored (`vendor/isocline/`) | Upstream project | Patched — every local change is marked `KAAPPI PATCH` and documented in `vendor/isocline/PATCHES.md`. Re-apply on update; do not edit casually. |
@@ -184,6 +221,15 @@ it. The GC discipline (rooting, barriers, copy-before-collect) is core
 even inside individually-fenced `primitives_*.zig` bodies — #1414 was a
 GC-rule violation inside fenced bignum code. When a core rule and a fenced
 file intersect, the rule sets the review depth.
+
+A second rule of the same kind, learned in September 2026: **a datum
+walker is not finished until it survives `#0=(a . #0#)`.** The reader is
+fenced, and it correctly produces cyclic data for R7RS datum labels; what
+leaked was every downstream walker's assumption that data is acyclic —
+`rename` in an ER macro (#2403, critical), `compare` and the `set!`
+pre-scan (#2404), and `lowerWithMacros` itself (#2405, critical). The rule
+belongs to whoever writes a walk over user data, in any file:
+[reader.md](reader.md) lists the walks that have learned it.
 
 ## Fence integrity
 
@@ -234,29 +280,48 @@ because understanding is built by generating answers, not by reading them.
    subsystem and write its theory from memory, ten lines, no peeking; then
    diff against `docs/dev/` and fix whichever side is wrong.
 
-## Borderline calls
+## Adjudicated calls
 
-Classifications the maintainer should adjudicate (initial lean in
-parentheses):
+The four classifications the draft left open, decided 2026-09-14 by the
+decision rule above and the evidence in the tree at that date. Each names
+the trigger that would reopen it.
 
-- **LLVM backend strategy** — the what-compiles-natively line, the boxing
-  rule (#1497), the tailcc trampoline (#1499): core-adjacent theory even
-  though emitter mechanics stay fenced by parity. (Lean: split exactly
-  there — strategy core, mechanics fenced.)
-- **Reader** — spec'd and conformance-tested like a fenced area, but
-  hygiene's raw material (datum identity) originates here. (Lean: fenced;
-  revisit if reader bugs ever leak into the expander.)
-- **VM debugger (`src/vm_debug.zig`)** — low centrality, self-contained.
-  (Lean: fenced.)
-- **Bytecode ISA** — the opcode set vs. the dispatch loop. (Lean: the ISA
-  contract is core-lite via `bytecode.md` + `/bytecode-isa`; the dispatch
-  loop is fenced by the Scheme suites.)
+- **LLVM backend strategy → core (#8); emitter mechanics stay fenced.**
+  Touches are high (the gate work of #2467/#2469/#2481 all landed in one
+  fortnight), the strategy's rules are leaky (the lexical-scope rule
+  recurred at seven sites), and the parity fence has a documented blind
+  spot (`.scm` tests are interpreter-only evidence). Reopen if the three
+  gates and `lowerScoped` reach rung 4 — a comptime check that rejects a
+  bare `ir.lowerSingleExpr*` in the emitter would demote the strategy.
+- **Reader → fenced; the cyclic-datum rule → core, cross-cutting.** The
+  draft's own revisit trigger fired: reader products reached the expander
+  and compiler as #2403–#2405. But the reader's contract held — the
+  datum was correct — and the fence has since grown a rung-4 instrument
+  of its own (the prefix-sweep invariant for incomplete input). What
+  leaked was a rule about walking data, which is why it is recorded under
+  "core rules run through fenced code" rather than by promoting the file.
+  Reopen if a reader defect (not a consumer's assumption) recurs across
+  releases.
+- **VM debugger → fenced.** 336 lines, three touch points in the dispatch
+  loop, no bug class in the record. The fence is a single smoke script,
+  which is thin: a change to stepping or breakpoints is edited
+  contract-first by extending that script. Reopen only if it ever gains
+  a second consumer.
+- **Bytecode ISA → not a tier of its own.** The draft's "core-lite" has no
+  obligations attached, and the opcode *set* is the wrong thing to hold:
+  it moved from 31 to 34 in one month and is a same-build contract, not a
+  stable one (KEP-0021's first open question). What must be held is what
+  an opcode does to the register window and the frame — and that is core
+  #3, now stated there and described in [vm.md](vm.md). The dispatch
+  loop's mechanics are fenced by three independent oracles (table above).
+  Reopen if the ISA is ever declared stable, at which point the set itself
+  becomes a contract to document and version.
 
 ## Status
 
 Drafted 2026-07-19 by Claude (Opus 4.8) as part of the cognitive-debt
-work. The tier assignments are the drafter's reading of the code, not a
-maintainer ruling; the borderline calls above are the ones most likely to
-move. Corrections to this map are themselves retrieval practice — a wrong
+work; the four open calls were adjudicated 2026-09-14 (above), at the
+maintainer's request, against the tree at that date. The tier assignments
+remain a reading of the code, not a ruling from first principles. Corrections to this map are themselves retrieval practice — a wrong
 tier here is a bug, so fix it in place, and record why in the section it
 belongs to.
