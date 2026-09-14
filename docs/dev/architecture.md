@@ -165,7 +165,7 @@ its struct lives outside `types.zig` entirely with no `types.Fiber` re-export.
 |------|---------------|
 | `library.zig` | Library registry, standard library registration ((scheme base), etc.) |
 | `bignum.zig` | Arbitrary-precision integer arithmetic |
-| `ffi.zig` | C FFI call dispatcher (type marshaling, arity routing, `normalizeType` for extended integer types) |
+| `ffi.zig` | C FFI call dispatcher (type marshaling, arity routing, `normalizeType` for extended integer types). See [ffi.md](ffi.md). |
 | `process_posix.zig` | `(kaappi process)`'s POSIX backend (KEP-0022 Phases 1-2): `posix_spawnp` + file actions, the close-by-default fd scan, `waitpid`, `kill` |
 | `process_win.zig` | `(kaappi process)`'s Windows backend (KEP-0022 Phase 3, #2416): `CreateProcessW` with an explicit inherit list, Job Objects for `new-group:`, handle-based reaping, the `128 + signal` exit-code mapping. See `docs/dev/windows.md` |
 | `bytecode_file.zig` | `.sbc` codec hub: shared format contract (magic, version, tags, limits), `BytecodeError`, `compilerHash`/`sourceHash`/`getSbcPath`, re-exports of the read/write halves |

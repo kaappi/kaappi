@@ -29,5 +29,6 @@ Libraries with C FFI code (`kaappi-net`, `kaappi-redis`, `kaappi-pg`,
 dispatch tables in `src/ffi.zig`.
 
 When `ffi.zig` changes, verify ecosystem libraries still work by running their
-test suites. The interpreter's unit tests cover FFI type marshaling, but
+test suites ([ffi.md](ffi.md) explains which shapes the dispatch tables
+cover). The interpreter's unit tests cover FFI type marshaling, but
 end-to-end coverage with real libraries catches dispatch-table drift.
