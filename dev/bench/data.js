@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789364511747,
+  "lastUpdate": 1789365571589,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "767d54ec468a377ecac00f3954b7bc159f0c8fcf",
-          "message": "Release v0.25.0\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-27T03:23:17+05:30",
-          "tree_id": "15f1080975eb314d0b2bdbcb35975a04c367bea1",
-          "url": "https://github.com/kaappi/kaappi/commit/767d54ec468a377ecac00f3954b7bc159f0c8fcf"
-        },
-        "date": 1787784308470,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.080387,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.906551,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.428385,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.193751,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004002,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03581,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.221005,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.041726,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.924844,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.868284,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.239737,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.231373,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.311159,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.403554,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.035889,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041878,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "968eaa78308988ccc76247d043f4ae1f237b4f5b",
+          "message": "Add docs/dev/expander.md: the macro expander and its hygiene mechanism (#2581)\n\nKEP-0018 has described the expander since July as the design record, and\nits implementation plan's third step was a docs/dev/expander.md seeded\nfrom that description. Nothing in this repo explained the mechanism: the\narchitecture table gave it one line, and the per-issue knowledge — why\nquoted identifiers are still renamed, why if and let are renamed but\ndefine is not, why a bare free reference was a wrong-value bug, what the\ntwo expansion limits each guard — lived in source comments and closed\nissues. The expander is also the subsystem where a plausible bug report\nis most often the reporter's own macro, so a document that says what the\nengine guarantees, and what it cannot, saves the next investigation.\n\nThe document is written from the source as of this commit, not from the\nKEP: every function, flag, constant and test suite it names was checked\nto exist, and the two places the KEP's own account is now stale (compare\nbecame binding-aware in #2401; the compiler files were split in #1853)\nare described as built. It covers pipeline placement, the Transformer\nobject, renameForHygiene's decision order and the scope-id flag bits, the\nusertext marker, the quote round-trip rule, the syntax-rules engine, SRFI\n211 rename/compare, how the compiler finishes hygiene with alias\ninjection and effective-name dispatch, the depth/step split and fixpoint\nguard, the set! pre-scan budget, errors, tests, and the design's limits.\n\nREADME.md, docs/dev/CLAUDE.md and architecture.md gain the pointer.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-14T11:22:28+05:30",
+          "tree_id": "1908d2667a3d37aea1d87cc54289091e1168d476",
+          "url": "https://github.com/kaappi/kaappi/commit/968eaa78308988ccc76247d043f4ae1f237b4f5b"
+        },
+        "date": 1789365569543,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.44129,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.755605,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.610564,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.084369,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004623,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047486,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.31605,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06086,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.838073,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.238352,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.664076,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.288725,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.731261,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.683221,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.047201,
             "unit": "seconds"
           }
         ]
