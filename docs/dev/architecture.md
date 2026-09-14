@@ -49,9 +49,9 @@ Source code
 | `gc_collect.zig` | ~1000 | GC orchestration, remembered set, marking, SRFI 254 weak-ref processing (delegated from memory.zig) |
 | `gc_sweep.zig` | ~600 | Sweep phase: sweepYoung/sweepOld/sweep, `objectSize`, `freeObject` (delegated from gc_collect.zig) |
 | `gc_deep_copy.zig` | ~580 | Cross-thread deep copy (delegated from memory.zig) |
-| `reader.zig` | ~1000 | `Reader`/`Token`/`ReadError` definitions and the read entry points |
-| `reader_tokens.zig` | ~975 | Tokenizer: Unicode lexing, string/character escapes, number-literal parsing |
-| `reader_datum.zig` | ~360 | Datum construction: lists, vectors, bytevectors, quote forms, datum labels |
+| `reader.zig` | ~1260 | `Reader`/`Token`/`ReadError` definitions and the read entry points |
+| `reader_tokens.zig` | ~1470 | Tokenizer: Unicode lexing, string/character escapes, number-literal parsing |
+| `reader_datum.zig` | ~460 | Datum construction: lists, vectors, bytevectors, quote forms, datum labels |
 | `expander.zig` | ~1000 | Macro-use expansion engine: expandMacro/expandProceduralMacro, syntax-rules pattern matching, usertext/hygiene-strip walks |
 | `expander_instantiate.zig` | ~1000 | syntax-rules template instantiation + renameForHygiene/scope-table minting (shares expander.zig's threadlocal expansion context) |
 | `printer.zig` | ~1250 | Value → string: iterative label-aware print engine + hashmap cycle/sharing detection (write/display/write-shared/write-simple; exact at any depth) and the bounded diagnostic `printValue` |
