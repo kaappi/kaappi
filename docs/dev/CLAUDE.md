@@ -21,6 +21,7 @@ belongs here.
 | Architecture / pipeline | `architecture.md` |
 | Compiler IR | `ir.md` |
 | The VM: frames, calls, continuations, error propagation | `vm.md` (+ `bytecode.md` for the ISA) |
+| The reader: grammar, `#` forms, datum labels, spans, `read` on ports | `reader.md` |
 | Macro expansion, hygiene, `syntax-rules`, SRFI 211 | `expander.md` |
 | LLVM native backend | `llvm-backend.md` |
 | GC safety (the rules) | `gc-safety-and-error-handling.md` |

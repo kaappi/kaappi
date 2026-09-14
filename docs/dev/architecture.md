@@ -27,7 +27,7 @@ Source code
 
 | Stage | File(s) | Role |
 |-------|---------|------|
-| **Reader** | `reader.zig` + `reader_tokens.zig`, `reader_datum.zig` | Tokenizer + recursive descent parser. Handles full R7RS lexical syntax including Unicode identifiers, `#\lambda` character literals, `#(...)` vectors, `#u8(...)` bytevectors, datum labels. |
+| **Reader** | `reader.zig` + `reader_tokens.zig`, `reader_datum.zig` | Tokenizer + recursive descent parser. Handles full R7RS lexical syntax including Unicode identifiers, `#\lambda` character literals, `#(...)` vectors, `#u8(...)` bytevectors, datum labels. See [reader.md](reader.md). |
 | **Expander** | `expander.zig` + `expander_instantiate.zig` | `syntax-rules` pattern matching with ellipsis, literal identifiers, and underscore wildcards. Template instantiation with hygienic renaming (gensym-based); SRFI 211 procedural transformers. See [expander.md](expander.md). |
 | **IR** | `ir.zig` | Lowers S-expressions to a tree-structured IR (18 node types, one of which — `sexpr_form` — carries 18 `FormKind`s). Runs 1 analysis pass (tail positions) and 5 optimization passes (constant folding, dead branch elimination, boolean simplification, identity elimination, begin simplification). See [ir.md](ir.md) for details. |
 | **Compiler** | `compiler.zig` + 10 sub-modules | Emits register-based bytecode from IR nodes via `compileFromNode()` (in `compiler_ir.zig`). Retains `compileExpr()` for forms delegated via `passthrough`. See the [Compiler & IR](#compiler--ir-12-files) table for the per-file split. |
