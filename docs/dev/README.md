@@ -21,6 +21,7 @@ investigation produced analysis worth keeping.
 | [vision.md](vision.md) | Why Kaappi exists, what it values, how those values guide decisions |
 | [architecture.md](architecture.md) | Major subsystems: pipeline, value representation, VM, GC, file organization |
 | [ir.md](ir.md) | Compiler IR: 18 node types, the tail-position analysis pass, optimization passes |
+| [expander.md](expander.md) | The macro expander: rename-on-instantiate hygiene in the symbol name, the scope-id flag bits, `renameForHygiene`'s decision order, the usertext marker, the `syntax-rules` engine, SRFI 211 `rename`/`compare`, how the compiler finishes hygiene, the depth/step limits, the `set!` pre-scan |
 | [observing-the-pipeline.md](observing-the-pipeline.md) | `kaappi ast` / `expand` / `ir` / `--disassemble`: read-only dumps of every stage between source and bytecode |
 | [llvm-backend.md](llvm-backend.md) | LLVM native backend: what LLVM provides vs what the runtime provides |
 | [windows.md](windows.md) | Windows port (aarch64 + x86_64): the platform.zig shim, the two deliberate degradations, subprocesses (CreateProcess + Job Objects), the `windows` feature identifier, how to test on a Windows machine |
