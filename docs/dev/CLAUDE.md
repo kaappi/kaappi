@@ -35,6 +35,13 @@ belongs here.
 | CLI subcommands | `check.md`, `fmt.md`, `features.md`, `doctor.md`, `cache.md`, `timings.md` |
 | Diagnostics / lint codes | `diagnostics.md`, `diagnostics-json.md`, `explain.md` |
 | Claude Code harness | `claude-code-harness.md` |
+| Filing or triaging an issue | `github-issues.md` |
+| Workflow YAML | `github-actions.md` |
+| Dumping a pipeline stage (`ast` / `expand` / `ir` / `--disassemble`) | `observing-the-pipeline.md` |
+| The REPL | `repl.md` |
+| The panic handler / crash banner | `crash-reporting.md` |
+| Bounded-step execution (the WASM stepper) | `bounded-step.md` |
+| A bug class that feels familiar | `lessons-learned.md` |
 | SRFI policy | `srfi-exclusions.md`, `srfi-status-check.md` |
 | CLI flags themselves (what each one is for) | `cli-surface.md` |
 

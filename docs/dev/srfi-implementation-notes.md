@@ -1022,8 +1022,8 @@ The library loader in `vm_library.zig` supports `cond-expand`, `include` (paths 
 
 ## Coverage, closed issue groups, and the exclusion breakdown
 
-Of the 208 final SRFIs in the registry, 178 are implemented and 30 are
-excluded — see `docs/dev/srfi-exclusions.md` for the full rationale. Issue #1699
+Of the final SRFIs in the registry, 181 are implemented (the count in "What
+ships" above) and 30 are excluded — see `docs/dev/srfi-exclusions.md` for the full rationale. Issue #1699
 ("Implement SRFI macro & syntax extension libraries") is now fully
 closed: 139 and 149 needed no engine changes and shipped directly, 147
 (custom macro transformers) needed one, 148 (eager syntax-rules) — the

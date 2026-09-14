@@ -243,7 +243,7 @@ parent's without either collector writing mark bits on the other's objects
 `memory.FREED_OWNER` so a later mark of the dead header panics deterministically
 (#1687).
 
-### ObjectTag enum (41 types)
+### ObjectTag enum (42 types)
 
 | Tag | Value | Type |
 |-----|-------|------|
@@ -288,6 +288,7 @@ parent's without either collector writing mark bits on the other's objects
 | `guardian` | 38 | SRFI-254 guardian |
 | `transport_cell` | 39 | SRFI-254 transport cell (an ordinary strong pair on a non-moving GC) |
 | `numeric_vector` | 40 | SRFI-160 homogeneous numeric vector (u8 stays a plain bytevector) |
+| `process` | 41 | KEP-0022 spawned-subprocess handle (`(kaappi process)`); thread-affine, see `types_process.zig` |
 
 ---
 
@@ -418,4 +419,4 @@ Within a single expression (or a file), continuations work fully.
 
 ### No `syntax-case`
 
-Only `syntax-rules` is supported for macro definitions. R7RS-small deliberately standardizes `syntax-rules` and not `syntax-case` — the latter is part of R6RS and some implementations (Chez, Racket) but was intentionally excluded from R7RS-small.
+`syntax-rules` is the macro system; there is no `syntax-case`, `datum->syntax`, or syntax-object layer. R7RS-small deliberately standardizes `syntax-rules` and not `syntax-case` — the latter is part of R6RS and some implementations (Chez, Racket) but was intentionally excluded from R7RS-small. Procedural macros do exist, as SRFI libraries layered on the same symbol-based expander: SRFI 211 (`er-macro-transformer`, `define-macro`, syntax parameters), SRFI 147 (custom transformers), SRFI 148 (eager `syntax-rules`), and SRFI 139 (syntax parameters). What they cannot offer is what `syntax-case` systems provide through syntax objects — source-location introspection and `bound-identifier=?`-style comparison — which is why the `syntax-case`-shaped SRFIs are excluded ([srfi-exclusions.md](srfi-exclusions.md)).

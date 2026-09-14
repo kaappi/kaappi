@@ -23,7 +23,7 @@ investigation produced analysis worth keeping.
 | [ir.md](ir.md) | Compiler IR: 18 node types, the tail-position analysis pass, optimization passes |
 | [observing-the-pipeline.md](observing-the-pipeline.md) | `kaappi ast` / `expand` / `ir` / `--disassemble`: read-only dumps of every stage between source and bytecode |
 | [llvm-backend.md](llvm-backend.md) | LLVM native backend: what LLVM provides vs what the runtime provides |
-| [windows.md](windows.md) | Windows aarch64 port: the platform.zig shim, the two deliberate degradations, subprocesses (CreateProcess + Job Objects), the `windows` feature identifier, how to test on a Windows machine |
+| [windows.md](windows.md) | Windows port (aarch64 + x86_64): the platform.zig shim, the two deliberate degradations, subprocesses (CreateProcess + Job Objects), the `windows` feature identifier, how to test on a Windows machine |
 | [freebsd.md](freebsd.md) | FreeBSD port: kqueue backend reuse, the sysctl self-exe lookup, zero runtime degradations, cross-compile + copy testing, the CI VM job |
 | [openbsd.md](openbsd.md) | OpenBSD port: the `PT_OPENBSD_NOBTCFI` opt-out around BTCFI enforcement, the `KERN_PROC_ARGS` self-exe lookup, the tight default stack/data limits, cross-compile + patch + copy testing, the CI VM job |
 | [netbsd.md](netbsd.md) | NetBSD port: the versioned-libc-symbol audit (`__kevent50`, `__opendir30`, `__getpwnam50`), the aarch64 FPCR flush-to-zero fix, no-swap OOM and default limits, pkgsrc clang for the native backend, the CI VM job |
@@ -46,6 +46,7 @@ investigation produced analysis worth keeping.
 | [diagnostics-json.md](diagnostics-json.md) | `--diagnostics=json`: the LSP `Diagnostic` JSON Lines schema shared by the CLI and the language server |
 | [explain.md](explain.md) | `kaappi explain <code>`: the binary's own offline diagnostic reference (prose + example + fix), and the generator for the kaappi-lang.org page |
 | [features.md](features.md) | `kaappi features [--json]`: machine-readable capability discovery — version/build id, subsystems (the shared `cond-expand` table), SRFIs, limits |
+| [crash-reporting.md](crash-reporting.md) | The panic handler: the four banner lines (identity, version/target/mode, the pipeline-stage breadcrumb, where to report), how the breadcrumb is wired, the `--panic-test` hook |
 | [doctor.md](doctor.md) | `kaappi doctor`: installation/environment self-check — the checks, the exit-code contract, the native-backend smoke link |
 | [cache.md](cache.md) | The `.sbc` bytecode cache: what the key contains (source hash + build id), where entries live, what invalidates them, how to inspect/clear/bypass |
 | [check.md](check.md) | `kaappi check`: compile-only static analysis, the `KP4xxx` lint findings, `--deny-warnings` |
@@ -76,6 +77,19 @@ investigations.
 | [fixnum-overflow-promotion](postmortems/2026-06-18-fixnum-overflow-promotion.md) | Arithmetic results in the fixnum/i64 gap silently wrapped | Fixed 2026-06-18 |
 | [complex-number-test-precision](postmortems/2026-06-18-complex-number-test-precision.md) | `test-approx=?` didn't compare complex numbers component-wise | Fixed 2026-06-18 |
 | [netbsd-spinlock-starvation](postmortems/2026-09-02-netbsd-spinlock-starvation.md) | Pure spin-waits starved a preempted lock holder under NetBSD's 4BSD scheduler; misdiagnosed as an OS stranding the thread | Fixed 2026-09-02 |
+
+## Campaign records
+
+Point-in-time benchmark and experiment records for KEP acceptance gates.
+Like decisions and postmortems they are not updated after the fact beyond
+their status line; the datasets they read live under `benchmarks/`.
+
+| Document | Campaign | Status |
+|----------|----------|--------|
+| [kep-0001-phase7-benchmarks.md](kep-0001-phase7-benchmarks.md) | KEP-0001 Phase 7: reactor wake-all, timer granularity, ONESHOT re-arm, per-fiber cost, ecosystem server benchmarks (#1445) | Complete; follow-ups filed and resolved inline |
+| [kep-0002-phase7-envelope-benchmarks.md](kep-0002-phase7-envelope-benchmarks.md) | KEP-0002 Phase 7: envelope-cost A/B/C/D lever matrix and the pre-registered P3 decision (#1472) | Levers B and C shipped; second-machine P3 re-run open |
+| [kep-0003-acceptance-gate-worksheet.md](kep-0003-acceptance-gate-worksheet.md) | KEP-0003 acceptance gate: the frozen §5/§6 classification worksheet, both reference machines (#1474) | Complete — classified Between on both machines |
+| [kep-0003-access-semantics-experiment.md](kep-0003-access-semantics-experiment.md) | KEP-0003 access semantics: plain vs `unordered` element access on the native backend (#1473) | aarch64 complete; x86_64 timing a documented follow-up |
 
 ## Reference notes
 

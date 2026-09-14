@@ -198,8 +198,11 @@ flag disables the echo; keep effectful top-level sequences void-valued (end a
 
 ## Macros
 
-Only `syntax-rules` is supported. `syntax-case` was intentionally excluded from
-R7RS-small and is not implemented.
+There is no `syntax-case`: it was intentionally excluded from R7RS-small, and
+Kaappi's expander has no syntax-object layer to build it on. Procedural macros
+are available through SRFI 211 (`er-macro-transformer`, `define-macro`), SRFI
+147, SRFI 148 and SRFI 139, all layered on the `syntax-rules` expander; see
+`srfi-exclusions.md` for the `syntax-case`-shaped SRFIs that stay out.
 
 ## SRFI coverage
 

@@ -153,11 +153,6 @@ Type `,help` in the REPL for the authoritative list.
 | `,load <file>` | Load and run a Scheme file |
 | `,import <lib>` | Import a library (e.g. `,import (srfi 1)`) |
 
-## Not yet implemented
-
-Width-aware pretty-printing for long output — tracked in
-[#921](https://github.com/kaappi/kaappi/issues/921).
-
 ## Key files
 
 | Component | Location |
