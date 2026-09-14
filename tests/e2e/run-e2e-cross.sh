@@ -99,6 +99,29 @@ LIBDIR="$OUT_DIR/lib"
 # missing binfmt registration fails here, loudly, not as 38 parity FAILs.
 echo "target kaappi: $($EMU "$KAAPPI" --version)"
 
+# Pick an IR verifier once, as run-e2e.sh does (#1492): malformed IR that
+# passes -O0 can miscompile under -O2's stricter passes, and a verifier
+# failure caught here is attributed as such instead of as a confusing
+# cross-link failure. `opt`/`llvm-as` are target-agnostic on a .ll; the
+# fallback is a `zig cc -c` for the target, which runs the same verifier
+# on its way to an object file and, without -w, shows the diagnostic.
+if command -v opt >/dev/null 2>&1; then
+    IR_VERIFIER="opt"
+elif command -v llvm-as >/dev/null 2>&1; then
+    IR_VERIFIER="llvm-as"
+else
+    IR_VERIFIER="cc"
+fi
+echo "IR verifier: $IR_VERIFIER"
+
+verify_ir() {
+    case "$IR_VERIFIER" in
+        opt)     opt -passes=verify -disable-output "$1" ;;
+        llvm-as) llvm-as -o /dev/null "$1" ;;
+        *)       zig cc -target "$TARGET" -c "$1" -o "$WORK/verify.o" ;;
+    esac
+}
+
 # Cross-link one .ll against the target archive. -O2 and no -w, as run-e2e.sh
 # does: any diagnostic the emitted IR provokes on this target is visible.
 # No -mcpu: for a non-native -target, zig cc already defaults to the
@@ -127,6 +150,14 @@ assert_native_parity() {
     if ! emit_output=$($EMU "$KAAPPI" --emit-llvm -o "$ll_file" "$program" 2>&1); then
         echo "  emit: $emit_output"
         echo "FAIL: $label — emit-llvm failed"
+        FAIL=$((FAIL + 1))
+        return
+    fi
+
+    local verify_output
+    if ! verify_output=$(verify_ir "$ll_file" 2>&1); then
+        echo "  verify: $verify_output"
+        echo "FAIL: $label — IR verification failed"
         FAIL=$((FAIL + 1))
         return
     fi
