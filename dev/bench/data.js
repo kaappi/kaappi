@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789366289994,
+  "lastUpdate": 1789366767858,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e07d9b8a7f5d29f022b59677727e3d3ead3ef830",
-          "message": "Check %make-record field count; import (srfi 192) on WASM (#2374)\n\n* Check %make-record field count; import (srfi 192) on WASM\n\nTwo independent internal-primitive/library fixes.\n\n%make-record ignored the supplied field count against the record type's\nnum_fields: too few values padded the instance with #<undefined> -- a\ntruthy, printable value that escaped into user code and only misbehaved\nfar from the cause -- and too many were silently dropped, neither raising\n(kaappi#1915). It now raises argError (KP3007) naming both counts. The\nportable record SRFIs (57/131/136/150/237) always build a full positional\nfield list, so an exact check leaves them untouched (verified).\n\n(srfi 192) was excluded from wasmAvailable for no reason: all four of its\nprocedures already worked on WASM through the vm.globals fallback, so only\nimport-by-name and the derived cond-expand feature id were broken, and a\nportable probe-then-fallback took the wrong branch for a working feature\n(kaappi#2019). Dropped from the exclusion switch, leaving its three\nneighbours (kaappi_ffi/srfi_18/srfi_170), which have real reasons.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Flip the SRFI 237 audit's #1915 arity pins to the fixed behavior\n\nThe SRFI 237 audit pinned the pre-fix behavior of the no-protocol subtype\nconstructor, which funnels through %make-record: it asserted that an extra\nconstructor argument was accepted and shifted the layout, and that too few\nleaked an uninitialized field. Now that %make-record checks its field count,\nthat constructor raises catchably on the wrong count, so those two pins fail\nand the two disabled \"raises catchably\" assertions are the correct ones.\n\nFlip them, matching the internal-primitives audit already updated in this\nbranch. Missed on the first pass because the fix's local check ran only the\nunit suite and internal-primitives audit, not the full Scheme corpus that\nCI's `test` legs run; verified now with a full run-all.sh (2114 pass, 0 fail).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: TestContext + pin the KP3007 message counts\n\nTwo CodeRabbit findings on the #1915 tests:\n\n- Convert the tests_records.zig regression to th.TestContext, the\n  documented setup for a multi-eval test (src/CLAUDE.md), instead of a\n  hand-rolled GC/VM pair.\n\n- The audit's mismatch tests only checked that evaluation raised, so they\n  would pass even if the KP3007 message named neither count. Add assertions\n  that the message names the expected and the supplied count in both\n  directions (2/1 too few, 2/3 too many) -- the substantive half of #1915.\n\nDeclined the suggestion to move the audit assertions to a bug-named file:\nthe audit suite is the home #1915 itself designates (\"Add both directions to\ntests/scheme/audit/internal-primitives-audit.scm, where they currently sit\ndisabled behind ;; FAIL: TBD markers\"), and the bug-named regression is the\ntests_records.zig unit test.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-27T14:26:01+05:30",
-          "tree_id": "ac7251a597f9e449c1ff4a510b82a994e949624e",
-          "url": "https://github.com/kaappi/kaappi/commit/e07d9b8a7f5d29f022b59677727e3d3ead3ef830"
-        },
-        "date": 1787823484991,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.995914,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.737226,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.55246,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.83026,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005111,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046307,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.288104,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.053357,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.318631,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.122584,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.597827,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.298178,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.685927,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.78335,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046632,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.039779,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1de00f7528f6ea3ad6001e5085213f2f47336cca",
+          "message": "Add docs/dev/memory.md: the value model and the garbage collector (#2583)\n\nKEP-0017's implementation plan asked for a memory.md (or values.md)\nseeded from its reference section. The repo had the rules a contributor\nfollows while allocating — gc-safety-and-error-handling.md and the\nharness rule — but not the collector those rules protect: why a minor\nmark stops at old objects, why the remembered set has two feeders and\nwhat each covers, what the root set actually contains and in what order,\nhow weak references reach a fixpoint, how a collecting parent stops its\nchildren, what deep copy refuses and why a channel is neither copied nor\nrefused, and what the freed-owner sentinel and the quarantine detect.\nThat knowledge lived in source comments and in the closed issues that\nestablished each piece.\n\nWritten from the source at this commit, not from the KEP, with every\nnamed function, constant and flag checked to exist and the behavioural\nclaims checked at their sites (which five allocators never collect, the\npromotion threshold, the full-every-eighth schedule, the worklist cap).\nThe KEP's 41-tag and 14-refusal counts are not repeated.\n\nVerifying the refusal list found two neighbours stale since KEP-0022's\nprocess tag joined it: thread-value-sharing.md said eleven and omitted\nprocess; the root CLAUDE.md said fourteen. Both now say twelve and name\nthe tag. README.md, docs/dev/CLAUDE.md, architecture.md and\ngc-safety-and-error-handling.md point at the new document.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-14T11:42:26+05:30",
+          "tree_id": "8c227942c0beff155aaa5c2de75164d254337c6e",
+          "url": "https://github.com/kaappi/kaappi/commit/1de00f7528f6ea3ad6001e5085213f2f47336cca"
+        },
+        "date": 1789366765564,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.430722,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.929259,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.623555,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.100628,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00468,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047768,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.313673,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056985,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.859494,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.241379,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.675695,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.285853,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.73783,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.708176,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046155,
             "unit": "seconds"
           }
         ]
