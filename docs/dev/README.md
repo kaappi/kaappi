@@ -66,7 +66,7 @@ investigation produced analysis worth keeping.
 |----------|----------|
 | [continuation-strategy.md](decisions/continuation-strategy.md) | Native codegen uses direct-style IR; `call/cc` side-exits to the bytecode VM |
 | [self-tail-call-optimization.md](decisions/self-tail-call-optimization.md) | Dedicated `self_tail_call` opcode (Option A shipped; Option B attempted and reverted) |
-| [native-backend-architecture-scope.md](decisions/native-backend-architecture-scope.md) | The native backend stays aarch64/x86_64; interpreter-tier arches ship without it — what an arch port actually requires. Status: revisited 2026-09 — riscv64 joined the native tier; s390x/ppc64le remain interpreter-tier |
+| [native-backend-architecture-scope.md](decisions/native-backend-architecture-scope.md) | The native backend covers aarch64/x86_64 everywhere and riscv64 on Linux; s390x/ppc64le remain interpreter-tier — what an arch port actually requires. Status: revisited 2026-09, when riscv64 joined |
 | [compile-time-macro-execution.md](decisions/compile-time-macro-execution.md) | Macro-defining code is compile-time code, not sandboxed program code (KEP-0006 candidate (a)): procedural transformer bodies run under `check` and `--sandbox`, confined by what the environment lets them reach |
 
 ## Postmortems

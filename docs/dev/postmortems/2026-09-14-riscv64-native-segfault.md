@@ -71,10 +71,14 @@ right; the answer was already in the tree by the time anyone looked.
   that link with an older base `clang` and gain nothing on the `zig cc`
   route. The decision record's "real triple **and datalayout**" item is
   withdrawn on that basis.
-- `fast_tailcalls_supported` left `false`: the port was scoped to
-  interpreter parity, and `native-mutual-tail.scm` passes through the
-  #1499 trampoline. Enabling `musttail`/`tailcc` on RISC-V is its own
-  step, with the suite re-run on the target.
+- `fast_tailcalls_supported` left `false`: riscv64 gets the single
+  uniform entry per function and a best-effort `tail call` hint, so
+  mutual recursion has no constant-stack guarantee there (the #1499
+  `@name.fast` entries and their `@name` trampolines are not emitted at
+  all on such hosts). The port was scoped to interpreter parity —
+  `native-mutual-tail.scm` checks output, not stack depth. Enabling
+  `musttail`/`tailcc` on RISC-V is its own step, with the suite re-run on
+  the target.
 - Verification with both archive ABIs: the musl-static
   `-Dtarget=riscv64-linux` archive `release.yml` ships (linked on-target
   against glibc by the image's `zig cc`, which is what a riscv64 distro

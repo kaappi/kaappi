@@ -36,16 +36,27 @@
 #                         zig as its C compiler, both under the emulator).
 #
 # Environment:
-#   KAAPPI_EMU   command prefix that runs a target binary (default: empty,
-#                i.e. binfmt_misc runs it transparently, as CI's
-#                docker/setup-qemu-action arranges). Locally on macOS,
-#                something like:
-#                  KAAPPI_EMU="podman run --rm --platform linux/riscv64 \
-#                    -v $PWD:$PWD -v /private/tmp:/private/tmp -w $PWD \
-#                    kaappi-builder-riscv64"
-#                — the repo and $TMPDIR must be visible at the same paths
-#                inside the container.
-#   TMPDIR       scratch root (default /tmp).
+#   KAAPPI_EMU           command prefix that runs a target binary (default:
+#                        empty, i.e. binfmt_misc runs it transparently, as
+#                        CI's docker/setup-qemu-action arranges). Locally on
+#                        macOS, something like:
+#                          KAAPPI_EMU="podman run --rm --platform linux/riscv64 \
+#                            -v $PWD:$PWD -v /private/tmp:/private/tmp -w $PWD \
+#                            kaappi-builder-riscv64"
+#                        — the repo and $TMPDIR must be visible at the same
+#                        paths inside the container.
+#   KAAPPI_CROSS_PREFIX  a prebuilt install prefix (bin/kaappi +
+#                        lib/libkaappi_rt.a, both built FOR the target) to
+#                        test instead of cross-building one here — e.g. the
+#                        release artifacts, or an archive built with
+#                        -Dgc-stress=true (kaappi#2594). This is the
+#                        script's form of the usual "path to the kaappi under
+#                        test" argument: a host kaappi cannot stand in (the
+#                        emitter is a comptime switch on the host arch), and
+#                        the binary is only meaningful next to its archive.
+#   TMPDIR               scratch root (default /tmp). The cross-build prefix
+#                        lives under it too, per run, so concurrent runs for
+#                        the same target never share an install tree.
 #
 # Exit status is nonzero on any failure; the summary line names the count.
 
@@ -57,7 +68,6 @@ EMU="${KAAPPI_EMU:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-OUT_DIR="$REPO_DIR/zig-out-cross-$TARGET"
 WORK="${TMPDIR:-/tmp}/kaappi-e2e-cross-$$"
 PASS=0
 FAIL=0
@@ -70,12 +80,20 @@ mkdir -p "$WORK"
 
 cd "$REPO_DIR"
 
-echo "=== Cross-building kaappi and libkaappi_rt.a for $TARGET ==="
-zig build -Dtarget="$TARGET" --prefix "$OUT_DIR"
-zig build lib -Dtarget="$TARGET" --prefix "$OUT_DIR"
+if [[ -n "${KAAPPI_CROSS_PREFIX:-}" ]]; then
+    OUT_DIR="$(cd "$KAAPPI_CROSS_PREFIX" && pwd)"
+    echo "=== Using prebuilt $TARGET prefix $OUT_DIR ==="
+else
+    OUT_DIR="$WORK/out"
+    echo "=== Cross-building kaappi and libkaappi_rt.a for $TARGET ==="
+    zig build -Dtarget="$TARGET" --prefix "$OUT_DIR"
+    zig build lib -Dtarget="$TARGET" --prefix "$OUT_DIR"
+fi
 
 KAAPPI="$OUT_DIR/bin/kaappi"
 LIBDIR="$OUT_DIR/lib"
+[[ -x "$KAAPPI" && -f "$LIBDIR/libkaappi_rt.a" ]] \
+    || { echo "error: $OUT_DIR lacks bin/kaappi or lib/libkaappi_rt.a" >&2; exit 2; }
 
 # The emulated interpreter must at least start; a wrong KAAPPI_EMU or a
 # missing binfmt registration fails here, loudly, not as 38 parity FAILs.
@@ -90,12 +108,17 @@ cross_link() {
     zig cc -target "$TARGET" -O2 "$1" -o "$2" -L"$LIBDIR" -lkaappi_rt -lc -lm -lpthread
 }
 
+# Interpreter-as-oracle parity, on output AND exit status (the
+# assert_tiers_agree shape from tests/scheme/shell-common.sh): a native
+# binary that dies the same way the interpreter does is parity, one that
+# prints the same text and then exits differently is not, and two crashes
+# with matching text are still a divergence unless their statuses match too.
 assert_native_parity() {
     local label="$1"
     local program="$2"
 
-    local expected
-    expected=$($EMU "$KAAPPI" "$program" 2>&1) || true
+    local expected expected_status=0
+    expected=$($EMU "$KAAPPI" "$program" 2>&1) || expected_status=$?
 
     local ll_file="$WORK/$label.ll"
     local native_bin="$WORK/$label"
@@ -116,16 +139,16 @@ assert_native_parity() {
         return
     fi
 
-    local actual
-    actual=$($EMU "$native_bin" 2>&1) || true
+    local actual actual_status=0
+    actual=$($EMU "$native_bin" 2>&1) || actual_status=$?
 
-    if [[ "$actual" == "$expected" ]]; then
+    if [[ "$actual" == "$expected" && "$actual_status" == "$expected_status" ]]; then
         echo "PASS: $label"
         PASS=$((PASS + 1))
     else
         echo "FAIL: $label"
-        echo "  expected: $expected"
-        echo "  actual:   $actual"
+        echo "  expected (exit $expected_status): $expected"
+        echo "  actual   (exit $actual_status): $actual"
         FAIL=$((FAIL + 1))
     fi
 }
@@ -143,15 +166,16 @@ argv_ll="$WORK/test-argv.ll"
 argv_bin="$WORK/test-argv"
 if $EMU "$KAAPPI" --emit-llvm -o "$argv_ll" "$SCRIPT_DIR/test-argv.scm" 2>/dev/null &&
     cross_link "$argv_ll" "$argv_bin" 2>/dev/null; then
-    actual=$($EMU "$argv_bin" a b c 2>&1) || true
+    actual_status=0
+    actual=$($EMU "$argv_bin" a b c 2>&1) || actual_status=$?
     expected='("a" "b" "c")'
-    if [[ "$actual" == "$expected" ]]; then
+    if [[ "$actual" == "$expected" && "$actual_status" == 0 ]]; then
         echo "PASS: command-line argument passthrough"
         PASS=$((PASS + 1))
     else
         echo "FAIL: command-line argument passthrough"
-        echo "  expected: $expected"
-        echo "  actual:   $actual"
+        echo "  expected (exit 0): $expected"
+        echo "  actual   (exit $actual_status): $actual"
         FAIL=$((FAIL + 1))
     fi
 else
@@ -169,17 +193,19 @@ if [[ -n "$TARGET_ZIG" ]]; then
     smoke_src="$SCRIPT_DIR/programs/tak.scm"
     smoke_bin="$WORK/tak-on-target"
     zig_dir="$(cd "$(dirname "$TARGET_ZIG")" && pwd)"
-    expected=$($EMU "$KAAPPI" "$smoke_src" 2>&1) || true
+    expected_status=0
+    expected=$($EMU "$KAAPPI" "$smoke_src" 2>&1) || expected_status=$?
     if compile_output=$($EMU env PATH="$zig_dir:$PATH" KAAPPI_LIB_DIR="$LIBDIR" \
         "$KAAPPI" compile "$smoke_src" -o "$smoke_bin" 2>&1); then
-        actual=$($EMU "$smoke_bin" 2>&1) || true
-        if [[ "$actual" == "$expected" ]]; then
+        actual_status=0
+        actual=$($EMU "$smoke_bin" 2>&1) || actual_status=$?
+        if [[ "$actual" == "$expected" && "$actual_status" == "$expected_status" ]]; then
             echo "PASS: on-target kaappi compile"
             PASS=$((PASS + 1))
         else
             echo "FAIL: on-target kaappi compile — output mismatch"
-            echo "  expected: $expected"
-            echo "  actual:   $actual"
+            echo "  expected (exit $expected_status): $expected"
+            echo "  actual   (exit $actual_status): $actual"
             FAIL=$((FAIL + 1))
         fi
     else

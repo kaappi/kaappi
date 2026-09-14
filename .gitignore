@@ -1,9 +1,6 @@
 .zig-cache/
 .zig-global-cache/
 zig-out/
-# tests/e2e/run-e2e-cross.sh installs a cross-built kaappi + libkaappi_rt.a
-# here, one prefix per target.
-/zig-out-cross-*/
 
 # Interpreter copies kept in the repo root for A/B runs (build one, stash it
 # under a distinct name, rebuild, compare). Root-anchored so they cannot mask

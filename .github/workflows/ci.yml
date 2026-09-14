@@ -781,8 +781,10 @@ jobs:
   # host, each program's IR is cross-linked on the host with
   # `zig cc -target riscv64-linux`, and only the cross-built kaappi (oracle
   # + --emit-llvm) and the linked binaries run as riscv64 -- inside a stock
-  # riscv64/ubuntu container via docker --platform, with a checksum-pinned
-  # riscv64 Zig mounted in, so the on-target `kaappi compile` smoke at the
+  # riscv64/ubuntu container (pinned by digest, like every action here is
+  # pinned by SHA: it runs with the checkout mounted read-write) via
+  # docker --platform, with a checksum-pinned riscv64 Zig mounted in, so
+  # the on-target `kaappi compile` smoke at the
   # end forks a real riscv64 `zig cc` the way a user on a riscv64 box does
   # (the org's ghcr.io builder image is not pullable anonymously, and a
   # stock image plus one tarball is one less thing to keep in sync). Each
@@ -821,12 +823,13 @@ jobs:
           echo "RV_ZIG=$(echo "$RUNNER_TEMP"/zig-rv/zig-riscv64-linux-*/zig)" >> "$GITHUB_ENV"
 
       - name: Pull the riscv64 base image
-        run: docker pull --platform linux/riscv64 riscv64/ubuntu:24.04
+        # riscv64/ubuntu:24.04 as of 2026-09-07; bump the digest deliberately.
+        run: docker pull --platform linux/riscv64 riscv64/ubuntu:24.04@sha256:f28b71827ff6cb4fe9b6b536b583bc0227072516de20c9225847be7722ab5715
 
       - name: Native-backend e2e (cross-linked, run on riscv64 via QEMU)
         run: |
           export TMPDIR="$RUNNER_TEMP"
-          export KAAPPI_EMU="docker run --rm --platform linux/riscv64 -v $PWD:$PWD -v $RUNNER_TEMP:$RUNNER_TEMP -w $PWD riscv64/ubuntu:24.04"
+          export KAAPPI_EMU="docker run --rm --platform linux/riscv64 -v $PWD:$PWD -v $RUNNER_TEMP:$RUNNER_TEMP -w $PWD riscv64/ubuntu:24.04@sha256:f28b71827ff6cb4fe9b6b536b583bc0227072516de20c9225847be7722ab5715"
           bash tests/e2e/run-e2e-cross.sh riscv64-linux "$RV_ZIG"
 
   # s390x: interpreter tier like riscv64 (#1654), and the only big-endian
