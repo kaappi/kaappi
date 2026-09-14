@@ -3,7 +3,8 @@
 Instruction set reference and disassembler. The single source of truth for
 the ISA — the `/bytecode-isa` skill points here. How the instructions
 execute — frames, the calling convention, continuations, errors — is
-[vm.md](vm.md).
+[vm.md](vm.md); the consolidated execution-model design record is
+[KEP-0021](https://github.com/kaappi/keps/blob/main/keps/0021-bytecode-vm.md).
 
 ## Instruction set
 

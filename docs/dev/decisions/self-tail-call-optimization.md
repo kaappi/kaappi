@@ -7,7 +7,10 @@ opcode is in place: self-recursive
 tail calls (direct `define` recursion and named `let` loops) compile to a
 dedicated instruction that copies arguments to the frame base and resets the
 instruction pointer, skipping the global lookup, type check, and arity check.
-Measured ~23% speedup on `tak(33,22,11)`.
+Measured ~23% speedup on `tak(33,22,11)`. The tail-call model this opcode
+belongs to is consolidated in
+[KEP-0021](https://github.com/kaappi/keps/blob/main/keps/0021-bytecode-vm.md) and described as built in
+[vm.md](../vm.md).
 
 **Option B NOT shipped.** Enabling `tail_call_global` for *all* tail calls was
 attempted and reverted. The blocker is not the register overlap discussed below

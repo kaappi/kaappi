@@ -3,7 +3,10 @@
 **Decision** (2026-06-27): Hybrid — direct-style IR with VM fallback for
 first-class continuations. Native-compiled code uses the C stack for calls; code that
 reaches `call/cc` side-exits to the bytecode VM, which already handles
-continuations via stack copying.
+continuations via stack copying. The execution model this decision sits
+inside — frames, capture and restore, `resumesHere` — is consolidated in
+[KEP-0021](https://github.com/kaappi/keps/blob/main/keps/0021-bytecode-vm.md) and described as built in
+[vm.md](../vm.md).
 
 ## Problem
 

@@ -20,6 +20,13 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "ffi-bytevector-ptr", .func = &ffiBytevectorPtr, .arity = .{ .exact = 1 }, .libs = LS.initOne(.kaappi_ffi), .sandbox = false, .wasm = false },
 };
 
+/// The runtime half of the sandbox's two-layer FFI exclusion: the primary
+/// layer never registers these primitives under --sandbox (Lib.sandboxAllowed,
+/// registerSandboxed); this guard catches a binding that reached the VM
+/// anyway. The policy is KEP-0011
+/// (https://github.com/kaappi/keps/blob/main/keps/0011-ffi-and-sandbox.md),
+/// the mechanism docs/dev/ffi.md, the enforcement test
+/// tests/scheme/sandbox/sandbox-escape.sh.
 fn checkSandbox(comptime name: []const u8) PrimitiveError!void {
     const vm = vm_mod.vm_instance orelse return;
     if (vm.sandbox_mode) {

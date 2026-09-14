@@ -3,6 +3,12 @@
 # Each test runs a Scheme expression under --sandbox and asserts it produces
 # an error (the blocked operation must not return a value).
 # Exit 0 = all gated capabilities are blocked. Any escape = exit 1.
+#
+# The policy this test enforces — which libraries and primitives --sandbox
+# excludes, and why the FFI is blocked at two layers — is written down in
+# KEP-0011 (https://github.com/kaappi/keps/blob/main/keps/0011-ffi-and-sandbox.md);
+# docs/dev/ffi.md describes the mechanism. A new gated capability belongs in
+# all three places.
 
 set -euo pipefail
 
