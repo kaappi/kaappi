@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789367858961,
+  "lastUpdate": 1789368306191,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "3318997ca863d43a20432df44d24393e44674dbd",
-          "message": "tests: pin the KP3007 diagnostic in the SRFI 237 arity audit (#2381)\n\nFollow-up to #2374. A CodeRabbit review comment on that PR (which merged\nfirst) noted the srfi237 audit's #1915 arity tests used raises? alone, so a\ngeneric catchable error would pass without the count-naming message. Assert\nthe KP3007 diagnostic shape via message-of, matching the strengthening that\nlanded for the internal-primitives audit in #2374.\n\nThe layered subtype constructor fills the parent level first, so the message\nnames the parent rtd's sub-construction counts, not the subtype's -- the\ntests check the stable \"field(s) but ... value(s) were supplied\" shape rather\nthan coupling to that split.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-27T10:53:03Z",
-          "tree_id": "9dd0c405a72b7ad274b6ef04280200db89f2d57e",
-          "url": "https://github.com/kaappi/kaappi/commit/3318997ca863d43a20432df44d24393e44674dbd"
-        },
-        "date": 1787831851231,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 5.164009,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.108676,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.557651,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.095358,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004898,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.048168,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.314547,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056554,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.784394,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.231808,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.637859,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.277152,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.713256,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.632001,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045501,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046705,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ed8464e9cc1dff46ed453ed3784107cb9975a323",
+          "message": "Add docs/dev/lsp.md: the language server (#2587)\n\n* Add docs/dev/lsp.md: the language server\n\nKEP-0015's implementation plan asked for a docs/dev/lsp.md seeded from\nits reference section; the server had no contributor document. What a\ncontributor needs to know is mostly not in the KEP any more: since\nkaappi#1981 the server no longer stops at the first error, fabricates\nwhole-line ranges or omits lints — it drives check.analyzeSource into a\ncheck_lint.Context and serializes every finding through the shared\nDiagnostic writer with real spans, and lsp.sh cross-checks the result\nagainst kaappi check --diagnostics=json. The KEP's \"what the LSP adds\"\nsection describes the pre-#1981 server.\n\nWritten from the source at this commit: the lifecycle rules each trace\nto a kaappi#1980 defect, the per-run isolation (macro reset, globals\nprune, path seeding, output redirect) to its own issue or review, and\nthe navigation features are described as the lexical reads they are.\nEvery named function and test suite was checked to exist.\n\nREADME.md, docs/dev/CLAUDE.md, architecture.md and diagnostics-json.md\ngain pointers.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* diagnostics-json.md: point at lsp.md\n\nThe lsp.md commit promised this pointer but its script stopped before\nthe edit. architecture.md has no kaappi_lsp.zig row to point from, so\nthat half of the promise is withdrawn rather than added.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-14T12:07:50+05:30",
+          "tree_id": "c3923b1fa2973eb3d0a14db61e3cdccc912e183b",
+          "url": "https://github.com/kaappi/kaappi/commit/ed8464e9cc1dff46ed453ed3784107cb9975a323"
+        },
+        "date": 1789368304793,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.537127,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.962105,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.623809,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.085002,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004656,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047927,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.312512,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056983,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.866514,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.463238,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.682003,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.285435,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.728075,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.685728,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045502,
             "unit": "seconds"
           }
         ]
