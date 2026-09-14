@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789367520691,
+  "lastUpdate": 1789367858961,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "b2f908eab5bafcfe04a27a47498218465de198d7",
-          "message": "Skip the root-marked map walk for .owned == false env wrappers (#2377) (#2378)\n\nThe interaction-environment wrapper (the only .owned == false\nconstructor) wraps vm.globals, every value of which markVmRoots marks\neach collection regardless — so the valueIterator walks in\nmarkObjectContents and markValueInner were idempotent redundancy.\nBoth arms now return early on !se.owned, mirroring the referencesYoung\nguard from #2372's review round. A child-thread wrapper's map values\nare foreign to that GC and the owner check skips them anyway.\n\nCost only, never unsafe: the skipped walk could only re-mark values\nanother root had already marked.\n\nRegression test in tests_gc_tracing.zig pins the new semantics — an\n.owned == false wrapper rooted alone no longer keeps its map's values\nalive (fails on main, passes with the skip).\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-27T10:44:17Z",
-          "tree_id": "7e546e0785550358cc72cb6037178db89305dfef",
-          "url": "https://github.com/kaappi/kaappi/commit/b2f908eab5bafcfe04a27a47498218465de198d7"
-        },
-        "date": 1787830448197,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.294331,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.27163,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.56319,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.100189,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004996,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.048415,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.315689,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056481,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.855385,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.23151,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.647499,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.281258,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.725269,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.683867,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046972,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042377,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7a3c2949ad5e5501a67343d8cb9009ecc919dfbe",
+          "message": "Add docs/dev/ffi.md: the C FFI and the sandbox boundary (#2586)\n\nKEP-0011's implementation plan asked for a docs/dev/ffi.md seeded from\nits reference section; the FFI had no contributor document at all. The\nthings that matter when touching it — that dispatch is a signature table\nand a new ecosystem binding is unblocked by adding a shape, why a bool\nargument is coerced before it reaches a C _Bool, why a callback's raise\nis stashed and re-raised after C returns, why ffi-library handles are\ncopied and not aliased across threads and what ffi-close then means,\nwhich two layers the sandbox uses and why both — lived in source\ncomments, closed issues and the ecosystem bar's one paragraph.\n\nWritten from the source at this commit: every named function, constant\nand test suite exists, the sandboxAllowed list is the current one (the\nKEP's predates kaappi.process), and the macOS entitlement, the four\nmapFfiError call sites and the per-platform fixture build were read at\ntheir sites. The limits (5 callable parameters, 32 callback slots, 7\nsignatures) are stated as current implementation limits, since KEP-0011\nleaves their contract status open.\n\nREADME.md, docs/dev/CLAUDE.md, architecture.md and\necosystem-library-bar.md gain pointers.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-14T11:59:36+05:30",
+          "tree_id": "9f669bdaf80a4a64db73d938bd56528e940ebd83",
+          "url": "https://github.com/kaappi/kaappi/commit/7a3c2949ad5e5501a67343d8cb9009ecc919dfbe"
+        },
+        "date": 1789367856497,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 5.491254,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.570901,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.591697,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.88047,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004749,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046596,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.292673,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055031,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.56684,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.141478,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.620939,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.305006,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.841022,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.806295,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046705,
             "unit": "seconds"
           }
         ]
