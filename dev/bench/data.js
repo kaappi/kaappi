@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789369020768,
+  "lastUpdate": 1789369348860,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "901309c499aae85764509d3134d3ff75c58467f7",
-          "message": "docs(windows): point the aarch64 strip/native unblock at Zig 0.18.0 (#2386)\n\nThe upstream fix for the aarch64-windows private-threadlocal miscompile\n(ziglang#31865, #1607/#1613) missed the 0.17.0 window: the issue is now\nclosed and re-milestoned to 0.18.0, and 0.17.0 has still not shipped as\nof 2026-08 (latest stable remains 0.16.0). Update every \"0.17.0 bump\"\nreference in the Windows dev doc accordingly.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-27T19:42:34+05:30",
-          "tree_id": "890c128ab91b8ae46681d0b9a159734ca0a14a6d",
-          "url": "https://github.com/kaappi/kaappi/commit/901309c499aae85764509d3134d3ff75c58467f7"
-        },
-        "date": 1787840432098,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.284665,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.522068,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.581453,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.112719,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005067,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.048376,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.316386,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.057124,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.854131,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.234076,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.651303,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.282006,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.726699,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.708487,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045551,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046589,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "653bf52dcefb43d4b20474bbb31bb916ae2974eb",
+          "message": "understanding-map.md: adjudicate the four borderline calls (#2590)\n\nThe map had carried \"the maintainer should adjudicate\" over four\nclassifications since it was drafted in July. Each is now decided by the\nmap's own rule — touches × leakiness × centrality — against the tree as\nof 2026-09-14, with the trigger that would reopen it recorded beside it.\n\nLLVM backend strategy becomes core #8, the emitter mechanics stay fenced:\nthe strategy's rules recurred at seven sites and the parity fence has a\ndocumented blind spot (.scm tests are interpreter-only evidence), which\nis exactly the shape of theory someone must hold. The reader stays\nfenced although its revisit trigger fired: what reached the expander in\n#2403-#2405 was every walker's acyclic-data assumption, not a reader\ndefect, so that rule joins \"core rules run through fenced code\" instead\nof promoting the file. The VM debugger is fenced, with the honest note\nthat its fence is one smoke script. The bytecode ISA gets no tier: the\nopcode set moved from 31 to 34 in a month and is a same-build contract,\nand what must actually be held — an opcode's effect on the register\nwindow and the frame — is core #3, now stated there.\n\nAlso fixed on the way: 11 types_*.zig files (12), 72 portable SRFIs\n(165), and each core entry now points at the as-built doc written for\nit this week.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-14T12:25:14+05:30",
+          "tree_id": "7187b8d91b22cce22c5b935904bdd3004d2d5db8",
+          "url": "https://github.com/kaappi/kaappi/commit/653bf52dcefb43d4b20474bbb31bb916ae2974eb"
+        },
+        "date": 1789369347061,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.47688,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.082005,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.634836,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.188623,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004707,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047816,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.314367,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057184,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.911473,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.247022,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.682623,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.28847,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.751764,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.685345,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045581,
             "unit": "seconds"
           }
         ]
