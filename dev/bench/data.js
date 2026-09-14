@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789363105586,
+  "lastUpdate": 1789363995032,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "75f62d344aa0d4cdc10109826fe7bd2c9efddb1d",
-          "message": "thottam: unit-tier regression guard for ownership-aware removal (#2136) (#2364)\n\n* thottam: unit-tier regression guard for ownership-aware removal (#2136)\n\nThe ownership-manifest fix for #2136 (unlink only files no other installed\npackage still claims) landed in #2289 with coverage in thottam_state.zig and\nthe git-backed thottam-lifecycle.sh. That shell test needs a git remote and\nis skipped by `zig build test`, so the removal path had no guard in the unit\nsuite that runs on every build.\n\nAdd a network-free end-to-end test that lays out two packages sharing\nlib/kaappi/shared.sld in $KAAPPI_HOME/src (as a clone would), installs both\nthrough the real file-sync path, and drives the real doRemove: removing one\npackage must keep the shared file the other still claims, and removing the\nlast claimant finally deletes it. This fails against removal-by-name, which\nwalked the removed package's own source tree and unlinked shared.sld\nunconditionally.\n\ndoRemove and syncInstalledFiles are made pub so the test can drive them,\nmatching doList/doUpdate/doVerify which are already pub for the same reason.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* thottam: assert the collision warning and manifest claim in the #2136 test\n\nAddress two review notes on the ownership-removal regression test:\n\n- The second install overwrites a file kaappi-one's manifest already claims;\n  warnIfClaimed makes that audible on stderr. syncPkg now returns the captured\n  output so the test asserts the \"also provided by kaappi-one\" warning — the\n  only unit-tier place that observes the loud-not-silent half of the fix.\n\n- The test claimed doRemove drops kaappi-two from thottam.files but only\n  observed installed.txt. Assert the manifest directly with state.fileClaimedBy:\n  kaappi-one's claim on the shared file survives kaappi-two's removal, and no\n  claim remains once the last claimant is gone.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-08-26T07:35:51Z",
-          "tree_id": "24368b540459566ea54f5c65deaeca5fc54cde1a",
-          "url": "https://github.com/kaappi/kaappi/commit/75f62d344aa0d4cdc10109826fe7bd2c9efddb1d"
-        },
-        "date": 1787732332443,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.083313,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.554649,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.442402,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.180971,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.003796,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03589,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.220656,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.042321,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.82943,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.882305,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.225069,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.239097,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.310602,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.458601,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.036916,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045213,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1501c695db95f39af907a701fb1eb863bb50455a",
+          "message": "Bring docs/dev back in step with the tree: stale facts, orphans, GC dedup (#2579)\n\nA pass over docs/dev checked every numeric and structural claim against\nthe source, the git log, and the issue tracker. Three kinds of drift\nturned up.\n\nStale facts. architecture.md and known-limitations.md both said only\nsyntax-rules is supported, which has been false since SRFI 211, 147, 148\nand 139 shipped procedural macros on the same expander; a contributor\nreading either would rule out mechanisms that exist. The ObjectTag table\nstopped at 41 and never gained the KEP-0022 process tag. vision.md still\nquoted 74 SRFIs and ~39k lines of Zig (181 and ~115k without tests).\nrepl.md kept a \"not yet implemented\" section for width-aware pretty\nprinting after printer_pretty.zig landed and #921 closed. The SRFI notes\ngave 178 implemented in one paragraph and 181 in another. The ecosystem\nbar listed a kaappi-http .dylib cleanup that has long since happened.\n\nOrphans. Five files were reachable only by grep: crash-reporting.md and\nthe four KEP campaign records, which are a point-in-time genre the index\nhad no table for. They are now indexed under Guides and a new \"Campaign\nrecords\" section; the keps repo links to them by their current paths, so\nthey stay where they are. docs/dev/CLAUDE.md's read-first table gains\nthe rows a contributor most often needs and could not find there.\n\nDuplication. GC safety rules existed in three copies, and the one in\nadding-features.md was the wrong one: it described the collector as\nmoving, and its LIFO rule predated the deferred-popRoot footgun the other\ntwo copies warn about. It is replaced by a pointer to the canonical doc\nplus the three rules the walkthroughs most often break.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-14T10:56:18+05:30",
+          "tree_id": "54c6db6011149932556d47cadb41ff2963dcf71f",
+          "url": "https://github.com/kaappi/kaappi/commit/1501c695db95f39af907a701fb1eb863bb50455a"
+        },
+        "date": 1789363993313,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.437961,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.554676,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.60544,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.093232,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004607,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047532,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.313401,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056675,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.82963,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.241441,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.658519,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.280848,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.727079,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.65461,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045597,
             "unit": "seconds"
           }
         ]
