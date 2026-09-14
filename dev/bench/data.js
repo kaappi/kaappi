@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789370940590,
+  "lastUpdate": 1789408570476,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1503d1d4d639c62c84f7bf0573545d4a9aeab4f0",
-          "message": "Switch SRFI 231 c64/c128 bodies to the reference representation (#2387)\n\n* Switch SRFI 231 c64/c128 bodies to the reference representation (#2382)\n\nc64/c128 storage classes were backed by native c64vector/c128vector,\nso the reference implementation's data shape -- an even-length\nf32/f64vector of interleaved re/im pairs -- was rejected by\nmake-specialized-array-from-data, diverging on the official suite's\ntest-150 fixtures (known-divergence id 150, kaappi#2382).\n\nTwo findings settled the design. First, the spec's data? contract --\n\"returns #t if and only if data->body returns a body sharing data with\ndata, without copying\" -- makes a converting data->body illegal, so\naccepting that data shape is possible only by actually using it as the\nbody; the spec explicitly allows either representation (\"another\nimplementation ... might make another choice\"). Second, Kaappi's\nc64vector/c128vector already use the identical byte layout (2\nconsecutive f32s/f64s per element, never boxed, per\nsrc/types_numeric.zig), so switching is a change of type tag, not of\nmemory shape -- and reference fidelity is what reference-coupled\nportable code and the official suite's fixtures interoperate with, the\nsame philosophy as the u1 and f16 ports.\n\nImplementation: a %complex-storage-class helper ports the reference's\nmake-complex-storage-classes -- getter reassembles the interleaved\npair (an inexact zero imag stays complex, kaappi#2269, exactly like\nthe native decode), setter explodes into the two float slots, maker\nfills alternating re/im, length halves the physical float count,\ncopier is the float-vector block copy, and data?/data->body accept\nexactly the even-length float vectors, zero-copy identity. The\nnow-unused (srfi 160 c64)/(srfi 160 c128) imports are dropped.\n\nUser-visible consequences (CHANGELOG Changed entry): (array-body A)\nfor a c64/c128 array reports the float vector; the storage-class\ncopier counts floats (2 per complex element); c64vector/c128vector\ndata is no longer accepted directly.\n\nTests: check-storage-class learns a body-units-per-element option\n(2 for the complex classes) for its copier exercise; a dedicated\nrepresentation section in srfi231-storage-classes.scm pins data?\nacceptance/rejection (even, odd, c64vector), data->body identity,\ninterleave round-trips, setter explosion, and maker fill; and\nsrfi231-arrays.scm adds the end-to-end zero-copy proof --\nmake-specialized-array-from-data over an f32vector shares so\nthoroughly that mutating the caller's vector is visible through the\narray.\n\nOfficial suite: divergence id 150 pruned and the suite regenerated.\nBefore pruning, the #2385 accounting flagged the resolution on its\nown -- 'DIVERGENCE-RESOLVED 150 -- prune it from known-divergences' --\nthe enforcement working as designed. The known-divergence table is\nnow down to the two unavoidable entries: 147 (Gambit string\nmutability) and 351 (unsafe-view checking).\n\nValidated: srfi231-storage-classes 219 passes, srfi231-arrays 90,\nofficial suite 10924 passed / 3 known divergences / 0 unexpected /\n0 resolved / 0 count mismatches, fmt corpus 938 files zero-drift\nidempotent, run-all.sh 2115 pass 0 fail (720 Scheme files, R7RS\n1395/1395).\n\nCloses #2382\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: complex copier takes logical-element offsets (#2387)\n\nAll seven review comments were valid; the substantive one is a real\nbug in the port. The reference does NOT install the raw float copier\nfor c64/c128 -- generic-arrays.scm:137-140 defines\nc64vector-copy!/c128vector-copy! as x2-scaling wrappers over the float\nblock copy, and the class macro installs those wrappers, so its copier\ntakes LOGICAL complex-element offsets, the same units as every other\nstorage-class field. Installing float-copy! raw made kaappi's complex\ncopier the only field in the only class indexed in a different unit:\nreference-coupled code doing (copier to 1 from 0 2) would silently\ncopy half the data at an odd float offset -- real parts landing in\nimaginary slots, no error. Nothing in-tree calls the copier, so no\nsuite caught it. Fixed with the reference's own wrapper shape:\n  (lambda (to at from start end)\n    (float-copy! to (* 2 at) from (* 2 start) (* 2 end)))\n\nThe review also showed the units-per-element test knob had adapted\nthe suite to the bug rather than detecting it. check-storage-class is\nreverted to its original shape (logical units, no knob) and its\ncopier exercise now runs twice -- the full aligned range AND a\nnon-zero at/start copy (shifted 1 body 1 3), which distinguishes the\ntwo granularities: a raw-float copier passes the aligned copy while\nmisplacing data at every other offset. Pinned across all 15\ncopier-bearing classes (storage-classes suite 219 -> 249 passes); the\nreviewer's exact repro (copier to 1 from 0 2) verified by hand.\n\nAlso from the review:\n- maker: a uniform fill (eqv? on re/im -- the default 0.0+0.0i, the\n  overwhelmingly common make-specialized-array path) collapses to one\n  native make-float-vector fill instead of 2n interpreted stores;\n  -0.0/0.0 and NaN mismatches still take the loop.\n- data?/data->body: the even-length predicate is hoisted once and\n  data->body reuses %checked-data->body (byte-identical message), so\n  the two can no longer drift apart -- the spec's iff-contract the\n  comment quotes.\n- transform: the NEW_REPORT example still named the id-150 entry this\n  PR deletes; reworded to a live one (a third unsafe-view evaluation\n  under the 351 entry) and regenerated -- never hand-edited.\n- CHANGELOG: dropped the 'copier counts floats' consequence; with the\n  wrapper there is no user-visible copier divergence at all.\n\nValidated: all 231 suites green (storage-classes 249, arrays 90);\nofficial suite 10924 passed / 3 known divergences / 0 unexpected /\n0 resolved / 0 count mismatches; fmt corpus 938 files zero-drift\nidempotent.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-27T15:38:15Z",
-          "tree_id": "d601c4261085798376a808a2434ef5206645accd",
-          "url": "https://github.com/kaappi/kaappi/commit/1503d1d4d639c62c84f7bf0573545d4a9aeab4f0"
-        },
-        "date": 1787847515362,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.325732,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.955668,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.557387,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.123148,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004925,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.048469,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.313929,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056253,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.803286,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.26452,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.638343,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.274732,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.707719,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.628584,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045948,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.047124,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "320fb33a94c05fe181e4bfa438c94cb383b021f1",
+          "message": "Add riscv64-linux to the LLVM native backend (#2592)\n\nCloses #2591.\n\nriscv64 was interpreter-tier by the 2026-07-19 decision\n(docs/dev/decisions/native-backend-architecture-scope.md), which rested on\na `kaappi compile` experiment that linked and segfaulted on riscv64 and\nattributed the crash to the emitter's `unknown-unknown-unknown` triple\nbeing overridden by the `-w` link. A user asked for riscv64, and the\npathfinder port the record designated turned out to be one `targetTriple`\narm (`riscv64-unknown-linux-gnu`): `native_backend_supported`, the\n`kaappi compile` refusal (#1656) and the `doctor` WARN all derive from it.\n\nThe July segfault was never the triple. The 935a9869 tree with only the\narm added still crashes on the repro shape at 10 million loop iterations\nand passes at 100 thousand; today's tree passes both, and even the\npre-#1656 unknown-triple link produces a working binary on a riscv64 host.\nThat is #1808, per-iteration alloca growth in native loops, an\narch-independent bug fixed by #1813 nine days after the decision. The\npostmortem (docs/dev/postmortems/2026-09-14-riscv64-native-segfault.md)\nand lessons-learned #20 record it; the decision record gets only a status\nline, per docs/dev/CLAUDE.md.\n\n`fast_tailcalls_supported` stays false on riscv64 — the port is scoped to\ninterpreter parity, and the mutual-tail e2e program runs through the #1499\ntrampoline. No `target datalayout` is emitted, for riscv64 or anyone: none\nof the twelve existing triples emit one, the driver's default is the one\nits own LLVM expects, and a pinned string breaks older-LLVM hosts (the\nBSDs' base clang) on a hard error while gaining nothing on `zig cc`.\n\nVerification: the 37-program e2e suite plus the argv passthrough passes\nunder QEMU with both the musl-static archive release.yml ships and a\nglibc one, linked on-target by a riscv64 `zig cc`. The decision record\nestimated a 30-60 minute emulated CI job because each on-target link\nruns under TCG (~19 s per program on an M-series host); that was the\nwrong design. tests/e2e/run-e2e-cross.sh cross-builds and cross-links on\nthe host — the IR is target-independent text until the link — and\nemulates only the cross-built kaappi (the oracle and --emit-llvm; the\nemitter is a comptime switch on the host arch, so the IR must come from a\nkaappi that believes it is riscv64) plus the linked binaries, with one\ngenuine on-target `kaappi compile` as a smoke: 39/39 in under 8 minutes.\nThe new riscv64-native-test CI job runs it in a stock riscv64/ubuntu\ncontainer with a checksum-pinned riscv64 Zig mounted in; the org's ghcr\nbuilder image is not pullable anonymously.\n\nNot in this change: musttail on riscv64, a gc-stress e2e run on the\ntarget, and the riscv64 release binary being musl-static so (kaappi ffi)\ncannot dlopen there (the #1783 trade-off, unresolved for riscv64). s390x\nand ppc64le remain interpreter-tier.\n\n\n\nReview follow-ups squashed in: digest-pinned CI image, arch-os pair in\nthe refusal/doctor diagnostics, per-run cross-build prefix with a\nKAAPPI_CROSS_PREFIX override, exit-status parity and an IR-verification\nstep in run-e2e-cross.sh, corrected mutual-tail-call wording.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
+          "timestamp": "2026-09-14T22:46:39+05:30",
+          "tree_id": "fba50ccc8d2e1483c12b1ccdf552c62cbfb2e62e",
+          "url": "https://github.com/kaappi/kaappi/commit/320fb33a94c05fe181e4bfa438c94cb383b021f1"
+        },
+        "date": 1789408569128,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.39531,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.173022,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.3063,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 1.526253,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.003267,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.025963,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.147001,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.028491,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.459693,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.59592,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 0.88377,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.213081,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 0.878293,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.311442,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.027601,
             "unit": "seconds"
           }
         ]
