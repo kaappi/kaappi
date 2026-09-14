@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789365571589,
+  "lastUpdate": 1789366289994,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "205baa070f8a815f9beb5cce18bdc164ee136fa2",
-          "message": "Document that ~/.kaappi/lib shadows a checkout's lib/ for .sld work (#2375)\n\nThe library search order checks $KAAPPI_HOME/lib (default ~/.kaappi/lib)\nbefore the exe-relative <exe>/../lib (= zig-out/lib, populated from the\ncheckout). That order is deliberate -- a from-source binary must never\nshadow a user's install (kaappi#1523) -- but it means a developer who has\never installed Kaappi has their working-tree .sld edits silently shadowed\nby the last release: a bare `zig-out/bin/kaappi file.scm` loads the old\ninstalled copy, so the edit looks like a no-op and neither a rebuild nor\n`kaappi cache clear` helps, because it is the wrong source file being read,\nnot a stale cache of the right one (kaappi#2352).\n\nrun-all.sh already exports a fresh mktemp KAAPPI_HOME for the whole run, so\nthe suite always exercises the working tree; the hazard is confined to\nad-hoc invocations, which need a `KAAPPI_HOME=$(mktemp -d)` prefix. Document\nthis next to the build/test instructions in CLAUDE.md and docs/dev/testing.md,\nand pin the suite's existing isolation with a comment so it is not narrowed\nto cache-only later.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-27T12:06:31+05:30",
-          "tree_id": "aae6d83d25d4ef12dcd931bf7e49256a9b03527e",
-          "url": "https://github.com/kaappi/kaappi/commit/205baa070f8a815f9beb5cce18bdc164ee136fa2"
-        },
-        "date": 1787814951143,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.088776,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.225098,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.433103,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.183673,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004067,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.035973,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.223077,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.044017,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.915403,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.868937,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.235197,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.239807,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.305638,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.475367,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.036304,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.047201,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "31fe03e045e44ccc718ded6a012c66b630ae3690",
+          "message": "Add docs/dev/vm.md: frames, calls, continuations, and error propagation (#2582)\n\nKEP-0021's implementation plan asked for a docs/dev/vm.md covering the\nframe model, the calling convention and the error taxonomy, seeded from\nits reference section. Nothing in the repo held that: bytecode.md owns\nthe instruction set, the two decision records cover continuations and\nself-tail-call in isolation, and the rules a contributor most needs —\nwhat a re-entrant native frame may not do, why a callee's return never\nunwinds the caller's winds, which errors a guard may never see, why map\nand dynamic-wind are Scheme rather than Zig — lived in source comments\nand in the closed issues that established them.\n\nWritten from the source at this commit, not from the KEP: every\nfunction, constant, flag and test suite named was checked to exist, and\nthe KEP's stale numbers (31 opcodes; 692 built-ins) are not repeated. It\ncovers the four growable stacks and their caps, CallFrame and its seq\nbirth id, the dispatch loop and its 1024-instruction safepoint, the\nthree per-loop flags, callValue/callClosure/callNative, the tail-call\nopcodes and the native tail fast path, the global cache and the builtin\ngate, the four re-entry helpers and the three rules that follow from a\nZig frame being on the stack, capture/restore and resumesHere, escape\ncontinuations, the wind and handler stacks and where raise runs its\nhandler, the catchable/uncatchable contract, execute's boundary\nbehaviour, the entry points, the root marker, and the test map.\n\nREADME.md, docs/dev/CLAUDE.md, architecture.md and bytecode.md point at it.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-14T11:34:40+05:30",
+          "tree_id": "31369040c92bdad37a4ed9f374a0758e242d8fca",
+          "url": "https://github.com/kaappi/kaappi/commit/31fe03e045e44ccc718ded6a012c66b630ae3690"
+        },
+        "date": 1789366287805,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.007762,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 5.762327,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.400385,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.13308,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004344,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.035087,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.250425,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.038985,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.188044,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.864276,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.191898,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.223079,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.230245,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.920925,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.039779,
             "unit": "seconds"
           }
         ]
