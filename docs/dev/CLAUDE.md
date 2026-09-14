@@ -20,6 +20,7 @@ belongs here.
 |-------------------------|-----------|
 | Architecture / pipeline | `architecture.md` |
 | Compiler IR | `ir.md` |
+| Macro expansion, hygiene, `syntax-rules`, SRFI 211 | `expander.md` |
 | LLVM native backend | `llvm-backend.md` |
 | GC safety | `gc-safety-and-error-handling.md` |
 | SRFI-18 threads / what may cross a thread boundary | `thread-value-sharing.md` |
