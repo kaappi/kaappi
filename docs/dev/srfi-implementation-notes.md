@@ -922,154 +922,83 @@ parallel at first glance.
 
 ### SRFI 231 — intervals and generalized arrays
 
-SRFI 231 (intervals and generalized arrays), the fourth and final piece of
-kaappi#1694's array family, is a genuinely unrelated redesign from 25/164/63 (no
-textual relationship, per its own spec) shipped across 6 phases (issues
-tracked under #1694;
-`lib/srfi/231/{misc,intervals,storage-classes,arrays,views,combinators,assembly}.sld`,
-merged into a public `lib/srfi/231.sld` re-export hub — 118 bindings total, an
-exact bijection confirmed against the sample implementation's own export
-clause) — the largest single SRFI in this codebase by an order of magnitude.
-An `<interval>` is two parallel exact-integer vectors (lower/upper bounds,
-arbitrary — including negative — per axis), not 25/164's shape-of-pairs nor
-63's bare sizes. The array hierarchy is genuinely three-tier (`array?` ⊃
-`mutable-array?` ⊃ `specialized-array?`), all one record
-(`domain`/`getter`/`setter`/`body`/`indexer`/`storage-class`/`safe?`, with
-mode-specific fields `#f` on a plain array) rather than 25/164's
-simple/shared/virtual union — confirmed as a genuine hybrid of prior
-conventions on two independent axes: `array?` is disjoint from vector/string
-(matching 25/164, not 63), while `array-set!`'s new-value argument is
-*second*, right after the array (matching 63, not 25/164's value-last). A
-storage class (17 singletons, 16 real, plus `make-storage-class` for custom
-ones; only `f8` is deferred to `#f` — even the sample implementation leaves it
-`#f`, since no standard 8-bit float type exists. `u1` and `f16` are ports of
-the sample implementation's own bit-packing and software half-floats over
-`u16vector`) is a 9-field record
-(getter/setter/checker/maker/copier/length/default/data?/data->body) that a
-specialized array's `body`/`indexer` pair delegates to for the actual
-backing-store representation. c64/c128 bodies follow the sample
-implementation's interleaved-float representation — an f32/f64vector of twice
-the logical length holding re/im pairs — rather than native
-`c64vector`/`c128vector` (whose byte layout is identical: 2 consecutive
-f32s/f64s per element): the spec's `data?` contract ("`#t` iff `data->body`
-returns a body sharing the data, without copying") makes accepting the sample
-implementation's even-length float vectors possible only by actually using them
-as the body, and that shape is what sample-implementation-coupled code and the
-official suite's fixtures feed to `make-specialized-array-from-data` (#2382).
-The single most-reused implementation pattern across the
-views/combinators/assembly phases: build a lazy virtual array via `make-array`
-with a computed getter over the target domain, then delegate to `array-copy`
-(which already owns all storage-class/mutable?/safe? option parsing and the
-materializing fill loop) rather than hand-rolling a fill mechanism per
-procedure — used for `array-stack`, `array-decurry`, `array-append`,
-`array-block`, and more. Their `!` twins are confirmed-safe pure aliases
-(verified by reading the sample implementation: both entry points wrap one
-shared helper differing only in whether inputs are eagerly pre-materialized
-before the fill, a distinction observable only under multi-shot-continuation
-re-entry, which the spec itself declares undefined). Every *accumulating*
-non-`!` procedure — `interval-fold-left`/`-right`, `array-fold-left`/`-right`,
-`array-reduce`, `array-every`, `array->list`, and the collection half of
-`array-copy` — threads its accumulator functionally through one shared walk
-(`%interval-fold` in `intervals.sld`), never a `set!` cell or a pre-sized
-scratch vector. The spec defines *call/cc safe* as written "in a way that does
-not modify the state of any data captured by a continuation" and intends every
-procedure without a trailing `!` to be that; both mutable shapes shipped here
-until the SRFI's author showed (kaappi#2539) that a second re-entry of a
-getter's continuation resumes over an earlier re-entry's overwrites. A single
-re-entry cannot distinguish a shared buffer from a functional accumulator — the
-official suite's own continuation cases (entries 737-741) passed over the
-scratch design — so the regression tests drive two continuations, each invoked
-twice — and `tools/srfi231_diff.py` (`docs/dev/testing.md`) now generates
-random view/reshape programs and diffs Kaappi against the sample implementation
-under Gambit, for the properties fixed cases cannot see. The tester's first
-find (kaappi#2542) is the imag-part convention leaking through the sample
-implementation's own code: its c64/c128 checker is textually `(and (complex?
-obj) (inexact? (real-part obj)) (inexact? (imag-part obj)))`, but Gambit's
-exact-0 `(imag-part 1.0)` makes it reject a bare real flonum that Kaappi's
-equally R7RS-legal inexact `0.0` accepted — so #2543 shipped the checker with
-an explicit `(not (real? x))` clause, encoding the sample implementation's
-verdict under either convention (a `1.0+0.0i` with a real inexact-zero
-imaginary part was still accepted).
+SRFI 231, the last of kaappi#1694's array family, is a redesign with no
+textual relationship to 25/164/63 (its own spec says so). It ships as seven
+sub-libraries under `lib/srfi/231/` (`misc`, `intervals`, `storage-classes`,
+`arrays`, `views`, `combinators`, `assembly`) re-exported by `231.sld` —
+118 bindings, a checked bijection with the sample implementation's export
+clause, and the largest SRFI here by an order of magnitude. Its bundled
+code is a **sample** implementation; the document is the specification
+(see the postmortem below for how we learned that).
 
-**That clause was reverted in #2559.** The two checkers are the sample
-implementation's line verbatim; the verdicts differ because Gambit's
-`(imag-part 1.0)` is an exact `0` and Kaappi's is `0.0`. Brad Lucier confirmed
-that exact-0 is **R6RS**'s rule — adopted there on his own suggestion — and
-"that's not what R7RS small does", adding that implementers can argue either
-way. Verified against `docs/errata-corrected-r7rs.pdf` §6.2.6 rather than
-taken on report: the section's sole exactness permission is that `real-part`
-and `imag-part` "may return exact real numbers when applied to an inexact
-complex number **if** the corresponding argument passed to `make-rectangular`
-was exact", which a bare `1.0` never went through; what governs it instead is
-"`(real? z)` is true if and only if `(zero? (imag-part z))` is true", and
-`(zero? 0.0)` is `#t`, so an inexact `0.0` satisfies that rule exactly as an
-exact `0` would. Nothing in the document requires one over the other. (That
-iff rule does *not* survive contact with the inexact-zero-imaginary case —
-§6.2.6 also prints `(real? -2.5+0.0i) ⇒ #f`, which the rule would make `#t`;
-the rule and the example contradict each other and every implementation,
-Kaappi and Gambit included, follows the example.) Kaappi is R7RS-small, and
-the normative
-prose asks only for "complex numbers with, respectively, 32- and 64-bit
-floating-point numbers as real and imaginary parts", which `1.0` is under our
-tower: `(complex? 1.0)` is `#t` with `real-part` `1.0` and `imag-part` `0.0`,
-both inexact. The one normative constraint on a checker, that
-`(checker (getter v i))` be `#t`, holds either way. So a bare real flonum is
-accepted again, and the differential tester's c64/c128 disagreement with
-Gambit is a permanent known divergence rather than a finding — recorded in the
-tool so it is not re-filed as #2542 was.
+**Representation.** An interval is two parallel exact-integer vectors of
+per-axis lower and upper bounds (negative allowed). The array hierarchy is
+one record (`domain`/`getter`/`setter`/`body`/`indexer`/`storage-class`/
+`safe?`, mode-specific fields `#f` on a plain array) with three tiers,
+`array?` ⊃ `mutable-array?` ⊃ `specialized-array?`. It is a hybrid of the
+earlier conventions on two axes: `array?` is disjoint from vector and
+string (as in 25/164), and `array-set!` takes the new value *second*,
+right after the array (as in 63). A storage class is a 9-field record
+(getter, setter, checker, maker, copier, length, default, `data?`,
+`data->body`); 17 singletons ship, 16 real and `f8` deliberately `#f` (no
+standard 8-bit float exists), plus `make-storage-class`. `u1` and `f16` are
+ports of the sample implementation's bit packing and software half-floats
+over `u16vector`. c64/c128 bodies are the sample implementation's
+interleaved f32/f64vector of twice the logical length, not native
+`c64vector`s: the `data?` contract ("`#t` iff `data->body` returns a body
+sharing the data") is satisfiable only by using that shape as the body,
+and it is what the official suite's fixtures feed to
+`make-specialized-array-from-data` (#2382).
 
-A residual the checker cannot reach: a mixed-exactness complex (`1+2.0i`,
-`(make-rectangular 1 2.0)`) keeps an exact real part under Gambit, so the
-sample implementation rejects it, while Kaappi's complex representation makes
-exactness contagious — both parts are inexact before any checker runs — and
-accepts it (chibi accepts it as well, through a checker that is not the sample
-implementation's). R7RS-legal on both; if the tester's value pool ever grows a
-mixed-exactness literal, the Kaappi-accepts/Gambit-rejects verdict it will
-surface is this known residual, not a new bug. `array-copy` of a
-non-specialized source is therefore the sample implementation's exact shape
-(reversed list, then a body filled by linear position). A specialized source
-takes the direct fill, as in the sample implementation's `%!array-copy` — a
-deliberate, documented exception: a `make-storage-class` getter or a
-`specialized-array-share` mapping is user code that runs inside that fill and
-could capture a continuation, and neither the sample implementation nor Kaappi
-defends it (the list path would cost 14× the peak memory on the common
-typed-array copy; the measurements are in `views.sld`).
-`specialized-array-reshape` uses a deliberate packed-check-based
-affine-detection simplification instead of the sample implementation's full
-multi-group algorithm, verified identical on the spec's own worked examples.
-(`array-packed?` itself means consecutive-increasing from any body base — not a
-zero base — per #2314; an `array-extract` view with a non-zero offset is packed
-and reshapes in place through this same fast path, like the sample
-implementation.) `array-block` needed a genuinely two-phase algorithm unlike
-everything else in the SRFI: full per-axis width-consistency validation
-(reusing `array-curry`+`array-permute`+`index-first`) followed by cheap
-single-pencil-probing for offsets (reusing
-`array-curry`+`array-permute`+`index-last`), both confirmed against the sample
-implementation. The SRFI's own prose pseudocode disagreed with its sample
-implementation at least twice, so where the two diverge we read the code to
-work out what was meant. Both were put to the author, and neither turned out
-to support that heuristic as stated. `array-inner-product`'s prose does omit a
-required `array-curry` argument the sample code supplies — he confirmed that
-is a document error and will fix it, so the document gets corrected rather
-than overridden. And `check-nested-list`'s dimension-0 case (`'()` in the
-code, `#t` in the prose) is moot: the library does not export it, so what it
-returns is nobody's business.
+**Rules to keep when editing:**
 
-**That is a working heuristic, not a rule the SRFI states.** An earlier
-version of this note called it "this SRFI's documented rule"; the document
-says no such thing, and Brad Lucier (the SRFI's author) corrected us on it:
-the implementation Gambit bundles is a *sample* implementation, not a
-reference one, and "generally speaking the document is the specification."
-The document uses "sample implementation" throughout and "reference
-implementation" nowhere. Where prose and sample code disagree, the prose
-governs unless there is positive reason to think it is an error — and a
-divergence that turns on the *host's* representation choices (see the
-c64/c128 checker note above) is not evidence of a prose error at all.
-`array-extract`-derived views preserve **absolute** source coordinates, never
-resetting to 0-based, per the spec's own worked example. SRFI 231 supersedes
-SRFI 179 (its own abstract: "a revised and improved version of SRFI 179") with
-acknowledged breaking changes, not a strict superset — see
-`docs/dev/srfi-exclusions.md` for specifics; 179 is excluded on that basis.
+- **Build lazily, materialize through `array-copy`.** The most reused
+  pattern across views, combinators and assembly: `make-array` with a
+  computed getter over the target domain, then delegate to `array-copy`,
+  which owns all storage-class/mutable?/safe? option parsing and the fill
+  loop (`array-stack`, `array-decurry`, `array-append`, `array-block`, …).
+  The `!` twins are pure aliases: in the sample implementation both entry
+  points wrap one helper differing only in eager pre-materialization,
+  observable only under multi-shot re-entry, which the spec leaves
+  undefined.
+- **Accumulators are threaded, never mutated.** Every accumulating non-`!`
+  procedure goes through `%interval-fold` (`intervals.sld`, exported for
+  siblings) as loop variables and return values. `array-copy` of a
+  non-specialized source collects a reversed list and fills a fresh body
+  by linear position; a specialized source takes the direct fill, the
+  sample implementation's own exception, with the memory measurements in
+  `views.sld`. A continuation-safety test drives two continuations, each
+  invoked twice (`fixtures/srfi231-reentry.scm`).
+- **`specialized-array-reshape` is NumPy's `_attempt_nocopy_reshape`**,
+  translated line by line via the sample implementation: probe the affine
+  indexer for base and strides, drop size-1 axes, greedily match
+  adjacent-axis volume groups, verify contiguity per group. The earlier
+  packed-only shortcut wrongly rejected negatively strided views such as
+  `array-reverse`, which are reshapable by stepping the body backwards.
+  `array-packed?` means consecutive-increasing from *any* body base, not a
+  zero base (#2314), so an `array-extract` view with an offset is packed.
+- **`array-extract` views keep absolute source coordinates**, never
+  resetting to 0-based, per the spec's worked example.
+- **`array-block` is two-phase** unlike everything else: full per-axis
+  width validation (`array-curry` + `array-permute` + `index-first`), then
+  cheap single-pencil probing for offsets (`index-last`).
+- **Where prose and sample code disagree, the prose governs** unless
+  there is positive reason to think it is in error. `array-inner-product`'s
+  prose omits an `array-curry` argument the code supplies — a confirmed
+  document error, to be corrected upstream, not overridden here.
+- **The c64/c128 checkers accept a bare real flonum**, and will therefore
+  disagree with Gambit forever: `(imag-part 1.0)` is `0.0` here and an
+  exact `0` there, an R7RS-versus-R6RS difference, not a SRFI 231 one.
+  `tools/srfi231_diff.py` draws those classes only on request. A
+  mixed-exactness complex (`1+2.0i`) is the same class of residual.
+
+SRFI 231 supersedes SRFI 179 with breaking changes, not as a superset;
+179 is excluded on that basis ([srfi-exclusions.md](srfi-exclusions.md)).
+The differential tester and its modes are in [testing.md](testing.md).
+The two incidents that produced the last two rules are
+[postmortems/2026-09-06-srfi231-callcc-reentry.md](postmortems/2026-09-06-srfi231-callcc-reentry.md)
+and
+[postmortems/2026-09-07-srfi231-sample-implementation.md](postmortems/2026-09-07-srfi231-sample-implementation.md).
 
 ### SRFI 139 — syntax parameters
 
@@ -1210,113 +1139,70 @@ than assuming the citations are stale.
 
 ### SRFI 211 — Scheme Macro Libraries
 
-SRFI 211 (Scheme Macro Libraries) and SRFI 213 (Identifier Properties)
-closed issue #1699, and are the codebase's first *procedural* macro
-transformers. `Transformer` gained a `kind` tag (syntax_rules / er_macro /
-lisp_macro) plus a GC-traced `proc` Value (`types.zig`; marked in all
-`gc_collect.zig` switches, deep-copied cross-thread). A transformer spec
-`(er-macro-transformer <expr>)` / `(lisp-transformer <expr>)` is
-recognized structurally in `resolveTransformerSpecRec` (hygiene-stripped
-head, like renamed special forms), and `<expr>` is evaluated AT
-MACRO-DEFINITION TIME in the global environment — deliberate phase
-separation; enclosing runtime locals are invisible — via
-`globals.eval_datum_for_macro`, one of four fn-pointer hooks the VM
-registers in `setVMInstance` (the expander/compiler cannot import vm.zig;
-the others are `call_proc_for_macro` and the SRFI 213 property get/set
-pair). Expansion routes through `expander.expandProceduralMacro`: the ER
-`rename`/`compare` arguments are freshly allocated NativeFns reading
-threadlocal per-invocation context (fresh scope id + the same
-save/restore discipline as the syntax-rules `active_*` context), and
-`rename` reuses `renameForHygiene` — so ER macros get exactly the hygiene
-strength syntax-rules templates have, including the shared pre-existing
-limitation that a use-site top-level redefinition of a referenced name
-reaches the expansion (verified equivalent on both paths). Since kaappi#2388
-(KEP-0006's resolved direction), `compare` is binding-aware
-free-identifier=? built from the same machinery syntax-rules literal
-matching uses — `UseSiteBindingCheck.resolve` for use-site binding slots,
-`rename`'s per-invocation scope-table identity entries to recognize the
-definition-side bare spelling, def-env-prefixed names agreeing with a
-use-site reference the use site can resolve to the same exported binding
-— which makes "an ER macro is exactly as hygienic as a syntax-rules one"
-(KEP-0018 unresolved question 6) a pinned guarantee for the
-auxiliary-keyword spellings (reserved forms and macro keywords, plus
-gensym-marked renames of any other spelling): the KEP-0006 four-quadrant
-test in `tests/scheme/srfi/srfi211.scm` asserts every quadrant against
-BOTH systems with the same expected value. The guarantee's boundary is
-pinned there too: spellings whose bare rename comes from
-renameForHygiene's other bare-returning branches (the VOID sentinel for a
-name defined later in the use-site body) keep compare's reflexive
-use-token view where a literal refuses — a pre-existing divergence.
-One approximation is inherent to
-interned symbols as syntax: a bare-rename product (reserved forms and
-keywords rename to themselves) is the same object as a use-site token of
-that spelling, so compare recognizes the classic
-`(compare <token> (rename 'kw))` shape from the invocation's rename
-record plus whether the spelling occurs in the macro-use input (a walk
-bounded by a node budget and depth cap — datum labels make inputs
-genuinely circular, kaappi#2404 — with exhaustion counting
-conservatively as occurrence) — order-independent, reflexive for two
-plain use-site tokens and for the invocation's own rename products
-whenever the spelling is absent from the input. The unsettled shape,
-stated plainly: a spelling that occurs in the input AND was bare-renamed
-this invocation, compared under a use-site local shadow — the refusal is
-free-identifier=?'s demanded answer when one argument is that input
-token, and known-wrong (broken reflexivity) when both arguments were the
-invocation's own rename products; a distinguishable wrapper for bare
-rename products would break the compiler's bare matching of the reserved
-forms macros emit. A
-bare-symbol
-reaches the expansion (verified equivalent on both paths). Since #2403,
-`rename` rejects a circular datum with a catchable, diagnosed condition
-instead of the old uncatchable GC root-stack abort: R7RS datum labels put
-genuine cycles in macro-use inputs, and `erRenameDatum` now walks with a
-visited-on-active-path set keyed on Object address (stable — this GC
-never moves objects; shared-but-acyclic `#1=` data still renames, only a
-back-edge is refused), reporting through `globals.set_error_detail_for_macro`
-— the write-side sibling of `error_detail_for_macro` — so the message
-survives `mapNativeError`. Two `compiler.collectSetTargets` guards were
-needed for that diagnosis to reach the user at all: the `set!` pre-scan
-expands macros best-effort, swallows the rejection, and then kept walking
-the same cycle — its spine walk now runs Floyd's tortoise-and-hare
-(exact, because every loop path advances exactly one cdr; the old
-let-syntax two-cdr jump became a sub-walk for exactly this reason) and
-its self-recursions charge the depth cap like every other descent, with
-the `SET_SCAN_SPINE_CAP` from kaappi#2404 keeping the let-syntax
-bindings loop (the one inner spine the tortoise does not cover) bounded. A bare-symbol
-spec falls back to a globals lookup holding a Transformer value, so
-`(define t (er-macro-transformer p))` + `(define-syntax m t)` works. Two
-non-obvious integration points: (1) `vm_imports.copyTransformerFreeRefs`
-copies a procedural transformer's WHOLE def_env at import (factored
-`copyOneDefEnvBinding` shared with the template scan) — its free
-references are computed by running code, so the whole environment is the
-honest static over-approximation of the template-scan copying
-syntax-rules macros get; without it, `(rename 'lib-helper)` output
-resolved at the definition site but died "undefined variable" at the use
-site. (2) SRFI 213's `capture-lookup` is the identity (its spec permits
-exactly this): the expander re-enters ANY procedural result that is a
-procedure with the property `lookup` NativeFn, looping (bounded) until a
-datum comes back — so wrapped and bare returns behave identically.
-`define-property` is a delegating compiler form (`FormKind.define_property`
-→ `compileDefineProperty`, auto-membered into
-`ir.eval_fallback_form_names`) storing into the VM-owned
-`syntax_properties` table (marked in `markVMRoots`, keys owned,
-effective-name keyed — nominal conformance like SRFI 57); body-scope use
-is rejected, top-level and library top-level work. The public surface is
-sub-library-only for 211 — `(srfi 211 explicit-renaming)` /
-`(srfi 211 define-macro)` / `(srfi 211 syntax-parameter)` (.slds over the
-`.srfi_211_primitives` registry entry; a bare `(srfi 211)` would require
-all eleven facilities including syntax-case, and the spec explicitly
-permits providing a subset of libraries, each whole) — plus
-`lib/srfi/213.sld`, whose `define-property` export is
-declaration-of-intent like SRFI 46/149's syntax-rules re-exports (export
-of a name missing from lib_env is silently skipped; recognition is
-ambient). The remaining 211 sub-libraries (syntax-case, low-level,
-syntactic-closures, implicit-renaming, variable-transformer,
-identifier-syntax, with-ellipsis, presyntax) need syntax objects,
-identifier macros, or output-provenance tracking a symbol-based expander
-cannot honestly provide — implicit renaming specifically cannot
-distinguish injected from macro-generated symbols when both are the same
-interned object.
+SRFI 211 and SRFI 213 (identifier properties) closed issue #1699 and are
+the codebase's first procedural macro transformers. The engine —
+`Transformer.kind`, `expandProceduralMacro`, how `rename` reuses
+`renameForHygiene` and `compare` reuses the literal-matching machinery, the
+four `globals.zig` hooks through which the expander reaches the VM, and
+definition-time evaluation of the spec in the global environment — is
+described in [expander.md](expander.md); the design record and its
+as-implemented divergences are KEP-0006. This note keeps what is specific
+to the libraries.
+
+**Surface.** Sub-library only: `(srfi 211 explicit-renaming)`,
+`(srfi 211 define-macro)`, `(srfi 211 syntax-parameter)`, each an `.sld`
+over the `.srfi_211_primitives` registry entry. A bare `(srfi 211)` would
+have to provide all eleven facilities including `syntax-case`, and the
+spec explicitly permits a subset of whole libraries. The other eight
+(`syntax-case`, `low-level`, `syntactic-closures`, `implicit-renaming`,
+`variable-transformer`, `identifier-syntax`, `with-ellipsis`, `presyntax`)
+need syntax objects, identifier macros, or output provenance a
+symbol-based expander cannot honestly provide; implicit renaming in
+particular cannot tell an injected symbol from a macro-generated one when
+both are the same interned object. `lib/srfi/213.sld` exports
+`define-property` as a declaration of intent, like SRFI 46/149's
+`syntax-rules` re-exports: recognition is ambient, and an export missing
+from `lib_env` is silently skipped.
+
+**Integration points that are easy to miss:**
+
+- A procedural transformer has no template to scan, so
+  `vm_imports.copyTransformerFreeRefs` copies its **whole** `def_env` at
+  import (`copyOneDefEnvBinding`, shared with the template scan) — the
+  honest static over-approximation of what a `syntax-rules` macro gets.
+  Without it, `(rename 'lib-helper)` output resolves at the definition
+  site and dies "undefined variable" at the use site.
+- A bare-symbol spec falls back to a global holding a `Transformer`, so
+  `(define t (er-macro-transformer p))` followed by `(define-syntax m t)`
+  works.
+- SRFI 213's `capture-lookup` is the identity, which its spec permits: the
+  expander re-enters any procedural result that is a procedure with the
+  property `lookup` native, looping (bounded) until a datum comes back, so
+  wrapped and bare returns behave identically. `define-property` is a
+  delegating compiler form (`FormKind.define_property`, auto-membered
+  into the eval-fallback set) storing into the VM-owned
+  `syntax_properties` table — marked in `markVmRoots`, owned keys,
+  effective-name keyed; top-level and library top-level only, body scope
+  rejected.
+- `compare` is binding-aware `free-identifier=?` since PR #2401 (issue
+  #2388). The four-quadrant test in `tests/scheme/srfi/srfi211.scm`
+  asserts every quadrant against both macro systems with the same
+  expected value, which pins "an ER macro is exactly as hygienic as a
+  `syntax-rules` one" for the auxiliary-keyword spellings. It also pins
+  the boundary: a spelling whose bare rename comes from one of
+  `renameForHygiene`'s other bare-returning branches (the `VOID` sentinel
+  for a name defined later in the use-site body) keeps `compare`'s
+  reflexive view where a literal refuses — a pre-existing divergence, and
+  the one shape a symbol expander cannot settle is stated in
+  [expander.md](expander.md).
+- `rename` on a circular datum (R7RS datum labels make macro-use inputs
+  genuinely cyclic) is a catchable, diagnosed condition since #2403,
+  reported through `globals.set_error_detail_for_macro` so the message
+  survives `mapNativeError`; the old behaviour was an uncatchable
+  root-stack abort. Getting that diagnosis to the user also needed the
+  `set!` pre-scan to stop walking the same cycle: its spine walk is
+  tortoise-and-hare and the `let-syntax` bindings loop is bounded by
+  `SET_SCAN_SPINE_CAP` (#2404).
 
 ### SRFI 241 and SRFI 202 — match and pattern and-let*, on explicit renaming
 
