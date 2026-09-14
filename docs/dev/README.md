@@ -42,6 +42,7 @@ investigation produced analysis worth keeping.
 | [fmt.md](fmt.md) | `kaappi fmt`: the canonical comment-preserving formatter — the CST reader, the layout rules, the round-trip safety net, `--check` |
 | [fuzzing.md](fuzzing.md) | Fuzzing runbook: the targets, the scheduled CI job, turning a failure into a regression test |
 | [github-actions.md](github-actions.md) | Workflow hardening rules: SHA-pinned actions, `persist-credentials: false`, least-privilege tokens |
+| [memory.md](memory.md) | The value model and the collector: NaN-boxing, the object header, allocation discipline, the minor/full cycle, the remembered set and its two feeders, the root set, SRFI 254 weak references, one heap per thread and the copy route, the use-after-free and OOM debug machinery |
 | [gc-safety-and-error-handling.md](gc-safety-and-error-handling.md) | Rooting, write barriers, and error propagation patterns contributors must follow |
 | [thread-value-sharing.md](thread-value-sharing.md) | What may cross an SRFI-18 thread boundary: the copy route vs. the globals route, what each one checks, the per-type matrix |
 | [diagnostics.md](diagnostics.md) | Diagnostic `KP` codes: the registry, the taxonomy, the stability policy, how to add a code |

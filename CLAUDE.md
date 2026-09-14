@@ -412,11 +412,11 @@ library and vendored code are excluded).
   thread gets its own VM and GC with an independent heap. A value reaches
   another thread by one of **two routes with separate, unrelated enforcement**:
   the **copy route** (deep copy at thread start, join, and channel messages;
-  `gc_deep_copy.zig` refuses 14 tags) and the **globals route**
+  `gc_deep_copy.zig` refuses 12 tags) and the **globals route**
   (`VM.initForThread` shares the root's `globals` map *by pointer* — every
   thread chains to the same map its ancestors use, kaappi#2129 — so
   naming a top-level binding gets the root's own uncopied object — that list
-  of 14 does not apply, and only four types defend themselves via
+  of 12 does not apply, and only four types defend themselves via
   `Object.owner`). Consequence worth memorizing: **mutexes and condition
   variables must be shared through a global; channels must be captured
   lexically** — exactly inverted. Mutating shared state through a global is a

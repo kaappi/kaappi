@@ -314,6 +314,7 @@ linked list**.
 
 Orchestration and marking live in `gc_collect.zig`, the sweep phase in
 `gc_sweep.zig`; `memory.zig` holds the `GC` struct and aliases both in.
+[memory.md](memory.md) is the full description.
 
 ### Root tracking
 

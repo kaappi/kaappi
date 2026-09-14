@@ -6,7 +6,9 @@ garbage collection pressure and to propagate errors consistently.
 The terse checklist version of the GC rules lives in
 `.claude/rules/gc-safety.md` (auto-loaded by the Claude Code harness when
 editing GC-sensitive files). This document is the rationale behind those
-rules — keep the two in sync.
+rules — keep the two in sync. The collector itself — the generational
+cycle, the remembered set's feeders, the root set, weak references, the
+child-thread protocol — is described in [memory.md](memory.md).
 
 ---
 

@@ -58,14 +58,19 @@ moving `ffi-library`/`ffi-function` out of the aliased class and into the
 |---|---|---|
 | **copied** | a fresh object in the destination heap | pairs, vectors, strings, records, `native-fn`, `ffi-library`, `ffi-function`, `file-info`/`user-info`/`group-info`, `srfi18-time`, `random-source`, … |
 | **aliased** | the source object, by pointer, after promotion + refcount + an ownership check | `channel` only |
-| **refused** | `error.UncopyableType` | the eleven below |
+| **refused** | `error.UncopyableType` | the twelve below |
 
-`gc_deep_copy.zig` refuses eleven tags outright:
+`gc_deep_copy.zig` refuses twelve tags outright:
 
 ```text
 port  continuation  fiber  mutex  condition_variable  ffi_callback
-directory_object  scheme_environment  ephemeron  guardian  transport_cell
+directory_object  scheme_environment  process  ephemeron  guardian
+transport_cell
 ```
+
+`process` is thread-affine (KEP-0022): its pid and reaping bookkeeping
+belong to the scheduler of the thread that spawned it, and like `channel`
+it is also owner-checked at every primitive.
 
 `file-info`, `user-info` and `group-info` used to sit here too; they are
 pure value records (scalars plus owned string bytes, like `SchemeString`)
