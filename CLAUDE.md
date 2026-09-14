@@ -513,6 +513,11 @@ belongs there. Per-PR entries were tried twice as a CI gate (dropped
 in #2103, restored in #2475, dropped again) and both times every concurrent
 PR conflicted on the same few lines at the top of one file.
 
+Entries are one line each, and only the current minor series lives in
+`CHANGELOG.md`: when `X.Y.0` opens a new series, Step 3 moves the previous
+one to `changelog/X.(Y-1).md`. Both rules exist because the file had grown
+to 300 KB of paragraph-length entries in three months.
+
 ## Issue tracker
 
 **Every issue you file or triage gets exactly one `priority:` label** —
