@@ -21,6 +21,7 @@ investigation produced analysis worth keeping.
 | [vision.md](vision.md) | Why Kaappi exists, what it values, how those values guide decisions |
 | [architecture.md](architecture.md) | Major subsystems: pipeline, value representation, VM, GC, file organization |
 | [ir.md](ir.md) | Compiler IR: 18 node types, the tail-position analysis pass, optimization passes |
+| [reader.md](reader.md) | The datum reader: the grammar and the `#` forms, the SRFI extensions in and out, the reader/numeric-tower boundary, datum labels and cyclic data, source spans, the incomplete-input invariant behind `read` and the REPL, the rooting shapes, `KP1xxx` |
 | [expander.md](expander.md) | The macro expander: rename-on-instantiate hygiene in the symbol name, the scope-id flag bits, `renameForHygiene`'s decision order, the usertext marker, the `syntax-rules` engine, SRFI 211 `rename`/`compare`, how the compiler finishes hygiene, the depth/step limits, the `set!` pre-scan |
 | [vm.md](vm.md) | The bytecode VM: the frame/register model, the calling convention and tail calls, re-entering the VM from a native and the three rules that follow, continuations and `resumesHere`, dynamic state, the catchable/uncatchable contract, entry points, the GC root marker |
 | [observing-the-pipeline.md](observing-the-pipeline.md) | `kaappi ast` / `expand` / `ir` / `--disassemble`: read-only dumps of every stage between source and bytecode |
