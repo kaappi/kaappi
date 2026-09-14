@@ -1,7 +1,9 @@
 # Bytecode
 
 Instruction set reference and disassembler. The single source of truth for
-the ISA — the `/bytecode-isa` skill points here.
+the ISA — the `/bytecode-isa` skill points here. How the instructions
+execute — frames, the calling convention, continuations, errors — is
+[vm.md](vm.md).
 
 ## Instruction set
 
