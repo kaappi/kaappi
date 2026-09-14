@@ -663,14 +663,20 @@ jobs:
     env:
       # Total bisection pot per chunk step, seconds (27m); see the comment
       # above. Sized from the first descent the pot itself cut short
-      # (kaappi#2488, run 34863343107, rest chunk): depth 1 ran to its full
+      # (kaappi#2488, run 34863343107 ATTEMPT 1, rest chunk -- the re-run
+      # attempt passed, and `gh run view` shows only the latest attempt,
+      # so fetch attempt 1's log to re-verify): depth 1 ran to its full
       # 628s estimate and wedged, depths 2-4 completed in 130s, 175s and
       # 106s, and the previous 18m (1080s) pot then had 37s left -- under
       # the 40s level floor -- with three suspects unsplit
-      # (tests_exceptions, tests_ffi, tests_gc_worklist). Finishing that
-      # descent costs at most three more levels at their full estimates,
-      # 166s + 136s + 124s = 426s on top of the 1043s spent, i.e. 1469s;
-      # 1620s funds it with ~150s to spare. The per-test bound used during
+      # (tests_exceptions, tests_ffi, tests_gc_worklist). The three
+      # 2026-09-09 kills (runs 34363328716, 34370359849, 34379866388)
+      # descended the same way to the same suspects and were cut short by
+      # the pot at depth 5 instead. Finishing that descent costs at most
+      # three more levels at their full estimates, 166s + 136s + 124s =
+      # 426s on top of the 1043s spent, i.e. 1469s; 1620s funds it with
+      # ~150s to spare (~110s if a clipped level is wasted first, as on
+      # 2026-09-09). The per-test bound used during
       # bisection levels (90s) and the rest of the knobs are the chunk
       # script's own defaults.
       KAAPPI_BISECT_BUDGET: "1620"

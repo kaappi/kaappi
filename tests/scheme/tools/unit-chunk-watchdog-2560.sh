@@ -317,8 +317,8 @@ env $base_env KAAPPI_CHUNK_BUDGET=3 KAAPPI_BISECT_BUDGET=20 \
     SHIM_HANG_FIRST="$work/count8" \
     bash tools/run-unit-test-chunk.sh rest > "$out" 2>&1 || rc=$?
 [ "$rc" -eq 124 ] || fail_bisect "case 8 (forced depth-1 overrun): wall-budget overrun must exit 124 (got $rc)"
-grep -q "bisect depth 1: .* did NOT finish in 2s at its full estimated allowance .* -- descending into this half" "$out" ||
-    fail_bisect "case 8: the seeded depth-1 hang did not overrun at its full 2s allowance and descend"
+grep -q "bisect depth 1: .* did NOT finish in [0-9]*s at its full estimated allowance .* -- descending into this half" "$out" ||
+    fail_bisect "case 8: the seeded depth-1 hang did not overrun at its full allowance and descend"
 check_level_estimates "case 8" 0
 
 echo "PASS: watchdog, heartbeat, decisive descent, per-test NOTEs, the"

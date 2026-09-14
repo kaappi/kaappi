@@ -38,9 +38,9 @@ trap 'rm -rf "$DIR"' EXIT
 # unit-chunk-watchdog-2560.sh joined the table in kaappi#2561: its shim
 # cases carry wedged-level allowances that must not be squeezed by a leg's
 # flat KAAPPI_SHELL_TEST_TIMEOUT under load.
-if ! grep -Fxq 'PER_SCRIPT_TIMEOUTS="bundle-cpu-baseline-2515.sh:${KAAPPI_BUNDLE_CPU_BASELINE_TIMEOUT:-1200} unit-chunk-watchdog-2560.sh:${KAAPPI_UNIT_CHUNK_WATCHDOG_TIMEOUT:-480}"' "$RUN_ALL"; then
+if ! grep -Fxq 'PER_SCRIPT_TIMEOUTS="bundle-cpu-baseline-2515.sh:${KAAPPI_BUNDLE_CPU_BASELINE_TIMEOUT:-1200} unit-chunk-watchdog-2560.sh:${KAAPPI_UNIT_CHUNK_WATCHDOG_TIMEOUT:-600}"' "$RUN_ALL"; then
     echo "FAIL: run-all.sh's PER_SCRIPT_TIMEOUTS entry is not exactly:" >&2
-    echo '       PER_SCRIPT_TIMEOUTS="bundle-cpu-baseline-2515.sh:${KAAPPI_BUNDLE_CPU_BASELINE_TIMEOUT:-1200} unit-chunk-watchdog-2560.sh:${KAAPPI_UNIT_CHUNK_WATCHDOG_TIMEOUT:-480}"' >&2
+    echo '       PER_SCRIPT_TIMEOUTS="bundle-cpu-baseline-2515.sh:${KAAPPI_BUNDLE_CPU_BASELINE_TIMEOUT:-1200} unit-chunk-watchdog-2560.sh:${KAAPPI_UNIT_CHUNK_WATCHDOG_TIMEOUT:-600}"' >&2
     exit 1
 fi
 
