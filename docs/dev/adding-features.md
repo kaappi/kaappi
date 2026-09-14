@@ -441,50 +441,20 @@ Create both unit tests (allocation, GC survival) and Scheme tests.
 
 ## GC Safety Rules
 
-The garbage collector can run during any heap allocation. If you hold a
-pointer to a heap object and then allocate, the pointer may be invalidated.
+The garbage collector can run during any heap allocation, so a `Value` held
+in a Zig local across an allocating call must be rooted first. The rules
+live in one place — do not copy them here:
 
-### The pushRoot/popRoot pattern
+- [gc-safety-and-error-handling.md](gc-safety-and-error-handling.md) — the
+  full rationale: rooting, write barriers, the LIFO `popRoot` footgun,
+  `vm_instance`, the root-stack boundary reset, and how to inject an OOM.
+- `.claude/rules/gc-safety.md` — the terse checklist the Claude Code harness
+  auto-loads when editing primitives, memory, or VM files.
 
-```zig
-// UNSAFE: second allocation might move `first`
-var first = try gc.allocPair(a, b);
-var second = try gc.allocPair(c, d);  // GC might run here!
-// `first` might now be a dangling pointer
-
-// SAFE: root `first` before the second allocation
-var first_val = try gc.allocPair(a, b);
-gc.pushRoot(&first_val);
-var second = try gc.allocPair(c, d);  // GC runs, but first_val is rooted
-gc.popRoot();
-// `first_val` is still valid
-```
-
-### Rules
-
-1. **Always root Values before allocating.** If you hold a `Value` that points
-   to a heap object and you're about to call any function that might allocate
-   (including `vm.execute()`), root it first.
-
-2. **Pops must be LIFO.** `pushRoot`/`popRoot` calls are a stack. Always pop
-   in reverse order of pushes.
-
-3. **Root Function pointers before execute.** The VM's `execute()` wraps the
-   function in a closure internally, which allocates:
-
-   ```zig
-   var func_val = types.makePointer(&func.header);
-   gc.pushRoot(&func_val);
-   const result = vm.execute(func) catch |err| {
-       gc.popRoot();
-       return err;
-   };
-   gc.popRoot();
-   ```
-
-4. **Root across any Scheme callback.** Procedures like `map` and `for-each`
-   that call Scheme functions must root any values they need after the callback
-   returns.
+The three rules most often broken while following the walkthroughs above:
+root a fresh result before the next allocation, root the `Function*` before
+`vm.execute()`, and never `defer gc.popRoot()` across a stretch that itself
+pushes a root.
 
 ---
 

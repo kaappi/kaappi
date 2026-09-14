@@ -38,15 +38,15 @@ interacting with continuations, `syntax-rules` with nested ellipsis, proper
 Unicode case-folding in identifiers — is where implementations diverge from the
 standard. Kaappi does the last 10%.
 
-This extends to the ecosystem: 74 SRFIs, a C FFI, a package manager, TCP/TLS
+This extends to the ecosystem: 181 SRFIs, a C FFI, a package manager, TCP/TLS
 networking, database clients, a web framework. A language is only as useful as
 the things you can build with it without leaving it.
 
 ### 3. Transparency over magic
 
 The runtime should be understandable. The full pipeline — reader, expander,
-compiler, VM, GC — fits in ~39k lines of Zig across files that stay under
-1500 lines each. There are no generated parser tables, no hidden
+compiler, VM, GC — fits in ~115k lines of Zig (tests excluded) across files
+that stay under 1500 lines each. There are no generated parser tables, no hidden
 meta-compilation steps, no dependencies beyond libc and a vendored line-editing
 library.
 
