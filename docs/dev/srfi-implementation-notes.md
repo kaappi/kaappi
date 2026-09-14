@@ -452,6 +452,61 @@ using a single unconditional `defer` instead (the pattern
 1` plus a later, unguarded `X -= 1` of the same reentrancy counter) is
 worth grepping for if `no_collect`-style guards are touched again elsewhere.
 
+### SRFI 150 — Hygienic ERR5RS Record Syntax
+
+SRFI 150 extends SRFI 131 (`lib/srfi/131.sld`, its runtime substrate) with
+hygienic field-name matching, non-identifier field names, and accessor-name
+field references in constructor specs. `lib/srfi/150.sld` binds the type
+name directly to an ordinary runtime record-type descriptor, exactly as SRFI
+131 does — inheritance and field/accessor/mutator resolution, including
+multi-level shadowing, happen at run time through SRFI 237's by-name
+introspection. The one thing SRFI 131 lacks, hygienic matching of field and
+accessor names in named constructor specs, is done at expansion time with
+SRFI 213 identifier properties: each `define-record-type` use attaches its
+field/accessor-name pairs to the type name with `define-property`, a child
+reads its parent's with `lookup`, and because `lookup` is reachable only
+from a procedural transformer, `define-record-type` is a SRFI 211
+`er-macro-transformer` rather than an `em-syntax-rules` macro.
+
+Three rules to keep when editing the transformer, each the fix for a
+shipped defect (kaappi#2051):
+
+* **Field identity is resolved entirely at expansion time and never
+  round-trips through `quote`.** `compileQuote` strips the `__hyg_N_`
+  rename from every quoted datum (correctly — a template's `'foo` must
+  yield `foo`), so a hygienic symbol stored as data collapses with its
+  same-spelled use-site twin. A constructor spec entry matches the form's
+  own fields by full spelling (same template identifier, same gensym —
+  this engine's `bound-identifier=?`), then inherited fields by
+  hygiene-stripped spelling against the parent's stored property
+  (`free-identifier=?` for the top-level bindings a parent's field name
+  refers to), and resolves to an absolute index into the
+  inherited-then-own field layout. `named-constructor` fills the record by
+  index; no by-name lookup happens at run time.
+* **Runtime field names are stripped spellings**, deduped with a numeric
+  suffix when two own fields strip to the same name; a non-identifier
+  constant field name gets a generated `field-<index>` (the rtd layer
+  needs a symbol). An own field matching an inherited field's stripped
+  spelling is deliberately not deduped — that is ordinary shadowing,
+  resolved own-fields-first at run time. The property table stores the
+  parent's total field count plus an alist of stripped-spelling keys to
+  absolute indices, never a renamed symbol.
+* **The type-name binding is also emitted hygiene-stripped.** A
+  macro-introduced `__hyg_N_<t>` whose base `<t>` is an already-bound
+  global is intercepted by the kaappi#1832 referential-transparency alias,
+  which loads the pre-existing global's value even inside the expansion
+  that defines it, so accessors would bind against the old record type
+  when a macro redefines a type name. The type name is a define target,
+  not a free reference; the stripped spelling rebinds the global like any
+  top-level redefinition (R7RS 5.3.1) and matches what SRFI 131 emits.
+
+The reference suite passes in full; `tests/scheme/srfi/srfi150.scm` adds
+the discriminating controls from kaappi#2051 (the no-binding variant, the
+non-colliding-spelling control, constant field names, the quoted
+`__hyg_`-strip note). The two rejected designs, the two "engine bugs" that
+were not, and the `cadar` red herring are in
+[postmortems/2026-07-28-srfi150-hygienic-field-identity.md](postmortems/2026-07-28-srfi150-hygienic-field-identity.md).
+
 ### SRFI 192 — port positioning
 
 SRFI 192 (port positioning) is built-in:
@@ -705,8 +760,8 @@ test. `array-ref`/`array-set!` also accept a single packed index that is a
 vector or a 0-based 1-dimensional array (dispatched by argument count and
 type), and `array-set!`'s new-value argument is the *last* argument after all
 indices — the opposite convention from SRFI 47/63, which is the documented
-reason those two lineages don't compose (see the "Of the 208 final SRFIs"
-paragraph above).
+reason those two lineages don't compose (see SRFI 47's entry in
+[srfi-exclusions.md](srfi-exclusions.md)).
 
 ### SRFI 164 — enhanced multi-dimensional arrays
 
@@ -1016,201 +1071,6 @@ SRFI 179 (its own abstract: "a revised and improved version of SRFI 179") with
 acknowledged breaking changes, not a strict superset — see
 `docs/dev/srfi-exclusions.md` for specifics; 179 is excluded on that basis.
 
-## Library loader
-
-The library loader in `vm_library.zig` supports `cond-expand`, `include` (paths resolved relative to the .sld file), and `(export (rename ...))` in `define-library`. Macro transformers defined with `define-syntax` in library `begin` blocks are exported and imported correctly.
-
-## Coverage, closed issue groups, and the exclusion breakdown
-
-Of the final SRFIs in the registry, 181 are implemented (the count in "What
-ships" above) and 30 are excluded — see `docs/dev/srfi-exclusions.md` for the full rationale. Issue #1699
-("Implement SRFI macro & syntax extension libraries") is now fully
-closed: 139 and 149 needed no engine changes and shipped directly, 147
-(custom macro transformers) needed one, 148 (eager syntax-rules) — the
-group's hardest portable case — shipped over 147's mechanism once six
-separate engine bugs it surfaced were fixed, 211 and 213 shipped last on
-the procedural-transformer mechanism (see their own paragraph below), and
-72 was excluded: the issue table's "explicit renaming macros" note was a
-mislabel — SRFI 72 is van Tonder's *replacement* macro system (evaluated
-transformer expressions over syntax objects, a novel hygiene rule,
-begin-for-syntax phasing), incompatible with R7RS's structural
-transformer-spec grammar and this symbol-based expander, while the ER
-facility actually wanted is exactly `(srfi 211 explicit-renaming)`.
-
-### SRFI 150 — Hygienic ERR5RS Record Syntax
-
-SRFI 150 (Hygienic ERR5RS Record Syntax, issue #1810) was retired from
-`docs/dev/srfi-exclusions.md` once its own stated blockers (SRFI 147 and
-148) shipped, and needed three implementation attempts to land. It
-extends SRFI 131 (`lib/srfi/131.sld`, its shared runtime substrate) with
-hygienic field-name matching, non-identifier field names, and accessor-
-name field references in constructor specs. The first two attempts —
-porting the reference's own SRFI 137 `make-subtype` closures directly,
-then a from-scratch rewrite using a `:secret`-style descriptor macro over
-SRFI 237 — both used the same general shape (a child type's expansion
-queries a parent macro's own protocol for its record-type-descriptor via
-a nested macro call) and both broke once more than one such query
-relationship existed side by side in the same program, isolated to two
-apparent `em-syntax-rules` engine bugs along the way (kaappi#1828 and
-kaappi#1829 — both since determined NOT to be engine bugs). kaappi#1829
-turned out not to be an expander bug of its own at all: because the CK
-machine builds its output as plain data, a macro-generated top-level
-`define` lands under its BARE name, so the next expansion's own reference
-to it was a free reference to an already-bound non-procedure global —
-exactly the referential-transparency collision of kaappi#1832, which
-kaappi#1839's hygiene rename closed for both;
-`tests/scheme/hygiene/macro-fresh-global-readback-1829.scm` guards that
-shape directly. kaappi#1828 also turned out not to be an engine bug: its
-own repro's final (non-`=>`) template was left unquoted while calling an
-ordinary procedure, which SRFI 148's own spec documents as an error case,
-unrelated to the "bound variable as a later step's operator" framing it
-was filed under — `lib/srfi/148.sld`'s header and
-`tests/scheme/hygiene/em-syntax-rules-operator-chain-1828.scm` confirm the
-operator-position mechanism itself works correctly, including 3 levels of
-chaining. Whether the two rejected attempts above would have succeeded
-without this same misunderstanding is not re-tested. The third, shipped
-design avoids the whole query-macro pattern regardless, so it is unaffected
-either way: the type name is bound directly to an ordinary runtime record-type-
-descriptor exactly as in SRFI 131 (inheritance and field/accessor/
-mutator resolution, including multi-level shadowing, handled entirely at
-run time by SRFI 237's own by-name introspection), and the one piece
-SRFI 131 doesn't have — hygienic field/accessor-name matching for named
-constructor specs — uses SRFI 213 (identifier properties) instead of a
-query macro: each `define-record-type` use attaches its own field/
-accessor-name pairs to the type name via `define-property`, a child
-reads its parent's via `lookup`, and `lookup` is only reachable from a
-procedural transformer, so `define-record-type` itself is a SRFI 211
-`er-macro-transformer` rather than an `em-syntax-rules` macro. (The
-matching and index resolution themselves happen entirely inside that
-transformer — see the kaappi#2051 paragraph below, which replaced an
-earlier scheme that stored field-name symbols in the property table and
-compared them by plain `equal?` on the raw, hygiene-renamed spelling.
-That scheme was unsound: quoted data strips the rename, so the stored
-symbols collapsed across hygienically-distinct fields.) This design
-surfaced the library global-resolution
-bug fixed in kaappi#1831, which first presented as `cadar` specifically —
-not `caar`/`cadr`/`cddr`, and not its own unrolled spelling
-`(cadr (car x))` — failing when called from a helper function invoked
-during an `er-macro-transformer`'s expansion. The `cadar` framing was a
-red herring on two counts: `cadar` is a `(scheme cxr)` name
-`lib/srfi/150.sld` never imports while its apparent siblings there are
-`(scheme base)` names already in lib_env, and the file's one other
-cxr-only name (`cdddr`) sits inside the transformer's own lambda, which
-is evaluated at macro-definition time in the global environment and so
-never consults lib_env at all. The real rule was tail vs. non-tail
-position (see the SRFI 237 paragraph above); the idiomatic `cadar`
-spelling is back in `field-alist-ref`.
-
-SRFI 150's own final design (kaappi#2051) then had to be reworked twice:
-field identity was originally carried from expansion time to run time
-inside `quote`, on the theory that the engine's rename-by-spelling
-hygiene representation made the stored symbol's full spelling a sufficient
-runtime key. It is not: the compiler strips a `__hyg_N_` rename from any
-quoted datum (`compileQuote`'s `stripHygieneFromDatum`, which is correct
-and required — a `syntax-rules` template's `'foo` must yield `foo`, not
-`__hyg_1_foo`), so two hygienically-distinct field identifiers whose
-spellings strip to the same name (a macro template's own field-name
-literal and the same-spelled identifier the use site supplies, e.g.
-`__hyg_2_a` and `a`) collapsed into one runtime field. All four of the
-reference suite's hygiene assertions failed on it, and the defect was
-misattributed to kaappi#1832 (a pre-existing top-level binding of the
-colliding spelling is NOT required — the no-binding control fails
-identically). The current design therefore resolves field identity
-ENTIRELY at macro-expansion time, while the renamed symbols are still in
-hand, and never round-trips a hygienic symbol through `quote`:
-
-* A constructor spec entry matches the current form's own fields by
-    FULL spelling (same template identifier, same gensym — this engine's
-    bound-identifier=?), then inherited fields by hygiene-STRIPPED
-    spelling against the parent's stored property (free-identifier=? for
-    the top-level bindings a parent's field name actually refers to), and
-    resolves to a numeric ABSOLUTE index into the full
-    (inherited-then-own) field layout. `named-constructor` fills the
-    record's field vector by index; no by-name lookup happens at run
-    time.
-* Each own field gets a runtime name for the record-type-descriptor
-    and accessor/mutator creation: its stripped spelling, deduped with a
-    numeric suffix when two own fields strip to the same name (the
-    Hygiene 1 shape); a non-identifier constant field name gets a
-    generated `field-<index>` name (the rtd layer requires a symbol). An
-    own field matching an inherited field's stripped spelling is
-    deliberately NOT deduped — that is ordinary shadowing, resolved
-    own-fields-first at run time.
-* The property table stores the parent's total field count plus an
-    alist of stripped-spelling KEYs to absolute indices — keys and
-    indices only, no renamed symbols.
-
-One separate hazard surfaced while re-enabling the tests: the emitted
-type-name binding is also emitted hygiene-STRIPPED, because a
-macro-introduced `__hyg_N_<t>` reference whose base `<t>` is an
-already-bound global is intercepted by the #1832 referential-transparency
-alias (it loads the PRE-EXISTING global's value for every such reference,
-even inside the same expansion that defines it), so the accessors would
-bind against the old record type when a macro redefines an already-bound
-type name. The type name is a define target, not a genuinely free
-reference, so the stripped spelling is the correct emission — it rebinds
-the global like any top-level redefinition (R7RS 5.3.1) and matches what
-SRFI 131 emits for its type names. The reference suite now passes in
-full; `tests/scheme/srfi/srfi150.scm` adds the issue's discriminating
-controls (the no-binding C5 variant, the non-colliding-spelling C6
-control, constant field names, and the quoted-`__hyg_`-strip note) as
-regression tests. Issue #1694 (the
-numeric-vector and array family) is now fully closed: the vector-family
-subset — 4 (already shipped pre-Phase-4, just undocumented until Phase 4
-Slice 4), 160, 66, 74 — shipped in Phase 4 Slice 4 on one shared native
-substrate (`types.NumericVector`); the array family — 25 (Slice 5), 164
-(Slice 6), 63 (Slice 7, with 47 excluded as superseded), and finally 231
-(Slices 8–13, 118 bindings across 6 phases: misc+intervals, storage
-classes, core array object, views/sharing/reshaping, bulk
-combinators/conversions, multi-array assembly — a three-tier
-array/mutable-array/specialized-array model with no textual relationship
-to 25/164/63 at all, merged into a public `lib/srfi/231.sld` re-export hub
-in the final step, which also moved SRFI 179 from tracked to excluded as
-231's own designated, if not fully backward-compatible, successor) — is
-fully shipped too, leaving only SRFI 58's reader/writer array-literal
-syntax excluded (its stated blocker — no typed array infrastructure to
-build on — no longer holds at all now that SRFI 4/160/25/164/63/231 exist,
-worth re-examining if 58 is ever picked up). #1695 was fully closed
-earlier in Phase 4: 57/131/136/137/237/240 shipped, 99/100/150
-excluded. #1699 (minus what Phases 1–3 closed) and #1729, which completed
-SRFI 181's transcoded-port half — custom ports landed separately in
-Phase 3, #1727 — plus issues #1703 and #1702, were all closed in full in
-Phase 4 as well.
-`docs/dev/srfi-exclusions.md`'s 30 excluded break down as: 7 meta/ecosystem SRFIs
-already covered by existing features, 11 non-standard reader syntax SRFIs
-that would fundamentally alter the parser, reinterpret already-valid syntax,
-or need typed-array infrastructure that doesn't exist, 6 macro-system-
-dependent SRFIs — 206 and 212, whose own spec text states a portable
-syntax-rules-only implementation isn't possible; 89, whose reference
-implementation needs the same non-hygienic macro power for a different
-reason (discriminating a keyword-shaped parameter from a symbol-shaped one
-during pattern matching); 99 and 100, both needing identifier synthesis
-(`make-<name>`, `<name>?`, etc.) from string concatenation at macro-expansion
-time, which `syntax-rules` cannot perform — SRFI 131 (implemented) is
-specifically 99's syntax-rules-expressible reduced subset; and 72, a
-complete replacement macro system (arbitrary transformer expressions
-evaluated at expansion time over a syntax-object type with its own hygiene
-rule and phase tower) incompatible with R7RS's structural transformer-spec
-grammar and this symbol-based expander (150, formerly this group's sixth
-member, moved back to tracked — issue #1810 — once its stated blockers
-SRFI 147+148 shipped) — 1 SRFI — 208 — whose own spec text states the same
-about raw NaN bit-pattern access, which Kaappi's NaN-boxing value
-representation makes categorically unrepresentable, 1 SRFI — 106 — redundant
-with the `kaappi-net` ecosystem package's existing, broader-scoped socket
-support, 2 concurrency-model-incompatible SRFIs — 21 and 230 — which need
-a userspace-scheduled thread model and cross-heap shared mutable memory
-(respectively) that Kaappi's OS-native-thread,
-independent-heap-per-thread SRFI-18 doesn't have, and 2 SRFIs — 47 and
-179 — superseded outright by their respective successors: 47's own page
-states the supersession by SRFI 63 directly, with 63's procedure set a
-strict superset of 47's with identical signatures throughout; 179's
-successor SRFI 231 states in its own abstract "This is a revised and
-improved version of SRFI 179," though — unlike 47/63 — it is a breaking
-revision, not a strict superset (see `docs/dev/srfi-exclusions.md` for
-the specific incompatibilities).
-
-## The macro & syntax extension group (issue #1699)
-
 ### SRFI 139 — syntax parameters
 
 SRFI 139 (syntax parameters) is the first piece of issue #1699 (SRFI
@@ -1263,176 +1123,56 @@ its own.
 
 ### SRFI 147 — custom macro transformers
 
-SRFI 147 (custom macro transformers) is the third piece of issue #1699 to
-ship, and the first that genuinely needed an engine change: R7RS's
-`<transformer spec>` only accepts a literal `(syntax-rules ...)` form,
-and 147 extends it to also accept a macro use that itself expands
-(possibly through several steps) to one -- letting a library define its
-own transformer-generating-transformer, e.g. the spec's own worked
-example, a `syntax-rules*` that auto-wraps multi-form templates in
-`begin`. `compileDefineSyntax`/`compileLetSyntax`/`compileLetrecSyntax`
-(`compiler_define_syntax.zig`) now route every transformer-spec through a new
-`resolveTransformerSpec`, which expands a non-literal spec via the same
-`expander.expandMacro` every ordinary macro call already goes through,
-looping (depth-bounded) until it bottoms out at a literal `syntax-rules`
-form. The grammar's other two new alternatives -- a bare keyword aliasing
-an existing one, and a macro use expanding to `(begin <definition>...
-<transformer-spec>)` -- were initially deferred as unneeded by SRFI 148
-(the reason 147 was implemented), then shipped in a same-week follow-up
-once tracing SRFI 148's actual reference implementation (not just its
-spec prose) showed its core `em-syntax-rules-aux1`/`em-syntax-rules-aux2`
-mechanism bottoms out through exactly `(begin (define-syntax a spec) a)`
--- a helper definition followed by a bare reference to it, needing both
-alternatives together. `resolveTransformerSpecRec`'s contract changed
-accordingly: it now returns an already-parsed `Transformer` (not raw
-`syntax-rules` source), because the bare-symbol alias case has no source
-to hand back, only a `Transformer` an earlier step already parsed --
-looked up directly in the same `merged_macros` map the resolution loop
-already threads through. Aliasing a builtin special form still correctly
-falls through to `InvalidSyntax`: builtins are recognized structurally in
-`ir_mod.isSpecialForm`, never stored as `Transformer` values in that map,
-so there is nothing for a bare-symbol lookup to find.
+SRFI 147 was the first piece of issue #1699 that needed an engine change.
+R7RS's `<transformer spec>` accepts only a literal `(syntax-rules ...)`;
+SRFI 147 also accepts a bare keyword aliasing an existing macro, a macro use
+that expands (possibly in several steps) to a transformer spec, and one that
+expands to `(begin <definition>... <transformer-spec>)`. SRFI 148 is the
+reason all three exist here: its `em-syntax-rules-aux1`/`aux2` core bottoms
+out through exactly `(begin (define-syntax a spec) a)`.
 
-Verifying this against just its own worked example wasn't enough --
-`bash tests/scheme/run-all.sh` caught two real, generalizable bugs that no
-amount of SRFI-147-specific testing alone would have found, since both
-needed a macro-heavy, multi-scope program to manifest:
+How it is implemented (`compiler_define_syntax.zig`):
 
-1. **A LIFO root-stack violation.** An early draft rooted the resolved
-   spec via `pushRoot` + `defer popRoot()` around the (allocating)
-   `parseSyntaxRules` call inside `compileLetSyntax`'s per-binding loop.
-   The SAME loop iteration pushes an unrelated root for its own result
-   array entry right after -- so by the time the deferred call fired (end
-   of that iteration), it popped the wrong (most recently pushed) entry
-   off the stack instead of the one it was meant to protect, silently
-   unrooting the actual transformer object. This surfaced only in
-   `tests/scheme/srfi/srfi257.scm` -- a heavily macro-based library --
-   as a "invalid syntax" error with no apparent connection to the real
-   cause, and never in any of this SRFI's own smaller tests. Fixed by
-   popping immediately and explicitly right after the specific call being
-   protected, never via `defer` across a stretch that itself calls
-   `pushRoot` -- now documented as its own rule in
-   `.claude/rules/gc-safety.md`, whose glob also grew to cover
-   `compiler*.zig`/`expander.zig`, which it hadn't before despite both
-   doing GC-sensitive work directly.
-2. **A parent-scope-chain visibility gap.** `resolveTransformerSpec`'s
-   macro lookup originally checked only `self.macros`, unlike the
-   established macro-CALL-expansion path (`expandAndCompileMacroUse`),
-   which explicitly merges every ancestor `Compiler` scope's macros before
-   looking anything up -- because a nested child scope (e.g. a
-   `let-syntax` whose body sits inside `guard`'s desugared lambda, as
-   SRFI 64's own `test-equal` produces) never automatically inherits an
-   enclosing scope's macros into its own map. A `syntax-rules*`-based
-   transformer-spec placed anywhere but the outermost scope was wrongly
-   rejected as "not a macro" until this was fixed to merge the same way.
+* `compileDefineSyntax`/`compileLetSyntax`/`compileLetrecSyntax` route
+  every transformer spec through `resolveTransformerSpec`, which expands a
+  non-literal spec with the same `expander.expandMacro` an ordinary macro
+  call uses and loops, depth-bounded, until it reaches a literal spec.
+  `resolveTransformerSpecRec` returns an already-parsed `Transformer`, not
+  source: the bare-alias case has no source to hand back, only a
+  `Transformer` looked up in `merged_macros`. Aliasing a builtin special
+  form falls through to `InvalidSyntax` — builtins are recognized
+  structurally in `ir_mod.isSpecialForm` and are never `Transformer`
+  values.
+* The lookup merges every ancestor `Compiler` scope's macros, as
+  `expandAndCompileMacroUse` does. A nested scope (a `let-syntax` inside
+  `guard`'s desugared lambda, which SRFI 64's `test-equal` produces) does
+  not inherit an enclosing scope's macros automatically.
+* A `begin`-internal helper definition is registered in the scope's
+  persistent `self.macros` (and `lib_env` at library top level), exactly
+  like a `define-syntax` at that nesting depth, not only in the
+  resolution's transient map: the surrounding `syntax-rules` body calls the
+  helper from its own rules every time the macro is later invoked.
+* One `Transformer` value can reach several binding sites (a helper
+  aliased by its own generator and re-aliased by an enclosing one; two
+  siblings of one `let-syntax` resolving to the same helper), so every
+  per-object step runs **once per object, gated by a flag on the object**,
+  never once per binding site: `finalizeTransformer`
+  (`captureLocalsOnTransformer` + `computeBoundFreeRefs`) behind
+  `Transformer.finalized`, and `compileLetSyntax`'s R7RS 4.3.1 peer
+  snapshot (`let_syntax_peer_names`/`vals`) behind
+  `Transformer.peers_computed`. The snapshot is frozen at whichever form
+  first encounters the object and reused by every later one, including a
+  different `let-syntax` form — 4.3.1 exists to pin a template's free
+  references to its own point of definition, so recomputing against
+  another form's siblings is the interference it prevents, not a case to
+  handle. Both flags are set only after the slices they guard are durably
+  stored, so an OOM mid-build retries instead of freezing an empty
+  snapshot as the answer.
 
-The begin-wrapped-definitions follow-up itself needed a THIRD correction,
-found only once SRFI 148's reference implementation was traced through in
-full rather than just its grammar: `em-syntax-rules-aux2`'s own base case
-expands to `(begin (define-syntax o spec) o)`, but the SURROUNDING
-`syntax-rules` body it sits inside ALSO calls `o` directly from within its
-own rules (e.g. `(ck s "arg" (o) . q)`), not just as the bare tail -- so
-`o` must keep resolving every time the macro being defined here is later
-invoked, not just while resolving this one transformer-spec. A helper
-registered only in `resolveTransformerSpec`'s transient, function-local
-`merged_macros` (discarded once that call returns) cannot satisfy this --
-confirmed via direct reproduction (`(begin (define-syntax step1 ...)
-(define-syntax step2 (... (step1 ...))) (syntax-rules () ((_ y) (step2
-y))))`, called twice after definition) failing with `undefined variable
-'__hyg_N_step1'`. Fixed by registering each begin-internal helper into the
-real, persistent-for-this-scope's-lifetime `self.macros` (and `lib_env` at
-library top level) exactly like an ordinary `define-syntax` at the same
-nesting depth gets, not just the transient resolution-scoped map. That fix
-immediately surfaced a fourth, adjacent bug under the unit test suite's
-leak-checking allocator: a begin-wrapped alias can hand the exact same
-`Transformer` `Value` to two or more different binding sites (a helper
-aliased directly by its own generator, then re-aliased by an enclosing
-one), and `compileDefineSyntax`/`compileLetSyntax`/`compileLetrecSyntax`
-each unconditionally ran `captureLocalsOnTransformer`/
-`computeBoundFreeRefs` on whatever `resolveTransformerSpec` returned --
-both allocate and overwrite a slice field with no free of what was there
-before, so a second finalization pass on an already-finalized object
-leaked the first allocation. Fixed by merging both calls into one
-`finalizeTransformer`, guarded by a new `Transformer.finalized` flag, so
-every transformer is finalized exactly once regardless of how many names
-end up pointing at it.
-
-CodeRabbit caught a fifth, adjacent instance of the exact same hazard in
-review of that fix, after CI had already auto-merged it -- shipped as its
-own immediate follow-up: `compileLetSyntax`'s sibling-suppression
-bookkeeping (`let_syntax_peer_names`/`let_syntax_peer_vals`, R7RS 4.3.1)
-lives in a separate code block in the SAME per-binding loop, outside
-`finalizeTransformer`'s reach, and has the identical "unconditionally
-`dupe` and overwrite" shape -- reachable as soon as two sibling bindings
-in one `let-syntax` form resolve to the same `Transformer` (a begin-
-wrapped helper reference for one, a bare alias of that same helper for
-the other). Verified as a real, non-hypothetical leak (not just a
-theoretical overwrite) by confirming the shared transformer's template
-has a genuinely non-empty free-reference set first -- an earlier draft's
-reproduction used a template with zero free references, where `dupe`ing
-an empty slice doesn't actually allocate, so the mutation-tested unit
-test silently failed to catch anything until the reproduction was
-corrected to reference a true sibling. Fixed with a narrower, deliberately
-non-permanent guard: a linear scan of this call's own `tx_vals` prefix for
-an identical `Value` already processed earlier in the SAME loop -- unlike
-`Transformer.finalized`, this can't be a permanent per-object flag, since
-a transformer aliased into some OTHER, unrelated `let-syntax` form later
-genuinely needs its own peer snapshot computed against that different
-form's sibling set.
-
-That same review flagged a sixth spot the fifth's fix didn't close: the
-`tx_vals`-prefix scan only ever catches the same `Transformer` reappearing
-*within* one `let-syntax` form, so a transformer aliased into a
-*different*, unrelated `let-syntax` form later still reached the
-recomputation code -- which still unconditionally overwrote whatever an
-earlier form's processing had set, with no free. The first fix for this
-(shipped, then reviewed) freed the old pair before every such overwrite
-and reasoned that recomputing was *correct*, since "a transformer aliased
-elsewhere genuinely needs its own peer snapshot against that different
-form's siblings." **That reasoning was wrong, not just the leak.** R7RS
-4.3.1's peer snapshot exists precisely to freeze a template's free
-references against whatever was in scope at the template's own true point
-of definition, so that *later* shadowing at some *other* use site can't
-reach in and change what a name resolves to -- recomputing it against a
-different form's outer bindings is exactly the kind of interference the
-mechanism exists to prevent, not a case it needs to additionally handle.
-Caught only by a properly discriminating reproduction: a plain top-level
-*procedure* as the shared free reference can't tell the two designs apart
-at all (a procedure binding was never captured by `let_syntax_peer_vals`
-in the first place, which reads `self.macros`, not `self.globals`) --
-only a *macro* redefined between the two forms exposes it, and did:
-recomputing silently changed a previously-correct answer from 11 to -10,
-using the second form's redefinition instead of the first form's binding
-where the helper was actually written. Nesting the reuse inside the
-defining form's own body (rather than two separate top-level forms) was
-worse: it corrupted the *outer* binding too, since the emptied snapshot
-let an outer sibling rebinding leak through unsuppressed for both calls.
-Fixed by replacing the per-call scan with a permanent, once-per-object
-`Transformer.peers_computed` flag (mirroring `finalized`'s own shape, but
-a distinct field -- peer suppression is `compileLetSyntax`-specific,
-unlike the finalization every macro-defining form needs): the snapshot is
-computed exactly once, at whichever form's processing the object is first
-encountered in, and every later encounter -- same form or a different
-one -- reuses it unchanged. (Verifying the fix took an unrelated detour:
-toggling the worktree between the old and new code via `git stash`/
-`git checkout <sha> -- <path>` without running `kaappi cache clear` after
-each rebuild made the same reproduction file answer differently across
-otherwise-identical rebuilds, looking exactly like nondeterminism until
-traced back to the `.sbc` bytecode cache's build-id half -- the git commit
-hash plus a binary `-dirty` flag, not a hash of what the uncommitted
-changes actually are, so any two different uncommitted edits at the same
-base commit alias to the identical id and share cache entries -- see
-`docs/dev/cache.md`.)
-
-CodeRabbit's review of that fix caught one more ordering bug: the first
-cut set `peers_computed = true` immediately, before the several fallible
-allocations (`peer_names_f`/`peer_vals_f` appends, both `dupe` calls) that
-actually build the snapshot. An OOM partway through would leave the flag
-permanently true with `let_syntax_peer_names`/`vals` still at their
-default-empty value -- every later reuse would then treat "no suppression
-needed" as the final, correct answer instead of retrying. Fixed by moving
-the flag assignment to strictly after both slices are durably stored,
-right before the `self.macros.put` that was already there.
+Seven defects shipped and were fixed on the way to those rules (PRs #1760
+and #1762 through #1767); two became general rules, in
+`.claude/rules/gc-safety.md` and `cache.md`. The full account is
+[postmortems/2026-07-26-srfi147-shared-transformer-values.md](postmortems/2026-07-26-srfi147-shared-transformer-values.md).
 
 ### SRFI 148 — eager syntax-rules
 
@@ -1849,3 +1589,7 @@ explicitly. `read` pulls a whole 4096-byte burst per parse attempt (the
 cycle can never block or EOF, so reading ahead is free) — one byte per
 re-parse of the whole accumulation made an 85 KB datum take 50 s, versus
 1 ms on the plain string port.
+
+## Library loader
+
+The library loader in `vm_library.zig` supports `cond-expand`, `include` (paths resolved relative to the .sld file), and `(export (rename ...))` in `define-library`. Macro transformers defined with `define-syntax` in library `begin` blocks are exported and imported correctly.

@@ -156,7 +156,11 @@ bash tests/scheme/run-all.sh
 
 The native backend works with the base system `cc` (no Zig on the box):
 `kaappi compile` links its output against `libkaappi_rt.a` with `-z nobtcfi`;
-`kaappi doctor`'s smoke-link check confirms it per machine.
+`kaappi doctor`'s smoke-link check confirms it per machine. That is the only
+path exercised: neither the reference machine nor CI has a Zig toolchain, so
+a native `zig build` on OpenBSD is untested by design, and
+`tests/e2e/run-e2e.sh` and the `compile/` suite run only where one is
+installed.
 
 Reference machine for this port: **OpenBSD 7.9 aarch64** (4-core / 4 GiB VM).
 
@@ -171,19 +175,3 @@ shares the workspace and executes the unit suite, the thottam suite, and
 handoff, because the VM syncs the workspace directly. The VM tracks 7.9 to
 match the aarch64 reference machine (OpenBSD breaks ABI between releases, so the
 Zig-targeted release and the VM release should agree).
-
-## Known gaps
-
-* **BTCFI is disabled** for the Zig-linked binaries (the `PT_OPENBSD_NOBTCFI`
-  marker). This is a toolchain limitation, not a choice — it lifts when Zig can
-  emit aarch64 branch-protection landing pads. The `kaappi compile` native
-  backend is unaffected in principle (it could emit landing pads if Zig's C
-  toolchain did), but currently also opts out for the runtime archive's sake.
-* **kaappi-lsp's stack is capped at the 32 MiB hard limit** (vs 64 MiB
-  elsewhere); a non-root process cannot exceed it. Raise `login.conf` if deeply
-  nested LSP requests overflow.
-* Building natively with Zig **on** OpenBSD is expected to work (the target is
-  supported upstream) but hasn't been exercised — the cross-compile + copy flow
-  covers development, and the native backend needs only base `cc` at runtime.
-* `tests/e2e/run-e2e.sh` and the `compile/` suite need a Zig toolchain on the
-  box; they run wherever one exists.

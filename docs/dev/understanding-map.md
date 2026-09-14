@@ -255,7 +255,8 @@ parentheses):
 ## Status
 
 Drafted 2026-07-19 by Claude (Opus 4.8) as part of the cognitive-debt
-work; awaiting the maintainer's correction pass. Corrections to this map
-are themselves retrieval practice — a wrong tier here is a bug, and the
-map only becomes authoritative once a human has disagreed with it at
-least once.
+work. The tier assignments are the drafter's reading of the code, not a
+maintainer ruling; the borderline calls above are the ones most likely to
+move. Corrections to this map are themselves retrieval practice — a wrong
+tier here is a bug, so fix it in place, and record why in the section it
+belongs to.

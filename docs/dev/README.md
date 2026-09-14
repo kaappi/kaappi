@@ -76,6 +76,8 @@ investigations.
 | [deep-recursion-register-overflow](postmortems/2026-06-17-deep-recursion-register-overflow.md) | Fixed-capacity register file overflowed under deep non-tail recursion | Fixed 2026-06-30 |
 | [fixnum-overflow-promotion](postmortems/2026-06-18-fixnum-overflow-promotion.md) | Arithmetic results in the fixnum/i64 gap silently wrapped | Fixed 2026-06-18 |
 | [complex-number-test-precision](postmortems/2026-06-18-complex-number-test-precision.md) | `test-approx=?` didn't compare complex numbers component-wise | Fixed 2026-06-18 |
+| [srfi147-shared-transformer-values](postmortems/2026-07-26-srfi147-shared-transformer-values.md) | One `Transformer` value reached from several binding sites was finalized and peer-snapshotted per site: a LIFO root-stack pop, two leaks, and a recomputation that broke R7RS 4.3.1 | Fixed 2026-07-27 |
+| [srfi150-hygienic-field-identity](postmortems/2026-07-28-srfi150-hygienic-field-identity.md) | Two record-syntax designs broke with two coexisting types; two "engine bugs" that weren't; hygienic field names collapsed when round-tripped through `quote` | Fixed 2026-08-11 |
 | [netbsd-spinlock-starvation](postmortems/2026-09-02-netbsd-spinlock-starvation.md) | Pure spin-waits starved a preempted lock holder under NetBSD's 4BSD scheduler; misdiagnosed as an OS stranding the thread | Fixed 2026-09-02 |
 
 ## Campaign records
