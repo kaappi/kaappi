@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789369348860,
+  "lastUpdate": 1789370940590,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "fb703515a36e8fa280c482ce579496b9487fa00a",
-          "message": "Close the last srfi231-official divergence-accounting gaps (#2383 review) (#2385)\n\n* Close the last srfi231-official divergence-accounting gaps (#2383 review)\n\nTwo CodeRabbit threads were still open when #2383 merged; the reviewer's\npost-merge assessment verdicts both valid (and declines the third, the\nsigned-zero eqv? finding, with rationale on the PR):\n\n- testing.md described only the zero-observed and greater-than-recorded\n  mismatch cases; the epilogue's third case -- fewer than recorded but\n  nonzero, \"the entry over-accounts (re-count it)\" -- is now documented\n  too, alongside the never-executed case added here.\n\n- The epilogue's (when (vector-ref executed-tests id) ...) guard skipped\n  entries whose id never executes: if a future regeneration drops a\n  test form entirely, its table entry passes silently -- observed count\n  zero, but neither DIVERGENCE-RESOLVED nor a mismatch fires. An\n  unexecuted id is now a failure with its own wording,\n  DIVERGENCE-NEVER-EXECUTED (\"its test form is gone from the suite;\n  prune the entry\"), counted into the mismatch total that gates the\n  exit status. Suite regenerated from the transform, never hand-edited.\n\nValidated: the real suite is unchanged-green (10922 passed, 5 known\ndivergences, 0 unexpected, 0 resolved, 0 count mismatches -- all three\nreal ids execute); a negative scratch-copy with a correctly-quoted\nbogus entry '(9999 2 . ...) prints DIVERGENCE-NEVER-EXECUTED 9999 and\nexits 1, where the old guard exited 0 silently; fmt corpus 938 files\nzero-drift idempotent.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Add generation-time known-divergence id guard to the transform (#2385 review)\n\nReview suggestion (non-blocking) on #2385: the scanner already collects\nevery generated test id in test_meta, so a generation-time assertion --\nevery known-divergence id must appear in the scanned set -- catches the\ndropped/renamed-upstream-form case instantly at the regeneration step,\ninstead of one ~150 s suite run later. Complement, not replacement: the\nruntime DIVERGENCE-NEVER-EXECUTED epilogue stays authoritative for CI\n(it guards the committed artifact even when nobody regenerates).\n\nThe ids are parsed out of NEW_REPORT's table with a strict regex; an\nempty parse fails too, so the guard cannot rot silently if the entry\nformat drifts. The assertion runs before open(OUT, 'w'), so a failed\nregeneration writes nothing and cannot clobber a good artifact.\n\nValidated: normal regeneration exits 0 and leaves the committed\nsrfi231-official.scm byte-identical; a scratch copy of the transform\nwith id 351 renumbered to 9999 aborts with 'known-divergence ids with\nno test form in the generated suite: [9999]', exit 1, no output file.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-27T14:20:34Z",
-          "tree_id": "dfeabc4cc62b491ed23a0e18ff664fd15d36f30f",
-          "url": "https://github.com/kaappi/kaappi/commit/fb703515a36e8fa280c482ce579496b9487fa00a"
-        },
-        "date": 1787842835723,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.96592,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.072512,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.558886,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.823802,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005222,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.045807,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.281678,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.053563,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.328285,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.121549,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.625957,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.306616,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.636005,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.839095,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046091,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045581,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1d7bd352aa46247e0d0fb356ec9f37ce4f34be2b",
+          "message": "Point the sandbox test, the FFI guard, bytecode.md and two decisions at their KEPs (#2588)\n\nTwo KEP action items that were left open when their dev-docs landed\nthis week. KEP-0011 step 4 asked that sandbox-escape.sh and the FFI\nprimitives name the KEP as the written source of the sandbox policy, so\na contributor who finds the enforcement finds the decision — the test\nand the guard were the only statements of the policy in this repo, and\nneither said where it came from. KEP-0021 step 2 asked that bytecode.md\nand the two execution-model decision records cite the KEP as the\nconsolidated execution reference; until now they cited only each other.\n\nEach pointer is one sentence naming the KEP, the as-built doc, and where\napplicable the enforcement test, so the three stay discoverable from any\none of them. The Zig change is a doc comment on checkSandbox; zig fmt\n--check passes.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-14T12:12:09+05:30",
+          "tree_id": "3ade103e3dcf1105907878c06d6e77be1f1955c6",
+          "url": "https://github.com/kaappi/kaappi/commit/1d7bd352aa46247e0d0fb356ec9f37ce4f34be2b"
+        },
+        "date": 1789370938760,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.439711,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.791078,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.590623,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.886745,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004688,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.046612,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.290997,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05509,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.576465,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.140963,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.608586,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.309507,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.839518,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.822269,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.047124,
             "unit": "seconds"
           }
         ]
