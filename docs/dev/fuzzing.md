@@ -536,8 +536,10 @@ arches at each shrink step, then add the minimised program as a `seed()` corpus
 entry on the **eval** target so the host suite guards it too. `cross-diff`
 uses the interpreter on the target: s390x and ppc64le have no native backend,
 and riscv64's (native-tier since 2026-09) has no fuzz differential yet — its
-coverage is the e2e parity suite in CI's `riscv64-native-test`. There is no
-native-backend differential on any QEMU arch.
+coverage is the e2e parity suite in CI's `riscv64-native-test`, plus the same
+suite against a `-Dgc-stress=true` archive in the scheduled
+`gc-stress-riscv64.yml` (kaappi#2594). There is no native-backend
+differential on any QEMU arch.
 
 ## Turning a failure into a regression test
 

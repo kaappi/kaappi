@@ -1,0 +1,124 @@
+name: GC stress (riscv64 native tier)
+
+# Scheduled run of the riscv64 native-backend e2e parity suite against a
+# libkaappi_rt.a built with -Dgc-stress=true (kaappi#2594): a collection is
+# attempted at every allocation the native code makes through the runtime
+# bridge, so a rooting bug in emitted code or in runtime_exports.zig -- a
+# heap value held across a kaappi_* call without a kaappi_gc_push_root slot,
+# a quote/eval cache entry the collector cannot see -- fails at the site
+# that caused it instead of surviving as latent corruption. The per-PR
+# `gc-stress` and `gc-stress-scheme` jobs in ci.yml cover the interpreter on
+# the host; nothing per-PR runs the native tier against a stress archive,
+# and riscv64 is the tier's newest and least-exercised arch, where a
+# different stack layout and allocation order can surface a bug the two
+# established arches have never tripped (lessons-learned #20).
+#
+# Not per-PR: ci.yml's riscv64-native-test (the plain-archive sibling this
+# job is a copy of) is already the leg that runs ~115 container starts under
+# QEMU; the stress archive costs another `zig build lib` plus ~15% on the
+# emulated run (measured locally: 82 s plain vs 94 s stress for 39/39 under
+# podman on Apple Silicon), and a rooting bug in the native tier is not what
+# a typical PR changes. A separate workflow rather than a job in fuzz.yml:
+# fuzz.yml's trailing `report` job auto-files issues for its job set with
+# fuzz-specific verdicts, and a parity failure here is a different kind of
+# finding (reproduce it on aarch64/x86_64 first -- docs/dev/llvm-backend.md,
+# "Testing"), so it must not be filed as a fuzz-infrastructure verdict.
+#
+# The kaappi binary is built normally and only the archive with gc-stress:
+# the interpreter is the parity oracle and must not itself be slowed 30x
+# under TCG, and the archive is the whole GC the native binaries link.
+# `KAAPPI_CROSS_PREFIX` hands run-e2e-cross.sh the prebuilt pair instead of
+# letting it cross-build its own plain one. Everything else -- pinned image,
+# pinned riscv64 Zig for the on-target `kaappi compile` smoke -- mirrors
+# riscv64-native-test; keep the two in step.
+
+on:
+  schedule:
+    # Daily at 03:17 UTC -- after fuzz.yml (02:47) and before the 05:17 UTC
+    # ecosystem nightly, so a red run is attributable to that day's main.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      programs:
+        description: 'Space-separated program basenames (without .scm) from tests/e2e/programs to run instead of all of them, e.g. "tak native-fib". The argv and on-target smoke phases always run.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  riscv64-native-gc-stress:
+    runs-on: ubuntu-latest
+    # A hang bound, not a budget: the plain sibling completes in ~6.5 min
+    # end to end on a hosted runner, and the stress archive adds well under
+    # a minute of host build plus ~15% on the emulated phase. A rooting bug
+    # can present as a collector livelock rather than a panic, and the
+    # `timeout` on the run step below fails the step -- with the per-program
+    # PASS/FAIL lines already in the log -- before this cap cancels the job.
+    timeout-minutes: 30
+    env:
+      # ziglang.org/download/index.json, 0.16.0 -> riscv64-linux.shasum.
+      RV_ZIG_SHA256: bc069b0f2f568f54bafbdfc1d65b12fd386ed6a652044a37aee6a4f72f14076e
+      # riscv64/ubuntu:24.04 as of 2026-09-07; bump the digest deliberately,
+      # together with ci.yml's riscv64-native-test.
+      RV_IMAGE: riscv64/ubuntu:24.04@sha256:f28b71827ff6cb4fe9b6b536b583bc0227072516de20c9225847be7722ab5715
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Zig
+        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
+        with:
+          version: 0.16.0
+          cache-key: gc-stress-riscv64
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
+        with:
+          platforms: riscv64
+
+      - name: Fetch a riscv64 Zig (the on-target C compiler for the smoke)
+        run: |
+          mkdir -p "$RUNNER_TEMP/zig-rv"
+          curl -sSL -o "$RUNNER_TEMP/zig-rv/zig.tar.xz" https://ziglang.org/download/0.16.0/zig-riscv64-linux-0.16.0.tar.xz
+          echo "$RV_ZIG_SHA256  $RUNNER_TEMP/zig-rv/zig.tar.xz" | sha256sum -c -
+          tar xJf "$RUNNER_TEMP/zig-rv/zig.tar.xz" -C "$RUNNER_TEMP/zig-rv"
+          echo "RV_ZIG=$(echo "$RUNNER_TEMP"/zig-rv/zig-riscv64-linux-*/zig)" >> "$GITHUB_ENV"
+
+      - name: Pull the riscv64 base image
+        run: docker pull --platform linux/riscv64 "$RV_IMAGE"
+
+      # One prefix, two builds: the interpreter (the oracle, and the emitter
+      # that produces each program's IR) with the default GC, the archive
+      # with a collection forced at every allocation. Both are ReleaseSafe,
+      # so the freed-owner UAF panic string is compiled in ONLY under
+      # -Dgc-stress (memory.uaf_detection) -- its presence in the archive is
+      # the proof that the option reached the `lib` step, the way
+      # tools/run-gc-stress-suite.sh refuses a binary whose `features` does
+      # not report gc_stress. A plain archive would make this leg a slower
+      # copy of riscv64-native-test that reports green for the wrong reason.
+      - name: Cross-build kaappi (default GC) and libkaappi_rt.a (gc-stress)
+        run: |
+          prefix="$RUNNER_TEMP/rv-stress"
+          zig build -Dtarget=riscv64-linux --prefix "$prefix"
+          zig build lib -Dtarget=riscv64-linux -Dgc-stress=true --prefix "$prefix"
+          if ! grep -a -q "marking freed object" "$prefix/lib/libkaappi_rt.a"; then
+            echo "::error::$prefix/lib/libkaappi_rt.a lacks the gc-stress UAF-detection code; -Dgc-stress did not reach the archive"
+            exit 1
+          fi
+
+      - name: Native-backend e2e against the gc-stress archive (riscv64 via QEMU)
+        env:
+          KAAPPI_E2E_PROGRAMS: ${{ inputs.programs || '' }}
+        run: |
+          export TMPDIR="$RUNNER_TEMP"
+          export KAAPPI_CROSS_PREFIX="$RUNNER_TEMP/rv-stress"
+          export KAAPPI_EMU="docker run --rm --platform linux/riscv64 -v $PWD:$PWD -v $RUNNER_TEMP:$RUNNER_TEMP -w $PWD $RV_IMAGE"
+          # Strictly below `timeout-minutes` so a livelocked program fails
+          # the step on its own terms and the log keeps every PASS/FAIL line
+          # printed before it; a cancelled job loses nothing here but reads
+          # as infrastructure rather than as a finding.
+          timeout --signal=TERM --kill-after=60s 22m \
+            bash tests/e2e/run-e2e-cross.sh riscv64-linux "$RV_ZIG"
