@@ -20,8 +20,9 @@
 # processes so the watchdog's process-tree snapshot has a tree to kill.
 # That makes each outcome deterministic -- the descent, the solo confirm,
 # the NOTE lines for tight-bound overruns, the INCONCLUSIVE stop for a
-# level the pot could only clip, and the unbudgeted heartbeat (which died
-# on an unbound variable under bash >= 4 before the fix) -- without ever
+# level the pot could only clip, the unbudgeted heartbeat (which died
+# on an unbound variable under bash >= 4 before the fix), and the level
+# estimates on both of depth 2's windows (kaappi#2596) -- without ever
 # compiling the unit suite or contending for the Zig cache locks. The
 # real-zig path is what the riscv64 chunk steps run eight times per CI job.
 
@@ -215,42 +216,112 @@ grep -q "WALL BUDGET EXCEEDED after .*s (compiling)" "$out" ||
 # and depth-2 lines must carry estimates computed from each subset's own
 # declared-test count (the test derives them independently, from the same
 # grep of the same files), so a regression back to a flat or per-filter
-# estimate changes the printed numbers and fails here. The two probe
-# windows are derived from --list with the same mid arithmetic the script
-# uses, so a new test file landing in the derived rest chunk moves them
-# with it instead of failing the case: depth 1 is the first half, and
-# depth 1 completing (the wedge-once stamp was consumed in phase 1) puts
-# depth 2 just past it.
-est_of() { # est_of <start-1-based> <count>: 2s base + 1 tenth x the slice's tests
-    local start="$1" n="$2" total=0 f c
+# estimate changes the printed numbers and fails here. The probe windows
+# are derived from --list with the same mid arithmetic the script uses
+# (lo=0, hi=count, mid=(lo+hi)/2 per level), so a new test file landing
+# in the derived rest chunk moves them with it instead of failing the
+# case: depth 1 is the first half, and depth 1 completing (the wedge-once
+# stamp was consumed in phase 1) puts depth 2 just past it.
+#
+# Depth 1 completing is the usual path, not a certainty: it runs an
+# instant shim under its full ~44s allowance, and on a loaded VM leg that
+# allowance has still expired first (netbsd-test, kaappi#2596). The
+# script then reads the overrun as a wedge and DESCENDS, so depth 2 is
+# the first half's first half (hi=mid1, so mid=mid1/2) with that window's
+# own estimate. Both windows are accepted -- matched by filter count,
+# first..last names AND estimate -- the descent one only behind the
+# script's own "descending into this half" line for depth 1, so a flat or
+# per-filter estimate still fails either way; and every failure prints
+# the bisect lines actually seen, so the next flake says which path ran
+# without a re-run. Case 8 forces the descent path so its matcher is
+# exercised on every run, not just on a stalled VM.
+#
+# The pot is sized for the descent path: depth 1's full estimate, a poll
+# tick and the kill grace, then the alternate depth 2 (15s today), with
+# room. On the usual path the pot never binds -- every level completes in
+# one poll tick -- so the printed allowances there are the full estimates
+# whatever the pot.
+est_of() { # est_of <tenths> <start-1-based> <count>: 2s base + tenths x the slice's tests
+    local tenths="$1" start="$2" n="$3" total=0 f c
     for f in $(bash tools/run-unit-test-chunk.sh --list rest \
                | sed -n "${start},$((start + n - 1))p" \
                | sed 's/^-Dtest-filter=//; s/\.test\.$//'); do
         c=$(grep -c '^test "' "src/$f.zig" | tr -d ' ')
         total=$((total + c))
     done
-    echo $(( 2 + total / 10 ))
+    echo $(( 2 + (tenths * total) / 10 ))
+}
+window_of() { # window_of <start-1-based> <count>: the level line's first..last file names
+    local start="$1" n="$2" first last
+    first=$(bash tools/run-unit-test-chunk.sh --list rest | sed -n "${start}p")
+    last=$(bash tools/run-unit-test-chunk.sh --list rest | sed -n "$((start + n - 1))p")
+    first=${first#-Dtest-filter=}; last=${last#-Dtest-filter=}
+    echo "${first%.test.}..${last%.test.}"
+}
+fail_bisect() { # fail_bisect <message>: fail, after showing the bisect lines the script printed
+    echo "bisect lines seen (kaappi#2596):" >&2
+    grep -e 'WALL BUDGET EXCEEDED' -e '== bisect' "$out" >&2 || echo "  (none)" >&2
+    fail "$1"
 }
 total=$(bash tools/run-unit-test-chunk.sh --list rest | wc -l | tr -d ' ')
 mid1=$((total / 2))             # depth 1: filters 1..mid1
 mid2=$(((mid1 + total) / 2))    # depth 2 after depth 1 completes: mid1+1..mid2
+alt2=$((mid1 / 2))              # depth 2 after depth 1 overruns: 1..alt2
 n1=$mid1
 n2=$((mid2 - mid1))
-e1=$(est_of 1 "$n1")
-e2=$(est_of $((mid1 + 1)) "$n2")
-[ "$e1" -ne "$e2" ] || fail "case 7 setup: the two probe windows estimate equal; pick denser windows"
+n2alt=$alt2
+w1=$(window_of 1 "$n1")
+w2=$(window_of $((mid1 + 1)) "$n2")
+w2alt=$(window_of 1 "$n2alt")
+check_level_estimates() { # check_level_estimates <case label> <tenths>: depth 1, then depth 2 on whichever path ran
+    local label="$1" tenths="$2" e1 want_n want_w want_e
+    e1=$(est_of "$tenths" 1 "$n1")
+    grep -q "bisect depth 1: ${n1} filter(s) ${w1}, budget .*s of a ${e1}s estimate" "$out" ||
+        fail_bisect "$label: depth 1 is not ${n1} filters ${w1} at a ${e1}s estimate from its subset's test count"
+    if grep -q "bisect depth 1: .* did NOT finish in .* -- descending into this half" "$out"; then
+        echo "$label: depth 1 overran its allowance, so depth 2 is the descent window (filters 1..${n2alt})"
+        want_n=$n2alt; want_w=$w2alt; want_e=$(est_of "$tenths" 1 "$n2alt")
+    else
+        want_n=$n2; want_w=$w2; want_e=$(est_of "$tenths" $((mid1 + 1)) "$n2")
+    fi
+    grep -q "bisect depth 2: ${want_n} filter(s) ${want_w}, budget .*s of a ${want_e}s estimate" "$out" ||
+        fail_bisect "$label: depth 2 is not ${want_n} filters ${want_w} at a ${want_e}s estimate from its subset's test count"
+}
+e1=$(est_of 1 1 "$n1")
+e2=$(est_of 1 $((mid1 + 1)) "$n2")
+e2alt=$(est_of 1 1 "$n2alt")
+[ "$e1" -ne "$e2" ] || fail "case 7 setup: the depth-1 and just-past windows estimate equal; pick denser windows"
+[ "$e1" -ne "$e2alt" ] || fail "case 7 setup: the depth-1 and descent windows estimate equal; pick denser windows"
 rc=0
 # shellcheck disable=SC2086  # base_env is a deliberate VAR=val word list for env
-env $base_env KAAPPI_CHUNK_BUDGET=3 KAAPPI_BISECT_BUDGET=45 \
+env $base_env KAAPPI_CHUNK_BUDGET=3 KAAPPI_BISECT_BUDGET=90 \
     KAAPPI_BISECT_LEVEL_PER_TEST_TENTHS=1 \
     SHIM_WEDGE_ONCE="$work/once7" \
     bash tools/run-unit-test-chunk.sh rest > "$out" 2>&1 || rc=$?
-[ "$rc" -eq 124 ] || fail "case 7 (per-test funding): wall-budget overrun must exit 124 (got $rc)"
-grep -q "bisect depth 1: ${n1} filter(s) .* budget .*s of a ${e1}s estimate" "$out" ||
-    fail "case 7: depth 1's estimate is not ${e1}s from its subset's test count"
-grep -q "bisect depth 2: ${n2} filter(s) .* budget .*s of a ${e2}s estimate" "$out" ||
-    fail "case 7: depth 2's estimate is not ${e2}s from its subset's test count"
+[ "$rc" -eq 124 ] || fail_bisect "case 7 (per-test funding): wall-budget overrun must exit 124 (got $rc)"
+check_level_estimates "case 7" 1
+
+# Case 8: case 7's descent path, forced. The counter seeds two hangs -- the
+# chunk run and depth 1 -- so depth 1 times out at its full estimated
+# allowance exactly as a stalled VM makes it, the script descends, and
+# depth 2 must be the descent window: the branch of check_level_estimates
+# a healthy host never takes. The per-test term is zeroed here so the
+# overrun costs one poll tick, not case 7's whole ~44s depth-1 allowance
+# (the estimate arithmetic itself is case 7's business); the window is
+# still pinned by count and names. A 20s pot lets the descent print two
+# or three levels and then dry up, which keeps the case short.
+echo 2 > "$work/count8"
+rc=0
+# shellcheck disable=SC2086  # base_env is a deliberate VAR=val word list for env
+env $base_env KAAPPI_CHUNK_BUDGET=3 KAAPPI_BISECT_BUDGET=20 \
+    SHIM_HANG_FIRST="$work/count8" \
+    bash tools/run-unit-test-chunk.sh rest > "$out" 2>&1 || rc=$?
+[ "$rc" -eq 124 ] || fail_bisect "case 8 (forced depth-1 overrun): wall-budget overrun must exit 124 (got $rc)"
+grep -q "bisect depth 1: .* did NOT finish in [0-9]*s at its full estimated allowance .* -- descending into this half" "$out" ||
+    fail_bisect "case 8: the seeded depth-1 hang did not overrun at its full allowance and descend"
+check_level_estimates "case 8" 0
 
 echo "PASS: watchdog, heartbeat, decisive descent, per-test NOTEs, the"
 echo "PASS: clipped-level INCONCLUSIVE stop, both kill-time phase reads,"
-echo "PASS: and level estimates that follow the subset's own test count"
+echo "PASS: level estimates that follow the subset's own test count, on"
+echo "PASS: both the just-past and the descent depth-2 windows"
