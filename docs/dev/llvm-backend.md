@@ -922,6 +922,47 @@ binary (empty under binfmt; a `podman run --platform` line locally — the
 header comment has the exact form). CI's `riscv64-native-test` job is the
 canonical invocation.
 
+The same suite runs daily against a **`-Dgc-stress=true` archive** on
+riscv64 (`.github/workflows/gc-stress-riscv64.yml`, 03:17 UTC, also
+`workflow_dispatch`; kaappi#2594). The per-PR `gc-stress` and
+`gc-stress-scheme` jobs stress the *interpreter* on the host; this is the
+only leg that links native code against a runtime that attempts a
+collection at every allocation, which is what turns a missing
+`kaappi_gc_push_root` slot or an invisible quote/eval cache entry into a
+failure at the site instead of latent corruption — and riscv64's stack
+layout and allocation order differ from the two arches the bridge was
+written against. The kaappi binary stays a default build (it is the parity
+oracle and the IR emitter, and a stressed interpreter under TCG would be
+the slow part); only the archive carries the stress GC, and
+`KAAPPI_CROSS_PREFIX` hands the script the prebuilt pair:
+
+```bash
+zig build -Dtarget=riscv64-linux --prefix "$P"
+zig build lib -Dtarget=riscv64-linux -Dgc-stress=true --prefix "$P"
+KAAPPI_CROSS_PREFIX="$P" KAAPPI_EMU="podman run --rm --platform linux/riscv64 \
+  -v $PWD:$PWD -v /private/tmp:/private/tmp -w $PWD kaappi-builder-riscv64" \
+  bash tests/e2e/run-e2e-cross.sh riscv64-linux /usr/local/bin/zig
+```
+
+(`$P` and `TMPDIR` under `/private/tmp` so the container sees them; the
+builder image carries a riscv64 Zig at `/usr/local/bin/zig` for the
+on-target smoke.) Measured 2026-09-15: 39/39 in 94 s against the stress
+archive vs 82 s plain — the programs are small, so container starts
+dominate and the stress GC adds ~15%. `KAAPPI_E2E_PROGRAMS="tak native-fib"`
+narrows the parity loop to bisect a failure. **A failure here is a rooting
+bug in the emitted code or the runtime bridge, not a riscv64 bug**
+(lessons-learned #20): reproduce it on the host first by linking that one
+program against a host stress archive —
+
+```bash
+zig build                                    # zig-out/bin/kaappi, the driver
+zig build lib -Dgc-stress=true --prefix "$H"  # the archive it links against
+KAAPPI_LIB_DIR="$H/lib" zig-out/bin/kaappi compile tests/e2e/programs/<p>.scm -o /tmp/p && /tmp/p
+```
+
+— and file it against the native tier, with the riscv64 run as the
+evidence that found it.
+
 The e2e tests run in CI on Ubuntu ReleaseSafe builds. The `KAAPPI_CC`
 environment variable controls the C compiler (defaults to `zig cc`).
 

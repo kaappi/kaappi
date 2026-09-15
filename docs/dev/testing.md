@@ -831,8 +831,14 @@ matrix covers:
 | `benchmark` | Ubuntu (push to main only) | Performance benchmarks, trend data to `gh-pages` |
 | `benchmark-pr` | Ubuntu (PRs, path-filtered) | PR vs base branch benchmark comparison (`benchmark-pr.yml`) |
 
-`fuzz.yml` runs the fuzz targets on a schedule — see
-[fuzzing.md](fuzzing.md).
+Two more workflows run on a schedule, not per PR. `fuzz.yml` runs the fuzz
+targets — see [fuzzing.md](fuzzing.md). `gc-stress-riscv64.yml` (daily at
+03:17 UTC, also `workflow_dispatch`) runs the riscv64 native-backend e2e
+parity suite of `riscv64-native-test` against a `libkaappi_rt.a` built with
+`-Dgc-stress=true` (kaappi#2594) — the one leg that exercises *native* code
+against a collection-per-allocation runtime, on the newest arch under the
+GC-rooting bridge. `docs/dev/llvm-backend.md` ("Testing") has the local
+recipe and what a failure there means.
 
 Post-release: `post-release.yml` runs automatically after each release,
 testing the actual published artifacts on all platforms.

@@ -54,6 +54,13 @@
 #                        test" argument: a host kaappi cannot stand in (the
 #                        emitter is a comptime switch on the host arch), and
 #                        the binary is only meaningful next to its archive.
+#   KAAPPI_E2E_PROGRAMS  optional space-separated list of program basenames
+#                        (without .scm, e.g. "tak native-fib") to run in the
+#                        parity phase instead of every programs/*.scm. The
+#                        argv and on-target smoke phases run regardless. A
+#                        list that matches nothing is an error, not a pass.
+#                        Meant for splitting a slow run -- the gc-stress
+#                        archive under TCG (kaappi#2594) -- across steps.
 #   TMPDIR               scratch root (default /tmp). The cross-build prefix
 #                        lives under it too, per run, so concurrent runs for
 #                        the same target never share an install tree.
@@ -186,9 +193,26 @@ assert_native_parity() {
 
 echo ""
 echo "=== Native compilation parity tests ($TARGET) ==="
+# KAAPPI_E2E_PROGRAMS narrows this loop only; the argv and smoke phases
+# below still run, so a subset run is still a complete run of the script.
+MATCHED=0
 for program in "$SCRIPT_DIR"/programs/*.scm; do
-    assert_native_parity "$(basename "$program" .scm)" "$program"
+    label="$(basename "$program" .scm)"
+    if [[ -n "${KAAPPI_E2E_PROGRAMS:-}" ]]; then
+        case " $KAAPPI_E2E_PROGRAMS " in
+            *" $label "*) ;;
+            *) continue ;;
+        esac
+    fi
+    MATCHED=$((MATCHED + 1))
+    assert_native_parity "$label" "$program"
 done
+# A filter that matches nothing must not pass as a 2/2 run of the argv and
+# smoke phases alone.
+if [[ -n "${KAAPPI_E2E_PROGRAMS:-}" && $MATCHED -eq 0 ]]; then
+    echo "error: KAAPPI_E2E_PROGRAMS='$KAAPPI_E2E_PROGRAMS' matched no program under $SCRIPT_DIR/programs" >&2
+    exit 2
+fi
 
 # Command-line passthrough (kaappi#1744), as in run-e2e.sh Phase 3.
 echo ""

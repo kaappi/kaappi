@@ -804,7 +804,9 @@ jobs:
   # (the org's ghcr.io builder image is not pullable anonymously, and a
   # stock image plus one tarball is one less thing to keep in sync). Each
   # emulated invocation is one container start (~115 of them), still far
-  # cheaper than building the interpreter under TCG.
+  # cheaper than building the interpreter under TCG. The same suite runs
+  # daily against a -Dgc-stress=true archive in gc-stress-riscv64.yml
+  # (kaappi#2594); keep that job's pins and image digest in step with these.
   riscv64-native-test:
     needs: format
     if: needs.format.outputs.docs_only != 'true'
