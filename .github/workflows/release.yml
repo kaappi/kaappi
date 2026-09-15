@@ -55,12 +55,18 @@ jobs:
           # riscv64 is native-tier since 2026-09 (the archive is what
           # `kaappi compile` links on a riscv64 box; ci.yml's
           # riscv64-native-test exercises exactly these artifacts under
-          # QEMU). Still Zig's musl-static default rather than the
-          # gnu.2.28 the two arches above use, so this binary cannot
-          # dlopen (kaappi ffi) — the #1783 trade-off, not yet resolved
-          # for riscv64.
+          # QEMU). Same glibc-2.28 floor as the two rows above, for the
+          # same reason: #1783 deliberately left this row on Zig's
+          # musl-static default because riscv64 was interpreter-tier
+          # then, so the shipped binary could not dlopen (kaappi ffi)
+          # (#2595) — while `kaappi compile` on a riscv64 box already
+          # linked the archive against the host's glibc, leaving the
+          # shipped `kaappi` the odd ABI out. Zig 0.16's riscv64 glibc
+          # stubs reach 2.28. Same trade-off too: no Alpine riscv64.
+          # The linux-ffi-smoke job runs this artifact under QEMU.
           - os: ubuntu-latest
             target: riscv64-linux
+            zig_target: riscv64-linux-gnu.2.28
             artifact: kaappi-riscv64-linux
             exe_ext: ''
             lib_src: libkaappi_rt.a
@@ -276,29 +282,65 @@ jobs:
   # dynamic loading (e.g. Zig's default musl-static target) passes every
   # build step but cannot load a single C-extension library once
   # installed. Run the actual release artifact and prove dlopen works
-  # before anything is published.
+  # before anything is published. Every glibc Linux row in `build` must
+  # have a leg here — riscv64 had none from #1783 (2026-07) until #2595,
+  # so its binary shipped musl-static with nothing to notice.
   linux-ffi-smoke:
     needs: build
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             artifact: kaappi-x86_64-linux
           - os: ubuntu-24.04-arm
             artifact: kaappi-aarch64-linux
+          # No GitHub runner executes riscv64, so this leg runs the same
+          # commands under QEMU user-mode inside the pinned
+          # riscv64/ubuntu image ci.yml's riscv64-native-test uses
+          # (glibc 2.39, which has libm.so.6). `emulate` gates the QEMU
+          # setup steps and the container prefix; the native rows above
+          # leave it unset and run the artifact directly, as before.
+          - os: ubuntu-latest
+            artifact: kaappi-riscv64-linux
+            emulate: riscv64
     runs-on: ${{ matrix.os }}
+    env:
+      # riscv64/ubuntu:24.04 as of 2026-09-07 — the same digest ci.yml
+      # pins; bump both deliberately.
+      RV_IMAGE: riscv64/ubuntu:24.04@sha256:f28b71827ff6cb4fe9b6b536b583bc0227072516de20c9225847be7722ab5715
     steps:
       - name: Download artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ matrix.artifact }}
 
+      - name: Set up QEMU
+        if: matrix.emulate == 'riscv64'
+        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
+        with:
+          platforms: riscv64
+
+      - name: Pull the riscv64 base image
+        if: matrix.emulate == 'riscv64'
+        run: docker pull --platform linux/riscv64 "$RV_IMAGE"
+
       - name: Smoke-test interpreter and dynamic loading
+        # `kaappi` is the artifact itself on a native runner and the
+        # artifact inside the emulated container on the riscv64 leg
+        # (`-i` forwards the piped stdin; the artifact reads /dev/stdin
+        # inside). Both greps run on the runner, and the step's shell is
+        # bash -eo pipefail, so a wrong answer -- or a binary that
+        # refuses to dlopen -- fails the job either way.
         run: |
           chmod +x ${{ matrix.artifact }}
-          echo '(display (+ 1 2)) (newline)' | ./${{ matrix.artifact }} /dev/stdin | grep -qx '3'
+          kaappi=./${{ matrix.artifact }}
+          if [ "${{ matrix.emulate }}" = riscv64 ]; then
+            kaappi="docker run --rm -i --platform linux/riscv64 -v $PWD:$PWD -w $PWD $RV_IMAGE ./${{ matrix.artifact }}"
+          fi
+          echo '(display (+ 1 2)) (newline)' | $kaappi /dev/stdin | grep -qx '3'
           printf '(import (kaappi ffi))\n(define libm (ffi-open "libm.so.6"))\n(define c-sqrt (ffi-fn libm "sqrt" (quote (double)) (quote double)))\n(display (c-sqrt 4.0)) (newline)\n' \
-            | ./${{ matrix.artifact }} /dev/stdin | grep -qx '2.0'
+            | $kaappi /dev/stdin | grep -qx '2.0'
           echo "dynamic loading OK"
 
   # The tag push and the `main` push start ci.yml and release.yml as two
