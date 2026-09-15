@@ -122,3 +122,104 @@ jobs:
           # as infrastructure rather than as a finding.
           timeout --signal=TERM --kill-after=60s 22m \
             bash tests/e2e/run-e2e-cross.sh riscv64-linux "$RV_ZIG"
+
+  # Who hears about a red run. Without this, a nightly that goes red is
+  # visible only to whoever browses the Actions tab. Same shape as fuzz.yml's
+  # `report` -- a separate job, so the issues-write token never coexists
+  # with execution of the emulated binaries -- but it files one plain issue
+  # (run link, verdict, the suite's PASS/FAIL tail) with none of fuzz.yml's
+  # verdict machinery: a parity failure against the stress archive is a
+  # GC-rooting bug to reproduce on the host first (docs/dev/llvm-backend.md,
+  # "Testing"), not a fuzz finding. No checkout: nothing here needs the
+  # repo, and the evidence is read from this run's own job log and
+  # annotations via the `actions: read` token.
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: riscv64-native-gc-stress
+    # `cancelled()` as well as `failure()` -- fuzz.yml's lesson (#2040),
+    # verbatim: the run step's `timeout` yields a FAILURE, but a job killed
+    # by its own `timeout-minutes` is CANCELLED, so `failure()` alone would
+    # skip this job for exactly the livelock the cap exists to catch. A
+    # manual or concurrency cancellation is `cancelled()` too; the step
+    # below files nothing unless the job carries the job-timeout annotation.
+    if: failure() || cancelled()
+    permissions:
+      issues: write
+      actions: read # this run's job log and check-run annotations
+    steps:
+      - name: File or update the failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_NAME: riscv64-native-gc-stress
+          RESULT: ${{ needs.riscv64-native-gc-stress.result }}
+          TITLE: gc-stress riscv64 nightly failed
+        run: |
+          set -euo pipefail
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          doc_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/main/docs/dev/llvm-backend.md#testing"
+
+          job=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" --paginate \
+                  | jq -r --arg n "$JOB_NAME" '.jobs[] | select(.name == $n) | [.id, .conclusion] | @tsv' \
+                  | head -1 || true)
+          jid=$(printf '%s' "$job" | cut -f1)
+
+          # The job-timeout message lives ONLY in the check-run annotations;
+          # a cancelled job's log blob is often never archived at all.
+          anns=""
+          [ -z "$jid" ] || anns=$(gh api "repos/$GITHUB_REPOSITORY/check-runs/$jid/annotations" --jq '.[].message' 2>/dev/null || true)
+          timed_out=""
+          if printf '%s' "$anns" | grep -qF 'exceeded the maximum execution time'; then timed_out=1; fi
+
+          if [ "$RESULT" != failure ] && [ -z "$timed_out" ]; then
+            echo "::notice::$JOB_NAME was '$RESULT' without a job-timeout annotation (a manual or concurrency cancellation); filing nothing"
+            exit 0
+          fi
+
+          # The suite's own lines out of the runner log (each line carries a
+          # timestamp prefix): per-program PASS/FAIL, the expected/actual
+          # pairs under a FAIL, the phase headers, and the summary line.
+          jlog="job.log"; : > "$jlog"
+          [ -z "$jid" ] || gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$jid/logs" > "$jlog" 2>/dev/null || true
+          tail_lines=$(grep -E 'PASS: |FAIL: |=== |error: |::error::|^[^ ]+   (expected|actual|emit|verify|cc|compile)' "$jlog" \
+                         | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z //' | tail -60 || true)
+
+          if [ -n "$timed_out" ]; then
+            verdict='the job **exceeded its `timeout-minutes` cap** and was cancelled: the setup or cross-build steps overran, or the run step outlived its own 22m `timeout`. Treat it as a possible collector livelock until shown otherwise.'
+          elif printf '%s\n' "$tail_lines" | grep -q 'FAIL: '; then
+            verdict='at least one program **failed parity** against the gc-stress archive -- a wrong answer, a crash, or an exit-status mismatch (the expected/actual pair under each FAIL line says which).'
+          elif printf '%s\n' "$tail_lines" | grep -q 'PASS: ' && ! printf '%s\n' "$tail_lines" | grep -q 'Cross E2E Summary'; then
+            verdict='the run step'"'"'s 22m `timeout` **killed the suite mid-run** with no summary line: the program after the last PASS (alphabetical order of `tests/e2e/programs/`) is the one that hung under the stress archive -- a possible collector livelock.'
+          else
+            verdict='the job failed **before the parity loop** -- setup, cross-build, the gc-stress archive check, or the emulator; see the run log.'
+          fi
+
+          {
+            printf 'Automated report from the [GC stress (riscv64 native tier) workflow](%s) -- [run #%s](%s) (`%s`).\n\n' \
+              "$run_url" "$GITHUB_RUN_NUMBER" "$run_url" "$GITHUB_EVENT_NAME"
+            printf '**Verdict:** %s\n\n' "$verdict"
+            printf 'Triage: [docs/dev/llvm-backend.md, Testing](%s). A parity failure against the `-Dgc-stress=true` archive is a GC-rooting bug in the emitted code or the runtime bridge, not a riscv64 bug (lessons-learned #20): reproduce that one program on the host first with the recipe there, and narrow a run with `gh workflow run gc-stress-riscv64.yml -f programs="<name> ..."`.\n\n' \
+              "$doc_url"
+            printf '<details><summary>Suite output (PASS/FAIL tail)</summary>\n\n```\n'
+            if [ -n "$tail_lines" ]; then printf '%s\n' "$tail_lines"; else printf '(no suite output in the job log -- it may not have been archived; open the run)\n'; fi
+            printf '```\n</details>\n'
+          } > body.md
+
+          # Dedup by exact title among open issues, as fuzz.yml does: a red
+          # run appends to the open issue instead of filing a second one.
+          num=$(gh issue list -R "$GITHUB_REPOSITORY" --state open --search "\"$TITLE\" in:title" \
+                  --json number,title | jq -r --arg t "$TITLE" '[.[] | select(.title == $t)][0].number // empty')
+          if [ -n "$num" ]; then
+            gh issue comment "$num" -R "$GITHUB_REPOSITORY" --body-file body.md
+            echo "::notice::Appended the failure report to existing issue #$num"
+          else
+            {
+              printf '> [!NOTE]\n> Close this issue once the failure is explained or fixed; until then, further red runs append comments here instead of opening new issues.\n\n'
+              printf '> Filed `priority: high` because a parity FAIL is a silently wrong answer from a legal program -- `high` under docs/dev/github-issues.md -- and at filing time it cannot be told apart from a hang or an infrastructure failure. Relabel to `medium` (or `low` for pure infrastructure) once triage says which.\n\n---\n\n'
+              cat body.md
+            } > full-issue.md
+            created=$(gh issue create -R "$GITHUB_REPOSITORY" --title "$TITLE" \
+              --label ci --label gc --label native-backend --label "priority: high" \
+              --body-file full-issue.md)
+            echo "::notice::Filed $created"
+          fi

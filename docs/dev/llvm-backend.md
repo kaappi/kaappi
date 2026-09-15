@@ -955,7 +955,8 @@ bug in the emitted code or the runtime bridge, not a riscv64 bug**
 program against a host stress archive —
 
 ```bash
-zig build lib -Dgc-stress=true --prefix "$H"
+zig build                                    # zig-out/bin/kaappi, the driver
+zig build lib -Dgc-stress=true --prefix "$H"  # the archive it links against
 KAAPPI_LIB_DIR="$H/lib" zig-out/bin/kaappi compile tests/e2e/programs/<p>.scm -o /tmp/p && /tmp/p
 ```
 
