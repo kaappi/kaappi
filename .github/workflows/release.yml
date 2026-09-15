@@ -54,8 +54,12 @@ jobs:
             strip: true
           # riscv64 is native-tier since 2026-09 (the archive is what
           # `kaappi compile` links on a riscv64 box; ci.yml's
-          # riscv64-native-test exercises exactly these artifacts under
-          # QEMU). Same glibc-2.28 floor as the two rows above, for the
+          # riscv64-native-test exercises this row's code under QEMU,
+          # cross-built with the musl default for sysroot-free linking —
+          # see run-e2e-cross.sh's header; the gnu-archive coverage is
+          # the 2026-09-14 postmortem's 38/38 e2e run with a
+          # `-Dtarget=riscv64-linux-gnu` archive). Same glibc-2.28
+          # floor as the two rows above, for the
           # same reason: #1783 deliberately left this row on Zig's
           # musl-static default because riscv64 was interpreter-tier
           # then, so the shipped binary could not dlopen (kaappi ffi)
@@ -287,6 +291,11 @@ jobs:
   # so its binary shipped musl-static with nothing to notice.
   linux-ffi-smoke:
     needs: build
+    # Two tiny programs per leg; the cap exists for the riscv64 leg,
+    # which runs under TCG, and riscv64-under-TCG legs do wedge (#2488).
+    # Without it a stuck `docker run` holds the tag's publish on the
+    # 360-minute runner default instead of failing in minutes.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
