@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789408570476,
+  "lastUpdate": 1789454820140,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "0a7960142146874a33718fbff4199f203fcb0ba8",
-          "message": "Ratify the check/--sandbox compile-time macro execution policy (#2393)\n\ndocs/dev/check.md claimed a same-file macro use expands \"without running\nanything\" — false since er-macro-transformer shipped (v0.22.0, #1811):\nexpandProceduralMacro calls the call_proc_for_macro VM hook\nunconditionally when the transformer spec is statically resolvable, and\nthe spec expression itself is evaluated at definition time. Specs\nunresolvable without execution get a benign placeholder (#2007, #2329).\nKEP-0006 flagged the sentence (Unresolved question 3) and called the\npolicy the one item with security consequences if skipped; its \"As\nimplemented\" Divergence 8 records that the design note was never\nwritten.\n\nThis writes it down. The new decision note ratifies KEP-0006's\ncandidate (a) — macro-defining code is compile-time code, not sandboxed\nprogram code, Racket's stance — which the shipped behavior already\nmatches, and documents the --sandbox capability model: the sandbox is\nenvironmental (a restricted global environment constructed before any\nsource is read), not temporal, so a transformer body running at\nexpansion time — before the program's own top level — is confined by\nexactly the program's capability set. All claims verified against\nsrc/expander.zig, src/vm.zig, src/compiler_define_syntax.zig,\nsrc/primitives.zig, src/vm_library.zig, and empirically with a v0.25.0\nbinary (a file-writing transformer runs under plain check, is refused\nunder check --sandbox, and --timeout bounds a looping transformer).\n\nCloses #2389\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-27T23:26:36+05:30",
-          "tree_id": "d9c5ab5972bde9a7cc238d1e346cc58eaad426c3",
-          "url": "https://github.com/kaappi/kaappi/commit/0a7960142146874a33718fbff4199f203fcb0ba8"
-        },
-        "date": 1787853802570,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.306202,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.526222,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.578246,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.098547,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004904,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.048032,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.314801,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.05631,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.88824,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.234052,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.655795,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.280353,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.711579,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.620247,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046279,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.027601,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e4a287e5e92098316c8d45e7a6fd41e6504b7d0a",
+          "message": "Accept the descent window in watchdog test case 7; widen the riscv64 bisection pot (#2597)\n\n* Accept the descent window in watchdog test case 7; widen the riscv64 bisection pot\n\ntests/scheme/tools/unit-chunk-watchdog-2560.sh case 7 asserted that\nbisect depth 2 is the window just past depth 1, which holds only when\ndepth 1 completes inside its allowance. On the netbsd-test KVM leg it\nonce did not (run 34850016237): the chunk script read the overrun as a\nwedge and descended, and the case failed with a message that said\nnothing about which path had run. The case now derives both depth-2\nwindows with the script's own mid arithmetic (the just-past window,\nand the first half's first half when depth 1 overruns), matches each\nby filter count, first..last names and estimate, accepts the descent\nwindow only behind the script's own \"descending\" line, and prints the\nbisect lines it saw on any failure so the next flake is diagnosable\nwithout a re-run. Its pot grows from 45s to 90s so a real overrun\nstill funds the alternate level instead of stopping \"too shallow\"; on\nthe usual path the pot never binds, so the printed allowances are\nunchanged. A new case 8 forces the overrun with the per-test term\nzeroed, so the descent matcher runs on every host at a one-tick cost;\nrun-all.sh's budget for the script grows from 480 to 600 for it.\n\nThe riscv64-test bisection pot (KAAPPI_BISECT_BUDGET) rises from 1080s\nto 1620s. The first descent it funded (kaappi#2488, run 34863343107,\nrest chunk) reached three suspects -- tests_exceptions, tests_ffi,\ntests_gc_worklist -- and stopped with 37s left, under the 40s level\nfloor: the pot, not the tests, was the limiter. Finishing that descent\nis at most three more levels at their full estimates (166s + 136s +\n124s = 426s) on top of the 1043s spent, so 1620s funds it with ~150s\nto spare. The step caps and the job cap follow the header's own\narithmetic: wall budget + 27m pot + 2m slop per step, and setup+build\n(8m) + every chunk healthy (38m) + the last chunk's 41m cap inside a\n90m job.\n\nCloses #2596\nRefs #2488\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Update the timeout-table guard for the 600s watchdog budget; pin the pot's provenance to attempt 1\n\ntests/scheme/test-runner/shell-timeout-override.sh pins run-all.sh's\nPER_SCRIPT_TIMEOUTS line verbatim so a retuned default cannot slip\nthrough a looser match. The previous commit retuned the watchdog\nsuite's default from 480 to 600 and did not update the pin, which is\nwhat every shell-suite CI leg of PR #2597 failed on. Both the grep and\nthe echoed expected line now carry 600.\n\nThe riscv64-test pot comment cited run 34863343107, whose latest\nattempt is the clean re-run: `gh run view` shows only that attempt,\nso the descent it describes (628s wedge, 130s/175s/106s, 37s left,\nthree suspects) looked unverifiable. Those numbers are attempt 1's,\nverbatim; the comment now says so, and names the three 2026-09-09\nkills that descended the same way and were cut short by the pot at\ndepth 5 instead, with the tighter spare that shape implies.\n\nCase 8's grep no longer restates base_env's 2s level base by hand;\n\"[0-9]*s\" tracks base_env while \"at its full estimated allowance\"\nstill pins the decisive read.\n\nRefs #2596\nRefs #2488\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-15T11:38:28+05:30",
+          "tree_id": "c43caf2107728e078eedc5334a464de99314a05b",
+          "url": "https://github.com/kaappi/kaappi/commit/e4a287e5e92098316c8d45e7a6fd41e6504b7d0a"
+        },
+        "date": 1789454818884,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.300437,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 5.933496,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.273929,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 1.488158,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.002798,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.024445,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.141961,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.026957,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.400175,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.564861,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 0.851143,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.190336,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 0.852717,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.196689,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.02564,
             "unit": "seconds"
           }
         ]
