@@ -275,6 +275,18 @@ thottam → #1608 readiness), and it kept every intermediate PR shippable.
 - [ ] Add a `release.yml` matrix row: `target`, `artifact`, `exe_ext`,
       `lib_ext`, `strip`, plus any post-processing (macOS signs +
       notarizes; Windows ships unstripped until #1613's toolchain bump).
+      A Linux row whose users are meant to load C extensions also needs
+      `zig_target: <arch>-linux-gnu.2.28` — Zig's bare `<arch>-linux`
+      default is musl-static, which cannot `dlopen`, so the shipped
+      binary rejects `(kaappi ffi)` and every C-extension package with
+      it (#1783; riscv64 repeated it, #2595, because its row was added
+      without one) — and a leg in the `linux-ffi-smoke` job, which is
+      the only thing that notices. Without a native runner, the leg
+      runs the artifact under QEMU inside a pinned container (the
+      riscv64 leg is the pattern). The interpreter-tier s390x and
+      powerpc64le rows are the standing exception: they ship
+      musl-static and reject `ffi-open` ([ffi.md](ffi.md), "Finding the
+      library").
 - [ ] Smoke-test a release artifact on a real machine (the post-release
       workflow checksums but does not yet execute all targets).
 - [ ] Teach the installer the new platform. It does **not** live in this

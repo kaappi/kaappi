@@ -136,6 +136,22 @@ without library validation.
 the wrapper but never `dlclose`s, because a function bound from it may
 still be live.
 
+All of this presupposes a binary that can `dlopen` at all. Zig's bare
+`<arch>-linux` target is musl-static, and static musl has no dynamic
+loader, so such a `kaappi` rejects every `ffi-open` — which is how every
+released Linux binary was FFI-dead until #1783 switched the x86_64 and
+aarch64 release rows to `<arch>-linux-gnu.2.28`, and how riscv64 stayed
+that way until #2598 gave its row the same `zig_target` (#2595). The
+interpreter-tier s390x and powerpc64le rows are the standing exception:
+they still ship musl-static and still reject `ffi-open`. The price of a
+glibc artifact is that it does not run on a musl distro — Alpine riscv64
+users build from source until a musl-dynamic artifact ships, as on the
+other two arches. `release.yml`'s `linux-ffi-smoke` job runs each glibc
+Linux artifact (riscv64 under QEMU) through an `ffi-open` of `libm.so.6`
+before anything is published; a new glibc Linux row needs a leg there
+([porting.md](porting.md) Stage 6). A from-source `zig build` on a glibc
+host is unaffected: it targets the host's own libc.
+
 ## Callbacks
 
 `ffi-callback` hands C a function pointer for a Scheme procedure. There
