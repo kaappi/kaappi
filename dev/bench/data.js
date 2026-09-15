@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789460688157,
+  "lastUpdate": 1789461195401,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "8f75f63e03fd40dfb3e37d8a592fc063aa66afa1",
-          "message": "Re-port SRFI 241 and 202 on er-macro-transformer (KEP-0006 step 5) (#2398)\n\n* Re-port SRFI 241 and 202 on er-macro-transformer\n\nKEP-0006's implementation-plan step 5 named these two libraries as the\nacceptance test for er-macro-transformer: both were pure-syntax-rules\nports whose every helper macro carried a custom %%% ellipsis identifier\njust so the literal ... token could be matched as data. Each library is\nnow a single procedural transformer that compiles the pattern language\nby ordinary list processing, which lifts all four of the 241 port's\ndocumented limitations: arbitrary sub-patterns under an ellipsis,\nmandatory patterns after the ellipsis in lists and vectors, the SRFI's\nellipsis-aware quasiquote inside clause bodies (a let-syntax rebinding\naround each body), and the spec's cata evaluation order (operators run\nonly after the guard passes). The 202 re-port also gains SRFI 2's bare\nbound-variable claw and vector patterns in quasiquoted claws.\n\nAll pattern keywords are recognized through the ER compare, which is\nhygiene-stripped name equality; the findings on where that is and is not\nsufficient are recorded on kaappi#2388. The stale SRFI 148 header claim\nthat Kaappi \"has no er-macro-transformer support\" is corrected in\npassing (false since v0.22.0); 148 keeps the reference's portable branch\nbecause the Chibi branch needs a binding-aware compare.\n\nCloses #2391\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address #2398 review: expansion-error and bundle-tier coverage\n\nThree review findings on the SRFI 241/202 er-macro re-port:\n\n- tests/scheme/errors/srfi-241-expansion-errors-2391.sh: the six verr\n  diagnostics in lib/srfi/241.sld (misplaced ellipsis, multiple\n  ellipses, invalid cata pattern/variable, and %match-qq's two template\n  shape errors) fire while match expands, so the SRFI-64 suite's runtime\n  guards can never reach them; one malformed form per diagnostic,\n  asserting nonzero exit and the KP2002 message text.\n\n- tests/scheme/compile/srfi-241-202-bundle-2391.sh (+ fixture): the\n  compiled-artifact smoke the .scm suites cannot provide. kaappi compile\n  refuses .sld-resolved imports (kaappi#1743), so the route is the\n  -Dbundle standalone binary, built with bundle_fixture_binary's\n  same-source/isolated-prefix discipline but a separate fixture — srfi\n  imports would make the shared bundle-replay .sbc bytes depend on the\n  srfi search path. Interpreter output is the oracle; both tiers agree\n  on all three lifted-capability lines.\n\n- docs/dev/srfi-implementation-notes.md: the engine-facts intro\n  over-attributed coverage. The SRFI suites cover the macro behavior and\n  the new errors suite the diagnostics; KAAPPI_HOME isolation and .sld\n  staleness are library-cache-1888.sh's; the zig-out/lib refresh step is\n  an uncovered workflow footgun and now says so.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-28T08:09:00+05:30",
-          "tree_id": "cf44b40bd5d5109e12047a2444fb75e00dec98be",
-          "url": "https://github.com/kaappi/kaappi/commit/8f75f63e03fd40dfb3e37d8a592fc063aa66afa1"
-        },
-        "date": 1787887483809,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.911538,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.111721,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.568316,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.858297,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005193,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.046497,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.284519,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.060965,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.389327,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.120265,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.657007,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.305638,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.619068,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.808293,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045658,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.047121,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "35afb42e16a30572180c25c666b7d64b8a8147e5",
+          "message": "Run the riscv64 native e2e suite against a gc-stress archive daily (#2599)\n\n* Run the riscv64 native e2e suite against a gc-stress archive daily\n\nThe riscv64 native tier (#2592) had only ever been checked against a\nnormally built libkaappi_rt.a. The GC-rooting contract between emitted\ncode and the runtime bridge -- kaappi_gc_push_root slots, the alloca root\nstack, the quote/eval caches -- is exactly the class of bug that stays\nlatent until allocation order or stack layout differs, and a new arch\nchanges both; #1401, #1854 and #1855 were all found on the primary\nplatform only by forcing a collection at every allocation. The per-PR\ngc-stress and gc-stress-scheme jobs stress the interpreter on the host;\nnothing anywhere ran native code against a stress archive.\n\nMeasured locally first (podman, Apple Silicon, kaappi-builder-riscv64):\nthe kaappi binary built normally for riscv64-linux (55 s) and only the\narchive with -Dgc-stress=true (37 s), both into one prefix handed to\nrun-e2e-cross.sh via KAAPPI_CROSS_PREFIX (which #2592 already added for\nthis use). 39/39 passed in 94 s, including the on-target `kaappi compile`\nsmoke; the same suite against a plain archive takes 82 s, so the stress\nGC adds ~15% -- the e2e programs are small and the ~115 container starts\ndominate. No rooting bug surfaced, so nothing to file.\n\nThe leg is a new scheduled workflow, gc-stress-riscv64.yml (03:17 UTC\ndaily, plus workflow_dispatch with an optional program subset), rather\nthan a job in fuzz.yml or ci.yml: fuzz.yml's trailing report job\nauto-files issues for its job set with fuzz-specific verdicts, and a\nparity failure here is a different finding (a rooting bug to reproduce\non aarch64/x86_64 first, per lessons-learned #20), so it must not be\nmisfiled as a fuzz-infrastructure verdict; and ci.yml is per-PR, which\nthe issue rules out -- riscv64-native-test is already the QEMU leg every\nPR pays for, and a native-tier rooting bug is not what a typical PR\nchanges. The workflow mirrors riscv64-native-test's pins, image digest\nand riscv64 Zig tarball, caps at 30 min like it (the plain job takes\n~6.5 min end to end on a hosted runner; TCG under docker there is\nassumed comparable to podman here), bounds the run step with `timeout`\nbelow the cap so a collector livelock fails the step with the PASS/FAIL\nlines intact instead of cancelling the job, and refuses an archive that\nlacks the gc-stress-only UAF-detection string -- in ReleaseSafe that\ncode is compiled in only under -Dgc-stress, so a plain archive (verified\nabsent: 0 vs 1 occurrences) would make the leg a slower copy of the\nper-PR job that is green for the wrong reason.\n\nrun-e2e-cross.sh gains KAAPPI_E2E_PROGRAMS, a space-separated subset of\nprograms/*.scm for the parity loop, so a failing run can be bisected and\na slow run split across steps; the argv and smoke phases still run, and\na list that matches nothing exits 2 rather than passing on those two\nalone. The issue also names native-loop-*.scm; no such programs exist\nunder tests/e2e/programs -- tak, native-fib and the two *-tail programs\nare the loop-heavy ones, and they run in the full set.\n\nCloses #2594\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* File an issue when the riscv64 gc-stress nightly goes red\n\nReview of #2599: the workflow arranged everything except who hears about\na red run -- a scheduled leg that fails is visible only to whoever\nbrowses the Actions tab, which for a nightly is nobody. A `report` job in\nthe shape of fuzz.yml's now files one plain issue (\"gc-stress riscv64\nnightly failed\": run link, a verdict, and the suite's PASS/FAIL tail read\nfrom the job log) and appends to that issue while it stays open, so a\npersistent red does not fan out into one issue per night. It carries none\nof fuzz.yml's verdict machinery on purpose: a parity failure against the\nstress archive is a GC-rooting bug to reproduce on the host first, not a\nfuzz finding, and the issue body says so and points at the recipe.\n\nfuzz.yml's `cancelled()` lesson (#2040) applies verbatim and is applied:\nthe run step's `timeout` yields a failure, but a job killed by its own\n`timeout-minutes` is CANCELLED, so `failure()` alone would skip the report\nfor exactly the livelock the cap exists to catch. The job gates on\n`failure() || cancelled()` and, for a cancellation, files only when the\njob carries the job-timeout annotation -- the one durable trace of a\ntimeout, since a cancelled job's log blob is often never archived -- so a\nmanual or concurrency cancellation files nothing. The write-capable token\nlives on the separate report job (`issues: write` + `actions: read` for\nthis run's log and annotations), never on the job that executes the\nemulated binaries, which keeps the workflow-level `contents: read`.\n\nThe issue is filed `priority: high` (one label, per\ndocs/dev/github-issues.md): a parity FAIL is a silently wrong answer from\na legal program, which is `high`, and at filing time it cannot be told\napart from a hang or an infrastructure failure; the body asks for a\nrelabel to `medium`/`low` once triage says which.\n\nTwo doc fixes from the same review: the host-side reproduction recipe in\nllvm-backend.md built only the archive and then invoked a\n`zig-out/bin/kaappi` that a fresh tree does not have, so it now starts\nwith a plain `zig build`; and testing.md's \"the arch whose stack layout\nthe GC-rooting bridge was written last for\" garden-pathed on first read\nand is now \"the newest arch under the GC-rooting bridge\".\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-15T13:15:40+05:30",
+          "tree_id": "9cb226690feb7275f1f82dd0036a00ea3c260ce5",
+          "url": "https://github.com/kaappi/kaappi/commit/35afb42e16a30572180c25c666b7d64b8a8147e5"
+        },
+        "date": 1789461192470,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.01179,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.094571,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.409665,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.129721,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004361,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.036437,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.219482,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.039731,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.22283,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.870994,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.197628,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.238898,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.236713,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.849724,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.036582,
             "unit": "seconds"
           }
         ]
