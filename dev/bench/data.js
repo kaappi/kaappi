@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789454820140,
+  "lastUpdate": 1789460688157,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "10a5be17f03f637e9a8a17406f97f2b3e26bfe82",
-          "message": "Add channel identity comparators to (kaappi fibers) (#2397)\n\n* Add channel identity comparators to (kaappi fibers) (kaappi#2394)\n\nKEP-0002 §2 promised that eqv?/equal? compare the SharedChannel pointer\nfor promoted channel stubs; none of that shipped, and the issue's\ndiscussion settled the promise as the SRFI-128 comparator surface\n(option 1b) instead of extending the global predicates:\n\n- channel=? — #t iff both operands are channels backing the same\n  SharedChannel (or the same unpromoted local channel); carries the\n  same foreign-owner check as channel-send, like channel-closed?.\n- channel-hash ch [bound] — hashes the shared pointer, consistent with\n  channel=? by construction; mirrors (hash obj [bound]) (SRFI 69).\n- channel-comparator — (make-comparator channel? channel=? #f\n  channel-hash) built by calling the real (srfi 128) make-comparator,\n  lazy-loaded on demand (embedded for --sandbox and WASM, like\n  (srfi 181)); the three procedures are the (kaappi fibers) registry's\n  pristine exports, immune to top-level shadowing of those names.\n\nunboundedHash is now pub so channel-hash shares the exact unbounded\nhash rendering. eq?/eqv?/equal? stay stub-identity, as the KEP's\n2026-08-27 as-implemented amendment records.\n\nTests: unit tests in src/tests_fibers.zig (local identity, stub\nunification across threads, hash-table dedup both ways, lazy\ncomparator construction) plus tests/scheme/smoke/channel-identity-2394.scm\nfor the end-to-end scenario. Docs: new section in\ndocs/dev/thread-value-sharing.md covering the comparator surface, the\npromotion/hash-stability caveat, and the SRFI-113 sets-don't-honor-\ncomparators gap.\n\n* Signed-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* DCO remediation commit for Baiju Muthukadan <baiju.m.mail@gmail.com>\n\nI, Baiju Muthukadan <baiju.m.mail@gmail.com>, hereby add my Signed-off-by to this commit: 68cb86effcbeed04329e659a91f84fef8fe4877a\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: promotion-stable hash, thread-safe comparator, SRFI-113 fix (kaappi#2394)\n\nEvery finding from the #2397 review, verified against the code first:\n\n- Promotion-stable channel hash (CodeRabbit, baijum): promoteChannel\n  preserves the promoting channel's tagged Value as\n  SharedChannel.identity_seed (written before publish), and channel-hash\n  hashes that seed in every representation -- a table keyed before the\n  first cross-thread send stays reachable after promotion rewrites the\n  original in place, and every stub hashes the one seed. The unpromoted\n  path routes through valueHash, so (channel-hash ch) = (hash ch) on\n  every target including wasm32's 32-bit usize; the copied mixing\n  constant is gone.\n- Worker-thread lazy-load hazards (baijum): threadStartImpl pre-loads\n  (srfi 128) on the spawning VM before any child can struct-copy the\n  registry (ensureComparatorLibraryLoaded, best-effort). The process's\n  first make-thread is necessarily the root, so the load is always\n  pre-children and read-only afterwards -- no child ever lazy-loads\n  into the shared bucket storage, and the loaded exports live on the\n  root heap where markVmRoots marks them.\n- channel-comparator is cached on the VM like default_random_source\n  (default_channel_comparator, marked unconditionally in markVmRoots):\n  repeat calls return the same record.\n- The embedded (srfi 128) is now the last-resort source on native after\n  a disk miss too (baijum): a release binary or -Dbundle-src standalone\n  with no lib tree loads it from the binary; disk keeps precedence.\n- A stale last_error_detail no longer misroutes the lazy-load error\n  (reset before the load, ffi.zig callFfi precedent; the swallow path\n  clears again so nothing leaks to the next unrelated error).\n- checkChannelOwner extracted (baijum): the sixth and seventh inline\n  copies of the foreign-owner gate became the helper's call sites, and\n  channel=? binds each operand exactly once.\n- SRFI-113 sets/bags honor their comparator (baijum):\n  %make-empty-set/%make-empty-bag pass it to make-hash-table, so\n  (set (channel-comparator) a b) dedups stubs; detectMode keeps the\n  native fast path for the standard comparators, whose equality fields\n  hold the real eq?/eqv?/equal?.\n- wasm32-baseline: a natural u64 demands align 8 against Header's 4,\n  breaking destroyHook's @fieldParentPtr -- identity_seed carries an\n  explicit header-matching alignment.\n- Tests: insert-promote-lookup regression, comparator caching, SRFI-113\n  set dedup, worker-thread-first comparator use; the two multi-step\n  unit tests moved to th.TestContext. Docs rewritten accordingly.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address round-2 review: seed never dereferenced, off-root load refused, default-comparator fast path (kaappi#2394)\n\nThe four #2397 round-2 findings, each verified before fixing:\n\n- valueHash dereferenced identity_seed (baijum): the dispatch chain\n  (isString/isSymbol/isPair/...) reads .tag through pointer bits, so the\n  seed -- which may point at a swept object, a foreign-heap object, or a\n  reused address -- was a racy read at best and content-hashing of an\n  unrelated object at worst. channel-hash now routes through\n  primitives_hashtable.identityHash (now pub, u64 bits): the pure\n  fall-through arm, bit-identical to valueHash for a live channel on\n  every target, zero dereference.\n- make-default-comparator regression (baijum): routing SRFI-113 sets\n  through their comparator put the default comparator -- the common\n  portable case -- on .custom with two closure bridges per probe. The\n  hashtable bridge now recognizes an unregistered default comparator\n  (equality is srfi.128's default-equality binding and\n  registered-comparators is '()) and installs the native equal?/hash\n  pair instead; late registrations opt out (a table captures its\n  construction-time behavior, which SRFI 128 permits) and a rename of\n  the library internals degrades silently to .custom. Smoke tests pin\n  both directions: equal?-table behavior before registration, and a\n  registered channel-comparator extending the default comparator after.\n- residual off-root load (baijum): ensureComparatorLibraryLoaded now\n  refuses to load on a non-root VM (root_vm guard) and returns success;\n  threadStartImpl clears the loader detail on the swallowed failure, and\n  channel-comparator folds that detail into its raised message before\n  clearing it -- so a broken disk 128.sld yields \"channel-comparator:\n  failed to load (srfi 128): LibrarySourceReadError while loading\n  library from .../128.sld\" and the next unrelated error stays clean.\n  Comments corrected: the hook is thread-start!, not make-thread.\n- Verified end to end with a shadowed broken 128.sld via --lib-path.\n\nFull suite: unit 1873 pass / 7 skipped, fibers green under gc-stress,\nrun-all.sh 2116 pass / 0 fail, wasm builds, fmt and markdownlint clean.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-28T08:08:36+05:30",
-          "tree_id": "90fe886bacebd6c541f283d06be5a7694a9cb2c1",
-          "url": "https://github.com/kaappi/kaappi/commit/10a5be17f03f637e9a8a17406f97f2b3e26bfe82"
-        },
-        "date": 1787887120690,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.103453,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.90543,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.415272,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.266449,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004812,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.045195,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.234533,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.044868,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.307939,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.902232,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.253664,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.254068,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.301656,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.911931,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.037892,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.02564,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2d0e44a7f7d91bb110a9b075e0f93a481396c996",
+          "message": "Build the riscv64 release binary against glibc so (kaappi ffi) can dlopen (#2598)\n\n* Build the riscv64 release binary against glibc so (kaappi ffi) can dlopen\n\nThe released riscv64 kaappi was Zig's musl-static default, and static\nmusl has no dynamic loader, so every `ffi-open` on a riscv64 install\nfailed with \"Dynamic loading not supported\" -- which takes the whole\nC-extension ecosystem (net/http/sqlite/pg/redis/crypto/math) with it.\nThis is the defect #1783 fixed for x86_64 and aarch64; that fix left\nriscv64 alone because it was interpreter-tier at the time, and #2592\nhas since made it native-tier, where the mismatch was also incoherent:\n`kaappi compile` on a riscv64 box links `libkaappi_rt.a` against the\nhost's glibc, so the shipped `kaappi` was the one musl thing in the\nchain.\n\nThe riscv64 build row now carries `zig_target: riscv64-linux-gnu.2.28`,\nthe same floor as the other two Linux rows (Zig 0.16's riscv64 glibc\nstubs reach 2.28; the binary comes out dynamically linked against\n/lib/ld-linux-riscv64-lp64d.so.1). `target` and the artifact names are\nunchanged, so install.sh keeps matching. The same trade-off applies:\na glibc binary does not run on Alpine riscv64.\n\nThe `linux-ffi-smoke` gate gains a riscv64 leg so this cannot regress\nsilently again. No GitHub runner executes riscv64, so the leg runs the\nsame two commands under QEMU user-mode inside the riscv64/ubuntu:24.04\nimage ci.yml's riscv64-native-test already pins (glibc 2.39, has\nlibm.so.6). The native legs are untouched: a matrix key `emulate` gates\nthe QEMU setup steps and swaps the artifact for a `docker run -i`\nprefix; both greps still run on the runner under bash -eo pipefail.\nVerified locally in podman: the gnu.2.28 binary answers 3 and 2.0, a\nwrong expectation fails the pipeline, and a bare riscv64-linux control\nbuild fails the ffi leg with the exact error users saw.\n\nporting.md Stage 6 and ffi.md now say that a Linux release row needs\nthe gnu.2.28 target and a smoke leg, since the checklist is where the\nomission was made.\n\nCloses #2595\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Cap linux-ffi-smoke at 20 minutes; name the musl-static exception\n\nReview follow-ups on the riscv64 glibc switch.\n\nThe smoke job gets `timeout-minutes: 20`. Its legs run two tiny\nprograms, but the riscv64 leg runs them under TCG, and riscv64-under-TCG\nlegs in this repo do wedge (kaappi#2488 found the unit-test binary hung\ntwice). Without a cap a stuck `docker run` would hold the tag's publish\non the 360-minute runner default -- six hours of dead release pipeline\ninstead of a red leg to re-run.\n\nThe riscv64 row comment claimed ci.yml's riscv64-native-test exercises\n\"exactly these artifacts\", which stopped being true the moment the row\nmoved to gnu.2.28: that job cross-builds with the bare musl target so\nthe linked binaries need no sysroot (run-e2e-cross.sh's header). It now\nsays what the job covers, and where the gnu-archive coverage comes from\n(the 2026-09-14 postmortem's 38/38 run with a riscv64-linux-gnu archive).\n\nffi.md and porting.md read as if every Linux release binary can now\ndlopen. The interpreter-tier s390x and powerpc64le rows still carry no\n`zig_target`, so they still ship musl-static and still reject ffi-open;\nboth docs now name that standing exception, ffi.md states the Alpine\nriscv64 trade-off, and the fix is attributed to the PR rather than the\nissue.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-15T13:15:28+05:30",
+          "tree_id": "310deb2a23b239362de978db0fb931d722e29f69",
+          "url": "https://github.com/kaappi/kaappi/commit/2d0e44a7f7d91bb110a9b075e0f93a481396c996"
+        },
+        "date": 1789460685421,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.461855,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.540729,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.587119,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.896168,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004673,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047377,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.291256,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054684,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.555251,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.181009,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.695932,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.306494,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.842746,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.805574,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.047121,
             "unit": "seconds"
           }
         ]
