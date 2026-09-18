@@ -123,7 +123,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
+        uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
           version: 0.16.0
 
@@ -308,7 +308,7 @@ jobs:
 
       - name: Install Zig
         if: env.DOCS_ONLY != 'true'
-        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
+        uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
           version: 0.16.0
           cache-key: ${{ matrix.optimize }}
@@ -476,7 +476,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
+        uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
           version: 0.16.0
           cache-key: gc-stress
@@ -509,7 +509,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
+        uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
           version: 0.16.0
           cache-key: gc-stress-scheme
@@ -686,13 +686,13 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
+        uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
           version: 0.16.0
           cache-key: riscv64
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
         with:
           platforms: riscv64
 
@@ -821,13 +821,13 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
+        uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
           version: 0.16.0
           cache-key: riscv64-native
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
         with:
           platforms: riscv64
 
@@ -865,13 +865,13 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
+        uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
           version: 0.16.0
           cache-key: s390x
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
         with:
           platforms: s390x
 
@@ -913,13 +913,13 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
+        uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
           version: 0.16.0
           cache-key: ppc64le
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
         with:
           platforms: ppc64le
 
@@ -962,7 +962,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
+        uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
           version: 0.16.0
           cache-key: freebsd
@@ -992,7 +992,7 @@ jobs:
         run: rm -rf .zig-cache
 
       - name: Run test suites (FreeBSD VM)
-        uses: vmactions/freebsd-vm@f0552d3b69211736abd97f02ff3d4674c56b73b1 # v1
+        uses: vmactions/freebsd-vm@8b0f1a8fc0ea0def307835c258940ca358fe6480 # v1
         with:
           release: "14.3"
           usesh: true
@@ -1025,7 +1025,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
+        uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
           version: 0.16.0
           cache-key: openbsd
@@ -1109,7 +1109,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
+        uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
           version: 0.16.0
           cache-key: netbsd
@@ -1135,7 +1135,7 @@ jobs:
         run: rm -rf .zig-cache
 
       - name: Run test suites (NetBSD VM)
-        uses: vmactions/netbsd-vm@7f23a491dcc69c34195721ab67934917707f84c7 # v1
+        uses: vmactions/netbsd-vm@20ee93a005c9fc78743e6e05269f4cb023b87413 # v1
         with:
           release: "10.1"
           usesh: true
@@ -1196,7 +1196,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
+        uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
           version: 0.16.0
           cache-key: windows-cross-${{ matrix.arch }}
@@ -1565,7 +1565,7 @@ jobs:
       - name: Install Zig
         # After the suites (see the job comment). Native x86_64 Windows
         # Zig — the C compiler + linker `kaappi compile` picks up.
-        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
+        uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
           version: 0.16.0
           cache-key: windows-x64-test
@@ -1595,7 +1595,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
+        uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
           version: 0.16.0
           cache-key: wasm
@@ -1675,7 +1675,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
+        uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
           version: 0.16.0
 
@@ -1705,7 +1705,7 @@ jobs:
           retention-days: 90
 
       - name: Upload to Codecov
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        uses: codecov/codecov-action@0b35c9ecc4f0529d0eb674914510c22f85b196b4 # v7.1.0
         with:
           use_oidc: true
           directory: coverage/
@@ -1727,7 +1727,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@df7066a4910fe13f4643390dbbd8ce6a785fff63 # v1.0.3
+        uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
           version: 0.16.0
 
@@ -1746,7 +1746,7 @@ jobs:
           retention-days: 30
 
       - name: Store benchmark result
-        uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1.22.1
+        uses: benchmark-action/github-action-benchmark@4322e5726e6334590d251fc4f92bec0efafc45dc # v1.22.2
         with:
           tool: 'customSmallerIsBetter'
           output-file-path: benchmark-results.json
