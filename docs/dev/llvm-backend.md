@@ -874,19 +874,55 @@ args array and dispatches through `kaappi_call_scheme` — so the `musttail` tar
 always links, correct though not itself constant-stack for that one edge.
 
 **Per-target gate.** `fast_tailcalls_supported` (a comptime switch on the host
-arch) enables all of the above only on `aarch64` and `x86_64`, whose LLVM
-backends support `tailcc`/`musttail`. Other hosts keep the uniform-only ABI
-unchanged. riscv64 — native-tier since 2026-09 — deliberately stays there:
-no `@name.fast` entries are emitted, every named function has the single
-uniform entry, and a cross-function tail call is a plain `tail call` hint
-that LLVM may or may not honour — so mutual recursion can grow the stack on
-riscv64 exactly as it did everywhere before #1499. The port was scoped to
-interpreter *parity* (the e2e suite's `native-mutual-tail.scm` checks
-output, not stack depth), and flipping the gate is a separate step that
-needs the suite re-run on the target with `musttail` in play plus a
-deep-mutual-recursion program, since LLVM's RISC-V `musttail` support is
-recent and its guaranteed-tail-call coverage is narrower than on the two
-established arches.
+arch) enables all of the above only on `aarch64` and `x86_64`. Every other
+host keeps the uniform-only ABI, and on riscv64 — native-tier since 2026-09 —
+that is the verified result, not a step still pending (kaappi#2593): LLVM's
+RISC-V backend does not accept `tailcc` as a *function* calling convention.
+`RISCVTargetLowering::LowerFormalArguments` admits C, Fast, PreserveMost,
+GRAAL and the RISC-V vector conventions (plus SPIR_KERNEL in 21) and reports
+`Unsupported calling convention` for anything else, so the first
+`define tailcc … @name.fast` is
+a fatal backend error at -O0 and -O2 alike, before any `musttail` is looked
+at (a *call* to an external `tailcc` callee lowers fine, which is why the
+uniform-only IR never trips it). Measured against the LLVM 21.1 inside Zig
+0.16.0; LLVM `main` (2026-09) has no `CallingConv::Tail` arm either.
+
+`tools/probe-tailcc.sh <zig-target>` compiles the exact fast-entry shape —
+two 8-ary `tailcc` entries with `musttail` both ways, a 1→8 mixed-arity
+`musttail`, the uniform trampoline — with the toolchain's own LLVM and
+prints SUPPORTED or UNSUPPORTED with the diagnostic. Both ways a backend can
+fail are loud, so its verdict is decisive; it is the check to re-run after a
+Zig (LLVM) bump and the first item of the porting checklist. Its 2026-09
+table: aarch64 and x86_64 (every OS) and s390x SUPPORTED; riscv64
+UNSUPPORTED on the convention; ppc64le UNSUPPORTED one layer later —
+`tailcc` accepted, then `failed to perform tail call elimination on a call
+site marked musttail`, the loud form of a backend that will not tail-call
+with stack-passed arguments (ten integer arguments, eight ELFv2 GPRs).
+
+The gate switches off more than the `musttail`. `preScanReserve` is gated on
+the same switch, and `isKnownOrReservedGlobal` is what lets a reference to a
+user-defined top-level function count as a global instead of a free
+variable — so with no reservations, a define whose body names another user
+function, defined before *or* after it, fails `hasFreeVars` and is compiled
+by the interpreter (`kaappi_eval_cached`), whichever way the call goes. On
+riscv64 only functions that call built-ins and themselves go native. That is
+also why `native-mutual-tail.scm` passes there at 2,000,000 alternating
+calls: every function in it falls back, and the VM's own tail-call
+optimisation keeps the stack flat — the e2e diff on riscv64 certifies the
+interpreter, not native codegen.
+
+A riscv64 enablement therefore needs a different convention, not a flipped
+arm. The constraints, measured: `fastcc` is accepted, and `CC_RISCV_FastCC`
+passes twelve integer arguments in `a0`–`a7`/`t3`–`t6`, so `%vm` + 8 +
+`%upvalues` stays in registers — which LLVM ≤ 21 requires for *any* RISC-V
+tail call (`isEligibleForTailCallOptimization` rejects a non-zero outgoing
+stack size; `main` has since let `musttail` bypass that check). But
+`musttail` under any convention other than `tailcc`/`swifttailcc` demands
+that caller and callee prototypes match — the verifier rejects the 1→8
+call outright — so every riscv64 fast entry would have to carry one
+`max_fast_arity`-wide padded prototype. A hand-written probe of that shape
+ran 20,000,000 alternating calls in a 1 MB guest stack under QEMU where the
+plain-call control overflowed at 100,000.
 
 ## Testing
 
@@ -981,7 +1017,9 @@ environment variable controls the C compiler (defaults to `zig cc`).
 - Guaranteed constant-stack **mutual** tail recursion via `tailcc`/`musttail`
   (`even?`/`odd?` and a 3-function cycle at millions of alternating calls,
   `native-mutual-tail.scm`) — a non-tail-calling native binary would overflow,
-  so the interpreter diff doubles as the constant-stack regression check
+  so the interpreter diff doubles as the constant-stack regression check.
+  Not on riscv64, where the gate is off and every function in that program
+  runs interpreted (see [Per-target gate](#guaranteed-mutual-tail-calls-tailcc--musttail))
 - Inline fixnum fast paths for `+ - * < = null?` with their runtime fallbacks —
   overflow → bignum, non-fixnum (flonum/rational) operands, and sign-extended
   negatives (`native-inline-primitives.scm`, all diffed against the interpreter,

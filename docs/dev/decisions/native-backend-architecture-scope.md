@@ -16,7 +16,12 @@ everything below about what a port costs still stands for them. The
 July segfault this record leans on turned out to be #1808, not the triple:
 [postmortems/2026-09-14-riscv64-native-segfault.md](../postmortems/2026-09-14-riscv64-native-segfault.md)
 has the investigation, and [porting.md](../porting.md) the updated
-native-backend checklist.
+native-backend checklist. (2026-09-18) The riscv64 `fast_tailcalls_supported`
+decision is settled the hard way, kaappi#2593: LLVM's RISC-V backend rejects
+`tailcc` as a function calling convention outright, on LLVM 21 and main, so
+the gate cannot be flipped there; `tools/probe-tailcc.sh` now makes that
+check a one-line experiment per target, and it also shows ppc64le refusing
+the `musttail` one layer later.
 
 Prerequisite shipped independently of any port: #1656 — `kaappi compile`
 on an unsupported architecture must refuse loudly instead of linking a

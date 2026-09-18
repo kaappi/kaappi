@@ -257,3 +257,9 @@ Full write-up: [postmortems/2026-09-07-srfi231-sample-implementation.md](postmor
 **Lesson:** before a failure on a new target is charged to the port, run the same program at the same scale on a primary platform. A control run there either finds the bug where the debugging tools are good, or turns the new-target result into a genuine port finding. And when a decision rests on a crash with no root cause, say so in the record and expect the revisit to start there.
 
 Full write-up: [postmortems/2026-09-14-riscv64-native-segfault.md](postmortems/2026-09-14-riscv64-native-segfault.md).
+
+## 21. Probe the toolchain for the shape you emit before designing around it
+
+**Symptom:** kaappi#2593 scoped enabling `tailcc`/`musttail` on riscv64 as "confirm LLVM honours `musttail` for `tailcc` callees under lp64d, then flip the switch", on the reading that RISC-V's guaranteed-tail-call coverage was merely narrower than AArch64's. The first `define tailcc` — three arguments, -O0 — is a fatal "Unsupported calling convention": the backend never accepted the convention at all, in LLVM 21 or on main. The same two-minute experiment showed ppc64le failing one layer later (`musttail` refused at ten arguments) and exposed that the gate also switches off the pre-scan reservation, so on riscv64 no function that calls another user-defined function is native — and the e2e program meant to prove constant-stack native recursion was passing because everything in it ran in the interpreter.
+
+**Lesson:** a per-target LLVM feature decision is a compile of the exact IR shape you emit, with the LLVM inside `zig cc`, and both ways it can fail are loud — so run it before reasoning from release notes or another backend's behaviour, and re-run it on every toolchain bump. `tools/probe-tailcc.sh` is that compile. And when a flag guards more than its name says, an e2e program that passes with the flag off is evidence about whatever ran instead.

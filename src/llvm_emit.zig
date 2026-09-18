@@ -16,13 +16,36 @@ const Value = types.Value;
 // #1499: tailcc + musttail give guaranteed constant-stack mutual tail calls,
 // but only on backends whose LLVM target supports them. aarch64 and x86_64 both
 // do; other hosts keep the uniform array ABI (best-effort `tail call` hint).
-// riscv64 stays on the uniform ABI for now: it joined the native tier as an
-// interpreter-parity port first (kaappi#1656 follow-up); `musttail`/`tailcc`
-// on RISC-V is a separate verification step (see docs/dev/llvm-backend.md).
+// riscv64 cannot join (kaappi#2593): LLVM's RISC-V backend does not accept
+// `tailcc` as a *function* calling convention at all — LowerFormalArguments
+// reports "Unsupported calling convention" for anything but C, Fast,
+// PreserveMost, GRAAL and the RISC-V vector conventions — so the first
+// `define tailcc … @name.fast` is a fatal backend error before any `musttail`
+// is even considered. Verified 2026-09 against the LLVM 21 inside Zig 0.16;
+// LLVM main still has no Tail arm. `tools/probe-tailcc.sh <zig-target>`
+// re-runs that check on the exact fast-entry shape in seconds. Enabling
+// riscv64 therefore needs a different convention, not a flipped arm — see
+// docs/dev/llvm-backend.md, "Per-target gate", for the `fastcc` route.
 pub const fast_tailcalls_supported = switch (@import("builtin").cpu.arch) {
     .aarch64, .x86_64 => true,
     else => false,
 };
+
+test "fast_tailcalls_supported: on for aarch64/x86_64, off for riscv64 whose LLVM backend rejects tailcc (#2593)" {
+    // The gate is a comptime switch on the host, so this checks the host's
+    // arm against the per-arch table; the riscv64 row runs in CI's QEMU unit
+    // leg. Flipping an arm must come with a SUPPORTED verdict from
+    // `tools/probe-tailcc.sh` for that target plus the e2e suite on it —
+    // riscv64's verdict is "Unsupported calling convention" (LLVM 21).
+    const expected = switch (@import("builtin").cpu.arch) {
+        .aarch64, .x86_64 => true,
+        .riscv64 => false,
+        else => false,
+    };
+    try std.testing.expectEqual(expected, fast_tailcalls_supported);
+    // Fast entries only exist where the backend runs at all.
+    if (fast_tailcalls_supported) try std.testing.expect(native_backend_supported);
+}
 
 /// The LLVM `target triple` for a host `(arch, os)`, or null when the native
 /// backend cannot emit a *concrete* triple for it. That is aarch64 and x86_64 ×
