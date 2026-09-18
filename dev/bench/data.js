@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789461195401,
+  "lastUpdate": 1789741248075,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5e1680f22dd435085b7c500e5c24c21dd2da60db",
-          "message": "Add the -Dgc-stress rooting tests for procedural-transformer calls (#2399)\n\n* Add the -Dgc-stress rooting tests for procedural-transformer calls\n\nKEP-0006 step 1 shipped its reentrant-VM-during-compile machinery for\ner-macro-transformer without the exit-criterion test proving the rooting\nholds under forced collection. The no-collect window in\ncompiler_macro.zig, the pushRoot discipline in\nexpander.expandProceduralMacro, the extra_roots append, and the\ndefine-time rooting around vm.evalDatumForMacro all existed, but nothing\nexercised them with collections firing around the transformer call.\n\nThree new tests drive an allocation storm (scaled down under\n-Dgc-stress=true, where every allocation collects) through each rooting\nseam: the use path (transformer conses heavily, then re-reads the input\nform and embeds fresh material in the expansion the compiler keeps\nwalking after the deferred collections fire), the define-time path\n(transformer-spec eval allocates with collections live), and the SRFI\n213 procedure-result re-entry hop (both hops allocate across the rooted\nform and lookup values).\n\nThe SRFI 211/213 engine-seam block moves from tests_macros.zig (already\nover the 1500-line policy) into the new tests_macros_procedural.zig so\nthe new tests do not grow the oversized file.\n\nCloses #2390\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Reword the #2390 test banner to what mutation testing actually pinned\n\nThe PR #2399 review mutation-tested the claim that a single unrooted\nvalue in the transformer-call stretches panics deterministically: it\nholds for the no-collect window (bypassing it panics all three tests),\nbut removing the three individually-named explicit roots at once still\npasses, because each value stays reachable through a redundant cover.\nPresent the window as the primary protection and the explicit roots as\ndefense-in-depth these tests corroborate but do not isolate, and record\nwhy an exclusive-hold construction is not reachable from Scheme-level\ntest code: the covers are the compile boundary's source-tree rooting and\nthe allocators' argument auto-rooting custody chain (not the VM register\nfile, which markVmRoots only marks for live frames), and breaking that\nchain depends on compiler-internal allocation ordering.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-28T08:09:16+05:30",
-          "tree_id": "cb8dcefde91d6010b05361c4e1f8a0eecdce795d",
-          "url": "https://github.com/kaappi/kaappi/commit/5e1680f22dd435085b7c500e5c24c21dd2da60db"
-        },
-        "date": 1787888694526,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 5.301568,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.070496,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.571073,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.012681,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004882,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.04755,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.306029,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.055188,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.751077,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.234147,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.6415,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.280347,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.715589,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.673485,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044967,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.036582,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5b9558c78cb04d6403a993b4946d29a702b73400",
+          "message": "Add a tailcc/musttail probe; record why riscv64 cannot enable it (#2600)\n\n* Add a tailcc/musttail probe; record why riscv64 cannot enable it\n\nkaappi#2593 asked for fast_tailcalls_supported to be flipped on riscv64\nonce LLVM's RISC-V backend was confirmed to honour `musttail` for\n`tailcc` callees. Compiling the emitter's exact fast-entry shape with the\nLLVM 21 inside Zig 0.16 answers one layer earlier: the backend does not\naccept `tailcc` as a function calling convention at all.\nLowerFormalArguments admits C, Fast, PreserveMost, GRAAL and the RISC-V\nvector conventions and reports \"Unsupported calling convention\" for the\nfirst `define tailcc`, at -O0 and -O2, before any musttail is looked at;\na call to an external tailcc callee lowers, which is why the uniform-only\nIR never trips it. LLVM main has no CallingConv::Tail arm for RISC-V\neither, so a toolchain bump will not change the verdict. The gate stays\nas it is, and its comment now says why.\n\ntools/probe-tailcc.sh makes that check a one-line experiment per target:\ntwo 8-ary tailcc entries with musttail both ways, a 1->8 mixed-arity\nmusttail and the uniform trampoline, compiled with `zig cc`'s own LLVM.\nBoth ways a backend can fail are loud, so the verdict is decisive. Its\ntable today: aarch64, x86_64 and s390x SUPPORTED; riscv64 UNSUPPORTED on\nthe convention; ppc64le UNSUPPORTED one layer later (\"failed to perform\ntail call elimination on a call site marked musttail\", ten integer\narguments against eight ELFv2 GPRs). The porting checklist now starts\nthe fast_tailcalls_supported decision there, and a unit test pins the\nper-arch table so a flip has to touch the test that names the reason.\n\nThe gate turns out to switch off more than the musttail. preScanReserve\nis gated on the same switch, and isKnownOrReservedGlobal is the only\nthing that lets a reference to a user-defined top-level function count\nas a global rather than a free variable, so on riscv64 any define that\nnames another user function, defined before or after it, is compiled by\nthe interpreter. That is why native-mutual-tail.scm passes there at two\nmillion alternating calls: every function in it falls back and the VM's\nown tail-call optimisation keeps the stack flat, so the riscv64 e2e diff\ncertifies the interpreter, not native codegen. llvm-backend.md now says\nso, and records the measured constraints of the one route that could\ngive riscv64 the guarantee: fastcc is accepted and passes twelve integer\narguments in registers, but musttail under any convention other than\ntailcc/swifttailcc demands matching prototypes, so every fast entry\nwould carry one padded max_fast_arity-wide signature. Decoupling the\nreservation from the fast entries, and that fastcc route, are\nfollow-ups.\n\nVerified: the probe on seven targets; zig build test on the host; the\nnew test filtered on the host and on riscv64 under QEMU; run-e2e-cross.sh\nriscv64-linux 38/39, the one failure being the on-target compile smoke,\nwhich cannot run under bare user-mode QEMU on an x86-64 host (the\nriscv64 Zig reads the host's /usr/bin/env and links for x86-64) and is\ncovered by CI's container.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* probe-tailcc: report a toolchain failure as PROBE FAILED, not UNSUPPORTED\n\nReview on #2600: `bash tools/probe-tailcc.sh ppc64le-linux` -- the spelling\nporting.md and the CI job names use, while Zig spells it powerpc64le --\nprinted \"UNSUPPORTED ... unknown architecture: 'ppc64le'\" and exited 1, so\na misspelt target wore the same verdict word as a backend rejection: the\nexact false verdict the probe exists to prevent, on the arch whose porter\nruns it next.\n\nTwo changes. `ppc64le-*` is normalized to `powerpc64le-*` before use, so\nboth spellings ask the same question. And UNSUPPORTED is now reserved for\na genuine backend diagnostic -- the LLVM fatal \"error in backend: ...\" that\nboth known rejections arrive as -- while any other compile failure (an\nunknown target, a driver error, the probe IR itself failing the verifier)\nis reported as PROBE FAILED with exit 2, the code already used when zig is\nmissing. The header and llvm-backend.md say so.\n\nAlso the porting.md wording nit from the same review: \"costs more than\nmutual tail calls\" read as a comparison against their cost; it now says\nthe cost goes beyond the lost mutual tail calls.\n\nVerified: host and aarch64-macos SUPPORTED; riscv64-linux UNSUPPORTED\n(Unsupported calling convention); ppc64le-linux and powerpc64le-linux\nboth UNSUPPORTED (musttail refused); a nonsense target PROBE FAILED, exit\n2; markdownlint clean.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-18T19:05:15+05:30",
+          "tree_id": "cfd7d4d3cd364be26f263e8c4f79b230e2c30c2f",
+          "url": "https://github.com/kaappi/kaappi/commit/5b9558c78cb04d6403a993b4946d29a702b73400"
+        },
+        "date": 1789741246674,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.269547,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.621497,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.27057,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 1.459167,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.002807,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.024792,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.138725,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.026937,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.393634,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.56463,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 0.853431,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.198692,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 0.86764,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.204724,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.02576,
             "unit": "seconds"
           }
         ]
