@@ -28,17 +28,30 @@
 # that is the e2e suite's job (tests/e2e/programs/native-mutual-tail.scm
 # at 2,000,000 alternating calls, run on the target).
 #
+# Only a backend diagnostic is a verdict. A compile that fails for any other
+# reason -- an unknown target spelling, a driver error, the probe IR itself
+# failing the verifier -- never asked the backend the question, so it is
+# reported as PROBE FAILED rather than UNSUPPORTED: a misspelt target must
+# not read as a rejection.
+#
 # Usage:
 #   bash tools/probe-tailcc.sh [<zig-target>]      # default: the host
 #   bash tools/probe-tailcc.sh riscv64-linux
 #
-# Prints one SUPPORTED / UNSUPPORTED line (with the backend's diagnostic on
-# failure) and exits 0 / 1; 2 when `zig` is missing.
+# Prints one line and exits 0 for SUPPORTED, 1 for UNSUPPORTED (with the
+# backend's diagnostic), 2 for PROBE FAILED (with the toolchain's message)
+# or when `zig` is missing.
 
 set -euo pipefail
 
 TARGET="${1:-}"
-command -v zig >/dev/null 2>&1 || { echo "error: zig not on PATH" >&2; exit 2; }
+# Zig spells the PowerPC target `powerpc64le`; Kaappi's docs, CI job names
+# and support matrix say `ppc64le`. Accept both, so the spelling the porting
+# checklist uses cannot come back as a verdict.
+case "$TARGET" in
+    ppc64le-*) TARGET="powerpc64le-${TARGET#ppc64le-}" ;;
+esac
+command -v zig >/dev/null 2>&1 || { echo "PROBE FAILED: zig not on PATH" >&2; exit 2; }
 
 TFLAG=()
 [[ -n "$TARGET" ]] && TFLAG=(-target "$TARGET")
@@ -123,8 +136,15 @@ INFO="cpu ${CPU:-?}${ABI:+, abi $ABI}; $(zig cc --version 2>/dev/null | head -1)
 for opt in -O0 -O2; do
     if ! zig cc "${TFLAG[@]}" "$opt" -c "$WORK/probe.ll" -o "$WORK/probe.o" 2> "$WORK/err"; then
         diag="$(grep -m1 -i 'error' "$WORK/err" | sed 's/^.*error: //' || true)"
-        echo "UNSUPPORTED: tailcc/musttail on $LABEL at $opt ($INFO): ${diag:-see stderr}"
-        exit 1
+        # The two backend diagnostics this probe exists to surface both
+        # arrive as "error in backend: ..." (an LLVM fatal error); anything
+        # else is the toolchain failing to run the experiment at all.
+        if grep -q 'error in backend\|LLVM ERROR' "$WORK/err"; then
+            echo "UNSUPPORTED: tailcc/musttail on $LABEL at $opt ($INFO): ${diag:-see stderr}"
+            exit 1
+        fi
+        echo "PROBE FAILED: could not compile the probe for $LABEL at $opt ($INFO): ${diag:-see stderr}" >&2
+        exit 2
     fi
 done
 echo "SUPPORTED: tailcc/musttail on $LABEL at -O0 and -O2 ($INFO)"

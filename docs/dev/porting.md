@@ -448,10 +448,11 @@ joined the native tier in 2026-09 — the pathfinder port described in
       `tailcc` as a function convention at all (riscv64, kaappi#2593) or
       refusing a `musttail` it cannot lower (ppc64le: ten integer
       arguments, eight GPRs). `false` is always safe — constant-stack
-      self-tail-calls compile as loops regardless — but it costs more than
-      mutual tail calls: the pre-scan reservation is gated on the same
-      switch, so a define that names another user-defined function is
-      interpreted rather than native (llvm-backend.md, "Per-target gate").
+      self-tail-calls compile as loops regardless — but the cost goes
+      beyond the lost mutual tail calls: the pre-scan reservation is gated
+      on the same switch, so a define that names another user-defined
+      function is interpreted rather than native (llvm-backend.md,
+      "Per-target gate").
 - [ ] `zig build lib -Dtarget=…` builds `libkaappi_rt.a`, and
       `kaappi compile` produces a working binary on the target. Link
       with `zig cc`, never bare `clang` (Zig compiler-rt intrinsics).

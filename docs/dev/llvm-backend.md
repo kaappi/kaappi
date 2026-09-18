@@ -891,8 +891,10 @@ uniform-only IR never trips it). Measured against the LLVM 21.1 inside Zig
 two 8-ary `tailcc` entries with `musttail` both ways, a 1→8 mixed-arity
 `musttail`, the uniform trampoline — with the toolchain's own LLVM and
 prints SUPPORTED or UNSUPPORTED with the diagnostic. Both ways a backend can
-fail are loud, so its verdict is decisive; it is the check to re-run after a
-Zig (LLVM) bump and the first item of the porting checklist. Its 2026-09
+fail are loud, so its verdict is decisive, and only a backend diagnostic
+counts as one: a misspelt target or a driver error is reported as
+`PROBE FAILED` (exit 2), never as UNSUPPORTED. It is the check to re-run
+after a Zig (LLVM) bump and the first item of the porting checklist. Its 2026-09
 table: aarch64 and x86_64 (every OS) and s390x SUPPORTED; riscv64
 UNSUPPORTED on the convention; ppc64le UNSUPPORTED one layer later —
 `tailcc` accepted, then `failed to perform tail call elimination on a call
