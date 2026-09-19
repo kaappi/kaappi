@@ -570,11 +570,12 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
     const eval_cache_start = self.eval_cache_counter;
 
     // #1499: a fixed-arity, non-variadic, non-boxed *named* function within the
-    // fast-arity bound gets a register-argument `tailcc` fast entry (holding the
-    // body) plus a uniform C-ABI trampoline. Direct callers reach the fast entry
-    // — and, in tail position from another fast entry, via a guaranteed
-    // `musttail`. Everything else keeps the single uniform array-ABI entry.
-    const use_fast = llvm_emit.fast_tailcalls_supported and
+    // fast-arity bound gets a register-argument fast entry (holding the body;
+    // `tailcc`, or padded `fastcc` on riscv64 — llvm_emit.FastAbi) plus a
+    // uniform C-ABI trampoline. Direct callers reach the fast entry — and, in
+    // tail position from another fast entry, via a guaranteed `musttail`.
+    // Everything else keeps the single uniform array-ABI entry.
+    const use_fast = self.fast_abi.supported and
         name != null and
         rest_name == null and
         !boxed.any and
@@ -641,7 +642,7 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
         // restored the enclosing value on exit.
         self.body_scope_roots = 0;
         // A tail call in this body may be a guaranteed `musttail` only from a
-        // `tailcc` fast entry (#1499).
+        // fast entry (#1499).
         self.in_fast_entry = use_fast;
         // No self-tail loop is active until the body_lbl header below sets
         // this (#1808); a stale value from the enclosing scope must not leak
@@ -671,9 +672,12 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
         // registers; the uniform entry takes the caller's args array. Both make
         // the body read parameters from `%args`, so body emission below is
         // identical — the fast entry just materializes that `%args` locally.
+        // Under a padded ABI the fast prototype declares max_fast_arity
+        // registers whatever the arity (every musttail caller and callee must
+        // match, #2602); the surplus are never read.
         if (use_fast) {
-            self.print("; {s} (fast entry)\ndefine tailcc i64 {s}(ptr %vm", .{ name orelse "(lambda)", fast_name }) catch return null;
-            for (0..param_names.len) |i| self.print(", i64 %a{d}", .{i}) catch return null;
+            self.print("; {s} (fast entry)\ndefine {s} i64 {s}(ptr %vm", .{ name orelse "(lambda)", self.fast_abi.cc, fast_name }) catch return null;
+            for (0..self.fastProtoArity(param_names.len)) |i| self.print(", i64 %a{d}", .{i}) catch return null;
             self.write(", ptr %upvalues) {\nentry:\n") catch return null;
         } else {
             const header = std.fmt.allocPrint(self.allocator(), "; {s}\ndefine i64 {s}(ptr %vm, ptr %args, i64 %nargs, ptr %upvalues) {{\nentry:\n", .{ name orelse "(lambda)", base_name }) catch return null;
@@ -687,6 +691,8 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
         // in-place overwrite, bindParamsAsGlobals — reads/writes `%args`
         // unchanged. The array is this frame's own; outgoing tail calls pass
         // argument *values*, never a pointer into it, so `musttail` stays sound.
+        // Only the real parameters are copied: a padded prototype's surplus
+        // registers hold the caller's `i64 0` filler.
         if (use_fast and param_names.len > 0) {
             self.print("  %args = alloca [{d} x i64], align 8\n", .{param_names.len}) catch return null;
             for (0..param_names.len) |i| {
@@ -787,8 +793,9 @@ fn emitFastTrampoline(self: *LLVMEmitter, base_name: []const u8, fast_name: []co
         arg_tmps[i] = v;
     }
     const result = try self.freshTemp();
-    try self.print("  {s} = call tailcc i64 {s}(ptr %vm", .{ result, fast_name });
+    try self.print("  {s} = call {s} i64 {s}(ptr %vm", .{ result, self.fast_abi.cc, fast_name });
     for (arg_tmps) |a| try self.print(", i64 {s}", .{a});
+    try self.writeFastArgPadding(arity);
     try self.write(", ptr %upvalues)\n");
     try self.print("  ret i64 {s}\n}}\n", .{result});
 

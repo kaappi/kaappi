@@ -23,6 +23,10 @@
 #     `smoke` step below covers once with a real on-target `kaappi compile`
 #     when a target-arch `zig` is supplied.
 #   * The linked binary runs under the emulator and must match the oracle.
+#   * native-mutual-tail.scm is additionally checked for `musttail` in its
+#     IR and re-run on a 1 MB guest stack (kaappi#2602): parity alone
+#     cannot tell native constant-stack tail calls from an interpreted
+#     cycle the VM's own TCO keeps flat.
 #
 # Usage:
 #   bash tests/e2e/run-e2e-cross.sh <zig-target> [<target-zig-binary>]
@@ -212,6 +216,55 @@ done
 if [[ -n "${KAAPPI_E2E_PROGRAMS:-}" && $MATCHED -eq 0 ]]; then
     echo "error: KAAPPI_E2E_PROGRAMS='$KAAPPI_E2E_PROGRAMS' matched no program under $SCRIPT_DIR/programs" >&2
     exit 2
+fi
+
+# Constant-stack mutual tail calls (kaappi#2602). The parity phase proves
+# native-mutual-tail.scm's *output*; this proves the program ran as native
+# code and kept a flat stack, which parity cannot: on a target with no fast
+# entries every function in that program is interpreted and the VM's own
+# tail-call optimisation passes the diff -- the riscv64 situation before
+# #2602 (docs/dev/llvm-backend.md, "Per-target gate"). Two checks:
+#
+#   * the emitted IR must carry `musttail`: the cycle members compiled
+#     natively and their tail calls are LLVM-guaranteed, not a hint;
+#   * the linked binary must produce the parity output on a 1 MB guest
+#     stack, where the program's 2,000,000 alternating calls cannot fit as
+#     real frames -- a tail call that grew the stack is a crash, not a pass.
+#     QEMU_STACK_SIZE is honoured by qemu-user whether the binary runs
+#     through binfmt_misc on the host or inside the container, and is set
+#     through `env` *inside* $EMU so it reaches the emulator that runs the
+#     binary rather than the one, if any, that runs `env`; a host-side
+#     variable would never enter a container.
+echo ""
+echo "=== Constant-stack mutual tail calls on a 1 MB guest stack ($TARGET) ==="
+mt_src="$SCRIPT_DIR/programs/native-mutual-tail.scm"
+mt_ll="$WORK/native-mutual-tail-flat.ll"
+mt_bin="$WORK/native-mutual-tail-flat"
+mt_expected_status=0
+mt_expected=$($EMU "$KAAPPI" "$mt_src" 2>&1) || mt_expected_status=$?
+if ! mt_emit=$($EMU "$KAAPPI" --emit-llvm -o "$mt_ll" "$mt_src" 2>&1); then
+    echo "  emit: $mt_emit"
+    echo "FAIL: constant-stack mutual tail calls — emit-llvm failed"
+    FAIL=$((FAIL + 1))
+elif ! grep -q 'musttail call' "$mt_ll"; then
+    echo "FAIL: constant-stack mutual tail calls — no musttail in the emitted IR (did the cycle compile natively?)"
+    FAIL=$((FAIL + 1))
+elif ! mt_cc=$(cross_link "$mt_ll" "$mt_bin" 2>&1); then
+    echo "  cc: $mt_cc"
+    echo "FAIL: constant-stack mutual tail calls — cross-link failed"
+    FAIL=$((FAIL + 1))
+else
+    mt_status=0
+    mt_actual=$($EMU env QEMU_STACK_SIZE=1048576 "$mt_bin" 2>&1) || mt_status=$?
+    if [[ "$mt_actual" == "$mt_expected" && "$mt_status" == "$mt_expected_status" ]]; then
+        echo "PASS: constant-stack mutual tail calls ($(grep -c 'musttail call' "$mt_ll") musttail sites)"
+        PASS=$((PASS + 1))
+    else
+        echo "FAIL: constant-stack mutual tail calls"
+        echo "  expected (exit $mt_expected_status): $mt_expected"
+        echo "  actual   (exit $mt_status): $mt_actual"
+        FAIL=$((FAIL + 1))
+    fi
 fi
 
 # Command-line passthrough (kaappi#1744), as in run-e2e.sh Phase 3.
