@@ -102,7 +102,11 @@ fn parseFixedArity(formals: Value) ?u8 {
 // or a finalization stub (if it falls back to the interpreter) defines the
 // @r{i}.fast symbol, so the musttail always links.
 pub fn preScanReserve(self: *LLVMEmitter, nodes: []const *ir.Node) EmitError!void {
-    if (!llvm_emit.fast_tailcalls_supported) return;
+    // No fast entries on this host means nothing a musttail could target — and
+    // nothing to make a forward reference count as a global, so a define that
+    // names a later user function is interpreted rather than native (#2601).
+    // Every native-tier arch has a row (llvm_emit.default_fast_abi).
+    if (!self.fast_abi.supported) return;
 
     var def_count = std.StringHashMap(u32).init(self.allocator());
     var set_targets = std.StringHashMap(void).init(self.allocator());
@@ -134,10 +138,10 @@ pub fn preScanReserve(self: *LLVMEmitter, nodes: []const *ir.Node) EmitError!voi
 
 // Emit a forwarding stub for every reserved name a `musttail` targeted that
 // never got a real native @r{i}.fast body (the define fell back to the
-// interpreter). The stub is a `tailcc` shell around the ordinary indirect call —
-// it looks the name up as a global and dispatches through kaappi_call_scheme —
-// so the symbol resolves at link time. Correct, though not itself constant-stack,
-// for that one non-native edge of a cycle.
+// interpreter). The stub is a fast-convention shell around the ordinary
+// indirect call — it looks the name up as a global and dispatches through
+// kaappi_call_scheme — so the symbol resolves at link time. Correct, though
+// not itself constant-stack, for that one non-native edge of a cycle.
 pub fn emitForwardStubs(self: *LLVMEmitter) EmitError!void {
     var it = self.forward_referenced.keyIterator();
     while (it.next()) |name_ptr| {
@@ -162,9 +166,15 @@ fn emitForwardStub(self: *LLVMEmitter, name: []const u8, rf: ReservedFast) EmitE
         self.tmp_counter = saved_tmp;
     }
 
-    try self.print("; forward-ref stub: {s}\ndefine internal tailcc i64 {s}(ptr %vm", .{ name, rf.fast });
+    // The prototype is the one its musttail callers use — padded to
+    // max_fast_arity under a padded ABI (#2602) — while the args array below
+    // holds only the real `rf.arity` values. `internal`, so at -O2 LLVM may
+    // inline it into its musttail caller (it does); what it must not do is
+    // narrow the prototype, and DeadArgumentElimination leaves any function a
+    // musttail reaches alone.
+    try self.print("; forward-ref stub: {s}\ndefine internal {s} i64 {s}(ptr %vm", .{ name, self.fast_abi.cc, rf.fast });
     var i: usize = 0;
-    while (i < rf.arity) : (i += 1) try self.print(", i64 %a{d}", .{i});
+    while (i < self.fastProtoArity(rf.arity)) : (i += 1) try self.print(", i64 %a{d}", .{i});
     try self.write(", ptr %upvalues) {\nentry:\n");
 
     var args_ref: []const u8 = "null";

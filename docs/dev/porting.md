@@ -441,18 +441,23 @@ joined the native tier in 2026-09 — the pathfinder port described in
       × the six OSes, plus riscv64 × linux; every other `(arch, os)`
       returns null, which makes `native_backend_supported` false so
       `kaappi compile` refuses loudly, kaappi#1656).
-- [ ] Decide `fast_tailcalls_supported` (`llvm_emit.zig`) by running
-      `bash tools/probe-tailcc.sh <zig-target>` first: it compiles the
-      exact `tailcc`/`musttail` fast-entry shape with `zig cc`'s own LLVM
-      and fails loudly in either of the two ways a backend can — refusing
-      `tailcc` as a function convention at all (riscv64, kaappi#2593) or
-      refusing a `musttail` it cannot lower (ppc64le: ten integer
-      arguments, eight GPRs). `false` is always safe — constant-stack
-      self-tail-calls compile as loops regardless — but the cost goes
-      beyond the lost mutual tail calls: the pre-scan reservation is gated
-      on the same switch, so a define that names another user-defined
-      function is interpreted rather than native (llvm-backend.md,
-      "Per-target gate").
+- [ ] Decide the arch's `default_fast_abi` row (`llvm_emit.FastAbi`) by
+      running `bash tools/probe-tailcc.sh <zig-target>` first, then
+      `bash tools/probe-tailcc.sh --fastcc-padded <zig-target>` if the
+      first reports `Unsupported calling convention`. Each compiles the
+      exact fast-entry shape of one row with `zig cc`'s own LLVM and fails
+      loudly in either of the two ways a backend can — refusing the
+      convention as a function convention at all (riscv64 for `tailcc`,
+      kaappi#2593) or refusing a `musttail` it cannot lower (ppc64le in
+      both modes: ten integer arguments, eight GPRs). SUPPORTED in the
+      default mode is the `tailcc_abi` row; SUPPORTED only in the padded
+      mode is the `padded_fastcc_abi` row riscv64 uses (kaappi#2602), which
+      also needs `max_fast_arity + 2` integer argument registers on the
+      target. `no_fast_abi` is always safe — constant-stack self-tail-calls
+      compile as loops regardless — but the cost goes beyond the lost
+      mutual tail calls: the pre-scan reservation is gated on the same row,
+      so a define that names another user-defined function is interpreted
+      rather than native (llvm-backend.md, "Per-target gate").
 - [ ] `zig build lib -Dtarget=…` builds `libkaappi_rt.a`, and
       `kaappi compile` produces a working binary on the target. Link
       with `zig cc`, never bare `clang` (Zig compiler-rt intrinsics).

@@ -21,7 +21,14 @@ decision is settled the hard way, kaappi#2593: LLVM's RISC-V backend rejects
 `tailcc` as a function calling convention outright, on LLVM 21 and main, so
 the gate cannot be flipped there; `tools/probe-tailcc.sh` now makes that
 check a one-line experiment per target, and it also shows ppc64le refusing
-the `musttail` one layer later.
+the `musttail` one layer later. (2026-09-19) Then enabled the other way,
+kaappi#2602: the fast entries became per-host `FastAbi` rows, riscv64's
+being `fastcc` with one `max_fast_arity`-wide padded prototype — the one
+convention its backend accepts under which `musttail` is honoured — so
+riscv64 has the guarantee, and every define that names another user
+function compiles natively there (kaappi#2601); the probe grew a
+`--fastcc-padded` mode, and it turned up x86_64-windows refusing the
+mixed-arity `tailcc` musttail (kaappi#2604).
 
 Prerequisite shipped independently of any port: #1656 — `kaappi compile`
 on an unsupported architecture must refuse loudly instead of linking a

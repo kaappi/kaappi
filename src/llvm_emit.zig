@@ -13,38 +13,97 @@ const let_emit = @import("llvm_emit_let.zig");
 
 const Value = types.Value;
 
-// #1499: tailcc + musttail give guaranteed constant-stack mutual tail calls,
-// but only on backends whose LLVM target supports them. aarch64 and x86_64 both
-// do; other hosts keep the uniform array ABI (best-effort `tail call` hint).
-// riscv64 cannot join (kaappi#2593): LLVM's RISC-V backend does not accept
-// `tailcc` as a *function* calling convention at all — LowerFormalArguments
-// reports "Unsupported calling convention" for anything but C, Fast,
-// PreserveMost, GRAAL and the RISC-V vector conventions — so the first
-// `define tailcc … @name.fast` is a fatal backend error before any `musttail`
-// is even considered. Verified 2026-09 against the LLVM 21 inside Zig 0.16;
-// LLVM main still has no Tail arm. `tools/probe-tailcc.sh <zig-target>`
-// re-runs that check on the exact fast-entry shape in seconds. Enabling
-// riscv64 therefore needs a different convention, not a flipped arm — see
-// docs/dev/llvm-backend.md, "Per-target gate", for the `fastcc` route.
-pub const fast_tailcalls_supported = switch (@import("builtin").cpu.arch) {
-    .aarch64, .x86_64 => true,
-    else => false,
+// #1499: guaranteed constant-stack mutual tail calls need an LLVM calling
+// convention under which the target's backend honours `musttail` — and which
+// convention that is, and what it costs, is per target. `FastAbi` is the
+// per-host answer and `default_fast_abi` the table:
+//
+// * aarch64 and x86_64: `tailcc`, which also exempts `musttail` from LLVM's
+//   prototype-match rule, so a fast entry carries its exact arity and
+//   functions of different arity may mutually tail-call.
+// * riscv64 (kaappi#2593, #2602): LLVM's RISC-V backend does not accept
+//   `tailcc` as a *function* calling convention at all — LowerFormalArguments
+//   reports "Unsupported calling convention" for anything but C, Fast,
+//   PreserveMost, GRAAL and the vector conventions, on LLVM 21 and on main —
+//   so the first `define tailcc … @name.fast` is a fatal backend error before
+//   any `musttail` is looked at. `fastcc` is accepted and honours `musttail`,
+//   under two constraints `padded` encodes: `musttail` under any convention
+//   other than `tailcc`/`swifttailcc` demands matching caller and callee
+//   prototypes (the verifier rejects a 1→8 call outright), so every fast
+//   prototype is `max_fast_arity` wide and a lower-arity call pads; and
+//   LLVM ≤ 21 refuses any RISC-V tail call with stack-passed arguments, so
+//   the whole prototype must fit the twelve integer argument registers of
+//   `CC_RISCV_FastCC` (a0–a7, t3–t6) — the comptime check below keeps
+//   `max_fast_arity` inside that.
+// * every other host: no fast entries. Each function keeps its uniform
+//   array-ABI entry and a cross-function tail call is a best-effort
+//   `tail call` hint (`false` is always safe — self-tail-calls compile as
+//   loops regardless).
+//
+// `tools/probe-tailcc.sh [--fastcc-padded] <zig-target>` compiles the exact
+// fast-entry shape of either row with `zig cc`'s own LLVM, in seconds, and is
+// how a row is decided (docs/dev/porting.md); docs/dev/llvm-backend.md
+// "Per-target gate" has the measurements behind this table. The emitter
+// reads its `fast_abi` field, initialized from the table, never the table
+// itself — so a unit test on any host can pin another arch's IR shape.
+pub const FastAbi = struct {
+    /// Fast entries are emitted at all. Off, every function keeps its single
+    /// uniform entry and `preScanReserve` reserves nothing — which also
+    /// sends every define that names another user function to the
+    /// interpreter (kaappi#2601), so `false` costs more than the guarantee.
+    supported: bool,
+    /// The LLVM calling convention on every fast-entry definition and call.
+    cc: []const u8,
+    /// Every fast prototype declares `max_fast_arity` i64 parameters and a
+    /// lower-arity call pads with `i64 0`; the prologue copies only the real
+    /// parameters into `%args`, so the padding is never read.
+    padded: bool,
 };
 
-test "fast_tailcalls_supported: on for aarch64/x86_64, off for riscv64 whose LLVM backend rejects tailcc (#2593)" {
-    // The gate is a comptime switch on the host, so this checks the host's
-    // arm against the per-arch table; the riscv64 row runs in CI's QEMU unit
-    // leg. Flipping an arm must come with a SUPPORTED verdict from
-    // `tools/probe-tailcc.sh` for that target plus the e2e suite on it —
-    // riscv64's verdict is "Unsupported calling convention" (LLVM 21).
-    const expected = switch (@import("builtin").cpu.arch) {
-        .aarch64, .x86_64 => true,
-        .riscv64 => false,
-        else => false,
+pub const tailcc_abi: FastAbi = .{ .supported = true, .cc = "tailcc", .padded = false };
+pub const padded_fastcc_abi: FastAbi = .{ .supported = true, .cc = "fastcc", .padded = true };
+pub const no_fast_abi: FastAbi = .{ .supported = false, .cc = "tailcc", .padded = false };
+
+pub const default_fast_abi: FastAbi = switch (@import("builtin").cpu.arch) {
+    .aarch64, .x86_64 => tailcc_abi,
+    .riscv64 => padded_fastcc_abi,
+    else => no_fast_abi,
+};
+
+/// The per-target gate as a bool, for the sites that only ask whether fast
+/// entries exist on this host.
+pub const fast_tailcalls_supported = default_fast_abi.supported;
+
+comptime {
+    // A padded riscv64 fast prototype is %vm + max_fast_arity + %upvalues
+    // integer arguments, and LLVM ≤ 21 will not tail-call on RISC-V with any
+    // of them on the stack: past twelve, every riscv64 `musttail` becomes a
+    // loud "failed to perform tail call elimination" backend error. Raising
+    // the bound needs a narrower padded width for riscv64, not a bigger one.
+    if (max_fast_arity + 2 > 12) @compileError("max_fast_arity + 2 must fit CC_RISCV_FastCC's twelve integer argument registers (kaappi#2602)");
+}
+
+test "default_fast_abi: tailcc on aarch64/x86_64, padded fastcc on riscv64, off elsewhere (#2593, #2602)" {
+    // The table is a comptime switch on the host, so this pins the host's row
+    // against the expected one; the riscv64 row runs in CI's QEMU unit leg.
+    // Changing a row must come with a SUPPORTED verdict from
+    // `tools/probe-tailcc.sh` (plain or --fastcc-padded) for that target and
+    // the e2e suite run on it — riscv64's plain verdict is "Unsupported
+    // calling convention" (LLVM 21) and its padded one SUPPORTED.
+    const expected: FastAbi = switch (@import("builtin").cpu.arch) {
+        .aarch64, .x86_64 => tailcc_abi,
+        .riscv64 => padded_fastcc_abi,
+        else => no_fast_abi,
     };
-    try std.testing.expectEqual(expected, fast_tailcalls_supported);
+    try std.testing.expectEqual(expected.supported, default_fast_abi.supported);
+    try std.testing.expectEqualStrings(expected.cc, default_fast_abi.cc);
+    try std.testing.expectEqual(expected.padded, default_fast_abi.padded);
+    try std.testing.expectEqual(expected.supported, fast_tailcalls_supported);
     // Fast entries only exist where the backend runs at all.
     if (fast_tailcalls_supported) try std.testing.expect(native_backend_supported);
+    // Padding exists for conventions that hold musttail to the prototype-match
+    // rule; tailcc is exempt, so a padded tailcc row would only waste registers.
+    if (std.mem.eql(u8, default_fast_abi.cc, "tailcc")) try std.testing.expect(!default_fast_abi.padded);
 }
 
 /// The LLVM `target triple` for a host `(arch, os)`, or null when the native
@@ -130,19 +189,22 @@ test "targetTriple: aarch64/x86_64 everywhere and riscv64 on linux are native-co
 }
 
 // A named native function with at most this many fixed parameters gets a
-// register-argument `tailcc` fast entry (see emitLambdaFunction). Beyond it the
-// uniform array ABI is kept — the bound keeps register pressure and signature
-// width reasonable; it is not an ABI limit and can be raised.
+// register-argument fast entry (see emitLambdaFunction). Beyond it the uniform
+// array ABI is kept — the bound keeps register pressure and signature width
+// reasonable. It is not an ABI limit on aarch64/x86_64, but under the padded
+// riscv64 ABI it is the width of *every* fast prototype and is capped by the
+// register-argument budget (see the comptime check on FastAbi).
 pub const max_fast_arity: usize = 8;
 
 pub const NativeLambda = struct {
     llvm_name: []const u8,
     arity: u8,
     is_variadic: bool,
-    // The `tailcc` register-argument entry (`@<name>.fast`) for a fixed-arity,
-    // non-variadic, non-boxed function, or null when the function has only the
-    // uniform array-ABI entry. Direct call sites emit register-argument calls —
-    // and `musttail` for guaranteed mutual TCO — when this is set (#1499).
+    // The register-argument fast entry (`@<name>.fast`; `tailcc`, or padded
+    // `fastcc` on riscv64 — FastAbi) for a fixed-arity, non-variadic,
+    // non-boxed function, or null when the function has only the uniform
+    // array-ABI entry. Direct call sites emit register-argument calls — and
+    // `musttail` for guaranteed mutual TCO — when this is set (#1499).
     fast_name: ?[]const u8 = null,
     // True when the function's native body reaches a *code* eval fallback
     // (`kaappi_eval_cached` — a variadic inner lambda, letrec, guard, …). Such a
@@ -287,11 +349,17 @@ pub const LLVMEmitter = struct {
     // afterwards; nested lets accumulate. Always 0 unless self.locals != null
     // (inside a rooted let), which keeps musttail disabled while it is nonzero.
     body_scope_roots: usize = 0,
-    // True only while emitting a `tailcc` register-argument fast-entry body
-    // (#1499). A tail call to another native fast entry may be a guaranteed
-    // `musttail call tailcc` only here — the uniform (ccc) entries, closures,
-    // and the top-level body never can (calling-convention mismatch).
+    // True only while emitting a register-argument fast-entry body (#1499). A
+    // tail call to another native fast entry may be a guaranteed `musttail`
+    // only here — the uniform (ccc) entries, closures, and the top-level body
+    // never can (calling-convention mismatch).
     in_fast_entry: bool = false,
+    // The fast-entry ABI this emitter spells (FastAbi): the calling convention
+    // on every fast definition and call, and whether prototypes are padded to
+    // max_fast_arity. Initialized from the host's `default_fast_abi` row and
+    // read — never the comptime table — by every site that defines or calls
+    // a fast entry, so a test on any host can emit another arch's shape.
+    fast_abi: FastAbi = default_fast_abi,
     // The `llvm.stacksave` result captured at the top of the current self-tail
     // loop header (body_label), or null when no self-tail loop is active for
     // this frame (kaappi#1808). emitSelfTailCall restores to this pointer
@@ -1055,8 +1123,8 @@ pub const LLVMEmitter = struct {
         return lambda.tryCompileLambdaNative(self, data);
     }
 
-    // Whether a tail call here can be a guaranteed `musttail call tailcc`
-    // (#1499). It must be in tail position, inside a `tailcc` fast-entry body
+    // Whether a tail call here can be a guaranteed `musttail` to a fast entry
+    // (#1499). It must be in tail position, inside a fast-entry body
     // (matching calling convention), and the shadow stack must hold no roots a
     // torn-down frame would strand: not inside a rooted `let` (self.locals is
     // non-null only there, and body_scope_roots is likewise nonzero only there —
@@ -1068,10 +1136,26 @@ pub const LLVMEmitter = struct {
             self.frame_entry_roots == 0 and self.body_scope_roots == 0;
     }
 
+    // The number of i64 parameters a fast prototype declares for a function of
+    // `arity` fixed parameters: exactly `arity` under tailcc, `max_fast_arity`
+    // under a padded ABI (FastAbi.padded), where every prototype must match.
+    pub fn fastProtoArity(self: *const LLVMEmitter, arity: usize) usize {
+        return if (self.fast_abi.padded) max_fast_arity else arity;
+    }
+
+    // Write the `, i64 0` padding that brings a fast-entry call of `nargs` real
+    // arguments up to the prototype width; nothing under an exact-arity ABI.
+    pub fn writeFastArgPadding(self: *LLVMEmitter, nargs: usize) EmitError!void {
+        var i = nargs;
+        while (i < self.fastProtoArity(nargs)) : (i += 1) try self.write(", i64 0");
+    }
+
     // Direct call to a native fast entry (#1499): arguments are passed by value
     // in registers (no caller-frame args array), so a real `musttail` is sound.
-    // Emits `musttail call tailcc` when mustTailSafe, a `tail call tailcc` hint
-    // for a tail call from a non-fast caller, else a plain `call tailcc`.
+    // Emits `musttail call <cc>` when mustTailSafe, a `tail call <cc>` hint for
+    // a tail call from a non-fast caller, else a plain `call <cc>` — `cc` being
+    // the host's fast-entry convention (FastAbi), with the argument list padded
+    // to the prototype width under a padded ABI.
     fn emitFastCall(self: *LLVMEmitter, fast_name: []const u8, args: []const *ir.Node, is_tail: bool) EmitError![]const u8 {
         const nargs = args.len;
         const arg_tmps = self.allocator().alloc([]const u8, nargs) catch return error.OutOfMemory;
@@ -1086,18 +1170,20 @@ pub const LLVMEmitter = struct {
         try self.emitPopRoots(root_count);
 
         const musttail = self.mustTailSafe(is_tail);
-        const prefix: []const u8 = if (musttail)
-            "musttail call tailcc"
+        const marker: []const u8 = if (musttail)
+            "musttail call"
         else if (is_tail)
-            "tail call tailcc"
+            "tail call"
         else
-            "call tailcc";
+            "call";
 
         const result = try self.freshTemp();
-        // By-value args: (ptr %vm, i64 a0, …, ptr null). Fast entries are the
-        // direct-call targets — closed functions — so upvalues is always null.
-        try self.print("  {s} = {s} i64 {s}(ptr %vm", .{ result, prefix, fast_name });
+        // By-value args: (ptr %vm, i64 a0, …[, i64 0 padding], ptr null). Fast
+        // entries are the direct-call targets — closed functions — so upvalues
+        // is always null.
+        try self.print("  {s} = {s} {s} i64 {s}(ptr %vm", .{ result, marker, self.fast_abi.cc, fast_name });
         for (arg_tmps) |a| try self.print(", i64 {s}", .{a});
+        try self.writeFastArgPadding(nargs);
         try self.write(", ptr null)\n");
 
         if (is_tail) {
