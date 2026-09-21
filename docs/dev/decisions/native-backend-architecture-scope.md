@@ -28,7 +28,10 @@ convention its backend accepts under which `musttail` is honoured — so
 riscv64 has the guarantee, and every define that names another user
 function compiles natively there (kaappi#2601); the probe grew a
 `--fastcc-padded` mode, and it turned up x86_64-windows refusing the
-mixed-arity `tailcc` musttail (kaappi#2604).
+mixed-arity `tailcc` musttail (kaappi#2604). (2026-09-21) Closed the same
+way, kaappi#2604: the table became a function of `(arch, os)` rather than
+the arch alone, and x86_64-windows takes the padded row — the one platform
+so far where an arch needs a different convention per OS.
 
 Prerequisite shipped independently of any port: #1656 — `kaappi compile`
 on an unsupported architecture must refuse loudly instead of linking a

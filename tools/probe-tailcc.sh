@@ -7,20 +7,24 @@
 #   (default)         `tailcc` + `musttail`, exact-arity prototypes: the
 #                     aarch64/x86_64 row.
 #   --fastcc-padded   `fastcc` + `musttail`, every prototype padded to
-#                     max_fast_arity: the riscv64 row (kaappi#2602), for a
-#                     backend that rejects `tailcc` as a function calling
-#                     convention. `musttail` under any convention but
-#                     tailcc/swifttailcc demands matching caller and callee
-#                     prototypes, so a mixed-arity tail call is only legal
-#                     when both sides carry the same padded width.
+#                     max_fast_arity: the riscv64 (kaappi#2602) and
+#                     x86_64-windows (kaappi#2604) row, for a backend that
+#                     rejects `tailcc` as a function calling convention, or
+#                     accepts it but refuses to grow a guaranteed tail
+#                     call's stack-argument area. `musttail` under any
+#                     convention but tailcc/swifttailcc demands matching
+#                     caller and callee prototypes, so a mixed-arity tail
+#                     call is only legal when both sides carry the same
+#                     padded width -- which also makes every such call a
+#                     sibling call into the caller's own argument area.
 #
 # It compiles that exact shape with the LLVM inside `zig cc` -- the one that
 # links every `kaappi compile` output -- so the per-target row in
 # src/llvm_emit.zig (porting.md, "Native (LLVM) backend") rests on a
 # five-second experiment rather than on a reading of LLVM's sources or
-# release notes. Run the default mode first; when it reports "Unsupported
-# calling convention", run `--fastcc-padded`, and a SUPPORTED there is the
-# `padded_fastcc_abi` row.
+# release notes. Run the default mode first; when it reports UNSUPPORTED,
+# run `--fastcc-padded`, and a SUPPORTED there is the `padded_fastcc_abi`
+# row.
 #
 # Both ways this can fail are loud, which is what makes the probe decisive:
 #
@@ -29,8 +33,11 @@
 #     calling convention" -- RISC-V does for `tailcc`, through LLVM 21 and on
 #     main as of 2026-09 (kaappi#2593), which is why it has the padded row;
 #   * a backend that accepts the convention but cannot honour a particular
-#     `musttail` rejects that call site with "failed to perform tail call
-#     elimination on a call site marked musttail". The probe therefore uses
+#     `musttail` rejects that call site -- "failed to perform tail call
+#     elimination on a call site marked musttail" (ppc64le), or Win64's
+#     "Can't handle guaranteed tail call under win64 yet" for a call that
+#     would grow the caller's stack-argument area (x86_64-windows under
+#     `tailcc`, kaappi#2604). The probe therefore uses
 #     the widest fast entry the emitter produces -- %vm + max_fast_arity (8)
 #     i64 + %upvalues, ten integer arguments, more than most ABIs pass in
 #     registers -- and, in the default mode, a 1 -> 8 mixed-arity musttail,
@@ -54,6 +61,7 @@
 #   bash tools/probe-tailcc.sh [--fastcc-padded] [<zig-target>]   # default: the host
 #   bash tools/probe-tailcc.sh riscv64-linux
 #   bash tools/probe-tailcc.sh --fastcc-padded riscv64-linux
+#   bash tools/probe-tailcc.sh --fastcc-padded x86_64-windows
 #
 # Prints one line and exits 0 for SUPPORTED, 1 for UNSUPPORTED (with the
 # backend's diagnostic), 2 for PROBE FAILED (with the toolchain's message)

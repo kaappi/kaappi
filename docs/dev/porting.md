@@ -441,19 +441,23 @@ joined the native tier in 2026-09 — the pathfinder port described in
       × the six OSes, plus riscv64 × linux; every other `(arch, os)`
       returns null, which makes `native_backend_supported` false so
       `kaappi compile` refuses loudly, kaappi#1656).
-- [ ] Decide the arch's `default_fast_abi` row (`llvm_emit.FastAbi`) by
-      running `bash tools/probe-tailcc.sh <zig-target>` first, then
-      `bash tools/probe-tailcc.sh --fastcc-padded <zig-target>` if the
-      first reports `Unsupported calling convention`. Each compiles the
+- [ ] Decide the `(arch, os)` pair's `fastAbiFor` row (`llvm_emit.FastAbi`;
+      the OS is part of the key — x86_64 is `tailcc` everywhere but
+      Windows, kaappi#2604) by running `bash tools/probe-tailcc.sh
+      <zig-target>` first, then `bash tools/probe-tailcc.sh --fastcc-padded
+      <zig-target>` if the first reports UNSUPPORTED. Each compiles the
       exact fast-entry shape of one row with `zig cc`'s own LLVM and fails
       loudly in either of the two ways a backend can — refusing the
       convention as a function convention at all (riscv64 for `tailcc`,
       kaappi#2593) or refusing a `musttail` it cannot lower (ppc64le in
-      both modes: ten integer arguments, eight GPRs). SUPPORTED in the
-      default mode is the `tailcc_abi` row; SUPPORTED only in the padded
-      mode is the `padded_fastcc_abi` row riscv64 uses (kaappi#2602), which
-      also needs `max_fast_arity + 2` integer argument registers on the
-      target. `no_fast_abi` is always safe — constant-stack self-tail-calls
+      both modes: ten integer arguments, eight GPRs; x86_64-windows in the
+      default mode: Win64 will not grow a tail call's stack-argument area).
+      SUPPORTED in the default mode is the `tailcc_abi` row; SUPPORTED only
+      in the padded mode is the `padded_fastcc_abi` row riscv64
+      (kaappi#2602) and x86_64-windows (kaappi#2604) use — on a backend that
+      refuses any stack-passed tail-call argument, as LLVM ≤ 21's RISC-V
+      does, it also needs `max_fast_arity + 2` integer argument registers.
+      `no_fast_abi` is always safe — constant-stack self-tail-calls
       compile as loops regardless — but the cost goes beyond the lost
       mutual tail calls: the pre-scan reservation is gated on the same row,
       so a define that names another user-defined function is interpreted
