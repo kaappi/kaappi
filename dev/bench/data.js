@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789970044501,
+  "lastUpdate": 1789989844044,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "cfbc99f036a6fe57512e5604893d0d5c2889fe4d",
-          "message": "Implement SRFI 273: extensions to data (type-)checking (#2411)\n\n* Implement SRFI 273: extensions to data (type-)checking\n\nPortable (srfi 273) layered on (srfi 253): define-check, advisory\ndeclare-checked, define-values-checked (with real per-value checks,\nreceiving the form's values exactly once via call-with-values), and the\ncheck-impl? auxiliary syntax, which strips to its datum so an unknown\nimplementation-specific name is an unbound variable — the spec's\n(values-checked ((check-impl? uint)) -1) is an error here too. The\nlibrary re-exports the whole (srfi 253) vocabulary so importing it alone\nsuffices.\n\nThe => return-value checking SRFI 273 specifies for the 253 forms was\nalready folded into 253.sld by the original port (the SRFI 253 sample\nimplementation carries it) — the decision is recorded in\ndocs/dev/srfi-implementation-notes.md. What it lacked, now fixed there:\n\n- lambda-checked with empty or rest formals dropped the => clause on\n  the floor ((lambda-checked () => (integer?) ...)) expanded to a body\n  with a bare => in it); both shapes now check their returns.\n- Multi-value => checks never worked: the terminal expansion spliced N\n  predicates into values-checked against a single value expression —\n  an ellipsis-count mismatch that compiled to garbage. New\n  %check-results wraps one (lambda (v . more)) layer per predicate\n  (hygiene gives each recursive level fresh names), rotating each\n  checked value to the tail so value k meets predicate k and the order\n  is restored at the outermost layer; the predicate list is reversed\n  first so the innermost layer carries the first predicate. A count\n  mismatch is an error, as values-checked's own \"number of values and\n  predicates should match\" already is.\n\nTests: new tests/scheme/srfi/srfi273.scm (102 assertions incl. the\npairing pins that fail under the old layering), plus define-checked =>\ncoverage in srfi253.scm. Counts updated everywhere (179 SRFIs, 163\nportable); kaappi features and the final-status guard both pick 273 up\nfrom the .sld.\n\nCloses #2408\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: => fast path, count-first gate, message-pinned tests\n\n- Single-predicate => now expands to the same let shape values-checked\n  uses instead of the call-with-values tower: the common case is back at\n  parity with main (46k vs 39k jiffies per 300k calls here, was 989k).\n  Like values-checked it does not count values itself — a body returning\n  zero or several still fails the predicate, because Kaappi propagates\n  multiple values through a single-variable let binding and no predicate\n  matches the resulting values object.\n- %cr-gate now checks the value/predicate count BEFORE the rotation\n  tower runs, so a short or long value list is diagnosed as \"number of\n  values and predicates should match\" whatever the predicates are,\n  instead of a mispaired predicate firing first with a misleading\n  message. The tower rides in the gate's body — as a receiver operand\n  it would be evaluated eagerly, running checks before values exist\n  (caught by the suite on the first cut).\n- The count-mismatch tests assert on that error message (via a guard\n  helper, since test-error matches conditions, not messages) with\n  distinct predicates in both directions, so neither can pass via a\n  predicate failure instead.\n- check-case assertions now use test-equal on the dispatched symbol —\n  'int/'other and 'small/'other pairs — so a wrong clause choice fails\n  the test instead of passing on any truthy body (five sites).\n- declare-checked declares => as a literal, matching every other\n  =>-aware macro of the port, so the return-check clause cannot\n  silently capture an unrelated form in that position.\n\nrun-all.sh: 724 scheme files + R7RS 1395 pass; srfi273 105, srfi253 108.\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>",
-          "timestamp": "2026-08-28T17:37:08+05:30",
-          "tree_id": "5455288fbaa1e7c9f7012f50b7bdb0249cb5ea1d",
-          "url": "https://github.com/kaappi/kaappi/commit/cfbc99f036a6fe57512e5604893d0d5c2889fe4d"
-        },
-        "date": 1787922065661,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 2.919182,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 5.685519,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.384854,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.081951,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004374,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03477,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.207867,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.038399,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.171258,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.827322,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.167911,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.223173,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.222642,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.804942,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.035017,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044838,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e911ed7b95628bd4a9cb144b615aa2dedcc9e5ed",
+          "message": "Use padded fastcc fast entries on x86_64-windows, where Win64 refuses a growing musttail (#2606)\n\n* Use padded fastcc fast entries on x86_64-windows, where Win64 refuses a growing musttail\n\nkaappi#2604: on an x86_64 Windows host the native backend emitted\n`tailcc` fast entries, and LLVM's X86 backend refuses a guaranteed tail\ncall under the Win64 convention when the callee's arguments do not fit\nthe caller's incoming stack-argument area -- \"Can't handle guaranteed\ntail call under win64 yet\", a fatal backend error. Win64 passes four\ninteger arguments in registers, so a 1-ary fast entry (%vm, one value,\n%upvalues) tail-calling a 5-ary or wider one failed `kaappi compile`,\nwhile every same-arity cycle -- all of tests/e2e/programs -- compiled,\nand at -O2 a small callee was inlined into its caller and the offending\nmusttail vanished with it, which is how windows-x64-test stayed green.\n\nThe fast-entry table is now a function of the host's (arch, os) pair,\nllvm_emit.fastAbiFor, rather than of the arch alone, and x86_64-windows\ntakes the padded fastcc row #2605 added for riscv64: with one\nmax_fast_arity-wide prototype every musttail is a sibling call into\nexactly the caller's own argument area, which is what Win64 permits.\nSix of the ten integer arguments travel on the stack and that is fine\n-- the objection is specifically to growing the area -- so riscv64's\nregister bound does not apply. aarch64-windows keeps tailcc (AAPCS64\npasses eight in registers), and the IR emitted on the tailcc hosts is\nbyte-identical before and after (all 38 e2e programs against the\nprevious binary on x86_64-linux). The unit test pins every row of the\ntable on every host, and windows-x64-test's unit-tests.exe pins the\nWindows one on the real target.\n\ntests/e2e/programs/native-mixed-arity-tail.scm makes the regression\nvisible where it lives: a 1-ary <-> 8-ary cycle at 1,000,000\nalternations whose 8-ary body calls a non-inlined primitive (a call\nthrough kaappi_call_scheme allocates its argument array outside the\nentry block, and LLVM's inliner never inlines a function with a dynamic\nalloca), so the mixed-arity musttail reaches the backend at -O2 as at\n-O0. Under the previous tailcc emission its IR fails to cross-compile\nfor x86_64-windows at both levels; under the padded emission it\ncompiles at both, and windows-x64-test runs it through run-e2e.ps1 on\nevery PR. The wide function also checks that all seven derived\narguments -- five of them stack-passed on Win64 -- arrive intact before\nrecomputing the next n from them. run-e2e-cross.sh's 1 MB guest-stack\nphase now covers both cycle programs, so the padded mixed-arity\nmusttail is exercised on riscv64 too.\n\nVerified: the full unit suite and run-e2e.sh (39/39) on the x86_64\nLinux host; every e2e program's padded IR cross-compiled for\nx86_64-windows at -O0 and -O2 and, run natively on Linux under the same\npadded row, 38/38 parity with both cycle programs on a 1 MB stack;\ntools/probe-tailcc.sh x86_64-windows UNSUPPORTED plain and SUPPORTED\npadded; zig fmt --check and markdownlint clean.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Rest the aarch64-windows tailcc row on the probe verdict, not a register count\n\nReview of kaappi#2606: \"AAPCS64 passes eight integer arguments in\nregisters\" was not the mechanism. The fast prototype carries ten (%vm,\neight values, %upvalues), so two are stack-passed under AAPCS64 too and\nthe 1->8 shape grows the callee's argument area there as well. What\nkeeps aarch64-windows on tailcc is that the AArch64 backend has no\nWin64-style refusal -- it lowers a musttail with stack-passed callee\narguments as a sibling call into the caller's area -- which is exactly\nwhat the probe's SUPPORTED verdict certifies. The four spots that gave\nthe register count now say that. llvm_emit.zig stays at the 1500-line\nceiling; the FastAbi commentary is the seam for the next split.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-21T16:08:12+05:30",
+          "tree_id": "ae0345fdd92c762c872776947a3c42399617f8d0",
+          "url": "https://github.com/kaappi/kaappi/commit/e911ed7b95628bd4a9cb144b615aa2dedcc9e5ed"
+        },
+        "date": 1789989841368,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.578279,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.72543,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.34465,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 1.818646,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004319,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03245,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.187098,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.03383,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.771683,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.727828,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.038132,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.191677,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.032581,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.862403,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.02923,
             "unit": "seconds"
           }
         ]
