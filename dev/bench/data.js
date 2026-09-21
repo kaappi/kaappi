@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789970032598,
+  "lastUpdate": 1789970044501,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a12406bde7f741bfe9a01041bf87ff4f68cf211b",
-          "message": "Make er-macro compare binding-aware free-identifier=? and land the four-quadrant test (#2401)\n\n* Make er-macro compare binding-aware free-identifier=? (#2388)\n\nKEP-0006 (as amended 2026-08-27) resolved Unresolved question 2 against\nSRFI 211's contract: compare is free-identifier=? — \"the two identifiers\ndenote the same binding, or both are unbound.\" The shipped compare was\nhygiene-stripped name equality. The #2398 re-port evidence (SRFI 241/202)\nshowed name-based compare held up in real library code but recorded\nconcrete observable weaknesses (a shadowed values claw, macro-generated\nsame-spelled identifiers), so this implements option (a): reuse the\nliteral-matching machinery syntax-rules already has, exposed a second\nway.\n\n- erCompareFn now classifies each argument (use-site local slot via\n  UseSiteBindingCheck.resolve / def-env binding identity / free) and\n  compares, mirroring matchPattern's literal branch outcome for outcome.\n  Because symbols are interned, a bare-rename product is the same object\n  as a use-site token of that spelling, so erRenameSymbol records\n  identity entries under the invocation scope: the classic\n  (compare <token> (rename 'kw)) shape is recognized from the rename\n  record (order-independent), and two plain use-site tokens stay\n  reflexive — the pairwise input-comparison idiom keeps working.\n- Lands the KEP-0006 four-quadrant acceptance test that was never\n  written, as an ER/syntax-rules parity suite: every quadrant (else\n  fires; shadowed else refuses; macro-introduced else; the => variants\n  including macro-introduced => under shadowing) runs BOTH systems\n  against the same expected value — pinning KEP-0018 UQ6 (\"an ER macro\n  is exactly as hygienic as a syntax-rules one\") as a contract.\n- Flips the audit pin that existed precisely so a stronger compare\n  shows up as a test change, and updates the SRFI 211 .sld header and\n  srfi-implementation-notes accordingly (including the 241/202 keyword\n  bullet and the shared reserved-form deviation: a spelling the hygiene\n  engine keeps bare — else, _, ... — is shadowed by a use-site local for\n  macro-introduced occurrences in both systems; identifiers the engine\n  can mark, like =>, stay hygienic).\n\nA pre-existing vm.eval quirk uncovered while writing the Zig tests\n(keyword-name reuse across evals in one process -> bare CompileError;\nreproduces on origin/main) is filed separately as kaappi#2400; the new\ntests use unique names with a comment pointing there.\n\nCloses #2388\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>\n\n* Qualify the compare reflexivity claim in the docs (#2388)\n\nCodeRabbit review: two plain use-site tokens stay reflexive only for a\nspelling this invocation did not also bare-rename — a transformer that\nboth renames 'kw for its keyword checks and pairwise-compares use tokens\nof that same spelling under a local shadowing gets #f. The expander\ncomment already stated the qualified rule; align the .sld header and the\nimplementation notes with it.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address review: def-env rename agreement, rename-vs-rename reflexivity (#2388)\n\nTwo behavior fixes from the #2401 review:\n\n- A def-env-marked rename (#1812 branch of renameForHygiene, taken for a\n  name bound in the transformer's own library when used outside it) never\n  compared equal to a bare use-site reference, though both denote the\n  same imported binding. erCompareFn now answers that pair from the bare\n  side: equal when the use site can resolve the spelling (it is in the\n  use-site globals — the library was imported) and no local shadows it.\n  Regression-tested with a library-defined transformer in srfi211.scm's\n  t211 helperlib.\n- (compare (rename 'kw) (rename 'kw)) answered #f under a use-site local\n  shadow of the spelling, breaking free-identifier=? reflexivity for the\n  hoisted-rename style the 241/202 ports use. The naive args-equal guard\n  cannot work (the use token and the bare rename product are the same\n  interned object — that identity is quadrant 2's whole problem), so the\n  bare/bare branch instead consults whether the spelling occurs in the\n  macro-use input: occurrence means a use-site token is in play (the\n  quadrant rule applies); absence means both arguments are the\n  invocation's own rename products and compare is reflexive. The input is\n  reached through a pointer to expandProceduralMacro's rooted slot, so a\n  moving GC updates it.\n\nAlso from the review: the ER/syntax-rules parity guarantee is now stated\nfor the auxiliary-keyword spellings it actually covers (reserved forms,\nmacro keywords, gensym-marked renames), with the VOID-sentinel divergence\npinned as the boundary in srfi211.scm; and the three stale name-based\ncompare claims in lib/srfi/241.sld and lib/srfi/202.sld — which cited\nkaappi#2388 for the opposite semantics — are flipped, with 241's\nexported-bindings non-effect note re-reasoned (an exported binding is a\nglobal, and globals are not use-site local slots).\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Address second review round: bounded input walk, plainer docs (#2388)\n\n- erFormMentionsSymbol now hangs no more: R7RS datum labels make the\n  macro-use input genuinely circular (#2404), so the walk carries a node\n  budget and a depth cap (both non-allocating), with exhaustion counted\n  conservatively as occurrence — the quadrant rule then applies, refusing\n  under shadowing and never wrongly accepting. Regression test pins\n  termination on a circular input (a define initializer, not a\n  test-assert operand: wrapping a cyclic datum in a body-position macro\n  hits the pre-existing collectSetTargets hang, reproduced on origin/main\n  and noted on #2404).\n- The unsettled compare shape is now stated plainly instead of being\n  called \"the quadrant-2 case\": a spelling that occurs in the input AND\n  was bare-renamed this invocation, compared under a use-site local\n  shadow, is the demanded refusal when one argument is that input token\n  and a known-wrong (broken reflexivity) answer when both arguments were\n  the invocation's own rename products — interned symbols make the two\n  representationally identical, and a distinguishable wrapper for bare\n  rename products would break the compiler's bare matching of the\n  reserved forms macros emit (.sld header + implementation notes +\n  erCompareFn doc).\n- erDefEnvAgreesWithBare's comment no longer asserts an import that may\n  not have happened: the globals hit is the same class of\n  over-approximation the whole-def-env import copy makes (an unrelated\n  same-named use-site global answers #t too; verified against the\n  review's testlib4 probe).\n- lib-bound-var is now actually exported from (t211 helperlib), so the\n  def-env regression test covers the exported-binding path its label\n  claims (the free-ref planting path stays covered by lib-twice).\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Fix #2404 completely: bound collectSetTargets against cyclic macro inputs\n\nThe #2404 instance filed from the #2401 review (erFormMentionsSymbol)\nwas fixed by the previous commit; this closes the pre-existing member of\nthe same class found while verifying it: compiler.collectSetTargets\nwalks the macro-use form's cdr spine with no bound — the scan's depth\ncap counts only car recursion — so a cyclic macro operand re-emitted\ninto a body position (e.g. a test-assert operand) hung the compiler,\nreproducible on origin/main.\n\nBoth spine loops (the main walk and the let-syntax bindings walk) now\ncarry SET_SCAN_SPINE_CAP = 1M steps per list level. Exhausting it marks\nthe scan truncated on budgeted paths — the same\nloses-optimization-never-correctness degradation the expansion budget\nalready takes (set_targets_all boxing), with Part B correcting misses at\nreal-expansion time; null-budget callers (define-syntax specs, the LLVM\nbackend's scanSetTargetsWithoutMacros) just stop, taking the same\ncorrect-late path. One million per level is far beyond any real form\n(the suites' p99.99 prescan count is ~1.7k).\n\nFixed-arity patterns terminate at the pattern's end and ellipsis\npatterns at matchEllipsis's MAX_ELLIPSIS_VALUES cap — probed, both fine.\nRegression test: tests/scheme/hygiene/cyclic-macro-input-2404.scm covers\nthe scanner (fixed and ellipsis patterns), the compare walk, and the\ncombined test-assert wrapper shape; srfi211.scm's circular-compare test\nkeeps its define-initializer shape so it pins compare's walk alone.\n\n#2403 (erRenameDatum's root-stack abort on circular input) remains\ndeliberately untouched: rename has no finite answer for an unfoldable\ncycle, so its fix is a semantic decision belonging to that issue.\n\nCloses #2404\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Propagate set!-scan truncation on every caller (#2401 review)\n\nCodeRabbit review of the SET_SCAN_SPINE_CAP change: a null-budget scan\nthat hit the cap kept a partial target set with no signal — and a missed\nset! target leaves a local unboxed (continuation-unsafe, #1168) and\nfoldable (IR.isRedefined). The same exposure pre-dates the spine cap:\nthe depth cap also reported nothing on null-budget paths. Both are now\nclosed.\n\nSetScanBudget gains an `expand` flag, so a non-null budget no longer\nimplies \"speculatively expanding\": structure-only scans walk literally\n(the define-syntax/let-syntax shortcuts are outcome-equivalent there)\nand report depth/spine truncation like any budgeted scan. The callers:\n\n- Part B (Compiler.scanSetTargets in expandAndCompileMacroUse) now\n  propagates truncation to set_targets_all — the same\n  every-name-is-a-target conservatism the top-level pre-scan uses.\n- scanSetTargetsWithoutMacros (LLVM backend) returns the truncation and\n  its caller eval-fallbacks the whole form via makePassthrough — the\n  tier has no set_targets_all switch, and a passthrough form is compiled\n  by the full VM compiler with its own conservative machinery (same\n  action #2119 takes for continuation-capturing forms).\n\nThe define-syntax/let-syntax spec walks keep their structure-only,\nnon-propagating budget: a set! that only materializes when the spec's\nown macros run is caught at the macro's real use site, the documented\ncorrect-late path.\n\nTests (tests_prescan.zig): scanSetTargetsWithoutMacros reports\ntruncation on a cyclic form and does not hair-trigger on an ordinary\none; a wrapper-shape cyclic macro operand (the minimal form verified to\nhang origin/main — a plain top-level use never reaches the scan) keeps\nset! boxing correct under continuation capture. The cyclic hygiene\nsuite gains the wrapper shape and its comment now names it as the\ndiscriminator.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Native tier: a truncated scan falls back for the rest of the program\n\nCodeRabbit follow-up on the truncation propagation: eval-fallbacking only\nthe truncated form left later forms folding against a possibly-stale\nprimitive table. The truncated form is VM-executed, so a macro-produced\n(set! + *) inside it rebinds at run time — but collectRedefinedNamesMacro\nAware can no more see through the truncation than the scan could, and\nkaappi compile never executes forms to find out; a later natively lowered\n(+ 5 2) then folded to 7 while the interpreter printed 10 (#2212's\ndivergence class, reopened through the truncation path).\n\nFrom the first truncated scan to the end of the file, every top-level\nform is now a passthrough (VM-evaluated; execution order preserved, so\nforms lowered before the truncation stay temporally correct). Only\npathological inputs reach the caps, so ordinary files keep their native\nlowering.\n\nRegression: tests/scheme/compile/native-truncated-scan-fallback-2404.sh —\ncyclic wrapper operand (the minimal scan-truncating shape), then a macro\nrebinding +, then a fold-sensitive (+ 5 2): both tiers must print 10.\nControls pin that the fallback is engagement-gated (no cyclic form ->\nunchanged lowering) and that plain arithmetic after a truncated form\nstill evaluates correctly.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-28T17:34:32+05:30",
-          "tree_id": "c675e38c7acc25374ee11d43e3fbf7f854691f84",
-          "url": "https://github.com/kaappi/kaappi/commit/a12406bde7f741bfe9a01041bf87ff4f68cf211b"
-        },
-        "date": 1787921429527,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.327067,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.829078,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.565135,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.964981,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004915,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.047647,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.303829,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.055613,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.812526,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.233283,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.65896,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.275451,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.70655,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.607185,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045183,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045565,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "57391259ffc1e6ce3cc2f1cce0d4eecfadcc82b6",
+          "message": "Enable guaranteed mutual tail calls on riscv64 via padded fastcc fast entries (#2605)\n\n* Enable guaranteed mutual tail calls on riscv64 via padded fastcc fast entries\n\nkaappi#2593 asked for fast_tailcalls_supported on riscv64 once the target\nwas verified, and #2600 found it could not be a flag flip: LLVM's RISC-V\nbackend rejects `tailcc` as a function calling convention outright. This\ntakes the route #2602 sketched. The fast-entry ABI is now a per-host\ntable, llvm_emit.FastAbi / default_fast_abi: the calling convention on\nevery fast definition and call, and whether every fast prototype is\npadded to max_fast_arity. aarch64 and x86_64 keep `tailcc` with\nexact-arity prototypes, and the IR they emit is byte-identical before\nand after (checked on all 37 e2e programs against a pristine build of\nthe previous commit). riscv64 gets `fastcc` with one eight-wide\nprototype per fast entry, because `musttail` under any convention but\ntailcc/swifttailcc demands matching caller and callee prototypes -- the\nverifier rejects a 1->8 call outright -- and because LLVM <= 21 refuses\nany RISC-V tail call with a stack-passed argument, so %vm + 8 +\n%upvalues has to fit CC_RISCV_FastCC's twelve integer registers; a\ncomptime check pins max_fast_arity + 2 <= 12. A lower-arity call pads\nwith `i64 0`, and the prologue and the forward-ref stub copy only the\nreal parameters, so the filler is never read. The emitter reads its\nfast_abi field, initialised from the table, so a unit test on any host\ncan emit another arch's shape: tests_native.zig now pins the padded\nriscv64 prototypes, the mixed-arity padded musttail, the padded stub and\nthe untouched tailcc row on every CI leg, not only in the QEMU unit leg.\n\nWhat riscv64 gains is more than the guarantee. With no fast entries the\npre-scan reserved nothing, and isKnownOrReservedGlobal is what lets a\nreference to a user function count as a global rather than a free\nvariable, so any define naming another user function -- earlier or\nlater -- was interpreted there (kaappi#2601). On the cross-built riscv64\nkaappi a two-function cycle now emits two native fast entries with a\nmusttail each way, a backward reference a direct musttail, and every\nfunction in native-mutual-tail.scm a fast entry, seven musttail sites\nin all. A test pins that coupling under no_fast_abi for any future host\nwithout a row.\n\ntools/probe-tailcc.sh gains --fastcc-padded, the same five-second\nexperiment for the padded row, so the porting checklist can ask the\nquestion of the next arch. Running both modes on every target turned up\none more thing: x86_64-windows refuses the mixed-arity tailcc musttail\n(\"Can't handle guaranteed tail call under win64 yet\" for a 1->5 or 1->8\ncall whose arguments spill past Win64's four register arguments), which\n#2600's table missed and which the padded row would fix. A real program\nemitted by kaappi fails to compile for x86_64-windows at -O2 that way;\ntiny bodies hide it because the inliner removes the musttail. Filed as\nkaappi#2604 rather than changed here, since nothing on this machine can\nrun the result.\n\nrun-e2e-cross.sh grows a phase parity could not provide: it asserts\nnative-mutual-tail.scm's IR carries musttail and re-runs the linked\nbinary on a 1 MB guest stack (QEMU_STACK_SIZE, set through `env` inside\n$EMU so it reaches the emulator in a container too), where two million\nalternating calls cannot fit as real frames. The same IR with the\nmusttail markers stripped segfaults on that stack, and on the default\n8 MB one.\n\nVerified: zig build test on the host; the emitter tests cross-compiled\nfor riscv64 under QEMU 126/126, with the #1499 tests that used to skip\nthere now running; run-e2e-cross.sh riscv64-linux 39/39 against a\ncross-built prefix; the probe in both modes on eight targets; host IR\nfor the 37 e2e programs identical to the previous commit's; the\ntests/scheme/compile suite on the host; zig fmt --check and markdownlint\nclean.\n\nCloses #2602. Closes #2601.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Review on #2605: gate the fast ABI table; probe where QEMU_STACK_SIZE goes\n\nFive items and one question from the review of #2605.\n\ndefault_fast_abi is now gated by native_backend_supported. The table\nswitched on the arch alone, so an aarch64/x86_64/riscv64 host on an OS\ntargetTriple has no arm for -- where `kaappi compile` refuses before the\nemitter runs (#1656) -- reported fast entries as on, and the table's own\ntest, which asserts fast entries only exist where the backend runs,\nfailed on exactly such a host. The old boolean switch had the same\nlatent failure; the test's expected value applies the same gate.\n\nThe mixed-arity padded-musttail test counted its six- and seven-filler\ncall sites with two overlapping substrings: the six-filler needle also\nmatched inside the seven-filler line, so its `2` was right only through\nthat overlap, and a reader correcting it to 1 would have met a confusing\nfailure. It now counts `, i64 0` per musttail line -- one line with six,\none with seven, no other -- which cannot overlap.\n\nrun-e2e-cross.sh's 1 MB-stack phase set QEMU_STACK_SIZE through `env`\ninside $EMU, which is right for both documented launcher forms (the\nempty binfmt form exec-chains the host's `env` into the binary, a\ncontainer runs its own -- the shape the on-target smoke relies on for\nPATH) and wrong for a bare `qemu-riscv64` prefix, where the emulator\nwould load the host's `env` as the guest binary. The suggested\nhost-side assignment is the inverse: right for the empty and bare\nforms, silently ineffective inside a container, so CI's docker form\nwould have run the check on the default 8 MB stack and passed it\nvacuously. The phase now probes once whether $EMU can run `env` and\nsets the variable inside $EMU when it can, outside otherwise, so all\nthree forms work; the header documents that a bare emulator runs every\nphase but the smoke.\n\nThe trampoline bullet in llvm-backend.md and the comment on the direct\ncall in native-mutual-tail.scm said `call tailcc` unconditionally; both\nnow name the selected convention. The riscv64 segfault postmortem said\nfast_tailcalls_supported stays false there and that mutual recursion has\nno constant-stack guarantee, one link from ci.yml's riscv64-native-test\njob; its Status carries a dated note pointing at the new state, and the\nrest of the record stands.\n\nOn whether (x86_64, windows) should take a different row: yes, and the\npadded fastcc row is the fix rather than no_fast_abi -- the interim\noption trades a loud failure on one program shape (a low-arity fast\nentry tail-calling a higher-arity one with stack arguments) for\ninterpreting every define that names another user function, the #2601\nregression, on every Windows x64 program. The row is one line either\nway, and windows-x64-test runs run-e2e.ps1 on windows-latest, which is\nthe verification a Windows codegen change needs and this machine cannot\ngive; it stays kaappi#2604's own PR rather than a codegen change riding\non the riscv64 one.\n\nVerified: the emitter tests and the full unit suite on the host;\nrun-e2e-cross.sh riscv64-linux against a fresh cross-built prefix with\nthe empty (binfmt) form and with KAAPPI_EMU=qemu-riscv64, the\nconstant-stack phase passing under both; zig fmt --check and\nmarkdownlint clean.\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5.1 <noreply@anthropic.com>",
+          "timestamp": "2026-09-21T10:36:02+05:30",
+          "tree_id": "8a52a437e2c191cc4b4c1e2c62a1d98d685924df",
+          "url": "https://github.com/kaappi/kaappi/commit/57391259ffc1e6ce3cc2f1cce0d4eecfadcc82b6"
+        },
+        "date": 1789970043173,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.524185,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.707435,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.588573,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.087254,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004484,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047817,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.315989,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05582,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.837923,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.490447,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.656577,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.284471,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.733916,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.643676,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044838,
             "unit": "seconds"
           }
         ]
