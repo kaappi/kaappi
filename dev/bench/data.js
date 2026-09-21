@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1789741248075,
+  "lastUpdate": 1789970032598,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "50e84a9d70ed2408cd1251e127bc19aeecbc582a",
-          "message": "Add the kaappi-shared-channels cond-expand feature identifier (KEP-0004 Phase 2) (#2402)\n\n* Add the kaappi-shared-channels cond-expand feature identifier (KEP-0004 Phase 2)\n\nThe gate cleared long ago — kaappi#1487 and #1489 closed 2026-07-13/14 and\nKEP-0002 fully shipped in v0.15.0/v0.16.0 — but the identifier never\nlanded. It rides the same non-wasm branch as kaappi-threads: cross-thread\nchannel promotion requires OS threads, and on wasm32-wasi the notifier is\na no-op nothing ever calls (KEP-0002 §5).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n* Add kaappi-shared-channels to the BSD docs' capability lists\n\nEach of the three BSD pages enumerates the capability identifiers to say\nnone is gated on that platform. The claim stays true — all five are\npresent on every BSD — but the list would have under-counted from this\nPR onward.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\n\n---------\n\nSigned-off-by: Baiju Muthukadan <baiju.m.mail@gmail.com>\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-08-28T06:59:17Z",
-          "tree_id": "36cc46ade78417a952681021970f8c3fd3320414",
-          "url": "https://github.com/kaappi/kaappi/commit/50e84a9d70ed2408cd1251e127bc19aeecbc582a"
-        },
-        "date": 1787902769782,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.878937,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.176818,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.537549,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.784688,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005165,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.0457,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.281555,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054009,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.846159,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.086345,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.525275,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.253145,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.619477,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.013566,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041699,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.02576,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "46c12bb7228f456fae5a951369c246186a45f605",
+          "message": "Bump the github-actions group with 6 updates (#2603)\n\nBumps the github-actions group with 6 updates:\n\n| Package | From | To |\n| --- | --- | --- |\n| [xyzzylabs/setup-zig](https://github.com/xyzzylabs/setup-zig) | `1.0.3` | `1.0.4` |\n| [docker/setup-qemu-action](https://github.com/docker/setup-qemu-action) | `4.3.0` | `4.4.0` |\n| [vmactions/freebsd-vm](https://github.com/vmactions/freebsd-vm) | `1.5.5` | `1.5.6` |\n| [vmactions/netbsd-vm](https://github.com/vmactions/netbsd-vm) | `1.4.9` | `1.5.0` |\n| [codecov/codecov-action](https://github.com/codecov/codecov-action) | `7.0.0` | `7.1.0` |\n| [benchmark-action/github-action-benchmark](https://github.com/benchmark-action/github-action-benchmark) | `1.22.1` | `1.22.2` |\n\n\nUpdates `xyzzylabs/setup-zig` from 1.0.3 to 1.0.4\n- [Release notes](https://github.com/xyzzylabs/setup-zig/releases)\n- [Changelog](https://github.com/xyzzylabs/setup-zig/blob/main/CHANGELOG.md)\n- [Commits](https://github.com/xyzzylabs/setup-zig/compare/df7066a4910fe13f4643390dbbd8ce6a785fff63...ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3)\n\nUpdates `docker/setup-qemu-action` from 4.3.0 to 4.4.0\n- [Release notes](https://github.com/docker/setup-qemu-action/releases)\n- [Commits](https://github.com/docker/setup-qemu-action/compare/1f40c72289eff860ee54a304f1438e3cff362e0a...99012661954931238ded8c8b007157a8430204e1)\n\nUpdates `vmactions/freebsd-vm` from 1.5.5 to 1.5.6\n- [Release notes](https://github.com/vmactions/freebsd-vm/releases)\n- [Commits](https://github.com/vmactions/freebsd-vm/compare/f0552d3b69211736abd97f02ff3d4674c56b73b1...8b0f1a8fc0ea0def307835c258940ca358fe6480)\n\nUpdates `vmactions/netbsd-vm` from 1.4.9 to 1.5.0\n- [Release notes](https://github.com/vmactions/netbsd-vm/releases)\n- [Commits](https://github.com/vmactions/netbsd-vm/compare/7f23a491dcc69c34195721ab67934917707f84c7...20ee93a005c9fc78743e6e05269f4cb023b87413)\n\nUpdates `codecov/codecov-action` from 7.0.0 to 7.1.0\n- [Release notes](https://github.com/codecov/codecov-action/releases)\n- [Changelog](https://github.com/codecov/codecov-action/blob/main/CHANGELOG.md)\n- [Commits](https://github.com/codecov/codecov-action/compare/fb8b3582c8e4def4969c97caa2f19720cb33a72f...0b35c9ecc4f0529d0eb674914510c22f85b196b4)\n\nUpdates `benchmark-action/github-action-benchmark` from 1.22.1 to 1.22.2\n- [Release notes](https://github.com/benchmark-action/github-action-benchmark/releases)\n- [Changelog](https://github.com/benchmark-action/github-action-benchmark/blob/master/CHANGELOG.md)\n- [Commits](https://github.com/benchmark-action/github-action-benchmark/compare/52576c92bccf6ac60c8223ec7eb2565637cae9ba...4322e5726e6334590d251fc4f92bec0efafc45dc)\n\n---\nupdated-dependencies:\n- dependency-name: xyzzylabs/setup-zig\n  dependency-version: 1.0.4\n  dependency-type: direct:production\n  update-type: version-update:semver-patch\n  dependency-group: github-actions\n- dependency-name: docker/setup-qemu-action\n  dependency-version: 4.4.0\n  dependency-type: direct:production\n  update-type: version-update:semver-minor\n  dependency-group: github-actions\n- dependency-name: vmactions/freebsd-vm\n  dependency-version: 1.5.6\n  dependency-type: direct:production\n  update-type: version-update:semver-patch\n  dependency-group: github-actions\n- dependency-name: vmactions/netbsd-vm\n  dependency-version: 1.5.0\n  dependency-type: direct:production\n  update-type: version-update:semver-minor\n  dependency-group: github-actions\n- dependency-name: codecov/codecov-action\n  dependency-version: 7.1.0\n  dependency-type: direct:production\n  update-type: version-update:semver-minor\n  dependency-group: github-actions\n- dependency-name: benchmark-action/github-action-benchmark\n  dependency-version: 1.22.2\n  dependency-type: direct:production\n  update-type: version-update:semver-patch\n  dependency-group: github-actions\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-09-21T10:36:20+05:30",
+          "tree_id": "bb5f6f289d8ea6e4e4b40d9450f7d9aed3d9a824",
+          "url": "https://github.com/kaappi/kaappi/commit/46c12bb7228f456fae5a951369c246186a45f605"
+        },
+        "date": 1789970029503,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.490204,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.613631,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.591047,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.090881,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004476,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.047814,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.317608,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.055808,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.888653,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.2583,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.654049,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.279528,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.733338,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.670863,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045565,
             "unit": "seconds"
           }
         ]
