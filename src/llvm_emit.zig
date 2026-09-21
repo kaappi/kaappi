@@ -15,12 +15,16 @@ const Value = types.Value;
 
 // #1499: guaranteed constant-stack mutual tail calls need an LLVM calling
 // convention under which the target's backend honours `musttail` — and which
-// convention that is, and what it costs, is per target. `FastAbi` is the
-// per-host answer and `default_fast_abi` the table:
+// convention that is, and what it costs, is per target — per *OS* as well
+// as per arch, since one arch's backend can honour `musttail` under one
+// OS's calling convention and refuse it under another's (kaappi#2604).
+// `FastAbi` is the per-host answer and `fastAbiFor` / `default_fast_abi`
+// the table:
 //
-// * aarch64 and x86_64: `tailcc`, which also exempts `musttail` from LLVM's
-//   prototype-match rule, so a fast entry carries its exact arity and
-//   functions of different arity may mutually tail-call.
+// * aarch64 everywhere, and x86_64 on every OS but Windows: `tailcc`, which
+//   also exempts `musttail` from LLVM's prototype-match rule, so a fast
+//   entry carries its exact arity and functions of different arity may
+//   mutually tail-call.
 // * riscv64 (kaappi#2593, #2602): LLVM's RISC-V backend does not accept
 //   `tailcc` as a *function* calling convention at all — LowerFormalArguments
 //   reports "Unsupported calling convention" for anything but C, Fast,
@@ -35,6 +39,23 @@ const Value = types.Value;
 //   the whole prototype must fit the twelve integer argument registers of
 //   `CC_RISCV_FastCC` (a0–a7, t3–t6) — the comptime check below keeps
 //   `max_fast_arity` inside that.
+// * x86_64 on Windows (kaappi#2604): the X86 backend accepts `tailcc` but
+//   refuses a guaranteed tail call under the Win64 convention when the
+//   callee's arguments do not fit the caller's incoming stack-argument area
+//   — "Can't handle guaranteed tail call under win64 yet", a fatal backend
+//   error. Win64 passes four integer arguments in registers, so a 1-ary
+//   fast entry (%vm, one value, %upvalues) tail-calling a 5-ary or wider one
+//   fails, while a same-arity cycle — every cycle in tests/e2e/programs
+//   before #2604 — compiles, and at -O2 a small callee is inlined and the
+//   offending `musttail` disappears, which is how the gap hid. The padded
+//   row fixes it: with one `max_fast_arity`-wide prototype every `musttail`
+//   is a sibling call whose stack-argument area is exactly the caller's own,
+//   and the backend's objection is specifically to *growing* that area — six
+//   of the ten integer arguments being stack-passed is fine, so riscv64's
+//   register bound does not apply.
+//   aarch64-windows is unaffected: two of the ten arguments are stack-passed
+//   under AAPCS64 too, but the AArch64 backend has no Win64-style refusal
+//   (a growing `musttail` lowers as a sibling call) — probe: SUPPORTED.
 // * every other host — including an aarch64/x86_64/riscv64 host on an OS
 //   `targetTriple` has no arm for, where the backend cannot run at all: no
 //   fast entries. Each function keeps its uniform array-ABI entry and a
@@ -65,16 +86,23 @@ pub const tailcc_abi: FastAbi = .{ .supported = true, .cc = "tailcc", .padded = 
 pub const padded_fastcc_abi: FastAbi = .{ .supported = true, .cc = "fastcc", .padded = true };
 pub const no_fast_abi: FastAbi = .{ .supported = false, .cc = "tailcc", .padded = false };
 
-pub const default_fast_abi: FastAbi = if (!native_backend_supported)
+/// The fast-entry ABI row for a host `(arch, os)` — the table behind
+/// `default_fast_abi`, as a function so a unit test on any host can pin
+/// every row rather than only its own.
+pub fn fastAbiFor(arch: std.Target.Cpu.Arch, os: std.Target.Os.Tag) FastAbi {
     // No triple for this (arch, os): `kaappi compile` refuses before the
     // emitter runs (#1656), so a row here could only misreport such a host
     // as having fast entries.
-    no_fast_abi
-else switch (@import("builtin").cpu.arch) {
-    .aarch64, .x86_64 => tailcc_abi,
-    .riscv64 => padded_fastcc_abi,
-    else => no_fast_abi,
-};
+    if (targetTriple(arch, os) == null) return no_fast_abi;
+    return switch (arch) {
+        .aarch64 => tailcc_abi,
+        .x86_64 => if (os == .windows) padded_fastcc_abi else tailcc_abi,
+        .riscv64 => padded_fastcc_abi,
+        else => no_fast_abi,
+    };
+}
+
+pub const default_fast_abi: FastAbi = fastAbiFor(@import("builtin").cpu.arch, @import("builtin").os.tag);
 
 /// The per-target gate as a bool, for the sites that only ask whether fast
 /// entries exist on this host.
@@ -86,25 +114,45 @@ comptime {
     // of them on the stack: past twelve, every riscv64 `musttail` becomes a
     // loud "failed to perform tail call elimination" backend error. Raising
     // the bound needs a narrower padded width for riscv64, not a bigger one.
+    // (The other padded row, x86_64-windows, has no such bound: Win64 spills
+    // past its four argument registers to the stack, and a sibling call under
+    // the same prototype reuses that area — kaappi#2604.)
     if (max_fast_arity + 2 > 12) @compileError("max_fast_arity + 2 must fit CC_RISCV_FastCC's twelve integer argument registers (kaappi#2602)");
 }
 
-test "default_fast_abi: tailcc on aarch64/x86_64, padded fastcc on riscv64, off elsewhere (#2593, #2602)" {
-    // The table is a comptime switch on the host, so this pins the host's row
-    // against the expected one; the riscv64 row runs in CI's QEMU unit leg.
-    // Changing a row must come with a SUPPORTED verdict from
-    // `tools/probe-tailcc.sh` (plain or --fastcc-padded) for that target and
-    // the e2e suite run on it — riscv64's plain verdict is "Unsupported
-    // calling convention" (LLVM 21) and its padded one SUPPORTED.
-    const expected: FastAbi = if (!native_backend_supported) no_fast_abi else switch (@import("builtin").cpu.arch) {
-        .aarch64, .x86_64 => tailcc_abi,
-        .riscv64 => padded_fastcc_abi,
-        else => no_fast_abi,
-    };
-    try std.testing.expectEqual(expected.supported, default_fast_abi.supported);
-    try std.testing.expectEqualStrings(expected.cc, default_fast_abi.cc);
-    try std.testing.expectEqual(expected.padded, default_fast_abi.padded);
-    try std.testing.expectEqual(expected.supported, fast_tailcalls_supported);
+fn expectFastAbi(expected: FastAbi, actual: FastAbi) !void {
+    try std.testing.expectEqual(expected.supported, actual.supported);
+    try std.testing.expectEqualStrings(expected.cc, actual.cc);
+    try std.testing.expectEqual(expected.padded, actual.padded);
+}
+
+test "fastAbiFor: tailcc on aarch64 and x86_64, padded fastcc on riscv64 and x86_64-windows, off elsewhere (#2593, #2602, #2604)" {
+    // Every row is pinned here, on every host. Changing one must come with a
+    // SUPPORTED verdict from `tools/probe-tailcc.sh` (plain or
+    // --fastcc-padded) for that target and the e2e suite run on it —
+    // riscv64's plain verdict is "Unsupported calling convention" (LLVM 21)
+    // and x86_64-windows's "Can't handle guaranteed tail call under win64
+    // yet"; both are SUPPORTED padded.
+    try expectFastAbi(tailcc_abi, fastAbiFor(.aarch64, .linux));
+    try expectFastAbi(tailcc_abi, fastAbiFor(.aarch64, .macos));
+    // aarch64-windows keeps tailcc: the AArch64 backend has no Win64-style
+    // refusal of a growing musttail — the probe says SUPPORTED (#2604).
+    try expectFastAbi(tailcc_abi, fastAbiFor(.aarch64, .windows));
+    try expectFastAbi(tailcc_abi, fastAbiFor(.x86_64, .linux));
+    try expectFastAbi(tailcc_abi, fastAbiFor(.x86_64, .macos));
+    try expectFastAbi(tailcc_abi, fastAbiFor(.x86_64, .freebsd));
+    // The two padded rows: the OS decides x86_64's, not the arch alone.
+    try expectFastAbi(padded_fastcc_abi, fastAbiFor(.x86_64, .windows));
+    try expectFastAbi(padded_fastcc_abi, fastAbiFor(.riscv64, .linux));
+    // No triple, no fast entries — whatever the arch's row would say.
+    try expectFastAbi(no_fast_abi, fastAbiFor(.riscv64, .freebsd));
+    try expectFastAbi(no_fast_abi, fastAbiFor(.x86_64, .illumos));
+    try expectFastAbi(no_fast_abi, fastAbiFor(.s390x, .linux));
+    try expectFastAbi(no_fast_abi, fastAbiFor(.powerpc64le, .linux));
+    // The host's own row is the table's entry for it — the riscv64 row runs
+    // in CI's QEMU unit leg, the x86_64-windows one in windows-x64-test.
+    try expectFastAbi(fastAbiFor(@import("builtin").cpu.arch, @import("builtin").os.tag), default_fast_abi);
+    try std.testing.expectEqual(default_fast_abi.supported, fast_tailcalls_supported);
     // Fast entries only exist where the backend runs at all.
     if (fast_tailcalls_supported) try std.testing.expect(native_backend_supported);
     // Padding exists for conventions that hold musttail to the prototype-match
@@ -197,9 +245,10 @@ test "targetTriple: aarch64/x86_64 everywhere and riscv64 on linux are native-co
 // A named native function with at most this many fixed parameters gets a
 // register-argument fast entry (see emitLambdaFunction). Beyond it the uniform
 // array ABI is kept — the bound keeps register pressure and signature width
-// reasonable. It is not an ABI limit on aarch64/x86_64, but under the padded
-// riscv64 ABI it is the width of *every* fast prototype and is capped by the
-// register-argument budget (see the comptime check on FastAbi).
+// reasonable. It is not an ABI limit under tailcc, but under a padded ABI
+// (riscv64, x86_64-windows) it is the width of *every* fast prototype, and
+// on riscv64 it is capped by the register-argument budget (see the comptime
+// check on FastAbi).
 pub const max_fast_arity: usize = 8;
 
 pub const NativeLambda = struct {
@@ -207,7 +256,7 @@ pub const NativeLambda = struct {
     arity: u8,
     is_variadic: bool,
     // The register-argument fast entry (`@<name>.fast`; `tailcc`, or padded
-    // `fastcc` on riscv64 — FastAbi) for a fixed-arity, non-variadic,
+    // `fastcc` on riscv64 and x86_64-windows — FastAbi) for a fixed-arity, non-variadic,
     // non-boxed function, or null when the function has only the uniform
     // array-ABI entry. Direct call sites emit register-argument calls — and
     // `musttail` for guaranteed mutual TCO — when this is set (#1499).

@@ -310,8 +310,8 @@ Scheme tests that exercise POSIX-only functionality gate themselves:
 The full pipeline — emit LLVM IR, discover the runtime archive, link with
 the first C compiler on PATH, run the native binary — works on the box
 and is exercised end-to-end by `tests/e2e/run-e2e.ps1` (the PowerShell
-port of run-e2e.sh's parity phase): all 37 `tests/e2e/programs` compile
-natively and match the interpreter's output, and `kaappi doctor`'s
+port of run-e2e.sh's parity phase): every program in `tests/e2e/programs`
+compiles natively and matches the interpreter's output, and `kaappi doctor`'s
 smoke-link passes. Verified on Windows 11 ARM64 (build 26100) with a Zig
 master toolchain as the linker (#1610); with the 0.16.0 toolchain,
 `zig cc` on the box access-violates like every native toolchain use
@@ -319,7 +319,14 @@ master toolchain as the linker (#1610); with the 0.16.0 toolchain,
 the stock 0.16.0 toolchain already works as the linker: the same e2e
 suite passes on the reference VM under x64 emulation with
 zig-x86_64-windows-0.16.0 on PATH, and the `windows-x64-test` CI job
-runs it on every PR.
+runs it on every PR. On x86_64 the fast entries behind guaranteed mutual
+tail calls use the padded `fastcc` row rather than `tailcc` (kaappi#2604):
+Win64 will not grow a guaranteed tail call's stack-argument area, so a
+mixed-arity `musttail` was a fatal backend error from `kaappi compile`
+until the row changed — `native-mixed-arity-tail.scm` is the program that
+fails to compile without it (docs/dev/llvm-backend.md, "Per-target gate").
+aarch64-windows keeps `tailcc`: the AArch64 backend has no such refusal,
+as the probe's SUPPORTED verdict there certifies.
 
 Windows-specific pieces of the path (#1610):
 

@@ -831,29 +831,31 @@ the callee would read freed stack. `even?`/`odd?`-style **mutual** recursion
 therefore grew the stack. #1499 makes it constant-stack with LLVM's `tailcc`
 calling convention + `musttail` marker (which `tailcc` frees from the
 prototype-match rule, so functions of different arity may mutually tail-call).
-On riscv64, whose backend rejects `tailcc`, the same design runs on `fastcc`
-with one padded prototype per fast entry — see "Per-target gate" below.
+On riscv64, whose backend rejects `tailcc`, and on x86_64-windows, whose
+backend will not grow a guaranteed tail call's stack-argument area, the same
+design runs on `fastcc` with one padded prototype per fast entry — see
+"Per-target gate" below.
 
 A fixed-arity, non-variadic, non-boxed **named** function (arity ≤
 `max_fast_arity`, currently 8) is emitted as **two** LLVM functions:
 
-- **`@name.fast`** — the body, `tailcc` (on riscv64 `fastcc`, with every
-  prototype padded to `max_fast_arity`), taking arguments **by value** in
+- **`@name.fast`** — the body, `tailcc` (`fastcc` under a padded row, with
+  every prototype padded to `max_fast_arity`), taking arguments **by value** in
   registers. Its entry block copies those registers into a local `%args` array,
   so the rest of the body — param resolution, the self-tail loop's in-place
   overwrite, `bindParamsAsGlobals` — is byte-identical to the uniform entry. The
   array is this frame's own; outgoing calls pass argument *values*, never a
   pointer into it, so `musttail` stays sound.
 - **`@name`** — an `internal` uniform-ABI **trampoline** that unpacks `%args` and
-  calls `@name.fast(...)` in the fast convention (`call tailcc`; on riscv64
-  `call fastcc`, padded). This is what `kaappi_create_native_closure`
+  calls `@name.fast(...)` in the fast convention (`call tailcc`; under a
+  padded row `call fastcc`, padded). This is what `kaappi_create_native_closure`
   stores; indirect dispatch (`kaappi_call_scheme`) still goes through it. LLVM
   drops it when a define's value is materialized via the interpreter and nothing
   takes its address.
 
 Direct calls reach `@name.fast` with register arguments (no args array). A tail
 call from one fast entry to another emits `musttail call tailcc … ; ret`
-(`fastcc` on riscv64) — LLVM-guaranteed constant stack. `mustTailSafe` gates this: the caller must be a
+(`fastcc` under a padded row) — LLVM-guaranteed constant stack. `mustTailSafe` gates this: the caller must be a
 fast entry, in tail position, with a balanced shadow stack — specifically **not
 inside a rooted `let`** (`self.locals == null`) and with the frame-entry roots
 (rest list / boxed params, always 0 in a fast entry) already popped, so the
@@ -876,21 +878,26 @@ free-variable analysis counts as a **global**, not a capture
 (`isKnownOrReservedGlobal`), so the caller still compiles natively. When a
 reserved name's define turns out non-native (it falls back to the interpreter),
 finalization emits an `internal` **stub** `@r{i}.fast` in the fast convention
-(with the padded prototype on riscv64) that rebuilds an args array and
+(with the padded prototype under a padded row) that rebuilds an args array and
 dispatches through `kaappi_call_scheme` — so the `musttail` target always
 links, correct though not itself constant-stack for that one edge.
 
-**Per-target gate.** `default_fast_abi` (`llvm_emit.FastAbi`, a comptime table
-on the host arch) decides whether fast entries exist at all and how they are
-spelled: `tailcc` with exact-arity prototypes on aarch64 and x86_64; `fastcc`
-with every prototype padded to `max_fast_arity` on riscv64 (kaappi#2593,
-kaappi#2602); no fast entries on any other host, which keeps the uniform-only
-ABI and a best-effort `tail call` hint. The emitter reads its `fast_abi`
-field, initialized from that table and never the table itself, so a unit test
-on any host can emit another arch's shape — `emitMultiResultWithFastAbi` in
-`tests_native.zig` pins the riscv64 prototypes and the untouched `tailcc`
-ones on every CI leg. `fast_tailcalls_supported` is the table's `supported`
-bit.
+**Per-target gate.** `default_fast_abi` (`llvm_emit.FastAbi`; the table is
+`fastAbiFor`, a comptime function of the host's `(arch, os)` pair) decides
+whether fast entries exist at all and how they are spelled: `tailcc` with
+exact-arity prototypes on aarch64 and on x86_64 everywhere but Windows;
+`fastcc` with every prototype padded to `max_fast_arity` on riscv64
+(kaappi#2593, kaappi#2602) and on x86_64-windows (kaappi#2604); no fast
+entries on any other host, which keeps the uniform-only ABI and a
+best-effort `tail call` hint. The OS is part of the key because one arch's
+backend can honour `musttail` under one OS's calling convention and refuse
+it under another's — x86_64 is exactly that case. The emitter reads its
+`fast_abi` field, initialized from that table and never the table itself, so
+a unit test on any host can emit another host's shape —
+`emitMultiResultWithFastAbi` in `tests_native.zig` pins the padded
+prototypes and the untouched `tailcc` ones on every CI leg, and the
+`fastAbiFor` test in `llvm_emit.zig` pins every row of the table.
+`fast_tailcalls_supported` is the table's `supported` bit.
 
 Why riscv64 has its own row: LLVM's RISC-V backend does not accept `tailcc`
 as a *function* calling convention. `RISCVTargetLowering::LowerFormalArguments`
@@ -919,9 +926,10 @@ honours `musttail`, under two constraints the padded row encodes:
   next to the table keeps `max_fast_arity + 2 ≤ 12`, because raising the
   bound would otherwise break riscv64 loudly at the first `musttail`.
 
-The cost is a few dead argument registers per call on riscv64 and nothing
-elsewhere: the IR emitted on aarch64/x86_64 is byte-identical with and
-without the row. What the row buys beyond the guarantee: with no fast entries
+The cost is a few dead argument registers per call on riscv64, a few dead
+registers and stack slots per call on x86_64-windows, and nothing elsewhere:
+the IR emitted on the `tailcc` hosts is byte-identical with and without the
+padded rows. What the row bought riscv64 beyond the guarantee: with no fast entries
 `preScanReserve` reserves nothing, and `isKnownOrReservedGlobal` is what lets
 a reference to a user-defined top-level function count as a global rather
 than a free variable — so a define whose body names another user function,
@@ -955,24 +963,37 @@ table (LLVM 21.1 in Zig 0.16.0):
 | ppc64le | UNSUPPORTED: `failed to perform tail call elimination on a call site marked musttail` | UNSUPPORTED, the same |
 | s390x | SUPPORTED | SUPPORTED |
 
-The x86_64-windows row is a live gap (kaappi#2604): Win64 passes four
+Why x86_64-windows shares the padded row (kaappi#2604): Win64 passes four
 integer arguments in registers and the X86 backend will not *grow* a
-guaranteed tail call's argument area, so a low-arity fast entry tail-calling
-a higher-arity one whose arguments spill to the stack (1→5, 1→8) is a fatal
-backend error there, while same-arity cycles — every cycle in
-`tests/e2e/programs` — compile. The padded row would fix it, as the table
-shows; it is a one-row change now that the table is per host. ppc64le
-refuses in both modes for the same reason as LLVM ≤ 21's RISC-V: ten integer
-arguments against eight ELFv2 GPRs means a stack-passed argument, and no
-padding changes that.
+guaranteed tail call's stack-argument area — it reports `Can't handle
+guaranteed tail call under win64 yet` when the callee's arguments do not fit
+the caller's incoming area — so under `tailcc` a low-arity fast entry
+tail-calling a higher-arity one whose arguments spill to the stack (1→5,
+1→8) was a fatal backend error from `kaappi compile`, while a same-arity
+cycle compiled (the caller's frame already holds the slots). At -O2 a small
+callee is inlined into its caller and the offending `musttail` disappears
+with it, which is why every program `windows-x64-test` ran passed until
+`native-mixed-arity-tail.scm` — a 1-ary ↔ 8-ary cycle whose 8-ary body calls
+a non-inlined primitive — joined `tests/e2e/programs`. Under one padded
+prototype every `musttail` is a sibling call into exactly the caller's own
+argument area, which is what Win64 permits; six of the ten integer arguments
+travel on the stack and that is fine, so riscv64's register bound does not
+apply to this row. aarch64-windows keeps `tailcc`: two of the ten arguments
+are stack-passed under AAPCS64 as well, but the AArch64 backend has no
+Win64-style refusal — it lowers a `musttail` with stack-passed callee
+arguments as a sibling call into the caller's area — which is what the
+probe's SUPPORTED verdict there certifies. ppc64le refuses in both modes for the same
+reason as LLVM ≤ 21's RISC-V: ten integer arguments against eight ELFv2 GPRs
+means a stack-passed argument, and no padding changes that.
 
 What the probe does not prove is that the resulting binary keeps a flat
 stack. That is the e2e suite's job: `native-mutual-tail.scm` at 2,000,000
-alternating calls, run on the target — and for a cross-compiled target
-`run-e2e-cross.sh` additionally asserts the emitted IR carries `musttail`
-and re-runs the linked binary on a 1 MB guest stack (`QEMU_STACK_SIZE`),
-where those calls cannot fit as real frames. Parity there certifies native
-codegen, not the interpreter.
+same-arity alternating calls and `native-mixed-arity-tail.scm` at 1,000,000
+mixed-arity ones, run on the target — and for a cross-compiled target
+`run-e2e-cross.sh` additionally asserts the emitted IR of each carries
+`musttail` and re-runs the linked binaries on a 1 MB guest stack
+(`QEMU_STACK_SIZE`), where those calls cannot fit as real frames. Parity
+there certifies native codegen, not the interpreter.
 
 ## Testing
 
@@ -1066,10 +1087,12 @@ environment variable controls the C compiler (defaults to `zig cc`).
 - Tail-recursive loops (100k iterations)
 - Guaranteed constant-stack **mutual** tail recursion via `tailcc`/`musttail`
   (`even?`/`odd?` and a 3-function cycle at millions of alternating calls,
-  `native-mutual-tail.scm`) — a non-tail-calling native binary would overflow,
-  so the interpreter diff doubles as the constant-stack regression check.
-  Not on riscv64, where the gate is off and every function in that program
-  runs interpreted (see [Per-target gate](#guaranteed-mutual-tail-calls-tailcc--musttail))
+  `native-mutual-tail.scm`; a 1-ary ↔ 8-ary cycle at a million,
+  `native-mixed-arity-tail.scm`) — a non-tail-calling native binary would
+  overflow, so the interpreter diff doubles as the constant-stack regression
+  check. Via padded `fastcc` on riscv64 and x86_64-windows, where the
+  mixed-arity program is also the one that fails to compile if the row
+  regresses to `tailcc` (see [Per-target gate](#guaranteed-mutual-tail-calls-tailcc--musttail))
 - Inline fixnum fast paths for `+ - * < = null?` with their runtime fallbacks —
   overflow → bignum, non-fixnum (flonum/rational) operands, and sign-extended
   negatives (`native-inline-primitives.scm`, all diffed against the interpreter,

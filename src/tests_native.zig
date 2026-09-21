@@ -117,10 +117,11 @@ pub fn emitMultiResultOpts(source: []const u8, optimize: bool) !EmitResult {
 
 /// Like emitMultiResult, but emits under `abi` instead of the host's
 /// `llvm_emit.default_fast_abi`, so a test on any host can pin the fast-entry
-/// IR shape of another arch (#2602): the padded `fastcc` prototypes riscv64
-/// needs, the exact-arity `tailcc` ones aarch64/x86_64 keep, or no fast
-/// entries at all. Only the spelling is exercised — the IR is not compiled
-/// for that arch here; that is the riscv64-native-test e2e job's part.
+/// IR shape of another host (#2602): the padded `fastcc` prototypes riscv64
+/// and x86_64-windows need (#2604), the exact-arity `tailcc` ones the other
+/// hosts keep, or no fast entries at all. Only the spelling is exercised —
+/// the IR is not compiled for that target here; that is the
+/// riscv64-native-test and windows-x64-test e2e jobs' part.
 pub fn emitMultiResultWithFastAbi(source: []const u8, abi: llvm_emit.FastAbi) !EmitResult {
     return emitMultiResultFull(source, true, abi);
 }
@@ -221,8 +222,9 @@ fn expectNotContains(haystack: []const u8, needle: []const u8) !void {
 
 // A named native function is emitted either as a register-argument fast entry
 // (#1499) — the case for a fixed-arity, non-variadic, non-boxed named define
-// within max_fast_arity; `tailcc`, or padded `fastcc` on riscv64, so the
-// `(fast entry)` header comment is matched rather than the convention — or as
+// within max_fast_arity; `tailcc`, or padded `fastcc` on riscv64 and
+// x86_64-windows, so the `(fast entry)` header comment is matched rather
+// than the convention — or as
 // a uniform array-ABI definition otherwise (variadic, boxed, or over the arity
 // bound). Both are tagged with a `; <name>` header comment. This asserts one
 // of the two forms is present for `name`.
@@ -1116,8 +1118,9 @@ test "LLVM emit: a variadic frame's rest list is GC-rooted for the frame (#1498)
 //
 // These positive tests assert that musttail/fast-entry IR is emitted, which
 // only happens on hosts with a fast-entry ABI (`llvm_emit.default_fast_abi`:
-// tailcc on aarch64/x86_64, padded fastcc on riscv64 — #2602). They run under
-// the host's own ABI, so the convention is spelled through `host_cc`. The test
+// tailcc on aarch64 and x86_64, padded fastcc on riscv64 and x86_64-windows —
+// #2602, #2604). They run under the host's own ABI, so the convention is
+// spelled through `host_cc`. The test
 // binary embeds its target arch, so on a host with no fast entries (ppc64le,
 // s390x) the feature is off and these skip; the uniform-fallback behavior for
 // those arches is covered by the variadic/boxed/over-arity tests below, which
@@ -1225,17 +1228,19 @@ test "LLVM emit: a forward-referenced non-native define gets a tailcc stub (#149
     try expectContains(ll, "call i64 @kaappi_call_scheme"); // the stub dispatches indirectly
 }
 
-// -- Per-target fast-entry ABI: padded fastcc on riscv64 (#2602) --
+// -- Per-target fast-entry ABI: padded fastcc on riscv64 and x86_64-windows (#2602, #2604) --
 //
-// riscv64's LLVM backend rejects `tailcc` as a function calling convention, so
-// its fast entries are `fastcc` with one max_fast_arity-wide prototype each
-// (llvm_emit.FastAbi, `padded_fastcc_abi`): `musttail` under fastcc holds the
-// caller and callee to matching prototypes, and LLVM ≤ 21 will not tail-call
-// on RISC-V with a stack-passed argument. These emit under an explicit ABI
-// rather than the host's, so the riscv64 shape — and the exact-arity tailcc
-// shape aarch64/x86_64 keep — is pinned on every host; a regression would
-// otherwise surface only in the QEMU unit leg or the riscv64-native-test e2e
-// job, half an hour in.
+// riscv64's LLVM backend rejects `tailcc` as a function calling convention,
+// and the X86 backend refuses to grow a guaranteed tail call's stack-argument
+// area under Win64, so on both the fast entries are `fastcc` with one
+// max_fast_arity-wide prototype each (llvm_emit.FastAbi, `padded_fastcc_abi`):
+// `musttail` under fastcc holds the caller and callee to matching prototypes
+// — which is also what makes every such call a sibling call Win64 accepts —
+// and LLVM ≤ 21 will not tail-call on RISC-V with a stack-passed argument.
+// These emit under an explicit ABI rather than the host's, so the padded
+// shape — and the exact-arity tailcc shape the other hosts keep — is pinned
+// on every host; a regression would otherwise surface only in the QEMU unit
+// leg, the riscv64-native-test e2e job or windows-x64-test, half an hour in.
 
 // Every fast-entry definition and call under `cc` in `ll` declares exactly
 // `width` i64 arguments (the leading `ptr %vm` and trailing `ptr` are not
@@ -1278,7 +1283,7 @@ test "LLVM emit: a padded fast entry declares max_fast_arity params and copies o
     try expectContains(ll, "call fastcc i64 @r0.fast(ptr %vm, i64 %");
     try expectContains(ll, ", i64 0, i64 0, i64 0, i64 0, i64 0, i64 0, i64 0, ptr %upvalues)");
     try expectEveryFastSignatureWidth(ll, "fastcc", llvm_emit.max_fast_arity);
-    // Nothing on the riscv64 row is spelled tailcc.
+    // Nothing on a padded row is spelled tailcc.
     try expectNotContains(ll, "tailcc");
 }
 
@@ -1330,8 +1335,8 @@ test "LLVM emit: a padded forward-ref stub carries the padded prototype and copi
 }
 
 test "LLVM emit: the tailcc row keeps exact-arity prototypes with no padding (#2602 guard)" {
-    // The established arches are untouched by the riscv64 row. Emitted under
-    // an explicit tailcc ABI, so this holds on a riscv64 host too.
+    // The tailcc hosts are untouched by the padded rows. Emitted under an
+    // explicit tailcc ABI, so this holds on a padded host too.
     var res = try emitMultiResultWithFastAbi("(define (one n) (if (= n 0) 0 (two n 1)))" ++
         "(define (two a b) (if (= a 0) b (one (- a 1))))", llvm_emit.tailcc_abi);
     defer res.deinit();
@@ -1346,9 +1351,9 @@ test "LLVM emit: the tailcc row keeps exact-arity prototypes with no padding (#2
 test "LLVM emit: without fast entries a define that names another user function is interpreted (#2601)" {
     // What the gate switches off besides the musttail: with no reservation, a
     // reference to a user function defined earlier OR later is a free variable,
-    // so the referring define declines native compilation. With the riscv64
+    // so the referring define declines native compilation. With the padded
     // row on, the same cycle is two native fast entries — which is what the
-    // padded-fastcc row buys riscv64 beyond the constant-stack guarantee.
+    // padded-fastcc row bought riscv64 beyond the constant-stack guarantee.
     const cycle = "(define (ev? n) (if (= n 0) #t (od? (- n 1))))" ++
         "(define (od? n) (if (= n 0) #f (ev? (- n 1))))";
     var off = try emitMultiResultWithFastAbi(cycle, llvm_emit.no_fast_abi);
@@ -1835,9 +1840,10 @@ fn mainBody(ll: []const u8) []const u8 {
 // rather than resolving the name at run time?
 //
 // Four spellings, and a test that checks only one is arch-specific: the
-// register-argument fast entry's convention is per host (`tailcc` on
-// aarch64/x86_64, `fastcc` on riscv64 — llvm_emit.default_fast_abi), and on
-// the arches with no fast entries at all (ppc64le, s390x) every direct call is
+// register-argument fast entry's convention is per host (`tailcc` on aarch64
+// and x86_64, `fastcc` on riscv64 and x86_64-windows —
+// llvm_emit.default_fast_abi), and on the arches with no fast entries at all
+// (ppc64le, s390x) every direct call is
 // the uniform array ABI instead — where a reserved name is `@r{i}` and an
 // unreserved one `@lambda_{i}`. Matching the tailcc spelling alone made the
 // control below fail on ppc64le/riscv64/s390x while the assertion it controls
