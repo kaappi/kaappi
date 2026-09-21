@@ -325,7 +325,8 @@ Win64 will not grow a guaranteed tail call's stack-argument area, so a
 mixed-arity `musttail` was a fatal backend error from `kaappi compile`
 until the row changed — `native-mixed-arity-tail.scm` is the program that
 fails to compile without it (docs/dev/llvm-backend.md, "Per-target gate").
-aarch64-windows keeps `tailcc`.
+aarch64-windows keeps `tailcc`: the AArch64 backend has no such refusal,
+as the probe's SUPPORTED verdict there certifies.
 
 Windows-specific pieces of the path (#1610):
 

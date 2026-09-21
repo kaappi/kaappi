@@ -46,15 +46,16 @@ const Value = types.Value;
 //   error. Win64 passes four integer arguments in registers, so a 1-ary
 //   fast entry (%vm, one value, %upvalues) tail-calling a 5-ary or wider one
 //   fails, while a same-arity cycle — every cycle in tests/e2e/programs
-//   before #2604 — compiles, and at -O2 a small callee is inlined into its
-//   caller and the offending `musttail` disappears, which is how the gap
-//   hid. The padded row fixes it: with one `max_fast_arity`-wide prototype
-//   every `musttail` is a sibling call whose stack-argument area is exactly
-//   the caller's own, and the backend's objection is specifically to
-//   *growing* that area — six of the ten integer arguments being
-//   stack-passed is fine, so riscv64's register bound does not apply.
-//   aarch64-windows is unaffected: AAPCS64 passes eight integer arguments
-//   in registers and the probe says SUPPORTED for `tailcc` there.
+//   before #2604 — compiles, and at -O2 a small callee is inlined and the
+//   offending `musttail` disappears, which is how the gap hid. The padded
+//   row fixes it: with one `max_fast_arity`-wide prototype every `musttail`
+//   is a sibling call whose stack-argument area is exactly the caller's own,
+//   and the backend's objection is specifically to *growing* that area — six
+//   of the ten integer arguments being stack-passed is fine, so riscv64's
+//   register bound does not apply.
+//   aarch64-windows is unaffected: two of the ten arguments are stack-passed
+//   under AAPCS64 too, but the AArch64 backend has no Win64-style refusal
+//   (a growing `musttail` lowers as a sibling call) — probe: SUPPORTED.
 // * every other host — including an aarch64/x86_64/riscv64 host on an OS
 //   `targetTriple` has no arm for, where the backend cannot run at all: no
 //   fast entries. Each function keeps its uniform array-ABI entry and a
@@ -134,8 +135,8 @@ test "fastAbiFor: tailcc on aarch64 and x86_64, padded fastcc on riscv64 and x86
     // yet"; both are SUPPORTED padded.
     try expectFastAbi(tailcc_abi, fastAbiFor(.aarch64, .linux));
     try expectFastAbi(tailcc_abi, fastAbiFor(.aarch64, .macos));
-    // aarch64-windows keeps tailcc: AAPCS64 passes eight integer arguments
-    // in registers, so the Win64 growth refusal never arises (#2604).
+    // aarch64-windows keeps tailcc: the AArch64 backend has no Win64-style
+    // refusal of a growing musttail — the probe says SUPPORTED (#2604).
     try expectFastAbi(tailcc_abi, fastAbiFor(.aarch64, .windows));
     try expectFastAbi(tailcc_abi, fastAbiFor(.x86_64, .linux));
     try expectFastAbi(tailcc_abi, fastAbiFor(.x86_64, .macos));

@@ -978,8 +978,11 @@ a non-inlined primitive — joined `tests/e2e/programs`. Under one padded
 prototype every `musttail` is a sibling call into exactly the caller's own
 argument area, which is what Win64 permits; six of the ten integer arguments
 travel on the stack and that is fine, so riscv64's register bound does not
-apply to this row. aarch64-windows keeps `tailcc`: AAPCS64 passes eight
-integer arguments in registers. ppc64le refuses in both modes for the same
+apply to this row. aarch64-windows keeps `tailcc`: two of the ten arguments
+are stack-passed under AAPCS64 as well, but the AArch64 backend has no
+Win64-style refusal — it lowers a `musttail` with stack-passed callee
+arguments as a sibling call into the caller's area — which is what the
+probe's SUPPORTED verdict there certifies. ppc64le refuses in both modes for the same
 reason as LLVM ≤ 21's RISC-V: ten integer arguments against eight ELFv2 GPRs
 means a stack-passed argument, and no padding changes that.
 
