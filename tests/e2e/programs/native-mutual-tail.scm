@@ -1,9 +1,12 @@
-; Guaranteed constant-stack mutual tail recursion via tailcc + musttail (#1499).
+; Guaranteed constant-stack mutual tail recursion via tailcc + musttail (#1499)
+; — on riscv64, via fastcc + musttail with one padded prototype per fast entry
+; (#2602), the same guarantee under the one convention that backend accepts;
+; run-e2e-cross.sh additionally re-runs this program on a 1 MB guest stack.
 ;
 ; even?/odd? exercise both directions of a 2-cycle: the forward call
 ; (my-even? -> my-odd?, defined later) resolves through the pre-scan reservation,
 ; the backward call (my-odd? -> my-even?) through native_fns. Both lower to
-; `musttail call tailcc`. The depth here (2,000,000) is far past what an 8 MB
+; `musttail call`. The depth here (2,000,000) is far past what an 8 MB
 ; stack holds as real frames, so a native binary that did NOT tail-call would
 ; overflow and crash — the e2e diff against the (VM-TCO) interpreter is thus a
 ; constant-stack regression test, not just an output check.
@@ -21,9 +24,10 @@
 
 (display (count-a 1500000)) (newline)
 
-; A non-tail direct call to a fast entry: a register-argument `call tailcc`
-; (no args array), not a musttail. Verifies the fast entry is also the
-; ordinary direct-call target.
+; A non-tail direct call to a fast entry: a register-argument call in the
+; fast convention (`call tailcc`; `call fastcc` on riscv64), no args array,
+; not a musttail. Verifies the fast entry is also the ordinary direct-call
+; target.
 (define (sq x) (* x x))
 (define (sum-of-squares a b) (+ (sq a) (sq b)))
 (display (sum-of-squares 3 4)) (newline) ; 25

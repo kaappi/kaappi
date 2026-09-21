@@ -102,7 +102,7 @@ fn emitSourceResultWithMacros(source: []const u8, macros: *const std.StringHashM
 }
 
 pub fn emitMultiResult(source: []const u8) !EmitResult {
-    return emitMultiResultOpts(source, true);
+    return emitMultiResultFull(source, true, null);
 }
 
 /// With `optimize` false, the five IR optimization passes are skipped —
@@ -112,6 +112,20 @@ pub fn emitMultiResult(source: []const u8) !EmitResult {
 /// elimination legitimately deletes eval-fallback forms from constant-test
 /// branches, so exact counts only hold on unoptimized emission.
 pub fn emitMultiResultOpts(source: []const u8, optimize: bool) !EmitResult {
+    return emitMultiResultFull(source, optimize, null);
+}
+
+/// Like emitMultiResult, but emits under `abi` instead of the host's
+/// `llvm_emit.default_fast_abi`, so a test on any host can pin the fast-entry
+/// IR shape of another arch (#2602): the padded `fastcc` prototypes riscv64
+/// needs, the exact-arity `tailcc` ones aarch64/x86_64 keep, or no fast
+/// entries at all. Only the spelling is exercised — the IR is not compiled
+/// for that arch here; that is the riscv64-native-test e2e job's part.
+pub fn emitMultiResultWithFastAbi(source: []const u8, abi: llvm_emit.FastAbi) !EmitResult {
+    return emitMultiResultFull(source, true, abi);
+}
+
+fn emitMultiResultFull(source: []const u8, optimize: bool, fast_abi: ?llvm_emit.FastAbi) !EmitResult {
     var gc = memory.GC.init(emitter_alloc);
     errdefer gc.deinit();
 
@@ -143,6 +157,7 @@ pub fn emitMultiResultOpts(source: []const u8, optimize: bool) !EmitResult {
 
     var emitter = llvm_emit.LLVMEmitter.init(emitter_alloc);
     errdefer emitter.deinit();
+    if (fast_abi) |abi| emitter.fast_abi = abi;
     try emitter.emitProgram(ir_nodes.items);
 
     gc.no_collect -= 1;
@@ -204,15 +219,17 @@ fn expectNotContains(haystack: []const u8, needle: []const u8) !void {
     }
 }
 
-// A named native function is emitted either as a `tailcc` register-argument fast
-// entry (#1499) — the case for a fixed-arity, non-variadic, non-boxed named
-// define within max_fast_arity — or as a uniform array-ABI definition otherwise
-// (variadic, boxed, or over the arity bound). Both are tagged with a `; <name>`
-// header comment. This asserts one of the two forms is present for `name`.
+// A named native function is emitted either as a register-argument fast entry
+// (#1499) — the case for a fixed-arity, non-variadic, non-boxed named define
+// within max_fast_arity; `tailcc`, or padded `fastcc` on riscv64, so the
+// `(fast entry)` header comment is matched rather than the convention — or as
+// a uniform array-ABI definition otherwise (variadic, boxed, or over the arity
+// bound). Both are tagged with a `; <name>` header comment. This asserts one
+// of the two forms is present for `name`.
 pub fn expectNativeDef(ll: []const u8, name: []const u8) !void {
     var fast_buf: [128]u8 = undefined;
     var uniform_buf: [128]u8 = undefined;
-    const fast = try std.fmt.bufPrint(&fast_buf, "; {s} (fast entry)\ndefine tailcc i64 @", .{name});
+    const fast = try std.fmt.bufPrint(&fast_buf, "; {s} (fast entry)\ndefine ", .{name});
     const uniform = try std.fmt.bufPrint(&uniform_buf, "; {s}\ndefine i64 @", .{name});
     if (std.mem.indexOf(u8, ll, fast) == null and std.mem.indexOf(u8, ll, uniform) == null) {
         std.debug.print("\n--- no native definition (fast or uniform) for {s} ---\n", .{name});
@@ -227,7 +244,7 @@ pub fn expectNativeDef(ll: []const u8, name: []const u8) !void {
 pub fn expectNoNativeDef(ll: []const u8, name: []const u8) !void {
     var fast_buf: [128]u8 = undefined;
     var uniform_buf: [128]u8 = undefined;
-    const fast = try std.fmt.bufPrint(&fast_buf, "; {s} (fast entry)\ndefine tailcc i64 @", .{name});
+    const fast = try std.fmt.bufPrint(&fast_buf, "; {s} (fast entry)\ndefine ", .{name});
     const uniform = try std.fmt.bufPrint(&uniform_buf, "; {s}\ndefine i64 @", .{name});
     if (std.mem.indexOf(u8, ll, fast) != null or std.mem.indexOf(u8, ll, uniform) != null) {
         std.debug.print("\n--- unexpected native definition for {s} ---\n{s}\n", .{ name, ll });
@@ -836,8 +853,9 @@ test "LLVM emit: eval fallback routes through the compile-once cache (#1494)" {
     var res = try emitMultiResult("(define (make-summer base) (lambda (a . rest) (+ base a)))");
     defer res.deinit();
     const ll = res.toSlice();
-    // make-summer is a fixed-arity named define, so its body lives in a tailcc
-    // fast entry (#1499); the inner variadic lambda still takes the eval cache.
+    // make-summer is a fixed-arity named define, so its body lives in a
+    // register-argument fast entry (#1499); the inner variadic lambda still
+    // takes the eval cache.
     try expectNativeDef(ll, "make-summer");
     try expectContains(ll, "call i64 @kaappi_eval_cached(ptr %vm");
     try expectContains(ll, "@.eval_cache.0 = internal global i64 0");
@@ -1096,12 +1114,16 @@ test "LLVM emit: a variadic frame's rest list is GC-rooted for the frame (#1498)
 
 // -- Guaranteed mutual tail calls via tailcc + musttail (#1499) --
 //
-// These positive tests assert that tailcc/musttail/fast-entry IR is emitted,
-// which only happens on hosts where `fast_tailcalls_supported` is true
-// (aarch64/x86_64). The test binary embeds its target arch, so on an unsupported
-// target (e.g. the riscv64-via-QEMU CI job) the feature is off and these skip;
-// the uniform-fallback behavior for those arches is covered by the
-// variadic/boxed/over-arity tests below, which pass on every target.
+// These positive tests assert that musttail/fast-entry IR is emitted, which
+// only happens on hosts with a fast-entry ABI (`llvm_emit.default_fast_abi`:
+// tailcc on aarch64/x86_64, padded fastcc on riscv64 — #2602). They run under
+// the host's own ABI, so the convention is spelled through `host_cc`. The test
+// binary embeds its target arch, so on a host with no fast entries (ppc64le,
+// s390x) the feature is off and these skip; the uniform-fallback behavior for
+// those arches is covered by the variadic/boxed/over-arity tests below, which
+// pass on every target.
+
+const host_cc = llvm_emit.default_fast_abi.cc;
 
 test "LLVM emit: mutually recursive functions tail-call via musttail (#1499)" {
     if (!llvm_emit.fast_tailcalls_supported) return error.SkipZigTest;
@@ -1109,14 +1131,14 @@ test "LLVM emit: mutually recursive functions tail-call via musttail (#1499)" {
         "(define (od? n) (if (= n 0) #f (ev? (- n 1))))");
     defer res.deinit();
     const ll = res.toSlice();
-    // Both functions get a tailcc register-argument fast entry ...
-    try expectContains(ll, "define tailcc i64 ");
+    // Both functions get a register-argument fast entry ...
+    try expectContains(ll, "define " ++ host_cc ++ " i64 ");
     try expectNativeDef(ll, "ev?");
     try expectNativeDef(ll, "od?");
     // ... and both directions of the cycle are guaranteed musttail tail calls:
     // the backward call (od? -> ev?) resolves through native_fns, the forward
     // call (ev? -> od?, defined later) through the pre-scan reservation.
-    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, ll, "musttail call tailcc"));
+    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, ll, "musttail call " ++ host_cc));
 }
 
 test "LLVM emit: a fast-entry function also emits a uniform trampoline (#1499)" {
@@ -1124,14 +1146,14 @@ test "LLVM emit: a fast-entry function also emits a uniform trampoline (#1499)" 
     var res = try emitMultiResult("(define (inc n) (+ n 1))");
     defer res.deinit();
     const ll = res.toSlice();
-    // The body lives in a tailcc register-argument fast entry ...
-    try expectContains(ll, "(fast entry)\ndefine tailcc i64 ");
+    // The body lives in a register-argument fast entry ...
+    try expectContains(ll, "(fast entry)\ndefine " ++ host_cc ++ " i64 ");
     // ... reached by a uniform C-ABI trampoline (internal, so LLVM drops it when
     // unused) that unpacks %args and tail-calls it — the entry indirect dispatch
     // stores via kaappi_create_native_closure.
     try expectContains(ll, "; trampoline:");
     try expectContains(ll, "define internal i64 ");
-    try expectContains(ll, "call tailcc i64 ");
+    try expectContains(ll, "call " ++ host_cc ++ " i64 ");
 }
 
 test "LLVM emit: a non-tail direct call to a fast entry passes register args (#1499)" {
@@ -1141,8 +1163,8 @@ test "LLVM emit: a non-tail direct call to a fast entry passes register args (#1
     defer res.deinit();
     const ll = res.toSlice();
     // f calls sq in operand (non-tail) position: a register-argument `call
-    // tailcc`, not a musttail and not the uniform kaappi_call_scheme dispatch.
-    try expectContains(ll, "call tailcc i64 ");
+    // <cc>`, not a musttail and not the uniform kaappi_call_scheme dispatch.
+    try expectContains(ll, "call " ++ host_cc ++ " i64 ");
     try expectNotContains(ll, "call i64 @kaappi_call_scheme");
 }
 
@@ -1165,7 +1187,7 @@ test "LLVM emit: a variadic function keeps the uniform entry, no fast/musttail (
     // t cannot be a musttail (v has no fast entry).
     try expectContains(ll, "; v\ndefine i64 @");
     try expectNotContains(ll, "; v (fast entry)");
-    try expectNotContains(ll, "musttail call tailcc i64 @r"); // no musttail targets v
+    try expectNotContains(ll, "musttail call " ++ host_cc ++ " i64 @r"); // no musttail targets v
 }
 
 test "LLVM emit: a boxed-parameter function has no fast entry (#1499)" {
@@ -1195,12 +1217,151 @@ test "LLVM emit: a forward-referenced non-native define gets a tailcc stub (#149
     const ll = res.toSlice();
     // caller (a fast entry) tail-calls helper before it is defined: a musttail
     // to the reserved @r{i}.fast.
-    try expectContains(ll, "musttail call tailcc");
+    try expectContains(ll, "musttail call " ++ host_cc);
     // helper's body needs letrec (an eval fallback) so it has no real native
     // fast body; finalization emits a forwarding stub so the musttail resolves.
     try expectContains(ll, "forward-ref stub:");
-    try expectContains(ll, "define internal tailcc i64 ");
+    try expectContains(ll, "define internal " ++ host_cc ++ " i64 ");
     try expectContains(ll, "call i64 @kaappi_call_scheme"); // the stub dispatches indirectly
+}
+
+// -- Per-target fast-entry ABI: padded fastcc on riscv64 (#2602) --
+//
+// riscv64's LLVM backend rejects `tailcc` as a function calling convention, so
+// its fast entries are `fastcc` with one max_fast_arity-wide prototype each
+// (llvm_emit.FastAbi, `padded_fastcc_abi`): `musttail` under fastcc holds the
+// caller and callee to matching prototypes, and LLVM ≤ 21 will not tail-call
+// on RISC-V with a stack-passed argument. These emit under an explicit ABI
+// rather than the host's, so the riscv64 shape — and the exact-arity tailcc
+// shape aarch64/x86_64 keep — is pinned on every host; a regression would
+// otherwise surface only in the QEMU unit leg or the riscv64-native-test e2e
+// job, half an hour in.
+
+// Every fast-entry definition and call under `cc` in `ll` declares exactly
+// `width` i64 arguments (the leading `ptr %vm` and trailing `ptr` are not
+// counted). Line-based: a `define [internal] <cc> i64 @…(` line or a
+// `[musttail |tail ]call <cc> i64 @…(` line carries one prototype.
+fn expectEveryFastSignatureWidth(ll: []const u8, cc: []const u8, width: usize) !void {
+    var def_buf: [32]u8 = undefined;
+    var call_buf: [32]u8 = undefined;
+    const def_needle = try std.fmt.bufPrint(&def_buf, " {s} i64 @", .{cc});
+    const call_needle = try std.fmt.bufPrint(&call_buf, "call {s} i64 @", .{cc});
+    var seen: usize = 0;
+    var lines = std.mem.splitScalar(u8, ll, '\n');
+    while (lines.next()) |line| {
+        const is_def = std.mem.startsWith(u8, line, "define ") and std.mem.indexOf(u8, line, def_needle) != null;
+        const is_call = std.mem.indexOf(u8, line, call_needle) != null;
+        if (!is_def and !is_call) continue;
+        seen += 1;
+        const got = std.mem.count(u8, line, ", i64 ");
+        if (got != width) {
+            std.debug.print("\n--- expected {d} i64 arguments, found {d} ---\n{s}\n", .{ width, got, line });
+            return error.TestUnexpectedResult;
+        }
+    }
+    if (seen == 0) return error.TestExpectedFastSignature;
+}
+
+test "LLVM emit: a padded fast entry declares max_fast_arity params and copies only the real ones (#2602)" {
+    var res = try emitMultiResultWithFastAbi("(define (inc n) (+ n 1))", llvm_emit.padded_fastcc_abi);
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectNativeDef(ll, "inc");
+    // The prototype is padded to the fast-arity bound (%vm + 8 + %upvalues) ...
+    try expectContains(ll, "; inc (fast entry)\ndefine fastcc i64 @r0.fast(ptr %vm, i64 %a0, i64 %a1, i64 %a2, i64 %a3, i64 %a4, i64 %a5, i64 %a6, i64 %a7, ptr %upvalues) {");
+    // ... while the prologue materializes only the one real parameter.
+    try expectContains(ll, "%args = alloca [1 x i64], align 8");
+    try expectContains(ll, "store i64 %a0, ptr");
+    try expectNotContains(ll, "store i64 %a1, ptr");
+    // The uniform trampoline pads its call up to the prototype width.
+    try expectContains(ll, "; trampoline: @r0\n");
+    try expectContains(ll, "call fastcc i64 @r0.fast(ptr %vm, i64 %");
+    try expectContains(ll, ", i64 0, i64 0, i64 0, i64 0, i64 0, i64 0, i64 0, ptr %upvalues)");
+    try expectEveryFastSignatureWidth(ll, "fastcc", llvm_emit.max_fast_arity);
+    // Nothing on the riscv64 row is spelled tailcc.
+    try expectNotContains(ll, "tailcc");
+}
+
+test "LLVM emit: padded musttail between fast entries of different arity uses one prototype width (#2602)" {
+    // one -> two is a 1-ary caller tail-calling a 2-ary callee, two -> one the
+    // reverse: exactly the mixed-arity musttail the verifier rejects under any
+    // convention but tailcc unless both prototypes match.
+    var res = try emitMultiResultWithFastAbi("(define (one n) (if (= n 0) 0 (two n 1)))" ++
+        "(define (two a b) (if (= a 0) b (one (- a 1))))", llvm_emit.padded_fastcc_abi);
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectNativeDef(ll, "one");
+    try expectNativeDef(ll, "two");
+    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, ll, "musttail call fastcc i64 @r"));
+    // one -> two passes two real arguments and six fillers, two -> one one
+    // real argument and seven: one musttail line of each width and no other.
+    // Counted per line, so the two widths cannot match inside each other.
+    var six: usize = 0;
+    var seven: usize = 0;
+    var lines = std.mem.splitScalar(u8, ll, '\n');
+    while (lines.next()) |line| {
+        if (std.mem.indexOf(u8, line, "musttail call fastcc") == null) continue;
+        switch (std.mem.count(u8, line, ", i64 0")) {
+            6 => six += 1,
+            7 => seven += 1,
+            else => return error.TestUnexpectedResult,
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 1), six);
+    try std.testing.expectEqual(@as(usize, 1), seven);
+    try expectEveryFastSignatureWidth(ll, "fastcc", llvm_emit.max_fast_arity);
+    // Both bodies still read only their own parameters.
+    try expectContains(ll, "%args = alloca [1 x i64], align 8");
+    try expectContains(ll, "%args = alloca [2 x i64], align 8");
+}
+
+test "LLVM emit: a padded forward-ref stub carries the padded prototype and copies only its arity (#2602)" {
+    var res = try emitMultiResultWithFastAbi("(define (caller n) (if (= n 0) 0 (helper (- n 1))))" ++
+        "(define (helper n) (letrec ((loop (lambda (x) x))) (loop n)))", llvm_emit.padded_fastcc_abi);
+    defer res.deinit();
+    const ll = res.toSlice();
+    // caller's musttail targets the reserved padded name ...
+    try expectContains(ll, "musttail call fastcc i64 @r1.fast(ptr %vm, i64 %");
+    // ... which the finalization stub defines with the same padded prototype,
+    // rebuilding only a 1-element args array for the indirect dispatch.
+    try expectContains(ll, "; forward-ref stub: helper\ndefine internal fastcc i64 @r1.fast(ptr %vm, i64 %a0, i64 %a1, i64 %a2, i64 %a3, i64 %a4, i64 %a5, i64 %a6, i64 %a7, ptr %upvalues) {");
+    try expectContains(ll, "call i64 @kaappi_call_scheme(ptr %vm, i64 %");
+    try expectEveryFastSignatureWidth(ll, "fastcc", llvm_emit.max_fast_arity);
+}
+
+test "LLVM emit: the tailcc row keeps exact-arity prototypes with no padding (#2602 guard)" {
+    // The established arches are untouched by the riscv64 row. Emitted under
+    // an explicit tailcc ABI, so this holds on a riscv64 host too.
+    var res = try emitMultiResultWithFastAbi("(define (one n) (if (= n 0) 0 (two n 1)))" ++
+        "(define (two a b) (if (= a 0) b (one (- a 1))))", llvm_emit.tailcc_abi);
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectContains(ll, "; one (fast entry)\ndefine tailcc i64 @r0.fast(ptr %vm, i64 %a0, ptr %upvalues) {");
+    try expectContains(ll, "; two (fast entry)\ndefine tailcc i64 @r1.fast(ptr %vm, i64 %a0, i64 %a1, ptr %upvalues) {");
+    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, ll, "musttail call tailcc i64 @r"));
+    try expectNotContains(ll, ", i64 0, ptr");
+    try expectNotContains(ll, "fastcc");
+}
+
+test "LLVM emit: without fast entries a define that names another user function is interpreted (#2601)" {
+    // What the gate switches off besides the musttail: with no reservation, a
+    // reference to a user function defined earlier OR later is a free variable,
+    // so the referring define declines native compilation. With the riscv64
+    // row on, the same cycle is two native fast entries — which is what the
+    // padded-fastcc row buys riscv64 beyond the constant-stack guarantee.
+    const cycle = "(define (ev? n) (if (= n 0) #t (od? (- n 1))))" ++
+        "(define (od? n) (if (= n 0) #f (ev? (- n 1))))";
+    var off = try emitMultiResultWithFastAbi(cycle, llvm_emit.no_fast_abi);
+    defer off.deinit();
+    try expectNoNativeDef(off.toSlice(), "ev?");
+    try expectNoNativeDef(off.toSlice(), "od?");
+    try expectNotContains(off.toSlice(), "musttail");
+
+    var on = try emitMultiResultWithFastAbi(cycle, llvm_emit.padded_fastcc_abi);
+    defer on.deinit();
+    try expectNativeDef(on.toSlice(), "ev?");
+    try expectNativeDef(on.toSlice(), "od?");
+    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, on.toSlice(), "musttail call fastcc"));
 }
 
 // -- Native closure values for natively-compiled defines (#1500) --
@@ -1673,20 +1834,21 @@ fn mainBody(ll: []const u8) []const u8 {
 // Does this stretch of IR call one of the module's own native entries directly,
 // rather than resolving the name at run time?
 //
-// Three spellings, and a test that checks only one is arch-specific: the
-// register-argument `tailcc` fast entry exists only where
-// `llvm_emit.fast_tailcalls_supported` (aarch64/x86_64), so on the QEMU-tier
-// arches every direct call is the uniform array ABI instead — where a reserved
-// name is `@r{i}` and an unreserved one `@lambda_{i}`. Matching the fast
-// spelling alone made the control below fail on ppc64le/riscv64/s390x while the
-// assertion it controls passed vacuously.
+// Four spellings, and a test that checks only one is arch-specific: the
+// register-argument fast entry's convention is per host (`tailcc` on
+// aarch64/x86_64, `fastcc` on riscv64 — llvm_emit.default_fast_abi), and on
+// the arches with no fast entries at all (ppc64le, s390x) every direct call is
+// the uniform array ABI instead — where a reserved name is `@r{i}` and an
+// unreserved one `@lambda_{i}`. Matching the tailcc spelling alone made the
+// control below fail on ppc64le/riscv64/s390x while the assertion it controls
+// passed vacuously.
 //
-// Anchored on the callee position (right after `call [tailcc ]i64 `) so the
+// Anchored on the callee position (right after `call [<cc> ]i64 `) so the
 // `ptr @r0` *argument* of a kaappi_create_native_closure — present either way —
 // is not mistaken for a call to it. Runtime imports are all `@kaappi_…`, so no
 // prefix here can match one.
 fn hasDirectNativeCall(ir_text: []const u8) bool {
-    for ([_][]const u8{ "call tailcc i64 @r", "call i64 @r", "call i64 @lambda_" }) |spelling| {
+    for ([_][]const u8{ "call tailcc i64 @r", "call fastcc i64 @r", "call i64 @r", "call i64 @lambda_" }) |spelling| {
         if (std.mem.indexOf(u8, ir_text, spelling) != null) return true;
     }
     return false;

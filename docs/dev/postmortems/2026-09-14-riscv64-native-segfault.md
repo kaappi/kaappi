@@ -18,6 +18,12 @@ on riscv64. The e2e suite (37 programs plus the argv passthrough) passes
 under QEMU with the release's own artifacts, and CI's `riscv64-native-test`
 job keeps it that way via `tests/e2e/run-e2e-cross.sh`.
 
+(2026-09-19: superseded on the tail-call point by kaappi#2602 — riscv64 now
+has padded `fastcc` fast entries with a guaranteed `musttail`, every define
+that names another user function compiles natively there, and
+`run-e2e-cross.sh` checks the stack stays flat on a 1 MB guest stack. See
+llvm-backend.md, "Per-target gate". The rest of this record stands.)
+
 ## What the July experiment actually showed
 
 Three runs on riscv64 (Ubuntu 24.04 builder image under QEMU user-mode,
@@ -71,7 +77,8 @@ right; the answer was already in the tree by the time anyone looked.
   that link with an older base `clang` and gain nothing on the `zig cc`
   route. The decision record's "real triple **and datalayout**" item is
   withdrawn on that basis.
-- `fast_tailcalls_supported` left `false`: riscv64 gets the single
+- `fast_tailcalls_supported` left `false` (at the time — see the Status
+  note): riscv64 gets the single
   uniform entry per function and a best-effort `tail call` hint, so
   mutual recursion has no constant-stack guarantee there (the #1499
   `@name.fast` entries and their `@name` trampolines are not emitted at
