@@ -35,10 +35,11 @@ const Value = types.Value;
 //   the whole prototype must fit the twelve integer argument registers of
 //   `CC_RISCV_FastCC` (a0–a7, t3–t6) — the comptime check below keeps
 //   `max_fast_arity` inside that.
-// * every other host: no fast entries. Each function keeps its uniform
-//   array-ABI entry and a cross-function tail call is a best-effort
-//   `tail call` hint (`false` is always safe — self-tail-calls compile as
-//   loops regardless).
+// * every other host — including an aarch64/x86_64/riscv64 host on an OS
+//   `targetTriple` has no arm for, where the backend cannot run at all: no
+//   fast entries. Each function keeps its uniform array-ABI entry and a
+//   cross-function tail call is a best-effort `tail call` hint (`false` is
+//   always safe — self-tail-calls compile as loops regardless).
 //
 // `tools/probe-tailcc.sh [--fastcc-padded] <zig-target>` compiles the exact
 // fast-entry shape of either row with `zig cc`'s own LLVM, in seconds, and is
@@ -64,7 +65,12 @@ pub const tailcc_abi: FastAbi = .{ .supported = true, .cc = "tailcc", .padded = 
 pub const padded_fastcc_abi: FastAbi = .{ .supported = true, .cc = "fastcc", .padded = true };
 pub const no_fast_abi: FastAbi = .{ .supported = false, .cc = "tailcc", .padded = false };
 
-pub const default_fast_abi: FastAbi = switch (@import("builtin").cpu.arch) {
+pub const default_fast_abi: FastAbi = if (!native_backend_supported)
+    // No triple for this (arch, os): `kaappi compile` refuses before the
+    // emitter runs (#1656), so a row here could only misreport such a host
+    // as having fast entries.
+    no_fast_abi
+else switch (@import("builtin").cpu.arch) {
     .aarch64, .x86_64 => tailcc_abi,
     .riscv64 => padded_fastcc_abi,
     else => no_fast_abi,
@@ -90,7 +96,7 @@ test "default_fast_abi: tailcc on aarch64/x86_64, padded fastcc on riscv64, off 
     // `tools/probe-tailcc.sh` (plain or --fastcc-padded) for that target and
     // the e2e suite run on it — riscv64's plain verdict is "Unsupported
     // calling convention" (LLVM 21) and its padded one SUPPORTED.
-    const expected: FastAbi = switch (@import("builtin").cpu.arch) {
+    const expected: FastAbi = if (!native_backend_supported) no_fast_abi else switch (@import("builtin").cpu.arch) {
         .aarch64, .x86_64 => tailcc_abi,
         .riscv64 => padded_fastcc_abi,
         else => no_fast_abi,

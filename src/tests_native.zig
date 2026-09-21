@@ -1294,9 +1294,21 @@ test "LLVM emit: padded musttail between fast entries of different arity uses on
     try expectNativeDef(ll, "two");
     try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, ll, "musttail call fastcc i64 @r"));
     // one -> two passes two real arguments and six fillers, two -> one one
-    // real argument and seven; the trampolines end in `ptr %upvalues`.
-    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, ll, ", i64 0, i64 0, i64 0, i64 0, i64 0, i64 0, ptr null)"));
-    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, ll, ", i64 0, i64 0, i64 0, i64 0, i64 0, i64 0, i64 0, ptr null)"));
+    // real argument and seven: one musttail line of each width and no other.
+    // Counted per line, so the two widths cannot match inside each other.
+    var six: usize = 0;
+    var seven: usize = 0;
+    var lines = std.mem.splitScalar(u8, ll, '\n');
+    while (lines.next()) |line| {
+        if (std.mem.indexOf(u8, line, "musttail call fastcc") == null) continue;
+        switch (std.mem.count(u8, line, ", i64 0")) {
+            6 => six += 1,
+            7 => seven += 1,
+            else => return error.TestUnexpectedResult,
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 1), six);
+    try std.testing.expectEqual(@as(usize, 1), seven);
     try expectEveryFastSignatureWidth(ll, "fastcc", llvm_emit.max_fast_arity);
     // Both bodies still read only their own parameters.
     try expectContains(ll, "%args = alloca [1 x i64], align 8");

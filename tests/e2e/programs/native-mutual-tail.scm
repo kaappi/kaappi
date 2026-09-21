@@ -24,9 +24,10 @@
 
 (display (count-a 1500000)) (newline)
 
-; A non-tail direct call to a fast entry: a register-argument `call tailcc`
-; (no args array), not a musttail. Verifies the fast entry is also the
-; ordinary direct-call target.
+; A non-tail direct call to a fast entry: a register-argument call in the
+; fast convention (`call tailcc`; `call fastcc` on riscv64), no args array,
+; not a musttail. Verifies the fast entry is also the ordinary direct-call
+; target.
 (define (sq x) (* x x))
 (define (sum-of-squares a b) (+ (sq a) (sq b)))
 (display (sum-of-squares 3 4)) (newline) ; 25

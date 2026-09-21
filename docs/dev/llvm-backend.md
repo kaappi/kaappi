@@ -845,7 +845,8 @@ A fixed-arity, non-variadic, non-boxed **named** function (arity ≤
   array is this frame's own; outgoing calls pass argument *values*, never a
   pointer into it, so `musttail` stays sound.
 - **`@name`** — an `internal` uniform-ABI **trampoline** that unpacks `%args` and
-  `call tailcc @name.fast(...)`. This is what `kaappi_create_native_closure`
+  calls `@name.fast(...)` in the fast convention (`call tailcc`; on riscv64
+  `call fastcc`, padded). This is what `kaappi_create_native_closure`
   stores; indirect dispatch (`kaappi_call_scheme`) still goes through it. LLVM
   drops it when a define's value is materialized via the interpreter and nothing
   takes its address.
