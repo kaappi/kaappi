@@ -992,7 +992,7 @@ jobs:
         run: rm -rf .zig-cache
 
       - name: Run test suites (FreeBSD VM)
-        uses: vmactions/freebsd-vm@8b0f1a8fc0ea0def307835c258940ca358fe6480 # v1
+        uses: vmactions/freebsd-vm@4469451fe39bee80be4066836c5170362e9349f3 # v1
         with:
           release: "14.3"
           usesh: true
@@ -1705,7 +1705,7 @@ jobs:
           retention-days: 90
 
       - name: Upload to Codecov
-        uses: codecov/codecov-action@0b35c9ecc4f0529d0eb674914510c22f85b196b4 # v7.1.0
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           use_oidc: true
           directory: coverage/
