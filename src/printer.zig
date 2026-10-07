@@ -1098,9 +1098,14 @@ fn writeImaginaryPart(writer: anytype, buf: []u8, im: anytype) !void {
 /// could `read` back must go through `valueToString`, whose output is exact
 /// and label-correct at any depth.
 pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void {
-    var sfb = std.heap.stackFallback(2048, std.heap.page_allocator);
+    // 0.17 reworked std.heap.StackFallbackAllocator into
+    // std.heap.BufferFirstAllocator: same discipline (serve from this stack
+    // buffer, fall back to the page allocator), new name and `allocator()`
+    // instead of `get()`.
+    var sfb_buf: [2048]u8 = undefined;
+    var sfb = std.heap.BufferFirstAllocator.init(&sfb_buf, std.heap.page_allocator);
     const atom_mode: PrintMode = if (mode == .shared) .write else mode;
-    try printStructured(sfb.get(), writer, value, atom_mode, null, MAX_PRINT_DEPTH);
+    try printStructured(sfb.allocator(), writer, value, atom_mode, null, MAX_PRINT_DEPTH);
 }
 
 /// Render `value` exactly. `write`/`display` label only structure that forms

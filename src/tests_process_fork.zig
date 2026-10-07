@@ -391,10 +391,10 @@ test "process: the fork route passes ENOEXEC through, no shell fallback (kaappi#
         const dir_path = try th.tmpDirRealPathAlloc(&tmp, std.testing.allocator);
         defer std.testing.allocator.free(dir_path);
         var dir_buf: [platform.PATH_MAX]u8 = undefined;
-        const dir_z = try std.fmt.bufPrintZ(&dir_buf, "{s}", .{dir_path});
+        const dir_z = try std.fmt.bufPrintSentinel(&dir_buf, "{s}", .{dir_path}, 0);
 
         var file_buf: [platform.PATH_MAX]u8 = undefined;
-        const file_z = try std.fmt.bufPrintZ(&file_buf, "{s}/kaappi-2517-noexec", .{dir_path});
+        const file_z = try std.fmt.bufPrintSentinel(&file_buf, "{s}/kaappi-2517-noexec", .{dir_path}, 0);
         const fd = std.c.open(file_z, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, @as(c_uint, 0o755));
         try std.testing.expect(fd >= 3);
         const body = "not an executable format\n";
@@ -454,10 +454,10 @@ test "process: an all-EACCES PATH search reports EACCES, not ENOENT (kaappi#2517
         const dir_path = try th.tmpDirRealPathAlloc(&tmp, std.testing.allocator);
         defer std.testing.allocator.free(dir_path);
         var dir_buf: [platform.PATH_MAX]u8 = undefined;
-        const dir_z = try std.fmt.bufPrintZ(&dir_buf, "{s}", .{dir_path});
+        const dir_z = try std.fmt.bufPrintSentinel(&dir_buf, "{s}", .{dir_path}, 0);
 
         var file_buf: [platform.PATH_MAX]u8 = undefined;
-        const file_z = try std.fmt.bufPrintZ(&file_buf, "{s}/kaappi-2517-denied", .{dir_path});
+        const file_z = try std.fmt.bufPrintSentinel(&file_buf, "{s}/kaappi-2517-denied", .{dir_path}, 0);
         const fd = std.c.open(file_z, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, @as(c_uint, 0o644));
         try std.testing.expect(fd >= 3);
         const body = "no permission to execute\n";
@@ -561,7 +561,7 @@ test "process: the fork route's close-by-default removes inherited descriptors" 
 
         // Verdict: the parked descriptor must be gone.
         var cmd_buf: [96]u8 = undefined;
-        const cmd = try std.fmt.bufPrintZ(&cmd_buf, "if [ -e /dev/fd/{d} ]; then exit 1; else exit 0; fi", .{extra});
+        const cmd = try std.fmt.bufPrintSentinel(&cmd_buf, "if [ -e /dev/fd/{d} ]; then exit 1; else exit 0; fi", .{extra}, 0);
         try std.testing.expectEqual(@as(u32, 0), try forkRouteShExit(gc, cfg, cmd.ptr));
         gc.popRoot();
     }

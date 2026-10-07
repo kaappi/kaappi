@@ -124,7 +124,7 @@ pub fn trimStateLine(line: []const u8) []const u8 {
 }
 
 pub fn readFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    const path_z = try allocator.dupeZ(u8, path);
+    const path_z = try allocator.dupeSentinel(u8, path, 0);
     defer allocator.free(path_z);
     const fd = platform.openRead(path_z) catch return error.FileNotFound;
     defer _ = platform.close(fd);
@@ -145,7 +145,7 @@ pub fn readFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
 }
 
 pub fn writeFile(allocator: std.mem.Allocator, path: []const u8, content: []const u8) !void {
-    const path_z = try allocator.dupeZ(u8, path);
+    const path_z = try allocator.dupeSentinel(u8, path, 0);
     defer allocator.free(path_z);
     const fd = platform.openWriteTrunc(path_z, 0o644) catch return error.CannotOpen;
     defer _ = platform.close(fd);
@@ -158,7 +158,7 @@ pub fn writeFile(allocator: std.mem.Allocator, path: []const u8, content: []cons
 }
 
 pub fn appendFile(allocator: std.mem.Allocator, path: []const u8, line: []const u8) !void {
-    const path_z = try allocator.dupeZ(u8, path);
+    const path_z = try allocator.dupeSentinel(u8, path, 0);
     defer allocator.free(path_z);
     const fd = platform.openAppend(path_z, 0o644) catch return error.CannotOpen;
     defer _ = platform.close(fd);
@@ -167,7 +167,7 @@ pub fn appendFile(allocator: std.mem.Allocator, path: []const u8, line: []const 
 }
 
 pub fn fileExists(allocator: std.mem.Allocator, path: []const u8) bool {
-    const path_z = allocator.dupeZ(u8, path) catch return false;
+    const path_z = allocator.dupeSentinel(u8, path, 0) catch return false;
     defer allocator.free(path_z);
     const fd = platform.openRead(path_z) catch return false;
     _ = platform.close(fd);
@@ -175,7 +175,7 @@ pub fn fileExists(allocator: std.mem.Allocator, path: []const u8) bool {
 }
 
 fn dirExists(allocator: std.mem.Allocator, path: []const u8) bool {
-    const path_z = allocator.dupeZ(u8, path) catch return false;
+    const path_z = allocator.dupeSentinel(u8, path, 0) catch return false;
     defer allocator.free(path_z);
     return platform.isDir(path_z);
 }
@@ -361,7 +361,7 @@ fn removeInstalledFiles(allocator: std.mem.Allocator, config: Config, pkg: []con
         }
         const target = joinPath(allocator, config.lib_dir, rel) catch continue;
         defer allocator.free(target);
-        const target_z = allocator.dupeZ(u8, target) catch continue;
+        const target_z = allocator.dupeSentinel(u8, target, 0) catch continue;
         defer allocator.free(target_z);
         _ = platform.unlink(target_z);
         pruneEmptyParents(allocator, config.lib_dir, rel);
@@ -406,7 +406,7 @@ fn pruneEmptyParents(allocator: std.mem.Allocator, lib_dir: []const u8, rel: []c
     while (end) |e| {
         if (e <= lib_dir.len) break;
         const parent = full[0..e];
-        const z = allocator.dupeZ(u8, parent) catch return;
+        const z = allocator.dupeSentinel(u8, parent, 0) catch return;
         if (platform.rmdir(z) != 0) {
             allocator.free(z);
             return;
@@ -512,7 +512,7 @@ pub fn syncInstalledFiles(allocator: std.mem.Allocator, config: Config, pkg: []c
             }
             const target = joinPath(allocator, config.lib_dir, old_rel) catch continue;
             defer allocator.free(target);
-            const target_z = allocator.dupeZ(u8, target) catch continue;
+            const target_z = allocator.dupeSentinel(u8, target, 0) catch continue;
             defer allocator.free(target_z);
             _ = platform.unlink(target_z);
             pruneEmptyParents(allocator, config.lib_dir, old_rel);

@@ -442,9 +442,9 @@ fn runCapture(arena: std.mem.Allocator, argv: []const []const u8) ?CaptureResult
     const exe = findInPath(arena, argv[0]) orelse return null;
 
     const argv_z = arena.alloc(?[*:0]const u8, argv.len + 1) catch return null;
-    argv_z[0] = (arena.dupeZ(u8, exe) catch return null).ptr;
+    argv_z[0] = (arena.dupeSentinel(u8, exe, 0) catch return null).ptr;
     for (argv[1..], 1..) |arg, i| {
-        argv_z[i] = (arena.dupeZ(u8, arg) catch return null).ptr;
+        argv_z[i] = (arena.dupeSentinel(u8, arg, 0) catch return null).ptr;
     }
     argv_z[argv.len] = null;
 
@@ -529,7 +529,7 @@ fn findInPath(arena: std.mem.Allocator, name: []const u8) ?[]const u8 {
     while (iter.next()) |dir| {
         if (dir.len == 0) continue;
         const full = std.fmt.allocPrint(arena, "{s}/{s}{s}", .{ dir, name, platform.exe_suffix }) catch continue;
-        const full_z = arena.dupeZ(u8, full) catch continue;
+        const full_z = arena.dupeSentinel(u8, full, 0) catch continue;
         const fd = platform.openRead(full_z) catch continue;
         _ = platform.close(fd);
         return full;

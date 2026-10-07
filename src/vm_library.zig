@@ -422,7 +422,7 @@ pub fn resolveLibraryPath(allocator: std.mem.Allocator, rel_path: []const u8, li
         const full_path = full_path_buf[0..full_len];
 
         // Check if file exists by trying to open it
-        const probe_z = allocator.dupeZ(u8, full_path) catch continue;
+        const probe_z = allocator.dupeSentinel(u8, full_path, 0) catch continue;
         defer allocator.free(probe_z);
         const probe_fd = platform.openRead(probe_z) catch continue;
         _ = platform.close(probe_fd);

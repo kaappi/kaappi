@@ -513,7 +513,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
                         _ = setenv(env_name, @ptrCast(n[0 .. klp.len + 1 + ex_len :0]), 1);
                     }
                 } else {
-                    const z = lib_paths_alloc.dupeZ(u8, klp) catch null;
+                    const z = lib_paths_alloc.dupeSentinel(u8, klp, 0) catch null;
                     if (z) |zz| _ = setenv(env_name, zz, 1);
                 }
             }

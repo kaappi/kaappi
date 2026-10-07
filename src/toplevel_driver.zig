@@ -411,7 +411,7 @@ fn printSingleResult(allocator: std.mem.Allocator, value: types.Value) void {
 
 fn readFileContents(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     if (comptime !is_wasm) {
-        const path_z = allocator.dupeZ(u8, path) catch return error.OutOfMemory;
+        const path_z = allocator.dupeSentinel(u8, path, 0) catch return error.OutOfMemory;
         defer allocator.free(path_z);
         if (platform.isDir(path_z)) {
             std.debug.print("Error: '{s}' is a directory\n", .{path});
@@ -1055,7 +1055,7 @@ pub fn disassembleFile(vm: *vm_mod.VM, path: []const u8) !void {
 /// removal failure (permissions, a path over PATH_MAX) has nothing to add.
 fn unlinkQuiet(path: []const u8) void {
     var pbuf: [platform.PATH_MAX]u8 = undefined;
-    if (std.fmt.bufPrintZ(&pbuf, "{s}", .{path})) |pz| {
+    if (std.fmt.bufPrintSentinel(&pbuf, "{s}", .{path}, 0)) |pz| {
         _ = platform.unlink(pz);
     } else |_| {}
 }

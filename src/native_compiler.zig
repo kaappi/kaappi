@@ -359,7 +359,7 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
     const should_free = output_path == null;
     defer if (should_free) allocator.free(out_path);
 
-    const out_path_z = try allocator.dupeZ(u8, out_path);
+    const out_path_z = try allocator.dupeSentinel(u8, out_path, 0);
     defer allocator.free(out_path_z);
     const fd = platform.openWriteTrunc(out_path_z, 0o644) catch |err| {
         writeStderr("Failed to create output file\n");
@@ -450,7 +450,7 @@ fn findInPath(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
     var iter = std.mem.splitScalar(u8, path_str, platform.path_list_sep);
     while (iter.next()) |dir| {
         const full = std.fmt.allocPrint(allocator, "{s}/{s}{s}", .{ dir, name, platform.exe_suffix }) catch continue;
-        const full_z = allocator.dupeZ(u8, full) catch {
+        const full_z = allocator.dupeSentinel(u8, full, 0) catch {
             allocator.free(full);
             continue;
         };
@@ -685,7 +685,7 @@ test "checkLibDir looks for the platform-named runtime archive" {
     const a = std.testing.allocator;
     const dir = try std.fmt.allocPrint(a, "{s}/kaappi-nctest-{d}", .{ platform.tempDir(), platform.getPid() });
     defer a.free(dir);
-    const dir_z = try a.dupeZ(u8, dir);
+    const dir_z = try a.dupeSentinel(u8, dir, 0);
     defer a.free(dir_z);
     try std.testing.expect(platform.mkdir(dir_z, 0o700) == 0);
     defer _ = platform.rmdir(dir_z);
@@ -704,7 +704,7 @@ fn tryLink(allocator: std.mem.Allocator, cc: []const u8, ll_path: []const u8, ou
     var argv_buf: [20]?[*:0]const u8 = @splat(null);
     var argc: usize = 0;
 
-    const cc_z = allocator.dupeZ(u8, cc) catch return false;
+    const cc_z = allocator.dupeSentinel(u8, cc, 0) catch return false;
     defer allocator.free(cc_z);
     argv_buf[argc] = cc_z;
     argc += 1;
@@ -743,7 +743,7 @@ fn tryLink(allocator: std.mem.Allocator, cc: []const u8, ll_path: []const u8, ou
         argc += 1;
     }
 
-    const ll_z = allocator.dupeZ(u8, ll_path) catch return false;
+    const ll_z = allocator.dupeSentinel(u8, ll_path, 0) catch return false;
     defer allocator.free(ll_z);
     argv_buf[argc] = ll_z;
     argc += 1;
@@ -751,12 +751,12 @@ fn tryLink(allocator: std.mem.Allocator, cc: []const u8, ll_path: []const u8, ou
     argv_buf[argc] = "-o";
     argc += 1;
 
-    const out_z = allocator.dupeZ(u8, out_path) catch return false;
+    const out_z = allocator.dupeSentinel(u8, out_path, 0) catch return false;
     defer allocator.free(out_z);
     argv_buf[argc] = out_z;
     argc += 1;
 
-    const lib_z = allocator.dupeZ(u8, lib_flag) catch return false;
+    const lib_z = allocator.dupeSentinel(u8, lib_flag, 0) catch return false;
     defer allocator.free(lib_z);
     argv_buf[argc] = lib_z;
     argc += 1;

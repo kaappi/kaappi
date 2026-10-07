@@ -1501,7 +1501,7 @@ pub const OpCode = enum(u8) {
 // than trusting the list — grep the *noun*, since the count is written at least
 // four ways ("31 opcodes", "31-opcode", "(31 opcodes)", and number-after-noun).
 comptime {
-    if (@typeInfo(OpCode).@"enum".fields.len != 34)
+    if (@typeInfo(OpCode).@"enum".field_names.len != 34)
         @compileError("OpCode count changed. Update the table in docs/dev/bytecode.md, then every " ++
             "file quoting the count — known: docs/dev/architecture.md, docs/dev/README.md, " ++
             "docs/dev/claude-code-harness.md, .claude/skills/bytecode-isa/SKILL.md. Find any others " ++

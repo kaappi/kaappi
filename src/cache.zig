@@ -491,7 +491,7 @@ test "renderStatus and clearDir over a temp cache dir" {
     // /proc/self/fd, no F_GETPATH). std.testing places tmp dirs at
     // .zig-cache/tmp/<sub_path> relative to the cwd.
     var rel_buf: [platform.PATH_MAX]u8 = undefined;
-    const rel = try std.fmt.bufPrintZ(&rel_buf, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    const rel = try std.fmt.bufPrintSentinel(&rel_buf, ".zig-cache/tmp/{s}", .{tmp.sub_path}, 0);
     var real_buf: [platform.PATH_MAX]u8 = undefined;
     const dir = try allocator.dupe(u8, platform.realPath(rel, &real_buf) orelse return error.FileNotFound);
     defer allocator.free(dir);
@@ -545,7 +545,7 @@ test "renderStatus reports a current-build entry the reader rejects as unloadabl
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     var rel_buf: [platform.PATH_MAX]u8 = undefined;
-    const rel = try std.fmt.bufPrintZ(&rel_buf, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    const rel = try std.fmt.bufPrintSentinel(&rel_buf, ".zig-cache/tmp/{s}", .{tmp.sub_path}, 0);
     var real_buf: [platform.PATH_MAX]u8 = undefined;
     const dir = try allocator.dupe(u8, platform.realPath(rel, &real_buf) orelse return error.FileNotFound);
     defer allocator.free(dir);

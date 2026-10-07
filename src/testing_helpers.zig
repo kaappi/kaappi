@@ -27,7 +27,7 @@ pub fn tmpDirRealPathAlloc(tmp: *std.testing.TmpDir, allocator: std.mem.Allocato
         return std.fmt.allocPrint(allocator, ".zig-cache/tmp/{s}", .{tmp.sub_path});
     }
     var rel_buf: [platform.PATH_MAX]u8 = undefined;
-    const rel = try std.fmt.bufPrintZ(&rel_buf, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    const rel = try std.fmt.bufPrintSentinel(&rel_buf, ".zig-cache/tmp/{s}", .{tmp.sub_path}, 0);
     var out_buf: [platform.PATH_MAX]u8 = undefined;
     const resolved = platform.realPath(rel, &out_buf) orelse return error.FileNotFound;
     return allocator.dupe(u8, resolved);

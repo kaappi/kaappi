@@ -724,7 +724,7 @@ fn describeValue(w: *std.Io.Writer, value: Value) void {
         if (addr == 0 or addr < 4096) return w.writeAll("#<invalid-pointer>") catch {};
         const obj = types.toObject(value);
         const tag = @backingInt(obj.tag);
-        if (tag >= @typeInfo(types.ObjectTag).@"enum".fields.len)
+        if (tag >= @typeInfo(types.ObjectTag).@"enum".field_names.len)
             return w.print("#<corrupt tag={d}>", .{tag}) catch {};
         switch (obj.tag) {
             // Symbol name is inline in the object (interned, no allocation);

@@ -219,7 +219,7 @@ fn getEnvVar(args: []const Value) PrimitiveError!Value {
     const str = types.toObject(args[0]).as(types.SchemeString);
     const name = str.data[0..str.len];
 
-    const name_z = gc.allocator.dupeZ(u8, name) catch return PrimitiveError.OutOfMemory;
+    const name_z = gc.allocator.dupeSentinel(u8, name, 0) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(name_z);
 
     const env = platform.getenv(name_z);
@@ -378,7 +378,7 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
         env_val = args[1];
     }
 
-    const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
+    const path_z = gc.allocator.dupeSentinel(u8, path, 0) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
     // Open and read the file

@@ -410,12 +410,12 @@ fn validateTable(comptime Id: type, comptime table: []const Flag(Id), comptime w
         @setEvalBranchQuota(100_000);
         // Every Id variant appears exactly once: a new variant without a row
         // is a compile error, so the table can never lag the enum.
-        for (@typeInfo(Id).@"enum".fields) |field| {
+        for (@typeInfo(Id).@"enum".field_names, 0..) |field_name, field_i| {
             var seen = 0;
             for (table) |f| {
-                if (@backingInt(f.id) == field.value) seen += 1;
+                if (@backingInt(f.id) == field_i) seen += 1;
             }
-            if (seen != 1) @compileError(what ++ ": " ++ field.name ++ " must appear exactly once in the table");
+            if (seen != 1) @compileError(what ++ ": " ++ field_name ++ " must appear exactly once in the table");
         }
         for (table, 0..) |f, i| {
             if (f.long.len < 2 or f.long[0] != '-') @compileError(what ++ ": flag spellings must start with '-'");

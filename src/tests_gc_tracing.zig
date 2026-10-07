@@ -1686,8 +1686,8 @@ test "gc weak refs: a guardian watching an old object does not resurrect in a mi
 fn expectFields(comptime T: type, comptime pinned: []const []const u8) void {
     comptime {
         var actual: []const u8 = "";
-        for (@typeInfo(T).@"struct".fields, 0..) |f, i| {
-            actual = actual ++ (if (i == 0) "" else ", ") ++ f.name;
+        for (@typeInfo(T).@"struct".field_names, @typeInfo(T).@"struct".field_types, 0..) |f_name, _, i| {
+            actual = actual ++ (if (i == 0) "" else ", ") ++ f_name;
         }
         var want: []const u8 = "";
         for (pinned, 0..) |p, i| {
@@ -1875,7 +1875,7 @@ test "gc tracing: every ObjectTag has a case in this file" {
     // returns a NaN-boxed immediate, so no heap Flonum is ever created (the
     // tag, its struct and its five arms are vestigial). Keep this count in
     // step with ObjectTag so a new tag cannot be added without landing here.
-    try std.testing.expectEqual(@as(usize, 42), @typeInfo(types.ObjectTag).@"enum".fields.len);
+    try std.testing.expectEqual(@as(usize, 42), @typeInfo(types.ObjectTag).@"enum".field_names.len);
 }
 
 // ---------------------------------------------------------------------------
@@ -1941,14 +1941,14 @@ fn collectValues(gc: *memory.GC, port: Value, out: *std.ArrayList(Value)) void {
 fn declaredValueCount() usize {
     comptime var n: usize = 0;
     comptime {
-        for (@typeInfo(types.Port).@"struct".fields) |f| {
-            if (f.type == Value) n += 1;
+        for (@typeInfo(types.Port).@"struct".field_names, @typeInfo(types.Port).@"struct".field_types) |_, f_type| {
+            if (f_type == Value) n += 1;
         }
-        for (@typeInfo(types.CustomBacking).@"struct".fields) |f| {
-            if (f.type == Value) n += 1;
+        for (@typeInfo(types.CustomBacking).@"struct".field_names, @typeInfo(types.CustomBacking).@"struct".field_types) |_, f_type| {
+            if (f_type == Value) n += 1;
         }
-        for (@typeInfo(types.TranscodeState).@"struct".fields) |f| {
-            if (f.type == Value) n += 1;
+        for (@typeInfo(types.TranscodeState).@"struct".field_names, @typeInfo(types.TranscodeState).@"struct".field_types) |_, f_type| {
+            if (f_type == Value) n += 1;
         }
     }
     return n;

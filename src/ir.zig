@@ -132,9 +132,9 @@ fn countEvalFallbackNames() usize {
         if (entry.capability == .eval_fallback and entry.include_in_name_set and entry.form_name != null)
             count += 1;
     }
-    const form_fields = @typeInfo(FormKind).@"enum".fields;
-    for (form_fields) |f| {
-        const fk: FormKind = @fromBackingInt(@intCast(f.value));
+    const form_field_values = @typeInfo(FormKind).@"enum".field_values;
+    for (form_field_values) |fval| {
+        const fk: FormKind = @fromBackingInt(@intCast(fval));
         if (isNativeLoweredForm(fk)) continue;
         count += 1;
     }
@@ -155,9 +155,9 @@ pub const eval_fallback_form_names: [eval_fallback_name_count][]const u8 = blk: 
             }
         }
     }
-    const form_fields = @typeInfo(FormKind).@"enum".fields;
-    for (form_fields) |f| {
-        const fk: FormKind = @fromBackingInt(@intCast(f.value));
+    const form_field_values = @typeInfo(FormKind).@"enum".field_values;
+    for (form_field_values) |fval| {
+        const fk: FormKind = @fromBackingInt(@intCast(fval));
         if (isNativeLoweredForm(fk)) continue;
         names[i] = fk.keyword();
         i += 1;
@@ -190,7 +190,7 @@ pub fn llvmFormName(tag: NodeTag) ?[]const u8 {
 }
 
 comptime {
-    const fields = @typeInfo(NodeTag).@"enum".fields;
+    const fields = @typeInfo(NodeTag).@"enum".field_names;
     if (llvm_node_table.len != fields.len)
         @compileError("llvm_node_table must have exactly one entry per NodeTag");
     var seen: [fields.len]bool = @splat(false);
@@ -220,11 +220,11 @@ comptime {
 // number, since the count appears as "18 node types", "**18** node tags" and
 // "node types (18)" alike, and a bare "18" collides with every SRFI number.
 comptime {
-    if (@typeInfo(NodeTag).@"enum".fields.len != 18)
+    if (@typeInfo(NodeTag).@"enum".field_names.len != 18)
         @compileError("NodeTag count changed. Update docs/dev/ir.md, docs/dev/architecture.md, " ++
             "docs/dev/README.md, CLAUDE.md and .coderabbit.yaml. Find any others with: " ++
             "grep -rniE 'node (type|tag)' --include='*.md' --include='*.yaml' . Then update this number.");
-    if (@typeInfo(FormKind).@"enum".fields.len != 18)
+    if (@typeInfo(FormKind).@"enum".field_names.len != 18)
         @compileError("FormKind count changed. Update the FormKind table in docs/dev/ir.md, and the " ++
             "count in CLAUDE.md, docs/dev/architecture.md and .coderabbit.yaml. Find any others with: " ++
             "grep -rniE 'form ?kind' --include='*.md' --include='*.yaml' . Then update this number.");

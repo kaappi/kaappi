@@ -46,7 +46,7 @@ pub const Mode = enum { run, compile, native };
 /// all of them.
 pub const Stage = enum { read, expand, lower, optimize, emit, llvm_emit, link, execute };
 
-const stage_count = @typeInfo(Stage).@"enum".fields.len;
+const stage_count = @typeInfo(Stage).@"enum".field_names.len;
 
 /// Fixed cap for the copied cache / output paths — comfortably above any real
 /// `PATH_MAX`, and platform-independent so this module compiles on WASM too

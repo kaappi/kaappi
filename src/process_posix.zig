@@ -1334,13 +1334,13 @@ fn closePipePair(fds: *[2]platform.fd_t) void {
 }
 
 /// Duplicate `bytes` as a NUL-terminated C string in the arena, rejecting an
-/// embedded NUL. `dupeZ` alone would silently truncate at the interior NUL
+/// embedded NUL. `dupeSentinel` alone would silently truncate at the interior NUL
 /// on the OS side — the child would exec or receive something different from
 /// the value the Scheme program supplied (kaappi#2414 review; CWE-626).
 fn dupeZChecked(comptime proc: []const u8, arena: std.mem.Allocator, bytes: []const u8, comptime what: []const u8) PrimitiveError![*:0]const u8 {
     if (std.mem.indexOfScalar(u8, bytes, 0) != null)
         return primitives.argError(proc, what ++ " contains an embedded NUL byte", .{});
-    const duped = arena.dupeZ(u8, bytes) catch return PrimitiveError.OutOfMemory;
+    const duped = arena.dupeSentinel(u8, bytes, 0) catch return PrimitiveError.OutOfMemory;
     return duped.ptr;
 }
 

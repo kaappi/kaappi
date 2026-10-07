@@ -327,9 +327,9 @@ fn ansiToIcStyle(escape: []const u8, buf: []u8) [:0]const u8 {
         else => return empty,
     };
     const s = if (bold)
-        std.fmt.bufPrintZ(buf, "bold {s}", .{name}) catch return empty
+        std.fmt.bufPrintSentinel(buf, "bold {s}", .{name}, 0) catch return empty
     else
-        std.fmt.bufPrintZ(buf, "{s}", .{name}) catch return empty;
+        std.fmt.bufPrintSentinel(buf, "{s}", .{name}, 0) catch return empty;
     return s;
 }
 

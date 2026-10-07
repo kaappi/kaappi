@@ -54,11 +54,11 @@ pub fn runCapture(allocator: std.mem.Allocator, argv: []const []const u8, cwd: ?
         allocator.free(argv_z);
     }
     for (argv, 0..) |arg, i| {
-        argv_z[i] = (try allocator.dupeZ(u8, arg)).ptr;
+        argv_z[i] = (try allocator.dupeSentinel(u8, arg, 0)).ptr;
     }
     argv_z[argv.len] = null;
 
-    const cwd_duped = if (cwd) |c| try allocator.dupeZ(u8, c) else null;
+    const cwd_duped = if (cwd) |c| try allocator.dupeSentinel(u8, c, 0) else null;
     defer if (cwd_duped) |d| allocator.free(d);
     const cwd_z: ?[*:0]const u8 = if (cwd_duped) |d| d.ptr else null;
 
@@ -146,11 +146,11 @@ pub fn runPassthrough(allocator: std.mem.Allocator, argv: []const []const u8, cw
         allocator.free(argv_z);
     }
     for (argv, 0..) |arg, i| {
-        argv_z[i] = (try allocator.dupeZ(u8, arg)).ptr;
+        argv_z[i] = (try allocator.dupeSentinel(u8, arg, 0)).ptr;
     }
     argv_z[argv.len] = null;
 
-    const cwd_duped = if (cwd) |c| try allocator.dupeZ(u8, c) else null;
+    const cwd_duped = if (cwd) |c| try allocator.dupeSentinel(u8, c, 0) else null;
     defer if (cwd_duped) |d| allocator.free(d);
     const cwd_z: ?[*:0]const u8 = if (cwd_duped) |d| d.ptr else null;
 
@@ -193,13 +193,13 @@ fn findGit(allocator: std.mem.Allocator) ?[:0]const u8 {
 /// `[:0]` slice with `allocator.free(path)`.
 fn findInPath(allocator: std.mem.Allocator, path_str: []const u8, name: []const u8) ?[:0]const u8 {
     if (std.mem.indexOfScalar(u8, name, '/') != null) {
-        return allocator.dupeZ(u8, name) catch null;
+        return allocator.dupeSentinel(u8, name, 0) catch null;
     }
     var iter = std.mem.splitScalar(u8, path_str, platform.path_list_sep);
     while (iter.next()) |dir| {
         if (dir.len == 0) continue;
         const full = std.fmt.allocPrint(allocator, "{s}/{s}{s}", .{ dir, name, platform.exe_suffix }) catch continue;
-        const full_z = allocator.dupeZ(u8, full) catch {
+        const full_z = allocator.dupeSentinel(u8, full, 0) catch {
             allocator.free(full);
             continue;
         };
@@ -323,7 +323,7 @@ test "findInPath resolves an executable through PATH, not a fixed location (issu
     defer allocator.free(git_path);
     // writeFile does not create parent directories (and cannot run git init
     // the way the #780 test does), so make the fixture dir by hand.
-    const dir_z = try allocator.dupeZ(u8, dir);
+    const dir_z = try allocator.dupeSentinel(u8, dir, 0);
     defer allocator.free(dir_z);
     _ = platform.mkdir(dir_z, 0o755);
     try thottam.writeFile(allocator, git_path, "#!/bin/sh\nexit 0\n");
@@ -338,7 +338,7 @@ test "findInPath resolves an executable through PATH, not a fixed location (issu
     }
 
     // Make it executable.
-    const git_path_z = try allocator.dupeZ(u8, git_path);
+    const git_path_z = try allocator.dupeSentinel(u8, git_path, 0);
     defer allocator.free(git_path_z);
     platform.makeWritable(git_path_z);
 

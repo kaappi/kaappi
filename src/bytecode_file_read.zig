@@ -270,7 +270,7 @@ fn readConstantTagged(r: *Reader, gc: *GC, all_funcs: []*Function, shared: *Shar
         bf.TAG_NUMERICVECTOR => {
             const immutable = try readImmutableByte(r);
             const kind_byte = try r.readU8();
-            if (kind_byte >= @typeInfo(types.NumericElementKind).@"enum".fields.len) return BytecodeError.CorruptedFile;
+            if (kind_byte >= @typeInfo(types.NumericElementKind).@"enum".field_names.len) return BytecodeError.CorruptedFile;
             const kind: types.NumericElementKind = @fromBackingInt(@intCast(kind_byte));
             const data_len = try r.readU32();
             if (data_len > bf.MAX_BYTEVECTOR_LEN) return BytecodeError.CorruptedFile;

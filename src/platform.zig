@@ -1098,9 +1098,9 @@ pub fn setEnv(allocator: std.mem.Allocator, name: []const u8, value: []const u8)
         if (win._putenv(pair.ptr) != 0) return std.c._errno().*;
         return 0;
     }
-    const name_z = try allocator.dupeZ(u8, name);
+    const name_z = try allocator.dupeSentinel(u8, name, 0);
     defer allocator.free(name_z);
-    const value_z = try allocator.dupeZ(u8, value);
+    const value_z = try allocator.dupeSentinel(u8, value, 0);
     defer allocator.free(value_z);
     if (setenv(name_z, value_z, 1) != 0) return std.c._errno().*;
     return 0;
@@ -1116,7 +1116,7 @@ pub fn unsetEnv(allocator: std.mem.Allocator, name: []const u8) !c_int {
         if (win._putenv(pair.ptr) != 0) return std.c._errno().*;
         return 0;
     }
-    const name_z = try allocator.dupeZ(u8, name);
+    const name_z = try allocator.dupeSentinel(u8, name, 0);
     defer allocator.free(name_z);
     if (unsetenv(name_z) != 0) return std.c._errno().*;
     return 0;
@@ -1482,7 +1482,7 @@ pub fn dlOpen(path: ?[*:0]const u8) ?*anyopaque {
         // symbol table to search. Fail through the same pending-error
         // channel Windows uses so dlError() explains why.
         dl_error_pending = true;
-        _ = std.fmt.bufPrintZ(&dl_error_buf, "dynamic loading unavailable on WASI", .{}) catch {};
+        _ = std.fmt.bufPrintSentinel(&dl_error_buf, "dynamic loading unavailable on WASI", .{}, 0) catch {};
         return null;
     }
     return std.c.dlopen(path, .{ .LAZY = true });
@@ -1513,7 +1513,7 @@ pub fn dlSym(handle: *anyopaque, name: [*:0]const u8) ?*anyopaque {
     }
     if (comptime is_wasm) {
         dl_error_pending = true;
-        _ = std.fmt.bufPrintZ(&dl_error_buf, "dynamic loading unavailable on WASI", .{}) catch {};
+        _ = std.fmt.bufPrintSentinel(&dl_error_buf, "dynamic loading unavailable on WASI", .{}, 0) catch {};
         return null;
     }
     return std.c.dlsym(handle, name);
@@ -1541,7 +1541,7 @@ pub fn dlError() ?[*:0]const u8 {
     if (comptime is_windows) {
         if (!dl_error_pending) return null;
         dl_error_pending = false;
-        const msg = std.fmt.bufPrintZ(&dl_error_buf, "Win32 error {d}", .{win.GetLastError()}) catch return null;
+        const msg = std.fmt.bufPrintSentinel(&dl_error_buf, "Win32 error {d}", .{win.GetLastError()}, 0) catch return null;
         return msg.ptr;
     }
     if (comptime is_wasm) {
