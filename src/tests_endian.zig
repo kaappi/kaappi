@@ -164,7 +164,7 @@ test "endian: .sbc writeStr's u16 length prefix is little-endian" {
     // 258 bytes: the length's high byte is nonzero, so a dropped conversion
     // is visible in the prefix rather than hidden by a zero byte.
     const payload: [258]u8 = @splat('x');
-    try w.writeStr(allocator, payload);
+    try w.writeStr(allocator, &payload);
     try std.testing.expectEqual(@as(usize, 2 + 258), w.buf.items.len);
     try std.testing.expectEqual(@as(u8, 0x02), w.buf.items[0]);
     try std.testing.expectEqual(@as(u8, 0x01), w.buf.items[1]);
@@ -242,7 +242,7 @@ test "endian: readHeaderInfo rejects a big-endian-spelled version field" {
     try buf.appendSlice(allocator, &bf.MAGIC);
     try buf.append(allocator, @truncate(bf.VERSION >> 8));
     try buf.append(allocator, @truncate(bf.VERSION));
-    try buf.appendSlice(allocator, &@splat(0));
+    try buf.appendSlice(allocator, &@as([16]u8, @splat(0)));
     try appendLeU16(&buf, allocator, 0);
     try appendLeU16(&buf, allocator, 0);
 
