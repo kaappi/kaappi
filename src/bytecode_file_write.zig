@@ -44,7 +44,11 @@ const BytecodeError = bf.BytecodeError;
 /// the byte order you mean; never inherit it from the host.
 fn writeLeBytes(dest: *[8]u8, comptime T: type, v: T, comptime U: type, comptime n: usize) void {
     comptime {
-        // Same width both sides, so `@bitCast` is a pure reinterpretation.
+        // `@bitCast` is the *scalar* case here, which 0.17 left alone: same
+        // width both sides, so it is a pure reinterpretation. If a future
+        // change makes this an array or vector cast, read the note above
+        // first — that is the case whose meaning moved. `U` is passed rather
+        // than built, because 0.17 removed both `std.meta.Int` and `@Type`.
         if (@typeInfo(U).int.signedness != .unsigned) @compileError("writeLeBytes: U must be unsigned");
         if (@typeInfo(U).int.bits != @typeInfo(T).int.bits) @compileError("writeLeBytes: width mismatch");
         if (n != @typeInfo(U).int.bits / 8) @compileError("writeLeBytes: n must be bits/8");

@@ -1408,9 +1408,11 @@ jobs:
   # windows-latest runners, from the cross-compiled x86_64 artifacts
   # (guarding the binaries release.yml ships), plus the native-backend
   # e2e suite (tests/e2e/run-e2e.ps1, #1610) — possible only on this
-  # arch: x86_64 Windows compiles natively; the aarch64 0.16.0 toolchain
-  # access-violated compiling anything (#1613, an aarch64-only LLVM COFF
-  # bug, worked around in 0.17.0 but not yet verified on ARM64 hardware). Zig is installed only after the shell
+  # arch: x86_64 Windows compiles natively. The aarch64 side does not run
+  # here at all — 0.16.0 access-violated compiling anything (#1613, an
+  # aarch64-only LLVM COFF bug, worked around in 0.17.0 but not yet
+  # verified on ARM64 hardware), so that leg stays cross-compiled and is
+  # covered by windows-arm-test. Zig is installed only after the shell
   # suites so both Windows jobs run them under identical no-toolchain
   # conditions (the bundle-rebuild scripts gate on a toolchain being
   # present).

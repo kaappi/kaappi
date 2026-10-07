@@ -17,10 +17,22 @@ fn buildRootPath(b: *std.Build) []const u8 {
 }
 // ---------------------------------------------------------------------------
 
-/// Absolute path of an installed artifact. 0.17 removed `Build.getInstallPath`
-/// along with the configure-time install prefix, so the OpenBSD post-link
-/// marker has to fall back to the default `zig-out` convention. That is only
-/// correct for the default `-p` prefix; see the 0.17 port tracking issue.
+/// Absolute path of an installed artifact, for the OpenBSD post-link marker.
+///
+/// 0.16 computed this with `Build.getInstallPath`, which read an install
+/// prefix the configure phase had resolved. 0.17 removed the method and
+/// moved that prefix into the configurer, out of `build.zig`'s reach —
+/// `Build` has no field for it (checked against 0.17.0's `Build.zig`), and
+/// the install directory is settled by whichever `zig build` invocation
+/// runs. So the conventional default is spelled out.
+///
+/// Known gap, tracked in kaappi#2610: a non-default `--prefix`/`-p` makes
+/// this the wrong path, and the OpenBSD marker then silently does not get
+/// applied. It is confined to `-Dtarget=*-openbsd` with an explicit prefix
+/// — the CI job and every documented invocation use the default — and the
+/// failure is loud on the target (SIGILL on the first indirect branch),
+/// not a silently unsafe binary. Fixing it means reworking the installer
+/// rather than reading a value that no longer exists.
 fn installPath(b: *std.Build, dir: std.Build.InstallDir, sub_path: []const u8) []const u8 {
     if (@hasDecl(std.Build, "getInstallPath")) return b.getInstallPath(dir, sub_path);
     const sub = switch (dir) {
