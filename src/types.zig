@@ -298,7 +298,7 @@ pub const Object = struct {
     }
 
     pub fn as(self: *Object, comptime T: type) *T {
-        if (builtin.mode == .Debug) {
+        if (builtin.mode == .debug) {
             if (comptime expectedTag(T)) |expected| {
                 std.debug.assert(self.tag == expected);
             }

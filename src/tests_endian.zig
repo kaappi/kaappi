@@ -163,7 +163,7 @@ test "endian: .sbc writeStr's u16 length prefix is little-endian" {
     defer w.buf.deinit(allocator);
     // 258 bytes: the length's high byte is nonzero, so a dropped conversion
     // is visible in the prefix rather than hidden by a zero byte.
-    const payload = "x" ** 258;
+    const payload: [258]u8 = @splat('x');
     try w.writeStr(allocator, payload);
     try std.testing.expectEqual(@as(usize, 2 + 258), w.buf.items.len);
     try std.testing.expectEqual(@as(u8, 0x02), w.buf.items[0]);
@@ -242,7 +242,7 @@ test "endian: readHeaderInfo rejects a big-endian-spelled version field" {
     try buf.appendSlice(allocator, &bf.MAGIC);
     try buf.append(allocator, @truncate(bf.VERSION >> 8));
     try buf.append(allocator, @truncate(bf.VERSION));
-    try buf.appendSlice(allocator, &[_]u8{0} ** 16);
+    try buf.appendSlice(allocator, &@splat(0));
     try appendLeU16(&buf, allocator, 0);
     try appendLeU16(&buf, allocator, 0);
 
@@ -265,10 +265,10 @@ test "endian: a written .sbc file carries VERSION and source_hash little-endian"
     defer gc.deinit();
 
     const func = try gc.allocFunction();
-    func.code.append(allocator, @intFromEnum(types.OpCode.load_void)) catch unreachable;
+    func.code.append(allocator, @backingInt(types.OpCode.load_void)) catch unreachable;
     func.code.append(allocator, 0) catch unreachable;
     func.code.append(allocator, 0) catch unreachable;
-    func.code.append(allocator, @intFromEnum(types.OpCode.@"return")) catch unreachable;
+    func.code.append(allocator, @backingInt(types.OpCode.@"return")) catch unreachable;
     func.code.append(allocator, 0) catch unreachable;
     func.code.append(allocator, 0) catch unreachable;
 
@@ -345,8 +345,8 @@ const GOLDEN_SOURCE_PATH = "g.scm";
 /// which differs per build, so the writer test spells the real one instead.
 const GOLDEN_BUILD_ID = "bid";
 
-const LOAD_VOID: u8 = @intFromEnum(types.OpCode.load_void);
-const RETURN: u8 = @intFromEnum(types.OpCode.@"return");
+const LOAD_VOID: u8 = @backingInt(types.OpCode.load_void);
+const RETURN: u8 = @backingInt(types.OpCode.@"return");
 
 /// Everything after the variable-length header (magic, version, source hash,
 /// compiler hash, build id, source path). Offsets 0..14 of the header are

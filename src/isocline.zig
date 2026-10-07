@@ -139,10 +139,10 @@ pub fn setSexpEdit(
         // because the latter is analyzed eagerly, and `zig build test` does
         // not compile the C library at all.
         const Command = @import("repl_sexp.zig").Command;
-        std.debug.assert(@intFromEnum(Command.slurp) == c.IC_SEXP_SLURP);
-        std.debug.assert(@intFromEnum(Command.barf) == c.IC_SEXP_BARF);
-        std.debug.assert(@intFromEnum(Command.raise) == c.IC_SEXP_RAISE);
-        std.debug.assert(@intFromEnum(Command.rotate) == c.IC_SEXP_ROTATE);
+        std.debug.assert(@backingInt(Command.slurp) == c.IC_SEXP_SLURP);
+        std.debug.assert(@backingInt(Command.barf) == c.IC_SEXP_BARF);
+        std.debug.assert(@backingInt(Command.raise) == c.IC_SEXP_RAISE);
+        std.debug.assert(@backingInt(Command.rotate) == c.IC_SEXP_ROTATE);
     }
     c.ic_set_default_sexp_edit(cb, arg);
 }

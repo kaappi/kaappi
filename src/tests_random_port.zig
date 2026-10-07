@@ -63,7 +63,7 @@ test "determinized RandomGen never fails" {
 }
 
 test "osRandomBytes succeeds and fills the whole buffer" {
-    var buf: [96]u8 = .{0} ** 96;
+    var buf: [96]u8 = @splat(0);
     try testing.expect(platform.osRandomBytes(&buf));
     // A healthy OS entropy source is ~never all-zero across 96 bytes.
     var nonzero: usize = 0;

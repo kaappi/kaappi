@@ -701,7 +701,7 @@ test "checkLibDir looks for the platform-named runtime archive" {
 }
 
 fn tryLink(allocator: std.mem.Allocator, cc: []const u8, ll_path: []const u8, out_path: []const u8, lib_flag: []const u8, is_zig: bool) bool {
-    var argv_buf: [20]?[*:0]const u8 = .{null} ** 20;
+    var argv_buf: [20]?[*:0]const u8 = @splat(null);
     var argc: usize = 0;
 
     const cc_z = allocator.dupeZ(u8, cc) catch return false;

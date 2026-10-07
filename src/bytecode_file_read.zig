@@ -271,7 +271,7 @@ fn readConstantTagged(r: *Reader, gc: *GC, all_funcs: []*Function, shared: *Shar
             const immutable = try readImmutableByte(r);
             const kind_byte = try r.readU8();
             if (kind_byte >= @typeInfo(types.NumericElementKind).@"enum".fields.len) return BytecodeError.CorruptedFile;
-            const kind: types.NumericElementKind = @enumFromInt(kind_byte);
+            const kind: types.NumericElementKind = @fromBackingInt(@intCast(kind_byte));
             const data_len = try r.readU32();
             if (data_len > bf.MAX_BYTEVECTOR_LEN) return BytecodeError.CorruptedFile;
             // A kind's element width must divide the byte count exactly: the
@@ -359,8 +359,8 @@ fn validateFunctionBytecode(func: *Function) BytecodeError!void {
     var ip: usize = 0;
     while (ip < code.len) {
         const raw = code[ip];
-        if (raw > @intFromEnum(OpCode.guard_builtin)) return BytecodeError.CorruptedFile;
-        const op: OpCode = @enumFromInt(raw);
+        if (raw > @backingInt(OpCode.guard_builtin)) return BytecodeError.CorruptedFile;
+        const op: OpCode = @fromBackingInt(@intCast(raw));
         ip += 1;
 
         switch (op) {

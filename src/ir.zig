@@ -134,7 +134,7 @@ fn countEvalFallbackNames() usize {
     }
     const form_fields = @typeInfo(FormKind).@"enum".fields;
     for (form_fields) |f| {
-        const fk: FormKind = @enumFromInt(f.value);
+        const fk: FormKind = @fromBackingInt(@intCast(f.value));
         if (isNativeLoweredForm(fk)) continue;
         count += 1;
     }
@@ -157,7 +157,7 @@ pub const eval_fallback_form_names: [eval_fallback_name_count][]const u8 = blk: 
     }
     const form_fields = @typeInfo(FormKind).@"enum".fields;
     for (form_fields) |f| {
-        const fk: FormKind = @enumFromInt(f.value);
+        const fk: FormKind = @fromBackingInt(@intCast(f.value));
         if (isNativeLoweredForm(fk)) continue;
         names[i] = fk.keyword();
         i += 1;
@@ -193,9 +193,9 @@ comptime {
     const fields = @typeInfo(NodeTag).@"enum".fields;
     if (llvm_node_table.len != fields.len)
         @compileError("llvm_node_table must have exactly one entry per NodeTag");
-    var seen: [fields.len]bool = .{false} ** fields.len;
+    var seen: [fields.len]bool = @splat(false);
     for (llvm_node_table) |entry| {
-        const idx = @intFromEnum(entry.tag);
+        const idx = @backingInt(entry.tag);
         if (seen[idx])
             @compileError("duplicate tag in llvm_node_table");
         seen[idx] = true;

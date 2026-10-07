@@ -556,7 +556,7 @@ fn setSmallSndbuf(fd: platform.fd_t) void {
 /// platform that doesn't honor the shrunk SO_SNDBUF fails loudly instead of
 /// spinning forever.
 fn fillSendBuffer(fd: platform.fd_t) void {
-    var buf: [4096]u8 = [_]u8{0} ** 4096;
+    var buf: [4096]u8 = @splat(0);
     var iterations: usize = 0;
     while (iterations < 4096) : (iterations += 1) {
         const n = th.fdWrite(fd, &buf);
@@ -1228,7 +1228,7 @@ test "kaappi#2415: the last waiter's withdrawal drops the registration" {
         const r = platform.waitPid(pid, &st, 0);
         if (r == pid) break;
         // A persistent error (ECHILD) must fail the test, not hang the suite.
-        if (r < 0 and std.c._errno().* != @intFromEnum(std.c.E.INTR)) return error.ReapFailed;
+        if (r < 0 and std.c._errno().* != @backingInt(std.c.E.INTR)) return error.ReapFailed;
     }
 }
 
@@ -1244,7 +1244,7 @@ test "kaappi#2415: registering an already-reaped child fails cleanly" {
         const r = platform.waitPid(pid, &st, 0);
         if (r == pid) break;
         // A persistent error (ECHILD) must fail the test, not hang the suite.
-        if (r < 0 and std.c._errno().* != @intFromEnum(std.c.E.INTR)) return error.ReapFailed;
+        if (r < 0 and std.c._errno().* != @backingInt(std.c.E.INTR)) return error.ReapFailed;
     } // reap it first
 
     var proc: types_mod.Process = .{ .header = undefined, .pid = pid };

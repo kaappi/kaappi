@@ -1355,11 +1355,11 @@ fn ensureDirs(allocator: std.mem.Allocator, config: Config) void {
 }
 
 pub fn main(init: std.process.Init.Minimal) !void {
-    var da = if (@import("builtin").mode == .Debug) std.heap.DebugAllocator(.{}).init;
-    defer if (@import("builtin").mode == .Debug) {
+    var da = if (@import("builtin").mode == .debug) std.heap.DebugAllocator(.{}).init;
+    defer if (@import("builtin").mode == .debug) {
         _ = da.deinit();
     };
-    const allocator = if (@import("builtin").mode == .Debug) da.allocator() else std.heap.c_allocator;
+    const allocator = if (@import("builtin").mode == .debug) da.allocator() else std.heap.c_allocator;
 
     platform.initStandardStreams();
     initColor();

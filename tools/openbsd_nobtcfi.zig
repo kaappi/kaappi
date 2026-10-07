@@ -69,7 +69,7 @@ fn patch(path: [:0]const u8) !void {
         const p_type = std.mem.readInt(u32, ent[0..4], .little);
         if (p_type == PT_OPENBSD_NOBTCFI) return; // idempotent — already marked
         if (p_type == PT_GNU_STACK) {
-            var repl = [_]u8{0} ** 56;
+            var repl: [56]u8 = @splat(0);
             std.mem.writeInt(u32, repl[0..4], PT_OPENBSD_NOBTCFI, .little); // p_type
             std.mem.writeInt(u32, repl[4..8], PF_X, .little); // p_flags (marker only)
             try pwriteExact(fd, &repl, off);

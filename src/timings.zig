@@ -133,7 +133,7 @@ fn beginSlow(stage: Stage) void {
     const now = nowNs();
     if (depth > 0 and depth - 1 < stack.len) {
         const parent = &stack[depth - 1];
-        buckets[@intFromEnum(parent.stage)] +%= now -% parent.resumed_ns;
+        buckets[@backingInt(parent.stage)] +%= now -% parent.resumed_ns;
     }
     if (depth < stack.len) stack[depth] = .{ .stage = stage, .resumed_ns = now };
     depth += 1;
@@ -152,7 +152,7 @@ fn endSlow() void {
     const now = nowNs();
     if (depth < stack.len) {
         const cur = &stack[depth];
-        buckets[@intFromEnum(cur.stage)] +%= now -% cur.resumed_ns;
+        buckets[@backingInt(cur.stage)] +%= now -% cur.resumed_ns;
     }
     if (depth > 0 and depth - 1 < stack.len) stack[depth - 1].resumed_ns = now;
 }
@@ -295,7 +295,7 @@ fn stageKey(s: Stage) []const u8 {
 }
 
 fn ms(stage: Stage) f64 {
-    return @as(f64, @floatFromInt(buckets[@intFromEnum(stage)])) / 1_000_000.0;
+    return @as(f64, @floatFromInt(buckets[@backingInt(stage)])) / 1_000_000.0;
 }
 
 fn stagesFor(mode: Mode) []const Stage {
@@ -443,7 +443,7 @@ test "disabled: begin/end are no-ops and record nothing" {
     begin(.read);
     end();
     try testing.expectEqual(@as(usize, 0), depth);
-    try testing.expectEqual(@as(u64, 0), buckets[@intFromEnum(Stage.read)]);
+    try testing.expectEqual(@as(u64, 0), buckets[@backingInt(Stage.read)]);
 }
 
 test "self-time stack: a nested stage is not double-counted into its parent" {
@@ -462,8 +462,8 @@ test "self-time stack: a nested stage is not double-counted into its parent" {
     test_clock = 200; // 25ns more emit after the nested call
     end(); // credits emit += 25
 
-    try testing.expectEqual(@as(u64, 55), buckets[@intFromEnum(Stage.emit)]);
-    try testing.expectEqual(@as(u64, 45), buckets[@intFromEnum(Stage.expand)]);
+    try testing.expectEqual(@as(u64, 55), buckets[@backingInt(Stage.emit)]);
+    try testing.expectEqual(@as(u64, 45), buckets[@backingInt(Stage.expand)]);
     try testing.expectEqual(@as(usize, 0), depth);
 }
 
@@ -482,9 +482,9 @@ test "self-time stack: sibling stages accumulate independently" {
     begin(.optimize);
     test_clock = 45;
     end(); // optimize = 5
-    try testing.expectEqual(@as(u64, 10), buckets[@intFromEnum(Stage.read)]);
-    try testing.expectEqual(@as(u64, 30), buckets[@intFromEnum(Stage.lower)]);
-    try testing.expectEqual(@as(u64, 5), buckets[@intFromEnum(Stage.optimize)]);
+    try testing.expectEqual(@as(u64, 10), buckets[@backingInt(Stage.read)]);
+    try testing.expectEqual(@as(u64, 30), buckets[@backingInt(Stage.lower)]);
+    try testing.expectEqual(@as(u64, 5), buckets[@backingInt(Stage.optimize)]);
 }
 
 test "unbalanced end never underflows depth" {
@@ -510,8 +510,8 @@ test "overflow past the stack cap balances without crashing" {
 test "text report: run miss shows all stages and a wrote cache line" {
     testReset(.text);
     defer testTeardown();
-    buckets[@intFromEnum(Stage.read)] = 1_200_000;
-    buckets[@intFromEnum(Stage.execute)] = 12_100_000;
+    buckets[@backingInt(Stage.read)] = 1_200_000;
+    buckets[@backingInt(Stage.execute)] = 12_100_000;
     cacheMiss("/home/u/.kaappi/cache/abcd.sbc");
     cacheWrote();
 
@@ -527,7 +527,7 @@ test "text report: run miss shows all stages and a wrote cache line" {
 test "text report: run hit shows only execute + a HIT line" {
     testReset(.text);
     defer testTeardown();
-    buckets[@intFromEnum(Stage.execute)] = 5_000_000;
+    buckets[@backingInt(Stage.execute)] = 5_000_000;
     cacheHit("/home/u/.kaappi/cache/abcd.sbc");
 
     var buf: [4096]u8 = undefined;
@@ -542,7 +542,7 @@ test "text report: run hit shows only execute + a HIT line" {
 test "json report: run mode has stable shape with all keys" {
     testReset(.json);
     defer testTeardown();
-    buckets[@intFromEnum(Stage.read)] = 1_200_000;
+    buckets[@backingInt(Stage.read)] = 1_200_000;
     cacheMiss("/tmp/x.sbc");
     cacheWrote();
 

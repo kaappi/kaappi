@@ -38,7 +38,7 @@ fn errnoName(errno_val: c_int) []const u8 {
     // `inline for` cannot use at comptime; `std.enums.values` returns a
     // tuple, so the unrolled `@tagName` below stays comptime-known.
     inline for (std.enums.values(E)) |tag| {
-        if (@as(c_int, @intCast(@intFromEnum(tag))) == errno_val) {
+        if (@as(c_int, @intCast(@backingInt(tag))) == errno_val) {
             return "E" ++ @tagName(tag);
         }
     }

@@ -225,7 +225,7 @@ test "process: the fork+exec route chdirs the child before exec (kaappi#2517)" {
         );
         const err_obj = types.toObject(vm.current_exception.?).as(types.ErrorObject);
         try std.testing.expect(err_obj.error_type == .file);
-        try std.testing.expectEqual(@as(c_int, @intFromEnum(std.c.E.NOENT)), err_obj.posix_errno);
+        try std.testing.expectEqual(@as(c_int, @backingInt(std.c.E.NOENT)), err_obj.posix_errno);
         gc.popRoot();
     }
 }
@@ -292,7 +292,7 @@ test "process: fork-route chdir failure reports even from a replaced stdio slot 
         );
         const err_obj = types.toObject(vm.current_exception.?).as(types.ErrorObject);
         try std.testing.expect(err_obj.error_type == .file);
-        try std.testing.expectEqual(@as(c_int, @intFromEnum(std.c.E.NOENT)), err_obj.posix_errno);
+        try std.testing.expectEqual(@as(c_int, @backingInt(std.c.E.NOENT)), err_obj.posix_errno);
         gc.popRoot();
     }
 }
@@ -425,7 +425,7 @@ test "process: the fork route passes ENOEXEC through, no shell fallback (kaappi#
         );
         const err_obj = types.toObject(vm.current_exception.?).as(types.ErrorObject);
         try std.testing.expect(err_obj.error_type == .file);
-        try std.testing.expectEqual(@as(c_int, @intFromEnum(std.c.E.NOEXEC)), err_obj.posix_errno);
+        try std.testing.expectEqual(@as(c_int, @backingInt(std.c.E.NOEXEC)), err_obj.posix_errno);
         gc.popRoot();
     }
 }
@@ -488,7 +488,7 @@ test "process: an all-EACCES PATH search reports EACCES, not ENOENT (kaappi#2517
         );
         const err_obj = types.toObject(vm.current_exception.?).as(types.ErrorObject);
         try std.testing.expect(err_obj.error_type == .file);
-        try std.testing.expectEqual(@as(c_int, @intFromEnum(std.c.E.ACCES)), err_obj.posix_errno);
+        try std.testing.expectEqual(@as(c_int, @backingInt(std.c.E.ACCES)), err_obj.posix_errno);
         gc.popRoot();
     }
 }

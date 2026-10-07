@@ -317,7 +317,7 @@ fn writeConstant(w: *Writer, allocator: std.mem.Allocator, val: Value, all_funcs
                 try noteShared(seen, obj);
                 try w.writeU8(allocator, bf.TAG_NUMERICVECTOR);
                 try w.writeU8(allocator, immutableByte(obj));
-                try w.writeU8(allocator, @intFromEnum(nv.kind));
+                try w.writeU8(allocator, @backingInt(nv.kind));
                 try w.writeU32(allocator, @intCast(nv.data.len));
                 try w.writeBytes(allocator, nv.data);
             },

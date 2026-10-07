@@ -86,17 +86,17 @@ pub const kill_fresh_status: u32 = 128 + 9;
 pub fn lastError() c_int {
     const E = std.c.E;
     return switch (win.GetLastError()) {
-        win.ERROR_FILE_NOT_FOUND, win.ERROR_PATH_NOT_FOUND => @intFromEnum(E.NOENT),
-        win.ERROR_TOO_MANY_OPEN_FILES => @intFromEnum(E.MFILE),
-        win.ERROR_ACCESS_DENIED => @intFromEnum(E.ACCES),
-        win.ERROR_INVALID_HANDLE => @intFromEnum(E.BADF),
-        win.ERROR_NOT_ENOUGH_MEMORY, win.ERROR_OUTOFMEMORY => @intFromEnum(E.NOMEM),
-        win.ERROR_BAD_FORMAT, win.ERROR_BAD_EXE_FORMAT => @intFromEnum(E.NOEXEC),
-        win.ERROR_NOT_SUPPORTED => @intFromEnum(E.NOSYS),
-        win.ERROR_INVALID_PARAMETER => @intFromEnum(E.INVAL),
-        win.ERROR_BROKEN_PIPE => @intFromEnum(E.PIPE),
-        win.ERROR_DIRECTORY => @intFromEnum(E.ISDIR),
-        else => @intFromEnum(E.IO),
+        win.ERROR_FILE_NOT_FOUND, win.ERROR_PATH_NOT_FOUND => @backingInt(E.NOENT),
+        win.ERROR_TOO_MANY_OPEN_FILES => @backingInt(E.MFILE),
+        win.ERROR_ACCESS_DENIED => @backingInt(E.ACCES),
+        win.ERROR_INVALID_HANDLE => @backingInt(E.BADF),
+        win.ERROR_NOT_ENOUGH_MEMORY, win.ERROR_OUTOFMEMORY => @backingInt(E.NOMEM),
+        win.ERROR_BAD_FORMAT, win.ERROR_BAD_EXE_FORMAT => @backingInt(E.NOEXEC),
+        win.ERROR_NOT_SUPPORTED => @backingInt(E.NOSYS),
+        win.ERROR_INVALID_PARAMETER => @backingInt(E.INVAL),
+        win.ERROR_BROKEN_PIPE => @backingInt(E.PIPE),
+        win.ERROR_DIRECTORY => @backingInt(E.ISDIR),
+        else => @backingInt(E.IO),
     };
 }
 
@@ -172,7 +172,7 @@ pub fn spawnChild(gc: *GC, cfg: SpawnConfig, redirs_in: [3]Redir) PrimitiveError
             .null_sink => slots[slot] = .{ .handle = try openNulHandle(gc, writing) },
             .fd => |fd| {
                 const src = platform.pipeHandleFromFd(fd) orelse
-                    return raiseSpawnError(gc, "redirection port has no usable OS handle", types.FALSE, @intFromEnum(std.c.E.BADF));
+                    return raiseSpawnError(gc, "redirection port has no usable OS handle", types.FALSE, @backingInt(std.c.E.BADF));
                 slots[slot] = .{ .handle = try duplicateInheritable(gc, src) };
             },
             .merge_stdout => {
@@ -366,7 +366,7 @@ fn openNulHandle(gc: *GC, writing: bool) PrimitiveError!win.HANDLE {
 /// Block until the child exits, storing its status. Returns 0, or an errno
 /// describing the failure.
 pub fn blockingReap(proc: *types.Process) c_int {
-    const h = proc.win_handle orelse return @intFromEnum(std.c.E.CHILD);
+    const h = proc.win_handle orelse return @backingInt(std.c.E.CHILD);
     {
         // Same markable-in-native protocol as the POSIX blocking waitpid: a
         // child-thread VM blocked here never reaches the dispatch-loop
@@ -393,7 +393,7 @@ pub fn blockingReap(proc: *types.Process) c_int {
 /// shared caller has already returned for a reaped one).
 pub fn signalOne(proc: *types.Process, sig: c_int) c_int {
     if (sig == 0) return 0;
-    const h = proc.win_handle orelse return @intFromEnum(std.c.E.SRCH);
+    const h = proc.win_handle orelse return @backingInt(std.c.E.SRCH);
     if (win.TerminateProcess(h, terminateExitCode(sig)) == 0) return lastError();
     return 0;
 }
@@ -403,7 +403,7 @@ pub fn signalOne(proc: *types.Process, sig: c_int) c_int {
 /// creates a job at all.
 pub fn signalGroup(proc: *types.Process, sig: c_int) c_int {
     if (sig == 0) return 0;
-    const j = proc.win_job orelse return @intFromEnum(std.c.E.SRCH);
+    const j = proc.win_job orelse return @backingInt(std.c.E.SRCH);
     if (win.TerminateJobObject(j, terminateExitCode(sig)) == 0) return lastError();
     return 0;
 }
@@ -566,6 +566,6 @@ fn raiseProcessErrorVoid(gc: *GC, msg_text: []const u8, errno_val: c_int) Primit
 }
 
 fn raiseArgEncodingError(gc: *GC, comptime msg: []const u8) PrimitiveError![*:0]u16 {
-    _ = try @import("primitives_process.zig").raiseProcessError(gc, msg, types.FALSE, @intFromEnum(std.c.E.INVAL));
+    _ = try @import("primitives_process.zig").raiseProcessError(gc, msg, types.FALSE, @backingInt(std.c.E.INVAL));
     unreachable;
 }

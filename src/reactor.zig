@@ -480,7 +480,7 @@ pub const Reactor = struct {
         // without waking waiters and unregistering, and this fd number has
         // been recycled onto an unrelated port (resolved KEP-0001
         // question 4 — the assertion that keeps that invariant honest).
-        if (comptime builtin.mode == .Debug) {
+        if (comptime builtin.mode == .debug) {
             for (reg.read_waiters.items) |f| std.debug.assert(f.status == .io_waiting);
             for (reg.write_waiters.items) |f| std.debug.assert(f.status == .io_waiting);
         }

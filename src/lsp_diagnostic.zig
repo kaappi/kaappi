@@ -68,7 +68,7 @@ pub const Diagnostic = struct {
         try w.writeAll(",\"character\":");
         try w.print("{d}", .{self.range.end.character});
         try w.writeAll("}},\"severity\":");
-        try w.print("{d}", .{@intFromEnum(self.severity)});
+        try w.print("{d}", .{@backingInt(self.severity)});
         if (self.code) |c| {
             try w.writeAll(",\"code\":");
             try writeJsonString(w, c);

@@ -153,12 +153,12 @@ fn isWritableEnd(info: winp.FilePipeLocalInfo) bool {
 pub fn pipeRead(fd: fd_t, buf: [*]u8, len: usize) isize {
     if (comptime !is_windows) return -1;
     const h = pipeHandleFromFd(fd) orelse {
-        win._errno().* = @intFromEnum(E.BADF);
+        win._errno().* = @backingInt(E.BADF);
         return -1;
     };
     var avail: u32 = 0;
     if (winp.PeekNamedPipe(h, null, 0, null, &avail, null) != 0 and avail == 0) {
-        win._errno().* = @intFromEnum(E.AGAIN);
+        win._errno().* = @backingInt(E.AGAIN);
         return -1;
     }
     return platform.read(fd, buf, len);
@@ -204,14 +204,14 @@ pub fn pipeWriteNoBlock(fd: fd_t, buf: [*]const u8, len: usize) isize {
 
 fn pipeWriteImpl(fd: fd_t, buf: [*]const u8, len: usize, no_block: bool) isize {
     const h = pipeHandleFromFd(fd) orelse {
-        win._errno().* = @intFromEnum(E.BADF);
+        win._errno().* = @backingInt(E.BADF);
         return -1;
     };
     const info = queryPipeInfo(h) orelse return platform.write(fd, buf, len);
     if (!isWritableEnd(info)) return platform.write(fd, buf, len);
     if (info.write_quota_available == 0) {
         if (no_block) {
-            win._errno().* = @intFromEnum(E.AGAIN);
+            win._errno().* = @backingInt(E.AGAIN);
             return -1;
         }
         return platform.write(fd, buf, len);

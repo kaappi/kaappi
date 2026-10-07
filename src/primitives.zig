@@ -723,7 +723,7 @@ fn describeValue(w: *std.Io.Writer, value: Value) void {
         const addr = @as(usize, @truncate(value));
         if (addr == 0 or addr < 4096) return w.writeAll("#<invalid-pointer>") catch {};
         const obj = types.toObject(value);
-        const tag = @intFromEnum(obj.tag);
+        const tag = @backingInt(obj.tag);
         if (tag >= @typeInfo(types.ObjectTag).@"enum".fields.len)
             return w.print("#<corrupt tag={d}>", .{tag}) catch {};
         switch (obj.tag) {

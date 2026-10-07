@@ -850,7 +850,7 @@ fn bindReentrantArgs(vm: *VM, func: *types.Function, base: u32, args: []const Va
 }
 
 fn callReentrant(vm: *VM, closure: *types.Closure, base: u32, args: []const Value, dst: u8, returns_to_native: bool) VMError!Value {
-    const max_native_depth: u16 = if (@import("builtin").mode == .Debug) 200 else 3000;
+    const max_native_depth: u16 = if (@import("builtin").mode == .debug) 200 else 3000;
     if (vm.native_reentry_depth >= max_native_depth or
         vm.gc.root_count > memory.GC.MAX_ROOT_CAPACITY - 32)
     {

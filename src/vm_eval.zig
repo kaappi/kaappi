@@ -109,7 +109,7 @@ pub const TopLevelHead = enum {
 
     pub fn fromKeyword(name: []const u8) ?TopLevelHead {
         inline for (@typeInfo(TopLevelHead).@"enum".fields) |f| {
-            const cand: TopLevelHead = @enumFromInt(f.value);
+            const cand: TopLevelHead = @fromBackingInt(@intCast(f.value));
             if (std.mem.eql(u8, name, comptime cand.keyword())) return cand;
         }
         return null;

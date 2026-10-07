@@ -459,7 +459,7 @@ fn raiseWriteFailed(e: std.c.E) PrimitiveError {
     const err_obj = gc.allocErrorObject(msg, types.NIL) catch return PrimitiveError.OutOfMemory;
     const err = types.toObject(err_obj).as(types.ErrorObject);
     err.error_type = .file;
-    err.posix_errno = @intFromEnum(e);
+    err.posix_errno = @backingInt(e);
     vm.current_exception = err_obj;
     return PrimitiveError.ExceptionRaised;
 }

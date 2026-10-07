@@ -77,7 +77,7 @@ pub fn widen(buf: *WPathBuf, path: []const u8) ?[:0]const u16 {
 /// CRT calls return exactly -1 on failure.
 pub fn errno(rc: anytype) E {
     if (comptime is_windows) {
-        return if (rc == -1) @enumFromInt(win._errno().*) else .SUCCESS;
+        return if (rc == -1) @fromBackingInt(@intCast(win._errno().*)) else .SUCCESS;
     }
     return std.posix.errno(rc);
 }
@@ -346,7 +346,7 @@ fn classifyOpenError(e: anytype) OpenError {
 pub fn errnoIsFdExhausted() bool {
     if (comptime is_windows) return false;
     const ev = std.c._errno().*;
-    return ev == @intFromEnum(E.MFILE) or ev == @intFromEnum(E.NFILE);
+    return ev == @backingInt(E.MFILE) or ev == @backingInt(E.NFILE);
 }
 
 fn winOpen(path: []const u8, oflag: c_int, pmode: c_int) OpenError!fd_t {
@@ -355,7 +355,7 @@ fn winOpen(path: []const u8, oflag: c_int, pmode: c_int) OpenError!fd_t {
     const fd = win._wopen(wpath.ptr, oflag | win.O_BINARY, pmode);
     if (fd < 0) {
         const ev = win._errno().*;
-        if (ev == @intFromEnum(E.MFILE) or ev == @intFromEnum(E.NFILE)) return error.FdExhausted;
+        if (ev == @backingInt(E.MFILE) or ev == @backingInt(E.NFILE)) return error.FdExhausted;
         return error.OpenFailed;
     }
     return fd;
@@ -1181,7 +1181,7 @@ pub fn osRandomBytes(buf: []u8) bool {
             const sret: isize = @bitCast(std.os.linux.getrandom(buf.ptr + off, buf.len - off, 0));
             if (sret > 0) {
                 off += @intCast(sret);
-            } else if (sret == -@as(isize, @intFromEnum(std.os.linux.E.INTR))) {
+            } else if (sret == -@as(isize, @backingInt(std.os.linux.E.INTR))) {
                 continue; // interrupted by a signal; retry
             } else {
                 return false; // error, or zero progress

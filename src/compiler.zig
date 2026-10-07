@@ -16,7 +16,7 @@ const printer = @import("printer.zig");
 const Value = types.Value;
 const OpCode = types.OpCode;
 
-pub threadlocal var syntax_error_detail: [512]u8 = [_]u8{0} ** 512;
+pub threadlocal var syntax_error_detail: [512]u8 = @splat(0);
 pub threadlocal var syntax_error_detail_len: usize = 0;
 
 pub fn getSyntaxErrorDetail() []const u8 {
@@ -351,7 +351,7 @@ pub const Compiler = struct {
     }
 
     pub fn emitOp(self: *Compiler, op: OpCode) CompileError!void {
-        try self.emit(@intFromEnum(op));
+        try self.emit(@backingInt(op));
     }
 
     pub fn emitU16(self: *Compiler, val: u16) CompileError!void {
@@ -1388,7 +1388,7 @@ test "compile integer literal" {
     const expr = types.makeFixnum(42);
     const func = try compileExpression(&gc, expr);
     try std.testing.expect(func.code.items.len > 0);
-    try std.testing.expectEqual(OpCode.load_const, @as(OpCode, @enumFromInt(func.code.items[0])));
+    try std.testing.expectEqual(OpCode.load_const, @as(OpCode, @fromBackingInt(@intCast(func.code.items[0]))));
 }
 
 test "compile symbol" {
@@ -1397,7 +1397,7 @@ test "compile symbol" {
 
     const sym = try gc.allocSymbol("x");
     const func = try compileExpression(&gc, sym);
-    try std.testing.expectEqual(OpCode.get_global, @as(OpCode, @enumFromInt(func.code.items[0])));
+    try std.testing.expectEqual(OpCode.get_global, @as(OpCode, @fromBackingInt(@intCast(func.code.items[0]))));
 }
 
 test "compile if expression" {
@@ -1418,5 +1418,5 @@ test "compile lambda" {
     const expr = try reader_mod.readString(&gc, "(lambda (x) x)");
     const func = try compileExpression(&gc, expr);
     try std.testing.expect(func.code.items.len > 0);
-    try std.testing.expectEqual(OpCode.closure, @as(OpCode, @enumFromInt(func.code.items[0])));
+    try std.testing.expectEqual(OpCode.closure, @as(OpCode, @fromBackingInt(@intCast(func.code.items[0]))));
 }

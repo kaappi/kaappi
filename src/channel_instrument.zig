@@ -122,11 +122,11 @@ pub const Lever = enum(u8) {
     cd = 2,
 };
 
-var active_lever: std.atomic.Value(u8) = std.atomic.Value(u8).init(@intFromEnum(Lever.none));
+var active_lever: std.atomic.Value(u8) = std.atomic.Value(u8).init(@backingInt(Lever.none));
 
 pub fn setLever(l: Lever) void {
     if (comptime !enabled) return;
-    active_lever.store(@intFromEnum(l), .monotonic);
+    active_lever.store(@backingInt(l), .monotonic);
 }
 
 /// True only while `Envelope.create` is building an envelope under lever C+D,
@@ -145,7 +145,7 @@ pub const d_side_heap_threshold_bytes: usize = 4096;
 
 pub inline fn lever() Lever {
     if (comptime !enabled) return .none;
-    return @enumFromInt(active_lever.load(.monotonic));
+    return @fromBackingInt(@intCast(active_lever.load(.monotonic)));
 }
 
 /// True when the active lever elides immediates from the envelope heap

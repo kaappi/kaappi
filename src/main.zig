@@ -129,7 +129,7 @@ fn mainInner(init: std.process.Init.Minimal) void {
 }
 
 fn mainImpl(init: std.process.Init.Minimal) !void {
-    const is_debug = @import("builtin").mode == .Debug;
+    const is_debug = @import("builtin").mode == .debug;
     var da = if (is_debug) std.heap.DebugAllocator(.{}).init;
     defer if (is_debug) {
         _ = da.deinit();

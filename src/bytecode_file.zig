@@ -327,12 +327,12 @@ test "bytecode round-trip: simple function" {
     // Create a simple function with some constants
     const func = try gc.allocFunction();
     // Add some bytecode
-    func.code.append(allocator, @intFromEnum(types.OpCode.load_const)) catch unreachable;
+    func.code.append(allocator, @backingInt(types.OpCode.load_const)) catch unreachable;
     func.code.append(allocator, 0) catch unreachable; // dst high
     func.code.append(allocator, 0) catch unreachable; // dst low
     func.code.append(allocator, 0) catch unreachable; // idx high
     func.code.append(allocator, 0) catch unreachable; // idx low
-    func.code.append(allocator, @intFromEnum(types.OpCode.@"return")) catch unreachable;
+    func.code.append(allocator, @backingInt(types.OpCode.@"return")) catch unreachable;
     func.code.append(allocator, 0) catch unreachable; // src high
     func.code.append(allocator, 0) catch unreachable; // src low
 
@@ -378,10 +378,10 @@ test "bytecode round-trip: hash mismatch returns null" {
     defer gc.deinit();
 
     const func = try gc.allocFunction();
-    func.code.append(allocator, @intFromEnum(types.OpCode.load_void)) catch unreachable;
+    func.code.append(allocator, @backingInt(types.OpCode.load_void)) catch unreachable;
     func.code.append(allocator, 0) catch unreachable; // dst high
     func.code.append(allocator, 0) catch unreachable; // dst low
-    func.code.append(allocator, @intFromEnum(types.OpCode.@"return")) catch unreachable;
+    func.code.append(allocator, @backingInt(types.OpCode.@"return")) catch unreachable;
     func.code.append(allocator, 0) catch unreachable; // src high
     func.code.append(allocator, 0) catch unreachable; // src low
 
@@ -410,10 +410,10 @@ test "bytecode round-trip: various constant types" {
     var func_root = types.makePointer(&func.header);
     gc.pushRoot(&func_root);
     defer gc.popRoot();
-    func.code.append(allocator, @intFromEnum(types.OpCode.load_void)) catch unreachable;
+    func.code.append(allocator, @backingInt(types.OpCode.load_void)) catch unreachable;
     func.code.append(allocator, 0) catch unreachable; // dst high
     func.code.append(allocator, 0) catch unreachable; // dst low
-    func.code.append(allocator, @intFromEnum(types.OpCode.@"return")) catch unreachable;
+    func.code.append(allocator, @backingInt(types.OpCode.@"return")) catch unreachable;
     func.code.append(allocator, 0) catch unreachable; // src high
     func.code.append(allocator, 0) catch unreachable; // src low
 
@@ -483,12 +483,12 @@ test "bytecode round-trip: nested functions" {
 
     // Create a child function
     const child_func = try gc.allocFunction();
-    child_func.code.append(allocator, @intFromEnum(types.OpCode.load_const)) catch unreachable;
+    child_func.code.append(allocator, @backingInt(types.OpCode.load_const)) catch unreachable;
     child_func.code.append(allocator, 0) catch unreachable; // dst high
     child_func.code.append(allocator, 0) catch unreachable; // dst low
     child_func.code.append(allocator, 0) catch unreachable; // idx high
     child_func.code.append(allocator, 0) catch unreachable; // idx low
-    child_func.code.append(allocator, @intFromEnum(types.OpCode.@"return")) catch unreachable;
+    child_func.code.append(allocator, @backingInt(types.OpCode.@"return")) catch unreachable;
     child_func.code.append(allocator, 0) catch unreachable; // src high
     child_func.code.append(allocator, 0) catch unreachable; // src low
     try gc.appendFunctionConstant(child_func, types.makeFixnum(99));
@@ -497,12 +497,12 @@ test "bytecode round-trip: nested functions" {
 
     // Create parent function that references child
     const parent_func = try gc.allocFunction();
-    parent_func.code.append(allocator, @intFromEnum(types.OpCode.closure)) catch unreachable;
+    parent_func.code.append(allocator, @backingInt(types.OpCode.closure)) catch unreachable;
     parent_func.code.append(allocator, 0) catch unreachable; // dst high
     parent_func.code.append(allocator, 0) catch unreachable; // dst low
     parent_func.code.append(allocator, 0) catch unreachable; // idx high
     parent_func.code.append(allocator, 0) catch unreachable; // idx low
-    parent_func.code.append(allocator, @intFromEnum(types.OpCode.@"return")) catch unreachable;
+    parent_func.code.append(allocator, @backingInt(types.OpCode.@"return")) catch unreachable;
     parent_func.code.append(allocator, 0) catch unreachable; // src high
     parent_func.code.append(allocator, 0) catch unreachable; // src low
     try gc.appendFunctionConstant(parent_func, types.makePointer(&child_func.header));
@@ -552,10 +552,10 @@ test "source hash computation" {
 fn makeRoundTripFunc(gc: *GC) !*Function {
     const allocator = gc.allocator;
     const func = try gc.allocFunction();
-    func.code.append(allocator, @intFromEnum(types.OpCode.load_void)) catch unreachable;
+    func.code.append(allocator, @backingInt(types.OpCode.load_void)) catch unreachable;
     func.code.append(allocator, 0) catch unreachable;
     func.code.append(allocator, 0) catch unreachable;
-    func.code.append(allocator, @intFromEnum(types.OpCode.@"return")) catch unreachable;
+    func.code.append(allocator, @backingInt(types.OpCode.@"return")) catch unreachable;
     func.code.append(allocator, 0) catch unreachable;
     func.code.append(allocator, 0) catch unreachable;
     func.arity = 0;
@@ -976,7 +976,7 @@ test "classifyEmbeddedRejection: foreign build id is distinguished from corrupt"
     // if the loader refused it for any reason it is a payload problem, not a
     // stale-bundle one — .invalid, never .foreign_build.
     const func = try gc.allocFunction();
-    func.code.append(allocator, @intFromEnum(types.OpCode.@"return")) catch unreachable;
+    func.code.append(allocator, @backingInt(types.OpCode.@"return")) catch unreachable;
     func.code.append(allocator, 0) catch unreachable;
     func.code.append(allocator, 0) catch unreachable;
     func.arity = 0;
@@ -1151,7 +1151,7 @@ test "pre-v14 .sbc still classifies and loads (kaappi#2514)" {
     try old.writeU8(allocator, 0); // is_variadic
     try old.writeU16(allocator, 0); // name_len
     try old.writeU32(allocator, 3); // code_len
-    try old.writeU8(allocator, @intFromEnum(types.OpCode.@"return"));
+    try old.writeU8(allocator, @backingInt(types.OpCode.@"return"));
     try old.writeU8(allocator, 0);
     try old.writeU8(allocator, 0);
     try old.writeU32(allocator, 0); // const_count
@@ -1182,7 +1182,7 @@ test "readHeaderInfo round-trips build id, source path, target and version" {
     defer gc.deinit();
 
     const func = try gc.allocFunction();
-    func.code.append(allocator, @intFromEnum(types.OpCode.@"return")) catch unreachable;
+    func.code.append(allocator, @backingInt(types.OpCode.@"return")) catch unreachable;
     func.code.append(allocator, 0) catch unreachable;
     func.code.append(allocator, 0) catch unreachable;
     func.arity = 0;
@@ -1260,10 +1260,10 @@ test "bytecode round-trip: vector pair bignum rational complex constants" {
     var func_root = types.makePointer(&func.header);
     gc.pushRoot(&func_root);
     defer gc.popRoot();
-    func.code.append(allocator, @intFromEnum(types.OpCode.load_void)) catch unreachable;
+    func.code.append(allocator, @backingInt(types.OpCode.load_void)) catch unreachable;
     func.code.append(allocator, 0) catch unreachable; // dst high
     func.code.append(allocator, 0) catch unreachable; // dst low
-    func.code.append(allocator, @intFromEnum(types.OpCode.@"return")) catch unreachable;
+    func.code.append(allocator, @backingInt(types.OpCode.@"return")) catch unreachable;
     func.code.append(allocator, 0) catch unreachable; // src high
     func.code.append(allocator, 0) catch unreachable; // src low
 
@@ -1353,12 +1353,12 @@ test "bytecode round-trip: line table and source_line preserved" {
     defer gc.deinit();
 
     const func = try gc.allocFunction();
-    func.code.append(allocator, @intFromEnum(types.OpCode.load_const)) catch unreachable;
+    func.code.append(allocator, @backingInt(types.OpCode.load_const)) catch unreachable;
     func.code.append(allocator, 0) catch unreachable;
     func.code.append(allocator, 0) catch unreachable;
     func.code.append(allocator, 0) catch unreachable;
     func.code.append(allocator, 0) catch unreachable;
-    func.code.append(allocator, @intFromEnum(types.OpCode.@"return")) catch unreachable;
+    func.code.append(allocator, @backingInt(types.OpCode.@"return")) catch unreachable;
     func.code.append(allocator, 0) catch unreachable;
     func.code.append(allocator, 0) catch unreachable;
     try gc.appendFunctionConstant(func, types.makeFixnum(42));

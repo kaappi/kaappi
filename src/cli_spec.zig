@@ -413,7 +413,7 @@ fn validateTable(comptime Id: type, comptime table: []const Flag(Id), comptime w
         for (@typeInfo(Id).@"enum".fields) |field| {
             var seen = 0;
             for (table) |f| {
-                if (@intFromEnum(f.id) == field.value) seen += 1;
+                if (@backingInt(f.id) == field.value) seen += 1;
             }
             if (seen != 1) @compileError(what ++ ": " ++ field.name ++ " must appear exactly once in the table");
         }

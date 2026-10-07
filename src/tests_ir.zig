@@ -700,10 +700,10 @@ test "IR: bare-lambda define emits self_tail_call" {
         var ip: usize = 0;
         while (ip < child.code.items.len) {
             const raw = child.code.items[ip];
-            if (raw == @intFromEnum(types.OpCode.self_tail_call)) {
+            if (raw == @backingInt(types.OpCode.self_tail_call)) {
                 found_self_tail_call = true;
             }
-            if (raw == @intFromEnum(types.OpCode.tail_call)) {
+            if (raw == @backingInt(types.OpCode.tail_call)) {
                 found_generic_tail_call = true;
             }
             ip += 1;

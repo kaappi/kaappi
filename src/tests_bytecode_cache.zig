@@ -28,12 +28,12 @@ const Function = types.Function;
 fn makeReturnConstFunc(gc: *GC, n: i64) !*Function {
     const a = gc.allocator;
     const func = try gc.allocFunction();
-    try func.code.append(a, @intFromEnum(types.OpCode.load_const));
+    try func.code.append(a, @backingInt(types.OpCode.load_const));
     try func.code.append(a, 0); // dst hi
     try func.code.append(a, 0); // dst lo (r0)
     try func.code.append(a, 0); // const idx hi
     try func.code.append(a, 0); // const idx lo (#0)
-    try func.code.append(a, @intFromEnum(types.OpCode.@"return"));
+    try func.code.append(a, @backingInt(types.OpCode.@"return"));
     try func.code.append(a, 0); // src hi
     try func.code.append(a, 0); // src lo (r0)
     try func.constants.append(a, types.makeFixnum(n));

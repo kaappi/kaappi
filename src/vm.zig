@@ -163,7 +163,7 @@ pub const VM = struct {
     /// markVMRoots so closures defined in begin blocks survive GC before
     /// the library is registered. Supports nesting (e.g. SRFI 64 importing
     /// SRFI 35 triggers a recursive handleDefineLibrary).
-    pending_lib_envs: [8]?*std.StringHashMap(Value) = .{null} ** 8,
+    pending_lib_envs: [8]?*std.StringHashMap(Value) = @splat(null),
     pending_lib_env_count: u8 = 0,
     /// When non-null, handleDefineLibrary collects compiled functions here
     /// for .sbc cache writing. Set by tryLoadLibraryFromFile.
@@ -231,7 +231,7 @@ pub const VM = struct {
     /// under -Dgc-stress=true that means every collection during construction
     /// misses the globals and frees live objects (#1401).
     heap_owned: bool = false,
-    last_error_detail: [256]u8 = [_]u8{0} ** 256,
+    last_error_detail: [256]u8 = @splat(0),
     last_error_detail_len: usize = 0,
     last_error_line: u32 = 0,
     last_error_col: u32 = 0,

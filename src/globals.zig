@@ -334,7 +334,7 @@ pub fn envMapInvariantHolds(map: *std.StringHashMap(Value), paired_val: Value) b
 /// latent hazard #1962 was filed for, which would otherwise silently lose
 /// every binding at the next collection and look identical to the safe sites.
 pub fn assertEnvMapInvariant(map: *std.StringHashMap(Value), paired_val: Value) void {
-    if (comptime !(builtin.mode == .Debug or builtin.is_test)) return;
+    if (comptime !(builtin.mode == .debug or builtin.is_test)) return;
     std.debug.assert(envMapInvariantHolds(map, paired_val));
 }
 

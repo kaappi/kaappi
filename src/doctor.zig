@@ -585,7 +585,7 @@ fn smokeLink(r: *Report, lib_dir: []const u8) void {
 
     const lib_flag = r.fmt("-L{s}", .{lib_dir});
 
-    var argv: [16]?[*:0]const u8 = .{null} ** 16;
+    var argv: [16]?[*:0]const u8 = @splat(null);
     var argc: usize = 0;
     const push = struct {
         fn f(buf: *[16]?[*:0]const u8, n: *usize, alloc: std.mem.Allocator, s: []const u8) void {
