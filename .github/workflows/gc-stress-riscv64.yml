@@ -58,8 +58,8 @@ jobs:
     # PASS/FAIL lines already in the log -- before this cap cancels the job.
     timeout-minutes: 30
     env:
-      # ziglang.org/download/index.json, 0.16.0 -> riscv64-linux.shasum.
-      RV_ZIG_SHA256: bc069b0f2f568f54bafbdfc1d65b12fd386ed6a652044a37aee6a4f72f14076e
+      # ziglang.org/download/index.json, 0.17.0 -> riscv64-linux.shasum.
+      RV_ZIG_SHA256: 18ff032ac6cecf746a84259f6463264f13160ff88bc3b80722ce06f9479b82ed
       # riscv64/ubuntu:24.04 as of 2026-09-07; bump the digest deliberately,
       # together with ci.yml's riscv64-native-test.
       RV_IMAGE: riscv64/ubuntu:24.04@sha256:f28b71827ff6cb4fe9b6b536b583bc0227072516de20c9225847be7722ab5715
@@ -71,7 +71,7 @@ jobs:
       - name: Install Zig
         uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
-          version: 0.16.0
+          version: 0.17.0
           cache-key: gc-stress-riscv64
 
       - name: Set up QEMU
@@ -82,7 +82,7 @@ jobs:
       - name: Fetch a riscv64 Zig (the on-target C compiler for the smoke)
         run: |
           mkdir -p "$RUNNER_TEMP/zig-rv"
-          curl -sSL -o "$RUNNER_TEMP/zig-rv/zig.tar.xz" https://ziglang.org/download/0.16.0/zig-riscv64-linux-0.16.0.tar.xz
+          curl -sSL -o "$RUNNER_TEMP/zig-rv/zig.tar.xz" https://ziglang.org/download/0.17.0/zig-riscv64-linux-0.17.0.tar.xz
           echo "$RV_ZIG_SHA256  $RUNNER_TEMP/zig-rv/zig.tar.xz" | sha256sum -c -
           tar xJf "$RUNNER_TEMP/zig-rv/zig.tar.xz" -C "$RUNNER_TEMP/zig-rv"
           echo "RV_ZIG=$(echo "$RUNNER_TEMP"/zig-rv/zig-riscv64-linux-*/zig)" >> "$GITHUB_ENV"

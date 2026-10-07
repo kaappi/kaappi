@@ -20,19 +20,35 @@ zig build test -Dtarget=x86_64-windows
 Builds use Zig's bundled mingw-w64, so no Windows SDK or MSVC install is
 needed on the build machine.
 
-On **aarch64**, cross-compilation is currently the **only** way to
-build: the official Zig 0.16.0 aarch64-windows toolchain
-access-violates compiling anything natively on Windows ARM64
-(`zig build` and `zig build-exe` alike, on any project — #1613). Root
-cause: LLVM miscompiled `private thread_local` access on
-aarch64-windows (ziglang#31865 on Codeberg), and the shipped zig.exe —
-itself a stripped, LLVM-built aarch64-windows binary — carries the
-miscompile. The LLVM fix landed ~2026-06 and Zig master nightlies
-compile natively on the box; kaappi native builds unblock when the
-first fixed release (0.18.0) ships and the pinned toolchain moves to
-it. (ziglang#31865 is closed and milestoned **0.18.0** — the fix
-missed the 0.17.0 window, which as of 2026-08 has still not shipped;
-latest stable is 0.16.0.)
+On **aarch64**, the pinned toolchain is now 0.17.0, which carries the
+LLVM workaround for the aarch64-windows COFF backend: Zig 0.17.0's own
+release notes list "an LLVM bug that broke most aarch64-windows
+binaries, including the Zig compiler, has been worked around", and
+`aarch64-windows` is a Tier 2 target with working codegen and a libc.
+
+That is expected to unblock two things that #1613 forced kaappi to work
+around, both of which still need a check on real hardware before any CI
+job changes:
+
+1. **Native compilation.** Under 0.16.0 the official aarch64-windows
+   zig.exe access-violated on *any* project (`zig build` and
+   `zig build-exe` alike), so `windows-arm-test` runs cross-compiled
+   binaries and installs no toolchain. Zig master nightlies have
+   compiled natively on the box since the fix landed (~2026-06), so
+   0.17.0 should too — unverified here.
+2. **`strip`.** Release builds disable stripping for this target
+   because a stripped 0.16.0 `kaappi.exe` access-violated at startup
+   (the same miscompiled `private thread_local` access — #1607,
+   upstream ziglang#31865). The workaround may well cover the stripped
+   path too, but the release workflow still ships this target
+   unstripped until someone confirms it on the hardware.
+
+The history, for the #1613 trail: the bug was LLVM miscompiling
+`private thread_local` access on aarch64-windows, and the *shipped*
+zig.exe being a stripped, LLVM-built aarch64-windows binary meant it
+carried the miscompile itself. Earlier notes expected the fix to miss
+the 0.17.0 window and land in 0.18.0; the 0.17.0 release notes say
+otherwise.
 
 On **x86_64**, none of that applies: #1613 is a bug in LLVM's aarch64
 COFF backend, and the standard Zig 0.16.0 x86_64-windows toolchain

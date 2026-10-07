@@ -132,7 +132,7 @@ jobs:
       - name: Install Zig
         uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
-          version: 0.16.0
+          version: 0.17.0
           cache-key: fuzz-${{ matrix.platform }}-${{ matrix.variant }}
 
       # Fuzzer state is MEANT to accumulate across runs: f/ holds the
@@ -304,7 +304,7 @@ jobs:
       - name: Install Zig
         uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
-          version: 0.16.0
+          version: 0.17.0
           cache-key: fuzz-native-diff-${{ matrix.arch }}
 
       - name: Build interpreter, runtime library, and generator
@@ -372,7 +372,7 @@ jobs:
       - name: Install Zig
         uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
-          version: 0.16.0
+          version: 0.17.0
           cache-key: fuzz-oracle-diff-${{ matrix.arch }}
 
       - name: Install Chibi Scheme (the oracle)
@@ -450,7 +450,7 @@ jobs:
       - name: Install Zig
         uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
-          version: 0.16.0
+          version: 0.17.0
           cache-key: fuzz-cross-diff-${{ matrix.label }}
 
       # binfmt registration so the cross-compiled target binary runs here; the

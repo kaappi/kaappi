@@ -125,7 +125,7 @@ jobs:
       - name: Install Zig
         uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
-          version: 0.16.0
+          version: 0.17.0
 
       - name: Format check
         run: zig fmt --check src/
@@ -310,7 +310,7 @@ jobs:
         if: env.DOCS_ONLY != 'true'
         uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
-          version: 0.16.0
+          version: 0.17.0
           cache-key: ${{ matrix.optimize }}
 
       - name: Build
@@ -478,7 +478,7 @@ jobs:
       - name: Install Zig
         uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
-          version: 0.16.0
+          version: 0.17.0
           cache-key: gc-stress
 
       # `--summary all` is load-bearing here, not decoration. `zig build test`
@@ -511,7 +511,7 @@ jobs:
       - name: Install Zig
         uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
-          version: 0.16.0
+          version: 0.17.0
           cache-key: gc-stress-scheme
 
       - name: Build (gc-stress)
@@ -688,7 +688,7 @@ jobs:
       - name: Install Zig
         uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
-          version: 0.16.0
+          version: 0.17.0
           cache-key: riscv64
 
       - name: Set up QEMU
@@ -813,8 +813,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      # ziglang.org/download/index.json, 0.16.0 -> riscv64-linux.shasum.
-      RV_ZIG_SHA256: bc069b0f2f568f54bafbdfc1d65b12fd386ed6a652044a37aee6a4f72f14076e
+      # ziglang.org/download/index.json, 0.17.0 -> riscv64-linux.shasum.
+      RV_ZIG_SHA256: 18ff032ac6cecf746a84259f6463264f13160ff88bc3b80722ce06f9479b82ed
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -823,7 +823,7 @@ jobs:
       - name: Install Zig
         uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
-          version: 0.16.0
+          version: 0.17.0
           cache-key: riscv64-native
 
       - name: Set up QEMU
@@ -834,7 +834,7 @@ jobs:
       - name: Fetch a riscv64 Zig (the on-target C compiler for the smoke)
         run: |
           mkdir -p "$RUNNER_TEMP/zig-rv"
-          curl -sSL -o "$RUNNER_TEMP/zig-rv/zig.tar.xz" https://ziglang.org/download/0.16.0/zig-riscv64-linux-0.16.0.tar.xz
+          curl -sSL -o "$RUNNER_TEMP/zig-rv/zig.tar.xz" https://ziglang.org/download/0.17.0/zig-riscv64-linux-0.17.0.tar.xz
           echo "$RV_ZIG_SHA256  $RUNNER_TEMP/zig-rv/zig.tar.xz" | sha256sum -c -
           tar xJf "$RUNNER_TEMP/zig-rv/zig.tar.xz" -C "$RUNNER_TEMP/zig-rv"
           echo "RV_ZIG=$(echo "$RUNNER_TEMP"/zig-rv/zig-riscv64-linux-*/zig)" >> "$GITHUB_ENV"
@@ -867,7 +867,7 @@ jobs:
       - name: Install Zig
         uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
-          version: 0.16.0
+          version: 0.17.0
           cache-key: s390x
 
       - name: Set up QEMU
@@ -915,7 +915,7 @@ jobs:
       - name: Install Zig
         uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
-          version: 0.16.0
+          version: 0.17.0
           cache-key: ppc64le
 
       - name: Set up QEMU
@@ -964,7 +964,7 @@ jobs:
       - name: Install Zig
         uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
-          version: 0.16.0
+          version: 0.17.0
           cache-key: freebsd
 
       - name: Build (cross-compile for x86_64-freebsd)
@@ -1027,7 +1027,7 @@ jobs:
       - name: Install Zig
         uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
-          version: 0.16.0
+          version: 0.17.0
           cache-key: openbsd
 
       - name: Build (cross-compile for x86_64-openbsd)
@@ -1111,7 +1111,7 @@ jobs:
       - name: Install Zig
         uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
-          version: 0.16.0
+          version: 0.17.0
           cache-key: netbsd
 
       - name: Build (cross-compile for x86_64-netbsd)
@@ -1198,7 +1198,7 @@ jobs:
       - name: Install Zig
         uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
-          version: 0.16.0
+          version: 0.17.0
           cache-key: windows-cross-${{ matrix.arch }}
 
       - name: Build (cross-compile for ${{ matrix.arch }}-windows)
@@ -1247,7 +1247,9 @@ jobs:
   # (docs/dev/windows.md), including the FFI suite (#1611) against the
   # cross-compiled fixture DLL, and the shell-based suites (#1612) under
   # the runner's Git Bash. The binaries come cross-compiled from
-  # windows-cross — Zig 0.16.0 cannot compile natively on Windows ARM64
+  # windows-cross — 0.16.0 could not compile natively on Windows ARM64;
+  # 0.17.0 carries the LLVM workaround, but native ARM64 compilation is
+  # still unverified on hardware, so this job keeps cross-compiling (#1613)
   # (zig build/build-exe access-violate on any project, #1613) — so this
   # job installs no toolchain and only executes; the compile/ suite
   # (which rebuilds with zig on the box) self-skips for the same reason.
@@ -1406,9 +1408,9 @@ jobs:
   # windows-latest runners, from the cross-compiled x86_64 artifacts
   # (guarding the binaries release.yml ships), plus the native-backend
   # e2e suite (tests/e2e/run-e2e.ps1, #1610) — possible only on this
-  # arch: Zig 0.16.0 works natively on x86_64 Windows, while the
-  # aarch64 toolchain access-violates compiling anything (#1613, an
-  # aarch64-only LLVM COFF bug). Zig is installed only after the shell
+  # arch: x86_64 Windows compiles natively; the aarch64 0.16.0 toolchain
+  # access-violated compiling anything (#1613, an aarch64-only LLVM COFF
+  # bug, worked around in 0.17.0 but not yet verified on ARM64 hardware). Zig is installed only after the shell
   # suites so both Windows jobs run them under identical no-toolchain
   # conditions (the bundle-rebuild scripts gate on a toolchain being
   # present).
@@ -1567,7 +1569,7 @@ jobs:
         # Zig — the C compiler + linker `kaappi compile` picks up.
         uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
-          version: 0.16.0
+          version: 0.17.0
           cache-key: windows-x64-test
 
       - name: Native backend e2e (#1610)
@@ -1597,7 +1599,7 @@ jobs:
       - name: Install Zig
         uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
-          version: 0.16.0
+          version: 0.17.0
           cache-key: wasm
 
       - name: Build WASM
@@ -1677,7 +1679,7 @@ jobs:
       - name: Install Zig
         uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
-          version: 0.16.0
+          version: 0.17.0
 
       - name: Install kcov
         run: sudo apt-get update && sudo apt-get install -y kcov
@@ -1729,7 +1731,7 @@ jobs:
       - name: Install Zig
         uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
-          version: 0.16.0
+          version: 0.17.0
 
       - name: Build
         run: zig build
