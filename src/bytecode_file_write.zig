@@ -26,6 +26,16 @@ const BytecodeError = bf.BytecodeError;
 // The byte-emitting methods are `pub` so the round-trip tests in
 // `bytecode_file.zig` can hand-assemble `.sbc` fixtures; `init`/`deinit` are the
 // serializer's own lifecycle and stay internal.
+// Byte emission. `@bitCast` to an array is the only array-typed `@bitCast` in
+// the tree, and it is deliberately spelled `nativeToLittle` first: 0.17
+// redefined `@bitCast` to be endian-agnostic (elements concatenate least
+// significant first), which *reverses* what the old definition produced on a
+// big-endian target. For these five the two agree — a bit pattern that is
+// already little-endian reinterprets to the same byte order either way — so
+// the s390x canary is unaffected. Audit note for kaappi#2610: if a future
+// `@bitCast` to an array is added without the `nativeToLittle` step, it is
+// endian-independent and will NOT accidentally produce big-endian bytes; say
+// the byte order you mean explicitly.
 pub const Writer = struct {
     buf: std.ArrayList(u8),
 
