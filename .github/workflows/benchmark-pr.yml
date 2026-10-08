@@ -50,7 +50,27 @@ jobs:
       #
       # This whole step goes away once the bump is on `main` and both sides
       # configure with the setup-zig version above.
+      # The head builds with the pinned 0.17.0 and the base with 0.16.0, and a
+      # benchmark that spans a toolchain bump measures the two compilers rather
+      # than the PR: the same Scheme runs at different speeds depending only on
+      # which Zig produced the VM. There is no number this job could report that
+      # would mean anything, so it reports that instead of a comparison. This
+      # guard goes away in the same follow-up as the 0.16 fetch below — once the
+      # bump is on `main`, both sides share a toolchain and the comparison is
+      # real again.
+      - name: Check whether the two sides share a toolchain
+        id: toolchain
+        run: |
+          base_min=$(git show ${{ github.event.pull_request.base.sha }}:build.zig.zon | sed -n 's/.*minimum_zig_version = "\\([^"]*\\)".*/\\1/p')
+          echo "base minimum_zig_version=$base_min, head builds with 0.17.0"
+          if [ "$base_min" = "0.17.0" ]; then
+            echo "comparable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "comparable=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Fetch Zig 0.16.0 for the base branch
+        if: steps.toolchain.outputs.comparable == 'true'
         env:
           # ziglang.org/download/index.json, 0.16.0 -> x86_64-linux.shasum.
           BASE_ZIG_SHA256: 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
@@ -68,13 +88,20 @@ jobs:
           bash benchmarks/run-benchmarks.sh --json > pr-results.json
 
       - name: Build and benchmark base branch
+        if: steps.toolchain.outputs.comparable == 'true'
         run: |
           git checkout ${{ github.event.pull_request.base.sha }}
           "$BASE_ZIG" build
           bash benchmarks/run-benchmarks.sh --json > base-results.json
           git checkout ${{ github.event.pull_request.head.sha }}
 
+      - name: Note why the comparison was skipped
+        if: steps.toolchain.outputs.comparable != 'true'
+        run: |
+          echo "::notice::Skipping the benchmark comparison — the base branch still requires 0.16.0 while this PR builds with 0.17.0. Comparing across two compilers would measure them, not the change."
+
       - name: Compare and comment
+        if: steps.toolchain.outputs.comparable == 'true'
         uses: kaappi/github-action-pull-request-benchmark@1a82ba746b2050a6143f3e4ab67d935e505f7b73 # v1 tag (2026-07-01)
         with:
           tool: 'raw'
