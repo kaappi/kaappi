@@ -62,12 +62,12 @@ fn disassembleInstruction(func: *types.Function, code: []const u8, offset: usize
     const off_str = std.fmt.bufPrint(&buf, "  {d:0>4}  ", .{offset}) catch "  ????  ";
     writeStderr(off_str);
 
-    if (raw_op > @intFromEnum(OpCode.guard_builtin)) {
+    if (raw_op > @backingInt(OpCode.guard_builtin)) {
         const s = std.fmt.bufPrint(&buf, "<invalid opcode 0x{x:0>2}>\n", .{raw_op}) catch "<invalid opcode>\n";
         writeStderr(s);
         return ip;
     }
-    const op: OpCode = @enumFromInt(raw_op);
+    const op: OpCode = @fromBackingInt(@intCast(raw_op));
 
     const fixed_operand_bytes: usize = switch (op) {
         .load_const => 4,
@@ -389,7 +389,7 @@ test "disassemble all opcodes" {
 
     const emit = struct {
         fn op(f: *types.Function, a: std.mem.Allocator, opcode: OpCode) void {
-            f.code.append(a, @intFromEnum(opcode)) catch unreachable;
+            f.code.append(a, @backingInt(opcode)) catch unreachable;
         }
         fn byte(f: *types.Function, a: std.mem.Allocator, b: u8) void {
             f.code.append(a, b) catch unreachable;

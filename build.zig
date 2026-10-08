@@ -1,6 +1,50 @@
 const std = @import("std");
 const zon = @import("build.zig.zon");
 
+// ---- Zig 0.16 / 0.17 build-API compatibility (port stage 1) ----------------
+// 0.17 renamed `std.builtin.OptimizeMode` to lowercase `lang.Optimize` fields
+// and removed several `*Build` fields. These shims keep one build.zig building
+// under both toolchains; drop them once 0.16 support is dropped.
+const require_017 = @hasDecl(std.builtin, "Optimize");
+
+inline fn opt(mode_016: std.builtin.OptimizeMode) std.builtin.OptimizeMode {
+    return if (require_017) @field(std.builtin.OptimizeMode, @tagName(mode_016)) else mode_016;
+}
+
+fn buildRootPath(b: *std.Build) []const u8 {
+    if (@hasField(std.Build, "build_root")) return b.build_root.path orelse ".";
+    return b.root.toString(b.allocator) catch ".";
+}
+// ---------------------------------------------------------------------------
+
+/// Absolute path of an installed artifact, for the OpenBSD post-link marker.
+///
+/// 0.16 computed this with `Build.getInstallPath`, which read an install
+/// prefix the configure phase had resolved. 0.17 removed the method and
+/// moved that prefix into the configurer, out of `build.zig`'s reach —
+/// `Build` has no field for it (checked against 0.17.0's `Build.zig`), and
+/// the install directory is settled by whichever `zig build` invocation
+/// runs. So the conventional default is spelled out.
+///
+/// Known gap, tracked in kaappi#2610: a non-default `--prefix`/`-p` makes
+/// this the wrong path, and the OpenBSD marker then silently does not get
+/// applied. It is confined to `-Dtarget=*-openbsd` with an explicit prefix
+/// — the CI job and every documented invocation use the default — and the
+/// failure is loud on the target (SIGILL on the first indirect branch),
+/// not a silently unsafe binary. Fixing it means reworking the installer
+/// rather than reading a value that no longer exists.
+fn installPath(b: *std.Build, dir: std.Build.InstallDir, sub_path: []const u8) []const u8 {
+    if (@hasDecl(std.Build, "getInstallPath")) return b.getInstallPath(dir, sub_path);
+    const sub = switch (dir) {
+        .bin => "bin",
+        .lib => "lib",
+        .header => "include",
+        .prefix => "",
+        .custom => |c| c,
+    };
+    return b.pathResolve(&.{ "zig-out", sub, sub_path });
+}
+
 pub fn build(b: *std.Build) void {
     // Standard -Dtarget/-Dcpu/-Dofmt/-Ddynamic-linker, parsed to a query but
     // NOT yet resolved: the bundle path below may retune the CPU model first
@@ -78,7 +122,7 @@ pub fn build(b: *std.Build) void {
         "optimize",
         "Prioritize performance, safety, or binary size (default: ReleaseSafe)",
     );
-    const optimize = optimize_opt orelse .ReleaseSafe;
+    const optimize = optimize_opt orelse .safe;
 
     const do_strip = b.option(bool, "strip", "Strip debug info from binaries (for release builds)") orelse false;
     const strip: ?bool = if (do_strip) true else null;
@@ -184,7 +228,7 @@ pub fn build(b: *std.Build) void {
         .root_module = b.createModule(.{
             .root_source_file = b.path("tools/openbsd_nobtcfi.zig"),
             .target = b.graph.host,
-            .optimize = .ReleaseSafe,
+            .optimize = .safe,
             // pread/pwrite/close are libc externs; macOS links libc
             // implicitly but Linux (the usual CI/build host) does not.
             .link_libc = true,
@@ -277,9 +321,9 @@ pub fn build(b: *std.Build) void {
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
+    if (@hasField(std.Build, "args")) {
+        if (b.args) |args| run_cmd.addArgs(args);
+    } else run_cmd.addPassthruArgs();
     const run_step = b.step("run", "Run the Kaappi Scheme REPL");
     run_step.dependOn(&run_cmd.step);
 
@@ -366,7 +410,7 @@ pub fn build(b: *std.Build) void {
     const wasm_target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .wasi });
     const wasm_mod = kaappiModule(b, options_mod, .{
         .target = wasm_target,
-        .optimize = .ReleaseSmall,
+        .optimize = .small,
         .single_threaded = true,
         .embed = null_embed,
     });
@@ -456,9 +500,9 @@ pub fn build(b: *std.Build) void {
         .root_module = stress_channel_mod,
     });
     const run_stress_channel = b.addRunArtifact(stress_channel_exe);
-    if (b.args) |args| {
-        run_stress_channel.addArgs(args);
-    }
+    if (@hasField(std.Build, "args")) {
+        if (b.args) |args| run_stress_channel.addArgs(args);
+    } else run_stress_channel.addPassthruArgs();
     const stress_channel_step = b.step("stress-channel", "Run the SharedChannel/ThreadNotifier PCT-style randomized scheduling stress test (optional: -- <seed> <producers> <consumers> <per-producer>)");
     stress_channel_step.dependOn(&run_stress_channel.step);
 
@@ -584,7 +628,7 @@ pub fn build(b: *std.Build) void {
     // Code coverage via kcov (always Debug for DWARF line info)
     const cov_mod = kaappiModule(b, options_mod, .{
         .target = target,
-        .optimize = .Debug,
+        .optimize = .debug,
         .embed = null_embed,
     });
     const cov_tests = b.addTest(.{
@@ -592,7 +636,7 @@ pub fn build(b: *std.Build) void {
         .root_module = cov_mod,
     });
 
-    const root = b.build_root.path orelse ".";
+    const root = buildRootPath(b);
     const run_kcov = b.addSystemCommand(&.{"kcov"});
     run_kcov.addArg("--clean");
     run_kcov.addArg(b.fmt("--include-path={s}/src", .{root}));
@@ -605,7 +649,7 @@ pub fn build(b: *std.Build) void {
     // Scheme file coverage via kcov (run .scm files under kcov)
     const cov_main_mod = kaappiModule(b, options_mod, .{
         .target = target,
-        .optimize = .Debug,
+        .optimize = .debug,
         .isocline = use_isocline,
         .embed = null_embed,
     });
@@ -618,9 +662,9 @@ pub fn build(b: *std.Build) void {
     run_kcov_scheme.addArg(b.fmt("--include-path={s}/src", .{root}));
     run_kcov_scheme.addArg(b.fmt("{s}/coverage", .{root}));
     run_kcov_scheme.addArtifactArg(cov_exe);
-    if (b.args) |args| {
-        run_kcov_scheme.addArgs(args);
-    }
+    if (@hasField(std.Build, "args")) {
+        if (b.args) |args| run_kcov_scheme.addArgs(args);
+    } else run_kcov_scheme.addPassthruArgs();
 
     const cov_scheme_step = b.step("coverage-scheme", "Run a Scheme file with kcov code coverage");
     cov_scheme_step.dependOn(&run_kcov_scheme.step);
@@ -639,7 +683,7 @@ fn installExe(b: *std.Build, exe: *std.Build.Step.Compile, nobtcfi_tool: ?*std.B
     };
     const inst = b.addInstallArtifact(exe, .{});
     const patch = b.addRunArtifact(tool);
-    patch.addArg(b.getInstallPath(.bin, exe.out_filename));
+    patch.addArg(installPath(b, .bin, exe.out_filename));
     patch.has_side_effects = true;
     patch.step.dependOn(&inst.step);
     b.getInstallStep().dependOn(&patch.step);
@@ -731,7 +775,7 @@ fn kaappiModule(b: *std.Build, options_mod: *std.Build.Module, opts: struct {
 /// Runs at configure time; any failure (no git, not a checkout, a shallow CI
 /// tarball) falls back to "unknown" so the build never depends on git.
 fn gitBuildId(b: *std.Build) []const u8 {
-    const cwd = b.build_root.path orelse ".";
+    const cwd = buildRootPath(b);
     var code: u8 = undefined;
     const head = b.runAllowFail(&.{ "git", "-C", cwd, "rev-parse", "--short", "HEAD" }, &code, .ignore) catch return "unknown";
     const hash = std.mem.trim(u8, head, " \t\r\n");
@@ -760,7 +804,10 @@ fn gitBuildId(b: *std.Build) []const u8 {
 /// yields an empty list rather than breaking the build.
 fn scanPortableSrfis(b: *std.Build) []const u16 {
     const io = b.graph.io;
-    var dir = b.build_root.handle.openDir(io, "lib/srfi", .{ .iterate = true }) catch return &.{};
+    var dir = if (@hasField(std.Build, "build_root"))
+        b.build_root.handle.openDir(io, "lib/srfi", .{ .iterate = true }) catch return &.{}
+    else
+        b.root.openDir(io, "lib/srfi", .{ .iterate = true }) catch return &.{};
     defer dir.close(io);
 
     var list: std.ArrayList(u16) = .empty;

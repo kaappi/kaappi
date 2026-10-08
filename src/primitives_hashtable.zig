@@ -415,7 +415,7 @@ fn valueHashDepth(key: Value, depth: usize) usize {
         // #2023): `(equal? (f64vector 1 2 3) (f64vector 1 2 3))` is #t, but
         // the two hashed apart and the table entry became unreachable.
         const nv = types.toNumericVector(key);
-        var h: usize = @as(usize, @intFromEnum(nv.kind)) *% 2654435761 +% nv.data.len;
+        var h: usize = @as(usize, @backingInt(nv.kind)) *% 2654435761 +% nv.data.len;
         for (nv.data) |b| h = h *% 31 +% b;
         return h;
     }

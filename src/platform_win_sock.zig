@@ -116,7 +116,7 @@ fn crtErrnoFromWsa(wsa_err: c_int) c_int {
         win.WSAENOTSOCK => .BADF,
         else => .IO,
     };
-    return @intFromEnum(e);
+    return @backingInt(e);
 }
 
 /// read(2)-shaped recv() on the socket behind a CRT fd: returns bytes read,
@@ -125,7 +125,7 @@ fn crtErrnoFromWsa(wsa_err: c_int) c_int {
 pub fn sockRecv(fd: fd_t, buf: [*]u8, len: usize) isize {
     if (comptime !is_windows) return -1;
     const sock = sockFromFd(fd) orelse {
-        win._errno().* = @intFromEnum(E.BADF);
+        win._errno().* = @backingInt(E.BADF);
         return -1;
     };
     const n: c_int = @intCast(@min(len, std.math.maxInt(c_int)));
@@ -142,7 +142,7 @@ pub fn sockRecv(fd: fd_t, buf: [*]u8, len: usize) isize {
 pub fn sockSend(fd: fd_t, buf: [*]const u8, len: usize) isize {
     if (comptime !is_windows) return -1;
     const sock = sockFromFd(fd) orelse {
-        win._errno().* = @intFromEnum(E.BADF);
+        win._errno().* = @backingInt(E.BADF);
         return -1;
     };
     const n: c_int = @intCast(@min(len, std.math.maxInt(c_int)));

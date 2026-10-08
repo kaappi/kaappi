@@ -212,7 +212,7 @@ test "fuzz seed .sbc fixture stays loadable" {
 // instructions) the gates intentionally count as misses.
 const builtin = @import("builtin");
 const build_options = @import("build_options");
-const debug_build = builtin.mode == .Debug;
+const debug_build = builtin.mode == .debug;
 const speed_independent = build_options.gc_stress or build_options.emulated_target or debug_build;
 const eval_deadline_ns: u64 = if (speed_independent) 120_000_000_000 else 100_000_000;
 const eval_instruction_limit: ?u64 = if (speed_independent) 2_000_000 else null;

@@ -30,7 +30,7 @@ fn join(allocator: std.mem.Allocator, a: []const u8, b: []const u8) ![]u8 {
 }
 
 fn lstat(allocator: std.mem.Allocator, path: []const u8) ?platform.StatInfo {
-    const z = allocator.dupeZ(u8, path) catch return null;
+    const z = allocator.dupeSentinel(u8, path, 0) catch return null;
     defer allocator.free(z);
     return platform.lstatPath(z);
 }
@@ -47,21 +47,21 @@ pub fn makeDirRecursive(allocator: std.mem.Allocator, path: []const u8) !void {
     while (end < p.len) {
         while (end < p.len and !isSep(p[end])) end += 1;
         if (end > 0) {
-            const prefix = try allocator.dupeZ(u8, p[0..end]);
+            const prefix = try allocator.dupeSentinel(u8, p[0..end], 0);
             defer allocator.free(prefix);
             _ = platform.mkdir(prefix, 0o755);
         }
         while (end < p.len and isSep(p[end])) end += 1;
     }
 
-    const z = try allocator.dupeZ(u8, p);
+    const z = try allocator.dupeSentinel(u8, p, 0);
     defer allocator.free(z);
     if (!platform.isDir(z)) return error.MkdirFailed;
 }
 
 /// `touch`: creates the file if missing, never truncates existing content.
 pub fn touchFile(allocator: std.mem.Allocator, path: []const u8) !void {
-    const z = try allocator.dupeZ(u8, path);
+    const z = try allocator.dupeSentinel(u8, path, 0);
     defer allocator.free(z);
     const fd = platform.openAppend(z, 0o644) catch return error.TouchFailed;
     platform.close(fd);
@@ -92,9 +92,9 @@ fn removeIfLink(z: [:0]const u8) !void {
 /// but a dst that is itself a symlink is removed first: writing through
 /// it would land outside the tree the caller is installing into.
 pub fn copyFile(allocator: std.mem.Allocator, src: []const u8, dst: []const u8) !void {
-    const src_z = try allocator.dupeZ(u8, src);
+    const src_z = try allocator.dupeSentinel(u8, src, 0);
     defer allocator.free(src_z);
-    const dst_z = try allocator.dupeZ(u8, dst);
+    const dst_z = try allocator.dupeSentinel(u8, dst, 0);
     defer allocator.free(dst_z);
 
     try removeIfLink(dst_z);
@@ -164,7 +164,7 @@ fn freeNames(allocator: std.mem.Allocator, names: *std.ArrayList([]u8)) void {
 pub fn copyTree(allocator: std.mem.Allocator, src: []const u8, dst: []const u8) !void {
     try makeDirRecursive(allocator, dst);
 
-    const src_z = try allocator.dupeZ(u8, src);
+    const src_z = try allocator.dupeSentinel(u8, src, 0);
     defer allocator.free(src_z);
     var names = (try collectNames(allocator, src_z)) orelse return error.CopyFailed;
     defer freeNames(allocator, &names);
@@ -183,7 +183,7 @@ pub fn copyTree(allocator: std.mem.Allocator, src: []const u8, dst: []const u8) 
             // outside the tree. Only the merge's *children* are guarded:
             // the root dst may legitimately be a symlink the user set up
             // (cp follows a symlinked destination directory too).
-            const child_dst_z = try allocator.dupeZ(u8, child_dst);
+            const child_dst_z = try allocator.dupeSentinel(u8, child_dst, 0);
             defer allocator.free(child_dst_z);
             try removeIfLink(child_dst_z);
             try copyTree(allocator, child_src, child_dst);
@@ -214,7 +214,7 @@ fn rmdirRetry(dir_z: [:0]const u8) !void {
 /// directory junctions), never followed — a link out of the tree must not
 /// let removal escape it.
 pub fn removeTree(allocator: std.mem.Allocator, path: []const u8) !void {
-    const z = try allocator.dupeZ(u8, path);
+    const z = try allocator.dupeSentinel(u8, path, 0);
     defer allocator.free(z);
     const st = platform.lstatPath(z) orelse return;
     if (st.is_symlink) {
@@ -237,7 +237,7 @@ fn removeTreeInner(allocator: std.mem.Allocator, dir: []const u8, dir_z: [:0]con
     for (names.items) |name| {
         const child = try join(allocator, dir, name);
         defer allocator.free(child);
-        const child_z = try allocator.dupeZ(u8, child);
+        const child_z = try allocator.dupeSentinel(u8, child, 0);
         defer allocator.free(child_z);
 
         const st = platform.lstatPath(child_z) orelse continue;
@@ -289,7 +289,7 @@ fn collectSuffixInner(
     recursive: bool,
     out: *std.ArrayList([]u8),
 ) !void {
-    const dir_z = try allocator.dupeZ(u8, dir);
+    const dir_z = try allocator.dupeSentinel(u8, dir, 0);
     defer allocator.free(dir_z);
     var names = (try collectNames(allocator, dir_z)) orelse return;
     defer freeNames(allocator, &names);
@@ -310,7 +310,7 @@ fn collectSuffixInner(
         if (!std.mem.endsWith(u8, name, suffix)) continue;
 
         const is_match = st.is_file or (st.is_symlink and blk: {
-            const child_z = try allocator.dupeZ(u8, child);
+            const child_z = try allocator.dupeSentinel(u8, child, 0);
             defer allocator.free(child_z);
             const target = platform.statPath(child_z) orelse break :blk false;
             break :blk target.is_file;
@@ -346,7 +346,7 @@ test "makeDirRecursive creates nested directories and is idempotent" {
     defer allocator.free(nested);
 
     try makeDirRecursive(allocator, nested);
-    const nested_z = try allocator.dupeZ(u8, nested);
+    const nested_z = try allocator.dupeSentinel(u8, nested, 0);
     defer allocator.free(nested_z);
     try std.testing.expect(platform.isDir(nested_z));
 
@@ -436,15 +436,15 @@ test "removeTree deletes read-only files inside read-only directories (git objec
     defer allocator.free(pack_file);
     try thottam.writeFile(allocator, pack_file, "P");
 
-    const pack_file_z = try allocator.dupeZ(u8, pack_file);
+    const pack_file_z = try allocator.dupeSentinel(u8, pack_file, 0);
     defer allocator.free(pack_file_z);
     platform.makeReadOnly(pack_file_z);
-    const pack_dir_z = try allocator.dupeZ(u8, pack_dir);
+    const pack_dir_z = try allocator.dupeSentinel(u8, pack_dir, 0);
     defer allocator.free(pack_dir_z);
     platform.makeReadOnly(pack_dir_z);
 
     try removeTree(allocator, base);
-    const base_z = try allocator.dupeZ(u8, base);
+    const base_z = try allocator.dupeSentinel(u8, base, 0);
     defer allocator.free(base_z);
     try std.testing.expect(!platform.pathExists(base_z));
 }
@@ -478,16 +478,16 @@ test "removeTree unlinks symlinks without following them (POSIX)" {
         try makeDirRecursive(allocator, tree);
         const link = try std.mem.concat(allocator, u8, &.{ tree, "/escape" });
         defer allocator.free(link);
-        const outside_z = try allocator.dupeZ(u8, outside);
+        const outside_z = try allocator.dupeSentinel(u8, outside, 0);
         defer allocator.free(outside_z);
-        const link_z = try allocator.dupeZ(u8, link);
+        const link_z = try allocator.dupeSentinel(u8, link, 0);
         defer allocator.free(link_z);
         try std.testing.expect(c.symlink(outside_z, link_z) == 0);
 
         try removeTree(allocator, tree);
 
         // The link is gone with the tree; its target survived untouched.
-        const tree_z = try allocator.dupeZ(u8, tree);
+        const tree_z = try allocator.dupeSentinel(u8, tree, 0);
         defer allocator.free(tree_z);
         try std.testing.expect(!platform.pathExists(tree_z));
         try std.testing.expect(thottam.fileExists(allocator, precious));
@@ -501,9 +501,9 @@ test "copyTree skips source symlinks and replaces destination symlinks (POSIX)" 
         };
         const mklink = struct {
             fn mk(allocator: std.mem.Allocator, target: []const u8, linkpath: []const u8) !void {
-                const target_z = try allocator.dupeZ(u8, target);
+                const target_z = try allocator.dupeSentinel(u8, target, 0);
                 defer allocator.free(target_z);
-                const link_z = try allocator.dupeZ(u8, linkpath);
+                const link_z = try allocator.dupeSentinel(u8, linkpath, 0);
                 defer allocator.free(link_z);
                 try std.testing.expect(c.symlink(target_z, link_z) == 0);
             }
@@ -556,7 +556,7 @@ test "copyTree skips source symlinks and replaces destination symlinks (POSIX)" 
 
         // Destination file link replaced by a real file; the link's old
         // target was not written through.
-        const dst_filelink_z = try allocator.dupeZ(u8, dst_filelink);
+        const dst_filelink_z = try allocator.dupeSentinel(u8, dst_filelink, 0);
         defer allocator.free(dst_filelink_z);
         const plain_after = platform.lstatPath(dst_filelink_z) orelse return error.TestUnexpectedResult;
         try std.testing.expect(!plain_after.is_symlink);
@@ -569,7 +569,7 @@ test "copyTree skips source symlinks and replaces destination symlinks (POSIX)" 
 
         // Destination dir link replaced by a real directory; nothing
         // leaked into its old target.
-        const dst_dirlink_z = try allocator.dupeZ(u8, dst_dirlink);
+        const dst_dirlink_z = try allocator.dupeSentinel(u8, dst_dirlink, 0);
         defer allocator.free(dst_dirlink_z);
         const replaced = platform.lstatPath(dst_dirlink_z) orelse return error.TestUnexpectedResult;
         try std.testing.expect(!replaced.is_symlink);

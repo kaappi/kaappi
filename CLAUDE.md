@@ -1,6 +1,6 @@
 # Kaappi — R7RS Scheme in Zig
 
-Complete R7RS-small Scheme implementation. Zig 0.16, ~120k lines, 719 built-in
+Complete R7RS-small Scheme implementation. Zig 0.17, ~120k lines, 719 built-in
 procedures, 181 SRFIs.
 
 This file is the orientation map. Detail lives in `docs/dev/` — every section
@@ -24,7 +24,7 @@ zig build -Dbundle=program.sbc     # standalone binary from pre-compiled .sbc
 zig build wasm                     # WebAssembly binary (wasm32-wasi)
 ```
 
-Requires Zig 0.16+ and libc (for isocline terminal handling).
+Requires Zig 0.17+ and libc (for isocline terminal handling).
 
 Builds default to **ReleaseSafe** (fast, bounds/safety checks retained; fixnum
 overflow auto-promotes to bignum). Debug is ~500x slower for allocation- and
@@ -232,7 +232,7 @@ resolved relative to the `.sld`), and `(export (rename ...))` in
 - **`docs/dev/srfi-status-check.md`** — the CI guard that fails if a shipped
   SRFI is `draft` or `withdrawn`, and how it re-derives the set from the binary.
 
-## Zig 0.16 patterns
+## Zig 0.17 patterns
 
 These differ from earlier Zig versions and are easy to get wrong (full set in
 `docs/dev/adding-features.md`):

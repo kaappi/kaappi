@@ -77,7 +77,7 @@ pub fn widen(buf: *WPathBuf, path: []const u8) ?[:0]const u16 {
 /// CRT calls return exactly -1 on failure.
 pub fn errno(rc: anytype) E {
     if (comptime is_windows) {
-        return if (rc == -1) @enumFromInt(win._errno().*) else .SUCCESS;
+        return if (rc == -1) @fromBackingInt(@intCast(win._errno().*)) else .SUCCESS;
     }
     return std.posix.errno(rc);
 }
@@ -346,7 +346,7 @@ fn classifyOpenError(e: anytype) OpenError {
 pub fn errnoIsFdExhausted() bool {
     if (comptime is_windows) return false;
     const ev = std.c._errno().*;
-    return ev == @intFromEnum(E.MFILE) or ev == @intFromEnum(E.NFILE);
+    return ev == @backingInt(E.MFILE) or ev == @backingInt(E.NFILE);
 }
 
 fn winOpen(path: []const u8, oflag: c_int, pmode: c_int) OpenError!fd_t {
@@ -355,7 +355,7 @@ fn winOpen(path: []const u8, oflag: c_int, pmode: c_int) OpenError!fd_t {
     const fd = win._wopen(wpath.ptr, oflag | win.O_BINARY, pmode);
     if (fd < 0) {
         const ev = win._errno().*;
-        if (ev == @intFromEnum(E.MFILE) or ev == @intFromEnum(E.NFILE)) return error.FdExhausted;
+        if (ev == @backingInt(E.MFILE) or ev == @backingInt(E.NFILE)) return error.FdExhausted;
         return error.OpenFailed;
     }
     return fd;
@@ -1098,9 +1098,9 @@ pub fn setEnv(allocator: std.mem.Allocator, name: []const u8, value: []const u8)
         if (win._putenv(pair.ptr) != 0) return std.c._errno().*;
         return 0;
     }
-    const name_z = try allocator.dupeZ(u8, name);
+    const name_z = try allocator.dupeSentinel(u8, name, 0);
     defer allocator.free(name_z);
-    const value_z = try allocator.dupeZ(u8, value);
+    const value_z = try allocator.dupeSentinel(u8, value, 0);
     defer allocator.free(value_z);
     if (setenv(name_z, value_z, 1) != 0) return std.c._errno().*;
     return 0;
@@ -1116,7 +1116,7 @@ pub fn unsetEnv(allocator: std.mem.Allocator, name: []const u8) !c_int {
         if (win._putenv(pair.ptr) != 0) return std.c._errno().*;
         return 0;
     }
-    const name_z = try allocator.dupeZ(u8, name);
+    const name_z = try allocator.dupeSentinel(u8, name, 0);
     defer allocator.free(name_z);
     if (unsetenv(name_z) != 0) return std.c._errno().*;
     return 0;
@@ -1181,7 +1181,7 @@ pub fn osRandomBytes(buf: []u8) bool {
             const sret: isize = @bitCast(std.os.linux.getrandom(buf.ptr + off, buf.len - off, 0));
             if (sret > 0) {
                 off += @intCast(sret);
-            } else if (sret == -@as(isize, @intFromEnum(std.os.linux.E.INTR))) {
+            } else if (sret == -@as(isize, @backingInt(std.os.linux.E.INTR))) {
                 continue; // interrupted by a signal; retry
             } else {
                 return false; // error, or zero progress
@@ -1482,7 +1482,7 @@ pub fn dlOpen(path: ?[*:0]const u8) ?*anyopaque {
         // symbol table to search. Fail through the same pending-error
         // channel Windows uses so dlError() explains why.
         dl_error_pending = true;
-        _ = std.fmt.bufPrintZ(&dl_error_buf, "dynamic loading unavailable on WASI", .{}) catch {};
+        _ = std.fmt.bufPrintSentinel(&dl_error_buf, "dynamic loading unavailable on WASI", .{}, 0) catch {};
         return null;
     }
     return std.c.dlopen(path, .{ .LAZY = true });
@@ -1513,7 +1513,7 @@ pub fn dlSym(handle: *anyopaque, name: [*:0]const u8) ?*anyopaque {
     }
     if (comptime is_wasm) {
         dl_error_pending = true;
-        _ = std.fmt.bufPrintZ(&dl_error_buf, "dynamic loading unavailable on WASI", .{}) catch {};
+        _ = std.fmt.bufPrintSentinel(&dl_error_buf, "dynamic loading unavailable on WASI", .{}, 0) catch {};
         return null;
     }
     return std.c.dlsym(handle, name);
@@ -1541,7 +1541,7 @@ pub fn dlError() ?[*:0]const u8 {
     if (comptime is_windows) {
         if (!dl_error_pending) return null;
         dl_error_pending = false;
-        const msg = std.fmt.bufPrintZ(&dl_error_buf, "Win32 error {d}", .{win.GetLastError()}) catch return null;
+        const msg = std.fmt.bufPrintSentinel(&dl_error_buf, "Win32 error {d}", .{win.GetLastError()}, 0) catch return null;
         return msg.ptr;
     }
     if (comptime is_wasm) {

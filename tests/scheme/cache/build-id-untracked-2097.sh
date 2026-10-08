@@ -16,6 +16,18 @@
 # or untracked change already present the three phases are indistinguishable,
 # so the script skips rather than assert garbage.
 #
+# Every build passes `--cache-poison=poisoned`, which tells Zig not to reuse a
+# cached *configuration* (0.17's configure cache). This test's whole subject is
+# configure-time state — build.zig's gitBuildId folds `git status --porcelain
+# -uno` into the id it bakes in — so a cached configuration is a false hit: the
+# id comes from whichever build last reconfigured, not from the tree in front of
+# it. Zig 0.17 caches configurations aggressively enough that phase C, whose
+# only difference from phase B is a *staged* file, otherwise reads back phase
+# B's clean id and fails (kaappi#2612). `poisoned` is Zig's own name for "this
+# configuration has an untracked side effect; do not cache it" — build.zig
+# shelling out to git at configure time is exactly that, so this is the
+# supported spelling rather than a workaround for a test.
+#
 # This lives in the cache suite, not compile/, on purpose: phase C stages a
 # file in the shared working tree, which flips the build id for any OTHER
 # concurrent builder — exactly the kaappi#1930 mismatch class. run-all.sh
@@ -65,7 +77,7 @@ fail() {
 }
 
 # A: pristine tree — a clean build id, no -dirty suffix.
-(cd "$REPO_DIR" && zig build -Doptimize=ReleaseSafe --prefix "$DIR/a") > /dev/null 2>&1 \
+(cd "$REPO_DIR" && zig build --cache-poison=poisoned -Doptimize=ReleaseSafe --prefix "$DIR/a") > /dev/null 2>&1 \
     || fail "zig build failed (phase A)"
 ID_A=$(build_id "$DIR/a")
 [[ -n "$ID_A" ]] || fail "phase A produced no build id" "is the binary executable?"
@@ -74,7 +86,7 @@ ID_A=$(build_id "$DIR/a")
 # B: an untracked file appears — must NOT flip the id (the kaappi#2097 bug:
 # git status --porcelain counted it, so the id silently became <hash>-dirty).
 echo probe > "$PROBE"
-(cd "$REPO_DIR" && zig build -Doptimize=ReleaseSafe --prefix "$DIR/b") > /dev/null 2>&1 \
+(cd "$REPO_DIR" && zig build --cache-poison=poisoned -Doptimize=ReleaseSafe --prefix "$DIR/b") > /dev/null 2>&1 \
     || fail "zig build failed (phase B)"
 ID_B=$(build_id "$DIR/b")
 [[ "$ID_B" == "$ID_A" ]] \
@@ -83,7 +95,7 @@ ID_B=$(build_id "$DIR/b")
 
 # C: staging the same file IS a tracked change — the id must flip to -dirty.
 git -C "$REPO_DIR" add -- "$PROBE"
-(cd "$REPO_DIR" && zig build -Doptimize=ReleaseSafe --prefix "$DIR/c") > /dev/null 2>&1 \
+(cd "$REPO_DIR" && zig build --cache-poison=poisoned -Doptimize=ReleaseSafe --prefix "$DIR/c") > /dev/null 2>&1 \
     || fail "zig build failed (phase C)"
 ID_C=$(build_id "$DIR/c")
 [[ "$ID_C" == "${ID_A}-dirty" ]] \

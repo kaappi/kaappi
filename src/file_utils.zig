@@ -10,7 +10,7 @@ pub fn readWholeFile(allocator: std.mem.Allocator, path: []const u8, max_size: u
         if (rc != .SUCCESS) return error.FileNotFound;
         break :blk @as(c_int, @intCast(result_fd));
     } else blk: {
-        const path_z = allocator.dupeZ(u8, path) catch return error.OutOfMemory;
+        const path_z = allocator.dupeSentinel(u8, path, 0) catch return error.OutOfMemory;
         defer allocator.free(path_z);
         break :blk platform.openRead(path_z) catch return error.FileNotFound;
     };

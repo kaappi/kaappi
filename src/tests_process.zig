@@ -1300,7 +1300,7 @@ test "process-wait phase2: a child reaped behind kaappi's back raises, never #f-
     while (true) {
         const r = platform.waitPid(pid, &st, 0);
         if (r == pid) break;
-        if (r < 0 and std.c._errno().* != @intFromEnum(std.c.E.INTR)) return error.ReapFailed;
+        if (r < 0 and std.c._errno().* != @backingInt(std.c.E.INTR)) return error.ReapFailed;
     }
 
     // A timed wait must not report `#f` ahead of its generous deadline (the

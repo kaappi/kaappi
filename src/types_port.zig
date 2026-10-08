@@ -204,11 +204,11 @@ comptime {
     // Gate 1: every owned-pointer field on Port names a classified satellite.
     // This is what makes the worst mutation class -- a new satellite, missed
     // by all five sites -- impossible to add silently.
-    for (@typeInfo(Port).@"struct".fields) |f| {
-        if (std.mem.eql(u8, f.name, "header")) continue;
-        if (pointeeStruct(f.type)) |S| {
+    for (@typeInfo(Port).@"struct".field_names, @typeInfo(Port).@"struct".field_types) |f_name, f_type| {
+        if (std.mem.eql(u8, f_name, "header")) continue;
+        if (pointeeStruct(f_type)) |S| {
             if (satelliteHoldsValues(S) == null) @compileError(
-                "Port." ++ f.name ++ " points at " ++ @typeName(S) ++
+                "Port." ++ f_name ++ " points at " ++ @typeName(S) ++
                     ", which is not in types_port.satellites.\n" ++
                     "Add it there with whether it holds Scheme Values. Everything else " ++
                     "(marking at 3 sites, sizing, freeing) is derived from that entry.",
@@ -219,9 +219,9 @@ comptime {
     // since forEachValue skips it entirely.
     for (satellites) |entry| {
         if (!entry[1]) {
-            for (@typeInfo(entry[0]).@"struct".fields) |f| {
-                if (f.type == Value) @compileError(
-                    @typeName(entry[0]) ++ "." ++ f.name ++ " is a Value, but " ++
+            for (@typeInfo(entry[0]).@"struct".field_names, @typeInfo(entry[0]).@"struct".field_types) |f_name, f_type| {
+                if (f_type == Value) @compileError(
+                    @typeName(entry[0]) ++ "." ++ f_name ++ " is a Value, but " ++
                         @typeName(entry[0]) ++ " is listed value-free in " ++
                         "types_port.satellites. Flip its flag to true.",
                 );
@@ -248,20 +248,20 @@ pub fn forEachValue(
     ctx: anytype,
     comptime visit: fn (@TypeOf(ctx), Value) bool,
 ) bool {
-    inline for (@typeInfo(Port).@"struct".fields) |f| {
-        if (comptime std.mem.eql(u8, f.name, "header")) {
+    inline for (@typeInfo(Port).@"struct".field_names, @typeInfo(Port).@"struct".field_types) |f_name, f_type| {
+        if (comptime std.mem.eql(u8, f_name, "header")) {
             // The GC list link and tag, not port state.
-        } else if (comptime f.type == Value and !isPlainU64(f.name)) {
-            if (visit(ctx, @field(port, f.name))) return true;
-        } else if (comptime pointeeStruct(f.type)) |S| {
+        } else if (comptime f_type == Value and !isPlainU64(f_name)) {
+            if (visit(ctx, @field(port, f_name))) return true;
+        } else if (comptime pointeeStruct(f_type)) |S| {
             // `orelse false` never fires: gate 1 above rejects an
             // unclassified satellite outright. It keeps that the *only*
             // error such a build reports.
             if (comptime satelliteHoldsValues(S) orelse false) {
-                if (@field(port, f.name)) |sat| {
-                    inline for (@typeInfo(S).@"struct".fields) |sf| {
-                        if (comptime sf.type == Value) {
-                            if (visit(ctx, @field(sat, sf.name))) return true;
+                if (@field(port, f_name)) |sat| {
+                    inline for (@typeInfo(S).@"struct".field_names, @typeInfo(S).@"struct".field_types) |sf_name, sf_type| {
+                        if (comptime sf_type == Value) {
+                            if (visit(ctx, @field(sat, sf_name))) return true;
                         }
                     }
                 }
@@ -276,10 +276,10 @@ pub fn forEachValue(
 /// satellite is accounted for without touching that arm.
 pub fn satelliteBytes(port: *const Port) usize {
     var total: usize = 0;
-    inline for (@typeInfo(Port).@"struct".fields) |f| {
-        if (comptime pointeeStruct(f.type)) |S| {
+    inline for (@typeInfo(Port).@"struct".field_names, @typeInfo(Port).@"struct".field_types) |f_name, f_type| {
+        if (comptime pointeeStruct(f_type)) |S| {
             if (comptime satelliteHoldsValues(S) != null) {
-                if (@field(port, f.name) != null) total += @sizeOf(S);
+                if (@field(port, f_name) != null) total += @sizeOf(S);
             }
         }
     }
@@ -300,10 +300,10 @@ pub fn satelliteBytes(port: *const Port) usize {
 ///     became garbage. `closePortObj` (primitives_io.zig) is what cascades a
 ///     close to the wrapped port, while the VM is live to do so.
 pub fn destroySatellites(port: *Port, allocator: std.mem.Allocator) void {
-    inline for (@typeInfo(Port).@"struct".fields) |f| {
-        if (comptime pointeeStruct(f.type)) |S| {
+    inline for (@typeInfo(Port).@"struct".field_names, @typeInfo(Port).@"struct".field_types) |f_name, f_type| {
+        if (comptime pointeeStruct(f_type)) |S| {
             if (comptime satelliteHoldsValues(S) != null) {
-                if (@field(port, f.name)) |sat| allocator.destroy(sat);
+                if (@field(port, f_name)) |sat| allocator.destroy(sat);
             }
         }
     }

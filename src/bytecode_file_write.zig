@@ -26,6 +26,37 @@ const BytecodeError = bf.BytecodeError;
 // The byte-emitting methods are `pub` so the round-trip tests in
 // `bytecode_file.zig` can hand-assemble `.sbc` fixtures; `init`/`deinit` are the
 // serializer's own lifecycle and stay internal.
+/// Little-endian byte emission, built from shifts rather than `@bitCast`.
+///
+/// Zig 0.17 redefined `@bitCast` on arrays to reinterpret the *logical* bit
+/// representation — elements concatenate least-significant first — instead of
+/// the in-memory representation. The old definition produced the opposite byte
+/// order on a big-endian target, so the previous spelling here,
+/// `@bitCast(nativeToLittle(T, v))`, was **not** endian-neutral: reversing the
+/// bytes and then reinterpreting them memory-wise is a round trip on a
+/// big-endian host, while the new definition hands back the little-endian
+/// order directly. The `.sbc` writer therefore emitted big-endian section
+/// lengths and payloads on s390x, and the s390x leg failed every
+/// `.sbc` byte-order test (kaappi#2612).
+///
+/// Shifts are unambiguous on every target and in every Zig version, which is
+/// what `tests_endian.zig`'s own hand-assembly helper already relies on. Say
+/// the byte order you mean; never inherit it from the host.
+fn writeLeBytes(dest: *[8]u8, comptime T: type, v: T, comptime U: type, comptime n: usize) void {
+    comptime {
+        // `@bitCast` is the *scalar* case here, which 0.17 left alone: same
+        // width both sides, so it is a pure reinterpretation. If a future
+        // change makes this an array or vector cast, read the note above
+        // first — that is the case whose meaning moved. `U` is passed rather
+        // than built, because 0.17 removed both `std.meta.Int` and `@Type`.
+        if (@typeInfo(U).int.signedness != .unsigned) @compileError("writeLeBytes: U must be unsigned");
+        if (@typeInfo(U).int.bits != @typeInfo(T).int.bits) @compileError("writeLeBytes: width mismatch");
+        if (n != @typeInfo(U).int.bits / 8) @compileError("writeLeBytes: n must be bits/8");
+    }
+    const u: U = @bitCast(v);
+    inline for (0..n) |i| dest[i] = @truncate(u >> (i * 8));
+}
+
 pub const Writer = struct {
     buf: std.ArrayList(u8),
 
@@ -38,28 +69,32 @@ pub const Writer = struct {
     }
 
     pub fn writeU16(self: *Writer, allocator: std.mem.Allocator, v: u16) !void {
-        const bytes: [2]u8 = @bitCast(std.mem.nativeToLittle(u16, v));
-        self.buf.appendSlice(allocator, &bytes) catch return BytecodeError.OutOfMemory;
+        var bytes: [8]u8 = undefined;
+        writeLeBytes(&bytes, u16, v, u16, 2);
+        self.buf.appendSlice(allocator, bytes[0..2]) catch return BytecodeError.OutOfMemory;
     }
 
     pub fn writeU32(self: *Writer, allocator: std.mem.Allocator, v: u32) !void {
-        const bytes: [4]u8 = @bitCast(std.mem.nativeToLittle(u32, v));
-        self.buf.appendSlice(allocator, &bytes) catch return BytecodeError.OutOfMemory;
+        var bytes: [8]u8 = undefined;
+        writeLeBytes(&bytes, u32, v, u32, 4);
+        self.buf.appendSlice(allocator, bytes[0..4]) catch return BytecodeError.OutOfMemory;
     }
 
     pub fn writeU64(self: *Writer, allocator: std.mem.Allocator, v: u64) !void {
-        const bytes: [8]u8 = @bitCast(std.mem.nativeToLittle(u64, v));
+        var bytes: [8]u8 = undefined;
+        writeLeBytes(&bytes, u64, v, u64, 8);
         self.buf.appendSlice(allocator, &bytes) catch return BytecodeError.OutOfMemory;
     }
 
     pub fn writeI64(self: *Writer, allocator: std.mem.Allocator, v: i64) !void {
-        const bytes: [8]u8 = @bitCast(std.mem.nativeToLittle(i64, v));
+        var bytes: [8]u8 = undefined;
+        writeLeBytes(&bytes, i64, v, u64, 8);
         self.buf.appendSlice(allocator, &bytes) catch return BytecodeError.OutOfMemory;
     }
 
     pub fn writeF64(self: *Writer, allocator: std.mem.Allocator, v: f64) !void {
-        const bits: u64 = @bitCast(v);
-        const bytes: [8]u8 = @bitCast(std.mem.nativeToLittle(u64, bits));
+        var bytes: [8]u8 = undefined;
+        writeLeBytes(&bytes, u64, @as(u64, @bitCast(v)), u64, 8);
         self.buf.appendSlice(allocator, &bytes) catch return BytecodeError.OutOfMemory;
     }
 
@@ -317,7 +352,7 @@ fn writeConstant(w: *Writer, allocator: std.mem.Allocator, val: Value, all_funcs
                 try noteShared(seen, obj);
                 try w.writeU8(allocator, bf.TAG_NUMERICVECTOR);
                 try w.writeU8(allocator, immutableByte(obj));
-                try w.writeU8(allocator, @intFromEnum(nv.kind));
+                try w.writeU8(allocator, @backingInt(nv.kind));
                 try w.writeU32(allocator, @intCast(nv.data.len));
                 try w.writeBytes(allocator, nv.data);
             },

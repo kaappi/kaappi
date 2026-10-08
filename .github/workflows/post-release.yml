@@ -320,7 +320,7 @@ jobs:
       - name: Install Zig
         uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
         with:
-          version: 0.16.0
+          version: 0.17.0
 
       - name: Verify the native backend is installed and usable
         # The installer must place libkaappi_rt.a where `kaappi compile` looks

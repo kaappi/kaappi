@@ -35,40 +35,59 @@ const Reader = struct {
         return v;
     }
 
+    /// Decode `n` bytes least-significant-first, built from shifts.
+    ///
+    /// The mirror of `bytecode_file_write.writeLeBytes`, and it exists for the
+    /// same reason: `std.mem.littleToNative(T, @bitCast(bytes))` composes the
+    /// same double-reversal there. `@bitCast` on an array used to reinterpret
+    /// memory order, so byte-reversing first and then reinterpreting memory-wise
+    /// was a round trip on a big-endian host; 0.17 reinterprets the logical
+    /// representation instead. Either way the two steps disagree, and the whole
+    /// `.sbc` round trip failed on s390x (kaappi#2612). Shifts say the byte
+    /// order outright, on every target and in every Zig version.
+    fn readLeN(comptime T: type, bytes: []const u8, comptime n: usize) T {
+        comptime std.debug.assert(blk: {
+            if (n != @typeInfo(T).int.bits / 8) break :blk false;
+            break :blk true;
+        });
+        var v: T = 0;
+        inline for (0..n) |i| v |= @as(T, bytes[i]) << (i * 8);
+        return v;
+    }
+
     fn readU16(self: *Reader) !u16 {
         if (self.pos + 2 > self.data.len) return BytecodeError.CorruptedFile;
         const bytes = self.data[self.pos..][0..2];
         self.pos += 2;
-        return std.mem.littleToNative(u16, @bitCast(bytes.*));
+        return readLeN(u16, bytes, 2);
     }
 
     fn readU32(self: *Reader) !u32 {
         if (self.pos + 4 > self.data.len) return BytecodeError.CorruptedFile;
         const bytes = self.data[self.pos..][0..4];
         self.pos += 4;
-        return std.mem.littleToNative(u32, @bitCast(bytes.*));
+        return readLeN(u32, bytes, 4);
     }
 
     fn readU64(self: *Reader) !u64 {
         if (self.pos + 8 > self.data.len) return BytecodeError.CorruptedFile;
         const bytes = self.data[self.pos..][0..8];
         self.pos += 8;
-        return std.mem.littleToNative(u64, @bitCast(bytes.*));
+        return readLeN(u64, bytes, 8);
     }
 
     fn readI64(self: *Reader) !i64 {
         if (self.pos + 8 > self.data.len) return BytecodeError.CorruptedFile;
         const bytes = self.data[self.pos..][0..8];
         self.pos += 8;
-        return std.mem.littleToNative(i64, @bitCast(bytes.*));
+        return @bitCast(readLeN(u64, bytes, 8));
     }
 
     fn readF64(self: *Reader) !f64 {
         if (self.pos + 8 > self.data.len) return BytecodeError.CorruptedFile;
         const bytes = self.data[self.pos..][0..8];
         self.pos += 8;
-        const bits = std.mem.littleToNative(u64, @bitCast(bytes.*));
-        return @bitCast(bits);
+        return @bitCast(readLeN(u64, bytes, 8));
     }
 
     fn readBytes(self: *Reader, len: usize) ![]const u8 {
@@ -270,8 +289,8 @@ fn readConstantTagged(r: *Reader, gc: *GC, all_funcs: []*Function, shared: *Shar
         bf.TAG_NUMERICVECTOR => {
             const immutable = try readImmutableByte(r);
             const kind_byte = try r.readU8();
-            if (kind_byte >= @typeInfo(types.NumericElementKind).@"enum".fields.len) return BytecodeError.CorruptedFile;
-            const kind: types.NumericElementKind = @enumFromInt(kind_byte);
+            if (kind_byte >= @typeInfo(types.NumericElementKind).@"enum".field_names.len) return BytecodeError.CorruptedFile;
+            const kind: types.NumericElementKind = @fromBackingInt(@intCast(kind_byte));
             const data_len = try r.readU32();
             if (data_len > bf.MAX_BYTEVECTOR_LEN) return BytecodeError.CorruptedFile;
             // A kind's element width must divide the byte count exactly: the
@@ -359,8 +378,8 @@ fn validateFunctionBytecode(func: *Function) BytecodeError!void {
     var ip: usize = 0;
     while (ip < code.len) {
         const raw = code[ip];
-        if (raw > @intFromEnum(OpCode.guard_builtin)) return BytecodeError.CorruptedFile;
-        const op: OpCode = @enumFromInt(raw);
+        if (raw > @backingInt(OpCode.guard_builtin)) return BytecodeError.CorruptedFile;
+        const op: OpCode = @fromBackingInt(@intCast(raw));
         ip += 1;
 
         switch (op) {

@@ -515,18 +515,18 @@ pub const FiberScheduler = struct {
 
         const code = &func.code;
         const alloc = gc.allocator;
-        try code.append(alloc, @intFromEnum(OpCode.get_upvalue));
+        try code.append(alloc, @backingInt(OpCode.get_upvalue));
         try code.append(alloc, 0x00); // dst hi
         try code.append(alloc, 0x01); // dst lo = 1
         try code.append(alloc, 0x00); // idx hi
         try code.append(alloc, 0x00); // idx lo = 0
 
-        try code.append(alloc, @intFromEnum(OpCode.call));
+        try code.append(alloc, @backingInt(OpCode.call));
         try code.append(alloc, 0x00); // base hi
         try code.append(alloc, 0x01); // base lo = 1
         try code.append(alloc, 0x00); // nargs = 0
 
-        try code.append(alloc, @intFromEnum(OpCode.@"return"));
+        try code.append(alloc, @backingInt(OpCode.@"return"));
         try code.append(alloc, 0x00); // src hi
         try code.append(alloc, 0x01); // src lo = 1
 

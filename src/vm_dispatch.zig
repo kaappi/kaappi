@@ -154,8 +154,8 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
         if (frame.ip >= frame.code.len) return VMError.InvalidBytecode;
 
         const raw_op = frame.code[frame.ip];
-        if (raw_op > @intFromEnum(OpCode.guard_builtin)) return VMError.InvalidBytecode;
-        const op: OpCode = @enumFromInt(raw_op);
+        if (raw_op > @backingInt(OpCode.guard_builtin)) return VMError.InvalidBytecode;
+        const op: OpCode = @fromBackingInt(@intCast(raw_op));
         frame.ip += 1;
 
         const fixed_operand_bytes: usize = switch (op) {

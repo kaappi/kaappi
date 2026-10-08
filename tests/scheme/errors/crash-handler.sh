@@ -46,7 +46,10 @@ fi
 grep -qF "kaappi internal error — this is a bug in kaappi, not in your program." <<<"$out"
 check "banner identity line" $?
 
-grep -qE "^  version: v[0-9]+\.[0-9]+\.[0-9]+ \(.+-.+, (Debug|ReleaseSafe|ReleaseFast|ReleaseSmall)\)$" <<<"$out"
+# 0.17 lowercases `builtin.mode`'s tag names (ReleaseSafe -> safe), so accept
+# either spelling here: the point of the line is that it names the build mode,
+# not which Zig rendered it.
+grep -qE "^  version: v[0-9]+\.[0-9]+\.[0-9]+ \(.+-.+, (debug|safe|fast|small|Debug|ReleaseSafe|ReleaseFast|ReleaseSmall)\)$" <<<"$out"
 check "version/target/build-mode line" $?
 
 grep -qE "^  while:   executing <panic-test>$" <<<"$out"

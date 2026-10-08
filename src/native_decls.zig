@@ -94,10 +94,10 @@ comptime {
     const re = @import("runtime_exports.zig");
     for (decls) |d| {
         const info = @typeInfo(@TypeOf(@field(re, d.export_name))).@"fn";
-        if (info.params.len != d.param_types.len)
+        if (info.param_types.len != d.param_types.len)
             @compileError("parameter count mismatch for " ++ d.export_name);
-        for (info.params, 0..) |param, i| {
-            if (zigTypeToLLVM(param.type.?) != d.param_types[i])
+        for (info.param_types, 0..) |param_type, i| {
+            if (zigTypeToLLVM(param_type.?) != d.param_types[i])
                 @compileError("parameter type mismatch for " ++ d.export_name);
         }
         if (zigTypeToLLVM(info.return_type.?) != d.ret)

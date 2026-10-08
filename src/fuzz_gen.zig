@@ -135,7 +135,7 @@ const Chooser = union(enum) {
         std.debug.assert(lo <= hi);
         if (lo == hi) return lo;
         return switch (c.*) {
-            .smith => |s| s.valueRangeAtMostWithHash(u32, lo, hi, @intFromEnum(tag) *% 0x9e3779b9),
+            .smith => |s| s.valueRangeAtMostWithHash(u32, lo, hi, @backingInt(tag) *% 0x9e3779b9),
             .random => |r| r.intRangeAtMost(u32, lo, hi),
         };
     }

@@ -478,7 +478,7 @@ fn run(allocator: std.mem.Allocator, argv0: []const u8, opts: *ParentOpts) u8 {
     const seed = opts.seed orelse randomSeed();
     {
         var sbuf: [32]u8 = undefined;
-        const s = std.fmt.bufPrintZ(&sbuf, "{d}", .{seed}) catch return 1;
+        const s = std.fmt.bufPrintSentinel(&sbuf, "{d}", .{seed}, 0) catch return 1;
         _ = platform.setEnv(allocator, SEED_ENV, std.mem.sliceTo(s.ptr, 0)) catch return 1;
     }
 
@@ -735,7 +735,7 @@ fn buildChildEnv(allocator: std.mem.Allocator, emit_path: []const u8) ![]?[*:0]c
         const slice = std.mem.sliceTo(entry, 0);
         // Drop any inherited value; ours is appended below.
         if (std.mem.startsWith(u8, slice, prefix)) continue;
-        const dup = try allocator.dupeZ(u8, slice);
+        const dup = try allocator.dupeSentinel(u8, slice, 0);
         try list.append(allocator, dup.ptr);
     }
 
@@ -813,7 +813,7 @@ fn spawnWorker(allocator: std.mem.Allocator, exe_path: []const u8, file: []const
         allocator.free(argv_z);
     }
     for (argv.items, 0..) |arg, i| {
-        argv_z[i] = (try allocator.dupeZ(u8, arg)).ptr;
+        argv_z[i] = (try allocator.dupeSentinel(u8, arg, 0)).ptr;
     }
 
     const envp = try buildChildEnv(allocator, emit_path);
@@ -1205,7 +1205,7 @@ const max_discover_depth = 32;
 fn discoverDir(allocator: std.mem.Allocator, dir_path: []const u8, out: *std.ArrayList([]const u8), depth: usize) !void {
     if (depth > max_discover_depth) return;
 
-    const dir_z = allocator.dupeZ(u8, dir_path) catch return error.OutOfMemory;
+    const dir_z = allocator.dupeSentinel(u8, dir_path, 0) catch return error.OutOfMemory;
     defer allocator.free(dir_z);
     var dir = platform.DirIter.open(dir_z) orelse return;
     defer dir.close();

@@ -56,6 +56,20 @@ const Value = types.Value;
 //   aarch64-windows is unaffected: two of the ten arguments are stack-passed
 //   under AAPCS64 too, but the AArch64 backend has no Win64-style refusal
 //   (a growing `musttail` lowers as a sibling call) — probe: SUPPORTED.
+// * x86_64 on every OS but Windows (#2612): `tailcc` *compiles* here — the
+//   backend accepts the convention and the `musttail` — but the X86 SysV
+//   backend then mis-lowers a mixed-arity `musttail`, silently: a 1-ary fast
+//   entry tail-calling a `max_fast_arity`-wide one loses the callee's
+//   stack-passed arguments, which arrive as whatever the register-save area
+//   happened to hold (observed as denormal doubles, `2.0e-323`). Only the
+//   register arguments survive, so a same-arity cycle is unaffected and the
+//   gap hid until `native-mixed-arity-tail.scm` (#2604) exercised 1-ary <->
+//   8-ary on a Linux x86_64 host. Padded `fastcc` fixes it the same way it
+//   fixes the Windows case: every `musttail` becomes a sibling call whose
+//   stack-argument area is exactly the caller's own, so there is nothing for
+//   the backend to get wrong. Evidence: `tests/e2e/run-e2e.sh` fails on
+//   x86_64-linux under `tailcc` and passes under this row, with the padded IR
+//   carrying one uniform prototype for both entries.
 // * every other host — including an aarch64/x86_64/riscv64 host on an OS
 //   `targetTriple` has no arm for, where the backend cannot run at all: no
 //   fast entries. Each function keeps its uniform array-ABI entry and a
@@ -96,7 +110,7 @@ pub fn fastAbiFor(arch: std.Target.Cpu.Arch, os: std.Target.Os.Tag) FastAbi {
     if (targetTriple(arch, os) == null) return no_fast_abi;
     return switch (arch) {
         .aarch64 => tailcc_abi,
-        .x86_64 => if (os == .windows) padded_fastcc_abi else tailcc_abi,
+        .x86_64 => padded_fastcc_abi,
         .riscv64 => padded_fastcc_abi,
         else => no_fast_abi,
     };
@@ -126,7 +140,7 @@ fn expectFastAbi(expected: FastAbi, actual: FastAbi) !void {
     try std.testing.expectEqual(expected.padded, actual.padded);
 }
 
-test "fastAbiFor: tailcc on aarch64 and x86_64, padded fastcc on riscv64 and x86_64-windows, off elsewhere (#2593, #2602, #2604)" {
+test "fastAbiFor: tailcc on aarch64, padded fastcc on x86_64 and riscv64, off elsewhere (#2593, #2602, #2604, #2612)" {
     // Every row is pinned here, on every host. Changing one must come with a
     // SUPPORTED verdict from `tools/probe-tailcc.sh` (plain or
     // --fastcc-padded) for that target and the e2e suite run on it —
@@ -138,11 +152,14 @@ test "fastAbiFor: tailcc on aarch64 and x86_64, padded fastcc on riscv64 and x86
     // aarch64-windows keeps tailcc: the AArch64 backend has no Win64-style
     // refusal of a growing musttail — the probe says SUPPORTED (#2604).
     try expectFastAbi(tailcc_abi, fastAbiFor(.aarch64, .windows));
-    try expectFastAbi(tailcc_abi, fastAbiFor(.x86_64, .linux));
-    try expectFastAbi(tailcc_abi, fastAbiFor(.x86_64, .macos));
-    try expectFastAbi(tailcc_abi, fastAbiFor(.x86_64, .freebsd));
-    // The two padded rows: the OS decides x86_64's, not the arch alone.
+    // x86_64 takes the padded row on every OS. It is not an OS-specific
+    // refusal like Windows' — `tailcc` builds on x86_64-linux and mis-lowers
+    // the mixed-arity `musttail` at run time (#2612), which is why the row is
+    // keyed on the arch here and the e2e suite is the thing that catches it.
+    try expectFastAbi(padded_fastcc_abi, fastAbiFor(.x86_64, .linux));
+    try expectFastAbi(padded_fastcc_abi, fastAbiFor(.x86_64, .macos));
     try expectFastAbi(padded_fastcc_abi, fastAbiFor(.x86_64, .windows));
+    try expectFastAbi(padded_fastcc_abi, fastAbiFor(.x86_64, .freebsd));
     try expectFastAbi(padded_fastcc_abi, fastAbiFor(.riscv64, .linux));
     // No triple, no fast entries — whatever the arch's row would say.
     try expectFastAbi(no_fast_abi, fastAbiFor(.riscv64, .freebsd));

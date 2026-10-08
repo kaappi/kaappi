@@ -18,9 +18,74 @@
 
 const std = @import("std");
 
-pub const c = @cImport({
-    @cInclude("isocline.h");
-});
+/// Zig bindings for the vendored isocline C API.
+///
+/// These were `@cImport({ @cInclude("isocline.h") })` until Zig 0.17 removed
+/// the builtin in favour of the external translate-c package. The header is
+/// self-contained (it includes only `stddef.h`, `stdbool.h`, `stdint.h` and
+/// `stdarg.h`), so the handful of entry points below are declared directly
+/// instead of taking on a build-time package dependency. If a new isocline
+/// symbol is needed, add it here and keep the signature identical to
+/// `vendor/isocline/include/isocline.h`.
+pub const c = struct {
+    pub const long = c_long;
+
+    pub const ic_completion_env_t = opaque {};
+    pub const ic_highlight_env_t = opaque {};
+
+    /// Must match `ic_sexp_command_t` in the header; `setSexpEdit` asserts the
+    /// numbering against `repl_sexp.Command` at runtime.
+    pub const ic_sexp_command_t = enum(c_int) {
+        IC_SEXP_SLURP = 0,
+        IC_SEXP_BARF = 1,
+        IC_SEXP_RAISE = 2,
+        IC_SEXP_ROTATE = 3,
+    };
+
+    pub const Completer = *const fn (?*ic_completion_env_t, [*c]const u8) callconv(.c) void;
+    pub const IsCharClass = *const fn ([*c]const u8, c_long) callconv(.c) bool;
+    pub const Highlighter = *const fn (?*ic_highlight_env_t, [*c]const u8, ?*anyopaque) callconv(.c) void;
+    pub const IsComplete = *const fn ([*c]const u8, ?*anyopaque) callconv(.c) bool;
+    pub const SexpEdit = *const fn (ic_sexp_command_t, [*c]const u8, [*c]c_long, ?*anyopaque) callconv(.c) [*c]u8;
+
+    pub extern fn ic_init(use_std_err: bool) void;
+    pub extern fn ic_readline(prompt_text: [*c]const u8) [*c]u8;
+    pub extern fn ic_free(p: ?*anyopaque) void;
+
+    pub extern fn ic_set_history(fname: [*c]const u8, max_entries: c_long) void;
+    pub extern fn ic_history_add(entry: [*c]const u8) void;
+    pub extern fn ic_history_clear() void;
+
+    pub extern fn ic_set_default_completer(completer: ?Completer, arg: ?*anyopaque) void;
+    pub extern fn ic_add_completion(cenv: ?*ic_completion_env_t, completion: [*c]const u8) bool;
+    pub extern fn ic_complete_word(cenv: ?*ic_completion_env_t, prefix: [*c]const u8, fun: ?Completer, is_word_char: ?IsCharClass) void;
+    pub extern fn ic_complete_filename(cenv: ?*ic_completion_env_t, prefix: [*c]const u8, dir_separator: u8, roots: [*c]const u8, extensions: [*c]const u8) void;
+
+    pub extern fn ic_set_default_highlighter(highlighter: ?Highlighter, arg: ?*anyopaque) void;
+    pub extern fn ic_highlight(henv: ?*ic_highlight_env_t, pos: c_long, count: c_long, style: [*c]const u8) void;
+    pub extern fn ic_style_def(style_name: [*c]const u8, fmt: [*c]const u8) void;
+
+    pub extern fn ic_set_default_is_complete(is_complete: ?IsComplete, arg: ?*anyopaque) void;
+    pub extern fn ic_set_default_sexp_edit(sexp_edit: ?SexpEdit, arg: ?*anyopaque) void;
+
+    pub extern fn ic_malloc(sz: usize) ?*anyopaque;
+
+    pub extern fn ic_enable_multiline(enable: bool) bool;
+    pub extern fn ic_enable_multiline_indent(enable: bool) bool;
+    pub extern fn ic_enable_brace_matching(enable: bool) bool;
+    pub extern fn ic_enable_brace_insertion(enable: bool) bool;
+    pub extern fn ic_enable_mouse(enable: bool) bool;
+    pub extern fn ic_enable_highlight(enable: bool) bool;
+    pub extern fn ic_enable_color(enable: bool) bool;
+    pub extern fn ic_enable_hint(enable: bool) bool;
+    pub extern fn ic_enable_beep(enable: bool) bool;
+    pub extern fn ic_enable_auto_tab(enable: bool) bool;
+    pub extern fn ic_enable_inline_help(enable: bool) bool;
+
+    pub extern fn ic_set_matching_braces(brace_pairs: [*c]const u8) void;
+    pub extern fn ic_set_insertion_braces(brace_pairs: [*c]const u8) void;
+    pub extern fn ic_set_prompt_marker(prompt_marker: [*c]const u8, continuation_prompt_marker: [*c]const u8) void;
+};
 
 /// Initialize isocline. Call once before any other function here; `use_std_err`
 /// routes editor output to stderr instead of stdout.
@@ -139,10 +204,10 @@ pub fn setSexpEdit(
         // because the latter is analyzed eagerly, and `zig build test` does
         // not compile the C library at all.
         const Command = @import("repl_sexp.zig").Command;
-        std.debug.assert(@intFromEnum(Command.slurp) == c.IC_SEXP_SLURP);
-        std.debug.assert(@intFromEnum(Command.barf) == c.IC_SEXP_BARF);
-        std.debug.assert(@intFromEnum(Command.raise) == c.IC_SEXP_RAISE);
-        std.debug.assert(@intFromEnum(Command.rotate) == c.IC_SEXP_ROTATE);
+        std.debug.assert(@as(c_int, @intCast(@backingInt(Command.slurp))) == @as(c_int, @backingInt(c.ic_sexp_command_t.IC_SEXP_SLURP)));
+        std.debug.assert(@as(c_int, @intCast(@backingInt(Command.barf))) == @as(c_int, @backingInt(c.ic_sexp_command_t.IC_SEXP_BARF)));
+        std.debug.assert(@as(c_int, @intCast(@backingInt(Command.raise))) == @as(c_int, @backingInt(c.ic_sexp_command_t.IC_SEXP_RAISE)));
+        std.debug.assert(@as(c_int, @intCast(@backingInt(Command.rotate))) == @as(c_int, @backingInt(c.ic_sexp_command_t.IC_SEXP_ROTATE)));
     }
     c.ic_set_default_sexp_edit(cb, arg);
 }

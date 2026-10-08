@@ -563,10 +563,10 @@ test "stale .sbc next to .sld must not drop include-library-declarations exports
         var sbc_gc = memory.GC.init(std.testing.allocator);
         defer sbc_gc.deinit();
         const func = try sbc_gc.allocFunction();
-        try func.code.append(std.testing.allocator, @intFromEnum(types.OpCode.load_void));
+        try func.code.append(std.testing.allocator, @backingInt(types.OpCode.load_void));
         try func.code.append(std.testing.allocator, 0); // dst high
         try func.code.append(std.testing.allocator, 0); // dst low
-        try func.code.append(std.testing.allocator, @intFromEnum(types.OpCode.@"return"));
+        try func.code.append(std.testing.allocator, @backingInt(types.OpCode.@"return"));
         try func.code.append(std.testing.allocator, 0); // src high
         try func.code.append(std.testing.allocator, 0); // src low
         func.locals_count = 1;

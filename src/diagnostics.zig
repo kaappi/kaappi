@@ -111,7 +111,7 @@ pub const Code = enum(u16) {
 
     /// Render this code as "KPnnnn" into `buf`. Returns the written slice.
     pub fn render(self: Code, buf: *[render_width]u8) []const u8 {
-        return std.fmt.bufPrint(buf, "KP{d:0>4}", .{@intFromEnum(self)}) catch unreachable;
+        return std.fmt.bufPrint(buf, "KP{d:0>4}", .{@backingInt(self)}) catch unreachable;
     }
 
     /// The registry entry for this code.
@@ -121,7 +121,7 @@ pub const Code = enum(u16) {
 
     /// The pipeline stage this code came from, from its leading digit.
     pub fn stage(self: Code) Stage {
-        return switch (@intFromEnum(self) / 1000) {
+        return switch (@backingInt(self) / 1000) {
             1 => .read,
             2 => .compile,
             3 => .runtime,
@@ -148,7 +148,7 @@ pub const Code = enum(u16) {
         if (digits.len > 0 and isAllDigits(digits)) {
             const n = std.fmt.parseInt(u16, digits, 10) catch return null;
             inline for (std.enums.values(Code)) |c| {
-                if (@intFromEnum(c) == n) return c;
+                if (@backingInt(c) == n) return c;
             }
             return null;
         }

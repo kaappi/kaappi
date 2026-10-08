@@ -527,7 +527,7 @@ fn spawnChildPosixSpawn(
             // anyway — a future routing regression here would otherwise
             // spawn in the wrong working directory with no error (kaappi#2517
             // review).
-            return spawnSetupError(gc, @intFromEnum(std.c.E.NOSYS));
+            return spawnSetupError(gc, @backingInt(std.c.E.NOSYS));
         }
     }
 
@@ -726,7 +726,7 @@ pub fn spawnChildForkExec(
             while (true) {
                 var byte: [1]u8 = undefined;
                 const n = platform.read(err_pipe[0], &byte, 1);
-                if (n < 0 and lastError() == @intFromEnum(std.c.E.INTR)) continue;
+                if (n < 0 and lastError() == @backingInt(std.c.E.INTR)) continue;
                 // One byte: the child's exec errno. Zero (EOF): the exec
                 // closed the write end, i.e. it succeeded. A read error
                 // other than EINTR cannot be diagnosed from here; treat
@@ -744,7 +744,7 @@ pub fn spawnChildForkExec(
                 while (true) {
                     const r = platform.waitPid(forked_pid, &st, 0);
                     if (r == forked_pid) break;
-                    if (r < 0 and lastError() == @intFromEnum(std.c.E.INTR)) continue;
+                    if (r < 0 and lastError() == @backingInt(std.c.E.INTR)) continue;
                     break; // ECHILD: a concurrent sweep already reaped it
                 }
             }
@@ -1004,13 +1004,13 @@ fn childPathExec(
         // does the fork route.
         const e = lastError();
         switch (e) {
-            @intFromEnum(std.c.E.NOENT),
-            @intFromEnum(std.c.E.STALE),
-            @intFromEnum(std.c.E.NOTDIR),
-            @intFromEnum(std.c.E.NODEV),
-            @intFromEnum(std.c.E.TIMEDOUT),
+            @backingInt(std.c.E.NOENT),
+            @backingInt(std.c.E.STALE),
+            @backingInt(std.c.E.NOTDIR),
+            @backingInt(std.c.E.NODEV),
+            @backingInt(std.c.E.TIMEDOUT),
             => {},
-            @intFromEnum(std.c.E.ACCES) => saw_acces = true,
+            @backingInt(std.c.E.ACCES) => saw_acces = true,
             else => childExecFail(err_fd, e),
         }
         if (c == 0) break;
@@ -1018,9 +1018,9 @@ fn childPathExec(
         start = i;
     }
     childExecFail(err_fd, if (saw_acces)
-        @intFromEnum(std.c.E.ACCES)
+        @backingInt(std.c.E.ACCES)
     else
-        @intFromEnum(std.c.E.NOENT));
+        @backingInt(std.c.E.NOENT));
 }
 
 /// Report a child-side exec failure and die: one errno byte for the parent
@@ -1075,7 +1075,7 @@ fn killAndReapPid(pid: i32) bool {
     while (true) {
         const r = platform.waitPid(pid, &st, 0);
         if (r == pid) return true;
-        if (r < 0 and lastError() == @intFromEnum(std.c.E.INTR)) continue;
+        if (r < 0 and lastError() == @backingInt(std.c.E.INTR)) continue;
         return false;
     }
 }
@@ -1118,13 +1118,13 @@ pub fn blockingReap(proc: *types.Process) c_int {
             }
             if (r < 0) {
                 wait_errno = lastError();
-                const eintr: c_int = @intFromEnum(std.c.E.INTR);
+                const eintr: c_int = @backingInt(std.c.E.INTR);
                 if (wait_errno == eintr) continue;
                 break;
             }
         }
     }
-    if (!reaped) return if (wait_errno != 0) wait_errno else @intFromEnum(std.c.E.CHILD);
+    if (!reaped) return if (wait_errno != 0) wait_errno else @backingInt(std.c.E.CHILD);
     proc.status = @bitCast(st);
     return 0;
 }
@@ -1146,7 +1146,7 @@ pub fn signalOne(proc: *types.Process, sig: c_int) c_int {
 /// ~100 ms — 200 x 500 us — so a genuinely dead group surfaces as an error,
 /// just a moment later.
 pub fn signalGroup(proc: *types.Process, sig: c_int) c_int {
-    const esrch: c_int = @intFromEnum(std.c.E.SRCH);
+    const esrch: c_int = @backingInt(std.c.E.SRCH);
     var attempts: u32 = 0;
     while (true) {
         if (platform.procKill(-proc.pgid, sig) == 0) return 0;
@@ -1334,13 +1334,13 @@ fn closePipePair(fds: *[2]platform.fd_t) void {
 }
 
 /// Duplicate `bytes` as a NUL-terminated C string in the arena, rejecting an
-/// embedded NUL. `dupeZ` alone would silently truncate at the interior NUL
+/// embedded NUL. `dupeSentinel` alone would silently truncate at the interior NUL
 /// on the OS side — the child would exec or receive something different from
 /// the value the Scheme program supplied (kaappi#2414 review; CWE-626).
 fn dupeZChecked(comptime proc: []const u8, arena: std.mem.Allocator, bytes: []const u8, comptime what: []const u8) PrimitiveError![*:0]const u8 {
     if (std.mem.indexOfScalar(u8, bytes, 0) != null)
         return primitives.argError(proc, what ++ " contains an embedded NUL byte", .{});
-    const duped = arena.dupeZ(u8, bytes) catch return PrimitiveError.OutOfMemory;
+    const duped = arena.dupeSentinel(u8, bytes, 0) catch return PrimitiveError.OutOfMemory;
     return duped.ptr;
 }
 

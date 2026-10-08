@@ -216,11 +216,10 @@ fn sexpEditCallback(
     // An unknown command id can only mean isocline and `repl_sexp.Command`
     // have drifted; decline rather than guess (see `ic.setSexpEdit`).
     const command: repl_sexp.Command = switch (cmd) {
-        ic.c.IC_SEXP_SLURP => .slurp,
-        ic.c.IC_SEXP_BARF => .barf,
-        ic.c.IC_SEXP_RAISE => .raise,
-        ic.c.IC_SEXP_ROTATE => .rotate,
-        else => return null,
+        ic.c.ic_sexp_command_t.IC_SEXP_SLURP => .slurp,
+        ic.c.ic_sexp_command_t.IC_SEXP_BARF => .barf,
+        ic.c.ic_sexp_command_t.IC_SEXP_RAISE => .raise,
+        ic.c.ic_sexp_command_t.IC_SEXP_ROTATE => .rotate,
     };
 
     const allocator = std.heap.c_allocator;
@@ -280,9 +279,9 @@ pub fn repl(vm: *vm_mod.VM) !void {
         const kaappi_paths = @import("kaappi_paths.zig");
         var home_buf: [256]u8 = undefined;
         if (kaappi_paths.getHome(&home_buf)) |kaappi_home| {
-            if (std.fmt.bufPrintZ(hist_path_buf[0..500], "{s}", .{kaappi_home})) |dir| {
+            if (std.fmt.bufPrintSentinel(hist_path_buf[0..500], "{s}", .{kaappi_home}, 0)) |dir| {
                 _ = platform.mkdir(dir, 0o755);
-                if (std.fmt.bufPrintZ(&hist_path_buf, "{s}/history", .{kaappi_home})) |path| {
+                if (std.fmt.bufPrintSentinel(&hist_path_buf, "{s}/history", .{kaappi_home}, 0)) |path| {
                     // isocline loads, appends, and saves on every submit — a
                     // crash no longer loses the session (the old code saved
                     // only at exit).

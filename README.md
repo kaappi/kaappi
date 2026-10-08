@@ -62,7 +62,7 @@ and checksum and signature verification.
 
 ### Build from source
 
-Requires **Zig 0.16+** and a C toolchain (for the vendored isocline library):
+Requires **Zig 0.17+** and a C toolchain (for the vendored isocline library):
 
 ```bash
 git clone https://github.com/kaappi/kaappi.git

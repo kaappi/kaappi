@@ -476,7 +476,7 @@ fn collectFfi(r: *Report) void {
     };
     const lib_dir = r.fmt("{s}/lib", .{home});
 
-    const lib_dir_z = a.dupeZ(u8, lib_dir) catch {
+    const lib_dir_z = a.dupeSentinel(u8, lib_dir, 0) catch {
         r.add("ffi", "native-libraries", .pass, "skipped: out of memory", null);
         return;
     };
@@ -493,7 +493,7 @@ fn collectFfi(r: *Report) void {
         checked += 1;
 
         const full = r.fmt("{s}/{s}", .{ lib_dir, name });
-        const full_z = a.dupeZ(u8, full) catch continue;
+        const full_z = a.dupeSentinel(u8, full, 0) catch continue;
         if (platform.dlOpen(full_z)) |handle| {
             platform.dlClose(handle);
             r.add("ffi", r.fmt("{s}", .{name}), .pass, "dlopen succeeded", null);
@@ -536,7 +536,7 @@ fn smokeLink(r: *Report, lib_dir: []const u8) void {
     // compiler-written output; both live inside this directory.
     const hex = randomHex();
     const dir_path = r.fmt("{s}/kaappi-doctor-{s}", .{ tmp, hex[0..] });
-    const dir_z = a.dupeZ(u8, dir_path) catch return;
+    const dir_z = a.dupeSentinel(u8, dir_path, 0) catch return;
     if (platform.mkdir(dir_z, 0o700) != 0) {
         r.add("native-backend", "smoke-link", .pass, r.fmt("skipped (cannot create temp dir in {s})", .{tmp}), null);
         return;
@@ -545,8 +545,8 @@ fn smokeLink(r: *Report, lib_dir: []const u8) void {
 
     const c_path = r.fmt("{s}/smoke.c", .{dir_path});
     const out_path = r.fmt("{s}/smoke.out", .{dir_path});
-    const c_path_z = a.dupeZ(u8, c_path) catch return;
-    const out_path_z = a.dupeZ(u8, out_path) catch return;
+    const c_path_z = a.dupeSentinel(u8, c_path, 0) catch return;
+    const out_path_z = a.dupeSentinel(u8, out_path, 0) catch return;
     defer _ = platform.unlink(c_path_z);
     defer _ = platform.unlink(out_path_z);
 
@@ -585,12 +585,12 @@ fn smokeLink(r: *Report, lib_dir: []const u8) void {
 
     const lib_flag = r.fmt("-L{s}", .{lib_dir});
 
-    var argv: [16]?[*:0]const u8 = .{null} ** 16;
+    var argv: [16]?[*:0]const u8 = @splat(null);
     var argc: usize = 0;
     const push = struct {
         fn f(buf: *[16]?[*:0]const u8, n: *usize, alloc: std.mem.Allocator, s: []const u8) void {
             if (n.* >= buf.len - 1) return;
-            buf[n.*] = alloc.dupeZ(u8, s) catch return;
+            buf[n.*] = alloc.dupeSentinel(u8, s, 0) catch return;
             n.* += 1;
         }
     }.f;
@@ -661,17 +661,17 @@ fn smokeLink(r: *Report, lib_dir: []const u8) void {
 // ── Filesystem / PATH helpers ────────────────────────────────────────────────
 
 fn dirExists(a: std.mem.Allocator, path: []const u8) bool {
-    const path_z = a.dupeZ(u8, path) catch return false;
+    const path_z = a.dupeSentinel(u8, path, 0) catch return false;
     return platform.isDir(path_z);
 }
 
 fn dirWritable(a: std.mem.Allocator, path: []const u8) bool {
-    const path_z = a.dupeZ(u8, path) catch return false;
+    const path_z = a.dupeSentinel(u8, path, 0) catch return false;
     return platform.accessWritable(path_z);
 }
 
 fn fileExists(a: std.mem.Allocator, path: []const u8) bool {
-    const path_z = a.dupeZ(u8, path) catch return false;
+    const path_z = a.dupeSentinel(u8, path, 0) catch return false;
     const fd = platform.openRead(path_z) catch return false;
     _ = platform.close(fd);
     return true;
@@ -695,7 +695,7 @@ fn findInPath(a: std.mem.Allocator, name: []const u8) ?[]const u8 {
         const dir = std.mem.trimEnd(u8, raw_dir, if (platform.is_windows) "/\\" else "/");
         if (dir.len == 0) continue;
         const full = std.fmt.allocPrint(a, "{s}/{s}{s}", .{ dir, name, platform.exe_suffix }) catch continue;
-        const full_z = a.dupeZ(u8, full) catch continue;
+        const full_z = a.dupeSentinel(u8, full, 0) catch continue;
         const fd = platform.openRead(full_z) catch continue;
         _ = platform.close(fd);
         return full;
@@ -705,7 +705,7 @@ fn findInPath(a: std.mem.Allocator, name: []const u8) ?[]const u8 {
 
 /// Canonicalizes `path` via realpath into an arena copy (or null on failure).
 fn realpath(a: std.mem.Allocator, path: []const u8) ?[]const u8 {
-    const path_z = a.dupeZ(u8, path) catch return null;
+    const path_z = a.dupeSentinel(u8, path, 0) catch return null;
     var buf: [platform.PATH_MAX]u8 = undefined;
     const resolved = platform.realPath(path_z, &buf) orelse return null;
     return a.dupe(u8, resolved) catch null;

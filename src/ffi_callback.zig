@@ -11,7 +11,7 @@ const CallbackSlot = struct {
     active: bool,
 };
 
-var callback_slots: [NUM_SLOTS]CallbackSlot = [_]CallbackSlot{.{ .closure = types.VOID, .active = false }} ** NUM_SLOTS;
+var callback_slots: [NUM_SLOTS]CallbackSlot = @splat(.{ .closure = types.VOID, .active = false });
 
 pub const CallbackSig = enum {
     pp_int, // (pointer, pointer) -> int

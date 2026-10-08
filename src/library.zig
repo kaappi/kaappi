@@ -96,7 +96,7 @@ pub const LibraryRegistry = struct {
     /// when the primitive was never registered (a sandbox that excludes it);
     /// a guard then never takes its fast path. Root-marked by `markVmRoots`,
     /// since a redefinition drops the object from `globals`.
-    fast_path_pristine: [fast_path_builtins.len]Value = [_]Value{types.VOID} ** fast_path_builtins.len,
+    fast_path_pristine: [fast_path_builtins.len]Value = @splat(types.VOID),
 
     pub fn init(allocator: std.mem.Allocator) LibraryRegistry {
         return .{

@@ -143,8 +143,16 @@ check() {
             # The lambda must still compile natively AND still carry the eval
             # fallback inside its own body — the #1410 path the gate must leave
             # alone. Its fast entry point is the natively emitted function.
+            #
+            # The calling convention is deliberately not part of the pattern:
+            # it is per-host (llvm_emit.fastAbiFor) — `tailcc` on aarch64,
+            # `fastcc` on x86_64 and riscv64 — and this assertion is about
+            # which frame carries the fallback, not about which convention the
+            # host chose. Pinning `tailcc` here made the assertion pass on
+            # aarch64 and silently fail everywhere the padded row is used
+            # (#2612).
             local frame_evals
-            frame_evals=$(sed -n '/^define tailcc i64 @r[0-9]*\.fast/,/^}/p' "$DIR/$name.ll" |
+            frame_evals=$(sed -n '/^define .* i64 @r[0-9]*\.fast/,/^}/p' "$DIR/$name.ll" |
                 grep -c 'kaappi_eval_cached' || true)
             if [[ "$frame_evals" -eq 0 ]]; then
                 echo "FAIL: $name — no native frame carrying the eval fallback; the lambda declined too" >&2

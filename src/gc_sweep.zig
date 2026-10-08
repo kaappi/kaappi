@@ -281,7 +281,7 @@ pub fn objectSize(obj: *Object) usize {
 }
 
 inline fn poisonAndDestroy(gc: *GC, comptime T: type, ptr: *T) void {
-    if (builtin.mode == .Debug) {
+    if (builtin.mode == .debug) {
         @memset(@as([*]u8, @ptrCast(ptr))[0..@sizeOf(T)], 0xAA);
     }
     if (comptime memory_mod.uaf_detection) {

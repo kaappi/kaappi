@@ -26,7 +26,7 @@ pub const ReadError = error{
 /// entry point, including the nested calls `skipWhitespaceAndCommentsChecked`
 /// makes for `#;`-datum comments -- so a stale detail from an earlier,
 /// unrelated token can never be misattributed to a later error (kaappi#1723).
-pub threadlocal var read_error_detail: [256]u8 = [_]u8{0} ** 256;
+pub threadlocal var read_error_detail: [256]u8 = @splat(0);
 pub threadlocal var read_error_detail_len: usize = 0;
 
 pub fn getReadErrorDetail() []const u8 {
@@ -136,7 +136,7 @@ pub const Reader = struct {
     token_buf: std.ArrayList(u8),
     fold_case: bool = false,
     mark_immutable: bool = true,
-    labels: [32]?Value = .{null} ** 32,
+    labels: [32]?Value = @splat(null),
     source_name: []const u8 = "<input>",
     depth: u32 = 0,
     /// Monotone line/col cursor behind `lineColMonotone` — see its comment.

@@ -63,8 +63,8 @@ fn asNumericVector(v: Value) *NumericVector {
 }
 
 fn parseKind(name: []const u8) ?NumericElementKind {
-    inline for (@typeInfo(NumericElementKind).@"enum".fields) |f| {
-        if (std.mem.eql(u8, name, f.name)) return @enumFromInt(f.value);
+    inline for (@typeInfo(NumericElementKind).@"enum".field_names, 0..) |fname, i| {
+        if (std.mem.eql(u8, name, fname)) return @fromBackingInt(@intCast(i));
     }
     return null;
 }

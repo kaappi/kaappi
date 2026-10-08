@@ -50,7 +50,7 @@ pub const GcStats = struct {
     bytes_freed: usize = 0,
     peak_object_count: usize = 0,
     peak_bytes_allocated: usize = 0,
-    allocs_by_type: [64]usize = .{0} ** 64,
+    allocs_by_type: [64]usize = @splat(0),
     no_collect_deferred: usize = 0,
     /// #1961: times a minor collection's mark phase stopped at an old object
     /// (the generational boundary). Watching this stay > 0 while a large old
@@ -71,7 +71,7 @@ pub const FREED_OWNER: u32 = 0xFFFF_FFFF;
 /// Gate for the freed-owner sentinel (#1687): stamp freed headers and panic
 /// when marking reaches one. Debug and gc-stress builds only, so release
 /// builds pay nothing on the mark hot path.
-pub const uaf_detection: bool = builtin.mode == .Debug or build_options.gc_stress;
+pub const uaf_detection: bool = builtin.mode == .debug or build_options.gc_stress;
 
 /// Gate for the free-quarantine (#1687): under `-Dgc-stress=true`, freed
 /// header slots are withheld from the allocator until after a later
@@ -596,7 +596,7 @@ pub const GC = struct {
         obj.next = self.objects;
         self.objects = obj;
         self.object_count += 1;
-        self.stats.allocs_by_type[@intFromEnum(obj.tag)] += 1;
+        self.stats.allocs_by_type[@backingInt(obj.tag)] += 1;
         if (self.object_count > self.stats.peak_object_count)
             self.stats.peak_object_count = self.object_count;
         if (self.bytes_allocated > self.stats.peak_bytes_allocated)

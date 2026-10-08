@@ -459,7 +459,7 @@ fn raiseWriteFailed(e: std.c.E) PrimitiveError {
     const err_obj = gc.allocErrorObject(msg, types.NIL) catch return PrimitiveError.OutOfMemory;
     const err = types.toObject(err_obj).as(types.ErrorObject);
     err.error_type = .file;
-    err.posix_errno = @intFromEnum(e);
+    err.posix_errno = @backingInt(e);
     vm.current_exception = err_obj;
     return PrimitiveError.ExceptionRaised;
 }
@@ -898,7 +898,7 @@ fn openInputFile(args: []const Value) PrimitiveError!Value {
     const str = types.toObject(args[0]).as(types.SchemeString);
     const path = str.data[0..str.len];
 
-    const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
+    const path_z = gc.allocator.dupeSentinel(u8, path, 0) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
     const fd = openFileWithFdRetry(gc, platform.openRead, path_z) catch {
@@ -920,7 +920,7 @@ fn openOutputFile(args: []const Value) PrimitiveError!Value {
     const str = types.toObject(args[0]).as(types.SchemeString);
     const path = str.data[0..str.len];
 
-    const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
+    const path_z = gc.allocator.dupeSentinel(u8, path, 0) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
     const fd = openFileWithFdRetry(gc, openOutputTrunc, path_z) catch {
@@ -2291,7 +2291,7 @@ fn fileExistsP(args: []const Value) PrimitiveError!Value {
     const str = types.toObject(args[0]).as(types.SchemeString);
     const path = str.data[0..str.len];
 
-    const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
+    const path_z = gc.allocator.dupeSentinel(u8, path, 0) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
     return if (platform.pathExists(path_z)) types.TRUE else types.FALSE;
@@ -2427,7 +2427,7 @@ fn deleteFile(args: []const Value) PrimitiveError!Value {
     const str = types.toObject(args[0]).as(types.SchemeString);
     const path = str.data[0..str.len];
 
-    const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
+    const path_z = gc.allocator.dupeSentinel(u8, path, 0) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
     const result = platform.unlink(path_z);

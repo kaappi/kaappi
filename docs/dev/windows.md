@@ -20,19 +20,35 @@ zig build test -Dtarget=x86_64-windows
 Builds use Zig's bundled mingw-w64, so no Windows SDK or MSVC install is
 needed on the build machine.
 
-On **aarch64**, cross-compilation is currently the **only** way to
-build: the official Zig 0.16.0 aarch64-windows toolchain
-access-violates compiling anything natively on Windows ARM64
-(`zig build` and `zig build-exe` alike, on any project — #1613). Root
-cause: LLVM miscompiled `private thread_local` access on
-aarch64-windows (ziglang#31865 on Codeberg), and the shipped zig.exe —
-itself a stripped, LLVM-built aarch64-windows binary — carries the
-miscompile. The LLVM fix landed ~2026-06 and Zig master nightlies
-compile natively on the box; kaappi native builds unblock when the
-first fixed release (0.18.0) ships and the pinned toolchain moves to
-it. (ziglang#31865 is closed and milestoned **0.18.0** — the fix
-missed the 0.17.0 window, which as of 2026-08 has still not shipped;
-latest stable is 0.16.0.)
+On **aarch64**, the pinned toolchain is now 0.17.0, which carries the
+LLVM workaround for the aarch64-windows COFF backend: Zig 0.17.0's own
+release notes list "an LLVM bug that broke most aarch64-windows
+binaries, including the Zig compiler, has been worked around", and
+`aarch64-windows` is a Tier 2 target with working codegen and a libc.
+
+That is expected to unblock two things that #1613 forced kaappi to work
+around, both of which still need a check on real hardware before any CI
+job changes:
+
+1. **Native compilation.** Under 0.16.0 the official aarch64-windows
+   zig.exe access-violated on *any* project (`zig build` and
+   `zig build-exe` alike), so `windows-arm-test` runs cross-compiled
+   binaries and installs no toolchain. Zig master nightlies have
+   compiled natively on the box since the fix landed (~2026-06), so
+   0.17.0 should too — unverified here.
+2. **`strip`.** Release builds disable stripping for this target
+   because a stripped 0.16.0 `kaappi.exe` access-violated at startup
+   (the same miscompiled `private thread_local` access — #1607,
+   upstream ziglang#31865). The workaround may well cover the stripped
+   path too, but the release workflow still ships this target
+   unstripped until someone confirms it on the hardware.
+
+The history, for the #1613 trail: the bug was LLVM miscompiling
+`private thread_local` access on aarch64-windows, and the *shipped*
+zig.exe being a stripped, LLVM-built aarch64-windows binary meant it
+carried the miscompile itself. Earlier notes expected the fix to miss
+the 0.17.0 window and land in 0.18.0; the 0.17.0 release notes say
+otherwise.
 
 On **x86_64**, none of that applies: #1613 is a bug in LLVM's aarch64
 COFF backend, and the standard Zig 0.16.0 x86_64-windows toolchain
@@ -313,9 +329,12 @@ and is exercised end-to-end by `tests/e2e/run-e2e.ps1` (the PowerShell
 port of run-e2e.sh's parity phase): every program in `tests/e2e/programs`
 compiles natively and matches the interpreter's output, and `kaappi doctor`'s
 smoke-link passes. Verified on Windows 11 ARM64 (build 26100) with a Zig
-master toolchain as the linker (#1610); with the 0.16.0 toolchain,
-`zig cc` on the box access-violates like every native toolchain use
-(#1613), so aarch64 end users get this at the 0.18.0 bump. On x86_64
+master toolchain as the linker (#1610); with 0.16.0, `zig cc` on the box
+access-violated like every native toolchain use (#1613). The pinned
+toolchain is now 0.17.0, which carries the upstream LLVM workaround (see
+"Cross-compilation and native builds" above), so aarch64 end users are
+expected to have this — unverified on hardware, which is why the CI jobs
+still cross-compile. On x86_64
 the stock 0.16.0 toolchain already works as the linker: the same e2e
 suite passes on the reference VM under x64 emulation with
 zig-x86_64-windows-0.16.0 on PATH, and the `windows-x64-test` CI job
@@ -363,12 +382,13 @@ suite, the VM-verified `.scm` suites, and the shell-based suites
 `windows-11-arm` runners and `windows-x64-test` on the standard
 x86_64 `windows-latest` runners. Both execution jobs run the suites
 from the cross-compiled artifacts with no toolchain installed — on
-aarch64 because native compilation is broken in the Zig 0.16.0
-toolchain itself (#1613), on x64 so both jobs exercise identical
-no-toolchain conditions. The x64 job then installs the (natively
+aarch64 because 0.16.0's native compilation was broken (#1613; 0.17.0
+carries the workaround, but no ARM64 hardware has confirmed it), on x64
+so both jobs exercise identical no-toolchain conditions. The x64 job then installs the (natively
 working) x86_64 Zig and runs the native-backend e2e suite
-(`tests/e2e/run-e2e.ps1`, #1610) — the one leg the arm job cannot
-have until the 0.18.0 bump. The FFI suite runs against a fixture DLL
+(`tests/e2e/run-e2e.ps1`, #1610) — the one leg the arm job does not
+have yet, since that needs native compilation confirmed on ARM64 with
+0.17.0. The FFI suite runs against a fixture DLL
 that `windows-cross` cross-compiles into each artifact
 (`zig cc -target <arch>-windows-gnu -shared`).
 
@@ -394,8 +414,8 @@ A driver whose premise cannot hold on Windows sources
 exiting 77 (the shell analogue of the `cond-expand (windows ...)` gate
 the `.scm` tests use); run-all.sh and the CI loop report those as SKIP.
 Today that is the `compile/` suite (each script rebuilds the runtime
-archive or interpreter with a native `zig` on the box — #1613, so the
-gates lift work at the 0.18.0 toolchain bump),
+archive or interpreter with a native `zig` on the box — #1613; the
+gates lift once native compilation is confirmed on ARM64 with 0.17.0),
 `profile-json-escaping.sh` (it plants `"`/`\` in a real directory name,
 which Windows filenames cannot contain), `thottam-lifecycle.sh` (its
 fixture builds local git repos at POSIX paths) and
@@ -504,22 +524,25 @@ smoke-test it manually per the github-release skill's Step 10.
 
 ## Known gaps / follow-ups
 
-* Native compilation on Windows **ARM64** crashes in the Zig 0.16.0
+* Native compilation on Windows **ARM64** crashed in the Zig 0.16.0
   toolchain (`zig build`/`zig build-exe`/`zig cc` access-violate on any
-  project, #1613) — aarch64 builds must cross-compile, and `kaappi
-  compile` needs a fixed toolchain on the box for its link step
+  project, #1613), so aarch64 builds had to cross-compile and `kaappi
+  compile` needed a working toolchain on the box for its link step
   (verified end-to-end with Zig master, see "Native backend" above).
-  Fixed upstream (ziglang#31865, closed and milestoned 0.18.0);
-  everything unblocks at the 0.18.0 toolchain bump. x86_64 Windows is
-  unaffected.
+  Zig 0.17.0 carries the upstream LLVM workaround (ziglang#31865), which
+  is expected to unblock it — but this has **not** been confirmed on
+  ARM64 hardware, so `windows-arm-test` still cross-compiles and the
+  release still ships this target unstripped. ziglang#31865 was originally
+  milestoned 0.18.0; the 0.17.0 release notes say the workaround shipped
+  there. x86_64 Windows is unaffected either way.
 * The `compile/` shell suite self-skips on Windows: every script
   rebuilds the runtime archive or the interpreter with a native `zig`
   on the box, which #1613 breaks on aarch64. The `skip_on_windows`
   gates (tests/scheme/shell-common.sh) are OS-level, so they also skip
   on x86_64 where a native zig would actually work — the scripts
   themselves have never been ported to Windows path/exe-suffix
-  conventions. Lifting the gates (per-arch or wholesale at the 0.18.0
-  bump) is open; the native-compile path on x64 is covered by
+  conventions. Lifting the gates (per-arch, or wholesale once native
+  compilation is verified on ARM64) is open; the native-compile path on x64 is covered by
   run-e2e.ps1 in `windows-x64-test` meanwhile. (The rest of the
   shell-based suites run in CI — #1612.)
 * thottam refuses manifests with a `build:` command (#1609 ported

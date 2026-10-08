@@ -14,7 +14,7 @@
 //! Example:
 //!
 //!   kaappi internal error — this is a bug in kaappi, not in your program.
-//!     version: v0.14.1 (aarch64-macos, ReleaseSafe)
+//!     version: v0.14.1 (aarch64-macos, safe)
 //!     while:   compiling /path/to/file.scm
 //!     report:  https://github.com/kaappi/kaappi/issues/new — include everything below.
 //!
@@ -160,7 +160,7 @@ pub fn PanicHandler(comptime binary_name: []const u8) type {
 /// Internal, undocumented hook that lets CI exercise the panic handler against a
 /// real build (kaappi#1514 acceptance criterion). It is intentionally available
 /// in *every* build mode — not gated to Debug — because the whole point is to
-/// verify the banner the shipped **ReleaseSafe** binary prints (the mode the
+/// verify the banner the shipped **safe** binary prints (the mode the
 /// example names); a Debug-only hook could never test that path. It is kept out
 /// of `--help` and normal option parsing, and dispatched before any setup, so it
 /// is never a user-facing surface.

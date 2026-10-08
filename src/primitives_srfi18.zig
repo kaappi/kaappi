@@ -1152,11 +1152,13 @@ fn threadSleepFn(args: []const Value) PrimitiveError!Value {
         // error.Yielded is not a real error here (it's the intentional
         // flat-unwind signal the deadline_ns discriminator exists to
         // survive), so it must not trip this cleanup.
-        errdefer |err| if (err != PrimitiveError.Yielded) {
-            me.deadline_ns = null;
-            ctx.reactor.removeTimer(me);
+        ctx.reactor.addTimer(deadline, me) catch |err| {
+            if (err != PrimitiveError.Yielded) {
+                me.deadline_ns = null;
+                ctx.reactor.removeTimer(me);
+            }
+            return err;
         };
-        try ctx.reactor.addTimer(deadline, me);
     } else if (me.timed_out) {
         // Redispatched after the timer we armed on a prior entry already
         // fired -- nothing left to wait for.

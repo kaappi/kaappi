@@ -458,7 +458,7 @@ pushes a root.
 
 ---
 
-## Zig 0.16 Patterns
+## Zig 0.17 Patterns
 
 These patterns differ from earlier Zig versions and are important to get right:
 

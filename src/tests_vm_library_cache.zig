@@ -19,12 +19,12 @@ const Function = types.Function;
 fn makeReturnConstFunc(gc: *GC, comptime n: i64) !*Function {
     const allocator = gc.allocator;
     const func = try gc.allocFunction();
-    func.code.append(allocator, @intFromEnum(types.OpCode.load_const)) catch unreachable;
+    func.code.append(allocator, @backingInt(types.OpCode.load_const)) catch unreachable;
     func.code.append(allocator, 0) catch unreachable; // dst high
     func.code.append(allocator, 0) catch unreachable; // dst low
     func.code.append(allocator, 0) catch unreachable; // idx high
     func.code.append(allocator, 0) catch unreachable; // idx low
-    func.code.append(allocator, @intFromEnum(types.OpCode.@"return")) catch unreachable;
+    func.code.append(allocator, @backingInt(types.OpCode.@"return")) catch unreachable;
     func.code.append(allocator, 0) catch unreachable;
     func.code.append(allocator, 0) catch unreachable;
     func.constants.append(allocator, types.makeFixnum(n)) catch unreachable;
