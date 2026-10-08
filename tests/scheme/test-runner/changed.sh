@@ -15,13 +15,20 @@ set -euo pipefail
 
 KAAPPI="${KAAPPI:-zig-out/bin/kaappi}"
 
+# Prerequisites, not assertions: this case builds a throwaway git repo and
+# validates `--json` output, and neither can be faked without the tool. A
+# missing one is a gap in the environment, so it is a SKIP (exit 77, the
+# runner's convention — see shell-common.sh) rather than a red X. It used to
+# exit 1, which made the whole suite red on the NetBSD VM, where git is not
+# installed; the code under test was never reached, so the failure said
+# nothing about kaappi (#2612).
 if ! command -v git >/dev/null 2>&1; then
-    echo "FAIL: git is required for kaappi test --changed tests"
-    exit 1
+    echo "SKIP: git is required for kaappi test --changed tests"
+    exit 77
 fi
 if ! command -v python3 >/dev/null 2>&1; then
-    echo "FAIL: python3 is required to validate --json output"
-    exit 1
+    echo "SKIP: python3 is required to validate --json output"
+    exit 77
 fi
 
 # Absolute path so the runner resolves it regardless of the fixture cwd.
