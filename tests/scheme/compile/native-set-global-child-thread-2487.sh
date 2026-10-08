@@ -13,9 +13,12 @@
 # natively, #1496 — a named let would force the eval fallback), and the
 # thread thunk is a defined procedure. The script asserts on the emitted IR
 # first (as ten sibling scripts do): `call void @kaappi_set_global` must
-# appear inside a lowered function — after the first `define tailcc` and
+# appear inside a lowered function — after the first lowered `define` and
 # before `@main` — so a future emitter change that quietly re-routes the
-# body to an eval fallback turns this test red instead of hollow.
+# body to an eval fallback turns this test red instead of hollow. (The
+# calling convention is per-host, llvm_emit.fastAbiFor, so the pattern
+# below does not pin it: `tailcc` on aarch64, `fastcc` on x86_64/riscv64 —
+# #2612.)
 #
 # The runtime check then runs the interleaving at volume: a child thread
 # doing 200k native set!s on a shared global while the root thread evals
@@ -80,13 +83,13 @@ cat > "$DIR/$name.scm" << 'EOF'
 EOF
 
 # IR gate: the child's set! must be a native store — a call inside a
-# lowered function body (between the first `define tailcc` and `@main`),
+# lowered function body (between the first lowered `define` and `@main`),
 # not merely a declaration or a top-level @main lookup. If this fails, the
 # program shape has stopped reaching kaappi_set_global and the runtime
 # check below is no longer testing the native store at all.
 LL="$DIR/$name.ll"
 if (cd "$DIR" && "$KAAPPI_ABS" --emit-llvm -o "$LL" "$name.scm" > /dev/null 2>&1); then
-    first_def=$(grep -m1 -n "^define tailcc" "$LL" | cut -d: -f1)
+    first_def=$(grep -m1 -nE "^define (tailcc|fastcc|ccc?) " "$LL" | cut -d: -f1)
     call_line=$(grep -m1 -n "call void @kaappi_set_global" "$LL" | cut -d: -f1)
     main_line=$(grep -n "^define i32 @main" "$LL" | cut -d: -f1)
     if [[ -z "$call_line" || -z "$first_def" || -z "$main_line" \
