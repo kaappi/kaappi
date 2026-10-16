@@ -187,7 +187,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
+        uses: xyzzylabs/setup-zig@7e5af686da64007a0797898801de180e5f4d3762 # v1.0.5
         with:
           version: 0.16.0
 
@@ -240,21 +240,21 @@ jobs:
           cp zig-out/lib/${{ matrix.lib_src }} libkaappi_rt-${{ matrix.target }}${{ matrix.lib_ext }}
 
       - name: Upload kaappi artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
           retention-days: 1
 
       - name: Upload thottam artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: thottam-${{ matrix.target }}${{ matrix.exe_ext }}
           path: thottam-${{ matrix.target }}${{ matrix.exe_ext }}
           retention-days: 1
 
       - name: Upload libkaappi_rt artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: libkaappi_rt-${{ matrix.target }}
           path: libkaappi_rt-${{ matrix.target }}${{ matrix.lib_ext }}
@@ -268,7 +268,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@ab632f9cc6f98d89d3b8f2c2e1577a929d0e70f3 # v1.0.4
+        uses: xyzzylabs/setup-zig@7e5af686da64007a0797898801de180e5f4d3762 # v1.0.5
         with:
           version: 0.16.0
 
@@ -276,7 +276,7 @@ jobs:
         run: zig build wasm
 
       - name: Upload artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: kaappi-wasm32-wasi
           path: zig-out/bin/kaappi.wasm
@@ -320,7 +320,7 @@ jobs:
       RV_IMAGE: riscv64/ubuntu:24.04@sha256:f28b71827ff6cb4fe9b6b536b583bc0227072516de20c9225847be7722ab5715
     steps:
       - name: Download artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ matrix.artifact }}
 
@@ -411,7 +411,7 @@ jobs:
           persist-credentials: false
 
       - name: Download all artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: artifacts
 
